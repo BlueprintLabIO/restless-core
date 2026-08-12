@@ -1,0 +1,13 @@
+[package]
+name = "acp-extract"
+version = "0.0.0"
+edition = "2021"
+
+[workspace]
+
+[dependencies]
+agent-client-protocol = "2.0.0"
+tokio = { version = "1", features = ["full"] }
+tokio-util = { version = "0.7", features = ["compat"] }
+serde_json = "1"
+anyhow = "1"
