@@ -1,0 +1,17 @@
+[workspace]
+resolver = "2"
+members = ["crates/restlessd", "crates/restless"]
+
+# Restless is a clean-slate autonomous-company control plane.
+# Architecture: see ARCHITECTURE.md. Working agreement: see CLAUDE.md.
+#
+# Only two binary crates exist for now (daemon + CLI). Layer crates
+# (kernel / orgintel / runtime) are intentionally NOT pre-scaffolded —
+# they are grown from the first sprint slice that needs them, per
+# ARCHITECTURE.md §16.1 (observe before modelling).
+
+[workspace.package]
+version = "0.0.0"
+edition = "2021"
+license = "TBD"
+publish = false

@@ -1,0 +1,10 @@
+[package]
+name = "restless"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+description = """
+The restless CLI. Empty stub. Grown from the first sprint slice that needs it.
+"""

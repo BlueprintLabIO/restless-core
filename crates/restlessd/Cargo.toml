@@ -1,0 +1,11 @@
+[package]
+name = "restlessd"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+description = """
+The restless daemon — the stable coordination core (ARCHITECTURE.md §4.4).
+Empty stub. Grown from the first sprint slice that needs it.
+"""

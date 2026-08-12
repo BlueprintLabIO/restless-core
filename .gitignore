@@ -1,0 +1,16 @@
+# Rust
+/target
+/**/target
+
+# Local environment / secrets — never commit
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/
+*.swp
