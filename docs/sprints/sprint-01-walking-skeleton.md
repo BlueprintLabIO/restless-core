@@ -204,30 +204,41 @@ shape only.
 
 ## Proposed tickets
 
-To be filed as GitHub Issues and linked here. Each names its layer and the outcome or friction it
-serves (§16.7).
+Filed as GitHub Issues on `BlueprintLabIO/restless`, labelled `sprint-01`. Issue number matches ticket
+number. Each names its layer and the outcome or friction it serves (§16.7).
 
-| # | Ticket | Layer |
-|---|---|---|
-| 1 | Company image + persistent container lifecycle (`up`/`down`/`status`) | Runtime |
-| 2 | Model gateway lift + dollar accounting + ceiling, fail closed | Kernel |
-| 3 | ACP session client — spike two approaches, implement the winner | Runtime |
-| 4 | Persistent Exec identity + file-based continuity across restart | Runtime / OrgIntel |
-| 5 | OrgIntel core: actors, goals, commitments, messages, artifact refs, decisions, events | OrgIntel |
-| 6 | Scheduler: periodic ticks + event-driven wakeups | OrgIntel |
-| 7 | Context assembly on wake | OrgIntel |
-| 8 | Effect surface + simulated provider seam | Kernel |
-| 9 | Staff spawn and supervision, capped at two per company | OrgIntel / Runtime |
-| 10 | CLI owner surface (`tell`, `watch`, `attach`, inspect) | Owner surface |
-| 11 | Cosmon: company config, directive, Playwright loop assertion | All |
-| 12 | Aris: company config + simulated sales world | All |
-| 13 | Thymelake: company config + simulated restaurant world | All |
-| 14 | Crash and restart harness (Exec kill, staff kill, daemon restart) | Cross-cutting |
-| 15 | Run report + friction backlog | Cross-cutting |
+Dependency order, which is how they should be worked:
+
+```text
+T3 ACP spike ──┬── T1 container ──┬── T4 Exec ── T7 context ── T6 scheduler ── T9 staff ──┐
+               │                  │                                                        ├── T11/12/13 ── T14 ── T15
+               ├── T2 gateway ────┘                                                        │
+               └── T5 OrgIntel ──── T8 effects ── T10 CLI ─────────────────────────────────┘
+```
+
+| # | Ticket | Layer | Depends on |
+|---|---|---|---|
+| [1](https://github.com/BlueprintLabIO/restless/issues/1) | Company image + persistent container lifecycle | Runtime | — |
+| [2](https://github.com/BlueprintLabIO/restless/issues/2) | Model gateway + spend fuse | Kernel | 1 |
+| [3](https://github.com/BlueprintLabIO/restless/issues/3) | ACP session client — spike two, purge one | Runtime | — |
+| [4](https://github.com/BlueprintLabIO/restless/issues/4) | Persistent Exec identity + file-based continuity | Runtime / OrgIntel | 1, 3, 5 |
+| [5](https://github.com/BlueprintLabIO/restless/issues/5) | OrgIntel core — actors, goals, commitments, messages, artifact refs | OrgIntel | — |
+| [6](https://github.com/BlueprintLabIO/restless/issues/6) | Scheduler — periodic ticks + event-driven wakeups | OrgIntel | 5 |
+| [7](https://github.com/BlueprintLabIO/restless/issues/7) | Context assembly on wake | OrgIntel | 5 |
+| [8](https://github.com/BlueprintLabIO/restless/issues/8) | Effect surface + simulated providers | Kernel | 1 |
+| [9](https://github.com/BlueprintLabIO/restless/issues/9) | Staff spawn and supervision, capped at two | OrgIntel / Runtime | 1, 3, 5 |
+| [10](https://github.com/BlueprintLabIO/restless/issues/10) | CLI owner surface | Owner surface | 1, 5 |
+| [11](https://github.com/BlueprintLabIO/restless/issues/11) | **Cosmon — the skeleton is built here** | All | 1, 3–7, 9, 10 |
+| [12](https://github.com/BlueprintLabIO/restless/issues/12) | Aris — simulated sales world | All | 8, 11 |
+| [13](https://github.com/BlueprintLabIO/restless/issues/13) | Thymelake — simulated restaurant world | All | 8, 11 |
+| [14](https://github.com/BlueprintLabIO/restless/issues/14) | Crash and restart harness | Cross-cutting | 11 |
+| [15](https://github.com/BlueprintLabIO/restless/issues/15) | Run report, deletion pass, friction backlog | Cross-cutting | 11–14 |
+
+**Start with T3.** It is the sprint's main technical unknown and it blocks T4, T9 and every company.
 
 Since this is the first sprint, no ticket makes prior machinery deletable. The §16.7 "what this makes
-deletable" slot is answered honestly as *nothing yet* — and is expected to be answered substantively
-from sprint 02 onward.
+deletable" slot is answered honestly as *nothing yet* — except T3, which deletes its own losing branch,
+and T15, which owns the deletion pass over everything the runs did not exercise.
 
 ---
 
