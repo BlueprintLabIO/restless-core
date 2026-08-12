@@ -93,7 +93,10 @@ recorded for the diff's archaeology; **open** items are the sprint-02 platform c
   the product notices "the company computer is out of disk" as a first-class condition. A company
   that cannot write is blocked in exactly the way the exec should hear about plainly. Candidate:
   pre-flight disk/space probe in `restless status` and a daemon-side guard that turns ENOSPC into a
-  blocked-with-reason, not a silent stall.
+  blocked-with-reason, not a silent stall. **Filled a second time 2026-08-13** (3.4Gi free, 100%),
+  caught before it broke anything by a manual `df` probe while the runs are credit-blocked; ~50GiB
+  reclaimed from Docker build cache (44.7GiB) and unused images (4.2GiB). The recovery being manual
+  is the friction: the cron's auto-resume would have started a company run straight into ENOSPC.
 - **F3 (open): company containers do not come back on their own.** Docker Desktop's restart left
   the company containers stopped; nothing reconciles desired-company vs actual-container state at
   daemon boot. The "persistent company computer" currently persists only until a Docker or host
