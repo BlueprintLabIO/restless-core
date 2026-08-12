@@ -64,6 +64,13 @@ pub struct SpendStore {
 
 impl SpendStore {
     /// Open (creating if absent) the spool under `root`, rebuilding totals.
+    ///
+    /// Corruption policy: a corrupt line with only blank space after it is a
+    /// torn tail — a crash or full disk mid-append (observed this sprint:
+    /// the host disk filled once). The fsync'd prefix is accounted truth;
+    /// the fragment is truncated away, LOUDLY, and the gateway still boots.
+    /// A corrupt line with more content after it is real damage and stays
+    /// fatal — a gateway that cannot account does not serve.
     pub fn open(root: &std::path::Path) -> GatewayResult<Self> {
         let root = root.canonicalize().map_err(|error| {
             GatewayError::Configuration(format!("spend root: {error}"))
@@ -71,19 +78,51 @@ impl SpendStore {
         let path = root.join("spend.jsonl");
         let mut totals: HashMap<String, u64> = HashMap::new();
         if path.exists() {
-            let file = fs::File::open(&path).map_err(|error| {
-                GatewayError::Configuration(format!("open spend spool: {error}"))
+            let text = fs::read_to_string(&path).map_err(|error| {
+                GatewayError::Configuration(format!("read spend spool: {error}"))
             })?;
-            for line in std::io::BufReader::new(file).lines() {
-                let line = line.map_err(|error| {
-                    GatewayError::Configuration(format!("read spend spool: {error}"))
-                })?;
+            let lines: Vec<&str> = text.lines().collect();
+            for (index, line) in lines.iter().enumerate() {
                 if line.trim().is_empty() {
                     continue;
                 }
-                let record: SpendRecord = serde_json::from_str(&line).map_err(|error| {
-                    GatewayError::Configuration(format!("corrupt spend spool line: {error}"))
-                })?;
+                let record: SpendRecord = match serde_json::from_str(line) {
+                    Ok(record) => record,
+                    Err(error) => {
+                        let torn_tail =
+                            lines[index + 1..].iter().all(|rest| rest.trim().is_empty());
+                        if torn_tail {
+                            let truncate_at: u64 = lines[..index]
+                                .iter()
+                                .map(|line| line.len() as u64 + 1)
+                                .sum();
+                            tracing::error!(
+                                line = index + 1,
+                                %error,
+                                "truncating torn spend-spool tail (crash or full disk \
+                                 mid-append); the fsync'd prefix is accounted truth"
+                            );
+                            let file = OpenOptions::new().write(true).open(&path).map_err(
+                                |error| {
+                                    GatewayError::Configuration(format!(
+                                        "open spend spool for tail repair: {error}"
+                                    ))
+                                },
+                            )?;
+                            file.set_len(truncate_at).map_err(|error| {
+                                GatewayError::Configuration(format!(
+                                    "truncate torn spend-spool tail: {error}"
+                                ))
+                            })?;
+                            file.sync_all()?;
+                            break;
+                        }
+                        return Err(GatewayError::Configuration(format!(
+                            "corrupt spend spool line {}: {error}",
+                            index + 1
+                        )));
+                    }
+                };
                 let total = totals.entry(record.company_id).or_default();
                 *total = total.saturating_add(record.cost_micro_usd);
             }
@@ -234,5 +273,51 @@ mod tests {
     #[test]
     fn missing_usage_is_none_not_zero() {
         assert_eq!(parse_token_usage(b"data: {\"type\":\"response.completed\",\"response\":{}}\n"), None);
+    }
+
+    fn spend_record(company: &str, cost: u64) -> SpendRecord {
+        SpendRecord {
+            request_id: Uuid::new_v4(),
+            company_id: company.to_owned(),
+            model: "m".to_owned(),
+            input_tokens: 1,
+            output_tokens: 1,
+            cost_micro_usd: cost,
+            occurred_at: Utc::now(),
+        }
+    }
+
+    /// A crash/ENOSPC mid-append leaves a torn last line: the boot rebuild
+    /// must truncate it and keep serving — and the repair must be real,
+    /// i.e. the next append doesn't strand the fragment mid-file.
+    #[test]
+    fn torn_tail_is_truncated_and_spending_continues() {
+        let temporary = tempfile::tempdir().unwrap();
+        let root = temporary.path();
+        let mut content = String::new();
+        content.push_str(&serde_json::to_string(&spend_record("acme", 100)).unwrap());
+        content.push('\n');
+        content.push_str(&serde_json::to_string(&spend_record("acme", 200)).unwrap());
+        content.push('\n');
+        content.push_str("{\"requestId\":\"partial");
+        fs::write(root.join("spend.jsonl"), content).unwrap();
+
+        let store = SpendStore::open(root).expect("torn tail must not be fatal");
+        assert_eq!(store.spent_micro_usd("acme"), 300);
+        store.record(&spend_record("acme", 50)).unwrap();
+        drop(store);
+        let reopened = SpendStore::open(root).expect("repaired spool reopens");
+        assert_eq!(reopened.spent_micro_usd("acme"), 350);
+    }
+
+    /// A corrupt line with good lines after it is real damage, not a torn
+    /// tail: refuse to serve rather than guess at the accounting.
+    #[test]
+    fn mid_file_corruption_stays_fatal() {
+        let temporary = tempfile::tempdir().unwrap();
+        let root = temporary.path();
+        let good = serde_json::to_string(&spend_record("acme", 100)).unwrap();
+        fs::write(root.join("spend.jsonl"), format!("garbage\n{good}\n")).unwrap();
+        assert!(SpendStore::open(root).is_err());
     }
 }
