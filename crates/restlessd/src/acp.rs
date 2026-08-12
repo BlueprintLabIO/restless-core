@@ -94,11 +94,15 @@ impl AgentSession {
 /// Spawn codex-acp inside the company container, authenticate against the
 /// gateway, open a session rooted at `workdir`, and hand it to `drive`. The
 /// process dies when the returned future completes — agents are ordinary
-/// processes, not daemons (§5).
+/// processes, not daemons (§5). `actor` becomes RESTLESS_ACTOR in the
+/// process env, so the CLI the agent shells out to knows who is reporting
+/// (T10); RESTLESS_COMPANY and the coordinator address come from the
+/// container's own env.
 pub async fn with_agent<F, T>(
     container: &str,
     auth: &GatewayAuth,
     workdir: &str,
+    actor: &str,
     drive: F,
 ) -> Result<T>
 where
@@ -112,6 +116,7 @@ where
             "exec", "-i", "-u", "company", "-w", "/company",
             "-e", "CODEX_HOME=/company/home/.codex",
             "-e", "NO_BROWSER=1",
+            "-e", &format!("RESTLESS_ACTOR={actor}"),
             container, "codex-acp",
         ])
         .stdin(Stdio::piped())

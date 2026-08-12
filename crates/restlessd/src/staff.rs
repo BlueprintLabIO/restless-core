@@ -165,7 +165,7 @@ async fn spawn_claimed(
     let org = org.clone();
     let registry = registry.clone();
     tokio::spawn(async move {
-        let outcome = run_staff(&container, &auth, &workdir, &company, &name, &task).await;
+        let outcome = run_staff(&container, &auth, &workdir, &company, &actor, &name, &task).await;
         record_staff_outcome(&org, &actor, &name, commitment, &workdir, outcome).await;
         registry.release(&company, &name);
     });
@@ -181,6 +181,7 @@ async fn run_staff(
     auth: &GatewayAuth,
     workdir: &str,
     company: &str,
+    actor: &str,
     name: &str,
     task: &str,
 ) -> Result<(Termination, String)> {
@@ -195,7 +196,7 @@ async fn run_staff(
     );
     const CONTINUE_PROMPT: &str =
         "Continue the task. If it is done or you are stuck, stop writing.";
-    acp::with_agent(container, auth, workdir, move |session| {
+    acp::with_agent(container, auth, workdir, actor, move |session| {
         Box::pin(async move {
             let deadline = tokio::time::Instant::now() + STAFF_TURN_TIMEOUT;
             let mut next = prompt;

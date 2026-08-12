@@ -335,6 +335,18 @@ impl OrgIntel {
         .await?)
     }
 
+    /// Events newer than a watermark, oldest first — the watch stream's
+    /// incremental read (T10).
+    pub async fn events_after(&self, watermark: i64) -> Result<Vec<EventRow>> {
+        Ok(sqlx::query_as(
+            "SELECT id, kind, actor_id, body, created_at FROM events \
+             WHERE id > $1 ORDER BY id",
+        )
+        .bind(watermark)
+        .fetch_all(&self.pool)
+        .await?)
+    }
+
     // ---- scheduler reads (T6) ----
 
     /// The channel internal wakeups travel on. One channel per database;

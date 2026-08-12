@@ -93,7 +93,7 @@ pub async fn wake(
     )
     .await?;
 
-    let report = acp::with_agent(&container, &auth, "/company", {
+    let report = acp::with_agent(&container, &auth, "/company", "exec", {
         let company = config.name.clone();
         move |session| {
             Box::pin(async move { run_turn(session, &package.text, &company).await })

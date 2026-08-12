@@ -113,6 +113,8 @@ pub async fn up(config: &CompanyConfig) -> Result<String> {
                 &name,
                 "--hostname",
                 company,
+                "-e",
+                &format!("RESTLESS_COMPANY={company}"),
                 "-v",
                 &format!("{volume}:/company"),
                 COMPANY_IMAGE,
