@@ -56,11 +56,17 @@ pub async fn request_effect(
     if key.trim().is_empty() {
         bail!("effect request needs an idempotency key");
     }
+    let args_digest = format!("{:x}", sha2::Sha256::digest(args.to_string().as_bytes()));
     // Replay: a retry with a known key gets the stored receipt, never a
-    // second run of the world.
+    // second run of the world. The same key with DIFFERENT args is not a
+    // retry — answering it with the old receipt would silently certify an
+    // effect that never happened.
     if let Some(stored) = org.find_event_body("effect", "idempotency_key", key).await? {
         let mut receipt: Receipt = serde_json::from_value(stored)
             .context("stored effect receipt is not a receipt")?;
+        if receipt.args_digest != args_digest {
+            bail!("idempotency key {key:?} was already used with different arguments");
+        }
         receipt.replayed = true;
         return Ok(receipt);
     }
@@ -87,7 +93,7 @@ pub async fn request_effect(
     let receipt = Receipt {
         id: Uuid::new_v4(),
         capability: capability.to_string(),
-        args_digest: format!("{:x}", sha2::Sha256::digest(args.to_string().as_bytes())),
+        args_digest,
         outcome,
         provider: "simulated".to_string(),
         actor: actor.to_string(),
