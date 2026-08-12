@@ -259,13 +259,13 @@ T3 ACP spike ──┬── T1 container ──┬── T4 Exec ── T7 cont
 | [x] | [T1 · Company image + container lifecycle](./sprint-01/t01-company-image.md) | Runtime | — | 1e9c7f4 |
 | [x] | [T2 · Model gateway + spend fuse](./sprint-01/t02-model-gateway-spend-fuse.md) | Kernel | 1 | 0171022 |
 | [x] | [T3 · ACP session client](./sprint-01/t03-acp-session-client.md) | Runtime | — | bd8c4db, 19c4816 |
-| [ ] | [T4 · Persistent Exec + file continuity](./sprint-01/t04-persistent-exec.md) | Runtime / OrgIntel | 1, 3, 5 | |
-| [ ] | [T5 · OrgIntel core](./sprint-01/t05-orgintel-core.md) | OrgIntel | — | |
-| [ ] | [T6 · Scheduler](./sprint-01/t06-scheduler.md) | OrgIntel | 5 | |
-| [ ] | [T7 · Context assembly on wake](./sprint-01/t07-context-assembly.md) | OrgIntel | 5 | |
-| [ ] | [T8 · Effect surface + simulated providers](./sprint-01/t08-effect-surface.md) | Kernel | 1 | |
-| [ ] | [T9 · Staff spawn and supervision](./sprint-01/t09-staff-supervision.md) | OrgIntel / Runtime | 1, 3, 5 | |
-| [ ] | [**T10 · CLI — owner surface *and* agent path to layer 2**](./sprint-01/t10-cli-owner-surface.md) | Owner surface / OrgIntel | 1, 5 | |
+| [x] | [T4 · Persistent Exec + file continuity](./sprint-01/t04-persistent-exec.md) | Runtime / OrgIntel | 1, 3, 5 | 57c40e1 |
+| [x] | [T5 · OrgIntel core](./sprint-01/t05-orgintel-core.md) | OrgIntel | — | 61143c5 |
+| [x] | [T6 · Scheduler](./sprint-01/t06-scheduler.md) | OrgIntel | 5 | 13d6e86 |
+| [x] | [T7 · Context assembly on wake](./sprint-01/t07-context-assembly.md) | OrgIntel | 5 | 2a30eb4 |
+| [ ] | [T8 · Effect surface + simulated providers](./sprint-01/t08-effect-surface.md) | Kernel | 1 | ace6995 |
+| [ ] | [T9 · Staff spawn and supervision](./sprint-01/t09-staff-supervision.md) | OrgIntel / Runtime | 1, 3, 5 | 993b065 |
+| [ ] | [**T10 · CLI — owner surface *and* agent path to layer 2**](./sprint-01/t10-cli-owner-surface.md) | Owner surface / OrgIntel | 1, 5 | 2f1d87e |
 | [ ] | [**T11 · Cosmon — the skeleton is built here**](./sprint-01/t11-cosmon.md) | All | 1, 3–7, 9, 10 | |
 | [ ] | [T12 · Aris](./sprint-01/t12-aris.md) | All | 8, 11 | |
 | [ ] | [T13 · Thymelake](./sprint-01/t13-thymelake.md) | All | 8, 11 | |
@@ -276,6 +276,11 @@ T3 ACP spike ──┬── T1 container ──┬── T4 Exec ── T7 cont
 **Start with T3.** It is the sprint's main technical unknown, it blocks T4, T9 and every company, and it
 carries the blocking pre-check on whether the chosen agent binary can even be pointed at our gateway —
 which, if it fails, invalidates T2's key-isolation story.
+
+> **Status note (2026-08-13):** T8–T10 machinery is committed and verified by every check that does not
+> burn model credit (honest-error paths, idempotency replay, orphan sweep, mail/CLI channel over TCP,
+> envelope parse tests). Their live-run acceptances — and T11–T14 — are blocked on an exhausted
+> OpenRouter key (owner top-up required). See the T15 friction backlog.
 
 **T16 lands early, before T4 and T9.** Both of those contain judgement calls, and if the helper does not
 exist when they are written, heuristics will be written instead.
