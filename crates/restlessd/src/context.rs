@@ -73,6 +73,16 @@ pub fn assemble(snapshot: &ContextSnapshot) -> ContextPackage {
            [historical memory]. Record what you did, learned, and what is next.\n\
          - /company/repos — project repositories; commit meaningful checkpoints with git.\n\
          - /company/outputs — finished artifacts for the owner.\n\n\
+         # Staff [internal decision]\n\
+         You may hand work to staff — at most 2 run concurrently. Ask in your termination \
+         envelope with an extra field:\n\
+           \"spawn\": [{{\"name\": \"builder\", \"task\": \"what and why, in detail\", \
+         \"repo\": \"<name under /company/repos>\"}}]\n\
+         (\"repo\" only when the task produces code: each code-producing staff member gets a \
+         dedicated git worktree at /company/worktrees/<name>, branch staff/<name>, and works \
+         only there.) One staff member runs one supervised task. Its completion, blockage, or \
+         crash wakes you; after a crash the worktree is intact — resume or reassign is your \
+         call. Staff tasks already open appear in your commitments below.\n\n\
          # Current plan [working hypothesis]\n{plan}\n\n\
          # Latest journal entry [historical memory]\n{journal}\n\n\
          # Open commitments [internal decision]\n{commitments}\

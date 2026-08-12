@@ -17,6 +17,7 @@ use crate::acp::{self, AgentSession, GatewayAuth};
 use crate::context::{self, ContextSnapshot};
 use crate::gateway::GatewayHandle;
 use crate::runtime::{self, CompanyConfig};
+use crate::staff::SpawnRequest;
 
 /// Longest single work turn before the wake boundary is enforced. A timeout
 /// is not a termination decision: the next wake rehydrates and continues.
@@ -42,14 +43,28 @@ pub struct WakeReport {
     pub tool_calls: Vec<String>,
     /// The Exec's closing text this turn, truncated.
     pub said: String,
+    /// Staff the Exec asked to spawn this turn (T9); the daemon processes
+    /// these after the outcome is recorded.
+    pub spawn_requests: Vec<SpawnRequest>,
 }
 
-/// Raw model output for the termination decision.
+/// Raw model output for the termination decision. `spawn` is deliberately
+/// untyped here: a malformed spawn entry must never kill the whole decision
+/// (envelope handling is deterministic; the judgement was the model's).
 #[derive(Debug, serde::Deserialize)]
 struct TerminationOutput {
     decision: String,
     reason: String,
     next_wake_minutes: Option<u32>,
+    spawn: Option<serde_json::Value>,
+}
+
+/// The parsed end-of-turn decision (T4) plus any staff spawn requests (T9).
+pub(crate) struct TerminationDecision {
+    pub termination: Termination,
+    pub reason: String,
+    pub next_wake_minutes: Option<u32>,
+    pub spawn: Vec<SpawnRequest>,
 }
 
 /// One Exec wake: rehydrate → work turn → termination decision → record.
@@ -107,35 +122,38 @@ async fn run_turn(
     worked??;
     let work_transcript = session.take_transcript();
 
-    let (termination, reason, next_wake_minutes) = termination_decision(session).await?;
+    let decision = termination_decision(session).await?;
     let said: String = work_transcript.text.chars().take(1_000).collect();
     Ok(WakeReport {
         company: company.to_string(),
-        termination,
-        reason,
-        next_wake_minutes,
+        termination: decision.termination,
+        reason: decision.reason,
+        next_wake_minutes: decision.next_wake_minutes,
         tool_calls: work_transcript.tool_calls,
         said,
+        spawn_requests: decision.spawn,
     })
 }
 
+/// The end-of-turn ask, shared by the Exec and staff: the decision itself is
+/// the model's judgement; the envelope is the daemon's deterministic read of
+/// it. The Exec's staff-spawn capability is documented in its wake briefing
+/// (context.rs), not here — staff have no use for it.
+pub(crate) const TERMINATION_PROMPT: &str = "The turn is ending now. Based on everything above, decide how the \
+    work stands and answer with JSON only, no prose:\n\
+    {\"decision\": \"continue\" | \"blocked\" | \"done\" | \"abandon\", \
+     \"reason\": \"<one line>\", \
+     \"next_wake_minutes\": <integer, only when continue>}\n\
+    - continue: more machine-doable work remains\n\
+    - blocked: you cannot proceed — say exactly what you need and from whom\n\
+    - done: the stated outcome is met\n\
+    - abandon: the work is not worth continuing — say why";
+
 /// Ask the Exec to end the turn explicitly. One retry on an unparseable
 /// envelope; a second failure is blocked-on-owner (surface, never spin).
-async fn termination_decision(
-    session: &AgentSession,
-) -> Result<(Termination, String, Option<u32>)> {
-    const PROMPT: &str = "The turn is ending now. Based on everything above, decide how this \
-        milestone stands and answer with JSON only, no prose:\n\
-        {\"decision\": \"continue\" | \"blocked\" | \"done\" | \"abandon\", \
-         \"reason\": \"<one line>\", \
-         \"next_wake_minutes\": <integer, only when continue>}\n\
-        - continue: more machine-doable work remains\n\
-        - blocked: you need the owner's judgement, authority, identity, or a decision only a \
-          human can make — say exactly what you need in reason\n\
-        - done: the milestone's stated outcome is met\n\
-        - abandon: the milestone is not worth continuing — say why";
+async fn termination_decision(session: &AgentSession) -> Result<TerminationDecision> {
     for attempt in 0..2 {
-        session.prompt(PROMPT).await?;
+        session.prompt(TERMINATION_PROMPT).await?;
         let transcript = session.take_transcript();
         match parse_termination(&transcript.text) {
             Some(parsed) => return Ok(parsed),
@@ -150,11 +168,12 @@ async fn termination_decision(
                 continue;
             }
             None => {
-                return Ok((
-                    Termination::Blocked,
-                    "exec produced no parseable termination decision twice".to_string(),
-                    None,
-                ));
+                return Ok(TerminationDecision {
+                    termination: Termination::Blocked,
+                    reason: "exec produced no parseable termination decision twice".to_string(),
+                    next_wake_minutes: None,
+                    spawn: vec![],
+                });
             }
         }
     }
@@ -163,8 +182,9 @@ async fn termination_decision(
 
 /// Parse the termination envelope. The decision itself was the model's; this
 /// is deterministic envelope handling — find the JSON object, no prose
-/// interpretation (LLM_CURE.md frame 2).
-fn parse_termination(text: &str) -> Option<(Termination, String, Option<u32>)> {
+/// interpretation (LLM_CURE.md frame 2). Malformed spawn entries are dropped
+/// with a warning, never allowed to sink the decision they rode in with.
+pub(crate) fn parse_termination(text: &str) -> Option<TerminationDecision> {
     let start = text.find('{')?;
     let end = text.rfind('}')?;
     let output: TerminationOutput = serde_json::from_str(&text[start..=end]).ok()?;
@@ -175,7 +195,30 @@ fn parse_termination(text: &str) -> Option<(Termination, String, Option<u32>)> {
         "abandon" => Termination::Abandon,
         _ => return None,
     };
-    Some((termination, output.reason, output.next_wake_minutes))
+    let entries = match output.spawn {
+        None => Vec::new(),
+        Some(serde_json::Value::Array(entries)) => entries,
+        Some(other) => {
+            tracing::warn!(spawn = %other, "spawn field is not a list; ignoring it");
+            Vec::new()
+        }
+    };
+    let spawn = entries
+        .into_iter()
+        .filter_map(|entry| match serde_json::from_value::<SpawnRequest>(entry) {
+            Ok(request) => Some(request),
+            Err(error) => {
+                tracing::warn!(%error, "dropping malformed spawn request");
+                None
+            }
+        })
+        .collect();
+    Some(TerminationDecision {
+        termination,
+        reason: output.reason,
+        next_wake_minutes: output.next_wake_minutes,
+        spawn,
+    })
 }
 
 /// Gather the wake's read-only snapshot (the only IO in context assembly;
@@ -332,4 +375,32 @@ async fn exec_stdin(container: &str, shell: &str, input: &str) -> Result<()> {
         bail!("exec in {container} failed: {}", String::from_utf8_lossy(&output.stderr));
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The spawn field rides along with the decision; a malformed sibling
+    /// entry is dropped, the valid one survives.
+    #[test]
+    fn spawn_requests_survive_malformed_siblings() {
+        let text = r#"{"decision":"continue","reason":"need hands","next_wake_minutes":10,
+            "spawn":[{"name":"builder","task":"write the parser","repo":"game"},"oops"]}"#;
+        let decision = parse_termination(text).expect("decision parses");
+        assert!(matches!(decision.termination, Termination::Continue));
+        assert_eq!(decision.spawn.len(), 1);
+        assert_eq!(decision.spawn[0].name, "builder");
+        assert_eq!(decision.spawn[0].repo.as_deref(), Some("game"));
+    }
+
+    /// A spawn field of the wrong SHAPE must not sink the decision it came
+    /// with — the exec's "done" still lands even if it fumbled the syntax.
+    #[test]
+    fn malformed_spawn_never_kills_the_decision() {
+        let text = r#"{"decision":"done","reason":"shipped","spawn":{"not":"a list"}}"#;
+        let decision = parse_termination(text).expect("decision parses despite bad spawn");
+        assert!(matches!(decision.termination, Termination::Done));
+        assert!(decision.spawn.is_empty());
+    }
 }

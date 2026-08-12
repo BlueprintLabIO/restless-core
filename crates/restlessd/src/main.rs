@@ -10,6 +10,7 @@ mod exec;
 mod schedule;
 mod gateway;
 mod runtime;
+mod staff;
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -93,6 +94,7 @@ pub(crate) struct Daemon {
     pub(crate) root: PathBuf,
     pub(crate) gateway: gateway::GatewayHandle,
     pub(crate) orgintel: OrgIntelRegistry,
+    pub(crate) staff: staff::StaffRegistry,
 }
 
 #[tokio::main]
@@ -124,7 +126,12 @@ async fn main() -> Result<()> {
             database_url: orgintel_config.database_url,
             handles: std::sync::Mutex::new(HashMap::new()),
         },
+        staff: staff::StaffRegistry::default(),
     });
+
+    // T9: agent processes outliving the daemon that spawned them are orphans
+    // — kill them and mark their staff commitments before anything new wakes.
+    staff::sweep_orphans(&daemon.root, &daemon.orgintel).await;
 
     // T6: the scheduler is what makes the company act without the owner
     // typing — time triggers (exec-set schedules + periodic tick) and
@@ -222,10 +229,22 @@ async fn dispatch(request: Request, daemon: &Daemon) -> Response {
                 Ok(org) => {
                     let reason = request.reason.as_deref().unwrap_or("owner-requested wake");
                     match exec::wake(&config, &daemon.gateway, &org, reason).await {
-                        Ok(report) => match serde_json::to_value(&report) {
-                            Ok(value) => Response::ok(value),
-                            Err(error) => Response::err(format!("encode report: {error}")),
-                        },
+                        Ok(report) => {
+                            // T9: the Exec's spawn requests are honored after
+                            // its outcome is recorded; refusals reach it by mail.
+                            staff::process_spawns(
+                                &config,
+                                &daemon.gateway,
+                                &org,
+                                &daemon.staff,
+                                &report.spawn_requests,
+                            )
+                            .await;
+                            match serde_json::to_value(&report) {
+                                Ok(value) => Response::ok(value),
+                                Err(error) => Response::err(format!("encode report: {error}")),
+                            }
+                        }
                         Err(error) => Response::err(format!("{error:#}")),
                     }
                 }
