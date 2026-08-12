@@ -373,8 +373,11 @@ pub async fn sweep_orphans(root: &std::path::Path, orgintel: &crate::OrgIntelReg
             continue;
         }
         let container = runtime::container_name(name);
+        // Bracket pattern: a bare "codex-acp" would match this very wrapper
+        // shell's own cmdline (sh -c '... codex-acp ...'), so detection
+        // would always "find orphans" — observed: 28 false warns in one day.
         let found = tokio::process::Command::new("docker")
-            .args(["exec", &container, "sh", "-c", "pgrep -f codex-acp"])
+            .args(["exec", &container, "sh", "-c", "pgrep -f codex-ac[p]"])
             .output()
             .await;
         let Ok(found) = found else { continue };
@@ -383,7 +386,7 @@ pub async fn sweep_orphans(root: &std::path::Path, orgintel: &crate::OrgIntelReg
         }
         tracing::warn!(company = name, "killing orphaned agent processes from before restart");
         let _ = tokio::process::Command::new("docker")
-            .args(["exec", &container, "sh", "-c", "pkill -9 -f codex-acp"])
+            .args(["exec", &container, "sh", "-c", "pkill -9 -f codex-ac[p]"])
             .output()
             .await;
         let Ok(org) = orgintel.get(name).await else { continue };
