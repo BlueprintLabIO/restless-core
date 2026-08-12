@@ -14,6 +14,7 @@ use tokio::io::AsyncWriteExt as _;
 use uuid::Uuid;
 
 use crate::acp::{self, AgentSession, GatewayAuth};
+use crate::context::{self, ContextSnapshot};
 use crate::gateway::GatewayHandle;
 use crate::runtime::{self, CompanyConfig};
 
@@ -66,13 +67,21 @@ pub async fn wake(
 
     let minted = gateway.mint_token(config, "exec")?;
     let auth = GatewayAuth { base_url: minted.base_url_container, token: minted.token };
-    let context = assemble_context(&container, org, config, reason).await?;
-    org.emit_event("wake", Some("exec"), serde_json::json!({ "reason": reason })).await?;
+    // T7: gather the snapshot (IO), then assemble (pure, digested). The
+    // digest lands in the wake event so the Exec's worldview is auditable.
+    let snapshot = gather_snapshot(&container, org, config, reason).await?;
+    let package = context::assemble(&snapshot);
+    org.emit_event(
+        "wake",
+        Some("exec"),
+        serde_json::json!({ "reason": reason, "context_digest": package.digest }),
+    )
+    .await?;
 
     let report = acp::with_agent(&container, &auth, "/company", {
         let company = config.name.clone();
         move |session| {
-            Box::pin(async move { run_turn(session, &context, &company).await })
+            Box::pin(async move { run_turn(session, &package.text, &company).await })
         }
     })
     .await?;
@@ -169,66 +178,37 @@ fn parse_termination(text: &str) -> Option<(Termination, String, Option<u32>)> {
     Some((termination, output.reason, output.next_wake_minutes))
 }
 
-/// Rehydration bundle: mission, current plan, latest journal entry, open
-/// commitments, unread inbox, and the wake reason. Files win over memory —
-/// this is all the continuity the Exec gets, so it is all here.
-async fn assemble_context(
+/// Gather the wake's read-only snapshot (the only IO in context assembly;
+/// `context::assemble` is pure). Files win over memory — this is all the
+/// continuity the Exec gets, so it is all here.
+async fn gather_snapshot(
     container: &str,
     org: &OrgIntel,
     config: &CompanyConfig,
     reason: &str,
-) -> Result<String> {
-    let plan = read_company_file(container, "/company/org/exec/current-plan.md").await?;
-    let journal = latest_journal_entry(container).await?;
+) -> Result<ContextSnapshot> {
+    let current_plan = read_company_file(container, "/company/org/exec/current-plan.md").await?;
+    let latest_journal = latest_journal_entry(container).await?;
     let commitments = org.list_commitments().await?;
     let open: Vec<_> = commitments
-        .iter()
-        .filter(|c| matches!(c.state, CommitmentState::Proposed | CommitmentState::Active | CommitmentState::Blocked))
+        .into_iter()
+        .filter(|c| {
+            matches!(
+                c.state,
+                CommitmentState::Proposed | CommitmentState::Active | CommitmentState::Blocked
+            )
+        })
         .collect();
     let inbox = org.inbox(Some("exec")).await?;
-
-    let mut open_listing = String::new();
-    for c in &open {
-        open_listing.push_str(&format!(
-            "- [{}] {} ({}): {}\n",
-            format!("{:?}", c.state).to_lowercase(),
-            c.title,
-            c.owner_id,
-            c.body
-        ));
-    }
-    let mut inbox_listing = String::new();
-    for message in &inbox {
-        inbox_listing.push_str(&format!("- from {}: {}\n", message.from_actor, message.body));
-    }
-
-    Ok(format!(
-        "You are the Exec of {name} — the singleton chief executive of this autonomous company.\n\
-         You run in wakes. You persist ONLY through files and the coordination store, never \
-         through memory: anything you do not write down is lost.\n\n\
-         # Mission (owner-set, /company/mission.md)\n{mission}\n\n\
-         # Your continuity\n\
-         - /company/org/exec/current-plan.md — your ONE current plan. It exists: {plan_exists}. \
-           Read it first; update it in place as work progresses; never start a second plan for \
-           the same milestone.\n\
-         - /company/org/exec/journal/NNNN.md — one entry per wake, next sequential number. \
-           Record what you did, learned, and what is next.\n\
-         - /company/repos — project repositories; commit meaningful checkpoints with git.\n\
-         - /company/outputs — finished artifacts for the owner.\n\n\
-         # Current plan\n{plan}\n\n\
-         # Latest journal entry\n{journal}\n\n\
-         # Open commitments (coordination store)\n{open_listing}\n\
-         # Inbox\n{inbox_listing}\n\
-         # This wake\n{reason}\n\n\
-         Work this turn. Use the tools. Write files. Stop when the turn's work is done.",
-        name = config.name,
-        mission = config.mission,
-        plan_exists = if plan.trim().is_empty() { "no — first wake, create it" } else { "yes" },
-        plan = if plan.trim().is_empty() { "(none yet)" } else { plan.trim() },
-        journal = journal.trim(),
-        open_listing = if open_listing.is_empty() { "(none)\n".to_string() } else { open_listing },
-        inbox_listing = if inbox_listing.is_empty() { "(empty)\n".to_string() } else { inbox_listing },
-    ))
+    Ok(ContextSnapshot {
+        company: config.name.clone(),
+        mission: config.mission.clone(),
+        current_plan,
+        latest_journal,
+        open_commitments: open,
+        inbox,
+        wake_reason: reason.to_string(),
+    })
 }
 
 /// Record the wake's outcome: always an event; blocked also messages the
@@ -305,13 +285,13 @@ async fn read_company_file(container: &str, path: &str) -> Result<String> {
 }
 
 /// The most recent journal entry's filename and content, for rehydration.
-async fn latest_journal_entry(container: &str) -> Result<String> {
+async fn latest_journal_entry(container: &str) -> Result<Option<String>> {
     let output = exec_output(
         container,
         "cd /company/org/exec/journal 2>/dev/null && ls | sort | tail -1 | xargs -r sh -c 'echo \"== $0 ==\"; cat \"$0\"' || true",
     )
     .await?;
-    Ok(if output.trim().is_empty() { "(none yet — first wake)".to_string() } else { output })
+    Ok(if output.trim().is_empty() { None } else { Some(output) })
 }
 
 async fn exec_output(container: &str, shell: &str) -> Result<String> {

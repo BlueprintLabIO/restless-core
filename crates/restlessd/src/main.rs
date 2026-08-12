@@ -5,6 +5,7 @@
 //! one response line.
 
 mod acp;
+mod context;
 mod exec;
 mod gateway;
 mod runtime;
