@@ -56,6 +56,13 @@ pub async fn request_effect(
     if key.trim().is_empty() {
         bail!("effect request needs an idempotency key");
     }
+    // Capabilities are identifiers, not path fragments — one names a persona
+    // file below, and this channel is reachable from inside containers.
+    // Deterministic input validation; the governance sprint's capability
+    // check will subsume it.
+    if !valid_capability(capability) {
+        bail!("invalid capability name {capability:?}");
+    }
     let args_digest = format!("{:x}", sha2::Sha256::digest(args.to_string().as_bytes()));
     // Replay: a retry with a known key gets the stored receipt, never a
     // second run of the world. The same key with DIFFERENT args is not a
@@ -145,4 +152,32 @@ fn extract_json_object(text: &str) -> Option<serde_json::Value> {
     let start = text.find('{')?;
     let end = text.rfind('}')?;
     serde_json::from_str(&text[start..=end]).ok()
+}
+
+/// Capability names look like `web.deploy` — lowercase dotted identifiers.
+/// Anything else (path separators, traversal, upcase) is not a capability.
+fn valid_capability(capability: &str) -> bool {
+    !capability.is_empty()
+        && capability.len() <= 64
+        && capability
+            .bytes()
+            .all(|byte| matches!(byte, b'a'..=b'z' | b'0'..=b'9' | b'.' | b'-' | b'_'))
+        && !capability.contains("..")
+}
+
+#[cfg(test)]
+mod tests {
+    /// The capability string becomes a file path component; the boundary
+    /// check is what keeps it an identifier.
+    #[test]
+    fn capability_names_are_identifiers_not_paths() {
+        assert!(super::valid_capability("web.deploy"));
+        assert!(super::valid_capability("email.send"));
+        assert!(super::valid_capability("payments.charge"));
+        assert!(!super::valid_capability("../secrets/key"));
+        assert!(!super::valid_capability("web/../../etc/passwd"));
+        assert!(!super::valid_capability(".."));
+        assert!(!super::valid_capability(""));
+        assert!(!super::valid_capability("Web.Deploy"));
+    }
 }
