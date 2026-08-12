@@ -346,6 +346,7 @@ escalation takes an argument.
 | Three companies is real surface area | **Guarded** | Build-one-then-configure-two sequencing, plus the done criterion in open decision 4. |
 | The skeleton grows past "thin" | **Guarded** | The out-of-scope lists above, plus a deletion pass before sprint 02 opens: any path no run exercised comes out. |
 | Ambiguous external-effect outcomes; receipts surviving restore | **Pending fix** | Real, and the whole point of the effect broker — but it needs a live provider to be meaningful. Governance sprint. |
+| Usage-parse miss = unaccounted spend (fuse under-records) | **Accepted** | Zero occurrences observed (daemon log grep, 2026-08-12). Tripwire: the first `upstream usage unparsed` warning promotes it to a durable audit event plus conservative accounting. |
 
 **When the accepted risks expire:** the first four are accepted *because nothing real is connected*.
 That disposition expires the moment a live provider is wired up — which is the trigger condition for
@@ -355,6 +356,7 @@ the governance sprint, not a project phase we choose.
 
 ## Housekeeping
 
-`.env` at the repo root is a leftover from the prior implementation (Helm-prefixed variables, a
+~~`.env` at the repo root is a leftover from the prior implementation (Helm-prefixed variables, a
 `DATABASE_URL`, a duplicated `OPENROUTER_API_KEY`). It should be cleared before it becomes an
-accidental dependency of the new path (§16.3).
+accidental dependency of the new path (§16.3).~~ **Done** — verified 2026-08-13: no `.env` at the
+repo root and nothing in the workspace reads one.
