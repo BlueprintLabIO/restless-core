@@ -15,3 +15,6 @@ version = "0.0.0"
 edition = "2021"
 license = "TBD"
 publish = false
+
+[workspace.dependencies]
+# Sprint 01 workspace pins.

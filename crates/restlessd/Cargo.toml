@@ -9,3 +9,10 @@ description = """
 The restless daemon — the stable coordination core (ARCHITECTURE.md §4.4).
 Empty stub. Grown from the first sprint slice that needs it.
 """
+
+[dependencies]
+anyhow = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["full"] }
+toml = "0.8"
