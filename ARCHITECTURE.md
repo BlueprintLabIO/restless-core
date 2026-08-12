@@ -1,4 +1,4 @@
-# Helm Architecture Source of Truth
+# Restless Architecture Source of Truth
 
 **Status:** Working draft  
 **Version:** 0.9  
@@ -9,7 +9,7 @@
 
 ## 1. Core thesis
 
-Helm should use **three logical layers**:
+Restless should use **three logical layers**:
 
 1. **Constitutional Kernel** — governance, authority, isolation, secrets, budgets, external effects and recovery.
 2. **Organisational Intelligence (`OrgIntel`)** — self-running, self-healing and self-building coordination across agents.
@@ -78,11 +78,11 @@ Use Linux, OCI, Git, Postgres, established process supervision, browser infrastr
 
 ### 2.7 Engineering practice is the primary anti-drift mechanism
 
-Helm should stay aligned through shared judgement, real dogfood, outcome-oriented planning, small reversible changes and regular simplification—not by adding another architectural gatekeeper. Hard enforcement belongs at true authority boundaries. Everywhere else, the team should prefer evidence, conventions, review and recovery.
+Restless should stay aligned through shared judgement, real dogfood, outcome-oriented planning, small reversible changes and regular simplification—not by adding another architectural gatekeeper. Hard enforcement belongs at true authority boundaries. Everywhere else, the team should prefer evidence, conventions, review and recovery.
 
 ### 2.8 Future scope must earn its way in
 
-Multiplayer collaboration, managed hosting and shared multi-tenancy are product hypotheses, not initial architecture requirements. Helm should first prove that one owner, one Exec and a small group of agents can produce useful economic output. Add broader collaboration or cloud infrastructure only after repeated real use exposes the need.
+Multiplayer collaboration, managed hosting and shared multi-tenancy are product hypotheses, not initial architecture requirements. Restless should first prove that one owner, one Exec and a small group of agents can produce useful economic output. Add broader collaboration or cloud infrastructure only after repeated real use exposes the need.
 
 ---
 
@@ -118,9 +118,9 @@ It must remain small enough to reason about, test aggressively and operate relia
 - Credential scoping and rotation.
 - Delivery of short-lived or narrowly scoped credentials where unavoidable.
 
-Helm should use **Infisical as the default imported secrets and machine-identity backend**, behind a kernel-owned adapter. Infisical stores, rotates and supplies credentials; Helm remains responsible for capability semantics, budgets, approvals, effect idempotency and receipts. Low-risk tools may use a credential-brokering proxy so agents never receive raw secrets, while consequential actions still pass through Helm's effect broker.
+Restless should use **Infisical as the default imported secrets and machine-identity backend**, behind a kernel-owned adapter. Infisical stores, rotates and supplies credentials; Restless remains responsible for capability semantics, budgets, approvals, effect idempotency and receipts. Low-risk tools may use a credential-brokering proxy so agents never receive raw secrets, while consequential actions still pass through Restless's effect broker.
 
-The deployment choice should remain replaceable: OSS users may [self-host Infisical](https://infisical.com/docs/self-hosting/overview), while the managed product may use [Infisical Cloud or a managed self-hosted deployment](https://infisical.com/docs/documentation/getting-started/concepts/deployment-models). Infisical is an implementation dependency, not part of Helm's constitutional ontology.
+The deployment choice should remain replaceable: OSS users may [self-host Infisical](https://infisical.com/docs/self-hosting/overview), while the managed product may use [Infisical Cloud or a managed self-hosted deployment](https://infisical.com/docs/documentation/getting-started/concepts/deployment-models). Infisical is an implementation dependency, not part of Restless's constitutional ontology.
 
 ### Model and compute access
 
@@ -232,7 +232,7 @@ Its role is to maintain:
 - adaptation and recovery;
 - visibility for the owner.
 
-Without this layer, Helm risks becoming only another general-purpose agent harness with a persistent shell and tools.
+Without this layer, Restless risks becoming only another general-purpose agent harness with a persistent shell and tools.
 
 ## 4.2 Product promise
 
@@ -286,7 +286,7 @@ The kernel has no autonomous LLM authority. Runtime workers contain task intelli
 
 ## 4.4 Stable coordination core
 
-OrgIntel should have a small stable substrate, potentially exposed by a resident service. This is the justified role for a `companyd`-like component, although the final name should reflect the product rather than an arbitrary daemon convention.
+OrgIntel should have a small stable substrate, potentially exposed by a resident service. This is the justified role for a `restlessd` resident daemon (ARCHITECTURE names the role; the crate is `crates/restlessd`).
 
 The stable core may own:
 
@@ -665,7 +665,7 @@ The Exec controls the company’s internal operation. The owner controls the out
 | Company-wide OrgIntel extension | Exec or delegated OrgIntel owner | Builder plus independent test or critique |
 | Use of an existing capability | Authorised Exec or worker | Kernel executes deterministically |
 | Expansion of budget, capability or mandate | Owner/root authority | Kernel records and enforces |
-| Helm kernel or stable platform code | Helm platform maintainers | Platform engineering team or coding agents under review |
+| Restless kernel or stable platform code | Restless platform maintainers | Platform engineering team or coding agents under review |
 
 Most changes remain within one layer. Runtime changes do not normally reach OrgIntel. Organisational changes do not normally reach the kernel. Escalate only when a change exceeds the current owner’s authority or blast radius.
 
@@ -681,15 +681,15 @@ This is ordinary delegated management, not a universal governance protocol.
 
 ## 7.4 Initial product and deployment posture
 
-The near-term product is a **single-company operating system**: one owner, one persistent Exec and a small set of agents working inside one isolated company environment. This is sufficient to test Helm's core claim.
+The near-term product is a **single-company operating system**: one owner, one persistent Exec and a small set of agents working inside one isolated company environment. This is sufficient to test Restless's core claim.
 
 Multiplayer and hosted deployment remain deliberately deferred:
 
 - Support only the human interactions required by real dogfood: directives, approvals, inspection and browser or desktop takeover.
 - Do not build presence, a general collaboration suite, fine-grained multiplayer permissions, a shared realtime filesystem or a tenant fleet control plane yet.
 - Avoid obvious dead ends by using actor/principal identifiers, isolating company state, keeping layer interfaces explicit and supporting backup and upgrades. Do not design the full future platform.
-- Add a second human when repeated dogfood shows that human collaboration improves outcomes and Helm itself is the obstacle.
-- Build managed hosting when users want Helm but will not operate it. Begin with a dedicated deployment per company.
+- Add a second human when repeated dogfood shows that human collaboration improves outcomes and Restless itself is the obstacle.
+- Build managed hosting when users want Restless but will not operate it. Begin with a dedicated deployment per company.
 - Build shared multi-tenancy only when proven demand exists and the cost of dedicated deployments materially blocks scale.
 
 The expected progression, if evidence supports it, is:
@@ -979,7 +979,7 @@ Thymelake is the strongest whole-company dogfood of the three because product, s
 
 ## 10.8 Simulated external world
 
-Helm should support external-world simulation behind the same kernel provider interfaces used in production.
+Restless should support external-world simulation behind the same kernel provider interfaces used in production.
 
 ```text
 company request
@@ -1023,7 +1023,7 @@ A green invariant suite is useful, but it cannot compensate for a company that f
 
 # 12. Explicit anti-goals
 
-Helm should not attempt to:
+Restless should not attempt to:
 
 - make all invalid internal organisational states impossible;
 - capture every action in an immutable ledger;
@@ -1061,7 +1061,7 @@ Helm should not attempt to:
 17. Match each first department to the company’s real bottleneck: Cosmon Game Product, Aris Sales & Marketing, and Thymelake Restaurant Launch.
 18. Use the three companies as a complementary dogfood portfolio for building, selling, and live B2B deployment and operations.
 19. Test kernel effects through interchangeable real and simulated provider adapters.
-20. Use Infisical as the default imported secret and machine-identity backend, while keeping Helm authoritative for capabilities, approvals and consequential effects.
+20. Use Infisical as the default imported secret and machine-identity backend, while keeping Restless authoritative for capabilities, approvals and consequential effects.
 21. Treat multiplayer and managed hosting as unproven product hypotheses rather than initial requirements.
 22. Focus the first product on one owner, one Exec and agents inside a single isolated company environment.
 23. If managed demand emerges, begin with dedicated per-company deployments; add shared multi-tenancy only when its economics are demonstrated.
@@ -1073,8 +1073,8 @@ Helm should not attempt to:
 
 These require further design rather than immediate implementation:
 
-1. Final name and exact scope of the stable OrgIntel coordination service.
-2. Whether OrgIntel Postgres is per-company, schema-isolated in a shared service, or embedded for local development.
+1. ~~Final name~~ (settled: `restlessd`) and exact scope of the stable OrgIntel coordination service.
+2. Whether OrgIntel Postgres is per-company, schema-isolated in a shared service, or embedded for local development. Sprint 01 assumes schema-per-company; revisit against that evidence.
 3. How actor identity is attributed across ACP sessions without turning it into a security-heavy identity system.
 4. The minimum filesystem conventions worth standardising.
 5. The exact Git/worktree integration and automatic checkpoint policy.
@@ -1108,7 +1108,7 @@ The next architecture should be tested with one end-to-end department rather tha
 
 # 16. Engineering operating model
 
-Architecture drift is primarily a product and team-feedback problem, not a missing-enforcement problem. Helm should preserve its priorities through the way the team discovers, scopes, builds, reviews and dogfoods work.
+Architecture drift is primarily a product and team-feedback problem, not a missing-enforcement problem. Restless should preserve its priorities through the way the team discovers, scopes, builds, reviews and dogfoods work.
 
 This operating model must not become another control plane. There is no central architecture veto over routine work. Alignment comes from engineers repeatedly seeing the whole system run, discussing concrete trade-offs and correcting course together.
 
@@ -1298,7 +1298,7 @@ These are reasons to stop the current line of abstraction work and return to a r
 - Internal types, states and invariants dominate discussion while the target company behaviour remains vague.
 - Test count, schema coverage or architectural completeness is being treated as product progress.
 - A new entity or transition exists mainly to repair complexity introduced by another internal mechanism.
-- Agents must translate ordinary file, Git or process activity through multiple Helm-specific protocols.
+- Agents must translate ordinary file, Git or process activity through multiple Restless-specific protocols.
 - A safety or observability feature materially reduces useful output while its actual risk reduction is unclear.
 - Platform tickets accumulate without a direct link to an observed outcome or friction item.
 - The team has not recently watched the newest end-to-end path attempt real work.

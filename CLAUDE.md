@@ -114,9 +114,13 @@ This repo is built in sprints by two founders collaborating on the `dev` branch.
   and the slice of each layer (Kernel / OrgIntel / Runtime) it touches. A slice is complete only when
   it produces a useful artifact, decision, or external outcome — a schema, API, or invariant suite alone
   is not a successful slice (ARCHITECTURE.md §16.2).
-- **Tickets** are GitHub Issues, linked from the sprint spec. When breaking a sprint into tickets,
-  coding agents must cite the observed outcome or friction each ticket serves (§16.7), name which layer
-  it belongs to and why, and state what prior machinery — if any — it makes deletable.
+- **Tickets are files in the repo**, one per ticket under `docs/sprints/sprint-NN/`, indexed by a status
+  checklist in the sprint spec. Agents are the primary readers of tickets, and a file costs no tool
+  call, no auth, and no network; it is also versioned alongside the code that implements it and
+  reviewable in the same PR the founders align on. Ticket status lives **only** in the spec checklist.
+  When breaking a sprint into tickets, coding agents must cite the observed outcome or friction each
+  ticket serves (§16.7), name which layer it belongs to and why, and state what prior machinery — if
+  any — it makes deletable.
 - **Branches.** `main` is the default branch and the foundation; `dev` is the sprint integration line.
   Founders integrate on `dev`. Short-lived `feat/*` / `fix/*` branches PR into `dev`. Do not long-run
   feature branches. `main` is reserved for what is releaseable.

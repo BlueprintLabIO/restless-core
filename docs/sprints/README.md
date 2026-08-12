@@ -15,9 +15,12 @@ Each sprint is one file: `sprint-NN-short-slug.md`. A complete spec states:
   expected results (CLAUDE.md → "Verifying").
 - **Slice per layer** — which Kernel / OrgIntel / Runtime concerns this sprint touches, and what is
   deliberately out of scope.
-- **Tickets** — GitHub Issues, linked from the spec. Each ticket cites the observed outcome or friction
-  it serves, names its layer, and states what prior machinery — if any — it makes deletable
-  (ARCHITECTURE.md §16.7).
+- **Tickets** — one file per ticket under `sprint-NN/`, indexed by a status checklist in the spec. Each
+  cites the observed outcome or friction it serves, names its layer, and states what prior machinery —
+  if any — it makes deletable (ARCHITECTURE.md §16.7). Tickets are files rather than GitHub Issues
+  because agents are their primary readers: a file costs no tool call, is versioned with the code that
+  implements it, and is reviewed in the same PR the founders align on. **Status lives only in the spec
+  checklist** — one canon, not two.
 - **Salvage** — which `docs/SALVAGE.md` lifts (if any) the sprint uses, each with its re-validation step.
 
 ## Working against the target architecture

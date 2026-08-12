@@ -204,8 +204,9 @@ shape only.
 
 ## Proposed tickets
 
-Filed as GitHub Issues on `BlueprintLabIO/restless`, labelled `sprint-01`. Issue number matches ticket
-number. Each names its layer and the outcome or friction it serves (§16.7).
+Tickets are files in [`sprint-01/`](./sprint-01/). Each names its layer, the outcome or friction it
+serves, and what it makes deletable (§16.7). **This checklist is the only place ticket status lives** —
+tick the box and note the commit.
 
 Dependency order, which is how they should be worked:
 
@@ -216,23 +217,23 @@ T3 ACP spike ──┬── T1 container ──┬── T4 Exec ── T7 cont
                └── T5 OrgIntel ──── T8 effects ── T10 CLI ─────────────────────────────────┘
 ```
 
-| # | Ticket | Layer | Depends on |
-|---|---|---|---|
-| [1](https://github.com/BlueprintLabIO/restless/issues/1) | Company image + persistent container lifecycle | Runtime | — |
-| [2](https://github.com/BlueprintLabIO/restless/issues/2) | Model gateway + spend fuse | Kernel | 1 |
-| [3](https://github.com/BlueprintLabIO/restless/issues/3) | ACP session client — spike two, purge one | Runtime | — |
-| [4](https://github.com/BlueprintLabIO/restless/issues/4) | Persistent Exec identity + file-based continuity | Runtime / OrgIntel | 1, 3, 5 |
-| [5](https://github.com/BlueprintLabIO/restless/issues/5) | OrgIntel core — actors, goals, commitments, messages, artifact refs | OrgIntel | — |
-| [6](https://github.com/BlueprintLabIO/restless/issues/6) | Scheduler — periodic ticks + event-driven wakeups | OrgIntel | 5 |
-| [7](https://github.com/BlueprintLabIO/restless/issues/7) | Context assembly on wake | OrgIntel | 5 |
-| [8](https://github.com/BlueprintLabIO/restless/issues/8) | Effect surface + simulated providers | Kernel | 1 |
-| [9](https://github.com/BlueprintLabIO/restless/issues/9) | Staff spawn and supervision, capped at two | OrgIntel / Runtime | 1, 3, 5 |
-| [10](https://github.com/BlueprintLabIO/restless/issues/10) | CLI owner surface | Owner surface | 1, 5 |
-| [11](https://github.com/BlueprintLabIO/restless/issues/11) | **Cosmon — the skeleton is built here** | All | 1, 3–7, 9, 10 |
-| [12](https://github.com/BlueprintLabIO/restless/issues/12) | Aris — simulated sales world | All | 8, 11 |
-| [13](https://github.com/BlueprintLabIO/restless/issues/13) | Thymelake — simulated restaurant world | All | 8, 11 |
-| [14](https://github.com/BlueprintLabIO/restless/issues/14) | Crash and restart harness | Cross-cutting | 11 |
-| [15](https://github.com/BlueprintLabIO/restless/issues/15) | Run report, deletion pass, friction backlog | Cross-cutting | 11–14 |
+| ✓ | Ticket | Layer | Depends on | Commit |
+|---|---|---|---|---|
+| [ ] | [T1 · Company image + container lifecycle](./sprint-01/t01-company-image.md) | Runtime | — | |
+| [ ] | [T2 · Model gateway + spend fuse](./sprint-01/t02-model-gateway-spend-fuse.md) | Kernel | 1 | |
+| [ ] | [T3 · ACP session client](./sprint-01/t03-acp-session-client.md) | Runtime | — | |
+| [ ] | [T4 · Persistent Exec + file continuity](./sprint-01/t04-persistent-exec.md) | Runtime / OrgIntel | 1, 3, 5 | |
+| [ ] | [T5 · OrgIntel core](./sprint-01/t05-orgintel-core.md) | OrgIntel | — | |
+| [ ] | [T6 · Scheduler](./sprint-01/t06-scheduler.md) | OrgIntel | 5 | |
+| [ ] | [T7 · Context assembly on wake](./sprint-01/t07-context-assembly.md) | OrgIntel | 5 | |
+| [ ] | [T8 · Effect surface + simulated providers](./sprint-01/t08-effect-surface.md) | Kernel | 1 | |
+| [ ] | [T9 · Staff spawn and supervision](./sprint-01/t09-staff-supervision.md) | OrgIntel / Runtime | 1, 3, 5 | |
+| [ ] | [T10 · CLI owner surface](./sprint-01/t10-cli-owner-surface.md) | Owner surface | 1, 5 | |
+| [ ] | [**T11 · Cosmon — the skeleton is built here**](./sprint-01/t11-cosmon.md) | All | 1, 3–7, 9, 10 | |
+| [ ] | [T12 · Aris](./sprint-01/t12-aris.md) | All | 8, 11 | |
+| [ ] | [T13 · Thymelake](./sprint-01/t13-thymelake.md) | All | 8, 11 | |
+| [ ] | [T14 · Crash and restart harness](./sprint-01/t14-crash-restart-harness.md) | Cross-cutting | 11 | |
+| [ ] | [T15 · Run report, deletion pass, friction backlog](./sprint-01/t15-run-report.md) | Cross-cutting | 11–14 | |
 
 **Start with T3.** It is the sprint's main technical unknown and it blocks T4, T9 and every company.
 
@@ -273,8 +274,10 @@ evidence-driven rather than imagined (§16.4 friction backlog).
    Requiring all three green risks converting a learning sprint into a grinding sprint, and the finding
    is the point.
 5. **Spend ceiling value**, per company and in total, and who sets it.
-6. **Naming.** `ARCHITECTURE.md` says "Helm" throughout while the repo is `restless`. Brand-neutral code
-   is the standing rule; the source-of-truth document should pick one name.
+
+*Resolved: naming.* `ARCHITECTURE.md` now says "Restless" throughout, and §14 open question 1 records
+`restlessd` as the settled name for the stable coordination service. Brand-neutral code remains the
+standing rule — display names come from a brand config applied in one place.
 
 ---
 
