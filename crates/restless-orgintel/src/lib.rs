@@ -347,6 +347,26 @@ impl OrgIntel {
         .await?)
     }
 
+    /// The body of the most recent event of a kind whose body carries a
+    /// given string field value — the effect surface's idempotency replay
+    /// lookup (T8).
+    pub async fn find_event_body(
+        &self,
+        kind: &str,
+        json_field: &str,
+        value: &str,
+    ) -> Result<Option<serde_json::Value>> {
+        let row = sqlx::query(
+            "SELECT body FROM events WHERE kind = $1 AND body->>$2 = $3 ORDER BY id DESC LIMIT 1",
+        )
+        .bind(kind)
+        .bind(json_field)
+        .bind(value)
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(row.map(|row| row.get(0)))
+    }
+
     // ---- scheduler reads (T6) ----
 
     /// The channel internal wakeups travel on. One channel per database;

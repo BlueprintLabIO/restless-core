@@ -2030,6 +2030,7 @@ dependencies = [
  "anyhow",
  "axum",
  "chrono",
+ "reqwest",
  "restless-model-gateway",
  "restless-orgintel",
  "serde",

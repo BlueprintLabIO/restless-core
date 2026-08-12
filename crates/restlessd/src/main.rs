@@ -6,6 +6,7 @@
 
 mod acp;
 mod context;
+mod effect;
 mod exec;
 mod schedule;
 mod gateway;
@@ -44,6 +45,15 @@ struct Request {
     resolution: Option<String>,
     #[serde(default)]
     limit: Option<i64>,
+    // T8 effect fields.
+    #[serde(default)]
+    capability: Option<String>,
+    #[serde(default)]
+    args: Option<serde_json::Value>,
+    #[serde(default)]
+    key: Option<String>,
+    #[serde(default)]
+    actor: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -473,6 +483,38 @@ async fn dispatch(request: Request, daemon: &Daemon) -> Response {
                 Err(error) => Response::err(format!("{error:#}")),
             },
             Err(error) => Response::err(format!("{error:#}")),
+        },
+        // T8: the effect surface. Ungoverned this sprint (accepted risk) —
+        // the receipt and the idempotency replay are what exist.
+        "effect" => match (request.capability, request.key) {
+            (Some(capability), Some(key)) => {
+                let actor = request.actor.as_deref().unwrap_or("owner");
+                match runtime::CompanyConfig::load(&daemon.root, company) {
+                    Ok(config) => match daemon.orgintel.get(company).await {
+                        Ok(org) => match effect::request_effect(
+                            &daemon.root,
+                            &config,
+                            &daemon.gateway,
+                            &org,
+                            &capability,
+                            request.args.unwrap_or(serde_json::Value::Null),
+                            &key,
+                            actor,
+                        )
+                        .await
+                        {
+                            Ok(receipt) => match serde_json::to_value(&receipt) {
+                                Ok(value) => Response::ok(value),
+                                Err(error) => Response::err(format!("encode receipt: {error}")),
+                            },
+                            Err(error) => Response::err(format!("{error:#}")),
+                        },
+                        Err(error) => Response::err(format!("{error:#}")),
+                    },
+                    Err(error) => Response::err(format!("{error:#}")),
+                }
+            }
+            _ => Response::err("effect needs capability and key"),
         },
         other => Response::err(format!("unknown command {other:?}")),
     }
