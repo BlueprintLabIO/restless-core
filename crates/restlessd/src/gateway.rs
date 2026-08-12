@@ -5,7 +5,7 @@
 //! and a ≤1h token — never the provider credential.
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use anyhow::{Context, Result, bail};
 use chrono::{Duration, Utc};
@@ -311,9 +311,4 @@ fn write_private_file(path: &Path, contents: &[u8]) -> Result<()> {
     file.write_all(contents)?;
     file.sync_all()?;
     Ok(())
-}
-
-#[allow(dead_code)] // used by later slices (T4 spawn path)
-pub fn gateway_dir(root: &Path) -> PathBuf {
-    root.join("gateway")
 }
