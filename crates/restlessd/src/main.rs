@@ -7,6 +7,7 @@
 mod acp;
 mod context;
 mod exec;
+mod schedule;
 mod gateway;
 mod runtime;
 
@@ -70,7 +71,7 @@ impl OrgIntelConfig {
 
 /// Lazily ensured per-company OrgIntel handles (one pool per company).
 struct OrgIntelRegistry {
-    database_url: String,
+    pub(crate) database_url: String,
     handles: std::sync::Mutex<HashMap<String, OrgIntel>>,
 }
 
@@ -88,10 +89,10 @@ impl OrgIntelRegistry {
     }
 }
 
-struct Daemon {
-    root: PathBuf,
-    gateway: gateway::GatewayHandle,
-    orgintel: OrgIntelRegistry,
+pub(crate) struct Daemon {
+    pub(crate) root: PathBuf,
+    pub(crate) gateway: gateway::GatewayHandle,
+    pub(crate) orgintel: OrgIntelRegistry,
 }
 
 #[tokio::main]
@@ -124,6 +125,11 @@ async fn main() -> Result<()> {
             handles: std::sync::Mutex::new(HashMap::new()),
         },
     });
+
+    // T6: the scheduler is what makes the company act without the owner
+    // typing — time triggers (exec-set schedules + periodic tick) and
+    // OrgIntel LISTEN/NOTIFY events share one loop.
+    tokio::spawn(schedule::run(std::sync::Arc::clone(&daemon)));
 
     let sock = root.join("restlessd.sock");
     if sock.exists() {

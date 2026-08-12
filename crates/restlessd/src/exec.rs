@@ -236,7 +236,20 @@ async fn record_outcome(org: &OrgIntel, milestone: Uuid, report: &WakeReport) ->
             org.set_commitment_state(milestone, CommitmentState::Abandoned, &report.reason)
                 .await?;
         }
-        Termination::Continue => {}
+        Termination::Continue => {
+            // The Exec's own time-driven trigger (T6): durable in OrgIntel,
+            // so the schedule survives a restlessd restart. A continue with
+            // no minutes leaves nothing; the periodic tick is the net.
+            if let Some(minutes) = report.next_wake_minutes {
+                let fire_at = chrono::Utc::now() + chrono::Duration::minutes(i64::from(minutes));
+                org.emit_event(
+                    "wake_scheduled",
+                    Some("exec"),
+                    serde_json::json!({ "fire_at": fire_at.to_rfc3339(), "minutes": minutes }),
+                )
+                .await?;
+            }
+        }
     }
     Ok(())
 }

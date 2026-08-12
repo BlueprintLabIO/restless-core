@@ -219,6 +219,8 @@ impl OrgIntel {
         .bind(resolution)
         .execute(&self.pool)
         .await?;
+        // Completion NOTIFYs come from the database trigger (migration
+        // 0002): a result lands when its row lands, whoever wrote it (T6).
         Ok(())
     }
 
@@ -243,6 +245,7 @@ impl OrgIntel {
         .bind(body)
         .fetch_one(&self.pool)
         .await?;
+        // Directed-mail NOTIFY comes from the database trigger (0002).
         Ok(row.get(0))
     }
 
@@ -331,6 +334,35 @@ impl OrgIntel {
         .fetch_all(&self.pool)
         .await?)
     }
+
+    // ---- scheduler reads (T6) ----
+
+    /// The channel internal wakeups travel on. One channel per database;
+    /// the payload carries the company (schema) name.
+    pub const NOTIFY_CHANNEL: &'static str = "restless_orgintel";
+
+    /// When the most recent event of a kind happened (e.g. the last wake).
+    pub async fn latest_event_at(&self, kind: &str) -> Result<Option<DateTime<Utc>>> {
+        let row = sqlx::query(
+            "SELECT created_at FROM events WHERE kind = $1 ORDER BY id DESC LIMIT 1",
+        )
+        .bind(kind)
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(row.map(|row| row.get(0)))
+    }
+
+    /// The fire time of the most recently recorded wake schedule, if any.
+    pub async fn latest_wake_schedule(&self) -> Result<Option<DateTime<Utc>>> {
+        let row = sqlx::query(
+            "SELECT (body->>'fire_at')::timestamptz FROM events \
+             WHERE kind = 'wake_scheduled' ORDER BY id DESC LIMIT 1",
+        )
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(row.map(|row| row.get(0)))
+    }
+
 }
 
 #[derive(Debug, Serialize, sqlx::FromRow)]

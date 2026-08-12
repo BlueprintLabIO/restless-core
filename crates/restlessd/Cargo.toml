@@ -20,6 +20,7 @@ restless-orgintel = { path = "../restless-orgintel" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha2 = "0.10"
+sqlx = { version = "0.8", default-features = false, features = ["macros", "postgres", "runtime-tokio", "tls-rustls", "chrono", "uuid"] }
 tokio = { version = "1", features = ["full"] }
 tokio-util = { version = "0.7", features = ["compat"] }
 toml = "0.8"
