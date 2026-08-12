@@ -33,6 +33,22 @@ const TICK_IDLE_MINUTES: i64 = 15;
 /// Per-company wake guard: one wake at a time, however many triggers fire.
 type InFlight = Arc<Mutex<HashSet<String>>>;
 
+/// Releases the in-flight claim on drop — including a panic in the wake,
+/// which would otherwise wedge the company's scheduling silently until a
+/// daemon restart.
+struct WakeGuard {
+    company: String,
+    in_flight: InFlight,
+}
+
+impl Drop for WakeGuard {
+    fn drop(&mut self) {
+        if let Ok(mut guard) = self.in_flight.lock() {
+            guard.remove(&self.company);
+        }
+    }
+}
+
 pub async fn run(daemon: Arc<Daemon>) {
     let in_flight: InFlight = Arc::new(Mutex::new(HashSet::new()));
     let mut listener = connect(&daemon).await;
@@ -222,6 +238,7 @@ async fn fire(daemon: &Arc<Daemon>, in_flight: &InFlight, company: &str, reason:
     let company = company.to_string();
     let reason = reason.to_string();
     tokio::spawn(async move {
+        let _guard = WakeGuard { company: company.clone(), in_flight };
         let outcome = async {
             let config = CompanyConfig::load(&daemon.root, &company)?;
             let org = daemon.orgintel.get(&company).await?;
@@ -246,6 +263,5 @@ async fn fire(daemon: &Arc<Daemon>, in_flight: &InFlight, company: &str, reason:
             ),
             Err(error) => tracing::warn!(company, "scheduled wake failed: {error:#}"),
         }
-        in_flight.lock().expect("in-flight guard").remove(&company);
     });
 }
