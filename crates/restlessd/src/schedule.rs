@@ -30,15 +30,26 @@ const SCAN_INTERVAL: Duration = Duration::from_secs(5);
 /// only catches what fell through (a crash, a continue with no minutes).
 const TICK_IDLE_MINUTES: i64 = 15;
 
-/// Per-company wake guard: one wake at a time, however many triggers fire.
-type InFlight = Arc<Mutex<HashSet<String>>>;
+/// Per-company wake guard: one wake at a time, however many triggers fire —
+/// and whoever asked. This same set backs the owner-typed `restless wake`
+/// path (main.rs), so a manual wake and a scheduled wake can never overlap.
+pub(crate) type InFlight = Arc<Mutex<HashSet<String>>>;
 
 /// Releases the in-flight claim on drop — including a panic in the wake,
 /// which would otherwise wedge the company's scheduling silently until a
 /// daemon restart.
-struct WakeGuard {
+pub(crate) struct WakeGuard {
     company: String,
     in_flight: InFlight,
+}
+
+impl WakeGuard {
+    /// Hold the claim for `company` until drop. The caller must have
+    /// inserted it into the set already (the insert is how contenders
+    /// learn to refuse).
+    pub(crate) fn new(company: &str, in_flight: &InFlight) -> Self {
+        Self { company: company.to_string(), in_flight: Arc::clone(in_flight) }
+    }
 }
 
 impl Drop for WakeGuard {
@@ -50,7 +61,7 @@ impl Drop for WakeGuard {
 }
 
 pub async fn run(daemon: Arc<Daemon>) {
-    let in_flight: InFlight = Arc::new(Mutex::new(HashSet::new()));
+    let in_flight: InFlight = Arc::clone(&daemon.in_flight);
     let mut listener = connect(&daemon).await;
     reconcile_missed_events(&daemon, &in_flight).await;
     let mut scan = tokio::time::interval(SCAN_INTERVAL);
@@ -238,7 +249,7 @@ async fn fire(daemon: &Arc<Daemon>, in_flight: &InFlight, company: &str, reason:
     let company = company.to_string();
     let reason = reason.to_string();
     tokio::spawn(async move {
-        let _guard = WakeGuard { company: company.clone(), in_flight };
+        let _guard = WakeGuard::new(&company, &in_flight);
         let outcome = async {
             let config = CompanyConfig::load(&daemon.root, &company)?;
             let org = daemon.orgintel.get(&company).await?;

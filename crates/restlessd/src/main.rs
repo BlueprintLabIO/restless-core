@@ -122,6 +122,9 @@ pub(crate) struct Daemon {
     pub(crate) gateway: gateway::GatewayHandle,
     pub(crate) orgintel: OrgIntelRegistry,
     pub(crate) staff: staff::StaffRegistry,
+    /// One wake at a time per company, however the wake was requested —
+    /// the scheduler (T6) and the owner-typed socket path share this set.
+    pub(crate) in_flight: schedule::InFlight,
 }
 
 /// TCP port the company containers reach the daemon on (T10). Next to the
@@ -158,6 +161,7 @@ async fn main() -> Result<()> {
             handles: std::sync::Mutex::new(HashMap::new()),
         },
         staff: staff::StaffRegistry::default(),
+        in_flight: std::sync::Arc::new(std::sync::Mutex::new(std::collections::HashSet::new())),
     });
 
     // T9: agent processes outliving the daemon that spawned them are orphans
@@ -359,9 +363,22 @@ async fn dispatch(request: Request, daemon: &Daemon) -> Response {
             Err(error) => Response::err(format!("{error:#}")),
         },
         // T4: one Exec wake — rehydrate, work a turn, decide termination.
+        // One wake at a time per company, whoever asked: a second exec
+        // mid-turn would race the first in the same filesystem. Refuse
+        // honestly rather than queue — queuing is machinery nobody needs.
         "wake" => match runtime::CompanyConfig::load(&daemon.root, company) {
             Ok(config) => match daemon.orgintel.get(company).await {
                 Ok(org) => {
+                    {
+                        let mut claims = daemon.in_flight.lock().expect("in-flight guard");
+                        if !claims.insert(company.to_string()) {
+                            return Response::err(format!(
+                                "a wake is already in flight for {company}; \
+                                 its outcome lands in the event stream"
+                            ));
+                        }
+                    }
+                    let _guard = schedule::WakeGuard::new(company, &daemon.in_flight);
                     let reason = request.reason.as_deref().unwrap_or("owner-requested wake");
                     match exec::wake(&config, &daemon.gateway, &org, reason).await {
                         Ok(report) => {
