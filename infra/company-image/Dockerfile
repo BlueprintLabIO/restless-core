@@ -43,6 +43,12 @@ RUN apt-get update \
 RUN npm install -g @agentclientprotocol/codex-acp@1.1.4 @openai/codex@0.144.5 \
     && npm cache clean --force
 
+# Playwright library for browser-driven acceptance (T11). Uses the Debian
+# chromium installed above — do NOT download Playwright's own browser build.
+# Scripts must pass `executablePath: '/usr/bin/chromium'` to chromium.launch.
+RUN PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 npm install -g playwright@1.62.1 \
+    && npm cache clean --force
+
 RUN groupadd --gid 2000 company \
     && useradd --uid 2000 --gid 2000 --no-create-home --home-dir /company/home company
 
