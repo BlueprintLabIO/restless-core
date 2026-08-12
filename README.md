@@ -36,6 +36,7 @@ we rebuild on the target architecture and lift only proven components from the p
 ```
 ARCHITECTURE.md          target architecture (the v0.9 source of truth — read first)
 CLAUDE.md                working agreement for humans and coding agents
+LLM_CURE.md              failure modes and their cures — how we think; read before designing
 AGENTS.md                symlink → CLAUDE.md (one source of truth)
 docs/
   sprints/               sprint specs (sprint-NN.md); see docs/sprints/README.md

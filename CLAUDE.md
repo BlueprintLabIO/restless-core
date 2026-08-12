@@ -14,11 +14,15 @@ Do not re-import its patterns wholesale — see "What we deliberately leave behi
 
 Complexity is weight. Keep the product as lightweight as possible while still accomplishing its outcomes.
 
-NEVER SUBSTITUTE REGEX FOR REAL JUDGEMENT
-NEVER SUBSTITUTE REGEX FOR REAL JUDGEMENT
-NEVER SUBSTITUTE REGEX FOR REAL JUDGEMENT
+Most of the ways this repo goes wrong reduce to three failures: hedging against risks nobody named,
+reaching for a tool that does not match the problem, and committing to the first approach while
+keeping every approach. The counter, in one line:
 
-Always prefer model calls or real judgement over regex when intelligence or judgement is needed.
+> **Name the risk and accept most of them. Classify the problem before choosing the tool. Branch, run,
+> then purge to one canon.**
+
+This is the working stance. Read [`LLM_CURE.md`](./LLM_CURE.md) before designing or coding — it is the
+canonical home for these frames, why each failure mode happens, and what has already been tried.
 
 ---
 
@@ -82,6 +86,20 @@ legacy `CLAUDE.md` will otherwise pull agents back toward them.
   repeated real scenarios reveal the same need. Do not pursue feature parity with the legacy system.
   Pursue one successful real-company outcome. §16.1, §16.3, §16.6, §17.
 
+## How we decide
+
+Failure modes and their cures live in **[`LLM_CURE.md`](./LLM_CURE.md)**, which is canonical for this
+and should be read before designing or coding. It carries three frames, the diagnosis behind each, what
+we already know does not work, and the levers that are not written rules. In brief:
+
+1. **Name risks and give each a disposition** — accepted, pending fix, guarded, or invariant. Default
+   to accepted; invariant is reserved for irreversible harm. Paranoia is what unnamed risk turns into.
+2. **Classify the problem before choosing the tool** — deterministic or judgement, enumerable or
+   open-ended. Regex where judgement belongs and a state machine where one does not fit are the same
+   error: misclassifying the problem.
+3. **Branch, gather evidence, then purge to one canon** — tunnelling skips the branch, accumulation
+   skips the purge. They are one loop, and the half-executed version is worse than neither.
+
 ## How we work — sprint-driven, two founders
 
 This repo is built in sprints by two founders collaborating on the `dev` branch. The cadence is:
@@ -120,9 +138,6 @@ This repo is built in sprints by two founders collaborating on the `dev` branch.
   `runtime`) are NOT pre-scaffolded — they are grown from the first slice that needs them, per §16.1.
 - **Brand config and the SPA are not in this repo yet** (cofounder ports branding manually). Keep code
   and protocols brand-neutral so a configured name can be applied in one place later.
-- **Committing.** Commit a coherent implementation only after its stated verification is green.
-  Commit messages end with:
-  `Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>`
 - **Pushing** is owner-only; never `git push` without being asked.
 - **Testing style** (carried forward): add automated tests only for key product invariants and
   security/data-integrity boundaries. Do not add tests for implementation details, trivial wiring,
@@ -132,4 +147,6 @@ This repo is built in sprints by two founders collaborating on the `dev` branch.
 - **Verifying.** Prefer headless verification (CLI, API, service-level probe, headless run) with stated
   inputs and expected outcome. Manual visual inspection supplements, it does not replace, a feasible
   headless check.
-- **No regex for judgement.** Where real intelligence is needed, use a model call or human judgement.
+- **Never report green without running it.** No component is described as working — in a commit
+  message, spec, or summary — unless it has been executed with stated inputs and observed output.
+  "Compiles" is not "works"; "tests pass" is not "the company produced the artifact".

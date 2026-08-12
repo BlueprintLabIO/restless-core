@@ -31,6 +31,13 @@ Each sprint is one file: `sprint-NN-short-slug.md`. A complete spec states:
 
 ## First sprint
 
-Not yet written. Per `docs/SALVAGE.md` → "First outcome target", the first sprint should produce a
-browser-deployable build of a minimal exploration–encounter–capture loop (Cosmon, §10 shrunk) as the
-validation slice of ARCHITECTURE.md §15 / §17 step 2.
+[`sprint-01-walking-skeleton.md`](./sprint-01-walking-skeleton.md) — draft, awaiting founder alignment.
+
+A thin end-to-end skeleton of all three layers, running Cosmon, Aris and Thymelake from one directive
+each. Governance is deliberately out; the skeleton is built against Cosmon and the other two are added
+as configuration, so that **the cost of adding companies 2 and 3 measures whether the abstractions are
+real or overfit**. This is ARCHITECTURE.md §17 step 2 with §17 step 5 pulled forward.
+
+Note: this supersedes the single-outcome framing in `docs/SALVAGE.md` → "First outcome target", which
+proposed Cosmon alone. Cosmon remains the company the skeleton is built against and the only one with a
+hard green requirement.
