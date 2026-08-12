@@ -1,0 +1,11 @@
+name = "thymelake"
+mission = """# Thymelake
+
+A QR-ordering service for independent restaurants. Acquire a restaurant,
+configure its menu, launch QR ordering, process orders, and resolve issues
+as one continuous loop. All customers, restaurants and providers are
+simulated this sprint — every external effect goes through the effect
+surface, never direct.
+"""
+spend_ceiling_usd = 10.0
+model = "company-general-v1"

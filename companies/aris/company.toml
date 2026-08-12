@@ -1,0 +1,12 @@
+name = "aris"
+mission = """# Aris
+
+A small education publisher. Sell practice papers to parents: identify the
+strongest segment, offer and channel, and produce evidence for the next
+commercial decision. The operating loop: choose segment → create offer →
+find prospects → outreach → close → deliver → collect objections → refine.
+All outreach and sales are simulated this sprint — every external effect
+goes through the effect surface, never direct.
+"""
+spend_ceiling_usd = 10.0
+model = "company-general-v1"

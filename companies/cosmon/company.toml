@@ -1,0 +1,9 @@
+name = "cosmon"
+mission = """# Cosmon
+
+A small game studio. Build the smallest playable browser game that proves the
+core product can exist: exploration → encounter → capture in one integrated
+loop. Procedural primitives only — no original art pipeline this sprint.
+"""
+spend_ceiling_usd = 10.0
+model = "company-general-v1"

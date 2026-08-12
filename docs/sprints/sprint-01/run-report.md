@@ -30,8 +30,14 @@ evidence gathered during the build — stated inputs, observed output, no live c
 - **Did file + Git work survive crashes without custody machinery?** Machinery-level partial:
   the T9 orphan sweep was observed blocking a crashed staffer's commitment while preserving its
   worktree (staged crash, real worktree, verified on disk). Mid-turn kill on a live run: PENDING (T14).
-- **What did companies 2 and 3 cost to add?** PENDING for the runs; platform cost so far: zero new
-  code. Aris and Thymelake exist as config + personas only.
+- **What did companies 2 and 3 cost to add?** PENDING for the runs; platform cost now *measured*,
+  not estimated: **55 seconds of wall time each, zero code** — one `company.toml`, one persona
+  directory, `restless up`. Schema, container, volume, and in-container CLI identity all provisioned
+  by the existing path and verified live (`docker exec restless-co-aris restless status` →
+  `aris: Running`). The only gap found: Thymelake's `email.send` persona was missing against its
+  ticket's capability list — a docs-level omission, fixed with one file. Cosmon run-state was also
+  verified resume-ready (mid-run commit `62b2ccb` intact on its volume; Playwright acceptance
+  harness smoke-tested against the current build: page loads, canvas renders, zero JS errors).
 - **Strongest ongoing dogfood?** PENDING.
 - **How often did agents fail to report coordination state via the CLI?** PENDING — needs the runs.
 - **Did the Exec terminate on its own judgement?** PENDING.
