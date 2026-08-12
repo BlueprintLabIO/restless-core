@@ -1,7 +1,13 @@
-//! ACP client (sprint 01 T3 canon, grown into the daemon): spawn the pinned
-//! codex-acp binary as an ordinary process inside the company's persistent
-//! container (`docker exec`, §5), speak JSON-RPC over stdio, stream turn
-//! updates, cancel on demand. The session is disposable; the company is not.
+//! ACP client (sprint 01 T3 canon, grown into the daemon): spawn the agent
+//! binary as an ordinary process inside the company's persistent container
+//! (`docker exec`, §5), speak JSON-RPC over stdio, stream turn updates,
+//! cancel on demand. The session is disposable; the company is not.
+//!
+//! The agent is `omp`, which speaks ACP natively and — unlike the codex-acp
+//! binary it replaces — reports per-turn token and dollar usage on the
+//! session stream. That single fact moved the spend fuse out of the HTTP path
+//! (T2's proxy) and up to here, where the daemon already knows which company
+//! the session belongs to.
 
 use std::process::Stdio;
 use std::sync::{Arc, Mutex};
@@ -11,7 +17,7 @@ use agent_client_protocol::{
     schema::{
         ProtocolVersion,
         v1::{
-            AuthenticateRequest, CancelNotification, ContentBlock, InitializeRequest,
+            CancelNotification, ContentBlock, InitializeRequest,
             NewSessionRequest, PermissionOptionKind, PromptRequest, RequestPermissionOutcome,
             RequestPermissionRequest, RequestPermissionResponse, SelectedPermissionOutcome,
             SessionId, SessionNotification, SessionUpdate, TextContent,
@@ -21,12 +27,34 @@ use agent_client_protocol::{
 use anyhow::{Context, Result};
 use tokio_util::compat::{TokioAsyncReadCompatExt as _, TokioAsyncWriteCompatExt as _};
 
-/// Everything a wake needs to point an agent at the gateway (T2): the token
-/// travels in the authenticate `_meta` over stdio — never container env,
-/// never on disk.
-pub struct GatewayAuth {
-    pub base_url: String,
-    pub token: String,
+/// Everything a wake needs to start an agent against a provider.
+///
+/// The agent binary is `omp` (Oh My Pi), which speaks ACP natively and
+/// reports its own token and dollar usage per turn. It resolves credentials
+/// from its process environment, so `provider_key_env` names the variable and
+/// `provider_key` carries the value into `docker exec -e` — the value lives
+/// in the agent process's environment for the life of the turn, not in the
+/// image, the container's persistent env, or any file on the volume.
+pub struct AgentAuth {
+    /// Provider-qualified model, e.g. `zai/glm-5.2`.
+    pub model: String,
+    pub provider_key_env: String,
+    pub provider_key: String,
+}
+
+/// What one turn consumed, as the agent reported it (ACP `UsageUpdate`).
+/// This is the fuse's input and the health gate's load-bearing signal: the
+/// agent knows its own token count and dollar cost, so the daemon no longer
+/// has to sit in the HTTP path parsing SSE tails to find out (T2 → the
+/// spend spool keeps its ledger, loses its proxy).
+#[derive(Debug, Clone, Copy, Default)]
+pub struct TurnUsage {
+    /// Tokens consumed this turn. Zero is the universal failure tell.
+    pub used: u64,
+    /// Context window size the agent is working against.
+    pub size: u64,
+    /// Dollar cost, when the provider priced the turn.
+    pub cost_usd: Option<f64>,
 }
 
 /// One observed turn: the agent's visible text plus the tool calls it made.
@@ -35,6 +63,9 @@ pub struct GatewayAuth {
 pub struct TurnTranscript {
     pub text: String,
     pub tool_calls: Vec<String>,
+    /// Last usage report of the turn; `None` means the agent never sent one,
+    /// which `health::classify_turn` treats exactly like zero.
+    pub usage: Option<TurnUsage>,
 }
 
 impl TurnTranscript {
@@ -47,6 +78,13 @@ impl TurnTranscript {
             }
             SessionUpdate::ToolCall(call) => {
                 self.tool_calls.push(format!("{:?}: {}", call.kind, call.title));
+            }
+            SessionUpdate::UsageUpdate(usage) => {
+                self.usage = Some(TurnUsage {
+                    used: usage.used,
+                    size: usage.size,
+                    cost_usd: usage.cost.as_ref().map(|cost| cost.amount),
+                });
             }
             _ => {}
         }
@@ -100,7 +138,7 @@ impl AgentSession {
 /// container's own env.
 pub async fn with_agent<F, T>(
     container: &str,
-    auth: &GatewayAuth,
+    auth: &AgentAuth,
     workdir: &str,
     actor: &str,
     drive: F,
@@ -114,10 +152,11 @@ where
     let mut child = tokio::process::Command::new("docker")
         .args([
             "exec", "-i", "-u", "company", "-w", "/company",
-            "-e", "CODEX_HOME=/company/home/.codex",
+            "-e", "OMP_HOME=/company/home/.omp",
             "-e", "NO_BROWSER=1",
             "-e", &format!("RESTLESS_ACTOR={actor}"),
-            container, "codex-acp",
+            "-e", &format!("{}={}", auth.provider_key_env, auth.provider_key),
+            container, "omp", "acp", "--model", &auth.model,
         ])
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -131,7 +170,6 @@ where
 
     let transcript = Arc::new(Mutex::new(TurnTranscript::default()));
     let sink = Arc::clone(&transcript);
-    let auth_meta = gateway_meta(auth);
     let workdir = workdir.to_string();
     // connect_with speaks acp::Error; the real anyhow chain is parked here
     // and restored after the connection closes.
@@ -180,6 +218,13 @@ where
         )
         .connect_with(transport, async move |cx: ConnectionTo<Agent>| {
             let step = async {
+                // Client capabilities are left at their defaults, and that is
+                // load-bearing: advertising `fs.writeTextFile` tells the agent
+                // to route file writes back over ACP to us. Probed live — with
+                // fs advertised, omp narrates the write and no file appears,
+                // which reads exactly like the model ignoring instructions.
+                // Agents here work directly on the company volume, so the
+                // client must decline fs. See `declines_client_side_filesystem`.
                 let initialized = cx
                     .send_request(InitializeRequest::new(ProtocolVersion::V1))
                     .block_task()
@@ -191,11 +236,6 @@ where
                     .map(|info| format!("{} v{}", info.name, info.version))
                     .unwrap_or_else(|| "unknown".to_string());
                 tracing::info!(agent = %agent_name, "acp agent initialized");
-
-                cx.send_request(AuthenticateRequest::new("gateway").meta(auth_meta))
-                    .block_task()
-                    .await
-                    .context("acp authenticate (gateway)")?;
 
                 let session = cx
                     .send_request(NewSessionRequest::new(workdir).mcp_servers(vec![]))
@@ -228,18 +268,19 @@ where
     Ok(result?)
 }
 
-/// The exact `_meta` codex-acp's `gateway` auth method consumes (probed from
-/// the installed 1.1.4 source): baseUrl, headers, providerName; the wire
-/// protocol is fixed to openai/responses by the binary.
-fn gateway_meta(auth: &GatewayAuth) -> serde_json::Map<String, serde_json::Value> {
-    let mut meta = serde_json::Map::new();
-    meta.insert(
-        "gateway".to_string(),
-        serde_json::json!({
-            "baseUrl": auth.base_url,
-            "providerName": "restless-gateway",
-            "headers": { "Authorization": format!("Bearer {}", auth.token) },
-        }),
-    );
-    meta
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use agent_client_protocol::schema::v1::ClientCapabilities;
+
+    /// Guards the silent failure that cost a probe cycle: if the client ever
+    /// advertises filesystem capabilities, the agent stops writing to the
+    /// company volume and starts asking us to write for it — and the symptom
+    /// is a turn that looks successful and produces no files.
+    #[test]
+    fn declines_client_side_filesystem() {
+        let capabilities = ClientCapabilities::default();
+        assert!(!capabilities.fs.read_text_file);
+        assert!(!capabilities.fs.write_text_file);
+    }
 }

@@ -1,17 +1,54 @@
-# Sprint 01 run report (DRAFT — runs pending)
+# Sprint 01 run report (DRAFT — Cosmon complete, Aris/Thymelake pending)
 
 Ticket: [t15-run-report.md](./t15-run-report.md). This document is being written incrementally as
-evidence arrives. Sections marked **PENDING** await the T11–T13 company runs and the T14 harness,
-which are blocked on model credit (friction item F1). Everything not so marked is machinery-level
-evidence gathered during the build — stated inputs, observed output, no live company run yet.
+evidence arrives. Sections marked **PENDING** await the T12/T13 company runs and the T14 harness.
+Everything not so marked has been executed with stated inputs and observed output.
 
 ## Recorded per company
 
-| Company | Elapsed | Dollar cost | Owner interventions |
-|---|---|---|---|
-| Cosmon | PENDING | PENDING | PENDING |
-| Aris | PENDING | PENDING | PENDING |
-| Thymelake | PENDING | PENDING | PENDING |
+| Company | Elapsed | Dollar cost | Turns | Owner interventions |
+|---|---|---|---|---|
+| Cosmon | ~4 min (one wake) | **$0.2855** | 1 | 0 during the run |
+| Aris | PENDING | PENDING | | PENDING |
+| Thymelake | PENDING | PENDING | | PENDING |
+
+**Cosmon completed on 2026-08-13** — `restless wake -c cosmon`, agent `omp` 17.2.15 over ACP,
+model `zai/glm-5.2`, terminating `done` on the Exec's own judgement. 61,445 tokens, one turn.
+
+### The runtime swap, measured
+
+The run that exhausted the OpenRouter key and the run that finished are the same company and the
+same mission, so the comparison is direct:
+
+| | sonnet-4 via OpenRouter (partial) | glm-5.2 via omp (complete) |
+|---|---|---|
+| Cost | $4.10 | **$0.2855** |
+| Turns | 74 | 1 |
+| Input:output ratio | 92:1 | n/a (single turn, 30% of a 1M window) |
+| Outcome | 230 LOC + a verification claim that was false | same game, **actually driven in a browser** |
+
+~14x cheaper for a materially better outcome. The cost problem was never the model's price — it was
+74 turns of replayed context, which the earlier report mistook for the cost of the work.
+
+### The finding that matters most
+
+The Exec's first act on the new runtime was to **overturn its own predecessor's verification**:
+
+> Prior entry 0002 ("10/10 checks passed, production-ready") verified only JS syntax via
+> `node --check` and HTML string matching — it never ran the game. A syntax check cannot prove
+> playability.
+
+It then served the game over HTTP, drove it in headless Chromium, and verified at pixel and DOM
+level: canvas dimensions and background by pixel read, animation loop by frame-hash delta over
+400ms, WASD movement by coordinate delta (x 400→510), the encounter band by sampling the status
+line across the transition (`Exploring…` → `Approaching orb…` at d=48px → `Captured orb!`), six
+captures with the counter going 0→6, and — the good one — **respawn sustaining the loop**, proved
+by comparing active-entity pixel mass before (129) and after (131) six captures rather than
+assuming it.
+
+This is `CLAUDE.md`'s "never report green without running it" violated by the agent, then caught
+by the agent. The rule needs to live in the company playbook, not only in the developers' working
+agreement.
 
 ## The questions
 
@@ -89,6 +126,26 @@ PENDING the runs (which paths no company exercised is a run-data lookup). Candid
 Concrete failures observed while doing the sprint's work, in build order. **Fixed** items are
 recorded for the diff's archaeology; **open** items are the sprint-02 platform candidates.
 
+- **F14 (fixed): the substrate could not be told apart from the agent's judgement.** F1, F2, F3,
+  F12 and three failures found during the 2026-08-13 audit-trail review (517 calls against a dead
+  key over 5h; an opencode config pinning a deleted model returning `end_turn` with `used: 0`; an
+  ACP client advertising `fs` capabilities so the agent narrated a write instead of performing it)
+  are **one** failure: substrate health was being answered by parsing model output. Frame 2 says
+  that is a misclassification — disk bytes, container state, HTTP status and token counts are all
+  deterministic. Fixed in `health.rs` as two gates around every wake, with one load-bearing
+  invariant: **a turn that consumed no tokens did not happen, it failed.** Preflight (container
+  state, host and container disk headroom, budget ceiling) runs before any context is assembled or
+  any money spent; postflight classifies the turn by status class and consumption before the
+  termination parser ever sees it. Verified live: with cosmon's container removed, `wake` returned
+  `blocked` / `[container] no container for cosmon; run restless up -c cosmon` having spent nothing.
+  This **deletes** the "unparseable termination" path as the catch-all for provider failure.
+- **F15 (fixed): the fuse sat in the HTTP path only because usage was hard to get.** T2's proxy
+  existed largely to parse token usage off SSE tails (`parse_token_usage`, plus a tripwire for the
+  parse-miss risk). omp reports `UsageUpdate{used, size, cost}` on the ACP stream, where the daemon
+  already knows whose session it is — so the fuse moved up to the session layer
+  (`GatewayHandle::over_ceiling` / `TurnMeter::record`). Trade-off named: the ceiling is now checked
+  per *turn* rather than per *request*, bounding overshoot to one turn. On a $10 ceiling with turns
+  costing cents that is a rounding error, and it buys the proxy's deletion.
 - **F1 (partly fixed, remainder open): provider quota/auth failures are misclassified.** When the
   OpenRouter key hit its limit, every exec turn ended as "unparseable termination" — the provider
   402/403 body never reached the exec or the owner as what it was. Worse, the loop: blocked

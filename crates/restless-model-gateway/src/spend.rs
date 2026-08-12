@@ -49,6 +49,12 @@ pub struct SpendRecord {
     pub model: String,
     pub input_tokens: u64,
     pub output_tokens: u64,
+    /// Total tokens for the turn. The ACP `UsageUpdate` the agent reports is
+    /// a single total, not an input/output split — so turn-metered records
+    /// carry this and leave the split at zero. Defaulted so the 91 records
+    /// written by the HTTP-proxy path still rebuild on boot.
+    #[serde(default)]
+    pub total_tokens: u64,
     pub cost_micro_usd: u64,
     pub occurred_at: DateTime<Utc>,
 }
@@ -156,6 +162,7 @@ impl SpendStore {
             model: "poison-marker".to_owned(),
             input_tokens: 0,
             output_tokens: 0,
+            total_tokens: 0,
             cost_micro_usd: u64::MAX,
             occurred_at: Utc::now(),
         };
@@ -282,6 +289,7 @@ mod tests {
             model: "m".to_owned(),
             input_tokens: 1,
             output_tokens: 1,
+            total_tokens: 0,
             cost_micro_usd: cost,
             occurred_at: Utc::now(),
         }

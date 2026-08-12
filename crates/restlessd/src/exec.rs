@@ -10,12 +10,12 @@
 use anyhow::{Context, Result, bail};
 use restless_orgintel::{CommitmentState, OrgIntel};
 use serde::Serialize;
-use tokio::io::AsyncWriteExt as _;
 use uuid::Uuid;
 
-use crate::acp::{self, AgentSession, GatewayAuth};
+use crate::acp::{self, AgentSession};
 use crate::context::{self, ContextSnapshot};
 use crate::gateway::GatewayHandle;
+use crate::health;
 use crate::runtime::{self, CompanyConfig};
 use crate::staff::SpawnRequest;
 
@@ -85,11 +85,30 @@ pub async fn wake(
     let container = runtime::container_name(&config.name);
     org.add_actor("exec", "exec", "The Exec").await?;
     org.add_actor("owner", "owner", "The Owner").await?;
-    seed_codex_config(&container, &config.model).await?;
     let milestone = ensure_milestone(org, config).await?;
 
-    let minted = gateway.mint_token(config, "exec")?;
-    let auth = GatewayAuth { base_url: minted.base_url_container, token: minted.token };
+    // Preflight: a company whose computer is stopped or whose disk is full
+    // must not be woken. Nothing below this line is free — context assembly
+    // reads the volume and the turn spends money — so the cheap deterministic
+    // checks come first (F2, F3, F12).
+    if let Some(blocked) = health::preflight(&config.name).await? {
+        return blocked_wake(org, milestone, config, &blocked.message()).await;
+    }
+    if let Some((spent, ceiling)) = gateway.over_ceiling(config) {
+        return blocked_wake(
+            org,
+            milestone,
+            config,
+            &format!(
+                "[budget] {} has spent ${spent:.2} of its ${ceiling:.2} ceiling; \
+                 the owner must raise it before work continues",
+                config.name
+            ),
+        )
+        .await;
+    }
+
+    let auth = agent_auth(config)?;
     // T7: gather the snapshot (IO), then assemble (pure, digested). The
     // digest lands in the wake event so the Exec's worldview is auditable.
     let snapshot = gather_snapshot(&container, org, config, reason).await?;
@@ -101,16 +120,106 @@ pub async fn wake(
     )
     .await?;
 
-    let report = acp::with_agent(&container, &auth, "/company", "exec", {
+    let outcome = acp::with_agent(&container, &auth, "/company", "exec", {
         let company = config.name.clone();
         move |session| {
             Box::pin(async move { run_turn(session, &package.text, &company).await })
         }
     })
-    .await?;
+    .await;
+
+    // Postflight. A transport failure and a turn that consumed nothing are
+    // both substrate failures, not the Exec's judgement — classify them
+    // deterministically rather than letting them arrive as prose the
+    // termination parser then fails on (F1).
+    let (report, usage) = match outcome {
+        Ok((report, usage)) => (report, usage),
+        Err(error) => {
+            let text = format!("{error:#}");
+            let blocked = health::classify_turn(None, Some(&text))
+                .unwrap_or_else(|| health::Blocked::transport(&text));
+            return blocked_wake(org, milestone, config, &blocked.message()).await;
+        }
+    };
+
+    if let Some(usage) = usage {
+        gateway.record_turn(&config.name, &auth.model, usage.used, usage.cost_usd);
+        // Cost per outcome is the sprint's headline number and was missing
+        // from every run report: emit it where the run can read it back.
+        org.emit_event(
+            "turn_usage",
+            Some("exec"),
+            serde_json::json!({
+                "model": auth.model,
+                "tokens": usage.used,
+                "context_size": usage.size,
+                "context_used_pct": percent(usage.used, usage.size),
+                "cost_usd": usage.cost_usd,
+            }),
+        )
+        .await?;
+    }
+    if let Some(blocked) = health::classify_turn(usage.map(|usage| usage.used), None) {
+        return blocked_wake(org, milestone, config, &blocked.message()).await;
+    }
 
     record_outcome(org, milestone, &report).await?;
     Ok(report)
+}
+
+/// Context utilisation, rounded. Sprint 01 burned 95% of its dollars on
+/// replayed context without anyone able to see it happening.
+fn percent(used: u64, size: u64) -> u64 {
+    if size == 0 { 0 } else { used.saturating_mul(100) / size }
+}
+
+/// The substrate failed, so the company is blocked on something only the
+/// owner can change. One latched milestone, one mail — never a re-wake loop
+/// (F1: 20 identical mails in 3h before the latch existed).
+async fn blocked_wake(
+    org: &OrgIntel,
+    milestone: Uuid,
+    config: &CompanyConfig,
+    reason: &str,
+) -> Result<WakeReport> {
+    tracing::warn!(company = %config.name, reason, "wake blocked by health gate");
+    let report = WakeReport {
+        company: config.name.clone(),
+        termination: Termination::Blocked,
+        reason: reason.to_string(),
+        next_wake_minutes: None,
+        tool_calls: Vec::new(),
+        said: String::new(),
+        spawn_requests: Vec::new(),
+    };
+    record_outcome(org, milestone, &report).await?;
+    Ok(report)
+}
+
+/// Resolve the provider credential for this company's model. The value is
+/// read from the daemon's own environment and handed to the agent process
+/// through `docker exec -e`; it is never written to the image, the
+/// container's persistent environment, or the volume.
+pub(crate) fn agent_auth(config: &CompanyConfig) -> Result<acp::AgentAuth> {
+    let (provider, _) = config
+        .model
+        .split_once('/')
+        .with_context(|| format!("model {} must be provider-qualified, e.g. zai/glm-5.2", config.model))?;
+    let key_env = match provider {
+        "zai" => "ZAI_API_KEY",
+        "anthropic" => "ANTHROPIC_API_KEY",
+        "openai" => "OPENAI_API_KEY",
+        "moonshot" => "KIMI_API_KEY",
+        "openrouter" => "OPENROUTER_API_KEY",
+        other => bail!("no credential mapping for provider {other}"),
+    };
+    let provider_key = std::env::var(key_env)
+        .with_context(|| format!("{key_env} must be set for model {}", config.model))?;
+    Ok(acp::AgentAuth {
+        model: config.model.clone(),
+        provider_key_env: key_env.to_string(),
+        provider_key,
+    })
 }
 
 /// The full turn inside one ACP session: work prompt, then the termination
@@ -119,7 +228,7 @@ async fn run_turn(
     session: &AgentSession,
     context: &str,
     company: &str,
-) -> Result<WakeReport> {
+) -> Result<(WakeReport, Option<acp::TurnUsage>)> {
     let worked = tokio::time::timeout(WORK_TURN_TIMEOUT, session.prompt(context)).await;
     if worked.is_err() {
         // The wake boundary is system-imposed (§6), not a termination: the
@@ -129,18 +238,25 @@ async fn run_turn(
     }
     worked??;
     let work_transcript = session.take_transcript();
+    // The work turn's usage is what the fuse and the health gate read. The
+    // termination ask that follows is a second, tiny turn on the same session
+    // — it is not what we are measuring.
+    let usage = work_transcript.usage;
 
     let decision = termination_decision(session).await?;
     let said: String = work_transcript.text.chars().take(1_000).collect();
-    Ok(WakeReport {
-        company: company.to_string(),
-        termination: decision.termination,
-        reason: decision.reason,
-        next_wake_minutes: decision.next_wake_minutes,
-        tool_calls: work_transcript.tool_calls,
-        said,
-        spawn_requests: decision.spawn,
-    })
+    Ok((
+        WakeReport {
+            company: company.to_string(),
+            termination: decision.termination,
+            reason: decision.reason,
+            next_wake_minutes: decision.next_wake_minutes,
+            tool_calls: work_transcript.tool_calls,
+            said,
+            spawn_requests: decision.spawn,
+        },
+        usage,
+    ))
 }
 
 /// The end-of-turn ask, shared by the Exec and staff: the decision itself is
@@ -358,22 +474,6 @@ async fn ensure_milestone(org: &OrgIntel, config: &CompanyConfig) -> Result<Uuid
     Ok(id)
 }
 
-/// codex inside the container asks for the gateway-routed adapter model; the
-/// provider selection ("custom-gateway") and its full definition (base URL,
-/// headers carrying the purpose token) are injected per wake by the ACP
-/// gateway auth. config.toml must NOT name model_provider: codex validates
-/// it at load, before the ACP merge lands. No key or token ever touches
-/// this file.
-async fn seed_codex_config(container: &str, model: &str) -> Result<()> {
-    let config = format!("model = \"{model}\"\n");
-    exec_stdin(
-        container,
-        "mkdir -p /company/home/.codex && cat > /company/home/.codex/config.toml",
-        &config,
-    )
-    .await
-}
-
 async fn read_company_file(container: &str, path: &str) -> Result<String> {
     let output = exec_output(container, &format!("cat {path} 2>/dev/null || true")).await?;
     Ok(output)
@@ -400,21 +500,6 @@ async fn exec_output(container: &str, shell: &str) -> Result<String> {
 
 /// Run a shell command with piped stdin (file contents never touch the
 /// command line, so no escaping games).
-async fn exec_stdin(container: &str, shell: &str, input: &str) -> Result<()> {
-    let mut child = tokio::process::Command::new("docker")
-        .args(["exec", "-i", "-u", "company", container, "sh", "-c", shell])
-        .stdin(std::process::Stdio::piped())
-        .spawn()
-        .context("docker exec stdin")?;
-    let mut stdin = child.stdin.take().expect("piped");
-    stdin.write_all(input.as_bytes()).await?;
-    drop(stdin);
-    let output = child.wait_with_output().await?;
-    if !output.status.success() {
-        bail!("exec in {container} failed: {}", String::from_utf8_lossy(&output.stderr));
-    }
-    Ok(())
-}
 
 #[cfg(test)]
 mod tests {

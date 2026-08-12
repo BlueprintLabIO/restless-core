@@ -16,7 +16,7 @@ use std::sync::{Arc, Mutex};
 use anyhow::{Context as _, Result, bail};
 use serde::Serialize;
 
-use crate::acp::{self, GatewayAuth};
+use crate::acp::{self, AgentAuth};
 use crate::exec::{self, Termination};
 use crate::gateway::GatewayHandle;
 use crate::runtime::{self, CompanyConfig};
@@ -158,11 +158,11 @@ async fn spawn_claimed(
         } else {
             "/company".to_string()
         };
-        let minted = gateway.mint_token(config, &actor)?;
-        anyhow::Ok((workdir, minted))
+        let auth = crate::exec::agent_auth(config)?;
+        anyhow::Ok((workdir, auth))
     }
     .await;
-    let (workdir, minted) = match setup {
+    let (workdir, auth) = match setup {
         Ok(pair) => pair,
         Err(error) => {
             let note = format!("spawn failed before the process started: {error:#}");
@@ -176,15 +176,24 @@ async fn spawn_claimed(
         }
     };
 
-    let auth = GatewayAuth { base_url: minted.base_url_container, token: minted.token };
     let company = config.name.clone();
     let name = request.name.clone();
     let task = request.task.clone();
     let container = runtime::container_name(&config.name);
     let org = org.clone();
     let registry = registry.clone();
+    let meter = gateway.meter();
+    let model = auth.model.clone();
     tokio::spawn(async move {
         let outcome = run_staff(&container, &auth, &workdir, &company, &actor, &name, &task).await;
+        // Meter before recording the outcome: staff spend counts against the
+        // company ceiling whether the task succeeded or not.
+        if let Ok((_, _, spent)) = &outcome {
+            for usage in spent {
+                meter.record(&company, &model, usage.used, usage.cost_usd);
+            }
+        }
+        let outcome = outcome.map(|(termination, reason, _)| (termination, reason));
         record_staff_outcome(&org, &actor, &name, commitment, &workdir, outcome).await;
         registry.release(&company, &name);
     });
@@ -197,13 +206,13 @@ async fn spawn_claimed(
 /// envelope is the daemon's deterministic read of it.
 async fn run_staff(
     container: &str,
-    auth: &GatewayAuth,
+    auth: &AgentAuth,
     workdir: &str,
     company: &str,
     actor: &str,
     name: &str,
     task: &str,
-) -> Result<(Termination, String)> {
+) -> Result<(Termination, String, Vec<acp::TurnUsage>)> {
     let prompt = format!(
         "You are {name}, a staff engineer of {company}, spawned for one task.\n\
          Your working directory is {workdir} — it is YOURS: a dedicated git worktree. \
@@ -219,6 +228,7 @@ async fn run_staff(
         Box::pin(async move {
             let deadline = tokio::time::Instant::now() + STAFF_TURN_TIMEOUT;
             let mut next = prompt;
+            let mut spent: Vec<acp::TurnUsage> = Vec::new();
             loop {
                 let prompted =
                     tokio::time::timeout_at(deadline, session.prompt(&next)).await;
@@ -230,7 +240,13 @@ async fn run_staff(
                     Ok(inner) => inner?,
                 }
                 // The work text is observability; the envelope is the record.
-                let _ = session.take_transcript();
+                // The usage is neither — it is the fuse's input, so it is the
+                // one part of the transcript that must not be dropped. Staff
+                // spend is real spend (two per company, T9).
+                let worked = session.take_transcript();
+                if let Some(usage) = worked.usage {
+                    spent.push(usage);
+                }
                 let asked =
                     tokio::time::timeout_at(deadline, session.prompt(exec::TERMINATION_PROMPT)).await;
                 match asked {
@@ -245,7 +261,7 @@ async fn run_staff(
                     Some(decision) if matches!(decision.termination, Termination::Continue) => {
                         next = CONTINUE_PROMPT.to_string();
                     }
-                    Some(decision) => return Ok((decision.termination, decision.reason)),
+                    Some(decision) => return Ok((decision.termination, decision.reason, spent)),
                     None => {
                         tracing::warn!(
                             said = %said.chars().take(600).collect::<String>(),
@@ -254,6 +270,7 @@ async fn run_staff(
                         return Ok((
                             Termination::Blocked,
                             "staff produced no parseable termination decision".to_string(),
+                            spent,
                         ));
                     }
                 }

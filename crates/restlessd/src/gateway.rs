@@ -12,7 +12,7 @@ use chrono::{Duration, Utc};
 use restless_model_gateway::{
     CeilingMap, FileAuditSink, FileUsageStore, GatewayConfig, GatewayState, ModelRate,
     PURPOSE_TOKEN_VERSION, PurposeTokenClaims, PurposeTokenCodec, PurposeTokenLimits, SecretBytes,
-    SpendStore, ceiling_map, load_owner_private_secret, router,
+    SpendRecord, SpendStore, ceiling_map, load_owner_private_secret, router,
 };
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -100,6 +100,49 @@ pub struct GatewayHandle {
     ceilings: CeilingMap,
     /// Port the listener bound, for building base URLs.
     port: u16,
+    /// The spend ledger, shared with the HTTP path. The fuse now also runs at
+    /// the ACP session layer (see `over_ceiling` / `record_turn`), because the
+    /// agent reports its own per-turn cost and the daemon already knows whose
+    /// session it is.
+    spend: std::sync::Arc<SpendStore>,
+}
+
+/// Writes turn costs into the shared spend ledger. Cloneable so supervised
+/// staff processes can meter themselves without borrowing the daemon.
+#[derive(Clone)]
+pub struct TurnMeter {
+    spend: std::sync::Arc<SpendStore>,
+}
+
+impl TurnMeter {
+    /// A turn we cannot account for poisons the company fail-closed, exactly
+    /// as an unaccountable HTTP response did: unaccounted spend and unbounded
+    /// spend are indistinguishable.
+    pub fn record(&self, company: &str, model: &str, used: u64, cost_usd: Option<f64>) {
+        let Some(cost_usd) = cost_usd else {
+            tracing::error!(
+                company,
+                used,
+                "agent reported usage without a cost; poisoning fail-closed"
+            );
+            self.spend.poison(company);
+            return;
+        };
+        let record = SpendRecord {
+            request_id: Uuid::new_v4(),
+            company_id: company.to_owned(),
+            model: model.to_owned(),
+            input_tokens: 0,
+            output_tokens: 0,
+            total_tokens: used,
+            cost_micro_usd: (cost_usd * 1_000_000.0).round().max(0.0) as u64,
+            occurred_at: Utc::now(),
+        };
+        if self.spend.record(&record).is_err() {
+            self.spend.poison(company);
+            tracing::error!(company, "turn spend record failed; company poisoned fail-closed");
+        }
+    }
 }
 
 /// A freshly minted purpose token plus how to reach the gateway.
@@ -154,6 +197,34 @@ impl GatewayHandle {
         })
     }
 
+    /// Pre-turn fuse check: has this company already spent its ceiling?
+    ///
+    /// The HTTP path checked before each *request*; metering per turn means
+    /// checking before each *turn*, which bounds overshoot to one turn rather
+    /// than one request. On a $10 ceiling with turns costing cents that is a
+    /// rounding error, and it buys the deletion of the whole proxy path.
+    /// Returns (spent, ceiling) in USD when the company must not start.
+    #[must_use]
+    pub fn over_ceiling(&self, company: &CompanyConfig) -> Option<(f64, f64)> {
+        self.refresh_ceiling(company);
+        let spent = self.spend.spent_micro_usd(&company.name);
+        let ceiling = (company.spend_ceiling_usd * 1_000_000.0).round().max(0.0) as u64;
+        (spent >= ceiling)
+            .then(|| (spent as f64 / 1_000_000.0, ceiling as f64 / 1_000_000.0))
+    }
+
+    /// A cheap cloneable handle to the ledger, for turns that outlive the
+    /// borrow — staff run in spawned tasks but spend the same budget.
+    #[must_use]
+    pub fn meter(&self) -> TurnMeter {
+        TurnMeter { spend: std::sync::Arc::clone(&self.spend) }
+    }
+
+    /// Record what one turn cost, from the agent's own ACP usage report.
+    pub fn record_turn(&self, company: &str, model: &str, used: u64, cost_usd: Option<f64>) {
+        self.meter().record(company, model, used, cost_usd);
+    }
+
     /// (Re)load one company's ceiling into the fuse map. Unknown companies
     /// have no entry and are refused — the fuse fails closed by absence.
     pub fn refresh_ceiling(&self, company: &CompanyConfig) {
@@ -181,8 +252,10 @@ pub async fn start(root: &Path) -> Result<GatewayHandle> {
         .map_err(|error| anyhow::anyhow!("usage store: {error}"))?;
     let audit = FileAuditSink::new(&dir.join("audit"))
         .map_err(|error| anyhow::anyhow!("audit sink: {error}"))?;
-    let spend = SpendStore::open(&dir.join("spend"))
-        .map_err(|error| anyhow::anyhow!("spend store: {error}"))?;
+    let spend = std::sync::Arc::new(
+        SpendStore::open(&dir.join("spend"))
+            .map_err(|error| anyhow::anyhow!("spend store: {error}"))?,
+    );
     let ceilings = ceiling_map();
     seed_ceilings(root, &ceilings);
 
@@ -200,7 +273,7 @@ pub async fn start(root: &Path) -> Result<GatewayHandle> {
         config,
         std::sync::Arc::new(usage),
         std::sync::Arc::new(audit),
-        std::sync::Arc::new(spend),
+        std::sync::Arc::clone(&spend),
         ceilings.clone(),
     )
     .map_err(|error| anyhow::anyhow!("gateway state: {error}"))?;
@@ -215,7 +288,7 @@ pub async fn start(root: &Path) -> Result<GatewayHandle> {
         }
     });
     tracing::info!(bind = %file_config.bind, "model gateway listening");
-    Ok(GatewayHandle { codec, ceilings, port })
+    Ok(GatewayHandle { codec, ceilings, port, spend })
 }
 
 /// Load every company config's ceiling into the fuse map at boot.

@@ -38,9 +38,18 @@ RUN apt-get update \
         tini \
     && rm -rf /var/lib/apt/lists/*
 
-# The ACP agent binary, pinned to the version live-probed in the T3 spike
-# (docs/sprints/sprint-01/t03-spike-report.md).
-RUN npm install -g @agentclientprotocol/codex-acp@1.1.4 @openai/codex@0.144.5 \
+# The ACP agent binary: omp (Oh My Pi), which speaks ACP natively and reports
+# per-turn token and dollar usage on the session stream — the fact that moved
+# the spend fuse out of the HTTP proxy and up into the daemon.
+#
+# omp's bundle uses `using` declarations, so it needs bun >= 1.3.14; node 24
+# cannot parse it. BUN_INSTALL is a system path so the unprivileged `company`
+# user can execute what root installed.
+ENV BUN_INSTALL=/usr/local/bun
+RUN npm install -g bun@1.3.14 \
+    && bun install -g @oh-my-pi/pi-coding-agent@17.2.15 \
+    && ln -sf ${BUN_INSTALL}/bin/omp /usr/local/bin/omp \
+    && chmod -R a+rX ${BUN_INSTALL} \
     && npm cache clean --force
 
 # Playwright library for browser-driven acceptance (T11). Uses the Debian

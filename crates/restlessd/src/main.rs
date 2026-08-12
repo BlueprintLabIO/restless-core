@@ -5,6 +5,7 @@
 //! one response line.
 
 mod acp;
+mod health;
 mod context;
 mod effect;
 mod exec;

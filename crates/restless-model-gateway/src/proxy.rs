@@ -786,6 +786,7 @@ async fn proxy_inner(
                                             model: models.upstream.clone(),
                                             input_tokens,
                                             output_tokens,
+                                            total_tokens: input_tokens + output_tokens,
                                             cost_micro_usd: rate.cost_micro_usd(
                                                 input_tokens,
                                                 output_tokens,
