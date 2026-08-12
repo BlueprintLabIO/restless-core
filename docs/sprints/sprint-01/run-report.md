@@ -66,6 +66,17 @@ PENDING the runs (which paths no company exercised is a run-data lookup). Candid
 - `restless message --from` (agent-to-agent send) — exercised only in channel tests so far.
 - **Deleted during the review sweep:** `gateway_dir` helper (`restlessd/src/gateway.rs`) — written
   for "later slices", T4 never used it, zero callers. Deletion is product progress, not backlog.
+- **Seed-dir census (2026-08-13, credit-free `find` counts on cosmon's volume).** Three seeded
+  dirs were never touched through cosmon's partial run: `goals/` 0 files, `decisions/` 0,
+  `workspaces/` 0 — and the staff worktree actually landed in `/company/worktrees/` (created on
+  demand by `ensure_worktree`, not seeded). The exec used `org/` (current-plan + journals 0001–0002),
+  `repos/` (57 files), `outputs/` (4 files), `home/` (5,399 — agent config/caches);
+  `projects/marker.txt` and `knowledge/browser-verification.md` are the only files in theirs.
+  `goals/` and `decisions/` duplicate concepts the OrgIntel tables own, and no prompt or playbook
+  names the file dirs. **Disposition: hold deletion until the T12/T13 runs confirm the pattern —
+  one company's partial run is one data point, and this report prices deletions on run data, not
+  single observations.** If confirmed, the entrypoint seed shrinks from 9 dirs to 6 and
+  `workspaces/` becomes an on-demand path like `worktrees/`.
 - T16's `judge!` helper was never built: all three call sites named in its ticket resolved to the
   model judging directly (the agent *is* the judge for termination and staff state; personas *are*
   model calls). The heuristic smell-family grep over the sprint diff comes back clean — every
