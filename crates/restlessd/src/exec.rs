@@ -269,6 +269,12 @@ async fn record_outcome(org: &OrgIntel, milestone: Uuid, report: &WakeReport) ->
     .await?;
     match report.termination {
         Termination::Blocked => {
+            // Latch the milestone Blocked: the tick skips blocked milestones
+            // ("blocked waits on the owner, not on time"), so without this the
+            // company re-wakes every idle window and re-mails the owner the
+            // identical block — observed live: 20 duplicate mails in 3h (F1).
+            org.set_commitment_state(milestone, CommitmentState::Blocked, &report.reason)
+                .await?;
             org.send_message("exec", None, &format!("blocked: {}", report.reason)).await?;
         }
         Termination::Done => {
@@ -280,6 +286,9 @@ async fn record_outcome(org: &OrgIntel, milestone: Uuid, report: &WakeReport) ->
                 .await?;
         }
         Termination::Continue => {
+            // Unlatch: a blocked milestone the Exec has resumed (e.g. after
+            // the owner's reply woke it) rejoins the tick's drive set.
+            org.set_commitment_state(milestone, CommitmentState::Active, "").await?;
             // The Exec's own time-driven trigger (T6): durable in OrgIntel,
             // so the schedule survives a restlessd restart. A continue with
             // no minutes leaves nothing; the periodic tick is the net.

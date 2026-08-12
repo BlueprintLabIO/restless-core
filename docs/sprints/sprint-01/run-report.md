@@ -76,15 +76,15 @@ PENDING the runs (which paths no company exercised is a run-data lookup). Candid
 Concrete failures observed while doing the sprint's work, in build order. **Fixed** items are
 recorded for the diff's archaeology; **open** items are the sprint-02 platform candidates.
 
-- **F1 (open, highest value): provider quota/auth failures are misclassified.** When the OpenRouter
-  key hit its limit, every exec turn ended as "unparseable termination" — the provider 402/403 body
-  never reached the exec or the owner as what it was, and each wake re-mailed the owner an identical
-  "commitment blocked" message. Cost: hours of silent stall; owner inbox spam; a human had to read
-  daemon logs to learn the real cause. Two separable fixes: (a) classify the provider *error
-  channel* deterministically (HTTP status → quota/auth/rate/unknown) and surface it as a first-class
-  wake outcome, not a parse failure; (b) dedup/backoff identical blocked-notifications to the owner.
-  (a) is deterministic classification of a structured channel — frame 2 says that is *not* a model
-  judgement call.
+- **F1 (partly fixed, remainder open): provider quota/auth failures are misclassified.** When the
+  OpenRouter key hit its limit, every exec turn ended as "unparseable termination" — the provider
+  402/403 body never reached the exec or the owner as what it was. Worse, the loop: blocked
+  outcomes never latched the milestone Blocked, so the 15-minute tick re-woke the company forever,
+  re-mailing the owner an identical block each time — **20 identical mails in 3h observed live**.
+  Fixed: Blocked now latches the milestone (tick skips it; owner mail still event-wakes it) and
+  Continue unlatches (commit `exec.rs` this session). Open remainder, sprint-02 S02-T5: classify
+  the provider *error channel* deterministically (HTTP status → quota/auth/rate/unknown) as a
+  first-class wake outcome, not a parse failure — frame 2 says that is not a model judgement call.
 - **F2 (open): host resource exhaustion is invisible until it breaks the run.** The Mac's disk
   filled mid-sprint (build cache + Docker images): cargo failed, then the harness itself, then
   Docker Desktop hung and needed a full restart. The daemon and Postgres survived — but nothing in
