@@ -44,6 +44,12 @@ pub struct GatewayFileConfig {
     /// Adapter model (what agents ask for) → upstream model (what is sent).
     #[serde(default = "default_routes")]
     pub routes: BTreeMap<String, String>,
+    /// Per-call output-token ceiling. Providers pre-authorize against
+    /// `max_output_tokens`; agent runtimes default high (codex: 64000) and a
+    /// key with limited credit 402s every call. 16k covers any turn output
+    /// this sprint produces and keeps pre-authorization small.
+    #[serde(default = "default_max_output_tokens_cap")]
+    pub max_output_tokens_cap: u64,
     /// Price list keyed by upstream model. Approximate by design (T2): the
     /// fuse only needs to bound runaway spend, not reconcile invoices.
     #[serde(default = "default_rates")]
@@ -65,6 +71,9 @@ fn default_routes() -> BTreeMap<String, String> {
         "anthropic/claude-sonnet-4".to_string(),
     )])
 }
+fn default_max_output_tokens_cap() -> u64 {
+    16_384
+}
 fn default_rates() -> BTreeMap<String, ModelRate> {
     BTreeMap::from([(
         "anthropic/claude-sonnet-4".to_string(),
@@ -79,6 +88,7 @@ impl Default for GatewayFileConfig {
             upstream_origin: default_upstream_origin(),
             upstream_path_prefix: default_path_prefix(),
             routes: default_routes(),
+            max_output_tokens_cap: default_max_output_tokens_cap(),
             rates: default_rates(),
         }
     }
@@ -137,8 +147,10 @@ impl GatewayHandle {
         Ok(MintedToken {
             token,
             expires_at: claims.expires_at.to_rfc3339(),
-            base_url_host: format!("http://127.0.0.1:{}", self.port),
-            base_url_container: format!("http://host.docker.internal:{}", self.port),
+            // OpenAI-style API roots: codex appends /responses (and /models)
+            // to whatever base it is given, so the base must include /v1.
+            base_url_host: format!("http://127.0.0.1:{}/v1", self.port),
+            base_url_container: format!("http://host.docker.internal:{}/v1", self.port),
         })
     }
 
@@ -179,6 +191,7 @@ pub async fn start(root: &Path) -> Result<GatewayHandle> {
             .with_context(|| format!("parse upstream_origin {}", file_config.upstream_origin))?,
         upstream_path_prefix: file_config.upstream_path_prefix.clone(),
         model_routes: file_config.routes.clone(),
+        max_output_tokens_cap: file_config.max_output_tokens_cap,
         rates: file_config.rates.clone(),
         provider_key,
         token_codec: codec.clone(),

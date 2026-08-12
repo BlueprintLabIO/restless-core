@@ -11,16 +11,18 @@ Empty stub. Grown from the first sprint slice that needs it.
 """
 
 [dependencies]
+agent-client-protocol = "2.0.0"
 anyhow = "1"
+axum = "0.8"
 chrono = "0.4"
 restless-model-gateway = { path = "../restless-model-gateway" }
 restless-orgintel = { path = "../restless-orgintel" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tokio = { version = "1", features = ["full"] }
+tokio-util = { version = "0.7", features = ["compat"] }
 toml = "0.8"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 url = "2"
 uuid = { version = "1", features = ["v4"] }
-axum = "0.8"

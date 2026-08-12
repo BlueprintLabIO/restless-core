@@ -23,6 +23,13 @@ enum Command {
     Down { company: String },
     /// Company environment status.
     Status { company: String },
+    /// Wake the company's Exec for one turn (rehydrate → work → decide).
+    Wake {
+        company: String,
+        /// Why this wake is happening; defaults to an owner-requested wake.
+        #[arg(long)]
+        reason: Option<String>,
+    },
 }
 
 fn state_root() -> PathBuf {
@@ -35,16 +42,21 @@ fn state_root() -> PathBuf {
 
 fn main() -> Result<()> {
     let cli = Cli::parse();
-    let (cmd, company) = match cli.command {
-        Command::Up { company } => ("up", company),
-        Command::Down { company } => ("down", company),
-        Command::Status { company } => ("status", company),
+    let request = match cli.command {
+        Command::Up { company } => serde_json::json!({ "cmd": "up", "company": company }),
+        Command::Down { company } => serde_json::json!({ "cmd": "down", "company": company }),
+        Command::Status { company } => serde_json::json!({ "cmd": "status", "company": company }),
+        Command::Wake { company, reason } => {
+            serde_json::json!({ "cmd": "wake", "company": company, "reason": reason })
+        }
     };
-    let request = serde_json::json!({ "cmd": cmd, "company": company });
     let response = request_once(&request.to_string())?;
     let parsed: serde_json::Value = serde_json::from_str(&response).context("parse response")?;
     if parsed["ok"].as_bool() == Some(true) {
-        println!("{}", parsed["data"].as_str().unwrap_or("ok"));
+        match &parsed["data"] {
+            serde_json::Value::String(message) => println!("{message}"),
+            other => println!("{}", serde_json::to_string_pretty(other)?),
+        }
         Ok(())
     } else {
         bail!("{}", parsed["error"].as_str().unwrap_or("unknown error"))

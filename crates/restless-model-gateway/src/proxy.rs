@@ -247,6 +247,13 @@ pub struct GatewayConfig {
     /// Explicit adapter-model to upstream-model routes. Absence means exact
     /// passthrough; the gateway never guesses provider prefixes or aliases.
     pub model_routes: BTreeMap<String, String>,
+    /// Per-call output-token ceiling, enforced on `max_output_tokens` in the
+    /// request body — clamped when over, SET when absent (providers
+    /// pre-authorize the model maximum, e.g. 64000, when the field is
+    /// missing, and a key with limited credit 402s every call). The cap is
+    /// the same class of transform as the model route — bounded,
+    /// deterministic, installation-owned spend policy (T2).
+    pub max_output_tokens_cap: u64,
     /// Rate table keyed by upstream model identity (post-route). A request
     /// whose routed model has no rate is refused: if we cannot price a call
     /// we cannot bound its spend (T2 fail-closed).
@@ -501,7 +508,34 @@ pub fn router(state: GatewayState) -> Router {
         .with_state(state)
 }
 
-async fn reject_route(_request: Request) -> Response {
+/// Every refused request is audited and logged with its method and path —
+/// a rejected call is exactly the one we need to see (Sprint 01 friction:
+/// the fallback used to answer without leaving a trace).
+async fn reject_route(State(state): State<GatewayState>, request: Request) -> Response {
+    let method = request.method().clone();
+    let path = request.uri().path().to_owned();
+    tracing::warn!(%method, %path, "model-gateway rejected request: unsupported method or path");
+    if state
+        .audit
+        .record(AuditEvent {
+            request_id: Uuid::new_v4(),
+            occurred_at: Utc::now(),
+            kind: AuditEventKind::Rejected,
+            token_id: None,
+            company_id: None,
+            actor_id: None,
+            execution_id: None,
+            path: format!("{method} {path}"),
+            model: None,
+            upstream_model: None,
+            byte_count: None,
+            upstream_status: None,
+        })
+        .await
+        .is_err()
+    {
+        tracing::error!("failed to persist rejected-route audit event");
+    }
     GatewayError::InvalidRequest("unsupported method or path".into()).into_response()
 }
 
@@ -574,7 +608,13 @@ async fn proxy_inner(
     let body = to_bytes(body, request_limit)
         .await
         .map_err(|_| GatewayError::LimitExceeded)?;
-    let routed = route_body(body, &claims, &state.config.model_routes, request_limit)?;
+    let routed = route_body(
+        body,
+        &claims,
+        &state.config.model_routes,
+        state.config.max_output_tokens_cap,
+        request_limit,
+    )?;
     let models = routed.models;
     let body = routed.body;
 
@@ -838,6 +878,7 @@ fn route_body(
     body: Bytes,
     claims: &PurposeTokenClaims,
     model_routes: &BTreeMap<String, String>,
+    max_output_tokens_cap: u64,
     request_limit: usize,
 ) -> GatewayResult<RoutedBody> {
     #[derive(Deserialize)]
@@ -849,7 +890,14 @@ fn route_body(
     if !claims.allowed_models.contains(&parsed.model) {
         return Err(GatewayError::Forbidden);
     }
-    let Some(upstream_model) = model_routes.get(&parsed.model) else {
+    let upstream_model = model_routes.get(&parsed.model);
+    let requested_cap = serde_json::from_slice::<serde_json::Value>(&body)
+        .ok()
+        .and_then(|value| value.get("max_output_tokens")?.as_u64());
+    // Absent means the provider pre-authorizes the model maximum — enforce
+    // the cap whenever the field is missing or over it.
+    let needs_cap = requested_cap.is_none_or(|requested| requested > max_output_tokens_cap);
+    if upstream_model.is_none() && !needs_cap {
         return Ok(RoutedBody {
             models: RoutedModels {
                 upstream: parsed.model.clone(),
@@ -857,16 +905,24 @@ fn route_body(
             },
             body,
         });
-    };
+    }
     let mut value = serde_json::from_slice::<serde_json::Value>(&body)
         .map_err(|_| GatewayError::InvalidRequest("body must be one JSON object".into()))?;
     let object = value
         .as_object_mut()
         .ok_or_else(|| GatewayError::InvalidRequest("body must be one JSON object".into()))?;
-    drop(object.insert(
-        "model".into(),
-        serde_json::Value::String(upstream_model.clone()),
-    ));
+    if let Some(upstream_model) = upstream_model {
+        drop(object.insert(
+            "model".into(),
+            serde_json::Value::String(upstream_model.clone()),
+        ));
+    }
+    if needs_cap {
+        drop(object.insert(
+            "max_output_tokens".into(),
+            serde_json::Value::from(max_output_tokens_cap),
+        ));
+    }
     let rewritten = serde_json::to_vec(&value)
         .map_err(|_| GatewayError::InvalidRequest("body could not be routed".into()))?;
     if rewritten.len() > request_limit {
@@ -874,8 +930,8 @@ fn route_body(
     }
     Ok(RoutedBody {
         models: RoutedModels {
+            upstream: upstream_model.cloned().unwrap_or_else(|| parsed.model.clone()),
             requested: parsed.model,
-            upstream: upstream_model.clone(),
         },
         body: Bytes::from(rewritten),
     })
@@ -1216,6 +1272,7 @@ mod tests {
             model_routes: BTreeMap::new(),
             provider_key: SecretBytes::new(b"provider-secret-key".to_vec()).unwrap(),
             token_codec: codec,
+            max_output_tokens_cap: 16_384,
             rates: BTreeMap::new(),
         };
         let root = tempfile::tempdir().unwrap();
@@ -1263,6 +1320,7 @@ mod tests {
                     "model-gateway",
                 )
                 .unwrap(),
+                max_output_tokens_cap: 16_384,
                 rates: BTreeMap::new(),
             };
             assert!(config.validate().is_err());
@@ -1306,16 +1364,61 @@ mod tests {
             "gpt-test".into(),
             "vendor/a-much-longer-upstream-model:free".into(),
         )]);
+        // Route + cap insertion grows the body past the signed limit.
         assert!(matches!(
-            route_body(original.clone(), &claims, &routes, original.len()),
+            route_body(original.clone(), &claims, &routes, 16_384, original.len()),
             Err(GatewayError::LimitExceeded)
         ));
 
+        // A body already carrying an in-cap max_output_tokens and needing no
+        // route passes through byte-for-byte.
+        let capped = Bytes::from_static(br#"{"model":"gpt-test","max_output_tokens":100}"#);
         let passthrough =
-            route_body(original.clone(), &claims, &BTreeMap::new(), original.len()).unwrap();
-        assert_eq!(passthrough.body, original);
+            route_body(capped.clone(), &claims, &BTreeMap::new(), 16_384, capped.len()).unwrap();
+        assert_eq!(passthrough.body, capped);
         assert_eq!(passthrough.models.requested, "gpt-test");
         assert_eq!(passthrough.models.upstream, "gpt-test");
+    }
+
+    #[test]
+    fn max_output_tokens_is_clamped_to_the_installation_cap() {
+        let now = Utc::now();
+        let claims = claims(now);
+        // Over the cap: rewritten down, model untouched when no route exists.
+        let over = Bytes::from_static(
+            br#"{"model":"gpt-test","input":"hello","max_output_tokens":64000}"#,
+        );
+        let clamped = route_body(over, &claims, &BTreeMap::new(), 16_384, 4_096).unwrap();
+        let value: serde_json::Value = serde_json::from_slice(&clamped.body).unwrap();
+        assert_eq!(value["max_output_tokens"], 16_384);
+        assert_eq!(value["model"], "gpt-test");
+        assert_eq!(clamped.models.upstream, "gpt-test");
+
+        // At or under the cap: byte-for-byte passthrough. Absent: the cap is
+        // SET (an absent field means the provider pre-authorizes the model
+        // maximum — that is the whole reason this transform exists).
+        for body in [
+            &br#"{"model":"gpt-test","max_output_tokens":16384}"#[..],
+            &br#"{"model":"gpt-test","max_output_tokens":100}"#[..],
+        ] {
+            let routed =
+                route_body(Bytes::copy_from_slice(body), &claims, &BTreeMap::new(), 16_384, 4_096)
+                    .unwrap();
+            assert_eq!(routed.body.as_ref(), body);
+        }
+        let absent = Bytes::from_static(br#"{"model":"gpt-test","input":"hello"}"#);
+        let capped = route_body(absent, &claims, &BTreeMap::new(), 16_384, 4_096).unwrap();
+        let value: serde_json::Value = serde_json::from_slice(&capped.body).unwrap();
+        assert_eq!(value["max_output_tokens"], 16_384);
+        assert_eq!(value["model"], "gpt-test");
+
+        // Clamp composes with an explicit model route.
+        let routes = BTreeMap::from([("gpt-test".into(), "vendor/frontier-model:free".into())]);
+        let over = Bytes::from_static(br#"{"model":"gpt-test","max_output_tokens":99999}"#);
+        let both = route_body(over, &claims, &routes, 16_384, 4_096).unwrap();
+        let value: serde_json::Value = serde_json::from_slice(&both.body).unwrap();
+        assert_eq!(value["max_output_tokens"], 16_384);
+        assert_eq!(value["model"], "vendor/frontier-model:free");
     }
 
     #[test]
@@ -1330,6 +1433,7 @@ mod tests {
                 "model-gateway",
             )
             .unwrap(),
+            max_output_tokens_cap: 16_384,
             rates: BTreeMap::new(),
         };
         let debug = format!("{config:?}");
@@ -1346,6 +1450,7 @@ mod tests {
                 "model-gateway",
             )
             .unwrap(),
+            max_output_tokens_cap: 16_384,
             rates: BTreeMap::new(),
         };
         let root = tempfile::tempdir().unwrap();
@@ -1397,6 +1502,7 @@ mod tests {
                 model_routes: BTreeMap::new(),
                 provider_key: SecretBytes::new(b"provider-secret-key".to_vec()).unwrap(),
                 token_codec: codec,
+                max_output_tokens_cap: 16_384,
                 rates: fixture_rates(),
             },
             Arc::new(MemoryUsageStore::default()),
@@ -1465,6 +1571,7 @@ mod tests {
                 )]),
                 provider_key: SecretBytes::new(b"provider-secret-key".to_vec()).unwrap(),
                 token_codec: codec,
+                max_output_tokens_cap: 16_384,
                 rates: fixture_rates(),
             },
             Arc::new(MemoryUsageStore::default()),
@@ -1510,6 +1617,7 @@ mod tests {
                 model_routes: BTreeMap::new(),
                 provider_key: SecretBytes::new(b"provider-secret-key".to_vec()).unwrap(),
                 token_codec: codec,
+                max_output_tokens_cap: 16_384,
                 rates: fixture_rates(),
             },
             Arc::new(MemoryUsageStore::default()),
@@ -1548,6 +1656,7 @@ mod tests {
                 model_routes: BTreeMap::new(),
                 provider_key: SecretBytes::new(b"provider-secret-key".to_vec()).unwrap(),
                 token_codec: codec,
+                max_output_tokens_cap: 16_384,
                 rates: fixture_rates(),
             },
             Arc::new(MemoryUsageStore::default()),
@@ -1588,6 +1697,7 @@ mod tests {
                 model_routes: BTreeMap::new(),
                 provider_key: SecretBytes::new(b"provider-secret-key".to_vec()).unwrap(),
                 token_codec: codec,
+                max_output_tokens_cap: 16_384,
                 rates: fixture_rates(),
             },
             Arc::new(MemoryUsageStore::default()),
@@ -1630,6 +1740,7 @@ mod tests {
                 model_routes: BTreeMap::new(),
                 provider_key: SecretBytes::new(b"provider-secret-key".to_vec()).unwrap(),
                 token_codec: codec,
+                max_output_tokens_cap: 16_384,
                 rates: fixture_rates(),
             },
             Arc::new(MemoryUsageStore::default()),
@@ -1676,6 +1787,7 @@ mod tests {
                 model_routes: BTreeMap::new(),
                 provider_key: SecretBytes::new(b"provider-secret-key".to_vec()).unwrap(),
                 token_codec: codec,
+                max_output_tokens_cap: 16_384,
                 rates: fixture_rates(),
             },
             Arc::new(MemoryUsageStore::default()),

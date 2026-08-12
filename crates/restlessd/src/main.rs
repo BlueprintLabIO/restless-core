@@ -4,6 +4,8 @@
 //! the embedded model gateway (T2). JSON-lines protocol: one request line,
 //! one response line.
 
+mod acp;
+mod exec;
 mod gateway;
 mod runtime;
 
@@ -20,6 +22,8 @@ use tokio::net::UnixListener;
 struct Request {
     cmd: String,
     company: Option<String>,
+    #[serde(default)]
+    reason: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -201,6 +205,23 @@ async fn dispatch(request: Request, daemon: &Daemon) -> Response {
                     "schema": org.schema(),
                     "tables": tables,
                 })),
+                Err(error) => Response::err(format!("{error:#}")),
+            },
+            Err(error) => Response::err(format!("{error:#}")),
+        },
+        // T4: one Exec wake — rehydrate, work a turn, decide termination.
+        "wake" => match runtime::CompanyConfig::load(&daemon.root, company) {
+            Ok(config) => match daemon.orgintel.get(company).await {
+                Ok(org) => {
+                    let reason = request.reason.as_deref().unwrap_or("owner-requested wake");
+                    match exec::wake(&config, &daemon.gateway, &org, reason).await {
+                        Ok(report) => match serde_json::to_value(&report) {
+                            Ok(value) => Response::ok(value),
+                            Err(error) => Response::err(format!("encode report: {error}")),
+                        },
+                        Err(error) => Response::err(format!("{error:#}")),
+                    }
+                }
                 Err(error) => Response::err(format!("{error:#}")),
             },
             Err(error) => Response::err(format!("{error:#}")),
