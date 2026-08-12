@@ -12,7 +12,14 @@ Empty stub. Grown from the first sprint slice that needs it.
 
 [dependencies]
 anyhow = "1"
+chrono = "0.4"
+restless-model-gateway = { path = "../restless-model-gateway" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tokio = { version = "1", features = ["full"] }
 toml = "0.8"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+url = "2"
+uuid = { version = "1", features = ["v4"] }
+axum = "0.8"

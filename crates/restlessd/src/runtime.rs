@@ -11,6 +11,10 @@ use tokio::io::AsyncWriteExt;
 
 pub const COMPANY_IMAGE: &str = "restless-company-image:latest";
 
+/// The adapter model companies route through by default (T2). The gateway's
+/// route table maps it to an upstream model; agents never name upstreams.
+pub const DEFAULT_MODEL: &str = "company-general-v1";
+
 /// One company's identity and configuration, as a file — not a table (sprint
 /// spec, kernel slice). Lives at `$RESTLESS_HOME/companies/<name>.toml`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -32,7 +36,7 @@ fn default_ceiling() -> f64 {
     10.0
 }
 fn default_model() -> String {
-    "company-general-v1".to_string()
+    DEFAULT_MODEL.to_string()
 }
 
 impl CompanyConfig {
