@@ -19,6 +19,14 @@ Elapsed time, dollar cost, owner-intervention count.
 - Did file + Git work survive agent crashes intact, without custody machinery?
 - **What did companies 2 and 3 cost to add, relative to company 1?** This is the sprint's primary measurement.
 - Which company is the strongest ongoing dogfood? (Answers ARCHITECTURE.md §14 open question 12 empirically rather than by argument.)
+- How often did agents fail to report coordination state through the CLI, leaving OrgIntel blind? (T10 accepts this will happen; the rate is what tells us whether prompt, playbook or tooling is the right response in sprint 02.)
+- Did the Exec terminate on its own judgement, or did runs end at the spend ceiling? (T4)
+
+### Assess the negative claim explicitly
+
+The clean-slate decision rests on a claim this sprint is the first real test of: **that a company runs without the legacy machinery** — no universal command enum, no append-everything ledger, no content-addressed custody, no bespoke workflow engine.
+
+So answer directly: did we have to reinvent any of them? If artifact handoff quietly grew a custody protocol, or retries grew a workflow state machine, or coordination grew a universal command envelope, **say so plainly.** The rebuild premise is better falsified in six weeks than in six months, and a run report that only records what worked cannot do that.
 
 ### The deletion pass
 

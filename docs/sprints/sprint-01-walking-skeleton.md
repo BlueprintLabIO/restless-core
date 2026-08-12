@@ -20,6 +20,25 @@ one company for three sprints is an ontology we cannot evaluate. Running Cosmon,
 together is the cheapest available test of whether the small §4.4 vocabulary survives building,
 selling, and operating.
 
+### What this actually proves
+
+Sprint 01 does not prove the company works. It proves **the substrate does not get in the way**, and
+finds out where it does. Four claims are stacked here, with very different confidence available, and
+they are worth keeping separate — the trap is finishing with everything green and believing we proved
+the third when we only proved the first.
+
+| Claim | What it says | Sprint 01 gives us |
+|---|---|---|
+| **Substrate** | A persistent company computer plus a persistent Exec identity lets multi-turn work survive crashes and restarts | Settles it outright — mechanically verifiable |
+| **Ontology** | The small §4.4 vocabulary is sufficient across materially different company types | Strong evidence, not proof. This is what three companies tests |
+| **Autonomy** | An Exec turns a vague directive into a useful artifact without the owner | **Weak test only** — everything is simulated and Cosmon is shrunk, so "useful" is carrying a lot of weight |
+| **The negative claim** | A company runs *without* the legacy machinery: no universal command enum, no ledger, no custody, no workflow engine | First real evidence. The entire clean-slate decision rests on this |
+
+The negative claim is the most consequential and the easiest to lose track of. If we end the sprint
+having reinvented custody to make artifact handoff work, or a retry state machine to make failure
+recoverable, the rebuild premise is in trouble — and we want to know that now. T15 assesses it
+explicitly.
+
 ### The primary measurement
 
 **Build the skeleton against Cosmon. Then add Aris and Thymelake as configuration, prompts and
@@ -135,6 +154,24 @@ second product. The company must not need different logic for a simulated provid
 versioning, competency estimates, WIP limits, review routing. All §4.5 intelligence modules beyond a
 minimal Exec planner wait for observed friction.
 
+### How layers 2 and 3 connect
+
+**There is no gateway between OrgIntel and the runtime, deliberately.** §1 calls the layer diagram "a
+responsibility and trust map, not a mandatory call chain"; §4.7 forbids OrgIntel from gating filesystem
+writes or requiring work to pass through its API. A mediating proxy here would recreate the legacy
+per-turn fence.
+
+Agents reach layer 3 for free — their native file, shell, Git and browser tools run inside the company
+container by consequence of process placement, not by routing we build. Layer 2 is reached by prompt
+context on the way in (T7) and by the `restless` CLI over the agent's bash tool on the way out (T10).
+Exactly three channels cross the container boundary: ACP stdio, the unix socket, and HTTP to the model
+gateway. The trust boundary is the socket, not the binary.
+
+The accepted consequence: **OrgIntel is not authoritative about what happened.** It learns from agent
+reports, the event stream, and reconciliation against files, Git and processes (§4.8). Stale or blind
+coordination state is not an incident (§2.5), and a completed artifact stays valid when its commitment
+record disagrees (§4.7). Full reasoning in [T10](./sprint-01/t10-cli-owner-surface.md).
+
 ### Runtime
 
 **In:**
@@ -228,14 +265,20 @@ T3 ACP spike ──┬── T1 container ──┬── T4 Exec ── T7 cont
 | [ ] | [T7 · Context assembly on wake](./sprint-01/t07-context-assembly.md) | OrgIntel | 5 | |
 | [ ] | [T8 · Effect surface + simulated providers](./sprint-01/t08-effect-surface.md) | Kernel | 1 | |
 | [ ] | [T9 · Staff spawn and supervision](./sprint-01/t09-staff-supervision.md) | OrgIntel / Runtime | 1, 3, 5 | |
-| [ ] | [T10 · CLI owner surface](./sprint-01/t10-cli-owner-surface.md) | Owner surface | 1, 5 | |
+| [ ] | [**T10 · CLI — owner surface *and* agent path to layer 2**](./sprint-01/t10-cli-owner-surface.md) | Owner surface / OrgIntel | 1, 5 | |
 | [ ] | [**T11 · Cosmon — the skeleton is built here**](./sprint-01/t11-cosmon.md) | All | 1, 3–7, 9, 10 | |
 | [ ] | [T12 · Aris](./sprint-01/t12-aris.md) | All | 8, 11 | |
 | [ ] | [T13 · Thymelake](./sprint-01/t13-thymelake.md) | All | 8, 11 | |
 | [ ] | [T14 · Crash and restart harness](./sprint-01/t14-crash-restart-harness.md) | Cross-cutting | 11 | |
 | [ ] | [T15 · Run report, deletion pass, friction backlog](./sprint-01/t15-run-report.md) | Cross-cutting | 11–14 | |
+| [ ] | [T16 · Judgement helper](./sprint-01/t16-judgement-helper.md) | Kernel-adjacent | 2 | |
 
-**Start with T3.** It is the sprint's main technical unknown and it blocks T4, T9 and every company.
+**Start with T3.** It is the sprint's main technical unknown, it blocks T4, T9 and every company, and it
+carries the blocking pre-check on whether the chosen agent binary can even be pointed at our gateway —
+which, if it fails, invalidates T2's key-isolation story.
+
+**T16 lands early, before T4 and T9.** Both of those contain judgement calls, and if the helper does not
+exist when they are written, heuristics will be written instead.
 
 Since this is the first sprint, no ticket makes prior machinery deletable. The §16.7 "what this makes
 deletable" slot is answered honestly as *nothing yet* — except T3, which deletes its own losing branch,
