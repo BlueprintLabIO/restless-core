@@ -23,6 +23,14 @@ use crate::staff::SpawnRequest;
 /// is not a termination decision: the next wake rehydrates and continues.
 const WORK_TURN_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(20 * 60);
 
+/// Bound on the end-of-turn ask: the answer is one line of JSON, so a
+/// timeout means the agent wedged (e.g. launched a hanging tool) rather
+/// than that the decision needs more thought. Without a bound, a wedged
+/// termination turn holds the wake guard forever and silently stops the
+/// company's scheduling — the same failure family as the work-turn timeout
+/// above exists to bound.
+const TERMINATION_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2 * 60);
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Termination {
@@ -150,10 +158,32 @@ pub(crate) const TERMINATION_PROMPT: &str = "The turn is ending now. Based on ev
     - abandon: the work is not worth continuing — say why";
 
 /// Ask the Exec to end the turn explicitly. One retry on an unparseable
-/// envelope; a second failure is blocked-on-owner (surface, never spin).
+/// envelope; a second failure is blocked-on-owner (surface, never spin). A
+/// timeout is neither: the work already happened and is on disk, so record
+/// Continue with no schedule and let the periodic tick re-wake — the next
+/// wake is a fresh session, and a machinery stall must not consume owner
+/// attention as a fake blockage.
 async fn termination_decision(session: &AgentSession) -> Result<TerminationDecision> {
     for attempt in 0..2 {
-        session.prompt(TERMINATION_PROMPT).await?;
+        let prompted =
+            tokio::time::timeout(TERMINATION_TIMEOUT, session.prompt(TERMINATION_PROMPT)).await;
+        let Ok(prompted) = prompted else {
+            let _ = session.cancel().await;
+            tracing::warn!(
+                timeout_s = TERMINATION_TIMEOUT.as_secs(),
+                "termination decision timed out; continuing on the tick"
+            );
+            return Ok(TerminationDecision {
+                termination: Termination::Continue,
+                reason: format!(
+                    "termination decision timed out after {}s",
+                    TERMINATION_TIMEOUT.as_secs()
+                ),
+                next_wake_minutes: None,
+                spawn: vec![],
+            });
+        };
+        prompted?;
         let transcript = session.take_transcript();
         match parse_termination(&transcript.text) {
             Some(parsed) => return Ok(parsed),
