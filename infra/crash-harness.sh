@@ -55,9 +55,11 @@ echo "== phase 1: kill exec mid-turn =="
 before_commit=$(docker exec -u company "$CONTAINER" \
   sh -c 'git -C /company/repos/*/ rev-parse HEAD' 2>/dev/null | head -1 || true)
 
-"$CLI" wake -c "$COMPANY" >/dev/null 2>&1 || true   # kick a turn; async
+"$CLI" wake -c "$COMPANY" >/dev/null 2>&1 &   # wake is synchronous — background it
+WAKE_PID=$!
 wait_for_agent "" || fail "exec process never appeared — is a run in progress?"
 docker exec "$CONTAINER" sh -c 'pkill -9 -f "codex[-]acp" || true'
+wait "$WAKE_PID" 2>/dev/null || true           # reaps the failed wake
 sleep 3
 
 # The wake must end in a recorded failure, not silence: commitment state is
@@ -66,11 +68,13 @@ sql "select count(*) from ${COMPANY}.events where kind='wake' and created_at > n
   | grep -q . || echo "note: no wake event row — check daemon log for the failure record"
 
 # Recovery: next wake rehydrates from OrgIntel + files and continues.
-"$CLI" wake -c "$COMPANY" >/dev/null 2>&1 || true
+"$CLI" wake -c "$COMPANY" >/dev/null 2>&1 &    # background; assert on state, not output
+RECOVERY_WAKE=$!
 sleep 5
 [ -n "$(sql "select id from ${COMPANY}.commitments where state='active' limit 1")" ] \
   && pass "exec killed mid-turn; milestone still active and resumable" \
   || fail "no active commitment after exec kill — continuity lost"
+wait "$RECOVERY_WAKE" 2>/dev/null || true
 
 # ---------------------------------------------------------------- phase 2
 # Kill a staff process mid-turn. Requires a staffer to be running — trigger
