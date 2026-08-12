@@ -149,14 +149,33 @@ async fn spawn_claimed(
         .await?;
 
     // The worktree exists before the process does, and survives it: crash
-    // recovery is "the worktree is where the work is" (§5.4).
-    let workdir = if let Some(repo) = &request.repo {
-        ensure_worktree(config, &request.name, repo).await?
-    } else {
-        "/company".to_string()
+    // recovery is "the worktree is where the work is" (§5.4). If anything
+    // fails BEFORE the process launches, the commitment must not stay
+    // Active — there is no process whose outcome will ever move it.
+    let setup = async {
+        let workdir = if let Some(repo) = &request.repo {
+            ensure_worktree(config, &request.name, repo).await?
+        } else {
+            "/company".to_string()
+        };
+        let minted = gateway.mint_token(config, &actor)?;
+        anyhow::Ok((workdir, minted))
+    }
+    .await;
+    let (workdir, minted) = match setup {
+        Ok(pair) => pair,
+        Err(error) => {
+            let note = format!("spawn failed before the process started: {error:#}");
+            if let Err(e) = org
+                .set_commitment_state(commitment, restless_orgintel::CommitmentState::Blocked, &note)
+                .await
+            {
+                tracing::warn!("failed to block unlaunched staff commitment: {e:#}");
+            }
+            return Err(error);
+        }
     };
 
-    let minted = gateway.mint_token(config, &actor)?;
     let auth = GatewayAuth { base_url: minted.base_url_container, token: minted.token };
     let company = config.name.clone();
     let name = request.name.clone();

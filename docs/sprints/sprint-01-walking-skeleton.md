@@ -271,7 +271,7 @@ T3 ACP spike ──┬── T1 container ──┬── T4 Exec ── T7 cont
 | [ ] | [T13 · Thymelake](./sprint-01/t13-thymelake.md) | All | 8, 11 | |
 | [ ] | [T14 · Crash and restart harness](./sprint-01/t14-crash-restart-harness.md) | Cross-cutting | 11 | |
 | [ ] | [T15 · Run report, deletion pass, friction backlog](./sprint-01/t15-run-report.md) | Cross-cutting | 11–14 | |
-| [ ] | [T16 · Judgement helper](./sprint-01/t16-judgement-helper.md) | Kernel-adjacent | 2 | |
+| [ ] | [T16 · Judgement helper](./sprint-01/t16-judgement-helper.md) | Kernel-adjacent | 2 | disposition: [run-report](./sprint-01/run-report.md) |
 
 **Start with T3.** It is the sprint's main technical unknown, it blocks T4, T9 and every company, and it
 carries the blocking pre-check on whether the chosen agent binary can even be pointed at our gateway —
