@@ -41,6 +41,16 @@ agent_pids() { # <cwd-substring or empty>
     done' | { [ -n "${1:-}" ] && grep "$1" | awk '{print $1}' || awk '{print $1}'; }
 }
 
+# The exec's agent processes specifically: workdir is exactly /company
+# (staff work in /company/worktrees/<name>). A substring filter cannot
+# say this — "/company" is a prefix of every staff worktree too.
+exec_pids() {
+  docker exec "$CONTAINER" sh -c '
+    for p in $(pgrep -f "codex[-]acp" || true); do
+      [ "$(readlink "/proc/$p/cwd" 2>/dev/null)" = "/company" ] && echo "$p"
+    done'
+}
+
 wait_for_agent() { # <cwd-substring or empty> — polls 60s for a turn in flight
   for _ in $(seq 1 30); do
     [ -n "$(agent_pids "${1:-}")" ] && return 0
@@ -49,16 +59,29 @@ wait_for_agent() { # <cwd-substring or empty> — polls 60s for a turn in flight
   return 1
 }
 
+wait_for_exec() { # polls 60s for the exec's own process (cwd /company)
+  for _ in $(seq 1 30); do
+    [ -n "$(exec_pids)" ] && return 0
+    sleep 2
+  done
+  return 1
+}
+
 # ---------------------------------------------------------------- phase 1
 # Kill the Exec mid-turn. Requires the exec to be working (trigger a wake).
+# Target ONLY the exec's process: a blanket pkill would also kill any staff
+# mid-task, doing phase 2's work silently and leaving phase 2 nothing to
+# assert against.
 echo "== phase 1: kill exec mid-turn =="
 before_commit=$(docker exec -u company "$CONTAINER" \
   sh -c 'git -C /company/repos/*/ rev-parse HEAD' 2>/dev/null | head -1 || true)
 
 "$CLI" wake -c "$COMPANY" >/dev/null 2>&1 &   # wake is synchronous — background it
 WAKE_PID=$!
-wait_for_agent "" || fail "exec process never appeared — is a run in progress?"
-docker exec "$CONTAINER" sh -c 'pkill -9 -f "codex[-]acp" || true'
+wait_for_exec || fail "exec process never appeared — is a run in progress?"
+for p in $(exec_pids); do
+  docker exec "$CONTAINER" kill -9 "$p" || true
+done
 wait "$WAKE_PID" 2>/dev/null || true           # reaps the failed wake
 sleep 3
 
@@ -67,13 +90,15 @@ sleep 3
 sql "select count(*) from ${COMPANY}.events where kind='wake' and created_at > now() - interval '5 minutes'" \
   | grep -q . || echo "note: no wake event row — check daemon log for the failure record"
 
-# Recovery: next wake rehydrates from OrgIntel + files and continues.
+# Recovery: next wake rehydrates from OrgIntel + files and continues. The
+# assertion is about the EXEC's milestone specifically — any other open
+# commitment passing instead would make this vacuous.
 "$CLI" wake -c "$COMPANY" >/dev/null 2>&1 &    # background; assert on state, not output
 RECOVERY_WAKE=$!
 sleep 5
-[ -n "$(sql "select id from ${COMPANY}.commitments where state='active' limit 1")" ] \
-  && pass "exec killed mid-turn; milestone still active and resumable" \
-  || fail "no active commitment after exec kill — continuity lost"
+[ -n "$(sql "select id from ${COMPANY}.commitments where owner_id='exec' and state in ('proposed','active') limit 1")" ] \
+  && pass "exec killed mid-turn; milestone still open and resumable" \
+  || fail "exec milestone not open after exec kill — continuity lost"
 wait "$RECOVERY_WAKE" 2>/dev/null || true
 
 # ---------------------------------------------------------------- phase 2
