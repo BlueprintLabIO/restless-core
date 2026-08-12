@@ -256,9 +256,9 @@ T3 ACP spike ──┬── T1 container ──┬── T4 Exec ── T7 cont
 
 | ✓ | Ticket | Layer | Depends on | Commit |
 |---|---|---|---|---|
-| [ ] | [T1 · Company image + container lifecycle](./sprint-01/t01-company-image.md) | Runtime | — | |
-| [ ] | [T2 · Model gateway + spend fuse](./sprint-01/t02-model-gateway-spend-fuse.md) | Kernel | 1 | |
-| [ ] | [T3 · ACP session client](./sprint-01/t03-acp-session-client.md) | Runtime | — | |
+| [x] | [T1 · Company image + container lifecycle](./sprint-01/t01-company-image.md) | Runtime | — | 1e9c7f4 |
+| [x] | [T2 · Model gateway + spend fuse](./sprint-01/t02-model-gateway-spend-fuse.md) | Kernel | 1 | 0171022 |
+| [x] | [T3 · ACP session client](./sprint-01/t03-acp-session-client.md) | Runtime | — | bd8c4db, 19c4816 |
 | [ ] | [T4 · Persistent Exec + file continuity](./sprint-01/t04-persistent-exec.md) | Runtime / OrgIntel | 1, 3, 5 | |
 | [ ] | [T5 · OrgIntel core](./sprint-01/t05-orgintel-core.md) | OrgIntel | — | |
 | [ ] | [T6 · Scheduler](./sprint-01/t06-scheduler.md) | OrgIntel | 5 | |
