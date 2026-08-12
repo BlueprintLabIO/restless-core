@@ -137,17 +137,17 @@ fn main() -> Result<()> {
             if !status.success() {
                 bail!("attach failed (is the company up?)");
             }
-            return Ok(());
+            Ok(())
         }
         Command::Watch { company: name } => {
             let name = name.context("no company: pass -c or set RESTLESS_COMPANY")?;
             let request = serde_json::json!({ "cmd": "watch", "company": name });
-            return watch(&request.to_string());
+            watch(&request.to_string())
         }
         other => {
             let request = request_json(other)?;
             let response = request_once(&request.to_string())?;
-            return print_response(&response);
+            print_response(&response)
         }
     }
 }

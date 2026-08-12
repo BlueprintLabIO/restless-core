@@ -10,7 +10,7 @@
 use std::{
     collections::{BTreeMap, HashMap},
     fs::{self, OpenOptions},
-    io::{BufRead, Write as _},
+    io::Write as _,
     path::PathBuf,
     sync::Mutex,
 };
