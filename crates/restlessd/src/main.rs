@@ -413,7 +413,14 @@ async fn dispatch(request: Request, daemon: &Daemon) -> Response {
         "tell" => match request.body {
             Some(body) => match daemon.orgintel.get(company).await {
                 Ok(org) => {
+                    // Both ends of the message carry an FK: on a fresh
+                    // company (no wake yet) neither row exists, and the
+                    // owner's first ever interaction must not fail on a
+                    // machinery detail.
                     if let Err(error) = org.add_actor("owner", "owner", "The Owner").await {
+                        return Response::err(format!("{error:#}"));
+                    }
+                    if let Err(error) = org.add_actor("exec", "exec", "The Exec").await {
                         return Response::err(format!("{error:#}"));
                     }
                     match org.send_message("owner", Some("exec"), &body).await {
