@@ -64,6 +64,8 @@ Did we have to reinvent the legacy machinery? **So far, no.** Concrete observati
 PENDING the runs (which paths no company exercised is a run-data lookup). Candidates already visible:
 
 - `restless message --from` (agent-to-agent send) — exercised only in channel tests so far.
+- **Deleted during the review sweep:** `gateway_dir` helper (`restlessd/src/gateway.rs`) — written
+  for "later slices", T4 never used it, zero callers. Deletion is product progress, not backlog.
 - T16's `judge!` helper was never built: all three call sites named in its ticket resolved to the
   model judging directly (the agent *is* the judge for termination and staff state; personas *are*
   model calls). The heuristic smell-family grep over the sprint diff comes back clean — every
@@ -135,6 +137,12 @@ recorded for the diff's archaeology; **open** items are the sprint-02 platform c
   panics at parse (debug_asserts); all company args became `-c/--company` with env fallback. Fixed;
   recorded because env-identity (`RESTLESS_COMPANY`) is what makes in-container agent CLI use
   zero-arg, which T10's acceptance depends on.
+- **F13 (fixed): boot orphan-sweep detection was vacuous.** The sweep ran `pgrep -f codex-acp`
+  inside `sh -c`, whose own cmdline contains the pattern — every boot "found orphans" in every
+  running company (**28 false warns observed in one day**) and ran the kill unconditionally.
+  Same self-match family as the host-side pkill lesson. Fixed with bracket patterns; verified both
+  directions live: a staged fake orphan in cosmon was detected and killed (warn fired for cosmon
+  only), and the next boot was the first silent one on record.
 
 ## What sprint 02 should take from this
 
