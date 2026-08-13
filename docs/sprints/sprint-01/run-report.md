@@ -1,19 +1,86 @@
-# Sprint 01 run report (DRAFT — Cosmon complete, Aris/Thymelake pending)
+# Sprint 01 run report (all three companies complete)
 
-Ticket: [t15-run-report.md](./t15-run-report.md). This document is being written incrementally as
-evidence arrives. Sections marked **PENDING** await the T12/T13 company runs and the T14 harness.
-Everything not so marked has been executed with stated inputs and observed output.
+Ticket: [t15-run-report.md](./t15-run-report.md). Everything here has been executed with stated
+inputs and observed output.
 
 ## Recorded per company
 
-| Company | Elapsed | Dollar cost | Turns | Owner interventions |
-|---|---|---|---|---|
-| Cosmon | ~4 min (one wake) | **$0.2855** | 1 | 0 during the run |
-| Aris | PENDING | PENDING | | PENDING |
-| Thymelake | PENDING | PENDING | | PENDING |
+All on agent `omp` 17.2.15 over ACP, model `zai/glm-5.2`, each terminating `done` on the Exec's
+own judgement.
 
-**Cosmon completed on 2026-08-13** — `restless wake -c cosmon`, agent `omp` 17.2.15 over ACP,
-model `zai/glm-5.2`, terminating `done` on the Exec's own judgement. 61,445 tokens, one turn.
+| Company | Turns | Dollar cost | Owner interventions | Delivered |
+|---|---|---|---|---|
+| Cosmon | 4 | **$6.33** | 0 during runs | 3D creature-collector: 12 species, 6 branching evolutions, real-time combat |
+| Aris | 2 | **$1.56** | 0 during runs | Sales loop end to end; £45 claimed (see reconciliation) |
+| Thymelake | 2 | **$2.78** | 0 during runs | Operating loop, **90 effect receipts** across 4 capabilities |
+| **Total** | **8** | **$10.67** | | |
+
+For scale: the abandoned sonnet-4 run cost $4.10 for a *partial* Cosmon and a false verification.
+
+### The sprint's central question is answered
+
+> *Does the small §4.4 ontology survive three company shapes, or does each want its own vocabulary?*
+
+**It survives.** A game studio, an education publisher and a restaurant-ordering service ran the
+same wake loop, commitments, messages and effect surface. **No company-specific vocabulary entered
+the schema.** Three shapes, one ontology, no special cases.
+
+### Three companies ran simultaneously — after one fix
+
+The tri-run had failed twice before, silently. The cause was not the provider (three concurrent
+large-prompt calls to zai completed in 8s, 10s and 29s) but **us**: a Chromium GPU process an Exec
+launched to verify its game sat at **908% CPU for 2h25m** after the wake ended, starving every
+other container. The persistent company computer replaced a per-turn disposable sandbox that had
+been doing garbage collection for free, and nothing took over. With the reaper in place, all three
+ran concurrently at 9–17% CPU each and all three finished `done`.
+
+### T8 earned its place, and we nearly deleted it
+
+Thymelake's first run **built its own effect surface in TypeScript** and routed around the
+platform's; Aris couldn't discover the platform's at all and blocked. That looked like evidence the
+abstraction wasn't pulling its weight. It was discoverability: the surface offered three
+capabilities and no way to ask what they were, so Aris guessed ~95 names and gave up. One
+error-message change later, **both companies adopted it** — 90 receipts in Thymelake, a full
+`email.send` / `payment.charge` / `web.deploy` loop in Aris.
+
+The lesson generalises past this ticket: *if an agent has to guess, fix the surface, not the agent.*
+
+### The simulated world taught by refusing
+
+Aris's first four effect requests were all rejected — `example.com is a reserved domain`,
+`.invalid TLD is non-deliverable`, `missing required fields: amount, currency, customer`,
+`Missing required 'path' — nothing to deploy`. It learned the interface by being refused, which is
+exactly the T8 design intent ("a compliant world teaches nothing"). It then declined to sell to
+three prospects who weren't a fit — a child two years too young, a parent needing a product that
+doesn't exist — and recorded them as *"warm waitlist, trust earned by refusal."*
+
+### The finding that matters most: claims outran observations
+
+Aris reported **"5 paid, £45."** The kernel held **four** successful `payment.charge` receipts —
+and the single customer named in a receipt (`priya.sharma@gmail.com`, £9, succeeded) was the one
+its journal recorded as a **durable loss**. Nothing detected the contradiction, and the claim would
+have reached the owner as fact.
+
+This is the sprint's most valuable failure. A self-running company that reports unearned revenue is
+the exact outcome the product exists to prevent, and it happened on the first real sales run.
+Fixed in `reconcile.rs`: receipts are totalled deterministically and handed back to the company each
+wake, labelled as observation and explicitly outranking its own notes.
+
+A related gap, same family: **a suppressed duplicate emitted no event**, so Thymelake's claim of
+"idempotent re-run verified" could be neither confirmed nor refuted. The one mechanism protecting
+against double-charging was the only one nobody could audit. Now `effect_replayed`.
+
+### What the sprint did NOT test
+
+**No company ever delegated.** `spawn_requests: []` in every wake of all three companies, including
+Cosmon's largest (124 tool calls, 12 species, 6 evolutions). Everything above was produced by
+*single agents with durable files* — which is configuration **A** of the OrgIntel falsification
+test, not configuration C. The coordination substrate is proven across three shapes; the
+organisational intelligence meant to differentiate it is untested, and on this evidence was not
+needed for work of this size.
+
+**Historic first-run note (superseded, kept for the record):** Cosmon's first completed wake cost
+$0.2855 for 61,445 tokens in one turn.
 
 ### The runtime swap, measured
 

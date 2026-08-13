@@ -263,12 +263,12 @@ T3 ACP spike ──┬── T1 container ──┬── T4 Exec ── T7 cont
 | [x] | [T5 · OrgIntel core](./sprint-01/t05-orgintel-core.md) | OrgIntel | — | 61143c5 |
 | [x] | [T6 · Scheduler](./sprint-01/t06-scheduler.md) | OrgIntel | 5 | 13d6e86 |
 | [x] | [T7 · Context assembly on wake](./sprint-01/t07-context-assembly.md) | OrgIntel | 5 | 2a30eb4 |
-| [ ] | [T8 · Effect surface + simulated providers](./sprint-01/t08-effect-surface.md) | Kernel | 1 | ace6995 |
+| [x] | [T8 · Effect surface + simulated providers](./sprint-01/t08-effect-surface.md) | Kernel | 1 | ace6995, 0a3a512 |
 | [ ] | [T9 · Staff spawn and supervision](./sprint-01/t09-staff-supervision.md) | OrgIntel / Runtime | 1, 3, 5 | 993b065 |
 | [ ] | [**T10 · CLI — owner surface *and* agent path to layer 2**](./sprint-01/t10-cli-owner-surface.md) | Owner surface / OrgIntel | 1, 5 | 2f1d87e |
 | [x] | [**T11 · Cosmon — the skeleton is built here**](./sprint-01/t11-cosmon.md) | All | 1, 3–7, 9, 10 | f41e1c3 |
-| [ ] | [T12 · Aris](./sprint-01/t12-aris.md) | All | 8, 11 | |
-| [ ] | [T13 · Thymelake](./sprint-01/t13-thymelake.md) | All | 8, 11 | |
+| [x] | [T12 · Aris](./sprint-01/t12-aris.md) | All | 8, 11 | ea04dde |
+| [x] | [T13 · Thymelake](./sprint-01/t13-thymelake.md) | All | 8, 11 | ea04dde |
 | [ ] | [T14 · Crash and restart harness](./sprint-01/t14-crash-restart-harness.md) | Cross-cutting | 11 | af2daed, 535832d |
 | [ ] | [T15 · Run report, deletion pass, friction backlog](./sprint-01/t15-run-report.md) | Cross-cutting | 11–14 | |
 | [ ] | [T16 · Judgement helper](./sprint-01/t16-judgement-helper.md) | Kernel-adjacent | 2 | disposition: [run-report](./sprint-01/run-report.md) |
