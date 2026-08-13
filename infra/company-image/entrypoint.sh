@@ -8,13 +8,10 @@ set -eu
 if [ ! -f /company/.seeded ]; then
 	mkdir -p \
 		/company/org \
-		/company/goals \
 		/company/projects \
-		/company/decisions \
 		/company/knowledge \
 		/company/outputs \
 		/company/repos \
-		/company/workspaces \
 		/company/home
 	if [ ! -f /company/mission.md ]; then
 		printf '# Mission\n\n(unset — the owner sets this via the company config)\n' > /company/mission.md

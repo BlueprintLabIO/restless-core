@@ -261,6 +261,9 @@ where
     )
         -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<T>> + Send + 'a>>,
 {
+    // Snapshot before the agent starts: anything new and still alive when the
+    // turn ends was started by this turn and is ours to clean up.
+    let before = pids(container).await;
     let mut child = tokio::process::Command::new("docker")
         .args([
             "exec", "-i", "-u", "company", "-w", "/company",
@@ -372,12 +375,60 @@ where
         .await;
 
     let _ = child.kill().await;
+    reap(container, &before).await;
     if let Ok(mut slot) = failure.lock() {
         if let Some(error) = slot.take() {
             return Err(error);
         }
     }
     Ok(result?)
+}
+
+/// Every process id currently alive in the container.
+async fn pids(container: &str) -> std::collections::HashSet<String> {
+    let Ok(output) = tokio::process::Command::new("docker")
+        .args(["exec", container, "ps", "-eo", "pid="])
+        .output()
+        .await
+    else {
+        return std::collections::HashSet::new();
+    };
+    String::from_utf8_lossy(&output.stdout)
+        .split_whitespace()
+        .map(str::to_owned)
+        .collect()
+}
+
+/// Kill whatever the turn started and left behind.
+///
+/// The persistent company computer (§5, §17 step 2) is the right model, but
+/// the per-turn disposable sandbox it replaced was doing garbage collection
+/// for free and nothing took over. Observed live: a Chromium GPU process the
+/// Exec launched to verify its game sat at **908% CPU for 2h25m** after the
+/// wake ended, alongside two abandoned static servers. It starved every
+/// concurrently-running company — which is why three companies had never once
+/// run well at the same time.
+///
+/// The default is deliberately "reap": survival past the wake that started it
+/// should be an explicit act, not the consequence of nobody noticing. A
+/// company that genuinely needs a durable service will need a way to say so,
+/// and that is the tripwire for revisiting this — no company has wanted one
+/// yet (§16.1, observe before modelling).
+async fn reap(container: &str, before: &std::collections::HashSet<String>) {
+    let after = pids(container).await;
+    let leaked: Vec<&str> = after
+        .difference(before)
+        .map(String::as_str)
+        // PID 1 is the container's init and never ours to kill.
+        .filter(|pid| *pid != "1")
+        .collect();
+    if leaked.is_empty() {
+        return;
+    }
+    tracing::info!(container, count = leaked.len(), "reaping processes the turn left behind");
+    let mut args = vec!["exec", container, "kill", "-9"];
+    args.extend(leaked.iter().copied());
+    let _ = tokio::process::Command::new("docker").args(&args).output().await;
 }
 
 #[cfg(test)]

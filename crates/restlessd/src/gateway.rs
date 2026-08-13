@@ -66,10 +66,7 @@ fn default_path_prefix() -> String {
     "/api".to_string()
 }
 fn default_routes() -> BTreeMap<String, String> {
-    BTreeMap::from([(
-        runtime::DEFAULT_MODEL.to_string(),
-        "anthropic/claude-sonnet-4".to_string(),
-    )])
+    BTreeMap::new()
 }
 fn default_max_output_tokens_cap() -> u64 {
     16_384
