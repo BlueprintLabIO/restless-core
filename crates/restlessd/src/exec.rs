@@ -19,10 +19,6 @@ use crate::health;
 use crate::runtime::{self, CompanyConfig};
 use crate::staff::SpawnRequest;
 
-/// Longest single work turn before the wake boundary is enforced. A timeout
-/// is not a termination decision: the next wake rehydrates and continues.
-const WORK_TURN_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(20 * 60);
-
 /// Bound on the end-of-turn ask: the answer is one line of JSON, so a
 /// timeout means the agent wedged (e.g. launched a hanging tool) rather
 /// than that the decision needs more thought. Without a bound, a wedged
@@ -111,7 +107,8 @@ pub async fn wake(
     let auth = agent_auth(config)?;
     // T7: gather the snapshot (IO), then assemble (pure, digested). The
     // digest lands in the wake event so the Exec's worldview is auditable.
-    let snapshot = gather_snapshot(&container, org, config, reason).await?;
+    let snapshot =
+        gather_snapshot(&container, org, config, reason, gateway.spent_usd(&config.name)).await?;
     let package = context::assemble(&snapshot);
     org.emit_event(
         "wake",
@@ -122,8 +119,9 @@ pub async fn wake(
 
     let outcome = acp::with_agent(&container, &auth, "/company", "exec", {
         let company = config.name.clone();
+        let remaining = (config.spend_ceiling_usd - gateway.spent_usd(&config.name)).max(0.0);
         move |session| {
-            Box::pin(async move { run_turn(session, &package.text, &company).await })
+            Box::pin(async move { run_turn(session, &package.text, &company, remaining).await })
         }
     })
     .await;
@@ -228,26 +226,38 @@ async fn run_turn(
     session: &AgentSession,
     context: &str,
     company: &str,
+    remaining_budget_usd: f64,
 ) -> Result<(WakeReport, Option<acp::TurnUsage>)> {
-    let worked = tokio::time::timeout(WORK_TURN_TIMEOUT, session.prompt(context)).await;
-    if worked.is_err() {
-        // The wake boundary is system-imposed (§6) and is NOT a failure: the
-        // work already happened and is on disk, so the next wake rehydrates
-        // and continues it. Latching the milestone Blocked here stopped a
-        // healthy company mid-build and told the owner to check their
-        // credential — observed live on cosmon's combat wake.
-        let _ = session.cancel().await;
+    // Run for as long as the agent is alive, not for a fixed wall-clock
+    // budget. A halt here is a deterministic observation — silence, or the
+    // ceiling reached mid-turn — never a guess about whether the model is
+    // "stuck or just thinking", which is judgement and not the daemon's.
+    let halt = session.prompt_live(context, |usage| {
+        usage.cost_usd.is_some_and(|cost| cost >= remaining_budget_usd)
+    })
+    .await?;
+    if let Some(halt) = halt {
         let transcript = session.take_transcript();
+        let reason = match halt {
+            acp::TurnHalt::Wedged => "the agent stopped producing output entirely; \
+                 its work so far is on disk and the next wake continues it"
+                .to_string(),
+            acp::TurnHalt::OverBudget => format!(
+                "this turn reached the remaining ${remaining_budget_usd:.2} budget; \
+                 work so far is on disk and the owner must raise the ceiling to continue"
+            ),
+        };
         return Ok((
             WakeReport {
                 company: company.to_string(),
-                termination: Termination::Continue,
-                reason: format!(
-                    "wake boundary reached after {}m mid-turn; work so far is on disk \
-                     and the next wake continues it",
-                    WORK_TURN_TIMEOUT.as_secs() / 60
-                ),
-                next_wake_minutes: Some(1),
+                termination: match halt {
+                    // Wedged is recoverable by rehydrating; over-budget needs
+                    // the owner, so it is a real blockage.
+                    acp::TurnHalt::Wedged => Termination::Continue,
+                    acp::TurnHalt::OverBudget => Termination::Blocked,
+                },
+                reason,
+                next_wake_minutes: matches!(halt, acp::TurnHalt::Wedged).then_some(1),
                 tool_calls: transcript.tool_calls,
                 said: transcript.text.chars().take(1_000).collect(),
                 spawn_requests: Vec::new(),
@@ -255,7 +265,6 @@ async fn run_turn(
             transcript.usage,
         ));
     }
-    worked??;
     let work_transcript = session.take_transcript();
     // The work turn's usage is what the fuse and the health gate read. The
     // termination ask that follows is a second, tiny turn on the same session
@@ -394,6 +403,7 @@ async fn gather_snapshot(
     org: &OrgIntel,
     config: &CompanyConfig,
     reason: &str,
+    spent_usd: f64,
 ) -> Result<ContextSnapshot> {
     let current_plan = read_company_file(container, "/company/org/exec/current-plan.md").await?;
     let latest_journal = latest_journal_entry(container).await?;
@@ -408,15 +418,38 @@ async fn gather_snapshot(
         })
         .collect();
     let inbox = org.inbox(Some("exec")).await?;
+    let root = runtime::state_root();
     Ok(ContextSnapshot {
         company: config.name.clone(),
+        constitution: load_constitution(&root),
         mission: config.mission.clone(),
         current_plan,
         latest_journal,
         open_commitments: open,
         inbox,
         wake_reason: reason.to_string(),
+        budget_remaining_usd: (config.spend_ceiling_usd - spent_usd).max(0.0),
+        budget_ceiling_usd: config.spend_ceiling_usd,
+        capabilities: crate::effect::available_capabilities(&root, &config.name),
     })
+}
+
+/// The installation's standing rules, seeded from the repo's
+/// `docs/CONSTITUTION.md` on first boot and owner-editable thereafter. Absent
+/// is not fatal — a company with no constitution still runs, it just runs
+/// without the rules that stop it lying about verification.
+fn load_constitution(root: &std::path::Path) -> String {
+    let path = root.join("constitution.md");
+    match std::fs::read_to_string(&path) {
+        Ok(text) => text,
+        Err(_) => {
+            tracing::warn!(
+                path = %path.display(),
+                "no constitution installed; agents run without standing rules"
+            );
+            String::new()
+        }
+    }
 }
 
 /// Record the wake's outcome: always an event; blocked also messages the

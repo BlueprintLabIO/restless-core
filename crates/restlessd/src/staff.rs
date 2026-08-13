@@ -24,8 +24,9 @@ use crate::runtime::{self, CompanyConfig};
 /// Enough to produce handoff and crash friction without tripling token burn
 /// across three companies (T9).
 const STAFF_CAP_PER_COMPANY: usize = 2;
-/// One staff task may continue in-session but is bounded like an exec turn.
-const STAFF_TURN_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(20 * 60);
+/// A staff turn is bounded by liveness and budget, not wall-clock — the
+/// module note above ("no timeout kills a slow staff member") was contradicted
+/// by a 20-minute bound that did exactly that.
 
 /// A spawn request from the Exec's termination envelope.
 #[derive(Debug, Clone, serde::Deserialize, Serialize)]
@@ -226,18 +227,11 @@ async fn run_staff(
         "Continue the task. If it is done or you are stuck, stop writing.";
     acp::with_agent(container, auth, workdir, actor, move |session| {
         Box::pin(async move {
-            let deadline = tokio::time::Instant::now() + STAFF_TURN_TIMEOUT;
             let mut next = prompt;
             let mut spent: Vec<acp::TurnUsage> = Vec::new();
             loop {
-                let prompted =
-                    tokio::time::timeout_at(deadline, session.prompt(&next)).await;
-                match prompted {
-                    Err(_) => {
-                        let _ = session.cancel().await;
-                        bail!("staff turn exceeded {}s", STAFF_TURN_TIMEOUT.as_secs());
-                    }
-                    Ok(inner) => inner?,
+                if let Some(halt) = session.prompt_live(&next, |_| false).await? {
+                    bail!("staff turn halted: {halt:?}");
                 }
                 // The work text is observability; the envelope is the record.
                 // The usage is neither — it is the fuse's input, so it is the
@@ -247,14 +241,8 @@ async fn run_staff(
                 if let Some(usage) = worked.usage {
                     spent.push(usage);
                 }
-                let asked =
-                    tokio::time::timeout_at(deadline, session.prompt(exec::TERMINATION_PROMPT)).await;
-                match asked {
-                    Err(_) => {
-                        let _ = session.cancel().await;
-                        bail!("staff turn exceeded {}s", STAFF_TURN_TIMEOUT.as_secs());
-                    }
-                    Ok(inner) => inner?,
+                if let Some(halt) = session.prompt_live(exec::TERMINATION_PROMPT, |_| false).await? {
+                    bail!("staff termination ask halted: {halt:?}");
                 }
                 let said = session.take_transcript().text;
                 match exec::parse_termination(&said) {

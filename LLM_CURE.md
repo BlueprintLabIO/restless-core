@@ -126,6 +126,46 @@ and change the document (§16.10). Never implement a spec you have watched fail.
 
 ---
 
+### Frame 4 — Converge on the checkable, diverge on the judged
+
+An agent checking its own work, a "reviewer" that shares its model and its context, and a simulated
+world played by the same model as the agent it answers are all the same failure: **agreement that
+carries no information.** Confidence goes up, evidence does not.
+
+The tell is cheap agreement. **A check that never disagrees is not a check** — it is a second
+rendering of the first opinion, priced like an inspection.
+
+Split by the same axis as frame 2:
+
+**Converge on the checkable.** Where a question has ground truth — does it run, what does the code
+do, how many tokens, is the container up — every agent should reach the *same* answer, because
+reality arbitrates. Agreement here is worth something precisely because it is not agreement with
+each other: it is agreement with the world. So make the check a measurement, never a second opinion.
+
+**Diverge on the judged.** Where the answer is judgement — is this good, what next, is this
+finished — agreement between two instances of one model reading one context is worth nothing. If
+you need an independent view, you must *buy* independence, and there are only three ways:
+
+- **Different model.** Weakest but real. A vision model critiquing another model's rendered output
+  caught flat lighting the author could not see — and also hallucinated a background that was not
+  there. Independent, and worse; both, at once.
+- **Withheld information.** Show the critic the artifact and not the reasoning that produced it.
+  A reviewer who has read the justification is no longer independent of it.
+- **Adversarial role.** Strongest and cheapest. Instruct the counterparty to have its own
+  interests. A simulated email provider told to be a real provider bounced a message to
+  `example.com` as a reserved domain — useful precisely because it was not trying to be helpful.
+  A compliant world teaches nothing.
+
+**Where none of the three is available, the disagreement you need is the human's.** That is what the
+prepared last mile is for. Do not simulate a second opinion you have not actually bought.
+
+**Convergence is the goal; the echo chamber is convergence obtained too cheaply.** We do want every
+agent to end up believing the same true thing. The error is treating arrival at agreement as proof
+of the belief, when agreement was guaranteed by construction the moment they shared a model, a
+context, and an incentive.
+
+---
+
 ## Part 2 — The failure modes, and why they happen
 
 The mechanism matters. Knowing *why* a failure happens tells you which cure will actually bite.

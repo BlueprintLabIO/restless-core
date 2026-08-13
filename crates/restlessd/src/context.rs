@@ -17,6 +17,9 @@ use sha2::Digest as _;
 /// `assemble` itself is pure.
 pub struct ContextSnapshot {
     pub company: String,
+    /// Standing rules for every agent (docs/CONSTITUTION.md, installed at
+    /// `$RESTLESS_HOME/constitution.md`). Layer 1 of four — see `assemble`.
+    pub constitution: String,
     pub mission: String,
     pub current_plan: String,
     /// Filename + content of the most recent journal entry, if any.
@@ -24,6 +27,15 @@ pub struct ContextSnapshot {
     pub open_commitments: Vec<CommitmentRow>,
     pub inbox: Vec<MessageRow>,
     pub wake_reason: String,
+    /// Remaining budget in USD, and the ceiling. An agent that cannot see its
+    /// own budget cannot decide how ambitious to be, and finds out it is broke
+    /// by being killed mid-turn.
+    pub budget_remaining_usd: f64,
+    pub budget_ceiling_usd: f64,
+    /// Capabilities this company's effect surface actually offers. Small and
+    /// enumerable, so it is carried rather than pointed at — one company burned
+    /// 57 tool calls guessing ~95 names against a surface of three.
+    pub capabilities: Vec<String>,
 }
 
 /// The assembled prompt and its content digest (sha256, hex).
@@ -33,6 +45,26 @@ pub struct ContextPackage {
 }
 
 /// Pure: same snapshot in, same package out. No clock, no randomness, no IO.
+///
+/// # What belongs in an agent's context
+///
+/// Four layers, in decreasing stability. The rule that decides membership:
+/// **carry what the agent cannot cheaply discover for itself; point at the
+/// rest.** A payload costs tokens on every wake whether it is needed or not
+/// and goes stale silently; a pointer costs one line and is always current.
+///
+/// 1. **Constitution** — standing rules for every agent everywhere. Changes
+///    rarely, changes the meaning of everything below it.
+/// 2. **Mission** — owner-authored, what this company is for.
+/// 3. **State** — plan, journal, commitments, inbox, wake reason, budget. What
+///    is true right now and nowhere else discoverable.
+/// 4. **Pointers** — one line each for surfaces the agent can interrogate
+///    itself. Never inline what a tool call answers better.
+///
+/// The exception that proves the rule is `capabilities`: it is a payload
+/// rather than a pointer only because it is tiny, enumerable, and its absence
+/// caused an agent to brute-force ~95 guesses. When a surface grows past
+/// enumerable, it becomes a pointer.
 pub fn assemble(snapshot: &ContextSnapshot) -> ContextPackage {
     let mut commitments = String::new();
     for c in &snapshot.open_commitments {
@@ -55,9 +87,16 @@ pub fn assemble(snapshot: &ContextSnapshot) -> ContextPackage {
         inbox.push_str(&format!("- [{trust}] from {}: {}\n", message.from_actor, message.body));
     }
 
+    let capabilities = if snapshot.capabilities.is_empty() {
+        "(none configured — any external effect will fail until the owner adds one)".to_string()
+    } else {
+        snapshot.capabilities.join(", ")
+    };
+
     let plan_exists = !snapshot.current_plan.trim().is_empty();
     let text = format!(
-        "You are the Exec of {name} — the singleton chief executive of this autonomous company.\n\
+        "# Constitution [authoritative — applies to every agent, always]\n{constitution}\n\n\
+         You are the Exec of {name} — the singleton chief executive of this autonomous company.\n\
          You run in wakes. You persist ONLY through files and the coordination store, never \
          through memory: anything you do not write down is lost.\n\
          Context sections are labelled by trust: owner directives are authoritative and \
@@ -83,14 +122,27 @@ pub fn assemble(snapshot: &ContextSnapshot) -> ContextPackage {
          only there.) One staff member runs one supervised task. Its completion, blockage, or \
          crash wakes you; after a crash the worktree is intact — resume or reassign is your \
          call. Staff tasks already open appear in your commitments below.\n\n\
+         # Affecting the world [internal decision]\n\
+         `restless effect --key <idempotency-key> --args '<json>' <capability>` is the ONLY way to \
+         reach outside this company. Capabilities available to you: {capabilities}. Asking for one \
+         that does not exist tells you what does — you never have to guess. Every effect returns a \
+         receipt; a repeated key returns the stored receipt instead of acting twice.\n\n\
+         # Budget [internal decision]\n\
+         ${remaining:.2} remains of a ${ceiling:.2} ceiling. Model turns are charged against it. \
+         At zero the company stops until the owner raises it, so spend it on work that produces \
+         something, and say so plainly if the remaining budget cannot finish the job.\n\n\
          # Current plan [working hypothesis]\n{plan}\n\n\
          # Latest journal entry [historical memory]\n{journal}\n\n\
          # Open commitments [internal decision]\n{commitments}\
          # Inbox\n{inbox}\
          # This wake [owner directive]\n{reason}\n\n\
          Work this turn. Use the tools. Write files. Stop when the turn's work is done.",
+        constitution = snapshot.constitution.trim(),
         name = snapshot.company,
         mission = snapshot.mission,
+        capabilities = capabilities,
+        remaining = snapshot.budget_remaining_usd,
+        ceiling = snapshot.budget_ceiling_usd,
         plan_exists = if plan_exists { "yes" } else { "no — first wake, create it" },
         plan = if plan_exists { snapshot.current_plan.trim() } else { "(none yet)" },
         journal = snapshot.latest_journal.as_deref().unwrap_or("(none yet — first wake)"),
@@ -110,6 +162,7 @@ mod tests {
     fn snapshot() -> ContextSnapshot {
         ContextSnapshot {
             company: "probe".into(),
+            constitution: "1. Claims are not observations.".into(),
             mission: "make the thing".into(),
             current_plan: "# plan\nstep 1".into(),
             latest_journal: Some("== 0001.md ==\ndid step 0".into()),
@@ -126,6 +179,9 @@ mod tests {
             }],
             inbox: vec![],
             wake_reason: "owner-requested wake".into(),
+            budget_remaining_usd: 7.5,
+            budget_ceiling_usd: 10.0,
+            capabilities: vec!["email.send".into(), "web.deploy".into()],
         }
     }
 

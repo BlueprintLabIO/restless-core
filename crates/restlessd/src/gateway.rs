@@ -213,6 +213,14 @@ impl GatewayHandle {
             .then(|| (spent as f64 / 1_000_000.0, ceiling as f64 / 1_000_000.0))
     }
 
+    /// What this company has spent so far, in USD. The agent is told this so
+    /// it can size its own ambition instead of discovering it is broke by
+    /// being stopped mid-turn.
+    #[must_use]
+    pub fn spent_usd(&self, company: &str) -> f64 {
+        self.spend.spent_micro_usd(company) as f64 / 1_000_000.0
+    }
+
     /// A cheap cloneable handle to the ledger, for turns that outlive the
     /// borrow — staff run in spawned tasks but spend the same budget.
     #[must_use]

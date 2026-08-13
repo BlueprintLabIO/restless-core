@@ -20,7 +20,7 @@ use agent_client_protocol::{
             CancelNotification, ContentBlock, InitializeRequest,
             NewSessionRequest, PermissionOptionKind, PromptRequest, RequestPermissionOutcome,
             RequestPermissionRequest, RequestPermissionResponse, SelectedPermissionOutcome,
-            SessionId, SessionNotification, SessionUpdate, TextContent,
+            SessionId, SessionNotification, SessionUpdate, TextContent, ToolCallStatus,
         },
     },
 };
@@ -59,17 +59,40 @@ pub struct TurnUsage {
 
 /// One observed turn: the agent's visible text plus the tool calls it made.
 /// This is observability, not a governed record (§4.4).
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct TurnTranscript {
     pub text: String,
     pub tool_calls: Vec<String>,
     /// Last usage report of the turn; `None` means the agent never sent one,
     /// which `health::classify_turn` treats exactly like zero.
     pub usage: Option<TurnUsage>,
+    /// When the agent last said anything at all — the liveness signal the
+    /// watchdog reads. Thought chunks count: they are not transcript content,
+    /// but they are proof the model is running. A 20-minute wall-clock bound
+    /// once killed a turn that had been streaming reasoning the whole time
+    /// and recorded it as "the model never ran".
+    last_activity: std::time::Instant,
+    /// Tool calls started but not yet finished. Silence while a tool runs is
+    /// a test suite or an install, not a wedge, so it is allowed far longer.
+    tools_in_flight: usize,
+}
+
+impl Default for TurnTranscript {
+    fn default() -> Self {
+        Self {
+            text: String::new(),
+            tool_calls: Vec::new(),
+            usage: None,
+            last_activity: std::time::Instant::now(),
+            tools_in_flight: 0,
+        }
+    }
 }
 
 impl TurnTranscript {
     fn note(&mut self, update: SessionUpdate) {
+        // Every update is liveness, whatever it carries.
+        self.last_activity = std::time::Instant::now();
         match update {
             SessionUpdate::AgentMessageChunk(chunk) => {
                 if let ContentBlock::Text(text) = chunk.content {
@@ -78,6 +101,15 @@ impl TurnTranscript {
             }
             SessionUpdate::ToolCall(call) => {
                 self.tool_calls.push(format!("{:?}: {}", call.kind, call.title));
+                self.tools_in_flight += 1;
+            }
+            SessionUpdate::ToolCallUpdate(update) => {
+                if matches!(
+                    update.fields.status,
+                    Some(ToolCallStatus::Completed) | Some(ToolCallStatus::Failed)
+                ) {
+                    self.tools_in_flight = self.tools_in_flight.saturating_sub(1);
+                }
             }
             SessionUpdate::UsageUpdate(usage) => {
                 self.usage = Some(TurnUsage {
@@ -98,7 +130,87 @@ pub struct AgentSession {
     transcript: Arc<Mutex<TurnTranscript>>,
 }
 
+/// Silence with nothing running: the agent is wedged. Deliberately loose —
+/// waiting is cheap, and a false kill destroys a turn's work.
+const IDLE_SILENT: std::time::Duration = std::time::Duration::from_secs(120);
+/// Silence while a tool call is in flight: a test suite, an install, a build.
+/// Bounded, but generously.
+const IDLE_TOOL_RUNNING: std::time::Duration = std::time::Duration::from_secs(15 * 60);
+/// How often the watchdog looks. Cheap: it reads two in-memory values.
+const WATCHDOG_TICK: std::time::Duration = std::time::Duration::from_secs(5);
+
+/// Why a turn stopped early. Both are deterministic observations, never
+/// inferences from what the model wrote (LLM_CURE.md frame 2).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TurnHalt {
+    /// No output of any kind for longer than the idle allowance.
+    Wedged,
+    /// The company spent its ceiling mid-turn.
+    OverBudget,
+}
+
 impl AgentSession {
+    /// Send one prompt and let it run for as long as it is *alive*, rather
+    /// than for a fixed wall-clock budget.
+    ///
+    /// A total timeout cannot distinguish "wedged" from "working hard": it is
+    /// simultaneously far too slow to catch a hung tool (20 minutes) and far
+    /// too fast for real work. An idle timer is better on both axes — it
+    /// catches a wedge in ~2 minutes and lets a legitimately slow turn run as
+    /// long as it keeps producing.
+    ///
+    /// The outer bound on runaway is therefore money, not time: `budget`
+    /// returns true when the company has spent its ceiling, checked each tick
+    /// against the usage the agent reports as it goes. "$3 with nothing to
+    /// show" is a meaningful statement about waste; "20 minutes elapsed" is
+    /// not.
+    pub async fn prompt_live(
+        &self,
+        text: &str,
+        budget: impl Fn(&TurnUsage) -> bool + Send,
+    ) -> Result<Option<TurnHalt>> {
+        let prompt = self.prompt(text);
+        tokio::pin!(prompt);
+        loop {
+            tokio::select! {
+                finished = &mut prompt => {
+                    finished?;
+                    return Ok(None);
+                }
+                () = tokio::time::sleep(WATCHDOG_TICK) => {
+                    // The guard must not cross an await: read three plain
+                    // values out of it and let it drop with the block.
+                    let Some((idle, allowance, over)) = ({
+                        match self.transcript.lock() {
+                            Err(_) => None,
+                            Ok(transcript) => Some((
+                                transcript.last_activity.elapsed(),
+                                if transcript.tools_in_flight > 0 {
+                                    IDLE_TOOL_RUNNING
+                                } else {
+                                    IDLE_SILENT
+                                },
+                                transcript.usage.as_ref().is_some_and(&budget),
+                            )),
+                        }
+                    }) else { continue };
+                    if over {
+                        let _ = self.cancel().await;
+                        return Ok(Some(TurnHalt::OverBudget));
+                    }
+                    if idle > allowance {
+                        tracing::warn!(
+                            idle_secs = idle.as_secs(),
+                            "agent produced nothing for longer than the idle allowance"
+                        );
+                        let _ = self.cancel().await;
+                        return Ok(Some(TurnHalt::Wedged));
+                    }
+                }
+            }
+        }
+    }
+
     /// Send one prompt and wait for the turn to complete.
     pub async fn prompt(&self, text: &str) -> Result<()> {
         self.cx
