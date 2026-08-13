@@ -44,10 +44,16 @@ docs/
 crates/
   restlessd/             the daemon (empty stub — the §4.4 stable coordination core)
   restless/              the CLI (empty stub)
+web/                     the operator SPA (SvelteKit) — design + components + pages,
+                         rendering from fixtures; not wired to anything yet
 ```
 
 Layer crates (`kernel`, `orgintel`, `runtime`) are intentionally not pre-scaffolded. They are grown
 from the first sprint slice that needs them.
+
+`web/` is the one piece of the prior system lifted so far — its SPA, which `docs/SALVAGE.md` names
+as the strongest non-Rust salvage. It is deliberately unwired: it holds the design language, the
+component layer, and every surface, and it renders from fixtures. See [`web/README.md`](./web/README.md).
 
 ## How we work
 

@@ -1,0 +1,768 @@
+/* ---------- chats: sidebar ---------- */
+.bridge-side {
+	width: 320px;
+	flex: 0 0 320px;
+	background: var(--sidebar-bg);
+	backdrop-filter: blur(14px);
+	-webkit-backdrop-filter: blur(14px);
+	border-right: 1px solid var(--border);
+	display: flex;
+	flex-direction: column;
+	height: calc(100vh - var(--topbar-total));
+	position: sticky;
+	top: var(--topbar-total);
+}
+.bridge-side .side-head {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 8px;
+	padding: 16px 12px 10px 16px;
+}
+.bridge-side .side-head h1 {
+	font-size: 17px;
+	font-weight: 700;
+}
+.bridge-side .new-chat {
+	width: 32px;
+	height: 32px;
+	flex: 0 0 32px;
+	border-radius: var(--radius-md);
+	border: 1px solid var(--border-strong);
+	background: var(--surface);
+	color: var(--accent-strong);
+	font-size: 16px;
+	cursor: pointer;
+	display: grid;
+	place-items: center;
+	text-decoration: none;
+}
+.bridge-side .new-chat:hover {
+	border-color: var(--accent-strong);
+}
+.bridge-side .side-search {
+	margin: 0 16px 10px;
+	padding: 7px 12px;
+	border-radius: var(--radius-md);
+	border: 1px solid var(--border);
+	background: var(--surface);
+	font-family: inherit;
+	font-size: 13px;
+	color: var(--ink);
+	width: calc(100% - 32px);
+}
+.bridge-side .side-search:focus {
+	outline: 2px solid color-mix(in srgb, var(--accent) 35%, transparent);
+	border-color: var(--accent);
+}
+.bridge-side .side-scroll {
+	overflow-y: auto;
+	overflow-x: hidden;
+	flex: 1;
+	padding-bottom: 16px;
+}
+.bridge-side .side-section {
+	font-family: 'IBM Plex Mono', monospace;
+	font-size: 10px;
+	font-weight: 600;
+	letter-spacing: 0.12em;
+	text-transform: uppercase;
+	color: var(--text-tertiary);
+	padding: 14px 16px 6px;
+}
+
+.bridge-root .conv-row {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	padding: 8px 16px;
+	text-decoration: none;
+	color: inherit;
+}
+.bridge-root .conv-row:hover {
+	background: color-mix(in srgb, var(--surface) 60%, transparent);
+}
+.bridge-root .conv-row.on {
+	background: var(--surface);
+	/* one selected-row language — the same accent bar the inbox rows carry */
+	box-shadow: inset 2px 0 0 var(--accent);
+}
+.bridge-root .conv-row .c-main {
+	flex: 1;
+	min-width: 0;
+}
+.bridge-root .conv-row .c-top {
+	display: flex;
+	align-items: baseline;
+	justify-content: space-between;
+	gap: 8px;
+}
+.bridge-root .conv-row .c-name {
+	display: block;
+	font-weight: 600;
+	font-size: 13.5px;
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+.bridge-root .conv-row .c-time {
+	font-family: 'IBM Plex Mono', monospace;
+	font-size: 10px;
+	color: var(--text-tertiary);
+	flex: 0 0 auto;
+}
+.bridge-root .conv-row .c-preview {
+	/* block, not inline — overflow + ellipsis only apply to block containers,
+	 * and as an inline span this let long previews run past the sidebar edge. */
+	display: block;
+	font-size: 12px;
+	color: var(--text-secondary);
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	margin-top: 1px;
+}
+.bridge-root .conv-row .c-count {
+	flex: 0 0 auto;
+	min-width: 18px;
+	height: 18px;
+	padding: 0 5px;
+	border-radius: 9px;
+	background: var(--accent-strong);
+	color: var(--text-inverse);
+	font-family: 'IBM Plex Mono', monospace;
+	font-size: 10px;
+	font-weight: 600;
+	display: grid;
+	place-items: center;
+}
+.bridge-root .needs-row {
+	display: flex;
+	align-items: flex-start;
+	gap: 8px;
+	margin: 4px 12px;
+	padding: 8px 10px;
+	border-radius: var(--radius-md);
+	border: 1px solid color-mix(in srgb, var(--status-waiting) 45%, var(--border));
+	background: color-mix(in srgb, var(--status-waiting) 8%, var(--surface));
+	text-decoration: none;
+	color: inherit;
+}
+.bridge-root .needs-row .n-title {
+	font-size: 12.5px;
+	font-weight: 600;
+	line-height: 1.35;
+}
+.bridge-root .needs-row .n-detail {
+	font-size: 11.5px;
+	color: var(--text-secondary);
+	margin-top: 1px;
+}
+
+/* ---------- chats: thread ---------- */
+.bridge-thread {
+	flex: 1;
+	min-width: 0;
+	display: flex;
+	flex-direction: column;
+	height: calc(100vh - var(--topbar-total));
+}
+.bridge-thread .t-head {
+	display: flex;
+	align-items: center;
+	gap: 12px;
+	padding: 12px 20px;
+	background: var(--surface);
+	border-bottom: 1px solid var(--border);
+}
+.bridge-thread .t-head .t-name {
+	font-family: 'Inter', system-ui, sans-serif;
+	font-weight: 600;
+	font-size: 15px;
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+.bridge-thread .t-head .t-sub {
+	font-size: 11.5px;
+	color: var(--text-secondary);
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+.bridge-thread .t-scroll {
+	flex: 1;
+	overflow-y: auto;
+	padding: 20px;
+	display: flex;
+	flex-direction: column;
+	gap: 12px;
+}
+.bridge-root .msg {
+	display: flex;
+	gap: 10px;
+	max-width: 720px;
+}
+.bridge-root .msg.you {
+	align-self: flex-end;
+	flex-direction: row-reverse;
+}
+.bridge-root .msg .bubble {
+	background: var(--bubble-agent);
+	border: 1px solid var(--border);
+	border-radius: var(--radius-lg);
+	border-top-left-radius: 4px;
+	padding: 10px 14px;
+	font-size: 13.5px;
+	line-height: 1.55;
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+}
+.bridge-root .msg.you .bubble {
+	background: var(--bubble-user);
+	border-color: color-mix(in srgb, var(--accent) 22%, var(--border));
+	border-top-left-radius: var(--radius-lg);
+	border-top-right-radius: 4px;
+	color: var(--text-inverse);
+}
+.bridge-root .msg .m-meta {
+	display: flex;
+	align-items: baseline;
+	gap: 8px;
+	margin-bottom: 3px;
+}
+.bridge-root .msg .m-from {
+	font-size: 11.5px;
+	font-weight: 600;
+	color: var(--text-secondary);
+}
+.bridge-root .msg .m-time {
+	font-family: 'IBM Plex Mono', monospace;
+	font-size: 10px;
+	color: var(--text-tertiary);
+}
+.bridge-root .msg.system {
+	align-self: center;
+	font-size: 11.5px;
+	color: var(--text-tertiary);
+	text-align: center;
+}
+/* the thread's empty state — same quiet family as the rail's */
+.bridge-root .thread-empty {
+	margin: auto;
+	text-align: center;
+	max-width: 300px;
+}
+.bridge-root .thread-empty-h {
+	font-family: 'Inter', system-ui, sans-serif;
+	font-weight: 600;
+	font-size: 15px;
+	margin: 0 0 6px;
+}
+/* day separators — quiet mono markers with hairlines */
+.bridge-root .day-sep {
+	display: flex;
+	align-items: center;
+	gap: 12px;
+	margin: 10px 0 2px;
+}
+.bridge-root .day-sep::before,
+.bridge-root .day-sep::after {
+	content: '';
+	flex: 1;
+	height: 1px;
+	background: var(--border);
+}
+.bridge-root .day-sep span {
+	font-family: 'IBM Plex Mono', monospace;
+	font-size: 10px;
+	font-weight: 600;
+	letter-spacing: 0.1em;
+	text-transform: uppercase;
+	color: var(--text-tertiary);
+}
+.bridge-root .needs-card {
+	max-width: 720px;
+	border: 1px solid color-mix(in srgb, var(--status-waiting) 55%, var(--border-strong));
+	background: color-mix(in srgb, var(--status-waiting) 9%, var(--surface));
+	border-radius: var(--radius-sm);
+	padding: 14px 16px;
+}
+.bridge-root .needs-card .nc-kicker {
+	font-family: 'IBM Plex Mono', monospace;
+	font-size: 10px;
+	font-weight: 600;
+	letter-spacing: 0.1em;
+	text-transform: uppercase;
+	color: color-mix(in srgb, var(--status-waiting) 75%, var(--ink));
+	margin-bottom: 5px;
+}
+.bridge-root .needs-card .nc-title {
+	font-weight: 600;
+	font-size: 14px;
+}
+.bridge-root .needs-card .nc-detail {
+	font-size: 12.5px;
+	color: var(--text-secondary);
+	margin-top: 3px;
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+}
+.bridge-root .needs-card .nc-actions {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	margin-top: 12px;
+	flex-wrap: wrap;
+}
+.bridge-root .artifact-card {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	border: 1px solid var(--border-strong);
+	background: var(--surface-alt);
+	border-radius: var(--radius-sm);
+	padding: 9px 12px;
+	margin-top: 8px;
+	text-decoration: none;
+	color: inherit;
+	max-width: 420px;
+}
+.bridge-root .artifact-card:hover {
+	border-color: var(--accent-strong);
+}
+.bridge-root .artifact-card .a-kind {
+	width: 30px;
+	height: 30px;
+	flex: 0 0 30px;
+	border-radius: var(--radius-sm);
+	background: var(--accent-soft);
+	color: var(--accent-strong);
+	display: grid;
+	place-items: center;
+	font-family: 'IBM Plex Mono', monospace;
+	font-size: 9.5px;
+	font-weight: 600;
+	text-transform: uppercase;
+}
+.bridge-root .artifact-card .a-name {
+	font-weight: 600;
+	font-size: 12.5px;
+}
+.bridge-root .artifact-card .a-meta {
+	font-size: 11px;
+	color: var(--text-tertiary);
+}
+
+/* ---------- attachments (composer picker + message rendering) ---------- */
+.bridge-root .sr-only {
+	position: absolute;
+	width: 1px;
+	height: 1px;
+	padding: 0;
+	margin: -1px;
+	overflow: hidden;
+	clip: rect(0, 0, 0, 0);
+	white-space: nowrap;
+	border: 0;
+}
+.bridge-root .attach-btn {
+	width: 42px;
+	height: 42px;
+	flex: 0 0 auto;
+	border-radius: var(--radius-md);
+	border: 1px solid var(--border-strong);
+	background: var(--surface);
+	color: var(--text-secondary);
+	cursor: pointer;
+	display: grid;
+	place-items: center;
+	transition:
+		border-color 0.15s ease,
+		color 0.15s ease;
+}
+.bridge-root .attach-btn:hover {
+	border-color: var(--accent-strong);
+	color: var(--accent-strong);
+}
+.bridge-root .attach-btn.off {
+	opacity: 0.5;
+	cursor: not-allowed;
+}
+.bridge-root .attach-chips {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 6px;
+	margin-bottom: 8px;
+}
+.bridge-root .attach-chip {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	max-width: 240px;
+	padding: 3px 6px 3px 10px;
+	border-radius: 999px;
+	border: 1px solid var(--border);
+	background: var(--surface-alt);
+	font-size: 12px;
+	color: var(--ink);
+}
+.bridge-root .attach-chip-name {
+	min-width: 0;
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+.bridge-root .attach-x {
+	width: 22px;
+	height: 22px;
+	flex: 0 0 auto;
+	border: 0;
+	border-radius: 50%;
+	background: transparent;
+	color: var(--text-tertiary);
+	font-size: 14px;
+	line-height: 1;
+	cursor: pointer;
+	display: grid;
+	place-items: center;
+	/* the tap target grows past the glyph without inflating the chip */
+	padding: 6px;
+	margin: -4px -6px -4px -2px;
+}
+.bridge-root .attach-x:hover {
+	background: rgba(38, 41, 47, 0.08);
+	color: var(--ink);
+}
+.bridge-root .attach-list {
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+	margin-top: 8px;
+}
+.bridge-root .attach-img {
+	display: inline-block;
+	max-width: 280px;
+	border-radius: var(--radius-md);
+	border: 1px solid var(--border);
+	overflow: hidden;
+}
+.bridge-root .attach-img img {
+	display: block;
+	max-width: 280px;
+	max-height: 320px;
+	width: auto;
+	height: auto;
+}
+.bridge-root .attach-file {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	max-width: 340px;
+	border: 1px solid var(--border);
+	background: var(--surface-alt);
+	border-radius: var(--radius-md);
+	padding: 9px 12px;
+	text-decoration: none;
+	color: inherit;
+}
+.bridge-root .attach-file:hover {
+	border-color: var(--accent-strong);
+}
+.bridge-root .attach-file .af-main {
+	min-width: 0;
+}
+.bridge-root .attach-file .a-name {
+	display: block;
+	font-weight: 600;
+	font-size: 12.5px;
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+.bridge-root .attach-file .a-meta {
+	font-size: 11px;
+	color: var(--text-tertiary);
+}
+
+/* tape rows — the ledger is inspectable, so rows answer hover, and the first
+ * row carries no orphaned hairline against the card edge */
+.bridge-root .tp-row {
+	transition: background 0.12s ease;
+}
+.bridge-root .tp-row:hover {
+	background: var(--surface-alt);
+}
+.bridge-root .tp-row:first-of-type {
+	border-top: 0 !important;
+}
+
+/* ---------- the tape as ledger (Bridge §7): square rows, tabular time,
+ * shape-first policy, receipts that drill in ---------- */
+/* the filters live in the ledger's pane head now — they act on this one region, so
+ * they belong to it rather than floating above it with a margin */
+.bridge-root .tape-filters {
+	display: flex;
+	gap: 6px;
+	flex-wrap: wrap;
+	justify-content: flex-end;
+}
+.bridge-root .tape-filters .chip {
+	gap: 7px;
+}
+.bridge-root .tape-verified {
+	gap: 7px;
+}
+.bridge-root .tape-ledger {
+	border-radius: var(--radius-md);
+}
+.bridge-root .tape-lh,
+.bridge-root .tape-row {
+	display: grid;
+	grid-template-columns: 104px 24px minmax(0, 1fr) 110px 150px 80px;
+	align-items: center;
+	gap: 12px;
+	padding: 0 14px;
+}
+.bridge-root .tape-lh {
+	height: 32px;
+	font-family: 'IBM Plex Mono', monospace;
+	font-size: 10px;
+	letter-spacing: 0.12em;
+	text-transform: uppercase;
+	color: var(--text-tertiary);
+	border-bottom: 1px solid var(--border-strong);
+}
+.bridge-root .tape-lh .r {
+	text-align: right;
+}
+.bridge-root .tape-row {
+	width: 100%;
+	height: 30px;
+	background: none;
+	border: 0;
+	border-top: 1px solid var(--border);
+	border-radius: 0;
+	font: inherit;
+	color: inherit;
+	text-align: left;
+	cursor: pointer;
+}
+.bridge-root .tape-row.open {
+	background: var(--surface-alt);
+	border-left: 2px solid var(--ink);
+}
+.bridge-root .tape-row.open + .tape-receipts {
+	border-left: 2px solid var(--ink);
+}
+.bridge-root .tape-row .t-time {
+	font-family: 'IBM Plex Mono', monospace;
+	font-size: 11px;
+	color: var(--text-tertiary);
+	font-variant-numeric: tabular-nums;
+	white-space: nowrap;
+}
+.bridge-root .tape-row .t-cat {
+	display: flex;
+	color: var(--text-tertiary);
+}
+.bridge-root .tape-row .t-entry {
+	font-size: 12.5px;
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+.bridge-root .tape-row .t-actor {
+	font-size: 12px;
+	color: var(--text-secondary);
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+.bridge-root .tape-row .t-policy {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	font-family: 'IBM Plex Mono', monospace;
+	font-size: 11px;
+	color: var(--text-tertiary);
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+.bridge-root .tape-row .t-tags {
+	display: flex;
+	justify-content: flex-end;
+}
+.bridge-root .tape-receipts {
+	background: var(--surface-alt);
+	border-top: 1px solid var(--border);
+	padding: 10px 14px 12px calc(104px + 24px + 40px);
+	font-size: 12px;
+}
+.bridge-root .tape-receipts .kv {
+	font-family: 'IBM Plex Mono', monospace;
+	font-size: 11.5px;
+	color: var(--text-tertiary);
+}
+.bridge-root .tape-receipts .kv b {
+	color: var(--text-secondary);
+	font-weight: 500;
+}
+@media (max-width: 900px) {
+	.bridge-root .tape-lh,
+	.bridge-root .tape-row {
+		grid-template-columns: 96px 20px minmax(0, 1fr) auto;
+		gap: 10px;
+	}
+	.bridge-root .tape-row .t-actor,
+	.bridge-root .tape-row .t-policy,
+	.bridge-root .tape-lh span:nth-child(4),
+	.bridge-root .tape-lh span:nth-child(5) {
+		display: none;
+	}
+	.bridge-root .tape-row .t-tags {
+		min-width: 0;
+	}
+	.bridge-root .tape-receipts {
+		padding-left: 14px;
+	}
+}
+
+/* ---------- chats: composer — the one instrument: beveled glass, lit top edge ---------- */
+.bridge-composer {
+	/* Tighter than the two-row era needed: the field is self-contained now, so the region
+	 * around it does not have to hold two stacked rows apart. */
+	padding: 10px 16px 12px;
+	background: var(--glass);
+	backdrop-filter: blur(18px) saturate(1.2);
+	-webkit-backdrop-filter: blur(18px) saturate(1.2);
+	/* No border-top: the field carries its own ring now (UIR-010), and stacking a container
+	 * edge, a field border, and a focus outline read as a triple line. */
+	box-shadow: var(--bevel-subtle);
+}
+.bridge-composer .comp-modes {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 6px;
+}
+/* Not the composer's input any more — the shared style for the short note fields
+ * on the inbox, the library, and a staff profile. */
+.bridge-root .comp-input {
+	flex: 1;
+	border: 1px solid var(--border-strong);
+	border-radius: var(--radius-md);
+	background: var(--surface-alt);
+	font-family: inherit;
+	font-size: 13.5px;
+	color: var(--ink);
+	padding: 10px 14px;
+	resize: none;
+	min-height: 42px;
+	max-height: 160px;
+}
+.bridge-root .comp-input:focus {
+	outline: 2px solid color-mix(in srgb, var(--accent) 35%, transparent);
+	border-color: var(--accent-strong);
+}
+
+/* ---------- the shared composer (UIR-004, one row since UIR-010) ----------
+ * The container is the field. The textarea inside is borderless and transparent; attach and
+ * send sit inset in the gutters, anchored to the BOTTOM edge (`align-items: flex-end`) so
+ * they hold still while the text grows upward.
+ *
+ * This was three stacked rows — textarea, disclosure, controls — costing ~145px of chrome to
+ * send one line, in a 400px rail. `.hc-slot` used to force the middle row with
+ * `order: -1; flex-basis: 100%`. Moving provider disclosure to settings (UIR-009) is what
+ * removed the thing the gutters could not hold. */
+.bridge-root .hc {
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+	min-width: 0;
+}
+.bridge-root .hc-field {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: flex-end;
+	gap: 6px;
+	min-width: 0;
+	padding: 5px 5px 5px 6px;
+	border: 1px solid var(--border-strong);
+	border-radius: var(--radius-md);
+	background: var(--surface-alt);
+	transition:
+		border-color 0.15s ease,
+		box-shadow 0.15s ease;
+}
+/* The whole field lights up, not the box inside it — there is only one ring now. The old
+ * markup stacked three: the composer's border-top, the textarea's border, and a focus
+ * outline on top of both. */
+.bridge-root .hc-field:focus-within {
+	outline: 2px solid color-mix(in srgb, var(--accent) 35%, transparent);
+	border-color: var(--accent-strong);
+}
+.bridge-root .hc-input {
+	flex: 1 1 auto;
+	min-width: 0;
+	box-sizing: border-box;
+	border: 0;
+	background: transparent;
+	font-family: inherit;
+	font-size: 13.5px;
+	line-height: 1.5;
+	color: var(--ink);
+	padding: 6px 2px;
+	resize: none;
+	overflow-y: auto;
+	min-height: 30px;
+	max-height: 160px;
+}
+.bridge-root .hc-input:focus {
+	outline: none;
+}
+.bridge-root .hc-input:disabled {
+	opacity: 0.55;
+	cursor: not-allowed;
+}
+/* Chips take a full-width row at the top of the field, above the button/textarea/send row,
+ * and exist only when something is attached. */
+.bridge-root .hc-field .attach-chips {
+	flex-basis: 100%;
+	margin-bottom: 0;
+}
+.bridge-root .hc-field .attach-btn {
+	flex: 0 0 auto;
+	width: 28px;
+	height: 28px;
+	border: 0;
+	background: transparent;
+}
+.bridge-root .hc-slot {
+	min-width: 0;
+	display: flex;
+	align-items: center;
+	flex-wrap: wrap;
+	gap: 6px;
+}
+.bridge-root .hc-slot:empty {
+	display: none;
+}
+.bridge-root .hc-send {
+	flex: 0 0 auto;
+	width: 28px;
+	height: 28px;
+	border-radius: var(--radius-sm);
+	border: 1px solid var(--accent-strong);
+	background: var(--accent-strong);
+	color: var(--text-inverse);
+	cursor: pointer;
+	display: grid;
+	place-items: center;
+	transition: background 0.15s ease;
+}
+.bridge-root .hc-send:disabled {
+	opacity: 0.4;
+	cursor: not-allowed;
+}
+

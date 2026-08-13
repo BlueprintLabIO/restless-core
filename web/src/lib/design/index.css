@@ -1,0 +1,31 @@
+/* ============================================================================
+ * Bridge — the design language.
+ *
+ * Canon: docs/design-language.md. The thesis is the dark cockpit: when everything
+ * is normal, nothing is lit, nothing moves, nothing is coloured. Seriousness is
+ * the absence of noise plus the guarantee that annunciation means something.
+ *
+ * Everything below the token layer is scoped under `.bridge-root`. That scope is
+ * load-bearing, not cosmetic: it keeps the ramp, the type helpers, and every
+ * surface rule from leaking into app-level chrome that must not inherit them, and
+ * it makes the whole language auditable as one subtree in the inspector.
+ *
+ * IMPORT ORDER IS THE CASCADE. These files were split from one 3,473-line
+ * stylesheet along its own section boundaries, and later files deliberately
+ * override earlier ones. Do not reorder without reading what breaks.
+ * ========================================================================== */
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
+
+/* app-level: the z-ladder and the document reset, outside the scope */
+@import './base.css';
+
+/* the language itself, in cascade order */
+@import './tokens.css'; /* the 9-step neutral ramp + the light sibling */
+@import './type.css'; /* mono, display, over-label, caption, headings */
+@import './chrome.css'; /* topbar, brand menu, tabs, annunciator, account, avatar */
+@import './primitives.css'; /* chips, buttons, the pane system, pane headings */
+@import './chat.css'; /* thread, sidebar, attachments, ledger rows, the composer */
+@import './patterns.css'; /* page scaffolding, kanban, tables, modals, the door */
+@import './surfaces.css'; /* inbox, executive rail, mission, people, ops, library, tape */
+@import './hints.css'; /* explanation on demand, in the browser's top layer */

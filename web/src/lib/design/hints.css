@@ -1,0 +1,84 @@
+/* ---------- hints: an explanation on demand (UIR-006) ----------
+ * Not a `title=` attribute: those are delayed, unstyled, invisible on touch, and
+ * announced inconsistently. This is a real focusable control with a real tooltip. */
+.bridge-root .hint {
+	display: inline-flex;
+	align-items: center;
+	vertical-align: middle;
+	margin-left: 5px;
+	/* Every trigger declares the same anchor name, so without scoping a page with two hints
+	 * would resolve both bubbles against whichever trigger came last. `anchor-scope` confines
+	 * each name to its own wrapper. */
+	anchor-scope: --hint-trigger;
+}
+.bridge-root .hint-trigger {
+	display: grid;
+	place-items: center;
+	width: 17px;
+	height: 17px;
+	padding: 0;
+	border: 0;
+	border-radius: 50%;
+	background: transparent;
+	color: var(--text-tertiary);
+	cursor: help;
+	transition: color 0.15s ease;
+}
+.bridge-root .hint-trigger:hover,
+.bridge-root .hint-trigger:focus-visible {
+	color: var(--accent-strong);
+}
+.bridge-root .hint-trigger:focus-visible {
+	outline: 2px solid color-mix(in srgb, var(--accent) 45%, transparent);
+	outline-offset: 1px;
+}
+/* The trigger is the anchor the bubble positions against. */
+.bridge-root .hint-trigger {
+	anchor-name: --hint-trigger;
+}
+/* UIR-008: the bubble lives in the TOP LAYER, not in the document.
+ *
+ * It used to be `position: absolute; bottom: calc(100% + 7px); z-index: 60` inside the page.
+ * `.bridge-page` sets `overflow-y: auto`, and when one axis is not `visible` the browser computes
+ * the other to `auto` as well — so every page clipped its own tooltips on both axes and a hint
+ * on a `page-head` heading had nowhere to render. A bigger z-index could not have fixed that;
+ * only leaving the document could.
+ *
+ * `:popover-open` carries the styling because a popover is `display: none` until shown. No
+ * z-index appears here on purpose: the top layer paints above the entire stacking context,
+ * so the hint needs no rung on the ladder below. */
+.bridge-root .hint-bubble:popover-open {
+	position: fixed;
+	margin: 0;
+	inset: auto;
+	width: max-content;
+	max-width: min(280px, 70vw);
+	padding: 7px 10px;
+	border-radius: var(--radius-sm);
+	border: 1px solid var(--border-strong);
+	background: var(--glass-strong);
+	backdrop-filter: blur(14px) saturate(1.4);
+	-webkit-backdrop-filter: blur(14px) saturate(1.4);
+	box-shadow: var(--shadow-lift);
+	color: var(--text-secondary);
+	font-size: 11.5px;
+	font-weight: 400;
+	line-height: 1.45;
+	letter-spacing: 0;
+	text-transform: none;
+	white-space: normal;
+	text-align: left;
+	overflow: visible;
+	pointer-events: none;
+}
+/* Where the engine can place it for us, it does — including flipping below when there is no
+ * room above. `.unanchored` marks the bubbles whose coordinates Hint.svelte computes instead,
+ * so the two paths never fight over `top`/`left`. */
+@supports (anchor-name: --hint-trigger) {
+	.bridge-root .hint-bubble:popover-open:not(.unanchored) {
+		position-anchor: --hint-trigger;
+		position-area: block-start;
+		position-try-fallbacks: block-end, inline-end, inline-start;
+		margin-block: 7px;
+	}
+}

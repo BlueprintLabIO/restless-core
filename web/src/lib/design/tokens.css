@@ -1,0 +1,128 @@
+
+/* ============ v3 — the company is a chat app, scoped under .bridge-root ============
+ * Bridge design language (docs/design-language.md): the dark cockpit. Matte ink,
+ * dot-field ground, pure-white annunciation — emissive white is the machine,
+ * material white is the operator. */
+
+.bridge-root {
+	/* palette — the Bridge 9-step dark ramp. No hue: the agent owns the top of
+	 * the ramp as light; the operator's action is solid white as material.
+	 * Body text uses only --text-secondary and brighter, so AA holds by
+	 * construction (≥4.5:1 on --bg-app). */
+	--bg-app: #0a0b0d;
+	--surface: #0e1013;
+	--surface-alt: #131619;
+	--r3: #181b1f;
+	--r4: #1e2227;
+	--sidebar-bg: rgba(14, 16, 19, 0.55);
+	--glass: rgba(10, 11, 13, 0.72);
+	--glass-strong: rgba(10, 11, 13, 0.88);
+	--accent: #f4f5f6;
+	--accent-soft: rgba(244, 245, 246, 0.08);
+	--accent-strong: #ffffff;
+	--ink: #f4f5f6;
+	/* Quiet, but never below WCAG AA on the ramp (4.5:1) — the product's own
+	 * gate holds every caption and timestamp to that. */
+	--text-secondary: rgba(244, 245, 246, 0.66);
+	--text-tertiary: rgba(244, 245, 246, 0.5);
+	--text-inverse: #0a0b0d;
+	--border: rgba(255, 255, 255, 0.07);
+	--border-strong: rgba(255, 255, 255, 0.12);
+	/* Operator bubbles are material white; agent rows are raised ink. */
+	--bubble-user: #f4f5f6;
+	--bubble-agent: #131619;
+	/* Status is shape-first (L6); these steps only ever reinforce a glyph. */
+	--status-working: #f4f5f6;
+	--status-waiting: #a8adb4;
+	--status-blocked: #9aa0a8;
+	--status-offline: #3c4046;
+	--info: #a8adb4;
+	/* The employee palette in monochrome: neutral steps, white initials at
+	 * 13px stay above WCAG AA against every one. */
+	--pig-0: #4a5058;
+	--pig-1: #3a3f46;
+	--pig-2: #565d66;
+	--pig-3: #2f3339;
+	--pig-4: #444a52;
+	--radius-sm: 4px;
+	--radius-md: 6px;
+	--radius-lg: 8px;
+	/* The seam between panes. Wide enough to read as a channel, thin enough
+	 * that the panes still read as one divided surface rather than as cards
+	 * scattered on a page. */
+	--pane-gap: 4px;
+	--shadow-soft: 0 1px 2px rgba(0, 0, 0, 0.35), 0 4px 14px rgba(0, 0, 0, 0.28);
+	--shadow-lift: 0 2px 6px rgba(0, 0, 0, 0.4), 0 12px 32px rgba(0, 0, 0, 0.45);
+	/* One light source, top-left (L4). Felt, not seen. */
+	--bevel: inset 0 1px 0 rgba(255, 255, 255, 0.14);
+	--bevel-subtle: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+	/* The dot field — still, sub-threshold, the machine under the glass. */
+	--dot: rgba(255, 255, 255, 0.05);
+	/* The hold-to-approve fill sweep. */
+	--hold-fill: rgba(255, 255, 255, 0.22);
+	--topbar-h: 46px;
+	/* the seam under the chrome — same channel as the pane gutter, so the bar
+	 * reads as separate from the surface below it rather than welded to it */
+	--topbar-seam: var(--pane-gap);
+	--topbar-total: calc(var(--topbar-h) + var(--topbar-seam));
+
+	/* The z-index ladder lives on :root in layout.css — see the comment there. */
+
+	min-height: 100vh;
+	background: var(--bg-app);
+	background-image: radial-gradient(var(--dot) 1px, transparent 1.3px);
+	background-size: 14px 14px;
+	color: var(--ink);
+	font-family: 'Inter', system-ui, sans-serif;
+	font-size: 14px;
+	line-height: 1.5;
+	/* Titles carry model- and operator-supplied text, which can be one
+	 * unbroken 200-character run. break-word inherits everywhere and only
+	 * fires when a word genuinely cannot fit a line by itself, so ordinary
+	 * prose still wraps on spaces. The wrap belongs at the root: any surface
+	 * that renders a name is one bad string away from the same overflow. */
+	overflow-wrap: break-word;
+}
+
+/* ---------- the light sibling (D2): the same language, inverted. Still
+ * monochrome — the machine's "light" becomes the darkest step, the operator's
+ * action is solid ink. Avatar tiles stay dark so white initials keep AA. */
+html[data-theme='light'] .bridge-root {
+	--bg-app: #f3f4f6;
+	--surface: #ffffff;
+	--surface-alt: #f4f5f7;
+	--r3: #eceef1;
+	--r4: #e2e5e9;
+	--sidebar-bg: rgba(255, 255, 255, 0.55);
+	--glass: rgba(255, 255, 255, 0.72);
+	--glass-strong: rgba(255, 255, 255, 0.88);
+	--accent: #17181c;
+	--accent-soft: rgba(23, 24, 28, 0.07);
+	--accent-strong: #000000;
+	--ink: #17181c;
+	--text-secondary: rgba(23, 24, 28, 0.66);
+	--text-tertiary: rgba(23, 24, 28, 0.6);
+	--text-inverse: #f4f5f6;
+	--border: rgba(23, 24, 28, 0.09);
+	--border-strong: rgba(23, 24, 28, 0.16);
+	--bubble-user: #17181c;
+	--bubble-agent: #ffffff;
+	--status-working: #17181c;
+	--status-waiting: #5c6169;
+	--status-blocked: #6b7280;
+	--status-offline: #c3c7cd;
+	--info: #5c6169;
+	--shadow-soft: 0 1px 2px rgba(23, 24, 28, 0.06), 0 4px 14px rgba(23, 24, 28, 0.06);
+	--shadow-lift: 0 2px 6px rgba(23, 24, 28, 0.08), 0 12px 32px rgba(23, 24, 28, 0.1);
+	--bevel: inset 0 1px 0 rgba(255, 255, 255, 0.8);
+	--bevel-subtle: inset 0 1px 0 rgba(255, 255, 255, 0.5);
+	--dot: rgba(23, 24, 28, 0.055);
+	--hold-fill: rgba(23, 24, 28, 0.14);
+}
+
+.bridge-root *,
+.bridge-root *::before,
+.bridge-root *::after {
+	box-sizing: border-box;
+}
+

@@ -1,0 +1,47 @@
+/* ---------- the z-index ladder ----------
+ * One place, in order, so the next value is chosen rather than guessed.
+ *
+ * It lives on :root rather than on `.bridge-root`, because the app-level chrome
+ * (offline banner, loading bar) renders OUTSIDE the design scope — a token defined
+ * on `.bridge-root` would not inherit to them.
+ *
+ * Deliberately absent: hints. A hint bubble renders in the browser's TOP LAYER via the
+ * Popover API, which paints above the whole document regardless of z-index — so it needs
+ * no rung here, and adding one would imply it competes with these when it does not. */
+:root {
+	--z-raised: 2; /* in-flow lift: the rail's gate over the conversation */
+	--z-sticky: 40; /* the glass topbar */
+	--z-docked: 50; /* fixed notices docked to a window edge */
+	--z-rail: 60; /* the executive rail when narrow screens make it float over the page */
+	--z-overlay: 90; /* modal scrim */
+	--z-palette: 95; /* command palette, above the scrim it may open over */
+	--z-app: 1000; /* the app shell outside .bridge-root: offline banner, loading bar */
+}
+
+:root {
+	font-family: 'Inter', system-ui, sans-serif;
+	color: #f4f5f6;
+	background: #0a0b0d;
+	font-synthesis: none;
+}
+
+* {
+	box-sizing: border-box;
+}
+
+body {
+	margin: 0;
+	min-width: 320px;
+	min-height: 100vh;
+}
+
+button,
+textarea,
+input,
+select {
+	font: inherit;
+}
+
+button {
+	color: inherit;
+}

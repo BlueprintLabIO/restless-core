@@ -1,0 +1,35 @@
+/* ---------- type helpers ---------- */
+.bridge-root .mono {
+	font-family: 'IBM Plex Mono', monospace;
+}
+.bridge-root .display {
+	font-family: 'Inter', system-ui, sans-serif;
+	font-weight: 600;
+	letter-spacing: -0.01em;
+}
+.bridge-root .over-label {
+	font-family: 'IBM Plex Mono', monospace;
+	font-size: 10.5px;
+	font-weight: 500;
+	letter-spacing: 0.12em;
+	text-transform: uppercase;
+	color: var(--text-tertiary);
+	margin: 0 0 10px;
+}
+.bridge-root .caption {
+	font-size: 12px;
+	color: var(--text-secondary);
+	line-height: 1.6;
+}
+.bridge-root h1,
+.bridge-root h2,
+.bridge-root h3 {
+	font-family: 'Inter', system-ui, sans-serif;
+	font-weight: 600;
+	letter-spacing: -0.01em;
+	margin: 0;
+}
+.bridge-root a {
+	color: inherit;
+}
+
