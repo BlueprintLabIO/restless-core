@@ -431,6 +431,7 @@ async fn gather_snapshot(
         budget_remaining_usd: (config.spend_ceiling_usd - spent_usd).max(0.0),
         budget_ceiling_usd: config.spend_ceiling_usd,
         capabilities: crate::effect::available_capabilities(&root, &config.name),
+        effect_ledger: crate::reconcile::effect_ledger(org).await?.summary(),
     })
 }
 

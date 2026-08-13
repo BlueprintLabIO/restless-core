@@ -73,6 +73,24 @@ pub async fn request_effect(
             bail!("idempotency key {key:?} was already used with different arguments");
         }
         receipt.replayed = true;
+        // A replay leaves a trace of its own, deliberately NOT a second
+        // `effect` event: duplicating the receipt would double-count it in
+        // reconciliation, which is the opposite of the point. Without this,
+        // idempotency is the one mechanism protecting against double-charging
+        // that nobody can audit — a company claimed "idempotent re-run
+        // verified" and the record could neither confirm nor refute it,
+        // because a suppressed duplicate looked identical to one that never
+        // happened.
+        org.emit_event(
+            "effect_replayed",
+            Some(actor),
+            serde_json::json!({
+                "capability": capability,
+                "idempotency_key": key,
+                "receipt_id": receipt.id,
+            }),
+        )
+        .await?;
         return Ok(receipt);
     }
 

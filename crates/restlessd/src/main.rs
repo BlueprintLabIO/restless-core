@@ -6,6 +6,7 @@
 
 mod acp;
 mod health;
+mod reconcile;
 mod context;
 mod effect;
 mod exec;

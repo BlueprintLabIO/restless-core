@@ -335,6 +335,19 @@ impl OrgIntel {
         .await?)
     }
 
+    /// Every event of one kind, oldest first. Reconciliation reads the whole
+    /// effect history: a partial view would understate what the company
+    /// actually did, which is the opposite of the point.
+    pub async fn events_of_kind(&self, kind: &str) -> Result<Vec<EventRow>> {
+        Ok(sqlx::query_as(
+            "SELECT id, kind, actor_id, body, created_at FROM events \
+             WHERE kind = $1 ORDER BY id",
+        )
+        .bind(kind)
+        .fetch_all(&self.pool)
+        .await?)
+    }
+
     /// Events newer than a watermark, oldest first — the watch stream's
     /// incremental read (T10).
     pub async fn events_after(&self, watermark: i64) -> Result<Vec<EventRow>> {

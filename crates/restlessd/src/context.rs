@@ -32,6 +32,11 @@ pub struct ContextSnapshot {
     /// by being killed mid-turn.
     pub budget_remaining_usd: f64,
     pub budget_ceiling_usd: f64,
+    /// What the kernel's receipts record this company having actually done to
+    /// the world. The company's own narrative is a claim; this is the
+    /// observation. Handing it back each wake is what lets the Exec notice it
+    /// has reported revenue its receipts do not support.
+    pub effect_ledger: String,
     /// Capabilities this company's effect surface actually offers. Small and
     /// enumerable, so it is carried rather than pointed at — one company burned
     /// 57 tool calls guessing ~95 names against a surface of three.
@@ -127,6 +132,11 @@ pub fn assemble(snapshot: &ContextSnapshot) -> ContextPackage {
          reach outside this company. Capabilities available to you: {capabilities}. Asking for one \
          that does not exist tells you what does — you never have to guess. Every effect returns a \
          receipt; a repeated key returns the stored receipt instead of acting twice.\n\n\
+         # What your receipts actually record [observation — stronger than your own notes]\n\
+         {ledger}\n\
+         These are counted from kernel receipts, not from your journal. If your plan or \
+         journal claims an outcome these receipts do not support, the receipts win: correct \
+         the record and say plainly that you did so.\n\n\
          # Budget [internal decision]\n\
          ${remaining:.2} remains of a ${ceiling:.2} ceiling. Model turns are charged against it. \
          At zero the company stops until the owner raises it, so spend it on work that produces \
@@ -141,6 +151,7 @@ pub fn assemble(snapshot: &ContextSnapshot) -> ContextPackage {
         name = snapshot.company,
         mission = snapshot.mission,
         capabilities = capabilities,
+        ledger = snapshot.effect_ledger.trim(),
         remaining = snapshot.budget_remaining_usd,
         ceiling = snapshot.budget_ceiling_usd,
         plan_exists = if plan_exists { "yes" } else { "no — first wake, create it" },
@@ -182,6 +193,7 @@ mod tests {
             budget_remaining_usd: 7.5,
             budget_ceiling_usd: 10.0,
             capabilities: vec!["email.send".into(), "web.deploy".into()],
+            effect_ledger: "email.send 3 · GBP 27.00 moved".into(),
         }
     }
 
