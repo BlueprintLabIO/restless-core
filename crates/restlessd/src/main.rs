@@ -519,7 +519,6 @@ async fn dispatch(request: Request, daemon: &Daemon) -> Response {
                         Ok(org) => match effect::request_effect(
                             &daemon.root,
                             &config,
-                            &daemon.gateway,
                             &org,
                             &capability,
                             request.args.unwrap_or(serde_json::Value::Null),

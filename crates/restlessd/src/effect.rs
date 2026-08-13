@@ -20,8 +20,7 @@ use serde::Serialize;
 use sha2::Digest as _;
 use uuid::Uuid;
 
-use crate::gateway::GatewayHandle;
-use crate::runtime::CompanyConfig;
+use crate::runtime::{self, CompanyConfig};
 
 /// What the requester gets back, and what the event stream keeps (kind
 /// "effect"). The args digest — not the args — is the receipt's record of
@@ -46,7 +45,6 @@ pub struct Receipt {
 pub async fn request_effect(
     root: &Path,
     config: &CompanyConfig,
-    gateway: &GatewayHandle,
     org: &restless_orgintel::OrgIntel,
     capability: &str,
     args: serde_json::Value,
@@ -82,8 +80,26 @@ pub async fn request_effect(
         .join("simulators")
         .join(&config.name)
         .join(format!("{capability}.md"));
-    let persona = std::fs::read_to_string(&persona_path).with_context(|| {
-        format!("no simulated provider for {capability} at {}", persona_path.display())
+    // Discoverability is the difference between "probe, never guess" and
+    // brute force. Aris's first run guessed ~95 capability names against a
+    // surface of three and blocked on the owner; the surface knew the answer
+    // the whole time and did not say it. An error that cannot be acted on is
+    // a missing feature, not a message.
+    let persona = std::fs::read_to_string(&persona_path).map_err(|_| {
+        let available = available_capabilities(root, &config.name);
+        if available.is_empty() {
+            anyhow::anyhow!(
+                "no simulated providers are configured for {} at all — the owner must add \
+                 personas before any external effect can run",
+                config.name
+            )
+        } else {
+            anyhow::anyhow!(
+                "no simulated provider for {capability}. {} offers exactly: {}",
+                config.name,
+                available.join(", ")
+            )
+        }
     })?;
 
     let prompt = format!(
@@ -92,8 +108,7 @@ pub async fn request_effect(
          Respond with the JSON outcome object only, no prose.",
         args = serde_json::to_string_pretty(&args)?
     );
-    let minted = gateway.mint_token(config, "simulator")?;
-    let text = call_world_model(&minted, &config.model, &prompt).await?;
+    let text = call_world_model(config, &prompt).await?;
     let outcome = extract_json_object(&text)
         .with_context(|| format!("world model answered unparseably: {}", &text[..text.len().min(300)]))?;
 
@@ -113,37 +128,48 @@ pub async fn request_effect(
     Ok(receipt)
 }
 
-/// Play the world through the company's own gateway route: one Responses
-/// call, purpose-tokened and ceiling-charged like any other model use.
-async fn call_world_model(
-    minted: &crate::gateway::MintedToken,
-    model: &str,
-    prompt: &str,
-) -> Result<String> {
-    let client = reqwest::Client::new();
-    let response = client
-        .post(format!("{}/responses", minted.base_url_host))
-        .bearer_auth(&minted.token)
-        .json(&serde_json::json!({ "model": model, "input": prompt }))
-        .send()
+/// Every capability this company has a simulated provider for, sorted. The
+/// filenames ARE the surface — no registry to drift out of sync with them.
+pub fn available_capabilities(root: &std::path::Path, company: &str) -> Vec<String> {
+    let dir = root.join("simulators").join(company);
+    let Ok(entries) = std::fs::read_dir(&dir) else { return Vec::new() };
+    let mut names: Vec<String> = entries
+        .flatten()
+        .filter_map(|entry| {
+            let path = entry.path();
+            (path.extension()?.to_str()? == "md")
+                .then(|| path.file_stem()?.to_str().map(str::to_owned))?
+        })
+        .collect();
+    names.sort();
+    names
+}
+
+/// Play the world as a model, through the same runtime the agents use. This
+/// used to POST to the embedded gateway's /responses route; that path died
+/// with the codex runtime, so every simulated effect would have failed at the
+/// first call. The world now runs on omp in the company's own container.
+async fn call_world_model(config: &CompanyConfig, prompt: &str) -> Result<String> {
+    let auth = crate::exec::agent_auth(config)?;
+    let container = runtime::container_name(&config.name);
+    let output = tokio::process::Command::new("docker")
+        .args([
+            "exec", "-i", "-u", "company", "-w", "/company",
+            "-e", "OMP_HOME=/company/home/.omp",
+            "-e", &format!("{}={}", auth.provider_key_env, auth.provider_key),
+            &container,
+            "omp", "-p", "--model", &auth.model, "--no-tools", prompt,
+        ])
+        .output()
         .await
-        .context("world model call")?;
-    let status = response.status();
-    let body: serde_json::Value = response.json().await.context("world model response body")?;
-    if !status.is_success() {
-        bail!("world model call failed: {status} {body}");
+        .context("spawn world-model call")?;
+    if !output.status.success() {
+        bail!(
+            "world model call failed: {}",
+            String::from_utf8_lossy(&output.stderr).chars().take(300).collect::<String>()
+        );
     }
-    // OpenAI Responses shape: output[] -> message -> content[] -> output_text.
-    for item in body["output"].as_array().into_iter().flatten() {
-        for content in item["content"].as_array().into_iter().flatten() {
-            if content["type"].as_str() == Some("output_text") {
-                if let Some(text) = content["text"].as_str() {
-                    return Ok(text.to_string());
-                }
-            }
-        }
-    }
-    bail!("world model response had no output_text: {body}")
+    Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
 }
 
 /// The persona's answer is judgement; finding its JSON envelope is
