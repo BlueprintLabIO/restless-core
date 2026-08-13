@@ -156,10 +156,13 @@ pub async fn preflight(company: &str) -> Result<Option<Blocked>> {
 /// is itself the no-op tell.
 #[must_use]
 pub fn classify_turn(used: Option<u64>, error: Option<&str>) -> Option<Blocked> {
+    // An error means the turn failed; the only open question is which class.
+    // Never fall through to the consumption check from here: on the error path
+    // `used` is *unknown*, and unknown is not zero. Falling through reported a
+    // 20-minute work-turn timeout as "the model never ran — check provider
+    // credit", sending the owner to look at a healthy credential.
     if let Some(text) = error {
-        if let Some(blocked) = classify_error(text) {
-            return Some(blocked);
-        }
+        return Some(classify_error(text).unwrap_or_else(|| Blocked::transport(text)));
     }
     match used {
         Some(0) | None => Some(Blocked::new(
@@ -294,6 +297,17 @@ mod tests {
     fn transport_status_outranks_token_count() {
         let blocked = classify_turn(Some(0), Some("402 insufficient credit")).expect("blocked");
         assert_eq!(blocked.kind, BlockKind::Quota);
+    }
+
+    /// An unrecognised error must NOT be reported as "the model never ran".
+    /// On the error path `used` is unknown, and unknown is not zero — this
+    /// exact fall-through told the owner to check a healthy credential when a
+    /// 20-minute work turn hit the wake boundary.
+    #[test]
+    fn an_unclassified_error_is_transport_not_no_op() {
+        let blocked = classify_turn(None, Some("connection reset by peer")).expect("blocked");
+        assert_eq!(blocked.kind, BlockKind::Transport);
+        assert!(!blocked.message().contains("never ran"));
     }
 
     #[test]

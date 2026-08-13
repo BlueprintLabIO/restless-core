@@ -231,10 +231,29 @@ async fn run_turn(
 ) -> Result<(WakeReport, Option<acp::TurnUsage>)> {
     let worked = tokio::time::timeout(WORK_TURN_TIMEOUT, session.prompt(context)).await;
     if worked.is_err() {
-        // The wake boundary is system-imposed (§6), not a termination: the
-        // process dies here, the next wake continues from files + OrgIntel.
+        // The wake boundary is system-imposed (§6) and is NOT a failure: the
+        // work already happened and is on disk, so the next wake rehydrates
+        // and continues it. Latching the milestone Blocked here stopped a
+        // healthy company mid-build and told the owner to check their
+        // credential — observed live on cosmon's combat wake.
         let _ = session.cancel().await;
-        bail!("work turn exceeded {}s", WORK_TURN_TIMEOUT.as_secs());
+        let transcript = session.take_transcript();
+        return Ok((
+            WakeReport {
+                company: company.to_string(),
+                termination: Termination::Continue,
+                reason: format!(
+                    "wake boundary reached after {}m mid-turn; work so far is on disk \
+                     and the next wake continues it",
+                    WORK_TURN_TIMEOUT.as_secs() / 60
+                ),
+                next_wake_minutes: Some(1),
+                tool_calls: transcript.tool_calls,
+                said: transcript.text.chars().take(1_000).collect(),
+                spawn_requests: Vec::new(),
+            },
+            transcript.usage,
+        ));
     }
     worked??;
     let work_transcript = session.take_transcript();
