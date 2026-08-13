@@ -266,7 +266,7 @@ T3 ACP spike ──┬── T1 container ──┬── T4 Exec ── T7 cont
 | [ ] | [T8 · Effect surface + simulated providers](./sprint-01/t08-effect-surface.md) | Kernel | 1 | ace6995 |
 | [ ] | [T9 · Staff spawn and supervision](./sprint-01/t09-staff-supervision.md) | OrgIntel / Runtime | 1, 3, 5 | 993b065 |
 | [ ] | [**T10 · CLI — owner surface *and* agent path to layer 2**](./sprint-01/t10-cli-owner-surface.md) | Owner surface / OrgIntel | 1, 5 | 2f1d87e |
-| [ ] | [**T11 · Cosmon — the skeleton is built here**](./sprint-01/t11-cosmon.md) | All | 1, 3–7, 9, 10 | |
+| [x] | [**T11 · Cosmon — the skeleton is built here**](./sprint-01/t11-cosmon.md) | All | 1, 3–7, 9, 10 | f41e1c3 |
 | [ ] | [T12 · Aris](./sprint-01/t12-aris.md) | All | 8, 11 | |
 | [ ] | [T13 · Thymelake](./sprint-01/t13-thymelake.md) | All | 8, 11 | |
 | [ ] | [T14 · Crash and restart harness](./sprint-01/t14-crash-restart-harness.md) | Cross-cutting | 11 | af2daed, 535832d |
@@ -277,10 +277,18 @@ T3 ACP spike ──┬── T1 container ──┬── T4 Exec ── T7 cont
 carries the blocking pre-check on whether the chosen agent binary can even be pointed at our gateway —
 which, if it fails, invalidates T2's key-isolation story.
 
-> **Status note (2026-08-13):** T8–T10 machinery is committed and verified by every check that does not
-> burn model credit (honest-error paths, idempotency replay, orphan sweep, mail/CLI channel over TCP,
-> envelope parse tests). Their live-run acceptances — and T11–T14 — are blocked on an exhausted
-> OpenRouter key (owner top-up required). See the T15 friction backlog.
+> **Status note (2026-08-13, revised):** the credit block is gone — not by topping up, but by
+> replacing the runtime. The agent is now `omp` (native ACP, reports its own per-turn token and
+> dollar usage) on `zai/glm-5.2`. **T11 is complete**: Cosmon ran end to end, terminated `done` on
+> the Exec's own judgement, and cost **$0.2855** against the prior partial run's $4.10 — ~14x
+> cheaper for a better outcome (see [run-report](./sprint-01/run-report.md)).
+>
+> Two structural changes came with it. The **health gate** (`health.rs`) makes substrate failure
+> deterministic rather than something inferred from model prose — F1, F2, F3, F12 and three
+> newly-found failures collapse into one mechanism whose load-bearing invariant is *a turn that
+> consumed no tokens did not happen, it failed*. The **spend fuse moved out of the HTTP path** to
+> the ACP session layer, which makes most of T2's proxy deletable. T8–T10 machinery still awaits
+> its live acceptance; T12/T13 are now cheap enough to run on evidence rather than faith.
 
 **T16 lands early, before T4 and T9.** Both of those contain judgement calls, and if the helper does not
 exist when they are written, heuristics will be written instead.
@@ -340,7 +348,7 @@ escalation takes an argument.
 | Prompt injection or a compromised worker | **Accepted** | Nothing real is connected; the worst outcome is wasted tokens and bad files, both recoverable. |
 | The agents produce poor or wrong work | **Accepted** | That is the thing this sprint measures, not a failure to engineer against. |
 | Loss of the OrgIntel Postgres state | **Accepted** | Recoverable coordination state by design (§4.8). Files and Git hold the actual work. |
-| Provider API key leaking into a company container | **Guarded** | Key held host-side, injected at the gateway; verified by grep of container env and filesystem. |
+| Provider API key leaking into a company container | **Accepted (downgraded 2026-08-13)** | Was Guarded: the key stayed host-side and only a ≤1h purpose token entered the container. The omp runtime resolves credentials from its own process environment, so the key now reaches the agent process via `docker exec -e` — present in that process's environment for the life of the turn, absent from the image, the container's persistent env, and the volume. Accepted because every provider is still simulated or read-only and the blast radius is a wasted zai quota. **Expiry: before any real external effect is reachable.** The fix is already identified — `omp auth-broker`/`auth-gateway` hold credentials out-of-process (evaluated; sprint-02 ticket). |
 | Unbounded model spend across three autonomous companies | **Guarded** | Per-company dollar ceiling, fail closed; staff capped at two per company. |
 | ACP is the main technical unknown | **Guarded** | Spike both paths (ticket 3) before the rest of the sprint depends on the answer. |
 | Three companies is real surface area | **Guarded** | Build-one-then-configure-two sequencing, plus the done criterion in open decision 4. |
