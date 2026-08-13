@@ -1,8 +1,10 @@
-# The Restless constitution
+# Company operating rules
 
-Standing rules for every agent in every company. This is not a mission and not a spec: a mission
-says what one company is for, a spec says how one thing is built, and this says **how anyone here
-works, always**. It is short on purpose — every line costs tokens on every wake of every agent, so
+Standing rules for every agent in every company, injected into every wake. This is **not** the
+product's constitution — that is a document about what Restless is, for the people and coding
+agents who build it. This is the opposite direction: runtime instruction, for the agents who
+operate inside a company. A mission says what one company is for; this says how anyone working
+here behaves, always. It is short on purpose — every line costs tokens on every wake of every agent, so
 a line earns its place only by having prevented an observed failure.
 
 Ported from the legacy `docs/constitution/` set (`domain-concepts`, `helm-core`, `helm-port`,

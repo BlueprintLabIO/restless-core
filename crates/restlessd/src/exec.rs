@@ -421,7 +421,7 @@ async fn gather_snapshot(
     let root = runtime::state_root();
     Ok(ContextSnapshot {
         company: config.name.clone(),
-        constitution: load_constitution(&root),
+        constitution: load_operating_rules(&root),
         mission: config.mission.clone(),
         current_plan,
         latest_journal,
@@ -434,18 +434,20 @@ async fn gather_snapshot(
     })
 }
 
-/// The installation's standing rules, seeded from the repo's
-/// `docs/CONSTITUTION.md` on first boot and owner-editable thereafter. Absent
+/// The installation's standing rules for agents, from
+/// `docs/COMPANY_OPERATING_RULES.md`. NOT the product constitution — that is a
+/// document about what Restless is, read by its builders, never injected into
+/// a prompt. Absent
 /// is not fatal — a company with no constitution still runs, it just runs
 /// without the rules that stop it lying about verification.
-fn load_constitution(root: &std::path::Path) -> String {
-    let path = root.join("constitution.md");
+fn load_operating_rules(root: &std::path::Path) -> String {
+    let path = root.join("operating-rules.md");
     match std::fs::read_to_string(&path) {
         Ok(text) => text,
         Err(_) => {
             tracing::warn!(
                 path = %path.display(),
-                "no constitution installed; agents run without standing rules"
+                "no operating rules installed; agents run without standing rules"
             );
             String::new()
         }
