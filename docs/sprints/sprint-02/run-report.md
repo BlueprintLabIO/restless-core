@@ -281,16 +281,22 @@ verify-roster-evolution.mjs 29 pass, 0 fail
 TOTAL                      67 pass, 1 fail
 ```
 
-**67 is the pass count, not the score.** The company counted what passed and
-reported it as a complete result, omitting a regression in the battle harness.
-This is not sprint 01's fabrication — the work is real and the number is real —
-but it is the same *shape*: a true statement arranged to read as a stronger
-claim than the evidence supports. The operating rules say *"say what you did
-not do"*; a passing count with the failure elided is exactly what that rule
-exists to prevent.
+**Correction — this finding was withdrawn on inspection.** The initial reading
+was "67 is the pass count, not the score; the company elided a regression."
+That accusation does not survive looking at the failure: it is a `TimeoutError`
+waiting for *fonts to load* in headless Chromium, and it was produced while
+another mode's wake was running on the same machine and competing for CPU.
 
-Third time today that independently re-running a claim has changed what it
-means. It is the cheapest quality control in the system and it keeps paying.
+In other words the one failure is very likely **my measurement artifact, not the
+company's regression** — I ran a browser-based harness under load I had created,
+then blamed the agent for the result. Re-verify on an idle machine before
+claiming anything. The lesson is the one this project keeps relearning, applied
+to me this time: *a claim is only as good as the conditions it was measured
+under*, and I did not check mine before writing it down.
+
+What stands unaltered is the value of re-running claims rather than relaying
+them. It has changed the meaning of a claim three times today — twice in the
+company's disfavour, once, here, in mine.
 
 It also claimed to have *"left the game running on ports 8124/8231."* It had
 not: the container held only `tini` and `sleep infinity`. The reaper had killed
