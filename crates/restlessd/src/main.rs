@@ -10,6 +10,8 @@ mod reconcile;
 mod context;
 mod credential;
 mod effect;
+mod inbound;
+mod ingress;
 mod provider;
 mod exec;
 mod schedule;
@@ -107,7 +109,7 @@ impl OrgIntelConfig {
 }
 
 /// Lazily ensured per-company OrgIntel handles (one pool per company).
-struct OrgIntelRegistry {
+pub(crate) struct OrgIntelRegistry {
     pub(crate) database_url: String,
     handles: std::sync::Mutex<HashMap<String, OrgIntel>>,
 }
@@ -228,6 +230,29 @@ async fn main() -> Result<()> {
             tracing::error!(addr = %coord_addr, "coordination TCP bind failed: {error:#} — \
                 agents in containers will have no coordination channel");
         }
+    }
+
+    // S03-T2: the world's front door, on its OWN listener and its own task.
+    // The failure boundary is the point (AC6): a slow, malformed or flooded
+    // inbound request must not be able to stall the scheduler — F12's lesson,
+    // where one company's hung Docker took down all three. Absent secret means
+    // absent rail: we do not open an unauthenticated public port, ever, and a
+    // company that cannot receive is honest about it rather than silently open.
+    match std::env::var("RESEND_WEBHOOK_SECRET").ok().filter(|s| !s.trim().is_empty()) {
+        Some(secret) => {
+            let sink = std::sync::Arc::new(inbound::OrgIntelSink {
+                daemon: std::sync::Arc::clone(&daemon),
+            });
+            tokio::spawn(async move {
+                if let Err(error) = ingress::serve(ingress::INGRESS_PORT, secret, sink).await {
+                    tracing::error!("event ingress stopped: {error:#}");
+                }
+            });
+        }
+        None => tracing::warn!(
+            "RESEND_WEBHOOK_SECRET is not set — the event ingress is NOT listening. \
+             The company can send but cannot receive; inbound replies will not wake it"
+        ),
     }
 
     loop {
