@@ -27,7 +27,6 @@ const STAFF_CAP_PER_COMPANY: usize = 2;
 /// A staff turn is bounded by liveness and budget, not wall-clock — the
 /// module note above ("no timeout kills a slow staff member") was contradicted
 /// by a 20-minute bound that did exactly that.
-
 /// A spawn request from the Exec's termination envelope.
 #[derive(Debug, Clone, serde::Deserialize, Serialize)]
 pub struct SpawnRequest {
@@ -215,8 +214,17 @@ async fn spawn_claimed(
     let meter = spend.meter();
     let model = auth.model.clone();
     tokio::spawn(async move {
-        let outcome =
-            run_staff(&container, &auth, &workdir, &company, &actor, &name, &task, spine).await;
+        let outcome = run_staff(StaffBrief {
+            container,
+            auth,
+            workdir: workdir.clone(),
+            company: company.clone(),
+            actor: actor.clone(),
+            name: name.clone(),
+            task,
+            spine,
+        })
+        .await;
         // Meter before recording the outcome: staff spend counts against the
         // company ceiling whether the task succeeded or not.
         if let Ok((_, _, spent)) = &outcome {
@@ -270,16 +278,29 @@ async fn shared_spine(config: &CompanyConfig, org: &restless_orgintel::OrgIntel)
 /// Exec; `continue` re-prompts inside the same session (one process per
 /// task), bounded overall. Termination wording is the model's decision; the
 /// envelope is the daemon's deterministic read of it.
-async fn run_staff(
-    container: &str,
-    auth: &AgentAuth,
-    workdir: &str,
-    company: &str,
-    actor: &str,
-    name: &str,
-    task: &str,
+/// Everything one supervised staff turn needs. Grouped because the parameter
+/// list had grown past the point where call sites were readable — and because
+/// `spine` being present or empty is the OrgIntel comparison's independent
+/// variable, which deserves to be visible in a type rather than buried as the
+/// eighth positional argument.
+struct StaffBrief {
+    container: String,
+    auth: AgentAuth,
+    workdir: String,
+    company: String,
+    actor: String,
+    name: String,
+    task: String,
+    /// The shared spine, or empty in `minimal_team` and `single_agent`.
     spine: String,
+}
+
+async fn run_staff(
+    brief: StaffBrief,
 ) -> Result<(Termination, String, Vec<acp::TurnUsage>)> {
+    let StaffBrief { container, auth, workdir, company, actor, name, task, spine } = brief;
+    let (container, auth, workdir, actor) =
+        (container.as_str(), &auth, workdir.as_str(), actor.as_str());
     let prompt = format!(
         "You are {name}, a staff engineer of {company}, spawned for one task.\n\
          Your working directory is {workdir} — it is YOURS: a dedicated git worktree. \

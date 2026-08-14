@@ -433,7 +433,6 @@ async fn reap(container: &str, before: &std::collections::HashSet<String>) {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use agent_client_protocol::schema::v1::ClientCapabilities;
 
     /// Guards the silent failure that cost a probe cycle: if the client ever

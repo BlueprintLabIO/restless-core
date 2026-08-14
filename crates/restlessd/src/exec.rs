@@ -560,7 +560,6 @@ async fn exec_output(container: &str, shell: &str) -> Result<String> {
 
 /// Run a shell command with piped stdin (file contents never touch the
 /// command line, so no escaping games).
-
 #[cfg(test)]
 mod tests {
     use super::*;

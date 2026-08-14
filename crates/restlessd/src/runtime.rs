@@ -36,16 +36,6 @@ pub enum OrgMode {
     OrgIntel,
 }
 
-impl OrgMode {
-    #[must_use]
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::SingleAgent => "single_agent",
-            Self::MinimalTeam => "minimal_team",
-            Self::OrgIntel => "orgintel",
-        }
-    }
-}
 
 /// One company's identity and configuration, as a file — not a table (sprint
 /// spec, kernel slice). Lives at `$RESTLESS_HOME/companies/<name>.toml`.

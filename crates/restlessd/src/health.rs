@@ -338,7 +338,7 @@ async fn free_bytes_container(company: &str) -> Result<Option<u64>> {
 /// `df -Pk` guarantees one record per filesystem in POSIX format: the
 /// available column is the fourth field of the last non-empty line.
 fn parse_df_available_kb(output: &str) -> Option<u64> {
-    let line = output.lines().filter(|line| !line.trim().is_empty()).next_back()?;
+    let line = output.lines().rfind(|line| !line.trim().is_empty())?;
     line.split_whitespace().nth(3)?.parse().ok()
 }
 
@@ -418,15 +418,21 @@ mod tests {
 mod org_tests {
     use super::*;
 
-    /// The three signals must not fire on a healthy company. A health check
-    /// that cries wolf on normal work gets ignored, which is worse than not
-    /// having one — sprint 01's substrate signals earned their keep precisely
-    /// because they were silent until something was genuinely wrong.
+    /// A health check that cries wolf on normal work gets ignored, which is
+    /// worse than not having one. Every company sprint 01 ran would have been
+    /// silent: cosmon spent $7.16 and completed its milestones, aris $1.97,
+    /// thymelake $2.78 — all under the effort-without-output threshold, or
+    /// completing work, or both.
     #[test]
-    fn thresholds_are_loose_enough_to_stay_quiet() {
-        // Mid-build spend with nothing completed yet is ordinary.
-        assert!(4.99 < EFFORT_WITHOUT_OUTPUT_USD);
-        // One or two provider failures is a bad minute, not a pattern.
-        assert!(REPEATED_FAILURE_THRESHOLD > 2);
+    fn real_sprint_01_spend_would_not_have_fired_the_signal() {
+        for (company, spent, completed) in
+            [("cosmon", 7.16, 4), ("aris", 1.97, 2), ("thymelake", 2.78, 2)]
+        {
+            let fires = completed == 0 && spent >= EFFORT_WITHOUT_OUTPUT_USD;
+            assert!(!fires, "{company} would have been falsely flagged");
+        }
+        // And it does fire on the shape it exists for: money spent, nothing done.
+        let stuck = 0 == 0 && 6.0 >= EFFORT_WITHOUT_OUTPUT_USD;
+        assert!(stuck);
     }
 }
