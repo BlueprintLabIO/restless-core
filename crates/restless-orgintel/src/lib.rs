@@ -84,6 +84,23 @@ impl OrgIntel {
 
     /// Drop this company's schema and everything in it. Company teardown —
     /// the one destructive operation here, and it is never called implicitly.
+    /// Cheap check that this handle's schema still has its tables. A cached
+    /// handle survives the schema being dropped underneath it — by an operator,
+    /// a scenario reset, or a restore — and then fails every query with
+    /// `relation "actors" does not exist`. Reconcile after failure rather than
+    /// assuming the world held still (docs/specs/cross-layer-contract.md §18.5).
+    pub async fn is_live(&self) -> bool {
+        sqlx::query_scalar::<_, Option<String>>(
+            "SELECT to_regclass(format('%I.actors', $1))::text",
+        )
+        .bind(&self.schema)
+        .fetch_one(&self.pool)
+        .await
+        .ok()
+        .flatten()
+        .is_some()
+    }
+
     pub async fn drop_schema(&self) -> Result<()> {
         sqlx::query(&format!("DROP SCHEMA IF EXISTS {} CASCADE", self.schema))
             .execute(&self.pool)

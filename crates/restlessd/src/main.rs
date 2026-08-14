@@ -112,8 +112,16 @@ struct OrgIntelRegistry {
 
 impl OrgIntelRegistry {
     async fn get(&self, company: &str) -> Result<OrgIntel> {
-        if let Some(handle) = self.handles.lock().expect("orgintel registry").get(company) {
-            return Ok(handle.clone());
+        let cached = self.handles.lock().expect("orgintel registry").get(company).cloned();
+        if let Some(handle) = cached {
+            // A cached handle can outlive its schema: a scenario reset, an
+            // operator drop, or a restore removes the tables and every later
+            // query fails with `relation "actors" does not exist`. Re-ensure
+            // instead of serving a handle to nothing.
+            if handle.is_live().await {
+                return Ok(handle);
+            }
+            tracing::warn!(company, "orgintel schema vanished under a cached handle; re-ensuring");
         }
         let handle = OrgIntel::ensure(&self.database_url, company).await?;
         self.handles
