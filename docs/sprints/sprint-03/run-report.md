@@ -225,3 +225,63 @@ live-company ingress test, not after.
 
 Correcting the record with Aris is required, not optional: `orgintel`'s own rule
 is that receipts win over belief, and here the *belief* came from us.
+
+### The correction, and what it proves
+
+Aris was told the truth and given no instruction about what to conclude. It
+applied the correction, then **reversed its own decision**.
+
+It retracted four claims — one more than it was asked to. The fourth was its
+own description of the sample as *"owner-reviewed"*, which nobody had flagged:
+
+> ~~"owner-reviewed"~~ — the sample was *sent* to the owner (receipt 822729aa,
+> genuinely delivered per Resend); no verdict has been received. The
+> name-behind-it judgement is still pending.
+
+It separated the platform's error from its own reasoning without defensiveness
+or over-correction:
+
+> I note for the record that the false belief came from the platform, not from
+> my reasoning, and I do not distrust the inbox in general — this is one
+> corrected fact.
+
+And then, unprompted, it re-ranked its roadmap on the evidence that survived:
+
+> **Decision: P8 alone is too thin. Do not build the CEM line now.**
+> … A strictly stronger observed demand signal exists elsewhere: Maths SET 2 has
+> **two** unprompted requests from converted customers (P3, P7) versus CEM's one
+> from a non-customer. Demand-ranked, SET 2 is the next product.
+> … The deploy repair (HTTP 404 since wake 0003) outranks both — it blocks scale
+> on every line.
+
+It kept the *test* rather than the line — the sample already exists at £0
+marginal cost and is the only instrument that can turn the P8 anecdote into data
+— and queued it behind two things it judged more valuable.
+
+**This is the sprint's most important result, and it is not the email.**
+Sprint 02's finding was that "the company had the evidence and did not draw the
+conclusion": Aris recorded a price rejection and a segment mismatch, then kept
+selling to parents. Here, given a corrected fact, it revised strategy from its
+own accumulated evidence, changed its product ordering, and demoted work it had
+just built — which is `orgintel §3.4` self-evolution doing the thing the spec
+claims it does.
+
+The uncomfortable half: we only got to observe it because we broke something
+first. The mechanism was exercised by our contamination, not by the company's
+own operation, and a correction loop that has only ever run on a
+platform-injected error is not yet evidence that it runs on a real one.
+
+---
+
+## Sprint status
+
+| | |
+|---|---|
+| Outbound loop | **works, verified end to end** — Aris built and sent a real artifact to a real inbox, `delivered`, for $0.79 |
+| Inbound rail | **works, verified by signed replay** — signature, dedupe, projection, wake |
+| Inbound DNS | **blocked on one owner MX record** |
+| Success contract | **partially met.** One recipient received a real sample. The reply leg is untested against real DNS, and the owner's name-behind-it verdict has not arrived |
+
+**What must land before any further live-company testing: S03-T7.** Its `_test`
+companies are no longer a convenience — they are the fix for the one incident
+this sprint caused.
