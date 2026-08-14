@@ -1,99 +1,189 @@
-# Sprint 02 — Three real runs, and the platform the runs already demanded
+# Sprint 02 — Does OrgIntel earn its place?
 
-**Status:** DRAFT — written mid-sprint-01 from machinery-level evidence and the observed friction
-backlog. **Finalize only after sprint-01's T11–T15 complete**; the run report
-([sprint-01/run-report.md](./sprint-01/run-report.md)) is the evidence base this spec finalizes
-from, and its PENDING sections may reorder everything below.
-**Date:** 13 August 2026 (draft)
-**Architecture refs:** §16.4 (platform work originates from the friction backlog), §16.5 (cadence),
-§17 steps 3–4, §10.6 (smoke-test scenarios), §14 open questions 12 (dogfood company)
-
----
-
-## Outcome (draft)
-
-> **Cosmon, Aris, and Thymelake each complete one full owner-directive-to-artifact run on the
-> sprint-01 machinery, surviving the crash harness — and the three platform failures the sprint-01
-> build already observed are fixed: honest provider-failure surfacing, resource-exhaustion
-> visibility, and boot-time company reconciliation.**
-
-Sprint 01 built the skeleton and verified every property that does not require burning model credit.
-It did not run a company end-to-end: the OpenRouter key's limit was exhausted at exactly the moment
-the runs were to start. Sprint 02 is therefore not a new slice of architecture — it is the runs
-themselves, plus the small set of platform fixes the build phase already proved necessary. If sprint
-01's remaining evidence changes that picture, this spec changes with it.
-
-### What this sprint is *for*
-
-The sprint-01 spec stacks four claims (substrate / ontology / autonomy / negative claim). Sprint 01
-settled the substrate mechanically and produced machinery-level evidence for the rest. Sprint 02
-produces the missing evidence class: **behavioural** — what the Exec and Staff actually do across
-multi-turn runs, three company shapes, and induced failures.
-
-## Proposed ticket list (draft, for founder alignment)
-
-Ticket files to be written once sprint-01 T15 lands. Each cites its friction-backlog item or the
-sprint-01 carry-over it serves (§16.7).
-
-### Carry-over: the runs themselves
-
-- **S02-T1 · Cosmon run** (carries sprint-01 T11). Acceptance unchanged: owner directive → playable
-  browser game loop, elapsed/cost/interventions recorded.
-- **S02-T2 · Aris run** (carries T12). Acceptance unchanged, plus: persona adversarialness is the
-  point — ghosts and non-converting price objectors must actually shape the Exec's behaviour.
-- **S02-T3 · Thymelake run** (carries T13). Acceptance unchanged; the malformed early order is the
-  evidence to watch.
-- **S02-T4 · Crash and restart harness** (carries T14). All three interruptions on a real run, no
-  committed work lost. The scenario driver rewrites against the current CLI.
-
-### Platform slice: what the sprint-01 build already proved necessary
-
-- **S02-T5 · Honest provider-failure surfacing** (friction F1). Deterministic classification of the
-  provider error channel (status → quota/auth/rate/unknown) as a first-class wake outcome — never
-  "unparseable termination" again — plus dedup/backoff on identical blocked-notifications to the
-  owner. Kernel layer: this is the gateway/daemon boundary telling the truth. Acceptance: a 402
-  replay (fixtures exist) produces one precise owner-visible message naming the cause, and zero
-  duplicate mails across repeated wakes.
-- **S02-T6 · Resource-exhaustion visibility** (friction F2). `restless status` reports host disk;
-  the daemon turns ENOSPC-class failures into blocked-with-reason instead of silent stall. OrgIntel
-  layer. Acceptance: fill a scratch filesystem, observe the exec's wake context carry the condition
-  plainly. (Deliberately small — a probe and an honest error, not a capacity manager.)
-- **S02-T7 · Boot-time company reconciliation** (friction F3). `restlessd` boot starts companies
-  that should be running (it already sweeps orphans there; same shape). Runtime layer. Acceptance:
-  restart Docker Desktop with three companies up; all three resume without owner action; the
-  orphan sweep still blocks what cannot resume. **This makes the F7 expiry audible:** if companies
-  auto-start, the trusted-as-sent TCP identity (F7) needs its named-risk review pulled forward —
-  decide explicitly at alignment.
-
-### Held open, deliberately
-
-- **T16 judgement helper stays unbuilt.** The sprint-01 smell-family grep is clean; all three of its
-  named call sites resolved to the model judging directly. It remains the standing rule: the first
-  daemon-internal judgement call that appears in a run builds `judge!` through the gateway, not a
-  heuristic. If S02-T1..T4 surface such a call, that ticket joins the sprint mid-flight — that is
-  the mechanism working, not scope creep.
-- **Exec mail read-management (F6)** — observe in the runs before choosing machinery vs playbook.
-- **Codex sandbox friction (F10)** — characterize during S02-T1; fix only what the run proves.
-
-## The primary measurement (carried)
-
-Sprint 01's primary measurement — the marginal cost of companies 2 and 3 — was answered only for
-platform cost (near zero: schemas + personas). Sprint 02 answers it for *run* cost: does Aris need
-anything Cosmon didn't? Does Thymelake? The run report's per-company table is the deliverable.
-
-## Acceptance (draft)
-
-1. Three completed runs with elapsed/cost/intervention data in the run report.
-2. The crash harness passes on a real run with no committed work lost.
-3. A repeated provider-402 drill produces exactly one precise owner message.
-4. The negative-claim assessment in the run report is finalized with run evidence — including an
-   explicit verdict on whether the `spawn` envelope stayed a single verb.
-5. The deletion pass executes: every code path no run exercised is removed before sprint 03 opens.
-6. This spec is rewritten from draft to final using the completed run report, and the diff between
-   draft and final is itself recorded — it measures how much of sprint planning was predictable from
-   machinery-level evidence alone.
+**Status:** Draft for founder alignment
+**Date:** 13 August 2026
+**Supersedes:** the mid-sprint-01 draft of this file, which assumed the runs had not happened. They have.
+**Spec refs:** `orgintel_spec_v0.3` §1.2 (falsification), `company_lifecycle_cross_layer_contract_v0.1`
+§3.1 / §16, `company_runtime_spec_v0.1` §4 (Runtime Bridge), `evaluation_dogfood_spec_v0.1` §21,
+`owner_cockpit_spec_v0.1` §12.2, `ARCHITECTURE.md` §16.4 (platform work originates from friction)
 
 ---
 
-*Sprint 01 spec: [sprint-01-walking-skeleton.md](./sprint-01-walking-skeleton.md). Friction backlog
-and run evidence: [sprint-01/run-report.md](./sprint-01/run-report.md).*
+## Outcome
+
+> **Answer, with evidence from a real run, whether an Exec-led organisation beats one strong agent on
+> the same mission — and establish the cross-layer seams while they are still cheap to establish.**
+
+Sprint 01 settled the substrate and the ontology. Three materially different companies ran the same
+wake loop, commitments, messages and effect surface, and no company-specific vocabulary entered the
+schema. The negative claim held: no universal command enum, no ledger, no custody, no workflow engine.
+
+It also produced one finding that reframes everything after it.
+
+### The finding sprint 02 exists to act on
+
+**No company ever delegated.** `spawn_requests: []` in every wake of all three companies, including
+Cosmon's largest (124 tool calls, 12 species, 6 branching evolutions). Every artifact sprint 01
+produced came from **one agent with durable files** — configuration **A** of
+`orgintel_spec_v0.3` §1.2, not configuration C.
+
+So the sprint that was meant to test OrgIntel accidentally tested the baseline, and **the baseline
+did well**: a playable 3D creature-collector, a working sales loop, an operating loop with 90 effect
+receipts, for $10.67 across 8 turns.
+
+The cause is now understood and is *not* model reluctance. A forced-delegation run showed the Exec
+decomposing the work correctly — a groundwork commit, disjoint file ownership, optional-chained hook
+call-sites so unimplemented branches are no-ops, a shared-state contract — and then never dispatching,
+because **spawning staff is the only company capability that is not a tool call**. Everything else is
+a tool the Exec reaches for mid-turn; `spawn` is a field in a JSON envelope emitted at the end. An
+agent working naturally writes files, so it wrote briefs.
+
+That is a plumbing gap standing in front of the product's central hypothesis. Sprint 02 removes it,
+then tests the hypothesis properly.
+
+---
+
+## Two tracks, one of which is the point
+
+**Track A — the thesis.** Make the comparison possible, run it, act on the result.
+**Track B — the seams.** Structural work whose cost is decided by *when* you do it, not by evidence.
+
+Track B is included despite the "observe before modelling" rule because of a distinction sprint 01
+paid to learn. The sprint-01 spec justified holding the provider key host-side like this:
+
+> *Near-zero cost now; miserable to retrofit once three company images assume ambient environment
+> variables.*
+
+We violated that in sprint 01 — the key now enters the container via `docker exec -e` — and getting
+it back is exactly the retrofit that sentence warned about. **Boundaries are cheap early and
+expensive late; features are the opposite.** Track B is boundaries only.
+
+---
+
+## Acceptance criteria
+
+Headless with stated inputs and observed output (CLAUDE.md → "Verifying"). Nothing is described as
+working until it has been run.
+
+### Track A
+
+1. **Delegation happens.** On one Cosmon run the Exec dispatches at least two staff, each gets a
+   worktree and a supervised process, and their work merges. `spawn_requests` is non-empty and the
+   OrgIntel actor rows exist.
+2. **A comparison run completes** in all three organisation modes (`single_agent`, `minimal_team`,
+   `orgintel`) on one versioned scenario, with identical starting runtime, model, and budget
+   envelope (`evaluation_dogfood_spec_v0.1` §21.1, §25 rule 3: *baselines must receive credible
+   tools, models, budgets and time*).
+3. **A run report compares them** on the primary metric — accepted output per unit of owner
+   attention, cost and time — with manual acceptance recorded, not an automatic score (§21.2).
+4. **The result is acted on.** If C does not beat A, that is the finding and it is written down as
+   such. §25 rule 10: *preserve failures honestly; do not reinterpret every run as success.*
+
+### Track B
+
+5. **One shared-semantics package exists** and both services import it. Identifiers, statuses and
+   envelope types match `company_lifecycle_cross_layer_contract_v0.1` §3.1's ownership table.
+6. **A Runtime Bridge runs inside the sandbox**, holds an outbound connection, launches ACP
+   processes, and owns their process trees. `docker exec` is no longer how agents are started.
+7. **No provider credential is present in any company container** — verified by grepping container
+   env and filesystem, restoring the guarantee sprint 01 lost.
+8. **A party-level double effect is refused or flagged**: charging the same party twice for the same
+   thing under two different idempotency keys is detected.
+
+---
+
+## Tickets
+
+Each names its layer, the observed failure it serves (§16.7), and what it makes deletable.
+
+| ✓ | Ticket | Layer | Evidence | Depends |
+|---|---|---|---|---|
+| [ ] | **S02-T1 · Shared semantics package** | Cross-layer | SPA speaks `mission/ops/market`, cockpit spec speaks `attention/work/authority`, daemon speaks `commitments/effects/wakes` — three vocabularies, one system | — |
+| [ ] | **S02-T2 · `restless spawn` as a tool** | OrgIntel | Forced-delegation run: correct decomposition, zero dispatch | — |
+| [ ] | **S02-T3 · Evaluation harness, three org modes** | Cross-cutting | §1.2 falsification has never run | T1 |
+| [ ] | **S02-T4 · The A/B/C comparison run** | All | Sprint 01 measured the baseline by accident | T2, T3 |
+| [ ] | **S02-T5 · Runtime Bridge** | Runtime | F7 identity trusted as-sent; leaked Chromium at 908% CPU; credential regression | T1 |
+| [ ] | **S02-T6 · Split `restlessd` along the plane seam** | Kernel / OrgIntel | Nine spec components, two planes, one process; F12 — one company's hung Docker took down all three | T1 |
+| [ ] | **S02-T7 · Party-level reconciliation** | Kernel | Greg charged twice under two keys; idempotency guards requests, not decisions | — |
+| [ ] | **S02-T8 · Organisational health signals** | OrgIntel | Every health signal we have is substrate-level; we can say the disk is full, not that the company is stuck | — |
+| [ ] | **S02-T9 · Attention queue (minimal)** | Owner surface | Aris blocked on the owner and the entire surface was a JSON blob in a terminal | T1 |
+
+**If only three tickets land, they are T2, T3 and T4.** That is the sprint's job; everything else is
+support. A sprint that ships five pieces of infrastructure and does not answer the thesis question
+has failed at the thing it was for.
+
+### Notes per ticket
+
+**T1** implements `company_lifecycle_cross_layer_contract_v0.1` §16 step 1 — "shared IDs and common
+envelope types in a small versioned package" — *not* a schema registry or service bus (§16's closing
+line, and §17's exclusions). Fold in the document hygiene while here: six spec files sit at repo root
+carrying versions in their filenames, unreferenced by `CLAUDE.md`, alongside an `ARCHITECTURE.md`
+that still claims sole authority. That already cost us — v0.2 and v0.3 of the OrgIntel spec disagree
+on where OrgIntel lives, and the repo gave no signal which was live.
+
+**T2** makes delegation reachable at the moment the Exec decides to delegate. Also add a warning when
+`parse_termination` drops a malformed `spawn` entry — silently discarding intent is how we spent
+three runs believing the Exec did not want to delegate. **Deletes:** the envelope's `spawn` field,
+which is the closest thing in the codebase to a universal-command smell.
+
+**T5** is one change that fixes four things: identity (the bridge authenticates once as its own
+company, dissolving F7 rather than mitigating it), process ownership (a process group instead of
+diffing PIDs from outside), the `docker exec` dependency, and the credential regression. Communication
+is **outbound** from the bridge (`company_runtime_spec_v0.1` §4.4). **Deletes:** the PID-diff reaper,
+the inbound TCP identity convention.
+
+**T6** creates the place the Authority Kernel will eventually live without building it. The kernel
+proper stays deferred — the sprint-01 posture ("no governance this sprint") has a named expiry that
+has **not** fired: every provider is still simulated.
+
+---
+
+## What we are trying to learn
+
+- Does an Exec-led team beat one strong agent on the same mission, on the same budget?
+- If it does, on which dimension — output quality, owner attention, elapsed time, or recovery?
+- If it does not, is that because teams are wrong for work this size, or because our delegation
+  machinery is still too costly to use?
+- What does a company actually do with staff once dispatch is cheap — parallel work, review,
+  recovery, or none of them?
+- Do organisational health signals fire on anything real, or is the company simply never stuck?
+
+---
+
+## Risk register
+
+Every risk named, one disposition each. Default accepted.
+
+| Risk | Disposition | Why |
+|---|---|---|
+| Provider credential inside the company container | **Pending fix** | Regressed in sprint 01. T5 restores it. Expires before any live provider. |
+| The comparison is unfair to the baseline | **Guarded** | §25 rule 3 — identical model, tools, budget and time. The baseline is the incumbent and must be given its best shot. |
+| Delegation makes outcomes *worse* | **Accepted** | That is a finding, not a failure. It is the thing being measured. |
+| One scenario is not enough to conclude | **Accepted** | It is enough to *proceed or stop*. §2.4 — practical evidence, not laboratory theatre. |
+| Splitting the daemon destabilises working runs | **Guarded** | T6 lands after T4, so the thesis answer is not blocked by a refactor. |
+| Three companies concurrently on one provider key | **Accepted** | Ran successfully once the reaper landed; revisit if starvation reappears. |
+| No governance on effects | **Accepted** | Unchanged from sprint 01, same expiry: the first live provider. |
+
+---
+
+## Explicitly out of scope
+
+Deferred because no run has demanded them, per `orgintel_spec_v0.3` §11.1 and `CLAUDE.md`
+("observe before modelling"):
+
+- hypothesis/experiment tables — Cosmon shipped branching evolutions without ever branching a hypothesis;
+- the teamwork-pattern library (`orgintel_spec_v0.3` §6.3) — earn it from T4's run, do not seed it;
+- actor identity packages (§5.1) — the journal is doing this job well enough to have caught a
+  predecessor lying;
+- the Authority Kernel proper (`authority_plane_spec_v0.1` §22 steps 1–3) — deferred with a live trigger;
+- the cockpit's Work / People / Authority screens — Attention first (`owner_cockpit_spec_v0.1` §18 step 3);
+- exploration machinery, the epistemic ontology, restore/snapshot reconciliation.
+
+---
+
+## Housekeeping carried from sprint 01
+
+- `scratch/**/codex-home/` lost its ignore rule in the sprint-01 merge; the directory is now untracked
+  and should be re-ignored or deleted with the rest of the codex-era scratch.
+- The `restless-model-gateway` proxy path (~2,500 of 2,950 lines) is dead once metering moved to the
+  ACP layer. `spend.rs` is load-bearing and stays. Delete the rest under T6.
