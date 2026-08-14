@@ -11,7 +11,7 @@ mod context;
 mod effect;
 mod exec;
 mod schedule;
-mod gateway;
+mod spend;
 mod runtime;
 mod staff;
 
@@ -126,7 +126,7 @@ impl OrgIntelRegistry {
 
 pub(crate) struct Daemon {
     pub(crate) root: PathBuf,
-    pub(crate) gateway: gateway::GatewayHandle,
+    pub(crate) spend: spend::SpendLedger,
     pub(crate) orgintel: OrgIntelRegistry,
     pub(crate) staff: staff::StaffRegistry,
     /// One wake at a time per company, however the wake was requested —
@@ -152,7 +152,7 @@ async fn main() -> Result<()> {
 
     // T2: the model gateway is part of the coordination core. Without it no
     // agent can think, so a failed start is a failed daemon start.
-    let gateway = gateway::start(&root).await?;
+    let spend = spend::SpendLedger::open(&root)?;
     // T5: coordination state. The database must answer at boot — probe,
     // never guess that it will be there when a company wakes.
     let orgintel_config = OrgIntelConfig::load_or_seed(&root)?;
@@ -162,7 +162,7 @@ async fn main() -> Result<()> {
 
     let daemon = std::sync::Arc::new(Daemon {
         root: root.clone(),
-        gateway,
+        spend,
         orgintel: OrgIntelRegistry {
             database_url: orgintel_config.database_url,
             handles: std::sync::Mutex::new(HashMap::new()),
@@ -346,18 +346,6 @@ async fn dispatch(request: Request, daemon: &Daemon) -> Response {
             Ok(status) => Response::ok(format!("{company}: {status:?}")),
             Err(error) => Response::err(format!("{error:#}")),
         },
-        // T2 acceptance seam (also the T4 agent-wake path): mint one ≤1h
-        // purpose token for the company's configured model.
-        "mint-token" => match runtime::CompanyConfig::load(&daemon.root, company) {
-            Ok(config) => match daemon.gateway.mint_token(&config, "exec") {
-                Ok(minted) => match serde_json::to_value(&minted) {
-                    Ok(value) => Response::ok(value),
-                    Err(error) => Response::err(format!("encode token: {error}")),
-                },
-                Err(error) => Response::err(format!("{error:#}")),
-            },
-            Err(error) => Response::err(format!("{error:#}")),
-        },
         // T5 probe: ensure the company schema and report what is in it.
         "orgintel-init" => match daemon.orgintel.get(company).await {
             Ok(org) => match org.table_names().await {
@@ -387,13 +375,13 @@ async fn dispatch(request: Request, daemon: &Daemon) -> Response {
                     }
                     let _guard = schedule::WakeGuard::new(company, &daemon.in_flight);
                     let reason = request.reason.as_deref().unwrap_or("owner-requested wake");
-                    match exec::wake(&config, &daemon.gateway, &org, reason).await {
+                    match exec::wake(&config, &daemon.spend, &org, reason).await {
                         Ok(report) => {
                             // T9: the Exec's spawn requests are honored after
                             // its outcome is recorded; refusals reach it by mail.
                             staff::process_spawns(
                                 &config,
-                                &daemon.gateway,
+                                &daemon.spend,
                                 &org,
                                 &daemon.staff,
                                 &report.spawn_requests,
@@ -528,12 +516,12 @@ async fn dispatch(request: Request, daemon: &Daemon) -> Response {
                     Ok(config) => match daemon.orgintel.get(company).await {
                         Ok(org) => {
                             let ask = staff::SpawnRequest { name, task, repo: request.repo };
-                            match staff::spawn_now(&config, &daemon.gateway, &org, &daemon.staff, &ask)
+                            match staff::spawn_now(&config, &daemon.spend, &org, &daemon.staff, &ask)
                                 .await
                             {
                                 Ok(()) => Response::ok(serde_json::json!({
                                     "spawned": ask.name,
-                                    "workdir": ask.repo.as_ref().map(|repo| {
+                                    "workdir": ask.repo.as_ref().map(|_| {
                                         format!("/company/worktrees/{}", ask.name)
                                     }),
                                     "note": "supervised; its completion or blockage will wake you",

@@ -18,7 +18,7 @@ use serde::Serialize;
 
 use crate::acp::{self, AgentAuth};
 use crate::exec::{self, Termination};
-use crate::gateway::GatewayHandle;
+use crate::spend::SpendLedger;
 use crate::runtime::{self, CompanyConfig};
 
 /// Enough to produce handoff and crash friction without tripling token burn
@@ -93,13 +93,13 @@ async fn mail_exec(org: &restless_orgintel::OrgIntel, body: &str) {
 /// asked for and reports what happened.
 pub async fn process_spawns(
     config: &CompanyConfig,
-    gateway: &GatewayHandle,
+    spend: &SpendLedger,
     org: &restless_orgintel::OrgIntel,
     registry: &StaffRegistry,
     requests: &[SpawnRequest],
 ) {
     for request in requests {
-        if let Err(error) = spawn_one(config, gateway, org, registry, request).await {
+        if let Err(error) = spawn_one(config, spend, org, registry, request).await {
             tracing::warn!(company = %config.name, staff = %request.name, "spawn refused: {error:#}");
             let note = format!("staff spawn refused ({}): {error:#}", request.name);
             mail_exec(org, &note).await;
@@ -112,17 +112,17 @@ pub async fn process_spawns(
 /// mailed back later, detached from the decision that caused it.
 pub async fn spawn_now(
     config: &CompanyConfig,
-    gateway: &GatewayHandle,
+    spend: &SpendLedger,
     org: &restless_orgintel::OrgIntel,
     registry: &StaffRegistry,
     request: &SpawnRequest,
 ) -> Result<()> {
-    spawn_one(config, gateway, org, registry, request).await
+    spawn_one(config, spend, org, registry, request).await
 }
 
 async fn spawn_one(
     config: &CompanyConfig,
-    gateway: &GatewayHandle,
+    spend: &SpendLedger,
     org: &restless_orgintel::OrgIntel,
     registry: &StaffRegistry,
     request: &SpawnRequest,
@@ -141,7 +141,7 @@ async fn spawn_one(
         }
     }
     registry.try_claim(&config.name, &request.name)?;
-    let spawned = spawn_claimed(config, gateway, org, registry, request).await;
+    let spawned = spawn_claimed(config, spend, org, registry, request).await;
     if spawned.is_err() {
         registry.release(&config.name, &request.name);
     }
@@ -150,7 +150,7 @@ async fn spawn_one(
 
 async fn spawn_claimed(
     config: &CompanyConfig,
-    gateway: &GatewayHandle,
+    spend: &SpendLedger,
     org: &restless_orgintel::OrgIntel,
     registry: &StaffRegistry,
     request: &SpawnRequest,
@@ -196,7 +196,7 @@ async fn spawn_claimed(
     let container = runtime::container_name(&config.name);
     let org = org.clone();
     let registry = registry.clone();
-    let meter = gateway.meter();
+    let meter = spend.meter();
     let model = auth.model.clone();
     tokio::spawn(async move {
         let outcome = run_staff(&container, &auth, &workdir, &company, &actor, &name, &task).await;

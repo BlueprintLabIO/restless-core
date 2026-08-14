@@ -181,7 +181,7 @@ This repo is built in sprints by two founders collaborating on the `dev` branch.
   security/data-integrity boundaries. Do not add tests for implementation details, trivial wiring,
   styling, snapshots, or every branch merely to increase coverage. Layer-appropriate testing (§16.8):
   Kernel gets focused invariants + adversarial tests; OrgIntel gets behavioural/recovery scenarios;
-  Runtime gets real-tool integration and dogfood producing concrete artifacts.
+  Runtime gets real-tool integration and dogfood producing concrete artifacts. Test cases cost compute!
 - **Verifying.** Prefer headless verification (CLI, API, service-level probe, headless run) with stated
   inputs and expected outcome. Manual visual inspection supplements, it does not replace, a feasible
   headless check.

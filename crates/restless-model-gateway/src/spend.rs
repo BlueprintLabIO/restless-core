@@ -1,14 +1,14 @@
 //! Per-company dollar spend accounting — the fuse (sprint 01 T2).
 //!
-//! The legacy gateway bounded request *counts* only. This module adds the
-//! missing dollar dimension: cost computed per completed upstream response
-//! from a configured rate table, appended fsync'd to a JSONL spool, in-memory
-//! per-company totals rebuilt from the spool on boot. The pre-flight check in
-//! the proxy rejects at the ceiling and never fails open: an unreadable spool
-//! or an unpriced model refuses service rather than guessing.
+//! Append fsync'd to a JSONL spool, per-company totals rebuilt from the spool
+//! on boot, and never fails open: an unreadable spool refuses service rather
+//! than guessing. Costs now arrive from the agent's own per-turn usage report
+//! rather than being scraped from a proxied HTTP response, so the rate table
+//! and usage parser below are retained only for records written by that
+//! retired path.
 
 use std::{
-    collections::{BTreeMap, HashMap},
+    collections::HashMap,
     fs::{self, OpenOptions},
     io::Write as _,
     path::PathBuf,
@@ -239,17 +239,6 @@ fn extract_usage(value: &serde_json::Value) -> Option<TokenUsage> {
         }
         _ => None,
     }
-}
-
-/// Per-company ceilings in micro-USD, refreshed by the embedding daemon from
-/// company config files. Unknown company = no ceiling entry = refuse (the
-/// issuer only mints tokens for configured companies; a missing entry means
-/// the config vanished mid-run, which is exactly when to stop spending).
-pub type CeilingMap = std::sync::Arc<std::sync::RwLock<BTreeMap<String, u64>>>;
-
-#[must_use]
-pub fn ceiling_map() -> CeilingMap {
-    std::sync::Arc::new(std::sync::RwLock::new(BTreeMap::new()))
 }
 
 #[cfg(test)]

@@ -14,7 +14,7 @@ use uuid::Uuid;
 
 use crate::acp::{self, AgentSession};
 use crate::context::{self, ContextSnapshot};
-use crate::gateway::GatewayHandle;
+use crate::spend::SpendLedger;
 use crate::health;
 use crate::runtime::{self, CompanyConfig};
 use crate::staff::SpawnRequest;
@@ -74,7 +74,7 @@ pub(crate) struct TerminationDecision {
 /// One Exec wake: rehydrate → work turn → termination decision → record.
 pub async fn wake(
     config: &CompanyConfig,
-    gateway: &GatewayHandle,
+    spend: &SpendLedger,
     org: &OrgIntel,
     reason: &str,
 ) -> Result<WakeReport> {
@@ -90,7 +90,7 @@ pub async fn wake(
     if let Some(blocked) = health::preflight(&config.name).await? {
         return blocked_wake(org, milestone, config, &blocked.message()).await;
     }
-    if let Some((spent, ceiling)) = gateway.over_ceiling(config) {
+    if let Some((spent, ceiling)) = spend.over_ceiling(config) {
         return blocked_wake(
             org,
             milestone,
@@ -108,7 +108,7 @@ pub async fn wake(
     // T7: gather the snapshot (IO), then assemble (pure, digested). The
     // digest lands in the wake event so the Exec's worldview is auditable.
     let snapshot =
-        gather_snapshot(&container, org, config, reason, gateway.spent_usd(&config.name)).await?;
+        gather_snapshot(&container, org, config, reason, spend.spent_usd(&config.name)).await?;
     let package = context::assemble(&snapshot);
     org.emit_event(
         "wake",
@@ -119,7 +119,7 @@ pub async fn wake(
 
     let outcome = acp::with_agent(&container, &auth, "/company", "exec", {
         let company = config.name.clone();
-        let remaining = (config.spend_ceiling_usd - gateway.spent_usd(&config.name)).max(0.0);
+        let remaining = (config.spend_ceiling_usd - spend.spent_usd(&config.name)).max(0.0);
         move |session| {
             Box::pin(async move { run_turn(session, &package.text, &company, remaining).await })
         }
@@ -141,7 +141,7 @@ pub async fn wake(
     };
 
     if let Some(usage) = usage {
-        gateway.record_turn(&config.name, &auth.model, usage.used, usage.cost_usd);
+        spend.record_turn(&config.name, &auth.model, usage.used, usage.cost_usd);
         // Cost per outcome is the sprint's headline number and was missing
         // from every run report: emit it where the run can read it back.
         org.emit_event(

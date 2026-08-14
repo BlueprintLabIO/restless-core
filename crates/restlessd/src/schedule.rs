@@ -253,11 +253,11 @@ async fn fire(daemon: &Arc<Daemon>, in_flight: &InFlight, company: &str, reason:
         let outcome = async {
             let config = CompanyConfig::load(&daemon.root, &company)?;
             let org = daemon.orgintel.get(&company).await?;
-            let report = exec::wake(&config, &daemon.gateway, &org, &reason).await?;
+            let report = exec::wake(&config, &daemon.spend, &org, &reason).await?;
             // T9: honor the Exec's spawn requests however the wake ended.
             crate::staff::process_spawns(
                 &config,
-                &daemon.gateway,
+                &daemon.spend,
                 &org,
                 &daemon.staff,
                 &report.spawn_requests,
