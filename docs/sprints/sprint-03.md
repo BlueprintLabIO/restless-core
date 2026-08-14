@@ -18,10 +18,24 @@ The technical outcome is the same rail the earlier draft described. What changed
 contract**: this sprint is judged on whether real people engage with a real offer, not on whether a
 loop closes. A sprint that proves the plumbing and reaches nobody has proved the plumbing.
 
-> **Success contract:** at least **10 real people receive the sample**, at least **one replies**, and
-> the owner judges at least one reply to indicate **genuine interest** — recorded with a one-line
-> rationale (`evaluation-dogfood` §3.2, §21.2). Revenue is explicitly *not* the bar this sprint;
-> demand evidence is.
+> **Success contract (revised 14 Aug, owner decision):** **one real recipient** —
+> `yaillives@gmail.com`, the owner's own address — receives a real sample through the effect surface,
+> replies, and that reply wakes Aris without the owner typing into the CLI. The owner records in one
+> line whether the sample is good enough to put a name behind.
+
+This is deliberately a **plumbing proof, not a demand experiment.** The earlier draft asked for ten
+real people and one reply, which is a different sprint: it needs a prospect list, personalisation,
+batch sending and a lawful-basis review, none of which have tickets. Sending to the owner proves the
+rail end to end — real provider, real inbox, real webhook, real wake — with no consent question and no
+deliverability gamble. Demand evidence is sprint 04's bar, once the rail exists.
+
+**Known blocker, recorded 14 Aug (probed, not assumed):** `blueprintlab.io` reports
+`capabilities: {sending: enabled, receiving: enabled}` and its DKIM/SPF records verify, but the
+Receiving record is `pending` because the domain's MX points at Cloudflare Email Routing
+(`route1/2/3.mx.cloudflare.net`), not at `inbound-smtp.ap-northeast-1.amazonaws.com`. **Outbound is
+unblocked; the reply leg is not.** Cheapest fix is a dedicated subdomain (e.g. `reply.blueprintlab.io`)
+pointed at Resend, leaving the apex domain's existing mail routing untouched. Until then T2/T3 are
+verified by replaying a signed Resend payload, which is a real test of the ingress but not of DNS.
 
 ### Why this sprint, why now
 
@@ -222,7 +236,7 @@ reconciliation, not a design: 20 fields, each marked *live source* / *derivable*
 **Deletes:** `Blocked::message()`'s string flattening at the wire, the ad-hoc error prose in
 dispatch, and `DeskView`'s `library` / `records` custody surface.
 
-**T6** is the evidence. One consenting recipient, named by the owner; one send, one real reply, one
+**T6** is the evidence. The owner's own address `yaillives@gmail.com`; one send, one real reply, one
 wake, one follow-up. The report records the loop end to end against `§20.2`'s passing evidence, plus
 where the real loop broke that the simulator never exposed (deliverability, timing, ambiguous
 outcomes). Per `§25` rule 10: if the loop fails, that is the finding and it is written down as such.

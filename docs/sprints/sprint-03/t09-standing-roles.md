@@ -1,7 +1,7 @@
 # S03-T9 · Standing roles — the OrgIntel demonstration
 
 **Layer:** OrgIntel (roles, patterns, evolution records) + Runtime (the processes)
-**Depends on:** nothing — but it is what makes T5's approval worth having
+**Depends on:** T0 — producer–critic needs copy to critique, which needs a sample and a segment
 **Blocks:** nothing; it is the sprint's proof that OrgIntel is a product, not bookkeeping
 
 ---

@@ -116,6 +116,25 @@ pub async fn request_effect(
         None => None,
     };
 
+    // S03-T1. Dispatch happens HERE, after idempotency and repeat-party
+    // detection and before the world runs — so a real provider inherits every
+    // guarantee the simulator already had, rather than growing its own. This
+    // is the single line that decides whether a company acts on the world or
+    // rehearses, and everything above it is identical either way (§10.8).
+    let provider = crate::provider::resolve(config, capability)?;
+    if provider != crate::provider::Provider::Simulated {
+        let outcome = match provider {
+            crate::provider::Provider::Resend => {
+                crate::provider::resend_send(config, &args, key).await?
+            }
+            crate::provider::Provider::Simulated => unreachable!("checked above"),
+        };
+        return finish_effect(
+            org, capability, args_digest, party, outcome, provider.name(), actor, key, repeat,
+        )
+        .await;
+    }
+
     let persona_path = root
         .join("simulators")
         .join(&config.name)
@@ -165,16 +184,63 @@ pub async fn request_effect(
         replayed: false,
         repeat_of: repeat.clone(),
     };
+    write_receipt(org, receipt, actor, repeat, key).await
+}
+
+/// Build and record the receipt for a real provider's outcome.
+///
+/// Exists so the live path and the simulated path converge on **one** writer.
+/// The alternative — a second receipt-writing block for real providers — is how
+/// the party-repeat guard and the reconciliation ledger would quietly stop
+/// applying to exactly the effects that matter most.
+#[allow(clippy::too_many_arguments)]
+async fn finish_effect(
+    org: &restless_orgintel::OrgIntel,
+    capability: &str,
+    args_digest: String,
+    party: Option<String>,
+    outcome: serde_json::Value,
+    provider: &str,
+    actor: &str,
+    key: &str,
+    repeat: Option<String>,
+) -> Result<Receipt> {
+    let receipt = Receipt {
+        id: Uuid::new_v4(),
+        capability: capability.to_string(),
+        args_digest,
+        party,
+        outcome,
+        provider: provider.to_string(),
+        actor: actor.to_string(),
+        idempotency_key: key.to_string(),
+        created_at: Utc::now(),
+        replayed: false,
+        repeat_of: repeat.clone(),
+    };
+    write_receipt(org, receipt, actor, repeat, key).await
+}
+
+/// Emit the receipt and, when this effect repeats a party, the advisory beside
+/// it. One writer for both worlds.
+async fn write_receipt(
+    org: &restless_orgintel::OrgIntel,
+    receipt: Receipt,
+    actor: &str,
+    repeat: Option<String>,
+    key: &str,
+) -> Result<Receipt> {
     org.emit_event("effect", Some(actor), serde_json::to_value(&receipt)?)
         .await?;
     if let Some(earlier) = repeat {
-        tracing::warn!(capability, party = ?receipt.party, earlier_key = %earlier,
+        tracing::warn!(capability = %receipt.capability, party = ?receipt.party,
+            earlier_key = %earlier,
             "repeat effect on the same party under a different idempotency key");
         org.emit_event(
             "effect_repeat_party",
             Some(actor),
             serde_json::json!({
-                "capability": capability,
+                "capability": receipt.capability,
                 "party": receipt.party,
                 "earlier_key": earlier,
                 "this_key": key,

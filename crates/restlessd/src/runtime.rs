@@ -58,6 +58,21 @@ pub struct CompanyConfig {
     /// indirection this replaced (`company-general-v1` → a gateway route)
     /// was vestigial once agents named providers directly.
     pub model: String,
+    /// S03-T1 dispatch: capability → provider name. **Absent means simulated.**
+    /// A `_test` company is safe because this map has no real entry for it to
+    /// find, not because anyone remembered a rule.
+    #[serde(default)]
+    pub providers: std::collections::BTreeMap<String, String>,
+    /// The address real email is sent from. Owner configuration, never the
+    /// agent's choice — the owner is the sender of record and carries the
+    /// reputational and legal weight of what an autonomous agent writes.
+    #[serde(default)]
+    pub from_address: Option<String>,
+    /// S03-T4: capability → `credential_reference` (`authority-plane §8.2`),
+    /// e.g. `email.send = "env:RESEND_API_KEY"`. Resolved host-side at the
+    /// point of use; the secret itself never appears here.
+    #[serde(default)]
+    pub credentials: std::collections::BTreeMap<String, String>,
 }
 
 fn default_ceiling() -> f64 {
