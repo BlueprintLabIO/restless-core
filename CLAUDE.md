@@ -174,8 +174,12 @@ This repo is built in sprints by two founders collaborating on the `dev` branch.
 - **Rust workspace.** For now, only two empty binary crates exist: `restlessd` (the daemon, the
   "stable coordination core" of §4.4) and `restless` (the CLI). Layer crates (`kernel`, `orgintel`,
   `runtime`) are NOT pre-scaffolded — they are grown from the first slice that needs them, per §16.1.
-- **Brand config and the SPA are not in this repo yet** (cofounder ports branding manually). Keep code
-  and protocols brand-neutral so a configured name can be applied in one place later.
+- **The operator SPA is in `web/`** — lifted from the prior control plane (`cf8a028`): design layer,
+  primitives, composed surfaces and every page, rendering from `$lib/fixtures`. It carries no truth;
+  wiring it means swapping the fixture for a read client and passing real write callbacks. Its read
+  model, `web/src/lib/model/view.ts` (`DeskView`), is the de facto owner-surface contract — read it
+  before designing anything owner-facing. **Brand config is not in this repo yet** (cofounder ports
+  branding manually). Keep code and protocols brand-neutral so a configured name is applied in one place.
 - **Pushing** is owner-only; never `git push` without being asked.
 - **Testing style** (carried forward): add automated tests only for key product invariants and
   security/data-integrity boundaries. Do not add tests for implementation details, trivial wiring,
