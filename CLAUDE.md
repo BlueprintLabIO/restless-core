@@ -86,6 +86,40 @@ legacy `CLAUDE.md` will otherwise pull agents back toward them.
   repeated real scenarios reveal the same need. Do not pursue feature parity with the legacy system.
   Pursue one successful real-company outcome. §16.1, §16.3, §16.6, §17.
 
+## The document set — read the one your work touches
+
+`ARCHITECTURE.md` is the cross-plane view and stays the authority on how the whole system fits
+together. Six specs decompose it into planes and fill in the detail; each declares it as their parent.
+They are **detail, not competition** — where a spec and `ARCHITECTURE.md` disagree, one of them is
+wrong, and §16.10 applies: a real run beats both documents.
+
+**Do not read them all.** They total ~240KB. Read the one your work touches.
+
+| Working on | Read |
+|---|---|
+| Actors, goals, commitments, messages, wakes, context assembly, staff, org health | `orgintel_spec_v0.3.md` |
+| Effects, receipts, budgets, credentials, approvals, runtime lifecycle authority | `authority_plane_spec_v0.1.md` |
+| The company computer, container, image, Runtime Bridge, process lifecycle | `company_runtime_spec_v0.1.md` |
+| Anything the owner sees: attention, approvals, work and people surfaces | `owner_cockpit_spec_v0.1.md` |
+| Anything crossing two planes: identifiers, statuses, who owns which concept | `company_lifecycle_cross_layer_contract_v0.1.md` |
+| Proving it works: baselines, success contracts, dogfood scenarios, evidence | `evaluation_dogfood_spec_v0.1.md` |
+
+**One concept, one authoritative owner.** When two specs seem to cover the same thing, the
+cross-layer contract's §3.1 table is the tiebreaker. A layer may hold identifiers, summaries and
+projections of another layer's concept; it may never become a second writer of it.
+
+**Respect the labels.** Every spec marks its content: *Core contract* (implementation must preserve
+this), *Product hypothesis* (dogfood must test this; it may be wrong), *Default pattern*
+(recommended, overridable), *Example* (illustrative, not scope). Building a **Product hypothesis** as
+though it were a **Core contract** is how a spec turns into speculative machinery — it is the same
+failure as building before evidence, wearing a citation.
+
+Two known defects in the set, pending a pass: the specs still call the parent *"Helm Architecture
+Source of Truth v0.9"* (its former name — the file is `ARCHITECTURE.md`, titled *Restless*), and they
+carry versions in their filenames, which guarantees that a v0.4 either breaks every link or
+accumulates silently beside a stale v0.3. That already cost us once: OrgIntel v0.2 and v0.3 disagree
+on where OrgIntel lives, and nothing in the repo said which was live.
+
 ## How we decide
 
 Failure modes and their cures live in **[`LLM_CURE.md`](./LLM_CURE.md)**, which is canonical for this
