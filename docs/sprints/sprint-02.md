@@ -98,15 +98,21 @@ Each names its layer, the observed failure it serves (§16.7), and what it makes
 
 | ✓ | Ticket | Layer | Evidence | Depends |
 |---|---|---|---|---|
-| [ ] | **S02-T1 · Shared semantics package** | Cross-layer | SPA speaks `mission/ops/market`, cockpit spec speaks `attention/work/authority`, daemon speaks `commitments/effects/wakes` — three vocabularies, one system | — |
-| [ ] | **S02-T2 · `restless spawn` as a tool** | OrgIntel | Forced-delegation run: correct decomposition, zero dispatch | — |
-| [ ] | **S02-T3 · Evaluation harness, three org modes** | Cross-cutting | §1.2 falsification has never run | T1 |
-| [ ] | **S02-T4 · The A/B/C comparison run** | All | Sprint 01 measured the baseline by accident | T2, T3 |
+| [~] | **S02-T1 · Shared semantics package** | Cross-layer | SPA speaks `mission/ops/market`, cockpit spec speaks `attention/work/authority`, daemon speaks `commitments/effects/wakes` — three vocabularies, one system | — · docs done 94e673d; code half open |
+| [x] | **S02-T2 · `restless spawn` as a tool** | OrgIntel | Forced-delegation run: correct decomposition, zero dispatch | — · a66f689 |
+| [x] | **S02-T3 · Evaluation harness, three org modes** | Cross-cutting | §1.2 falsification has never run | T1 · ddfb545, 2b77eda |
+| [~] | **S02-T4 · The A/B/C comparison run** | All | Sprint 01 measured the baseline by accident | T2, T3 · running |
 | [ ] | **S02-T5 · Runtime Bridge** | Runtime | F7 identity trusted as-sent; leaked Chromium at 908% CPU; credential regression | T1 |
 | [ ] | **S02-T6 · Split `restlessd` along the plane seam** | Kernel / OrgIntel | Nine spec components, two planes, one process; F12 — one company's hung Docker took down all three | T1 |
-| [ ] | **S02-T7 · Party-level reconciliation** | Kernel | Greg charged twice under two keys; idempotency guards requests, not decisions | — |
-| [ ] | **S02-T8 · Organisational health signals** | OrgIntel | Every health signal we have is substrate-level; we can say the disk is full, not that the company is stuck | — |
+| [x] | **S02-T7 · Party-level reconciliation** | Kernel | Greg charged twice under two keys; idempotency guards requests, not decisions | — · 3343b18 |
+| [x] | **S02-T8 · Organisational health signals** | OrgIntel | Every health signal we have is substrate-level; we can say the disk is full, not that the company is stuck | — · 206c0b2 |
 | [ ] | **S02-T9 · Attention queue (minimal)** | Owner surface | Aris blocked on the owner and the entire surface was a JSON blob in a terminal | T1 |
+
+**Status (2026-08-14):** T2, T3, T7 and T8 have landed, plus the gateway purge
+(2,999 lines). T4 — the comparison the sprint exists for — is executing. T5 (Runtime
+Bridge) and T6 (plane split) are carried; they are boundary work whose cost is set by
+when it happens, not by this sprint's deadline, and doing them before T4 reports would
+have inverted the sprint's own priority.
 
 **If only three tickets land, they are T2, T3 and T4.** That is the sprint's job; everything else is
 support. A sprint that ships five pieces of infrastructure and does not answer the thesis question
