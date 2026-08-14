@@ -221,6 +221,51 @@ the Exec will not reach for it unless the context makes the case, in which case
 thing that tips it. If `orgintel` also declines to delegate, the honest reading
 is the first.
 
+#### `orgintel` — invalidated by provider credit, not by performance
+
+The third arm blocked at $2.15 with "exec produced no parseable termination
+decision twice". The cause was not the mode:
+
+```
+429 [1113][Insufficient balance or no resource package. Please recharge.]
+```
+
+The zai account ran out mid-run. The same failure then took the two chained
+follow-up runs with it, in seconds.
+
+**The comparison was therefore re-run in full on `moonshot/kimi-k3`**, not
+patched by re-running one arm. Adding a Kimi `orgintel` to two glm arms would
+have violated `evaluation-dogfood` §25 rule 3 — baselines must receive identical
+models — and produced a number that looked like an answer. The glm results are
+archived under `lumaara-biome-results-glm/` as a valid two-arm comparison; the
+Kimi run is the one with three.
+
+#### Three defects the credit exhaustion exposed
+
+Worth more than the run it cost, and none reachable from a test:
+
+1. **Provider errors arriving as message *content* bypassed the health gate.**
+   The agent runtime streams the upstream body through, so a 429 arrived as
+   assistant text: the turn succeeded, tokens were consumed, and the gate saw
+   nothing wrong. Three companies then blocked with "no parseable termination
+   decision" — **F1 from sprint 01 in a new costume**, six weeks of machinery
+   later. The gate reads transport; this one came through as speech. The
+   termination parser now runs its raw text through the same deterministic
+   classifier before blaming the model.
+
+2. **A poisoned company could not be un-poisoned.** An unaccountable turn
+   poisons fail-closed, which is correct — but a credit exhaustion produced
+   usage with no cost and bricked two healthy companies permanently, for an
+   outage they did not cause. `restless clear-poison` appends a cancelling
+   record; both records stay in the append-only spool so the incident is still
+   legible. Aris and Thymelake restored to $1.97 and $2.78.
+
+3. **A provider's default host is not always the one a plan is served from.**
+   A Kimi For Coding key 401s against `api.moonshot.ai` and works against
+   `api.kimi.com/coding/v1` — indistinguishable from a dead key without a
+   base-URL override. It cost four probes and one wrong conclusion earlier in
+   the sprint ("the key is dead").
+
 ### Reading
 
 PENDING. If `orgintel` does not beat `single_agent` on any dimension, the honest

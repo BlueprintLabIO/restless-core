@@ -17,7 +17,7 @@ ROOT="${RESTLESS_HOME:-$HOME/.restless}"
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 OUT="$REPO/docs/scenarios/$SCENARIO-results"
 CEILING="${CEILING:-15.0}"
-MODEL="${MODEL:-zai/glm-5.2}"
+MODEL="${MODEL:-moonshot/kimi-k3}"
 mkdir -p "$OUT"
 
 MODES=(single_agent minimal_team orgintel)
