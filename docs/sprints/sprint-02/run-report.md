@@ -88,12 +88,37 @@ Held identical: model `zai/glm-5.2`, $15 ceiling, image, starting commit
 
 | Mode | Termination | Tools | Staff | Cost | Elapsed | Owner acceptance |
 |---|---|---|---|---|---|---|
-| `single_agent` | PENDING | | | | | |
+| `single_agent` | `done` | 192 | 0 | **$6.35** | **37m** | **PASS** — contract met in full |
 | `minimal_team` | PENDING | | | | | |
 | `orgintel` | PENDING | | | | | |
 
 Acceptance is manual, against the scenario's success contract. Numbers do not
 substitute for loading the build (`evaluation-dogfood` §21.2, §25 rule 2).
+
+#### `single_agent` — verified, not relayed
+
+Commit `b3d236e`, 22 files, +1090/−90. It claimed "23/23 green", which is the
+exact shape of claim this project has already been burned by, so the verifier
+was re-run independently rather than believed:
+
+```
+[PASS] #10 bonding refused in trainer battle
+[PASS] #11 trainer sends out next creature on a down
+[PASS] #14 warden battle is a scaled mini-boss :: Lv8 218hp
+[PASS] #15 warden defeat unlocks the gate (flag, warden removed, disc lit)
+[PASS] #16 gate teleports player into the cavern :: biome=cavern
+[PASS] #23 zero errors across the whole run
+23/23 steps passed; errors observed: 0
+```
+
+The claim held. Note the verifier could not run until its HTTP server was
+restarted by hand — the reaper had correctly killed it at the wake boundary,
+which is the process-leak fix working as designed.
+
+**This sets a high bar.** The baseline did not merely finish; it delivered
+trainer battles with real mechanics, a scaled mini-boss gating traversal, and a
+full biome transition with atmosphere and bounds changes, for $6.35 in 37
+minutes with zero owner interventions.
 
 ### Reading
 
