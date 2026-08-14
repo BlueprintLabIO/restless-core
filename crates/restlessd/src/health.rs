@@ -15,14 +15,21 @@
 //!   * `preflight` — cheap local checks before any context is assembled or
 //!     any token is spent. A company that cannot write, or whose computer is
 //!     not running, does not get woken.
-//!   * `classify_turn` — what actually happened, read off token consumption
-//!     and transport status rather than prose. The load-bearing invariant is
-//!     that **a turn which consumed no tokens did not happen, it failed**;
-//!     that single tell catches quota, auth, a deleted model, and a
-//!     mis-negotiated capability alike.
+//!   * `classify` — what actually happened, read off how the turn ended plus
+//!     token consumption and transport status, never prose. The load-bearing
+//!     invariant is that **a turn which completed normally and consumed no
+//!     tokens did not happen, it failed**; that single tell catches quota,
+//!     auth, a deleted model, and a mis-negotiated capability alike.
+//!
+//! `classify` is deliberately *total over [`acp::TurnEnd`]* and is the only
+//! reader of it. The previous shape — a predicate over two `Option`s, called
+//! from four places — put the "completed normally" precondition in the
+//! caller's head instead of in the type, and three of the four callers
+//! eventually dropped it. See `acp::TurnEnd` for the full account.
 
 use anyhow::{Context, Result};
 
+use crate::acp;
 use crate::runtime;
 
 /// Free space below which a company is blocked rather than woken. The host
@@ -47,6 +54,8 @@ pub enum BlockKind {
     Model,
     /// The turn completed but consumed nothing — it did not happen.
     NoOp,
+    /// The company reached its spend ceiling. Owner action, not a fault.
+    Budget,
     /// Transport or process failure with no clearer class.
     Transport,
 }
@@ -63,6 +72,7 @@ impl BlockKind {
             Self::Quota => "quota",
             Self::Model => "model",
             Self::NoOp => "no-op",
+            Self::Budget => "budget",
             Self::Transport => "transport",
         }
     }
@@ -85,6 +95,15 @@ impl Blocked {
     #[must_use]
     pub fn transport(detail: &str) -> Self {
         Self::new(BlockKind::Transport, format!("the agent session failed: {}", trim(detail)))
+    }
+
+    /// The company is out of money. Reachable two ways — before a wake, from
+    /// the ledger, and mid-turn, from the agent's own usage — and both must
+    /// arrive at the owner looking identical, which is why neither formats its
+    /// own prefix.
+    #[must_use]
+    pub fn budget(detail: impl Into<String>) -> Self {
+        Self::new(BlockKind::Budget, detail)
     }
 
     /// The owner-facing sentence. No stack traces, no JSON — this is what
@@ -148,38 +167,90 @@ pub async fn preflight(company: &str) -> Result<Option<Blocked>> {
     Ok(None)
 }
 
-/// What the turn actually did, read off consumption and transport rather than
-/// the agent's prose.
+/// What the daemon should do about a finished turn. Three outcomes, because
+/// "the turn stopped early" and "the company is stuck" are different facts
+/// with different costs: one resumes for free on the next wake, the other
+/// spends the owner's attention.
+#[derive(Debug)]
+pub enum Verdict {
+    /// The turn ran and consumed tokens. Ask the agent how the work stands.
+    Ran,
+    /// The turn stopped early, but its work is on disk and the next wake
+    /// continues it. Carries the sentence to record. Costs nobody anything.
+    Resume(String),
+    /// The company cannot proceed without the owner.
+    Blocked(Blocked),
+}
+
+/// What the turn actually did — total over every way a turn can end.
 ///
-/// `used` is the token count the agent reported for the turn (ACP
-/// `UsageUpdate`). `None` means the agent never reported usage at all, which
-/// is itself the no-op tell.
+/// The exhaustive `match` is the guarantee. The no-op tell ("consumed nothing,
+/// so it never ran") lives *inside* the `Completed` arm and is unreachable
+/// from the other three, which is precisely the property the old predicate
+/// could not express: on a wedge, a failure, or a budget halt the token count
+/// is **unknown**, and unknown is not zero. Three separate call sites read it
+/// as zero anyway and told the owner the model never ran.
 #[must_use]
-pub fn classify_turn(used: Option<u64>, error: Option<&str>) -> Option<Blocked> {
-    // An error means the turn failed; the only open question is which class.
-    // Never fall through to the consumption check from here: on the error path
-    // `used` is *unknown*, and unknown is not zero. Falling through reported a
-    // 20-minute work-turn timeout as "the model never ran — check provider
-    // credit", sending the owner to look at a healthy credential.
-    if let Some(text) = error {
-        return Some(classify_error(text).unwrap_or_else(|| Blocked::transport(text)));
-    }
-    match used {
-        Some(0) | None => Some(Blocked::new(
-            BlockKind::NoOp,
-            "the turn ended without consuming any tokens — the model never ran. \
-             Check provider credit, credential validity, and that the configured \
-             model still exists"
-                .to_string(),
+pub fn classify(end: &acp::TurnEnd) -> Verdict {
+    match end {
+        // The only arm entitled to read consumption as a verdict: the turn
+        // ended by the agent's own choice, so a usage report should exist.
+        acp::TurnEnd::Completed { transcript } => match transcript.usage.map(|usage| usage.used) {
+            Some(0) | None => Verdict::Blocked(Blocked::new(
+                BlockKind::NoOp,
+                "the turn ended without consuming any tokens — the model never ran. \
+                 Check provider credit, credential validity, and that the configured \
+                 model still exists",
+            )),
+            Some(_) => Verdict::Ran,
+        },
+
+        // Silence is not failure. The agent's work up to the wedge is on the
+        // volume, and a fresh session rehydrates from it. Killing a turn that
+        // had been streaming reasoning for 50 minutes and reporting it as
+        // "the model never ran" is the exact bug this type exists to prevent.
+        acp::TurnEnd::Wedged { idle, .. } => Verdict::Resume(format!(
+            "the agent produced nothing for {} minutes and the turn was cut; \
+             its work so far is on disk and the next wake continues it",
+            idle.as_secs() / 60
         )),
-        Some(_) => None,
+
+        // Owner action, and a real blockage — but not a fault, and not a
+        // no-op: money was spent, which is the opposite of nothing happening.
+        acp::TurnEnd::OverBudget { transcript } => {
+            let spent = transcript
+                .usage
+                .and_then(|usage| usage.cost_usd)
+                .map_or(String::new(), |cost| format!(" (${cost:.2} this turn)"));
+            Verdict::Blocked(Blocked::new(
+                BlockKind::Budget,
+                format!(
+                    "the turn reached the company's remaining spend ceiling{spent}; \
+                     work so far is on disk and the owner must raise the ceiling to continue"
+                ),
+            ))
+        }
+
+        // A failure classifies by its status class. It never falls through to
+        // the consumption check — tokens may well have been spent before the
+        // stream broke, and either way we do not know.
+        acp::TurnEnd::Failed { error, .. } => Verdict::Blocked(
+            classify_provider_error(error).unwrap_or_else(|| Blocked::transport(error)),
+        ),
     }
 }
 
-/// Deterministic status-class read of a transport failure. This is envelope
+/// Deterministic status-class read of a provider failure. This is envelope
 /// parsing (a status code is a structured field), not judgement over content
 /// — precisely the split frame 2 asks for. F1's open remainder.
-fn classify_error(text: &str) -> Option<Blocked> {
+///
+/// Public because it has a second, legitimate entry point: omp streams an
+/// upstream error body through as message *content*, so a turn can "succeed",
+/// consume tokens, and still be nothing but `429 Insufficient balance`. That
+/// caller is reading agent text, not a turn end, and must say so by name —
+/// routing it through `classify` would be a category error.
+#[must_use]
+pub fn classify_provider_error(text: &str) -> Option<Blocked> {
     let lower = text.to_lowercase();
     let has = |needle: &str| lower.contains(needle);
 
@@ -356,16 +427,32 @@ fn human_bytes(bytes: u64) -> String {
 mod tests {
     use super::*;
 
+    /// A transcript reporting `used` tokens and `cost` dollars.
+    fn transcript(used: Option<u64>, cost: Option<f64>) -> acp::TurnTranscript {
+        let mut transcript = acp::TurnTranscript::default();
+        transcript.usage =
+            used.map(|used| acp::TurnUsage { used, size: 256_000, cost_usd: cost });
+        transcript
+    }
+
+    fn blocked(verdict: Verdict) -> Blocked {
+        match verdict {
+            Verdict::Blocked(blocked) => blocked,
+            other => panic!("expected Blocked, got {other:?}"),
+        }
+    }
+
     /// The load-bearing invariant. Every sprint-01 silent failure — a dead
     /// key, a deleted model, a mis-negotiated fs capability — presented as a
     /// clean turn that consumed nothing.
     #[test]
-    fn a_turn_that_consumed_nothing_did_not_happen() {
-        let blocked = classify_turn(Some(0), None).expect("zero tokens must block");
-        assert_eq!(blocked.kind, BlockKind::NoOp);
-        let blocked = classify_turn(None, None).expect("absent usage must block");
-        assert_eq!(blocked.kind, BlockKind::NoOp);
-        assert!(classify_turn(Some(16_042), None).is_none());
+    fn a_completed_turn_that_consumed_nothing_did_not_happen() {
+        for used in [Some(0), None] {
+            let end = acp::TurnEnd::Completed { transcript: transcript(used, None) };
+            assert_eq!(blocked(classify(&end)).kind, BlockKind::NoOp, "{used:?}");
+        }
+        let end = acp::TurnEnd::Completed { transcript: transcript(Some(16_042), None) };
+        assert!(matches!(classify(&end), Verdict::Ran));
     }
 
     /// F1: the provider's error channel is deterministic. These exact shapes
@@ -381,29 +468,69 @@ mod tests {
             ("model glm-5.1 not found", BlockKind::Model),
         ];
         for (text, expected) in cases {
-            let blocked = classify_turn(Some(10), Some(text))
-                .unwrap_or_else(|| panic!("{text} must classify"));
-            assert_eq!(blocked.kind, expected, "{text}");
+            let end = acp::TurnEnd::Failed {
+                error: text.to_string(),
+                transcript: transcript(Some(10), None),
+            };
+            assert_eq!(blocked(classify(&end)).kind, expected, "{text}");
         }
     }
 
-    /// A transport failure outranks consumption: tokens may well have been
-    /// spent before the stream broke.
+    /// THE regression this refactor exists for. Three ways a turn can end
+    /// without the token count meaning anything, and none of them may be
+    /// reported as "the model never ran" — each cost an owner a trip to a
+    /// healthy credential once. The `Completed` arm is the only reader of
+    /// consumption, and these prove the other three cannot reach it even with
+    /// a transcript that looks exactly like a no-op.
     #[test]
-    fn transport_status_outranks_token_count() {
-        let blocked = classify_turn(Some(0), Some("402 insufficient credit")).expect("blocked");
-        assert_eq!(blocked.kind, BlockKind::Quota);
+    fn unknown_consumption_is_never_reported_as_a_no_op() {
+        let nothing = || transcript(Some(0), None);
+        let ends = [
+            acp::TurnEnd::Wedged {
+                idle: std::time::Duration::from_secs(8 * 60),
+                transcript: nothing(),
+            },
+            acp::TurnEnd::OverBudget { transcript: nothing() },
+            acp::TurnEnd::Failed {
+                error: "connection reset by peer".to_string(),
+                transcript: nothing(),
+            },
+        ];
+        for end in ends {
+            let message = match classify(&end) {
+                Verdict::Ran => panic!("{end:?} must not read as a normal turn"),
+                Verdict::Resume(reason) => reason,
+                Verdict::Blocked(blocked) => blocked.message(),
+            };
+            assert!(!message.contains("never ran"), "{end:?} -> {message}");
+        }
     }
 
-    /// An unrecognised error must NOT be reported as "the model never ran".
-    /// On the error path `used` is unknown, and unknown is not zero — this
-    /// exact fall-through told the owner to check a healthy credential when a
-    /// 20-minute work turn hit the wake boundary.
+    /// A wedge is recoverable, not a blockage: the work is on the volume and
+    /// the next wake rehydrates from it. Spending owner attention on it is the
+    /// expensive half of the bug — a false kill 50 minutes into real work got
+    /// reported as a company-stopping failure.
     #[test]
-    fn an_unclassified_error_is_transport_not_no_op() {
-        let blocked = classify_turn(None, Some("connection reset by peer")).expect("blocked");
-        assert_eq!(blocked.kind, BlockKind::Transport);
-        assert!(!blocked.message().contains("never ran"));
+    fn a_wedge_resumes_rather_than_blocking_the_owner() {
+        let end = acp::TurnEnd::Wedged {
+            idle: std::time::Duration::from_secs(8 * 60),
+            transcript: transcript(Some(120_000), None),
+        };
+        let Verdict::Resume(reason) = classify(&end) else {
+            panic!("a wedge must resume");
+        };
+        assert!(reason.contains("8 minutes"), "{reason}");
+        assert!(reason.contains("on disk"), "{reason}");
+    }
+
+    /// Over-budget is the owner's call and says so with the number, rather
+    /// than arriving as a generic block.
+    #[test]
+    fn over_budget_blocks_on_the_owner_with_the_amount() {
+        let end = acp::TurnEnd::OverBudget { transcript: transcript(Some(500_000), Some(3.5)) };
+        let blocked = blocked(classify(&end));
+        assert_eq!(blocked.kind, BlockKind::Budget);
+        assert!(blocked.message().contains("$3.50"), "{}", blocked.message());
     }
 
     #[test]

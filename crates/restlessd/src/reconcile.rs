@@ -138,8 +138,10 @@ pub async fn effect_ledger(org: &OrgIntel) -> Result<EffectLedger> {
 /// fired a "repeating a failed approach" signal at a company deploying
 /// perfectly well.
 ///
-/// Same rule as `health::classify_turn`, learned the same way: **unknown is
-/// not failure.** A word we do not recognise is reported as unrecognised.
+/// Same rule as `acp::TurnEnd` / `health::classify`, learned the same way:
+/// **unknown is not failure.** A word we do not recognise is reported as
+/// unrecognised, and the distinction lives in the type rather than in the
+/// caller's memory of it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Outcome {
     Succeeded,

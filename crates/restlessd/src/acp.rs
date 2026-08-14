@@ -151,14 +151,72 @@ const IDLE_TOOL_RUNNING: std::time::Duration = std::time::Duration::from_secs(15
 /// How often the watchdog looks. Cheap: it reads two in-memory values.
 const WATCHDOG_TICK: std::time::Duration = std::time::Duration::from_secs(5);
 
-/// Why a turn stopped early. Both are deterministic observations, never
-/// inferences from what the model wrote (LLM_CURE.md frame 2).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum TurnHalt {
+/// **Every** way a turn can end, as one closed set.
+///
+/// This type exists because its absence cost us the same bug three times. The
+/// old shape was `Result<Option<TurnHalt>>` plus a separate
+/// `classify_turn(Option<u64>, Option<&str>)`, and both halves lost the thing
+/// that mattered: `None` meant "unknown" in one caller and "zero" in the next,
+/// so correct interpretation lived in each call site's head rather than in the
+/// types. Three call sites forgot, each in its own way, and each time the
+/// generic "the model never ran" verdict overwrote a specific and true one —
+/// sending the owner to check a healthy credential while the real cause (a
+/// 20-minute boundary, a wedge 50 minutes into real work, an exhausted
+/// ceiling) went unreported.
+///
+/// So: a turn ends by producing one of these, always, and the only way to read
+/// one is `health::classify`, which is total over the set. A new way for a turn
+/// to end is a new variant, and adding it fails compilation everywhere until
+/// someone says what it means. That is the whole point — the discipline moved
+/// from memory into the compiler.
+///
+/// Every variant carries its transcript: work that happened before a halt is
+/// still on disk and still worth reporting, and a failure with the agent's own
+/// last words is debuggable where a bare error string is not.
+#[derive(Debug)]
+pub enum TurnEnd {
+    /// The agent finished the turn itself. Whether it *did* anything is a
+    /// separate question, answered from the usage — see `health::classify`.
+    Completed { transcript: TurnTranscript },
     /// No output of any kind for longer than the idle allowance.
-    Wedged,
-    /// The company spent its ceiling mid-turn.
-    OverBudget,
+    Wedged { idle: std::time::Duration, transcript: TurnTranscript },
+    /// The company reached its ceiling mid-turn.
+    OverBudget { transcript: TurnTranscript },
+    /// The session or its transport failed. `error` is the anyhow chain.
+    Failed { error: String, transcript: TurnTranscript },
+}
+
+impl TurnEnd {
+    /// The transcript, whichever way the turn ended.
+    #[must_use]
+    pub fn transcript(&self) -> &TurnTranscript {
+        match self {
+            Self::Completed { transcript }
+            | Self::Wedged { transcript, .. }
+            | Self::OverBudget { transcript }
+            | Self::Failed { transcript, .. } => transcript,
+        }
+    }
+
+    /// Take the transcript, consuming the end.
+    #[must_use]
+    pub fn into_transcript(self) -> TurnTranscript {
+        match self {
+            Self::Completed { transcript }
+            | Self::Wedged { transcript, .. }
+            | Self::OverBudget { transcript }
+            | Self::Failed { transcript, .. } => transcript,
+        }
+    }
+
+    /// What the turn consumed, if the agent reported it. `None` here is
+    /// genuinely "the agent never told us" — it is not zero, and only the
+    /// `Completed` arm of `health::classify` is entitled to read it as a
+    /// failure tell.
+    #[must_use]
+    pub fn usage(&self) -> Option<TurnUsage> {
+        self.transcript().usage
+    }
 }
 
 impl AgentSession {
@@ -176,18 +234,29 @@ impl AgentSession {
     /// against the usage the agent reports as it goes. "$3 with nothing to
     /// show" is a meaningful statement about waste; "20 minutes elapsed" is
     /// not.
+    ///
+    /// Returns a [`TurnEnd`] and **not** a `Result`: a transport failure is one
+    /// of the ways a turn ends, not an exception to a turn ending. Handing back
+    /// a `Result` is what let callers `?` past the classifier and reach for
+    /// their own reading of what went wrong. There is no such escape now — the
+    /// only thing to do with a `TurnEnd` is classify it.
     pub async fn prompt_live(
         &self,
         text: &str,
         budget: impl Fn(&TurnUsage) -> bool + Send,
-    ) -> Result<Option<TurnHalt>> {
+    ) -> TurnEnd {
         let prompt = self.prompt(text);
         tokio::pin!(prompt);
         loop {
             tokio::select! {
                 finished = &mut prompt => {
-                    finished?;
-                    return Ok(None);
+                    return match finished {
+                        Ok(()) => TurnEnd::Completed { transcript: self.take_transcript() },
+                        Err(error) => TurnEnd::Failed {
+                            error: format!("{error:#}"),
+                            transcript: self.take_transcript(),
+                        },
+                    };
                 }
                 () = tokio::time::sleep(WATCHDOG_TICK) => {
                     // The guard must not cross an await: read three plain
@@ -208,7 +277,7 @@ impl AgentSession {
                     }) else { continue };
                     if over {
                         let _ = self.cancel().await;
-                        return Ok(Some(TurnHalt::OverBudget));
+                        return TurnEnd::OverBudget { transcript: self.take_transcript() };
                     }
                     if idle > allowance {
                         tracing::warn!(
@@ -216,7 +285,7 @@ impl AgentSession {
                             "agent produced nothing for longer than the idle allowance"
                         );
                         let _ = self.cancel().await;
-                        return Ok(Some(TurnHalt::Wedged));
+                        return TurnEnd::Wedged { idle, transcript: self.take_transcript() };
                     }
                 }
             }

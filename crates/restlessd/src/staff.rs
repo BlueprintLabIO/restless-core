@@ -18,6 +18,7 @@ use serde::Serialize;
 
 use crate::acp::{self, AgentAuth};
 use crate::exec::{self, Termination};
+use crate::health;
 use crate::spend::SpendLedger;
 use crate::runtime::{self, CompanyConfig};
 
@@ -295,6 +296,18 @@ struct StaffBrief {
     spine: String,
 }
 
+/// A staff turn that did not run to completion, as one sentence — or `None`
+/// when it did. Staff go through the same total classifier as the Exec so that
+/// a wedge is reported as a wedge here too; they differ only in what they can
+/// do about it, which is nothing.
+fn staff_halt(end: &acp::TurnEnd) -> Option<String> {
+    match health::classify(end) {
+        health::Verdict::Ran => None,
+        health::Verdict::Resume(reason) => Some(reason),
+        health::Verdict::Blocked(blocked) => Some(blocked.message()),
+    }
+}
+
 async fn run_staff(
     brief: StaffBrief,
 ) -> Result<(Termination, String, Vec<acp::TurnUsage>)> {
@@ -318,21 +331,33 @@ async fn run_staff(
             let mut next = prompt;
             let mut spent: Vec<acp::TurnUsage> = Vec::new();
             loop {
-                if let Some(halt) = session.prompt_live(&next, |_| false).await? {
-                    bail!("staff turn halted: {halt:?}");
-                }
+                let end = session.prompt_live(&next, |_| false).await;
                 // The work text is observability; the envelope is the record.
                 // The usage is neither — it is the fuse's input, so it is the
-                // one part of the transcript that must not be dropped. Staff
-                // spend is real spend (two per company, T9).
-                let worked = session.take_transcript();
-                if let Some(usage) = worked.usage {
+                // one part of the transcript that must not be dropped, and it
+                // is dropped LAST: a staff member that wedged or failed still
+                // spent the company's money, and billing only the clean path
+                // is how spend goes quietly missing. Staff spend is real spend
+                // (two per company, T9).
+                if let Some(usage) = end.usage() {
                     spent.push(usage);
                 }
-                if let Some(halt) = session.prompt_live(exec::TERMINATION_PROMPT, |_| false).await? {
-                    bail!("staff termination ask halted: {halt:?}");
+                // Staff report to the Exec, not to the owner, so they have no
+                // Verdict of their own to act on — the whole run is abandoned
+                // and the Exec reads the reason on its next wake. But the
+                // reason must still be the specific one.
+                if let Some(blocked) = staff_halt(&end) {
+                    bail!("staff turn: {blocked}");
                 }
-                let said = session.take_transcript().text;
+
+                let end = session.prompt_live(exec::TERMINATION_PROMPT, |_| false).await;
+                if let Some(usage) = end.usage() {
+                    spent.push(usage);
+                }
+                if let Some(blocked) = staff_halt(&end) {
+                    bail!("staff termination ask: {blocked}");
+                }
+                let said = end.into_transcript().text;
                 match exec::parse_termination(&said) {
                     Some(decision) if matches!(decision.termination, Termination::Continue) => {
                         next = CONTINUE_PROMPT.to_string();

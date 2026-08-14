@@ -50,11 +50,6 @@ pub struct WakeReport {
     /// Staff the Exec asked to spawn this turn (T9); the daemon processes
     /// these after the outcome is recorded.
     pub spawn_requests: Vec<SpawnRequest>,
-    /// True when a watchdog halt produced this report rather than the Exec's
-    /// own decision. Postflight must not overwrite a specific verdict with a
-    /// generic one.
-    #[serde(skip)]
-    pub halted: bool,
 }
 
 /// Raw model output for the termination decision. `spawn` is deliberately
@@ -96,17 +91,12 @@ pub async fn wake(
         return blocked_wake(org, milestone, config, &blocked.message()).await;
     }
     if let Some((spent, ceiling)) = spend.over_ceiling(config) {
-        return blocked_wake(
-            org,
-            milestone,
-            config,
-            &format!(
-                "[budget] {} has spent ${spent:.2} of its ${ceiling:.2} ceiling; \
-                 the owner must raise it before work continues",
-                config.name
-            ),
-        )
-        .await;
+        let blocked = health::Blocked::budget(format!(
+            "{} has spent ${spent:.2} of its ${ceiling:.2} ceiling; \
+             the owner must raise it before work continues",
+            config.name
+        ));
+        return blocked_wake(org, milestone, config, &blocked.message()).await;
     }
 
     let auth = agent_auth(config)?;
@@ -131,15 +121,16 @@ pub async fn wake(
     })
     .await;
 
-    // Postflight. A transport failure and a turn that consumed nothing are
-    // both substrate failures, not the Exec's judgement — classify them
-    // deterministically rather than letting them arrive as prose the
-    // termination parser then fails on (F1).
+    // The turn itself was already classified inside `run_turn`, once, by the
+    // one function entitled to do it. What can still fail here is everything
+    // *around* a turn — the session never opened, docker refused, the ACP
+    // handshake broke. That is a different fact and reads as one: no turn
+    // ended, so there is no `TurnEnd` to classify and nothing was spent.
     let (report, usage) = match outcome {
         Ok((report, usage)) => (report, usage),
         Err(error) => {
             let text = format!("{error:#}");
-            let blocked = health::classify_turn(None, Some(&text))
+            let blocked = health::classify_provider_error(&text)
                 .unwrap_or_else(|| health::Blocked::transport(&text));
             return blocked_wake(org, milestone, config, &blocked.message()).await;
         }
@@ -162,19 +153,6 @@ pub async fn wake(
         )
         .await?;
     }
-    // The no-op check is for turns that completed NORMALLY. A halt (wedged,
-    // over-budget) has already produced a specific, more informative verdict,
-    // and running the generic check over it replaces "the agent went quiet
-    // after 50 minutes of work" with "the model never ran" — which is both
-    // false and points the owner at the wrong thing. Third time this override
-    // has bitten: the error path and the timeout path were fixed this morning,
-    // this is the halt path.
-    if !report.halted && health::classify_turn(usage.map(|usage| usage.used), None).is_some() {
-        let blocked = health::classify_turn(usage.map(|usage| usage.used), None)
-            .expect("checked immediately above");
-        return blocked_wake(org, milestone, config, &blocked.message()).await;
-    }
-
     record_outcome(org, milestone, &report).await?;
     Ok(report)
 }
@@ -203,7 +181,6 @@ async fn blocked_wake(
         tool_calls: Vec::new(),
         said: String::new(),
         spawn_requests: Vec::new(),
-        halted: true,
     };
     record_outcome(org, milestone, &report).await?;
     Ok(report)
@@ -252,64 +229,64 @@ async fn run_turn(
     remaining_budget_usd: f64,
 ) -> Result<(WakeReport, Option<acp::TurnUsage>)> {
     // Run for as long as the agent is alive, not for a fixed wall-clock
-    // budget. A halt here is a deterministic observation — silence, or the
-    // ceiling reached mid-turn — never a guess about whether the model is
-    // "stuck or just thinking", which is judgement and not the daemon's.
-    let halt = session.prompt_live(context, |usage| {
-        usage.cost_usd.is_some_and(|cost| cost >= remaining_budget_usd)
-    })
-    .await?;
-    if let Some(halt) = halt {
-        let transcript = session.take_transcript();
-        let reason = match halt {
-            acp::TurnHalt::Wedged => "the agent stopped producing output entirely; \
-                 its work so far is on disk and the next wake continues it"
-                .to_string(),
-            acp::TurnHalt::OverBudget => format!(
-                "this turn reached the remaining ${remaining_budget_usd:.2} budget; \
-                 work so far is on disk and the owner must raise the ceiling to continue"
-            ),
-        };
-        return Ok((
-            WakeReport {
-                company: company.to_string(),
-                termination: match halt {
-                    // Wedged is recoverable by rehydrating; over-budget needs
-                    // the owner, so it is a real blockage.
-                    acp::TurnHalt::Wedged => Termination::Continue,
-                    acp::TurnHalt::OverBudget => Termination::Blocked,
-                },
-                reason,
-                next_wake_minutes: matches!(halt, acp::TurnHalt::Wedged).then_some(1),
-                tool_calls: transcript.tool_calls,
-                said: transcript.text.chars().take(1_000).collect(),
-                spawn_requests: Vec::new(),
-                halted: true,
-            },
-            transcript.usage,
-        ));
-    }
-    let work_transcript = session.take_transcript();
-    // The work turn's usage is what the fuse and the health gate read. The
-    // termination ask that follows is a second, tiny turn on the same session
-    // — it is not what we are measuring.
-    let usage = work_transcript.usage;
+    // budget. How the turn ends is a deterministic observation — the agent
+    // finished, went silent, hit the ceiling, or the transport broke — never a
+    // guess about whether the model is "stuck or just thinking", which is
+    // judgement and not the daemon's.
+    let end = session
+        .prompt_live(context, |usage| {
+            usage.cost_usd.is_some_and(|cost| cost >= remaining_budget_usd)
+        })
+        .await;
+    // The work turn's usage is what the fuse and the ledger read, whichever
+    // way it ended. The termination ask that follows is a second, tiny turn on
+    // the same session — it is not what we are measuring.
+    let usage = end.usage();
 
-    let decision = termination_decision(session).await?;
-    let said: String = work_transcript.text.chars().take(1_000).collect();
-    Ok((
-        WakeReport {
-            company: company.to_string(),
-            termination: decision.termination,
-            reason: decision.reason,
-            next_wake_minutes: decision.next_wake_minutes,
-            tool_calls: work_transcript.tool_calls,
-            said,
-            spawn_requests: decision.spawn,
-            halted: false,
-        },
-        usage,
-    ))
+    // The one and only place a turn is classified. Everything below reads the
+    // verdict; nothing below re-derives it from the transcript.
+    let verdict = health::classify(&end);
+    let transcript = end.into_transcript();
+    let report = |termination, reason, next_wake_minutes, spawn_requests| WakeReport {
+        company: company.to_string(),
+        termination,
+        reason,
+        next_wake_minutes,
+        tool_calls: transcript.tool_calls.clone(),
+        said: transcript.text.chars().take(1_000).collect(),
+        spawn_requests,
+    };
+
+    match verdict {
+        // Recoverable: the work is on the volume and a fresh session
+        // rehydrates from it, so this costs the owner nothing.
+        health::Verdict::Resume(reason) => {
+            tracing::warn!(company, %reason, "turn stopped early; resuming next wake");
+            Ok((report(Termination::Continue, reason, Some(1), Vec::new()), usage))
+        }
+        // Only the owner can clear this. `record_outcome` latches the
+        // milestone and mails once — never a re-wake loop (F1).
+        health::Verdict::Blocked(blocked) => {
+            tracing::warn!(company, reason = %blocked.message(), "turn blocked the company");
+            Ok((report(Termination::Blocked, blocked.message(), None, Vec::new()), usage))
+        }
+        // The turn ran. Only now is the agent's own judgement worth asking
+        // for — asking a wedged or unpaid session how the work stands gets
+        // prose the parser then fails on, which is how a substrate failure
+        // used to arrive dressed as an agent decision.
+        health::Verdict::Ran => {
+            let decision = termination_decision(session).await?;
+            Ok((
+                report(
+                    decision.termination,
+                    decision.reason,
+                    decision.next_wake_minutes,
+                    decision.spawn,
+                ),
+                usage,
+            ))
+        }
+    }
 }
 
 /// The end-of-turn ask, shared by the Exec and staff: the decision itself is
@@ -366,18 +343,17 @@ async fn termination_decision(session: &AgentSession) -> Result<TerminationDecis
                 // decision" when the actual cause was
                 // `429 [1113] Insufficient balance ... Please recharge`.
                 //
-                // This is F1 wearing a new costume. The gate reads transport;
-                // this reads what the agent said. Same deterministic
-                // classifier, second entry point.
-                if let Some(blocked) = health::classify_turn(None, Some(&transcript.text)) {
-                    if blocked.kind != health::BlockKind::Transport {
-                        return Ok(TerminationDecision {
-                            termination: Termination::Blocked,
-                            reason: blocked.message(),
-                            next_wake_minutes: None,
-                            spawn: vec![],
-                        });
-                    }
+                // This is F1 wearing a new costume. `classify` reads how a turn
+                // ended; this reads what the agent said. Same deterministic
+                // status-class parser, and it is named for the text it reads so
+                // that the difference cannot be mistaken for the same check.
+                if let Some(blocked) = health::classify_provider_error(&transcript.text) {
+                    return Ok(TerminationDecision {
+                        termination: Termination::Blocked,
+                        reason: blocked.message(),
+                        next_wake_minutes: None,
+                        spawn: vec![],
+                    });
                 }
                 if attempt == 0 {
                     // The transcript carries the model's actual words — without
