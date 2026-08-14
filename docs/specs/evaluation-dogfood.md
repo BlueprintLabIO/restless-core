@@ -2,22 +2,22 @@
 
 **Version:** 0.1  
 **Status:** Working product and engineering contract  
-**Scope:** How Helm proves that OrgIntel improves real company outcomes, how dogfoods are structured, how external reality is simulated or observed, and how evidence feeds exploration, repair, and organisational evolution.
+**Scope:** How Restless proves that OrgIntel improves real company outcomes, how dogfoods are structured, how external reality is simulated or observed, and how evidence feeds exploration, repair, and organisational evolution.
 
 ---
 
 ## 0. Document contract
 
-This document defines Helm's empirical grounding system.
+This document defines Restless's empirical grounding system.
 
 It does not define a generic benchmark platform or a permanent scoring ontology. It defines the minimum discipline required to answer:
 
-> Does Helm produce better accepted economic outcomes with less owner attention than strong agents using the same models, tools, resources, and Linux environment without OrgIntel?
+> Does Restless produce better accepted economic outcomes with less owner attention than strong agents using the same models, tools, resources, and Linux environment without OrgIntel?
 
 Related specifications:
 
-- **OrgIntel Core Specification v0.3** defines the adaptive organisational loop.
-- **Authority Plane Specification v0.1** defines real and mock effect/resource providers.
+- **OrgIntel Core Specification** defines the adaptive organisational loop.
+- **Authority Plane Specification** defines real and mock effect/resource providers.
 - **Company Runtime Specification v0.1** defines the productive work environment.
 - **Owner Cockpit Specification v0.1** defines how evidence and attention are presented.
 - **Company Lifecycle and Cross-Layer Contract v0.1** defines shared semantics and composition.
@@ -35,7 +35,7 @@ Related specifications:
 
 ## 1.1 Core claim
 
-Helm's differentiated value is not persistence, Linux access, multiple agents, or tool use by themselves.
+Restless's differentiated value is not persistence, Linux access, multiple agents, or tool use by themselves.
 
 The claim is:
 
@@ -506,7 +506,7 @@ Several agents share the environment with only basic prompting or manual task as
 
 No persistent Exec-led organisational adaptation beyond what the harness naturally provides.
 
-### C. Helm OrgIntel
+### C. Restless OrgIntel
 
 One persistent Exec, focused actors, adaptive planning, explicit commitments, artifact-centred handoffs, evidence-based evaluation, repair, and evolution.
 
@@ -522,7 +522,7 @@ Where feasible, match:
 - external-world conditions;
 - task difficulty.
 
-Do not give Helm more budget and then attribute performance solely to organisational intelligence.
+Do not give Restless more budget and then attribute performance solely to organisational intelligence.
 
 ## 7.3 Best-member test
 
@@ -1162,7 +1162,7 @@ select company outcome
 1. What useful result exists now that did not exist before?
 2. Does external or executable evidence support it?
 3. Where did the owner intervene, and why?
-4. What failure came from the business problem versus Helm itself?
+4. What failure came from the business problem versus Restless itself?
 5. Did OrgIntel explore, repair, or evolve effectively?
 6. What should be deleted, simplified, or changed?
 7. What is the next smallest informative run?
@@ -1381,10 +1381,10 @@ V0 does not require:
 
 # 26. Final V0 contract
 
-Helm evaluation is successful when:
+Restless evaluation is successful when:
 
 > Each company run begins with a clear but flexible success contract, produces inspectable or externally grounded evidence, measures owner attention and economic cost, compares OrgIntel against credible simpler baselines, and feeds the result back into exploration, local repair, and organisational evolution.
 
-The ultimate test is not whether Helm appears organised.
+The ultimate test is not whether Restless appears organised.
 
 It is whether Cosmon builds, Aris sells, and Thymelake launches and operates—with less owner effort than the simpler alternatives.

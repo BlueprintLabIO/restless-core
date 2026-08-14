@@ -8,14 +8,14 @@
 
 ## 0. Document contract
 
-This document defines how Helm's existing component specifications compose into one running company.
+This document defines how Restless's existing component specifications compose into one running company.
 
 It is intentionally narrower than the component specs:
 
-- **Authority Plane Specification v0.1** owns authority, effects, resources, credentials, and runtime lifecycle implementation.
-- **OrgIntel Core Specification v0.3** owns organisational cognition, actors, goals, commitments, communication, adaptation, and organisational memory.
-- **Company Runtime and Runtime Bridge Specification v0.1** owns the Linux work environment, agent processes, files, Git, tools, and bridge implementation.
-- **Owner Cockpit Product Specification v0.1** owns the operator-facing product experience.
+- **Authority Plane Specification** owns authority, effects, resources, credentials, and runtime lifecycle implementation.
+- **OrgIntel Core Specification** owns organisational cognition, actors, goals, commitments, communication, adaptation, and organisational memory.
+- **Company Runtime and Runtime Bridge Specification** owns the Linux work environment, agent processes, files, Git, tools, and bridge implementation.
+- **Owner Cockpit Product Specification** owns the operator-facing product experience.
 - This document owns **shared identifiers, cross-layer contracts, company bootstrap, lifecycle transitions, and reconciliation**.
 
 The contract should remain small enough that all layers can implement it consistently.
@@ -51,7 +51,7 @@ The layers cooperate, but they do not share ownership of the same facts.
 
 ## 1.2 The company is durable; processes are replaceable
 
-A Helm company persists across:
+A Restless company persists across:
 
 - model-session restarts;
 - agent crashes;
@@ -308,7 +308,7 @@ Each deployed component has a distinct machine identity:
 - Infisical Agent Proxy;
 - provider adapters where separately deployed.
 
-Use short-lived or rotatable service credentials. Infisical may store and materialise these, but Helm remains responsible for semantic authority.
+Use short-lived or rotatable service credentials. Infisical may store and materialise these, but Restless remains responsible for semantic authority.
 
 ## 5.2 Runtime Bridge connection
 
@@ -1144,6 +1144,6 @@ V0 does not specify:
 
 # 19. Final V0 contract
 
-A Helm company is considered correctly composed when:
+A Restless company is considered correctly composed when:
 
 > The Authority Plane preserves mandate, authority, resources, and external truth; OrgIntel preserves organisational identity, intent, and learning; the Company Runtime preserves productive work; and the layers can restart, restore, and evolve independently without pretending that one database or workflow owns the whole company.

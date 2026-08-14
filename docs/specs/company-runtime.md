@@ -2,7 +2,7 @@
 
 **Version:** 0.1  
 **Status:** Core design and initial implementation contract  
-**Companion:** `OrgIntel Core Specification v0.3`
+**Companion:** `OrgIntel Core Specification`
 
 ---
 
@@ -58,7 +58,7 @@ Linux already supplies:
 - mature development and business tools;
 - ordinary recovery mechanisms.
 
-Helm should add organisational intelligence and bounded external authority around these mechanisms rather than replace them.
+Restless should add organisational intelligence and bounded external authority around these mechanisms rather than replace them.
 
 ## 1.3 Boundaries
 
@@ -667,7 +667,7 @@ A skill is a directory containing a `SKILL.md` plus optional scripts, references
 Suggested locations:
 
 ```text
-/opt/helm/skills/                 # Helm defaults, read-only
+/opt/restless/skills/                 # Restless defaults, read-only
 /company/skills/                  # company-created skills
 /projects/<project>/.agents/skills/  # project-specific skills
 ```
@@ -997,7 +997,7 @@ Docker Compose
 - Separate worktrees for concurrent coding where useful.
 - Focused session context packets.
 - Project `AGENTS.md` guidance.
-- Helm, company, and project skills.
+- Restless, company, and project skills.
 - Native Linux and selected MCP tools.
 - Hard company CPU/RAM/disk limits.
 - Optional fixed local GPU.
@@ -1092,7 +1092,7 @@ Do not build initially:
 1. Productive work must remain possible without an OrgIntel API call for every action.
 2. Runtime mess is repaired with files, Git, process tools, and snapshots before new domain machinery is introduced.
 3. A new runtime abstraction must solve repeated observed friction.
-4. Prefer imported Linux mechanisms over Helm-owned equivalents.
+4. Prefer imported Linux mechanisms over Restless-owned equivalents.
 5. Preserve useful work even when coordination records are stale.
 6. Keep identity continuity outside the Runtime; keep actual work inside it.
 7. Direct access is preferred for bounded productive resources; consequential effects are brokered.

@@ -3,8 +3,8 @@
 **Version:** 0.1  
 **Status:** Core product design and MVP implementation contract  
 **Date:** 13 August 2026  
-**Companions:** `OrgIntel Core Specification v0.3`, `Company Runtime and Runtime Bridge Specification v0.1`, `Authority Plane Specification v0.1`  
-**Parent:** `Helm Architecture Source of Truth v0.9`
+**Companions:** `OrgIntel Core Specification`, `Company Runtime and Runtime Bridge Specification`, `Authority Plane Specification`  
+**Parent:** `ARCHITECTURE.md — Restless Architecture Source of Truth v0.9`
 
 ---
 

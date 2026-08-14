@@ -97,12 +97,12 @@ wrong, and §16.10 applies: a real run beats both documents.
 
 | Working on | Read |
 |---|---|
-| Actors, goals, commitments, messages, wakes, context assembly, staff, org health | `orgintel_spec_v0.3.md` |
-| Effects, receipts, budgets, credentials, approvals, runtime lifecycle authority | `authority_plane_spec_v0.1.md` |
-| The company computer, container, image, Runtime Bridge, process lifecycle | `company_runtime_spec_v0.1.md` |
-| Anything the owner sees: attention, approvals, work and people surfaces | `owner_cockpit_spec_v0.1.md` |
-| Anything crossing two planes: identifiers, statuses, who owns which concept | `company_lifecycle_cross_layer_contract_v0.1.md` |
-| Proving it works: baselines, success contracts, dogfood scenarios, evidence | `evaluation_dogfood_spec_v0.1.md` |
+| Actors, goals, commitments, messages, wakes, context assembly, staff, org health | `docs/specs/orgintel.md` |
+| Effects, receipts, budgets, credentials, approvals, runtime lifecycle authority | `docs/specs/authority-plane.md` |
+| The company computer, container, image, Runtime Bridge, process lifecycle | `docs/specs/company-runtime.md` |
+| Anything the owner sees: attention, approvals, work and people surfaces | `docs/specs/owner-cockpit.md` |
+| Anything crossing two planes: identifiers, statuses, who owns which concept | `docs/specs/cross-layer-contract.md` |
+| Proving it works: baselines, success contracts, dogfood scenarios, evidence | `docs/specs/evaluation-dogfood.md` |
 
 **One concept, one authoritative owner.** When two specs seem to cover the same thing, the
 cross-layer contract's §3.1 table is the tiebreaker. A layer may hold identifiers, summaries and

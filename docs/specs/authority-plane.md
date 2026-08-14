@@ -3,8 +3,8 @@
 **Version:** 0.1  
 **Status:** Core design and MVP implementation contract  
 **Date:** 13 August 2026  
-**Companions:** `OrgIntel Core Specification v0.3`, `Company Runtime and Runtime Bridge Specification v0.1`  
-**Parent:** `Helm Architecture Source of Truth v0.9`
+**Companions:** `OrgIntel Core Specification`, `Company Runtime and Runtime Bridge Specification`  
+**Parent:** `ARCHITECTURE.md — Restless Architecture Source of Truth v0.9`
 
 ---
 
@@ -993,7 +993,7 @@ Infisical itself may be Infisical Cloud or a separately hosted installation. It 
 
 ## 16.2 Modular monolith first
 
-The Helm-owned Authority Plane should initially be one Rust `authority-service`, modular internally:
+The Restless-owned Authority Plane should initially be one Rust `authority-service`, modular internally:
 
 ```text
 authority_service
@@ -1346,7 +1346,7 @@ Do not build in V0:
 - Policy is permissive within a broad owner-granted envelope.
 - Effects, resources, runtime lifecycle, and model usage remain distinct operation families.
 - Provider-root credentials never enter the Company Runtime.
-- Infisical stores/applies credentials; Helm owns business authority and effect semantics.
+- Infisical stores/applies credentials; Restless owns business authority and effect semantics.
 - Ordinary authenticated APIs may use Infisical Agent Proxy.
 - Productive resources are provisioned and then used directly through bounded access.
 - Consequential effects remain brokered and receipted.

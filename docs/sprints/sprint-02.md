@@ -3,9 +3,9 @@
 **Status:** Draft for founder alignment
 **Date:** 13 August 2026
 **Supersedes:** the mid-sprint-01 draft of this file, which assumed the runs had not happened. They have.
-**Spec refs:** `orgintel_spec_v0.3` §1.2 (falsification), `company_lifecycle_cross_layer_contract_v0.1`
-§3.1 / §16, `company_runtime_spec_v0.1` §4 (Runtime Bridge), `evaluation_dogfood_spec_v0.1` §21,
-`owner_cockpit_spec_v0.1` §12.2, `ARCHITECTURE.md` §16.4 (platform work originates from friction)
+**Spec refs:** `orgintel` §1.2 (falsification), `cross-layer-contract`
+§3.1 / §16, `company-runtime` §4 (Runtime Bridge), `evaluation-dogfood` §21,
+`owner-cockpit` §12.2, `ARCHITECTURE.md` §16.4 (platform work originates from friction)
 
 ---
 
@@ -25,7 +25,7 @@ It also produced one finding that reframes everything after it.
 **No company ever delegated.** `spawn_requests: []` in every wake of all three companies, including
 Cosmon's largest (124 tool calls, 12 species, 6 branching evolutions). Every artifact sprint 01
 produced came from **one agent with durable files** — configuration **A** of
-`orgintel_spec_v0.3` §1.2, not configuration C.
+`orgintel` §1.2, not configuration C.
 
 So the sprint that was meant to test OrgIntel accidentally tested the baseline, and **the baseline
 did well**: a playable 3D creature-collector, a working sales loop, an operating loop with 90 effect
@@ -72,7 +72,7 @@ working until it has been run.
    OrgIntel actor rows exist.
 2. **A comparison run completes** in all three organisation modes (`single_agent`, `minimal_team`,
    `orgintel`) on one versioned scenario, with identical starting runtime, model, and budget
-   envelope (`evaluation_dogfood_spec_v0.1` §21.1, §25 rule 3: *baselines must receive credible
+   envelope (`evaluation-dogfood` §21.1, §25 rule 3: *baselines must receive credible
    tools, models, budgets and time*).
 3. **A run report compares them** on the primary metric — accepted output per unit of owner
    attention, cost and time — with manual acceptance recorded, not an automatic score (§21.2).
@@ -82,7 +82,7 @@ working until it has been run.
 ### Track B
 
 5. **One shared-semantics package exists** and both services import it. Identifiers, statuses and
-   envelope types match `company_lifecycle_cross_layer_contract_v0.1` §3.1's ownership table.
+   envelope types match `cross-layer-contract` §3.1's ownership table.
 6. **A Runtime Bridge runs inside the sandbox**, holds an outbound connection, launches ACP
    processes, and owns their process trees. `docker exec` is no longer how agents are started.
 7. **No provider credential is present in any company container** — verified by grepping container
@@ -114,12 +114,12 @@ has failed at the thing it was for.
 
 ### Notes per ticket
 
-**T1** implements `company_lifecycle_cross_layer_contract_v0.1` §16 step 1 — "shared IDs and common
-envelope types in a small versioned package" — *not* a schema registry or service bus (§16's closing
-line, and §17's exclusions). Fold in the document hygiene while here: six spec files sit at repo root
-carrying versions in their filenames, unreferenced by `CLAUDE.md`, alongside an `ARCHITECTURE.md`
-that still claims sole authority. That already cost us — v0.2 and v0.3 of the OrgIntel spec disagree
-on where OrgIntel lives, and the repo gave no signal which was live.
+**T1** implements `cross-layer-contract` §16 step 1 — "shared IDs and common envelope types in a
+small versioned package" — *not* a schema registry or service bus (§16's closing line, and §17's
+exclusions). The document hygiene half of this is **done**: the six specs now live under
+`docs/specs/` without versions in their filenames, name their parent correctly, and are routed from
+`CLAUDE.md`. What remains is the code half — making the daemon's identifiers and statuses match
+§3.1's ownership table.
 
 **T2** makes delegation reachable at the moment the Exec decides to delegate. Also add a warning when
 `parse_termination` drops a malformed `spawn` entry — silently discarding intent is how we spent
@@ -129,7 +129,7 @@ which is the closest thing in the codebase to a universal-command smell.
 **T5** is one change that fixes four things: identity (the bridge authenticates once as its own
 company, dissolving F7 rather than mitigating it), process ownership (a process group instead of
 diffing PIDs from outside), the `docker exec` dependency, and the credential regression. Communication
-is **outbound** from the bridge (`company_runtime_spec_v0.1` §4.4). **Deletes:** the PID-diff reaper,
+is **outbound** from the bridge (`company-runtime` §4.4). **Deletes:** the PID-diff reaper,
 the inbound TCP identity convention.
 
 **T6** creates the place the Authority Kernel will eventually live without building it. The kernel
@@ -168,15 +168,15 @@ Every risk named, one disposition each. Default accepted.
 
 ## Explicitly out of scope
 
-Deferred because no run has demanded them, per `orgintel_spec_v0.3` §11.1 and `CLAUDE.md`
+Deferred because no run has demanded them, per `orgintel` §11.1 and `CLAUDE.md`
 ("observe before modelling"):
 
 - hypothesis/experiment tables — Cosmon shipped branching evolutions without ever branching a hypothesis;
-- the teamwork-pattern library (`orgintel_spec_v0.3` §6.3) — earn it from T4's run, do not seed it;
+- the teamwork-pattern library (`orgintel` §6.3) — earn it from T4's run, do not seed it;
 - actor identity packages (§5.1) — the journal is doing this job well enough to have caught a
   predecessor lying;
-- the Authority Kernel proper (`authority_plane_spec_v0.1` §22 steps 1–3) — deferred with a live trigger;
-- the cockpit's Work / People / Authority screens — Attention first (`owner_cockpit_spec_v0.1` §18 step 3);
+- the Authority Kernel proper (`authority_plane` §22 steps 1–3) — deferred with a live trigger;
+- the cockpit's Work / People / Authority screens — Attention first (`owner-cockpit` §18 step 3);
 - exploration machinery, the epistemic ontology, restore/snapshot reconciliation.
 
 ---

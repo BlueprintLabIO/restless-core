@@ -3,8 +3,8 @@
 **Status:** Working source of truth  
 **Version:** 0.3  
 **Date:** 13 August 2026  
-**Parent:** Helm Architecture Source of Truth v0.9  
-**Supersedes:** OrgIntel Core Specification v0.2 for core product and implementation direction
+**Parent:** ARCHITECTURE.md — Restless Architecture Source of Truth v0.9  
+**Supersedes:** OrgIntel Core Specification for core product and implementation direction
 
 ---
 
@@ -31,7 +31,7 @@ The coding principle is:
 
 **Core contract**
 
-OrgIntel is the differentiated organisational-intelligence layer of Helm.
+OrgIntel is the differentiated organisational-intelligence layer of Restless.
 
 A generic harness gives models tools, memory, and a computer. OrgIntel should make those models behave as a persistent organisation that can pursue ambiguous economic goals over days, months, and years.
 
