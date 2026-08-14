@@ -432,6 +432,11 @@ async fn gather_snapshot(
         budget_ceiling_usd: config.spend_ceiling_usd,
         capabilities: crate::effect::available_capabilities(&root, &config.name),
         effect_ledger: crate::reconcile::effect_ledger(org).await?.summary(),
+        org_signals: health::organisational(org, spent_usd)
+            .await?
+            .into_iter()
+            .map(|signal| format!("[{}] {}", signal.kind, signal.detail))
+            .collect(),
     })
 }
 

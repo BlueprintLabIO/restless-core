@@ -37,6 +37,10 @@ pub struct ContextSnapshot {
     /// observation. Handing it back each wake is what lets the Exec notice it
     /// has reported revenue its receipts do not support.
     pub effect_ledger: String,
+    /// What looks wrong with the company itself, as opposed to its computer.
+    /// Advisory: the Exec is the actor with enough context to tell "stuck"
+    /// from "hard", so these are shown, never enforced.
+    pub org_signals: Vec<String>,
     /// Capabilities this company's effect surface actually offers. Small and
     /// enumerable, so it is carried rather than pointed at — one company burned
     /// 57 tool calls guessing ~95 names against a surface of three.
@@ -98,6 +102,18 @@ pub fn assemble(snapshot: &ContextSnapshot) -> ContextPackage {
         snapshot.capabilities.join(", ")
     };
 
+    let signals = if snapshot.org_signals.is_empty() {
+        String::new()
+    } else {
+        let mut block = String::from(
+            "\n# What looks wrong [observation — check these before planning new work]\n",
+        );
+        for signal in &snapshot.org_signals {
+            block.push_str(&format!("- {signal}\n"));
+        }
+        block
+    };
+
     let plan_exists = !snapshot.current_plan.trim().is_empty();
     let text = format!(
         "# Constitution [authoritative — applies to every agent, always]\n{constitution}\n\n\
@@ -138,6 +154,7 @@ pub fn assemble(snapshot: &ContextSnapshot) -> ContextPackage {
          These are counted from kernel receipts, not from your journal. If your plan or \
          journal claims an outcome these receipts do not support, the receipts win: correct \
          the record and say plainly that you did so.\n\n\
+         {signals}\n\
          # Budget [internal decision]\n\
          ${remaining:.2} remains of a ${ceiling:.2} ceiling. Model turns are charged against it. \
          At zero the company stops until the owner raises it, so spend it on work that produces \
@@ -153,6 +170,7 @@ pub fn assemble(snapshot: &ContextSnapshot) -> ContextPackage {
         mission = snapshot.mission,
         capabilities = capabilities,
         ledger = snapshot.effect_ledger.trim(),
+        signals = signals,
         remaining = snapshot.budget_remaining_usd,
         ceiling = snapshot.budget_ceiling_usd,
         plan_exists = if plan_exists { "yes" } else { "no — first wake, create it" },
@@ -195,6 +213,7 @@ mod tests {
             budget_ceiling_usd: 10.0,
             capabilities: vec!["email.send".into(), "web.deploy".into()],
             effect_ledger: "email.send 3 · GBP 27.00 moved".into(),
+            org_signals: vec!["\"ship the thing\" is blocked and waiting on someone".into()],
         }
     }
 

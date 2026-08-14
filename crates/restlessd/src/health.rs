@@ -214,6 +214,102 @@ fn trim(text: &str) -> String {
     text.chars().take(200).collect()
 }
 
+/// Money burned with nothing completed before the company is worth a look.
+/// Deliberately loose: a company mid-build legitimately spends before it
+/// finishes anything, and a signal that fires on normal work is noise.
+const EFFORT_WITHOUT_OUTPUT_USD: f64 = 5.0;
+/// How many failures of the same capability before repetition is a pattern
+/// rather than a provider having a bad minute.
+const REPEATED_FAILURE_THRESHOLD: usize = 3;
+
+/// A company that is *stuck* rather than *broken*.
+///
+/// Everything above this line answers "is the substrate working?" — disk,
+/// container, credential, tokens. Those were the only signals sprint 01 had,
+/// which meant the daemon could say the disk was full but never that the
+/// company was spinning. These are the organisational counterparts
+/// (`docs/specs/orgintel.md` §3.3).
+///
+/// §3.3 is labelled **Product hypothesis**, not Core contract, so this
+/// implements only the three signals that are both computable from state we
+/// already keep and grounded in something sprint 01 actually did. The rest of
+/// its list stays unbuilt until a run produces it.
+///
+/// These never block. They are surfaced to the Exec in its next wake, because
+/// the actor with the context is the one who can tell "stuck" from "hard"
+/// (§7.2: trigger awareness, not a universal blocker).
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct OrgSignal {
+    pub kind: &'static str,
+    pub detail: String,
+}
+
+/// Read the company's own coordination state and report what looks wrong.
+pub async fn organisational(
+    org: &restless_orgintel::OrgIntel,
+    spent_usd: f64,
+) -> Result<Vec<OrgSignal>> {
+    use restless_orgintel::CommitmentState;
+    let mut signals = Vec::new();
+    let commitments = org.list_commitments().await?;
+
+    // 1. Effort without output. Observed: two cosmon wakes burned a 20-minute
+    //    boundary each and produced nothing at all.
+    let completed = commitments
+        .iter()
+        .filter(|c| matches!(c.state, CommitmentState::Completed))
+        .count();
+    if completed == 0 && spent_usd >= EFFORT_WITHOUT_OUTPUT_USD {
+        signals.push(OrgSignal {
+            kind: "effort-without-output",
+            detail: format!(
+                "${spent_usd:.2} spent and no commitment has ever completed — \
+                 is the work too big to finish, or is something quietly failing?"
+            ),
+        });
+    }
+
+    // 2. Repeating a failed approach. Observed: Aris asked for ~95 capability
+    //    names that did not exist, in one wake, and blocked on the owner.
+    let mut failures: std::collections::BTreeMap<String, usize> = std::collections::BTreeMap::new();
+    for event in org.events_of_kind("effect").await? {
+        let Some(capability) = event.body.get("capability").and_then(|v| v.as_str()) else {
+            continue;
+        };
+        if event.body.get("outcome").is_some_and(|outcome| {
+            crate::reconcile::outcome_of(outcome) == crate::reconcile::Outcome::Failed
+        }) {
+            *failures.entry(capability.to_string()).or_default() += 1;
+        }
+    }
+    for (capability, count) in failures {
+        if count >= REPEATED_FAILURE_THRESHOLD {
+            signals.push(OrgSignal {
+                kind: "repeating-a-failed-approach",
+                detail: format!(
+                    "{capability} has failed {count} times — the approach is not working; \
+                     read the error rather than retrying it"
+                ),
+            });
+        }
+    }
+
+    // 3. Blocked on a person. Observed: F1 latched blocked milestones so the
+    //    company stops rather than re-mailing the owner every tick — which is
+    //    correct, and also means a blockage can sit unnoticed.
+    for commitment in commitments.iter().filter(|c| matches!(c.state, CommitmentState::Blocked)) {
+        signals.push(OrgSignal {
+            kind: "blocked-on-a-person",
+            detail: format!(
+                "\"{}\" is blocked and waiting on someone: {}",
+                commitment.title.chars().take(60).collect::<String>(),
+                commitment.resolution.chars().take(120).collect::<String>()
+            ),
+        });
+    }
+    Ok(signals)
+}
+
 async fn free_bytes_host(path: &std::path::Path) -> Result<Option<u64>> {
     let out = tokio::process::Command::new("df")
         .args(["-Pk", &path.to_string_lossy()])
@@ -315,5 +411,22 @@ mod tests {
         let output = "Filesystem 1024-blocks Used Available Capacity Mounted on\n\
                       /dev/disk3s5 482797652 398765432 56123456 88% /System/Volumes/Data\n";
         assert_eq!(parse_df_available_kb(output), Some(56_123_456));
+    }
+}
+
+#[cfg(test)]
+mod org_tests {
+    use super::*;
+
+    /// The three signals must not fire on a healthy company. A health check
+    /// that cries wolf on normal work gets ignored, which is worse than not
+    /// having one — sprint 01's substrate signals earned their keep precisely
+    /// because they were silent until something was genuinely wrong.
+    #[test]
+    fn thresholds_are_loose_enough_to_stay_quiet() {
+        // Mid-build spend with nothing completed yet is ordinary.
+        assert!(4.99 < EFFORT_WITHOUT_OUTPUT_USD);
+        // One or two provider failures is a bad minute, not a pattern.
+        assert!(REPEATED_FAILURE_THRESHOLD > 2);
     }
 }

@@ -48,6 +48,9 @@ pub struct EffectLedger {
     /// Effects repeated on a party already acted on under a different key.
     /// Idempotency cannot catch these: two honest keys, one party.
     pub party_repeats: usize,
+    /// Receipts whose status word we do not recognise. Reported rather than
+    /// guessed in either direction.
+    pub unknown_outcomes: usize,
     pub total: usize,
 }
 
@@ -74,6 +77,9 @@ impl EffectLedger {
         }
         if self.replays_suppressed > 0 {
             parts.push(format!("{} duplicate(s) suppressed", self.replays_suppressed));
+        }
+        if self.unknown_outcomes > 0 {
+            parts.push(format!("{} receipt(s) with an unrecognised status", self.unknown_outcomes));
         }
         if self.party_repeats > 0 {
             parts.push(format!(
@@ -102,8 +108,13 @@ pub async fn effect_ledger(org: &OrgIntel) -> Result<EffectLedger> {
         ledger.total += 1;
         let tally = ledger.by_capability.entry(capability.to_string()).or_default();
         tally.total += 1;
-        if outcome.is_some_and(failed) {
+        if outcome.is_some_and(|o| outcome_of(o) == Outcome::Failed) {
             tally.failed += 1;
+            continue;
+        }
+        // Only count money for receipts that actually claim success.
+        if outcome.is_some_and(|o| outcome_of(o) == Outcome::Unknown) {
+            ledger.unknown_outcomes += 1;
             continue;
         }
         if capability.starts_with("payment.") {
@@ -120,16 +131,52 @@ pub async fn effect_ledger(org: &OrgIntel) -> Result<EffectLedger> {
     Ok(ledger)
 }
 
-/// A receipt reports failure if it carries an error, or a status that is not
-/// a success word. Reading a structured field, never prose.
-fn failed(outcome: &serde_json::Value) -> bool {
+/// What a receipt says happened. Three states, not two — an allowlist of
+/// success words silently reclassifies every word a provider has not used
+/// yet. Observed: `deployed` and `refunded` are successes that a
+/// succeeded/delivered/sent allowlist counts as failures, which would have
+/// fired a "repeating a failed approach" signal at a company deploying
+/// perfectly well.
+///
+/// Same rule as `health::classify_turn`, learned the same way: **unknown is
+/// not failure.** A word we do not recognise is reported as unrecognised.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Outcome {
+    Succeeded,
+    Failed,
+    Unknown,
+}
+
+/// One definition, shared with the organisational health signals: two notions
+/// of "failed" in one codebase drift apart the moment a provider invents a
+/// status word.
+#[must_use]
+pub fn outcome_of(outcome: &serde_json::Value) -> Outcome {
     if outcome.get("error").is_some() {
-        return true;
+        return Outcome::Failed;
     }
-    match outcome.get("status").and_then(|v| v.as_str()) {
-        Some(status) => !matches!(status, "succeeded" | "success" | "ok" | "delivered" | "sent"),
-        None => false,
+    let Some(status) = outcome.get("status").and_then(|value| value.as_str()) else {
+        // No status and no error: providers that simply return data. Treat as
+        // succeeded — the effect surface would have carried an error otherwise.
+        return Outcome::Succeeded;
+    };
+    let status = status.to_lowercase();
+    if matches!(
+        status.as_str(),
+        "succeeded" | "success" | "ok" | "delivered" | "sent" | "deployed" | "refunded" | "accepted"
+    ) {
+        return Outcome::Succeeded;
     }
+    if matches!(
+        status.as_str(),
+        "failed" | "declined" | "bounced" | "error" | "cancelled" | "canceled" | "rejected"
+    ) || status.ends_with("_failed")
+        || status.starts_with("rejected")
+        || status.starts_with("error")
+    {
+        return Outcome::Failed;
+    }
+    Outcome::Unknown
 }
 
 /// Amount and currency, only when both are present and unambiguous. A missing
@@ -147,6 +194,39 @@ mod tests {
 
     fn receipt(capability: &str, outcome: serde_json::Value) -> serde_json::Value {
         serde_json::json!({ "capability": capability, "outcome": outcome })
+    }
+
+    /// Every status word both companies actually emitted. An allowlist built
+    /// from imagination would have called `deployed` and `refunded` failures
+    /// and fired a "repeating a failed approach" signal at a healthy company.
+    #[test]
+    fn real_provider_status_words_classify_correctly() {
+        let succeeded = ["succeeded", "delivered", "deployed", "refunded"];
+        let failed = ["failed", "declined", "bounced", "rejected_invalid_address", "refund_failed"];
+        for status in succeeded {
+            assert_eq!(
+                outcome_of(&serde_json::json!({ "status": status })),
+                Outcome::Succeeded,
+                "{status} is a success"
+            );
+        }
+        for status in failed {
+            assert_eq!(
+                outcome_of(&serde_json::json!({ "status": status })),
+                Outcome::Failed,
+                "{status} is a failure"
+            );
+        }
+        // A word no provider has used yet is unknown, never failure.
+        assert_eq!(
+            outcome_of(&serde_json::json!({ "status": "queued_for_review" })),
+            Outcome::Unknown
+        );
+        // An explicit error outranks any status.
+        assert_eq!(
+            outcome_of(&serde_json::json!({ "status": "succeeded", "error": "nope" })),
+            Outcome::Failed
+        );
     }
 
     /// The shapes below are verbatim from Aris's and Thymelake's real
@@ -177,11 +257,16 @@ mod tests {
             ledger.total += 1;
             let tally = ledger.by_capability.entry(capability.to_string()).or_default();
             tally.total += 1;
-            if outcome.is_some_and(failed) {
+            if outcome.is_some_and(|o| outcome_of(o) == Outcome::Failed) {
                 tally.failed += 1;
                 continue;
             }
-            if capability.starts_with("payment.") {
+            // Only count money for receipts that actually claim success.
+        if outcome.is_some_and(|o| outcome_of(o) == Outcome::Unknown) {
+            ledger.unknown_outcomes += 1;
+            continue;
+        }
+        if capability.starts_with("payment.") {
                 match money(outcome) {
                     Some((currency, minor)) => *ledger.money_minor.entry(currency).or_default() += minor,
                     None => ledger.unattributable_payments += 1,
