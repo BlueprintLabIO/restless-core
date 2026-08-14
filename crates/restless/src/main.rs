@@ -116,6 +116,17 @@ enum Command {
         #[arg(long, short = 'c', env = "RESTLESS_COMPANY")]
         company: Option<String>,
     },
+    /// Approve a party for real external effects (S03-T5). First contact
+    /// through a real provider needs a human yes; this is that yes, and it is
+    /// per-party rather than per-send so the owner governs rather than
+    /// dispatches (`owner-cockpit` §2.3).
+    Approve {
+        #[arg(long, short = 'c', env = "RESTLESS_COMPANY")]
+        company: Option<String>,
+        /// The address or party identifier being approved.
+        #[arg(long)]
+        party: String,
+    },
     /// Request an external effect (T8). Args are JSON.
     Effect {
         #[arg(long, short = 'c', env = "RESTLESS_COMPANY")]
@@ -205,6 +216,11 @@ fn request_json(command: Command) -> Result<serde_json::Value> {
         Command::ClearPoison { company: c } => serde_json::json!({
             "cmd": "clear-poison",
             "company": c,
+        }),
+        Command::Approve { company: c, party } => serde_json::json!({
+            "cmd": "approve",
+            "company": c,
+            "party": party,
         }),
         Command::Spawn { company: c, name, repo, task } => serde_json::json!({
             "cmd": "spawn",

@@ -122,6 +122,29 @@ pub async fn request_effect(
     // is the single line that decides whether a company acts on the world or
     // rehearses, and everything above it is identical either way (§10.8).
     let provider = crate::provider::resolve(config, capability)?;
+    // S03-T5. The approval gate sits between dispatch and execution, so it
+    // governs exactly the effects that can reach a person and none of the ones
+    // that cannot. A refusal is an error the Exec reads immediately and can act
+    // on — it names the party and the command that unblocks it, because an
+    // error that cannot be acted on is a missing feature, not a message.
+    if let crate::approval::Decision::NeedsOwner(reason) =
+        crate::approval::check(config, org, capability, party.as_deref(), &provider).await?
+    {
+        org.add_actor("exec", "exec", "The Exec").await.ok();
+        org.emit_event(
+            "approval_required",
+            Some(actor),
+            serde_json::json!({
+                "capability": capability,
+                "party": party,
+                "provider": provider.name(),
+                "reason": reason,
+            }),
+        )
+        .await?;
+        org.send_message(actor, None, &format!("approval required: {reason}")).await?;
+        bail!("{reason}");
+    }
     if provider != crate::provider::Provider::Simulated {
         let outcome = match provider {
             crate::provider::Provider::Resend => {
@@ -268,7 +291,7 @@ fn party_of(args: &serde_json::Value) -> Option<String> {
 
 /// The idempotency key of an earlier SUCCESSFUL effect of the same capability
 /// on the same party, if one exists under a different key.
-async fn prior_effect_on(
+pub(crate) async fn prior_effect_on(
     org: &restless_orgintel::OrgIntel,
     capability: &str,
     party: &str,

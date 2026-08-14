@@ -8,6 +8,7 @@ mod acp;
 mod health;
 mod reconcile;
 mod context;
+mod approval;
 mod credential;
 mod effect;
 mod inbound;
@@ -65,6 +66,9 @@ struct Request {
     key: Option<String>,
     #[serde(default)]
     actor: Option<String>,
+    // S03-T5 approval field.
+    #[serde(default)]
+    party: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -552,6 +556,49 @@ async fn dispatch(request: Request, daemon: &Daemon) -> Response {
                 "note": "spend accounting resumes from the company's real recorded cost",
             })),
             Err(error) => Response::err(format!("{error:#}")),
+        },
+        // S03-T5: the owner's yes. Writes the party into company config, which
+        // is where the gate reads it — one store, editable by hand, revocable
+        // the same way. Idempotent: approving twice is not an error, because an
+        // owner re-confirming should never look like a failure.
+        "approve" => match request.party {
+            Some(party) => match runtime::CompanyConfig::load(&daemon.root, company) {
+                Ok(mut config) => {
+                    let party = party.trim().to_lowercase();
+                    if config.approved_parties.iter().any(|p| p.trim().to_lowercase() == party) {
+                        return Response::ok(format!("{party} was already approved for {company}"));
+                    }
+                    config.approved_parties.push(party.clone());
+                    match runtime::CompanyConfig::save(&daemon.root, &config) {
+                        Ok(()) => {
+                            if let Ok(org) = daemon.orgintel.get(company).await {
+                                let _ = org
+                                    .emit_event(
+                                        "approval_granted",
+                                        Some("owner"),
+                                        serde_json::json!({ "party": party }),
+                                    )
+                                    .await;
+                                let _ = org.add_actor("exec", "exec", "The Exec").await;
+                                let _ = org
+                                    .send_message(
+                                        "owner",
+                                        Some("exec"),
+                                        &format!(
+                                            "The owner approved real external effects to {party}. \
+                                             You may proceed."
+                                        ),
+                                    )
+                                    .await;
+                            }
+                            Response::ok(format!("{party} approved for real effects from {company}"))
+                        }
+                        Err(error) => Response::err(format!("{error:#}")),
+                    }
+                }
+                Err(error) => Response::err(format!("{error:#}")),
+            },
+            None => Response::err("approve needs --party"),
         },
         "spawn" => match (request.name, request.body) {
             (Some(name), Some(task)) => {

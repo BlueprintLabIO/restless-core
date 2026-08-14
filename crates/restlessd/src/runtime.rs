@@ -73,6 +73,12 @@ pub struct CompanyConfig {
     /// point of use; the secret itself never appears here.
     #[serde(default)]
     pub credentials: std::collections::BTreeMap<String, String>,
+    /// S03-T5: parties the owner has already blessed for real effects. A list
+    /// in a file, not an approvals table — revocable with an editor, and
+    /// `authority-plane §6.5` warns off building a policy engine before a
+    /// workload demands one.
+    #[serde(default)]
+    pub approved_parties: Vec<String>,
 }
 
 fn default_ceiling() -> f64 {
@@ -93,6 +99,26 @@ impl CompanyConfig {
             bail!("company config name mismatch: file {name}.toml says {}", config.name);
         }
         Ok(config)
+    }
+
+    /// Write the config back. Used by `restless approve` (S03-T5), which is the
+    /// only path that mutates a company file at runtime.
+    ///
+    /// Writes to a temporary file and renames, because the alternative — a
+    /// truncating write interrupted midway — leaves the company with no config
+    /// at all, and a company that cannot load its config cannot be woken to be
+    /// told why. Rename within a directory is atomic on every filesystem we run
+    /// on.
+    pub fn save(root: &Path, config: &Self) -> Result<()> {
+        let dir = root.join("companies");
+        let path = dir.join(format!("{}.toml", config.name));
+        let temporary = dir.join(format!(".{}.toml.tmp", config.name));
+        let rendered = toml::to_string_pretty(config).context("render company config")?;
+        std::fs::write(&temporary, rendered)
+            .with_context(|| format!("write {}", temporary.display()))?;
+        std::fs::rename(&temporary, &path)
+            .with_context(|| format!("replace {}", path.display()))?;
+        Ok(())
     }
 }
 
