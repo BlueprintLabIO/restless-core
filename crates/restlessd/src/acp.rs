@@ -136,9 +136,15 @@ pub struct AgentSession {
     transcript: Arc<Mutex<TurnTranscript>>,
 }
 
-/// Silence with nothing running: the agent is wedged. Deliberately loose —
-/// waiting is cheap, and a false kill destroys a turn's work.
-const IDLE_SILENT: std::time::Duration = std::time::Duration::from_secs(120);
+/// Silence with nothing running: the agent is wedged.
+///
+/// Raised from 120s after it killed a Kimi turn 50 minutes into real work. The
+/// original number was picked against glm-5.2, which streams reasoning almost
+/// continuously; a model that pauses longer between outputs is not wedged, and
+/// the cost of the two errors is wildly asymmetric — waiting five more minutes
+/// on a genuinely dead agent is free, while a false kill destroys an hour of
+/// work and reports it as a failure. When in doubt, wait.
+const IDLE_SILENT: std::time::Duration = std::time::Duration::from_secs(8 * 60);
 /// Silence while a tool call is in flight: a test suite, an install, a build.
 /// Bounded, but generously.
 const IDLE_TOOL_RUNNING: std::time::Duration = std::time::Duration::from_secs(15 * 60);

@@ -50,6 +50,11 @@ pub struct WakeReport {
     /// Staff the Exec asked to spawn this turn (T9); the daemon processes
     /// these after the outcome is recorded.
     pub spawn_requests: Vec<SpawnRequest>,
+    /// True when a watchdog halt produced this report rather than the Exec's
+    /// own decision. Postflight must not overwrite a specific verdict with a
+    /// generic one.
+    #[serde(skip)]
+    pub halted: bool,
 }
 
 /// Raw model output for the termination decision. `spawn` is deliberately
@@ -157,7 +162,16 @@ pub async fn wake(
         )
         .await?;
     }
-    if let Some(blocked) = health::classify_turn(usage.map(|usage| usage.used), None) {
+    // The no-op check is for turns that completed NORMALLY. A halt (wedged,
+    // over-budget) has already produced a specific, more informative verdict,
+    // and running the generic check over it replaces "the agent went quiet
+    // after 50 minutes of work" with "the model never ran" — which is both
+    // false and points the owner at the wrong thing. Third time this override
+    // has bitten: the error path and the timeout path were fixed this morning,
+    // this is the halt path.
+    if !report.halted && health::classify_turn(usage.map(|usage| usage.used), None).is_some() {
+        let blocked = health::classify_turn(usage.map(|usage| usage.used), None)
+            .expect("checked immediately above");
         return blocked_wake(org, milestone, config, &blocked.message()).await;
     }
 
@@ -189,6 +203,7 @@ async fn blocked_wake(
         tool_calls: Vec::new(),
         said: String::new(),
         spawn_requests: Vec::new(),
+        halted: true,
     };
     record_outcome(org, milestone, &report).await?;
     Ok(report)
@@ -269,6 +284,7 @@ async fn run_turn(
                 tool_calls: transcript.tool_calls,
                 said: transcript.text.chars().take(1_000).collect(),
                 spawn_requests: Vec::new(),
+                halted: true,
             },
             transcript.usage,
         ));
@@ -290,6 +306,7 @@ async fn run_turn(
             tool_calls: work_transcript.tool_calls,
             said,
             spawn_requests: decision.spawn,
+            halted: false,
         },
         usage,
     ))
