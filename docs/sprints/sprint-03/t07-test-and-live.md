@@ -47,8 +47,12 @@ false and we would want to know.
    is right for a live company and wrong for a throwaway.
 3. Dispatch refuses a real provider for any company whose config marks it as a
    test company. Not a warning — no entry in the table.
-4. The comparison harness (`infra/compare-modes.sh`) uses these instead of its
-   own inline provisioning.
+4. ~~The comparison harness uses these instead of its own inline
+   provisioning.~~ **Dropped.** `infra/compare-modes.sh` was deleted when the
+   three-mode comparison was retired (see T9): its arms were not distinct, so it
+   could not answer the question it was built for. The provisioning need is real
+   and survives it — `restless up --from` / `down --destroy` are what T6's live
+   run and every future `_test` company use.
 
 ## Two practical notes, both learned the hard way
 
@@ -85,12 +89,20 @@ never proves market demand — that is what the live companies are for.
 3. `restless down -c aris_test --destroy` leaves no container, no volume, no
    schema — verified by `docker ps -a`, `docker volume ls`, and `\dn`.
 4. The same name can be created again immediately afterwards and works.
-5. `infra/compare-modes.sh` uses the new commands and still runs green.
+5. A `_test` company is created from a live one, run, destroyed, and recreated
+   under the same name within one session — the sequence the deleted harness
+   used to exercise by accident, now an explicit check.
 
 ## What this makes deletable
 
-The comparison harness's inline provisioning block — roughly 25 lines of
-`docker cp`, `chown` and seed-verification that exist only because there was no
-proper way to make a throwaway company. That block is also where the sprint-02
-`docker cp` nesting bug lived, which silently gave every mode a corrupted
-starting state.
+Already collected: `infra/compare-modes.sh` is gone. Its inline provisioning
+block — ~25 lines of `docker cp`, `chown` and seed verification that existed only
+because there was no proper way to make a throwaway company — is what this ticket
+would have replaced. That block is also where the sprint-02 `docker cp` nesting
+bug lived, which silently gave every mode a corrupted starting state, and where
+the spend spool was never reset between attempts, which gave the three arms
+$2.45 / $10.51 / $12.85 of headroom against a nominal $15 ceiling.
+
+**So `--destroy` must clear the spend spool, not only the container, volume and
+schema.** That is the concrete lesson the dead harness paid for, and the reason
+this ticket's scope is wider than it looks.

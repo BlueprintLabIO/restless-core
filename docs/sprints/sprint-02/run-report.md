@@ -1,8 +1,13 @@
 # Sprint 02 run report
 
-**Status:** in progress — T4's comparison is executing.
+**Status:** closed, 14 August 2026. T4's comparison was stopped and will not be
+rerun.
 **Question the sprint exists to answer:** does an Exec-led organisation beat one
 strong agent on the same mission, given the same model, tools, budget and time?
+**Answer: unknown, and unanswerable by this experiment.** See *The reading* at
+the end — the three arms were never distinct configurations, so the comparison
+varied a label rather than a variable. Everything above it stands; the closing
+section is what it adds up to.
 
 ---
 
@@ -344,3 +349,126 @@ PENDING — `minimal_team` and `orgintel` still running. If `orgintel` does not 
 reading is that organisational intelligence does not earn its overhead at this
 size of work — recorded as the finding, not reinterpreted as success
 (§25 rule 10).
+
+---
+
+# The reading
+
+Written 14 August 2026, after the Kimi rerun was stopped mid-flight.
+
+## The comparison could not have answered its question
+
+Two independent invalidations, either one sufficient.
+
+**1. The arms were not distinct configurations.** Three facts, all checkable in
+the source:
+
+```
+staff.rs:182   staff auth comes from exec::agent_auth(config)  → same model as the Exec
+staff.rs:166   add_actor(&actor, "staff", …)                   → every worker's role is "staff"
+context.rs     zero occurrences of org_mode                    → identical Exec briefing in all 3 modes
+```
+
+The only behavioural differences in the entire codebase are that `single_agent`
+refuses a spawn, and `orgintel` adds a shared spine **to staff briefs**. So if
+the Exec never spawns staff — which it never did — `minimal_team` and `orgintel`
+are byte-identical, and the third arm differs only by a refusal that is never
+triggered.
+
+This also explains the finding recorded above, and explains it better than the
+two readings left open there. The Exec was not weighing delegation and declining
+on cost. **Delegation meant handing work to a copy of itself with less context.**
+It bought parallelism and nothing else. Declining was correct.
+
+**2. The spend spool carried across attempts.** `restless down` preserves the
+volume by design — right for a live company, wrong for a throwaway — and nothing
+reset the ledger. By the fourth attempt:
+
+```
+lumaarabiome_single_agent   $6.35 (glm-5.2) + $6.20 + $3.04 = $15.59 / $15.00 ceiling
+lumaarabiome_minimal_team   $4.49 (glm-5.2)                            → $10.51 headroom
+lumaarabiome_orgintel       $2.15 (glm-5.2)                            → $12.85 headroom
+```
+
+Three arms, three different budgets, and some of the carried spend was from a
+model the run was not even using. `single_agent` was blocked as "over ceiling"
+after $3.04 of work it had already completed. The fix belongs to S03-T7:
+`--destroy` must clear the spend spool, not only container, volume and schema.
+
+## What the Kimi run did establish
+
+`single_agent` finished in ~34 minutes for **$3.04**: commit `9c0c7cf`, 16 files,
++837/−29, *"Prism Caverns biome + gate mini-boss + first trainer battle"*.
+
+Its claim of "67/67 across suites" was **verified independently on an idle
+machine**, not relayed:
+
+```
+verify-battle.mjs             12 PASS
+verify-cavern.mjs             19 PASS
+verify-combat-extra.mjs        7 PASS
+verify-roster-evolution.mjs   29 PASS
+────────────────────────────────────
+TOTAL                         67      errors observed: 0
+```
+
+Both initial failures were missing static servers on two different ports (8124
+and 8231), killed by the reaper at the wake boundary — the process-leak fix
+working as designed, for the second sprint running. Not code failures. Worth
+recording because the first instinct on a red suite was to doubt the agent, and
+that instinct has been wrong twice now.
+
+**The baseline is strong and cheap.** Any organisational structure has to beat
+$3.04 and 34 minutes for a verified vertical slice.
+
+## The structural finding: there was no team
+
+`orgintel §6.3` **Teamwork patterns** is labelled **Core contract**, and §10.1's
+V0 walking-skeleton acceptance list, item 12, requires:
+
+> Initial teamwork patterns: single owner, parallel exploration, producer–critic,
+> specialist pipeline, and recovery huddle.
+
+**None of the five exist.** `minimal_team` is not one of them; it is "the Exec
+may spawn one-shot helpers, who are clones of itself." Two sprints ran a
+comparison premised on a team that had never been built, and the gap surfaced
+only because the owner asked why nothing was delegating.
+
+That is the process failure worth carrying forward, and it is larger than the
+wasted run: **nothing in this repo checks Core-contract coverage.** A labelled
+Core contract went unimplemented across two sprints while a harness was built,
+run four times, and debugged, to measure its absence.
+
+## What replaces it
+
+S03-T9 builds **one** pattern — producer–critic on Aris's outreach copy — on the
+sprint's critical path rather than beside it, with roles as files, a model per
+role, and §3.4 improvement records as the tuning loop. The question moves from
+"does mode B beat mode A" to "does the company produce better work", which is
+answerable by looking at the work.
+
+Independent convergence supports the shape. Anthropic runs 20–30 standing
+routines daily across its own codebases — crash fuzzer, dup unifier, dead-code
+remover, abstraction police — 388 PRs opened, 180 merged after human review. Each
+is one narrow job; each writes a state file at the end that the next run reads;
+each is tuned when it is wrong. That is §6.3 specialist roles, §2.1 durable
+actors with replaceable sessions, and §3.4 self-evolution, reached independently.
+We already have three of those five pieces — file continuity, the scheduler,
+receipts. What was missing was the role.
+
+The crash fuzzer is good *because* it does not know about the network code.
+Narrow context is the feature, not a compromise.
+
+## Deleted
+
+- `infra/compare-modes.sh` — the harness. Comparing two identical arms and a
+  third that differs by an untriggered refusal is not an experiment, and keeping
+  it invites re-running it.
+- The empty `minimal_team.json` result from the stopped run.
+- Earlier in the sprint: the model gateway (`4f20054`, 2,999 deletions) and the
+  `TurnHalt` / `WakeReport::halted` special cases, subsumed by `acp::TurnEnd`
+  (`3799299`).
+
+`OrgMode::MinimalTeam` and `OrgMode::OrgIntel` are deletable in principle — they
+are the same configuration — but three company configs still reference them and
+those containers hold this report's evidence. They go with T9.
