@@ -114,8 +114,8 @@ machinery — if any — it makes deletable.
 | [ ] | **S03-T3 · Inbound email → OrgIntel message projection + wake** | Cross-layer (Authority authors; OrgIntel projects) | The scheduler already wakes on new mail, but only on *simulated* mail via `restless message`. No real reply has ever closed a loop. `§3.1`: projection, not a second writer | T2 |
 | [ ] | **S03-T4 · Credential indirection + host-side secret** | Authority (credential plane) | Model key regressed into the container via `docker exec -e` (sprint-02 register). `§2.6` / `§11.5`: consequential credentials stay outside the runtime | T1 |
 | [ ] | **S03-T5 · Minimal approval check for live sends** | Owner surface / Authority | `§6.4`: approvals are rare exceptions. A real send to a real person is materially external; the first one needs a human yes | T1, (sprint-02 T9 or stand-in) |
-| [ ] | **S03-T0 · The sample and the way in** | All (Aris does this itself) | Aris has never had anything to give away and no way for a stranger to ask. Cold-sending is unlawful here, so demand has to be pulled, not pushed | — |
-| [ ] | **S03-T7 · Test/live split + `restless down --destroy`** | Runtime / OrgIntel | Going live removes the ability to smoke-test on the live thing. `drop_schema` has been unused since sprint 01 and was nearly purged | T1 |
+| [ ] | **[S03-T0 · The sample and the way in](./sprint-03/t00-sample-and-way-in.md)** | All (Aris does this itself) | Aris has never had anything to give away and no way for a stranger to ask. Cold-sending is unlawful here, so demand has to be pulled, not pushed | — |
+| [ ] | **[S03-T7 · Test/live split](./sprint-03/t07-test-and-live.md)** | Runtime / OrgIntel | Going live removes the ability to smoke-test on the live thing. `drop_schema` has been unused since sprint 01 and was nearly purged | T1 |
 | [ ] | **S03-T6 · The one-real-loop run + report** | All | `§10.8` stage 3 has never run; `§20.2` Aris acceptance ("schedules follow-up using the authoritative receipt") is untested against the real world | T1–T5 |
 
 **Status (2026-08-14):** draft, pre-implementation. Sprint-02 T4 (the A/B/C comparison) is still
