@@ -47,6 +47,11 @@ struct Request {
     resolution: Option<String>,
     #[serde(default)]
     limit: Option<i64>,
+    // S02-T2 spawn fields.
+    #[serde(default)]
+    name: Option<String>,
+    #[serde(default)]
+    repo: Option<String>,
     // T8 effect fields.
     #[serde(default)]
     capability: Option<String>,
@@ -512,6 +517,37 @@ async fn dispatch(request: Request, daemon: &Daemon) -> Response {
         },
         // T8: the effect surface. Ungoverned this sprint (accepted risk) —
         // the receipt and the idempotency replay are what exist.
+        // S02-T2: delegation as a tool. The Exec calls this the moment it
+        // decides to delegate, rather than remembering a JSON field when it
+        // stops. Refusals (bad name, cap reached, empty task) come back on
+        // this call instead of arriving later as mail nobody connected to the
+        // decision.
+        "spawn" => match (request.name, request.body) {
+            (Some(name), Some(task)) => {
+                match runtime::CompanyConfig::load(&daemon.root, company) {
+                    Ok(config) => match daemon.orgintel.get(company).await {
+                        Ok(org) => {
+                            let ask = staff::SpawnRequest { name, task, repo: request.repo };
+                            match staff::spawn_now(&config, &daemon.gateway, &org, &daemon.staff, &ask)
+                                .await
+                            {
+                                Ok(()) => Response::ok(serde_json::json!({
+                                    "spawned": ask.name,
+                                    "workdir": ask.repo.as_ref().map(|repo| {
+                                        format!("/company/worktrees/{}", ask.name)
+                                    }),
+                                    "note": "supervised; its completion or blockage will wake you",
+                                })),
+                                Err(error) => Response::err(format!("{error:#}")),
+                            }
+                        }
+                        Err(error) => Response::err(format!("{error:#}")),
+                    },
+                    Err(error) => Response::err(format!("{error:#}")),
+                }
+            }
+            _ => Response::err("spawn needs --name and a task".to_string()),
+        },
         "effect" => match (request.capability, request.key) {
             (Some(capability), Some(key)) => {
                 let actor = request.actor.as_deref().unwrap_or("owner");

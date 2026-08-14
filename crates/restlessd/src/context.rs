@@ -118,15 +118,16 @@ pub fn assemble(snapshot: &ContextSnapshot) -> ContextPackage {
          - /company/repos — project repositories; commit meaningful checkpoints with git.\n\
          - /company/outputs — finished artifacts for the owner.\n\n\
          # Staff [internal decision]\n\
-         You may hand work to staff — at most 2 run concurrently. Ask in your termination \
-         envelope with an extra field:\n\
-           \"spawn\": [{{\"name\": \"builder\", \"task\": \"what and why, in detail\", \
-         \"repo\": \"<name under /company/repos>\"}}]\n\
-         (\"repo\" only when the task produces code: each code-producing staff member gets a \
-         dedicated git worktree at /company/worktrees/<name>, branch staff/<name>, and works \
-         only there.) One staff member runs one supervised task. Its completion, blockage, or \
-         crash wakes you; after a crash the worktree is intact — resume or reassign is your \
-         call. Staff tasks already open appear in your commitments below.\n\n\
+         `restless spawn --name <name> [--repo <name under /company/repos>] \"<task>\"` hands one \
+         task to one supervised staff member. Call it the moment you decide to delegate — it is a \
+         tool like any other, and the reply tells you immediately if it was refused. At most 2 run \
+         at once.\n\
+         Give a brief detailed enough to work unsupervised: the outcome, the constraints, and how \
+         you will know it is done. A code task with `--repo` gets its own git worktree at \
+         /company/worktrees/<name> on branch staff/<name>, and works only there — so two staff on \
+         disjoint files merge cleanly. Their completion, blockage, or crash wakes you; after a \
+         crash the worktree is intact, and resuming or reassigning is your call. Staff tasks \
+         already open appear in your commitments below.\n\n\
          # Affecting the world [internal decision]\n\
          `restless effect --key <idempotency-key> --args '<json>' <capability>` is the ONLY way to \
          reach outside this company. Capabilities available to you: {capabilities}. Asking for one \

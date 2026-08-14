@@ -107,6 +107,19 @@ pub async fn process_spawns(
     }
 }
 
+/// Spawn one staff member and report the outcome to the caller. The Exec
+/// asks for this directly (S02-T2), so a refusal belongs in the reply — not
+/// mailed back later, detached from the decision that caused it.
+pub async fn spawn_now(
+    config: &CompanyConfig,
+    gateway: &GatewayHandle,
+    org: &restless_orgintel::OrgIntel,
+    registry: &StaffRegistry,
+    request: &SpawnRequest,
+) -> Result<()> {
+    spawn_one(config, gateway, org, registry, request).await
+}
+
 async fn spawn_one(
     config: &CompanyConfig,
     gateway: &GatewayHandle,

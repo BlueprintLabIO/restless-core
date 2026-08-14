@@ -92,6 +92,24 @@ enum Command {
         #[arg(long, default_value = "")]
         resolution: String,
     },
+    /// Hand a task to a staff member (S02-T2). Delegation is a tool the Exec
+    /// reaches for mid-turn, like every other capability — not a field in the
+    /// end-of-turn envelope, which is why three sprint-01 runs decomposed work
+    /// correctly and dispatched none of it.
+    Spawn {
+        #[arg(long, short = 'c', env = "RESTLESS_COMPANY")]
+        company: Option<String>,
+        /// Staff name: lowercase, digits and dashes. Becomes the actor id,
+        /// the worktree path, and the branch name.
+        #[arg(long)]
+        name: String,
+        /// Repository under /company/repos to give this staff a worktree of.
+        /// Omit for non-code work.
+        #[arg(long)]
+        repo: Option<String>,
+        /// What to do and why, in enough detail to work unsupervised.
+        task: String,
+    },
     /// Request an external effect (T8). Args are JSON.
     Effect {
         #[arg(long, short = 'c', env = "RESTLESS_COMPANY")]
@@ -178,6 +196,14 @@ fn request_json(command: Command) -> Result<serde_json::Value> {
         Command::Inbox { company: c, as_actor } => {
             serde_json::json!({ "cmd": "inbox", "company": c, "as_actor": as_actor })
         }
+        Command::Spawn { company: c, name, repo, task } => serde_json::json!({
+            "cmd": "spawn",
+            "company": c,
+            "name": name,
+            "repo": repo,
+            "body": task,
+            "from": std::env::var("RESTLESS_ACTOR").ok(),
+        }),
         Command::Message { company: c, from, to, body } => serde_json::json!({
             "cmd": "message",
             "company": c,
