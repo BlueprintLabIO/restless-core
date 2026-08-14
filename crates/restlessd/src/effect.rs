@@ -30,6 +30,12 @@ pub struct Receipt {
     pub id: Uuid,
     pub capability: String,
     pub args_digest: String,
+    /// Who this was done TO, when the arguments name someone. Derived at
+    /// request time from the args the caller already sends — not a new field
+    /// the Exec must remember, because a field it must remember is a field it
+    /// will forget (see: three sprint-01 runs and the spawn envelope).
+    #[serde(default)]
+    pub party: Option<String>,
     pub outcome: serde_json::Value,
     pub provider: String,
     pub actor: String,
@@ -38,6 +44,10 @@ pub struct Receipt {
     /// True when this receipt is the stored answer to a repeated key, not a
     /// fresh effect — a retry never re-runs the world.
     pub replayed: bool,
+    /// Set when this company has already completed this capability against
+    /// this same party under a different key. Advisory: the effect happened.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub repeat_of: Option<String>,
 }
 
 /// One effect request. The company-side path here is what a real provider
@@ -62,6 +72,7 @@ pub async fn request_effect(
         bail!("invalid capability name {capability:?}");
     }
     let args_digest = format!("{:x}", sha2::Sha256::digest(args.to_string().as_bytes()));
+    let party = party_of(&args);
     // Replay: a retry with a known key gets the stored receipt, never a
     // second run of the world. The same key with DIFFERENT args is not a
     // retry — answering it with the old receipt would silently certify an
@@ -93,6 +104,17 @@ pub async fn request_effect(
         .await?;
         return Ok(receipt);
     }
+
+    // Idempotency guards a repeated REQUEST; it cannot guard a repeated
+    // DECISION. Observed live: the same customer was charged twice under
+    // `w2-sale-greg` and `pay-p12` — two honest keys, two wakes, one party,
+    // nothing to notice. This does not block: the Exec may legitimately act on
+    // the same party twice. It tells the Exec, immediately, so the second time
+    // is a choice rather than an accident (frame: escalate, never unlock).
+    let repeat = match &party {
+        Some(party) => prior_effect_on(org, capability, party, key).await?,
+        None => None,
+    };
 
     let persona_path = root
         .join("simulators")
@@ -134,16 +156,78 @@ pub async fn request_effect(
         id: Uuid::new_v4(),
         capability: capability.to_string(),
         args_digest,
+        party: party.clone(),
         outcome,
         provider: "simulated".to_string(),
         actor: actor.to_string(),
         idempotency_key: key.to_string(),
         created_at: Utc::now(),
         replayed: false,
+        repeat_of: repeat.clone(),
     };
     org.emit_event("effect", Some(actor), serde_json::to_value(&receipt)?)
         .await?;
+    if let Some(earlier) = repeat {
+        tracing::warn!(capability, party = ?receipt.party, earlier_key = %earlier,
+            "repeat effect on the same party under a different idempotency key");
+        org.emit_event(
+            "effect_repeat_party",
+            Some(actor),
+            serde_json::json!({
+                "capability": capability,
+                "party": receipt.party,
+                "earlier_key": earlier,
+                "this_key": key,
+            }),
+        )
+        .await?;
+    }
     Ok(receipt)
+}
+
+/// Who an effect is aimed at, read from the arguments the caller already
+/// sends. Deterministic key lookup, never inference: if none of these fields
+/// is present the effect simply has no party and the guard stays silent.
+fn party_of(args: &serde_json::Value) -> Option<String> {
+    for key in ["customer", "to", "party", "recipient", "email", "customer_email"] {
+        if let Some(value) = args.get(key).and_then(|value| value.as_str()) {
+            let value = value.trim().to_lowercase();
+            if !value.is_empty() {
+                return Some(value);
+            }
+        }
+    }
+    None
+}
+
+/// The idempotency key of an earlier SUCCESSFUL effect of the same capability
+/// on the same party, if one exists under a different key.
+async fn prior_effect_on(
+    org: &restless_orgintel::OrgIntel,
+    capability: &str,
+    party: &str,
+    key: &str,
+) -> Result<Option<String>> {
+    for event in org.events_of_kind("effect").await? {
+        if event.body.get("capability").and_then(|v| v.as_str()) != Some(capability) {
+            continue;
+        }
+        if event.body.get("party").and_then(|v| v.as_str()) != Some(party) {
+            continue;
+        }
+        let earlier = event.body.get("idempotency_key").and_then(|v| v.as_str()).unwrap_or("");
+        if earlier == key || earlier.is_empty() {
+            continue;
+        }
+        let failed = event
+            .body
+            .get("outcome")
+            .is_some_and(|outcome| outcome.get("error").is_some());
+        if !failed {
+            return Ok(Some(earlier.to_string()));
+        }
+    }
+    Ok(None)
 }
 
 /// Every capability this company has a simulated provider for, sorted. The

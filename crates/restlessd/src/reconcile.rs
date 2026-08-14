@@ -45,6 +45,9 @@ pub struct EffectLedger {
     /// Duplicate requests the idempotency guard suppressed. Counted so the
     /// protection is auditable rather than merely asserted.
     pub replays_suppressed: usize,
+    /// Effects repeated on a party already acted on under a different key.
+    /// Idempotency cannot catch these: two honest keys, one party.
+    pub party_repeats: usize,
     pub total: usize,
 }
 
@@ -71,6 +74,12 @@ impl EffectLedger {
         }
         if self.replays_suppressed > 0 {
             parts.push(format!("{} duplicate(s) suppressed", self.replays_suppressed));
+        }
+        if self.party_repeats > 0 {
+            parts.push(format!(
+                "{} repeat effect(s) on a party already acted on — CHECK THESE",
+                self.party_repeats
+            ));
         }
         if self.unattributable_payments > 0 {
             parts.push(format!(
@@ -107,6 +116,7 @@ pub async fn effect_ledger(org: &OrgIntel) -> Result<EffectLedger> {
         }
     }
     ledger.replays_suppressed = org.events_of_kind("effect_replayed").await?.len();
+    ledger.party_repeats = org.events_of_kind("effect_repeat_party").await?.len();
     Ok(ledger)
 }
 
