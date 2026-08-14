@@ -11,6 +11,40 @@ use tokio::io::AsyncWriteExt;
 
 pub const COMPANY_IMAGE: &str = "restless-company-image:latest";
 
+/// How this company is allowed to organise itself — the independent variable
+/// of the OrgIntel comparison (`docs/specs/evaluation-dogfood.md` §2.3, and
+/// `docs/specs/orgintel.md` §1.2's falsification test).
+///
+/// The three modes are separated by exactly one thing each, so a difference in
+/// outcome is attributable:
+///   * `SingleAgent` — one actor. Delegation is refused.
+///   * `MinimalTeam` — staff, given only their task. Several agents sharing a
+///     computer with no organisational context, which is what sprint 01 shipped.
+///   * `OrgIntel` — staff, given the shared spine as well: mission, plan,
+///     open commitments, and what the company already knows.
+///
+/// Everything else — model, tools, budget, runtime — is held identical.
+/// §25 rule 3: baselines must receive credible tools, models, budgets and time.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum OrgMode {
+    SingleAgent,
+    MinimalTeam,
+    #[default]
+    OrgIntel,
+}
+
+impl OrgMode {
+    #[must_use]
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::SingleAgent => "single_agent",
+            Self::MinimalTeam => "minimal_team",
+            Self::OrgIntel => "orgintel",
+        }
+    }
+}
+
 /// One company's identity and configuration, as a file — not a table (sprint
 /// spec, kernel slice). Lives at `$RESTLESS_HOME/companies/<name>.toml`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -23,6 +57,10 @@ pub struct CompanyConfig {
     /// Per-company model spend ceiling in USD (T2). The fuse, not governance.
     #[serde(default = "default_ceiling")]
     pub spend_ceiling_usd: f64,
+    /// How this company may organise itself. Defaults to the full product;
+    /// the baselines are opt-in and exist to be compared against.
+    #[serde(default)]
+    pub org_mode: OrgMode,
     /// Provider-qualified model the agent runs on, e.g. `zai/glm-5.2`.
     /// Required: there is no sensible default provider, and the adapter-model
     /// indirection this replaced (`company-general-v1` → a gateway route)

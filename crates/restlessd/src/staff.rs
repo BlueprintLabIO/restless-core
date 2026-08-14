@@ -127,6 +127,13 @@ async fn spawn_one(
     registry: &StaffRegistry,
     request: &SpawnRequest,
 ) -> Result<()> {
+    // The baseline is a real configuration, not a crippled one: it gets the
+    // same model, tools, budget and time, and is simply one actor.
+    if config.org_mode == crate::runtime::OrgMode::SingleAgent {
+        bail!(
+            "this company runs in single_agent mode — there are no staff.              Do the work yourself; you have the same tools and budget."
+        );
+    }
     // Validate everything before claiming the slot: a refusal must leave the
     // registry untouched.
     if !valid_slug(&request.name) {
@@ -190,6 +197,15 @@ async fn spawn_claimed(
         }
     };
 
+    // The independent variable of the OrgIntel comparison. minimal_team gives
+    // a worker its task and nothing else — several agents sharing a computer,
+    // which is exactly what sprint 01 shipped and never tested against.
+    // orgintel additionally hands it the shared spine, so it knows what the
+    // company is for and what else is in flight.
+    let spine = match config.org_mode {
+        crate::runtime::OrgMode::OrgIntel => shared_spine(config, org).await,
+        _ => String::new(),
+    };
     let company = config.name.clone();
     let name = request.name.clone();
     let task = request.task.clone();
@@ -199,7 +215,8 @@ async fn spawn_claimed(
     let meter = spend.meter();
     let model = auth.model.clone();
     tokio::spawn(async move {
-        let outcome = run_staff(&container, &auth, &workdir, &company, &actor, &name, &task).await;
+        let outcome =
+            run_staff(&container, &auth, &workdir, &company, &actor, &name, &task, spine).await;
         // Meter before recording the outcome: staff spend counts against the
         // company ceiling whether the task succeeded or not.
         if let Ok((_, _, spent)) = &outcome {
@@ -214,6 +231,41 @@ async fn spawn_claimed(
     Ok(())
 }
 
+/// What a worker needs to know about the company it works for, beyond its own
+/// task: the mission, the plan the Exec is working to, and what else is open.
+/// `docs/specs/orgintel.md` §5.2 — shared spine plus local depth.
+async fn shared_spine(config: &CompanyConfig, org: &restless_orgintel::OrgIntel) -> String {
+    let mut spine = format!("\n# The company you work for\n{}\n", config.mission.trim());
+    match org.list_commitments().await {
+        Ok(commitments) => {
+            let open: Vec<String> = commitments
+                .iter()
+                .filter(|c| {
+                    matches!(
+                        c.state,
+                        restless_orgintel::CommitmentState::Active
+                            | restless_orgintel::CommitmentState::Blocked
+                    )
+                })
+                .map(|c| format!("- [{}] {} (owner: {})", format!("{:?}", c.state).to_lowercase(), c.title, c.owner_id))
+                .collect();
+            if !open.is_empty() {
+                spine.push_str(&format!(
+                    "\n# Also in flight — do not duplicate or collide with these\n{}\n",
+                    open.join("\n")
+                ));
+            }
+        }
+        Err(error) => tracing::warn!(%error, "could not read commitments for the staff spine"),
+    }
+    spine.push_str(
+        "\nYou can reach the company: `restless message --to exec \"...\"` to raise a blocker or \
+         ask a question, and `restless commitment blocked <id> --resolution \"...\"` if you cannot \
+         proceed. Say so early rather than guessing.\n",
+    );
+    spine
+}
+
 /// The staff turn: work the task, then the same judgement envelope as the
 /// Exec; `continue` re-prompts inside the same session (one process per
 /// task), bounded overall. Termination wording is the model's decision; the
@@ -226,12 +278,14 @@ async fn run_staff(
     actor: &str,
     name: &str,
     task: &str,
+    spine: String,
 ) -> Result<(Termination, String, Vec<acp::TurnUsage>)> {
     let prompt = format!(
         "You are {name}, a staff engineer of {company}, spawned for one task.\n\
          Your working directory is {workdir} — it is YOURS: a dedicated git worktree. \
          Commit meaningful checkpoints there with clear messages; do not touch other \
-         worktrees or the main checkout.\n\n\
+         worktrees or the main checkout.\n\
+         {spine}\n\
          # Task\n{task}\n\n\
          Work until the task is done or you are stuck. The session ends when you stop \
          writing; you will then be asked for a decision envelope."
