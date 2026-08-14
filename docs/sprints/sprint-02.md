@@ -187,6 +187,28 @@ Deferred because no run has demanded them, per `orgintel` §11.1 and `CLAUDE.md`
 
 ---
 
+## Found during the sprint-02 purge: unreachable concepts, not dead code
+
+A dead-code scan turned up four OrgIntel methods with no caller. Three of them
+are **not** deletable, and the distinction matters:
+
+`add_goal`, `add_decision` and `add_artifact_ref` are storage for three concepts
+the cross-layer contract §3.1 assigns to OrgIntel as authoritative — Goal,
+Decision, Artifact reference. They have tables. Goals even have a read path
+(`restless goals`). **No actor has a write path to any of them.** That is not
+dead code to purge; it is a spec'd concept with no way in, which is why no run
+has ever exercised it. Deleting them would silently narrow the ontology; wiring
+them is sprint-03 work at the earliest, and only if a run wants them.
+
+Artifact references are the one with a concrete pull: reconciliation currently
+compares claims against *effect receipts* only, and `evaluation-dogfood` §21.1
+requires collecting artifact/evidence references for a comparable run report.
+When T4's report needs to link an outcome to a commit, this is the gap.
+
+`drop_schema` is genuinely uncalled today and should be kept for the same
+reason — §21.1's "reset/reseed the scenario safely" is the harness requirement
+it exists to serve.
+
 ## Housekeeping carried from sprint 01
 
 - `scratch/**/codex-home/` lost its ignore rule in the sprint-01 merge; the directory is now untracked
