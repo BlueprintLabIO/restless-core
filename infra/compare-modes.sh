@@ -33,6 +33,16 @@ echo "modes      : ${MODES[*]}"
 echo "ceiling    : \$$CEILING per mode"
 echo
 
+# --- take the starting artifact ONCE ---------------------------------------
+# `docker cp src dest` NESTS when dest already exists, so copying per-mode into
+# the same temp path produced cosmon-game/cosmon-game/. Take it once, into a
+# guaranteed-clean path, and treat it as read-only from here.
+SEED="/tmp/$SCENARIO-seed.$$"
+rm -rf "$SEED"; mkdir -p "$SEED"
+docker cp "restless-co-$SOURCE:/company/repos/cosmon-game" "$SEED/cosmon-game"
+echo "seeded from $SOURCE: $(ls "$SEED/cosmon-game" | wc -l | tr -d ' ') entries"
+trap 'rm -rf "$SEED"' EXIT
+
 # --- provision one company per mode, identical but for org_mode -------------
 for mode in "${MODES[@]}"; do
   name="$(mode_company "$SCENARIO" "$mode")"
@@ -55,12 +65,17 @@ print(f"  wrote {out}")
 PY
   "$REPO/target/debug/restless" up -c "$name" >/dev/null
   # Same starting artifact for every mode: prior work is not a variable.
-  docker cp "restless-co-$SOURCE:/company/repos/cosmon-game" "/tmp/$SCENARIO-seed" 2>/dev/null || true
-  docker exec "restless-co-$name" sh -c 'mkdir -p /company/repos && rm -rf /company/repos/cosmon-game' || true
-  docker cp "/tmp/$SCENARIO-seed" "restless-co-$name:/company/repos/cosmon-game" 2>/dev/null || true
-  docker exec "restless-co-$name" sh -c 'chown -R company:company /company/repos' || true
+  docker exec "restless-co-$name" sh -c 'mkdir -p /company/repos && rm -rf /company/repos/cosmon-game'
+  docker cp "$SEED/cosmon-game" "restless-co-$name:/company/repos/cosmon-game"
+  docker exec "restless-co-$name" sh -c 'chown -R company:company /company/repos'
+  # Verify rather than assume: a nested or missing seed silently invalidates
+  # the whole comparison, and it did once.
+  docker exec "restless-co-$name" sh -c '
+    test ! -e /company/repos/cosmon-game/cosmon-game || { echo "  FATAL: nested seed"; exit 1; }
+    test -f /company/repos/cosmon-game/js/game.js || { echo "  FATAL: seed missing js/game.js"; exit 1; }
+    echo "  seed ok: $(git -C /company/repos/cosmon-game -c safe.directory=/company/repos/cosmon-game log --oneline -1)"'
+
 done
-rm -rf "/tmp/$SCENARIO-seed"
 
 # --- run each mode ----------------------------------------------------------
 for mode in "${MODES[@]}"; do
