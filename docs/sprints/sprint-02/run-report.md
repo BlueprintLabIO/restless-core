@@ -67,6 +67,41 @@ uncalled. They are storage for three concepts §3.1 assigns to OrgIntel as
 authoritative, with **no write path for any actor**. Recorded as a gap rather
 than deleted — purging them would silently narrow the ontology.
 
+### Operating evidence from every run so far
+
+Numbers from the spend spool and event streams, not from any agent's account.
+
+| | calls/turns | total | produced |
+|---|---|---|---|
+| sonnet-4 via the proxy | 91 calls | $4.76 | a partial Cosmon and a **false** verification claim |
+| glm-5.2 via ACP | 13 turns | $18.26 | 3D creature-collector (12 species, 6 evolutions, combat, 2 biomes, trainers, mini-boss), a sales loop with 9 charges, an operating loop with 90 receipts |
+
+Average glm turn: **96,214 tokens, $1.40**.
+
+**Context does not grow without bound.** Per-turn utilisation of the 1M window:
+
+```
+thymelake   79k (7%)  → 130k (13%)
+aris        63k (6%)  → 133k (13%) → 70k (7%)
+```
+
+It rises and falls with the size of the plan plus the *latest* journal entry —
+aris's 133k turn was its long reconciliation journal, and the next turn dropped
+back to 70k. Shipping only the latest journal is thin institutional memory, and
+it is also exactly what bounds context. That is a trade-off to make knowingly,
+not a defect to fix.
+
+**Every blocked wake in two sprints was a platform defect, not a stuck company.**
+Aris's two blocks were the effect surface having no discovery, and the health
+gate's own misclassification of a work-turn boundary. Cosmon's were the same
+misclassification. Both are fixed. No company has yet been blocked by its own
+business problem — which is either the gate earning its keep by catching our
+bugs, or evidence that the companies are more robust than the platform. Probably
+both.
+
+**The party-repeat guard has fired once**, on the deliberate test. Nothing
+organic has tripped it yet, so it is verified but not yet load-bearing.
+
 ---
 
 ## T4 — the comparison
