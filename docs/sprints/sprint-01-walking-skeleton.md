@@ -20,6 +20,25 @@ one company for three sprints is an ontology we cannot evaluate. Running Cosmon,
 together is the cheapest available test of whether the small §4.4 vocabulary survives building,
 selling, and operating.
 
+### What this actually proves
+
+Sprint 01 does not prove the company works. It proves **the substrate does not get in the way**, and
+finds out where it does. Four claims are stacked here, with very different confidence available, and
+they are worth keeping separate — the trap is finishing with everything green and believing we proved
+the third when we only proved the first.
+
+| Claim | What it says | Sprint 01 gives us |
+|---|---|---|
+| **Substrate** | A persistent company computer plus a persistent Exec identity lets multi-turn work survive crashes and restarts | Settles it outright — mechanically verifiable |
+| **Ontology** | The small §4.4 vocabulary is sufficient across materially different company types | Strong evidence, not proof. This is what three companies tests |
+| **Autonomy** | An Exec turns a vague directive into a useful artifact without the owner | **Weak test only** — everything is simulated and Cosmon is shrunk, so "useful" is carrying a lot of weight |
+| **The negative claim** | A company runs *without* the legacy machinery: no universal command enum, no ledger, no custody, no workflow engine | First real evidence. The entire clean-slate decision rests on this |
+
+The negative claim is the most consequential and the easiest to lose track of. If we end the sprint
+having reinvented custody to make artifact handoff work, or a retry state machine to make failure
+recoverable, the rebuild premise is in trouble — and we want to know that now. T15 assesses it
+explicitly.
+
 ### The primary measurement
 
 **Build the skeleton against Cosmon. Then add Aris and Thymelake as configuration, prompts and
@@ -135,6 +154,24 @@ second product. The company must not need different logic for a simulated provid
 versioning, competency estimates, WIP limits, review routing. All §4.5 intelligence modules beyond a
 minimal Exec planner wait for observed friction.
 
+### How layers 2 and 3 connect
+
+**There is no gateway between OrgIntel and the runtime, deliberately.** §1 calls the layer diagram "a
+responsibility and trust map, not a mandatory call chain"; §4.7 forbids OrgIntel from gating filesystem
+writes or requiring work to pass through its API. A mediating proxy here would recreate the legacy
+per-turn fence.
+
+Agents reach layer 3 for free — their native file, shell, Git and browser tools run inside the company
+container by consequence of process placement, not by routing we build. Layer 2 is reached by prompt
+context on the way in (T7) and by the `restless` CLI over the agent's bash tool on the way out (T10).
+Exactly three channels cross the container boundary: ACP stdio, the unix socket, and HTTP to the model
+gateway. The trust boundary is the socket, not the binary.
+
+The accepted consequence: **OrgIntel is not authoritative about what happened.** It learns from agent
+reports, the event stream, and reconciliation against files, Git and processes (§4.8). Stale or blind
+coordination state is not an incident (§2.5), and a completed artifact stays valid when its commitment
+record disagrees (§4.7). Full reasoning in [T10](./sprint-01/t10-cli-owner-surface.md).
+
 ### Runtime
 
 **In:**
@@ -219,23 +256,42 @@ T3 ACP spike ──┬── T1 container ──┬── T4 Exec ── T7 cont
 
 | ✓ | Ticket | Layer | Depends on | Commit |
 |---|---|---|---|---|
-| [ ] | [T1 · Company image + container lifecycle](./sprint-01/t01-company-image.md) | Runtime | — | |
-| [ ] | [T2 · Model gateway + spend fuse](./sprint-01/t02-model-gateway-spend-fuse.md) | Kernel | 1 | |
-| [ ] | [T3 · ACP session client](./sprint-01/t03-acp-session-client.md) | Runtime | — | |
-| [ ] | [T4 · Persistent Exec + file continuity](./sprint-01/t04-persistent-exec.md) | Runtime / OrgIntel | 1, 3, 5 | |
-| [ ] | [T5 · OrgIntel core](./sprint-01/t05-orgintel-core.md) | OrgIntel | — | |
-| [ ] | [T6 · Scheduler](./sprint-01/t06-scheduler.md) | OrgIntel | 5 | |
-| [ ] | [T7 · Context assembly on wake](./sprint-01/t07-context-assembly.md) | OrgIntel | 5 | |
-| [ ] | [T8 · Effect surface + simulated providers](./sprint-01/t08-effect-surface.md) | Kernel | 1 | |
-| [ ] | [T9 · Staff spawn and supervision](./sprint-01/t09-staff-supervision.md) | OrgIntel / Runtime | 1, 3, 5 | |
-| [ ] | [T10 · CLI owner surface](./sprint-01/t10-cli-owner-surface.md) | Owner surface | 1, 5 | |
-| [ ] | [**T11 · Cosmon — the skeleton is built here**](./sprint-01/t11-cosmon.md) | All | 1, 3–7, 9, 10 | |
-| [ ] | [T12 · Aris](./sprint-01/t12-aris.md) | All | 8, 11 | |
-| [ ] | [T13 · Thymelake](./sprint-01/t13-thymelake.md) | All | 8, 11 | |
-| [ ] | [T14 · Crash and restart harness](./sprint-01/t14-crash-restart-harness.md) | Cross-cutting | 11 | |
+| [x] | [T1 · Company image + container lifecycle](./sprint-01/t01-company-image.md) | Runtime | — | 1e9c7f4 |
+| [x] | [T2 · Model gateway + spend fuse](./sprint-01/t02-model-gateway-spend-fuse.md) | Kernel | 1 | 0171022 |
+| [x] | [T3 · ACP session client](./sprint-01/t03-acp-session-client.md) | Runtime | — | bd8c4db, 19c4816 |
+| [x] | [T4 · Persistent Exec + file continuity](./sprint-01/t04-persistent-exec.md) | Runtime / OrgIntel | 1, 3, 5 | 57c40e1 |
+| [x] | [T5 · OrgIntel core](./sprint-01/t05-orgintel-core.md) | OrgIntel | — | 61143c5 |
+| [x] | [T6 · Scheduler](./sprint-01/t06-scheduler.md) | OrgIntel | 5 | 13d6e86 |
+| [x] | [T7 · Context assembly on wake](./sprint-01/t07-context-assembly.md) | OrgIntel | 5 | 2a30eb4 |
+| [x] | [T8 · Effect surface + simulated providers](./sprint-01/t08-effect-surface.md) | Kernel | 1 | ace6995, 0a3a512 |
+| [ ] | [T9 · Staff spawn and supervision](./sprint-01/t09-staff-supervision.md) | OrgIntel / Runtime | 1, 3, 5 | 993b065 |
+| [ ] | [**T10 · CLI — owner surface *and* agent path to layer 2**](./sprint-01/t10-cli-owner-surface.md) | Owner surface / OrgIntel | 1, 5 | 2f1d87e |
+| [x] | [**T11 · Cosmon — the skeleton is built here**](./sprint-01/t11-cosmon.md) | All | 1, 3–7, 9, 10 | f41e1c3 |
+| [x] | [T12 · Aris](./sprint-01/t12-aris.md) | All | 8, 11 | ea04dde |
+| [x] | [T13 · Thymelake](./sprint-01/t13-thymelake.md) | All | 8, 11 | ea04dde |
+| [ ] | [T14 · Crash and restart harness](./sprint-01/t14-crash-restart-harness.md) | Cross-cutting | 11 | af2daed, 535832d |
 | [ ] | [T15 · Run report, deletion pass, friction backlog](./sprint-01/t15-run-report.md) | Cross-cutting | 11–14 | |
+| [ ] | [T16 · Judgement helper](./sprint-01/t16-judgement-helper.md) | Kernel-adjacent | 2 | disposition: [run-report](./sprint-01/run-report.md) |
 
-**Start with T3.** It is the sprint's main technical unknown and it blocks T4, T9 and every company.
+**Start with T3.** It is the sprint's main technical unknown, it blocks T4, T9 and every company, and it
+carries the blocking pre-check on whether the chosen agent binary can even be pointed at our gateway —
+which, if it fails, invalidates T2's key-isolation story.
+
+> **Status note (2026-08-13, revised):** the credit block is gone — not by topping up, but by
+> replacing the runtime. The agent is now `omp` (native ACP, reports its own per-turn token and
+> dollar usage) on `zai/glm-5.2`. **T11 is complete**: Cosmon ran end to end, terminated `done` on
+> the Exec's own judgement, and cost **$0.2855** against the prior partial run's $4.10 — ~14x
+> cheaper for a better outcome (see [run-report](./sprint-01/run-report.md)).
+>
+> Two structural changes came with it. The **health gate** (`health.rs`) makes substrate failure
+> deterministic rather than something inferred from model prose — F1, F2, F3, F12 and three
+> newly-found failures collapse into one mechanism whose load-bearing invariant is *a turn that
+> consumed no tokens did not happen, it failed*. The **spend fuse moved out of the HTTP path** to
+> the ACP session layer, which makes most of T2's proxy deletable. T8–T10 machinery still awaits
+> its live acceptance; T12/T13 are now cheap enough to run on evidence rather than faith.
+
+**T16 lands early, before T4 and T9.** Both of those contain judgement calls, and if the helper does not
+exist when they are written, heuristics will be written instead.
 
 Since this is the first sprint, no ticket makes prior machinery deletable. The §16.7 "what this makes
 deletable" slot is answered honestly as *nothing yet* — except T3, which deletes its own losing branch,
@@ -292,12 +348,13 @@ escalation takes an argument.
 | Prompt injection or a compromised worker | **Accepted** | Nothing real is connected; the worst outcome is wasted tokens and bad files, both recoverable. |
 | The agents produce poor or wrong work | **Accepted** | That is the thing this sprint measures, not a failure to engineer against. |
 | Loss of the OrgIntel Postgres state | **Accepted** | Recoverable coordination state by design (§4.8). Files and Git hold the actual work. |
-| Provider API key leaking into a company container | **Guarded** | Key held host-side, injected at the gateway; verified by grep of container env and filesystem. |
+| Provider API key leaking into a company container | **Accepted (downgraded 2026-08-13)** | Was Guarded: the key stayed host-side and only a ≤1h purpose token entered the container. The omp runtime resolves credentials from its own process environment, so the key now reaches the agent process via `docker exec -e` — present in that process's environment for the life of the turn, absent from the image, the container's persistent env, and the volume. Accepted because every provider is still simulated or read-only and the blast radius is a wasted zai quota. **Expiry: before any real external effect is reachable.** The fix is already identified — `omp auth-broker`/`auth-gateway` hold credentials out-of-process (evaluated; sprint-02 ticket). |
 | Unbounded model spend across three autonomous companies | **Guarded** | Per-company dollar ceiling, fail closed; staff capped at two per company. |
 | ACP is the main technical unknown | **Guarded** | Spike both paths (ticket 3) before the rest of the sprint depends on the answer. |
 | Three companies is real surface area | **Guarded** | Build-one-then-configure-two sequencing, plus the done criterion in open decision 4. |
 | The skeleton grows past "thin" | **Guarded** | The out-of-scope lists above, plus a deletion pass before sprint 02 opens: any path no run exercised comes out. |
 | Ambiguous external-effect outcomes; receipts surviving restore | **Pending fix** | Real, and the whole point of the effect broker — but it needs a live provider to be meaningful. Governance sprint. |
+| Usage-parse miss = unaccounted spend (fuse under-records) | **Accepted** | Zero occurrences observed (daemon log grep, 2026-08-12). Tripwire: the first `upstream usage unparsed` warning promotes it to a durable audit event plus conservative accounting. |
 
 **When the accepted risks expire:** the first four are accepted *because nothing real is connected*.
 That disposition expires the moment a live provider is wired up — which is the trigger condition for
@@ -307,6 +364,7 @@ the governance sprint, not a project phase we choose.
 
 ## Housekeeping
 
-`.env` at the repo root is a leftover from the prior implementation (Helm-prefixed variables, a
+~~`.env` at the repo root is a leftover from the prior implementation (Helm-prefixed variables, a
 `DATABASE_URL`, a duplicated `OPENROUTER_API_KEY`). It should be cleared before it becomes an
-accidental dependency of the new path (§16.3).
+accidental dependency of the new path (§16.3).~~ **Done** — verified 2026-08-13: no `.env` at the
+repo root and nothing in the workspace reads one.

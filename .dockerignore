@@ -1,0 +1,4 @@
+# The image build context is the repo root (see infra/company-image/Dockerfile).
+# Never ship build output or local state into the daemon's build cache.
+target/
+.git/

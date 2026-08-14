@@ -1,6 +1,11 @@
 [workspace]
 resolver = "2"
-members = ["crates/restlessd", "crates/restless"]
+members = [
+    "crates/restlessd",
+    "crates/restless",
+    "crates/restless-model-gateway",
+    "crates/restless-orgintel",
+]
 
 # Restless is a clean-slate autonomous-company control plane.
 # Architecture: see ARCHITECTURE.md. Working agreement: see CLAUDE.md.
@@ -15,3 +20,6 @@ version = "0.0.0"
 edition = "2021"
 license = "TBD"
 publish = false
+
+[workspace.dependencies]
+# Sprint 01 workspace pins.

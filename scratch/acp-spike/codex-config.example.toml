@@ -1,0 +1,12 @@
+model = "anthropic/claude-sonnet-4"
+model_provider = "openrouter"
+model_reasoning_effort = "none"
+
+[model_providers.openrouter]
+name = "OpenRouter"
+base_url = "https://openrouter.ai/api/v1"
+env_key = "OPENROUTER_API_KEY"
+wire_api = "responses"
+
+[features]
+shell_tool = true

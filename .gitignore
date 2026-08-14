@@ -19,3 +19,8 @@
 node_modules/
 /web/.svelte-kit
 /web/build
+
+# Scratch spikes
+scratch/**/node_modules/
+scratch/**/target/
+scratch/**/workdir/

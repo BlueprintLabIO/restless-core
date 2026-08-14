@@ -21,9 +21,21 @@ Working hypothesis: (b) is *smaller* than (a), because a persistent container de
 
 Prefer (i) — it avoids building a whole component — unless the spike shows otherwise.
 
+## Blocking pre-check: can this agent be pointed at our gateway?
+
+**Do this before anything else in the ticket, and before committing to an agent binary.**
+
+T2 holds the provider key host-side and expects the agent to reach the model through the gateway via a base-URL override. Some ACP agent binaries insist on their vendor's endpoint with their own auth. **If the chosen binary cannot be redirected, the entire key-isolation story in T2 collapses** — and we must not discover that while implementing T2.
+
+Probe: point the candidate binary at a local stub on a non-vendor base URL and confirm the request arrives there. If it does not, that binary is disqualified regardless of how well it speaks ACP.
+
+Nobody else tests this seam: T3 tests protocol mechanics, T2 tests the gateway, and the join between them belongs here.
+
 ## Acceptance
 
-Live-probe a real agent binary end to end: initialise → session → prompt → observe streamed output → cancel. **Record result, agent version, and probe time** (CLAUDE.md → "Probe, never guess"). Then delete the losing branch — not behind a feature flag, deleted. Git holds it.
+- The gateway seam pre-check passes for the chosen binary.
+- Live-probe it end to end: initialise → session → prompt → observe streamed output → cancel. **Record result, agent version, and probe time** (CLAUDE.md → "Probe, never guess").
+- The losing branch is deleted — not behind a feature flag, deleted. Git holds it.
 
 ---
 Sprint spec: [`../sprint-01-walking-skeleton.md`](../sprint-01-walking-skeleton.md)
