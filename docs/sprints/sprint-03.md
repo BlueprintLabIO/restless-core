@@ -283,6 +283,38 @@ here so they are not relitigated or silently lost.
 
 ---
 
+## The effect surface is an accountability boundary, not an API gateway
+
+A tension surfaced while planning this sprint and it is worth settling before T1
+picks a shape: the real world of a company's external actions is far larger than
+the set of things with clean APIs. Listing on TES, posting in a forum, replying
+to a marketplace message — none of these are `POST /v1/send`, and building an
+adapter per provider is unbounded and hopeless.
+
+The resolution is that **a receipt does not require an API.** Governance attaches
+to *consequence*, not to transport. Three categories, and only the first is what
+we have built so far:
+
+| | Examples | Shape |
+|---|---|---|
+| **API effects** | `email.send`, `payment.charge`, `web.deploy`, `order.receive` | adapter behind `request_effect`; receipt, idempotency, party |
+| **Session work** | listing on a marketplace, posting in a community, replying in a web inbox | the company's **own browser and persistent profile** in its runtime (`ARCHITECTURE.md` §5). A consequential action still earns a receipt — the transport is a browser, the accountability is unchanged |
+| **Prepared last mile** | identity verification, payout details, 2FA, an account that is legally a person | handed to the owner with state preserved. **By design, not a gap** |
+
+So the roadmap is not an adapter per provider. It is: a few API adapters where
+APIs exist and matter, **one browser adapter** driving the company's own
+authenticated sessions, and the last-mile handoff. The test for "is this an
+effect?" stays the spec's own — *meaningful external consequence* — not "does it
+touch the network." Researching prices on TES is ordinary work; publishing a
+listing is an effect.
+
+**Simulate failure shapes, not providers.** `aris_test` cannot simulate TES,
+Mumsnet and Companies House, and should not try. There are roughly seven
+provider-independent shapes worth simulating — success, denial, timeout before
+execution, timeout after, duplicate, ambiguous outcome, delayed reply — and they
+cover the behaviour the system must get right. Simulation proves system
+behaviour; it never proves market demand.
+
 ## Channels: lawful, cheap, ranked by leverage
 
 Aris's constraint is not budget, it is that it may not cold-email parents. Everything below respects

@@ -60,6 +60,38 @@ pinned by a test over every status word both companies have actually emitted.
 A second definition of a shared predicate is the duplicate-ownership problem
 the cross-layer contract forbids, appearing inside a single service.
 
+### The company had the evidence and did not draw the conclusion
+
+Aris's own journal, from its own run:
+
+> *DURABLE LOSS: P1 Priya — price vs incumbent Bond/CGP stack; concedes quality,
+> not value.*
+> *P8 Simon — CEM/Devon; wants a CEM product (does not exist).*
+
+A price rejection against an entrenched incumbent, and a segment mismatch. That
+is the raw material for "we are selling to the wrong buyer" — and Aris recorded
+both faithfully, then carried on selling to parents. It never asked whether the
+segment was wrong.
+
+The gap is not knowledge: the same model class produced a full channel analysis
+when asked directly. The gap is that **nothing in the system revises strategy
+from accumulated evidence.** The company executes, reports honestly, and audits
+itself — but never reconsiders.
+
+That is §3.2 self-exploration and §3.4 self-evolution, the two capabilities
+`orgintel` §1.1 says OrgIntel *is*, and the two we have built nothing for. It
+also sharpens where the human's involvement is by design and where it is the
+product failing:
+
+- owner supplies **identity, sign-off, taste, irreducible judgement** → working
+  as intended;
+- owner supplies **strategy, segment choice, channel selection** → the product
+  not yet doing its job.
+
+Worth stating plainly: we have never once asked a company to choose its own
+strategy. Every run handed it a mission and measured execution. That is a gap in
+what has been *tested*, not yet a verdict on the product.
+
 ### Unreachable concepts are not dead code
 
 The purge scan found `add_goal`, `add_decision` and `add_artifact_ref`
