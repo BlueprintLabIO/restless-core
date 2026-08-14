@@ -124,6 +124,14 @@ impl SpendLedger {
         TurnMeter { store: std::sync::Arc::clone(&self.store) }
     }
 
+    /// Clear a fail-closed poison once an operator has looked. The spool keeps
+    /// both records, so the incident stays legible after recovery.
+    pub fn clear_poison(&self, company: &str) -> Result<()> {
+        self.store
+            .clear_poison(company)
+            .map_err(|error| anyhow::anyhow!("clear poison: {error}"))
+    }
+
     /// Record what one turn cost, from the agent's own ACP usage report.
     pub fn record_turn(&self, company: &str, model: &str, used: u64, cost_usd: Option<f64>) {
         self.meter().record(company, model, used, cost_usd);

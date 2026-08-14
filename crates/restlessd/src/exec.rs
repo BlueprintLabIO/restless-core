@@ -207,16 +207,24 @@ pub(crate) fn agent_auth(config: &CompanyConfig) -> Result<acp::AgentAuth> {
         "zai" => "ZAI_API_KEY",
         "anthropic" => "ANTHROPIC_API_KEY",
         "openai" => "OPENAI_API_KEY",
-        "moonshot" => "KIMI_API_KEY",
+        "moonshot" => "MOONSHOT_API_KEY",
         "openrouter" => "OPENROUTER_API_KEY",
         other => bail!("no credential mapping for provider {other}"),
     };
     let provider_key = std::env::var(key_env)
         .with_context(|| format!("{key_env} must be set for model {}", config.model))?;
+    // Forward a base-URL override when the daemon has one. Some plans are
+    // served from a different host than the provider's default.
+    let base_env = key_env.replace("_API_KEY", "_BASE_URL");
+    let provider_base_url = std::env::var(&base_env)
+        .ok()
+        .filter(|value| !value.trim().is_empty())
+        .map(|value| (base_env, value));
     Ok(acp::AgentAuth {
         model: config.model.clone(),
         provider_key_env: key_env.to_string(),
         provider_key,
+        provider_base_url,
     })
 }
 
@@ -331,17 +339,39 @@ async fn termination_decision(session: &AgentSession) -> Result<TerminationDecis
         let transcript = session.take_transcript();
         match parse_termination(&transcript.text) {
             Some(parsed) => return Ok(parsed),
-            None if attempt == 0 => {
-                // The transcript carries the model's actual words — without
-                // them an unparseable decision is undebuggable (Sprint 01
-                // friction: the first silent failure cost a full probe cycle).
-                tracing::warn!(
-                    said = %transcript.text.chars().take(600).collect::<String>(),
-                    "termination decision unparseable; retrying once"
-                );
-                continue;
-            }
             None => {
+                // Before calling this the model's failure, check whether the
+                // model spoke at all. A provider error can arrive as message
+                // *content* rather than as a transport error — omp streams the
+                // upstream body through — so the turn "succeeds", tokens are
+                // consumed, and the health gate sees nothing wrong. Observed
+                // live: three companies blocked with "no parseable termination
+                // decision" when the actual cause was
+                // `429 [1113] Insufficient balance ... Please recharge`.
+                //
+                // This is F1 wearing a new costume. The gate reads transport;
+                // this reads what the agent said. Same deterministic
+                // classifier, second entry point.
+                if let Some(blocked) = health::classify_turn(None, Some(&transcript.text)) {
+                    if blocked.kind != health::BlockKind::Transport {
+                        return Ok(TerminationDecision {
+                            termination: Termination::Blocked,
+                            reason: blocked.message(),
+                            next_wake_minutes: None,
+                            spawn: vec![],
+                        });
+                    }
+                }
+                if attempt == 0 {
+                    // The transcript carries the model's actual words — without
+                    // them an unparseable decision is undebuggable (Sprint 01
+                    // friction: the first silent failure cost a full probe cycle).
+                    tracing::warn!(
+                        said = %transcript.text.chars().take(600).collect::<String>(),
+                        "termination decision unparseable; retrying once"
+                    );
+                    continue;
+                }
                 return Ok(TerminationDecision {
                     termination: Termination::Blocked,
                     reason: "exec produced no parseable termination decision twice".to_string(),

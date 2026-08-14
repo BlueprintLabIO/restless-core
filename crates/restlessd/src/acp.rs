@@ -36,10 +36,16 @@ use tokio_util::compat::{TokioAsyncReadCompatExt as _, TokioAsyncWriteCompatExt 
 /// in the agent process's environment for the life of the turn, not in the
 /// image, the container's persistent env, or any file on the volume.
 pub struct AgentAuth {
-    /// Provider-qualified model, e.g. `zai/glm-5.2`.
+    /// Provider-qualified model, e.g. `moonshot/k3-256k`.
     pub model: String,
     pub provider_key_env: String,
     pub provider_key: String,
+    /// Optional `<PROVIDER>_BASE_URL` override, forwarded when the daemon has
+    /// one. A provider's default host is not always the one a given plan is
+    /// served from — a Kimi For Coding key authenticates against
+    /// `api.kimi.com/coding/v1` and 401s against `api.moonshot.ai`, which is
+    /// indistinguishable from a dead key unless the override exists.
+    pub provider_base_url: Option<(String, String)>,
 }
 
 /// What one turn consumed, as the agent reported it (ACP `UsageUpdate`).
@@ -264,15 +270,34 @@ where
     // Snapshot before the agent starts: anything new and still alive when the
     // turn ends was started by this turn and is ours to clean up.
     let before = pids(container).await;
+    // docker exec takes its -e flags BEFORE the container name; anything after
+    // it belongs to the command. Build the vector explicitly rather than
+    // chaining .args() and hoping the order is right — appending the base-URL
+    // override after the container silently handed it to omp as an argument,
+    // which surfaced as "No model selected".
+    let mut args: Vec<String> = [
+        "exec", "-i", "-u", "company", "-w", "/company",
+        "-e", "OMP_HOME=/company/home/.omp",
+        "-e", "NO_BROWSER=1",
+    ]
+    .iter()
+    .map(|arg| (*arg).to_string())
+    .collect();
+    args.push("-e".to_string());
+    args.push(format!("RESTLESS_ACTOR={actor}"));
+    args.push("-e".to_string());
+    args.push(format!("{}={}", auth.provider_key_env, auth.provider_key));
+    if let Some((name, value)) = &auth.provider_base_url {
+        args.push("-e".to_string());
+        args.push(format!("{name}={value}"));
+    }
+    args.extend(
+        [container, "omp", "acp", "--model", auth.model.as_str()]
+            .iter()
+            .map(|arg| (*arg).to_string()),
+    );
     let mut child = tokio::process::Command::new("docker")
-        .args([
-            "exec", "-i", "-u", "company", "-w", "/company",
-            "-e", "OMP_HOME=/company/home/.omp",
-            "-e", "NO_BROWSER=1",
-            "-e", &format!("RESTLESS_ACTOR={actor}"),
-            "-e", &format!("{}={}", auth.provider_key_env, auth.provider_key),
-            container, "omp", "acp", "--model", &auth.model,
-        ])
+        .args(&args)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::null())

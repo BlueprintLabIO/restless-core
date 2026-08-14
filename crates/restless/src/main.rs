@@ -110,6 +110,12 @@ enum Command {
         /// What to do and why, in enough detail to work unsupervised.
         task: String,
     },
+    /// Clear a fail-closed spend poison after inspecting why it happened.
+    /// A poison stops a company dead; without this it stops it forever.
+    ClearPoison {
+        #[arg(long, short = 'c', env = "RESTLESS_COMPANY")]
+        company: Option<String>,
+    },
     /// Request an external effect (T8). Args are JSON.
     Effect {
         #[arg(long, short = 'c', env = "RESTLESS_COMPANY")]
@@ -196,6 +202,10 @@ fn request_json(command: Command) -> Result<serde_json::Value> {
         Command::Inbox { company: c, as_actor } => {
             serde_json::json!({ "cmd": "inbox", "company": c, "as_actor": as_actor })
         }
+        Command::ClearPoison { company: c } => serde_json::json!({
+            "cmd": "clear-poison",
+            "company": c,
+        }),
         Command::Spawn { company: c, name, repo, task } => serde_json::json!({
             "cmd": "spawn",
             "company": c,

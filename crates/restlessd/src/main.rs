@@ -518,6 +518,14 @@ async fn dispatch(request: Request, daemon: &Daemon) -> Response {
         // stops. Refusals (bad name, cap reached, empty task) come back on
         // this call instead of arriving later as mail nobody connected to the
         // decision.
+        "clear-poison" => match daemon.spend.clear_poison(company) {
+            Ok(()) => Response::ok(serde_json::json!({
+                "company": company,
+                "cleared": true,
+                "note": "spend accounting resumes from the company's real recorded cost",
+            })),
+            Err(error) => Response::err(format!("{error:#}")),
+        },
         "spawn" => match (request.name, request.body) {
             (Some(name), Some(task)) => {
                 match runtime::CompanyConfig::load(&daemon.root, company) {

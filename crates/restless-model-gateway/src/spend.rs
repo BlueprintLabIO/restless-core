@@ -59,6 +59,12 @@ pub struct SpendRecord {
     pub occurred_at: DateTime<Utc>,
 }
 
+/// Model field marking a fail-closed poison, and its cancellation. Both are
+/// records rather than mutations: the spool stays append-only and the incident
+/// stays visible after recovery.
+pub const POISON_MARKER: &str = "poison-marker";
+pub const POISON_CLEARED: &str = "poison-cleared";
+
 /// Crash-durable per-company spend counter. Append-only JSONL spool +
 /// in-memory totals rebuilt on boot. Open failure is fatal to the gateway
 /// (fail closed): a gateway that cannot account does not serve.
@@ -83,6 +89,7 @@ impl SpendStore {
         })?;
         let path = root.join("spend.jsonl");
         let mut totals: HashMap<String, u64> = HashMap::new();
+        let mut poisons: std::collections::HashSet<String> = std::collections::HashSet::new();
         if path.exists() {
             let text = fs::read_to_string(&path).map_err(|error| {
                 GatewayError::Configuration(format!("read spend spool: {error}"))
@@ -129,9 +136,27 @@ impl SpendStore {
                         )));
                     }
                 };
+                // A cleared poison is cancelled, not erased: both records stay
+                // in the spool so the incident is still legible, but the
+                // company's total returns to its real spend. Without this a
+                // fail-closed poison is permanent and a company is bricked by a
+                // provider outage it did not cause — observed live when a
+                // credit exhaustion produced usage with no cost, poisoning two
+                // companies that were otherwise healthy.
+                if record.model == POISON_CLEARED {
+                    poisons.remove(&record.company_id);
+                    continue;
+                }
+                if record.model == POISON_MARKER {
+                    poisons.insert(record.company_id.clone());
+                    continue;
+                }
                 let total = totals.entry(record.company_id).or_default();
                 *total = total.saturating_add(record.cost_micro_usd);
             }
+        }
+        for company in poisons {
+            totals.insert(company, u64::MAX);
         }
         let writer = OpenOptions::new()
             .create(true)
@@ -159,7 +184,7 @@ impl SpendStore {
         let marker = SpendRecord {
             request_id: Uuid::nil(),
             company_id: company_id.to_owned(),
-            model: "poison-marker".to_owned(),
+            model: POISON_MARKER.to_owned(),
             input_tokens: 0,
             output_tokens: 0,
             total_tokens: 0,
@@ -172,6 +197,26 @@ impl SpendStore {
                 totals.insert(company_id.to_owned(), u64::MAX);
             }
         }
+    }
+
+    /// Clear a fail-closed poison after an operator has inspected. Appends a
+    /// cancelling record; the original poison stays in the spool.
+    pub fn clear_poison(&self, company_id: &str) -> GatewayResult<()> {
+        let marker = SpendRecord {
+            request_id: Uuid::nil(),
+            company_id: company_id.to_owned(),
+            model: POISON_CLEARED.to_owned(),
+            input_tokens: 0,
+            output_tokens: 0,
+            total_tokens: 0,
+            cost_micro_usd: 0,
+            occurred_at: Utc::now(),
+        };
+        self.record(&marker)?;
+        if let Ok(mut totals) = self.totals.lock() {
+            totals.remove(company_id);
+        }
+        Ok(())
     }
 
     /// Append one accounted call, fsync, then update the in-memory total.
