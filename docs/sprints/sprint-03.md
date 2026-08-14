@@ -201,7 +201,9 @@ Every risk named, one disposition each. Default accepted.
 | Public ingress exposes the control plane to attack / DoS | **Guarded** | Signature verification drops unauthorized traffic at the edge; the endpoint verifies and enqueues, nothing more; its own failure boundary (T2/AC6); sit behind a WAF or tunnel where practical |
 | Spoofed webhook ("this is from Resend") | **Invariant** | HMAC signature verification is non-negotiable; an unsigned or invalid request is dropped before it reaches OrgIntel |
 | Cold-outreach deliverability / sender-reputation damage | **Accepted (finding)** | Resend is a transactional sender; the MVP is one consenting recipient. Cold prospecting at scale is out of scope and a different problem (see below) |
-| **Cold email to consumers is not lawful in the UK** | **Invariant** | Aris sells to *parents* — individual subscribers. UK PECR requires prior consent for unsolicited electronic marketing to individuals; soft opt-in does not reach new prospects. This is not a deliverability preference, it is the law, and it does not bend for a sprint goal. **The company never sources its own recipients.** Every address is either inbound (someone asked) or owner-supplied with a stated lawful basis. |
+| **Cold email to parents (individuals) is not lawful in the UK** | **Invariant** | UK PECR reg 22 requires prior consent for unsolicited electronic marketing to *individual subscribers*, and soft opt-in does not reach new prospects. Not a deliverability preference — the law, and it does not bend for a sprint goal. |
+| **Cold email to incorporated businesses is lawful, with conditions** | **Guarded** | PECR reg 22 does not cover *corporate subscribers* — limited companies, LLPs, schools, academies, MATs. So B2B outreach to tutoring companies is permitted. Conditions that are not optional: UK GDPR still applies where the message identifies a person (legitimate interests + a recorded assessment + honouring objections); **sole traders and ordinary partnerships count as individuals under PECR and are therefore off-limits**; every message must identify the sender and carry a working opt-out (reg 23). The sole-trader carve-out is the trap — much of the tutoring market is one person. |
+| Aris misjudges corporate vs sole trader | **Guarded** | The company does not decide this. The owner supplies or approves the target list with the entity type stated; Aris drafts and personalises. Companies House incorporation status is the check, not a guess from a website. |
 | The owner is the sender of record | **Accepted** | Sending from an owner-controlled domain means the owner carries reputational and legal responsibility for what an autonomous agent writes. Mitigated by T5's approval on first contact with any new party, and by the sample being genuinely useful rather than a pitch. |
 | **Aris misreports a real commercial outcome** | **Guarded** | It has done exactly this once: £45 claimed, £18 confirmable, its one named customer recorded as a loss. Sprint-02 reconciliation now shows receipts back to it each wake, but that has never been tested with real stakes. AC5 counts outcomes from the provider's record, never the company's account. |
 | The Resend key or webhook secret leaks via the container | **Pending fix** | T4 holds both host-side; AC7 grep-verifies; closes the sprint-01 credential regression for email |
@@ -217,7 +219,22 @@ Every risk named, one disposition each. Default accepted.
 This sprint was planned through a founder discussion. The decisions and their rationale are recorded
 here so they are not relitigated or silently lost.
 
-- **Motion: inbound first, not cold outbound.** The earlier draft's "one consenting recipient the
+- **Two lawful motions, run together: B2B outbound and consumer inbound.** An earlier version of
+  this section said inbound-only. That over-corrected. The unlawful thing is cold-emailing *parents*;
+  cold-emailing an incorporated *tutoring business* is a different legal regime and is permitted.
+
+  It is also the better commercial bet, and the sprint-01 Aris run is the evidence: its one durable
+  loss was a parent rejecting on price against an incumbent Bond/CGP stack, and another prospect
+  wanted a product for an exam board that does not exist. Both are consumer-market frictions. A
+  tutoring business buys once and serves many students, is less price-sensitive per unit, and is a
+  *distribution channel* rather than a single sale — one tutor can put the papers in front of thirty
+  parents Aris is not allowed to email.
+
+  So: **B2B outbound to incorporated tutors and schools** for speed, and **consumer inbound** (free
+  sample behind a request page) for the parents, where email is the reply to a request rather than an
+  intrusion. Same rail, same effect surface, two audiences.
+
+- **Motion detail: inbound for consumers.** The earlier draft's "one consenting recipient the
   owner names" is a friendly test subject, and quietly avoids the question the sprint now exists to
   answer. But the fix is not to cold-email parents — that is unlawful here, and no amount of
   deliverability engineering makes it lawful. It is to **invert the motion**: Aris publishes a
@@ -265,6 +282,31 @@ here so they are not relitigated or silently lost.
   ingress. The change is recorded (AC8), not smuggled.
 
 ---
+
+## Channels: lawful, cheap, ranked by leverage
+
+Aris's constraint is not budget, it is that it may not cold-email parents. Everything below respects
+that. Ranked by evidence-per-pound, not by reach.
+
+| Channel | Why it fits Aris | Cost | Lawful basis | Who acts |
+|---|---|---|---|---|
+| **Resource marketplaces** (TES, Teachers Pay Teachers) | Existing buyer intent — teachers and tutors arrive already shopping for practice papers. Handles payment and delivery, so no Stripe this sprint | free to list, ~rev-share | none needed; it is a shopfront | owner opens the account (identity/payout = last mile); Aris writes listing + samples |
+| **B2B email to incorporated tutors & schools** | Buys in volume, less price-sensitive, becomes a distribution channel to parents Aris cannot email | ~free | PECR corporate subscriber + GDPR legitimate interests | Aris drafts and sends; owner supplies/approves the list |
+| **Free sample behind a request page** | Consent arrives with the address; turns cold traffic into a lawful list that compounds | hosting only | consent given at request | Aris builds page + sample |
+| **Tutor partnership / give-to-get** | Give papers free to tutors who redistribute; buys reach and testimonials at once | free | it is a gift, not marketing | Aris proposes; owner approves terms |
+| **11+ forums & parent communities** (elevenplusexams, Mumsnet, subreddits) | Where the demand actually congregates; a genuinely useful free resource is welcome where a pitch is not | free, or cheap ad slots | platform rules, not PECR | **owner posts** — community accounts are personal identity |
+| **Organic search on long-tail** ("free CEM 11+ practice paper") | The sample is the SEO asset; compounds while costing nothing | free | n/a | Aris writes; slow to pay off |
+| **Paid search on long-tail** | Fastest signal on willingness-to-pay, tiny budget suffices in a niche | £5–20/day | n/a | owner sets billing; Aris writes copy |
+
+**Not this sprint:** paid social (wrong intent, needs creative iteration), buying lists (unlawful for
+individuals, poor quality for businesses), and anything requiring sender-reputation warmup.
+
+**The pattern worth noticing:** the top two channels both put Aris in front of people who are already
+looking, and neither requires Aris to interrupt a stranger. The consumer inbound page is what turns
+that traffic into something it may lawfully email later.
+
+*This is engineering planning, not legal advice — the corporate/sole-trader line in particular is
+worth the owner confirming before the first send, because much of the tutoring market is one person.*
 
 ## Test companies and live companies
 
