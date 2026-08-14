@@ -30,6 +30,8 @@ pub const COMPANY_IMAGE: &str = "restless-company-image:latest";
 pub enum OrgMode {
     SingleAgent,
     MinimalTeam,
+    // snake_case would render this `org_intel`; the product is one word.
+    #[serde(rename = "orgintel")]
     #[default]
     OrgIntel,
 }
