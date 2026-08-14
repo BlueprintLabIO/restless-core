@@ -304,6 +304,40 @@ both servers at the wake boundary. The agent's account of the world was wrong
 and the platform's was right — which is the argument for reconciliation in one
 sentence.
 
+### The health gate is right in principle and keeps being wired wrong
+
+Four times in one day the system misattributed an environmental failure to the
+agent, and the same generic check was involved in three of them:
+
+| | What happened | Reported as |
+|---|---|---|
+| morning | `classify_turn` fell through its error path to its consumption check | "the model never ran — check provider credit" |
+| morning | a 20-minute wall-clock bound killed a live turn | same |
+| afternoon | org-health grew a second definition of "failed"; `deployed` counted as a failure | would have accused a healthy company of repeating a failed approach |
+| evening | the watchdog halted a 50-minute turn after 122s of quiet; the no-op check **overwrote its verdict** | "the turn consumed no tokens — the model never ran" |
+
+Each fix was correct in isolation. The pattern says the design is wrong: the
+no-op check has **three call sites** and should have one chokepoint. A predicate
+that means "this turn produced nothing" must not be evaluated by whoever happens
+to be holding the outcome — a halt, an error, and a normal completion each know
+something the generic check does not, and each has now silently lost it once.
+
+**Carry into sprint 03:** one function owns turn classification, and every path
+routes through it with its own evidence attached. Do not patch a fourth door.
+
+### What the day's invalidated runs actually cost
+
+Three comparison attempts were thrown away — roughly two hours of compute — and
+in every case the cause was our instrumentation rather than the companies:
+a daemon restarted under a live wake, a browser harness run under CPU load I
+had created, and a liveness threshold tuned against one model applied to
+another.
+
+That is worth stating plainly rather than burying, because it is the sprint's
+most repeated lesson in a different costume: **the measurement apparatus is part
+of the system under test.** The test suite passed green throughout all three
+failures.
+
 ### Reading
 
 PENDING — `minimal_team` and `orgintel` still running. If `orgintel` does not beat `single_agent` on any dimension, the honest

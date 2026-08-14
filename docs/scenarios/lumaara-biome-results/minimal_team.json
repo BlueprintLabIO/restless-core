@@ -1,9 +1,0 @@
-{
-  "company": "lumaarabiome_minimal_team",
-  "termination": "blocked",
-  "reason": "[no-op] the turn ended without consuming any tokens — the model never ran. Check provider credit, credential validity, and that the configured model still exists",
-  "next_wake_minutes": null,
-  "tool_calls": [],
-  "said": "",
-  "spawn_requests": []
-}
