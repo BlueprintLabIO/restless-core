@@ -126,10 +126,15 @@ machinery — if any — it makes deletable.
 | [ ] | **[S03-T0 · The sample and the way in](./sprint-03/t00-sample-and-way-in.md)** | All (Aris does this itself) | Aris has never had anything to give away and no way for a stranger to ask. Cold-sending is unlawful here, so demand has to be pulled, not pushed | — |
 | [ ] | **[S03-T7 · Test/live split](./sprint-03/t07-test-and-live.md)** | Runtime / OrgIntel | Going live removes the ability to smoke-test on the live thing. `drop_schema` has been unused since sprint 01 and was nearly purged | T1 |
 | [ ] | **[S03-T8 · The owner wire contract](./sprint-03/t08-owner-wire-contract.md)** | Cross-layer (owner surface) | T5 needs an attention item to raise an approval against, and there is no owner-facing noun on the wire. `web/` is 9,841 lines of SPA already rendering `DeskView` from fixtures — the vocabulary is being reconciled, not chosen | — |
+| [ ] | **[S03-T9 · Standing roles — the OrgIntel demonstration](./sprint-03/t09-standing-roles.md)** | OrgIntel + Runtime | Every staff member is the same model (`staff.rs:182`) with role `"staff"` (`staff.rs:166`), and `context.rs` has zero `org_mode` branches. `§6.3` teamwork patterns is **Core contract** and item 12 of the V0 acceptance list; none of the five are built. Sprint 02's comparison had no team to compare | — |
 | [ ] | **S03-T6 · The one-real-loop run + report** | All | `§10.8` stage 3 has never run; `§20.2` Aris acceptance ("schedules follow-up using the authoritative receipt") is untested against the real world | T1–T5 |
 
-**Status (2026-08-14):** draft, pre-implementation. Sprint-02 T4 (the A/B/C comparison) is still
-running and is not blocked by anything here.
+**Status (2026-08-14):** draft, pre-implementation. **Sprint-02 T4 (the A/B/C comparison) was stopped
+and will not be rerun.** It was invalid on two independent counts — the spend spool carried across
+attempts, giving the three modes $2.45 / $10.51 / $12.85 of effective headroom against a nominal $15
+ceiling; and the arms were not distinct (same model everywhere, `minimal_team` and `orgintel`
+byte-identical, `context.rs` free of any `org_mode` branch). T9 replaces it. The spend-carryover fix
+belongs to T7's `--destroy`.
 
 **T0 comes first and Aris does it, not us.** A sample worth requesting and a page to request it
 from is *the company's own work* — exactly the judgement-and-language work the product exists to
@@ -142,6 +147,22 @@ reply→wake projection — exercised by T6. That is the irreducible thesis: a r
 effect surface, and the world pushing back through a governed front door. T4 and T5 are what make
 doing it to real people acceptable; they are not optional for a live run, but the *question* is
 answered by the loop.
+
+**T9 is the sprint's answer to "does OrgIntel earn its place", and it replaces the comparison rather
+than rerunning it.** Sprint 02 asked that question with an experiment that could not answer it: all
+three arms ran the same model, two were byte-identical, and the Exec rationally declined to delegate
+to copies of itself. The fix is not a cleaner harness — it is to build one of §6.3's five patterns and
+put it on the critical path, so the question is answered by whether the company produces better work,
+not by a mode flag. Producer–critic on Aris's outreach copy is chosen because a critic pass before T5
+is what makes the owner's approval cheap.
+
+Independent convergence says this is the right shape: Anthropic runs 20–30 standing routines daily
+across its own codebases — crash fuzzer, dup unifier, dead-code remover, abstraction police — 388 PRs
+opened, 180 merged after review. Each is one narrow job; each writes a state file at the end that the
+next run reads; each gets tuned when it is wrong. That is §6.3 specialist roles, §2.1 durable actors
+with replaceable sessions, and §3.4 self-evolution, arrived at from the other direction. **We already
+have three of the five pieces** — file continuity, the scheduler, receipts. What is missing is the
+role itself.
 
 **T8 is small and goes before T5, not after.** It is not on the critical path to the thesis, but T5
 cannot raise an approval without an item to raise it against, and whatever name that item gets is
@@ -248,6 +269,9 @@ Every risk named, one disposition each. Default accepted.
 | **The SPA and the daemon drift into two vocabularies** | **Guarded** | Already half-true: `web/`'s `NeedsYouKind` and the contract's `attention_item` name the same concept differently, and nothing reconciles them. T8's first task is the field-by-field pass; the cost of deferring is that every synonym invented this sprint becomes SPA debt |
 | Wiring `DeskView` as-is drags back discarded machinery | **Guarded** | Its `library` / `records` fields are the content-addressed asset-custody surface CLAUDE.md forbids recreating. T8 deletes them from the type rather than finding them a backend source |
 | T8 becomes a protocol redesign instead of a naming pass | **Guarded** | Scope is explicitly inside the existing socket protocol. HTTP, SSE, framework choice and version negotiation are named out of scope because they are replaceable; only vocabulary, error kinds, idempotency scope and write shape ossify |
+| **A core contract went unbuilt for two sprints without anyone noticing** | **Pending fix** | `§6.3` teamwork patterns is Core contract and item 12 of the V0 acceptance list; none of the five patterns exist. It surfaced only because the owner asked why nothing was delegating. T9 builds one; the wider gap — no routine check of Core-contract coverage — is real and unaddressed |
+| The critic is a yes-man and the demonstration proves nothing | **Accepted (finding)** | AC2 requires a specific objection that changes the copy. A critic that only agrees is a *result*, recorded as such — it would say the pattern needs different context or a different model, which is precisely what `§3.4` improvement records exist to capture |
+| Per-role models blow the budget | **Guarded** | The company ceiling is unchanged and is the actual fuse; a role names a model, it does not get its own wallet. AC5 reports cost per role so "was the critic worth it" is answerable in dollars |
 
 ---
 
