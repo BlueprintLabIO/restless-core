@@ -143,3 +143,85 @@ repaired by splitting the line, and confirmed by `HTTP 200` from the Resend API
 with the restored key. The daemon's honest startup warning is what surfaced it —
 had the ingress silently started with an empty secret, the corruption would have
 been found much later and by something worse.
+
+---
+
+## T0/T6 — the live loop, outbound
+
+**Aris produced and sent the sample itself.** `actor: exec`, not the owner.
+
+```
+receipt   822729aa-a416-4299-a40f-f4f21ac5ae68
+key       s03-w4-cem-sample-owner-v1
+provider  resend, message 5406aa8a-f270-4cf2-8273-f5c00a7c0740
+to        yaillives@gmail.com   from aris@blueprintlab.io
+Resend    last_event: delivered
+artifact  /company/outputs/cem-sample-paper1.md — 16,625 bytes
+email     17,240 chars, the paper inlined in full, not a teaser
+```
+
+A complete CEM-style 11+ practice paper: 40 multiple-choice questions across
+comprehension, verbal, numerical and non-verbal reasoning, in four timed
+sections, **with full worked solutions and a parent marking guide**. It carries
+its own IP disclaimer ("Not affiliated with CEM… no copyrighted exam content is
+reproduced") without being asked to.
+
+It also asked the owner the question the ticket wanted asked, in its own words:
+*"IS THIS GOOD ENOUGH TO PUT YOUR NAME BEHIND? Reply yes / no / what you would
+change. Any reply beats silence."*
+
+### The hypothesis is the real result
+
+`/company/org/hypotheses/cem-board-fit-line.md`, in Appendix A's template, and
+it is **sourced**: every observation carries a journal citation, and it opens
+*"All from my own journal and kernel receipts, not asserted memory."*
+
+Its predictions are falsifiable with numbers (≥50% intent from CEM-fit
+prospects vs 0% observed for the unmatched P8), and — the part worth noticing —
+it lists what it does **not** know:
+
+> Which target schools/regions actually use CEM vs GL vs school-written papers
+> is **unverified by me** … Board mapping must be verified per school before any
+> outreach claims "matches your exam".
+
+And it refuses to record a result it does not have: *"Do not record a result
+here until reply/send receipts exist."*
+
+**Citation accuracy, checked against the ledger:** Aris cited receipt
+`822729aa…` and key `s03-w4-cem-sample-owner-v1`. Both exact, and it correctly
+kept the provider message id (`5406aa8a…`) as a separate thing. Sprint 01's Aris
+claimed £45 of revenue that receipts put at £18; this is a different standard of
+self-report, and it is the first evidence that showing a company its own
+receipts each wake changes what it writes.
+
+### Incident: I contaminated a live company's beliefs
+
+The T3 ingress test injected a **synthetic** signed webhook — a fabricated reply
+from `yaillives@gmail.com` saying *"Can you send the CEM version too?"* — into
+**`aris`, a live company**, because that is where the real provider was
+configured.
+
+Aris then read it as real, and built on it. Its hypothesis now records:
+
+> the owner's live reply (inbox, 2026-08-14 07:59) asked for "the CEM version"
+> within 5 minutes of receiving a GL-style sample — **the strongest single
+> demand signal so far**
+
+and
+
+> triggered by the owner's unprompted request — the first demand signal for CEM
+> from outside the simulated panel.
+
+**That demand signal does not exist. I manufactured it.** The sample is real and
+good, the sending rail is real, and the hypothesis's *reasoning* is sound — but
+its stated trigger is an artifact of my test, and a company acting on it would be
+chasing a customer who never spoke.
+
+This is the same error as the sprint-02 destructive verification against
+`cosmon`: **testing against a live company because it was the convenient one.**
+S03-T7's `_test` companies exist precisely for this and were not yet built when
+the ingress needed exercising. The ordering was wrong — T7 should land before any
+live-company ingress test, not after.
+
+Correcting the record with Aris is required, not optional: `orgintel`'s own rule
+is that receipts win over belief, and here the *belief* came from us.
