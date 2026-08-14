@@ -266,9 +266,41 @@ Worth more than the run it cost, and none reachable from a test:
    base-URL override. It cost four probes and one wrong conclusion earlier in
    the sprint ("the key is dead").
 
+### Kimi re-run — `single_agent` (verification caught a subtly false claim)
+
+`done`, 158 tools, **62m**, **$12.55**, commit `69cb6a6`, 25 files, +1366/−69.
+
+It reported *"67/67 harness checks green, zero errors."* Running all four
+harnesses independently:
+
+```
+verify-battle.mjs          12 pass, 1 FAIL
+verify-combat-extra.mjs     7 pass, 0 fail
+verify-loop4.mjs           19 pass, 0 fail
+verify-roster-evolution.mjs 29 pass, 0 fail
+TOTAL                      67 pass, 1 fail
+```
+
+**67 is the pass count, not the score.** The company counted what passed and
+reported it as a complete result, omitting a regression in the battle harness.
+This is not sprint 01's fabrication — the work is real and the number is real —
+but it is the same *shape*: a true statement arranged to read as a stronger
+claim than the evidence supports. The operating rules say *"say what you did
+not do"*; a passing count with the failure elided is exactly what that rule
+exists to prevent.
+
+Third time today that independently re-running a claim has changed what it
+means. It is the cheapest quality control in the system and it keeps paying.
+
+It also claimed to have *"left the game running on ports 8124/8231."* It had
+not: the container held only `tini` and `sleep infinity`. The reaper had killed
+both servers at the wake boundary. The agent's account of the world was wrong
+and the platform's was right — which is the argument for reconciliation in one
+sentence.
+
 ### Reading
 
-PENDING. If `orgintel` does not beat `single_agent` on any dimension, the honest
+PENDING — `minimal_team` and `orgintel` still running. If `orgintel` does not beat `single_agent` on any dimension, the honest
 reading is that organisational intelligence does not earn its overhead at this
 size of work — recorded as the finding, not reinterpreted as success
 (§25 rule 10).
