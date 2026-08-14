@@ -176,6 +176,26 @@ The effect service:
 
 Provider-specific implementation belongs in replaceable adapters, not in the Kernel.
 
+### What is and is not an effect
+
+**Core contract**
+
+The effect service is an **accountability boundary, not an API gateway**. The test is *meaningful external consequence*, never *does this touch the network*.
+
+Most of what a company does outside itself is ordinary work and must not be routed through this service. An agent researching competitor pricing in a browser, reading a marketplace listing, cloning a public repository, or navigating a supplier's site is working — not requesting an effect. Forcing that through effect intents would make the surface the company's proxy for the internet, which is unbounded, defeats the runtime's whole purpose, and buys no accountability.
+
+Three shapes, and only the first belongs to this service:
+
+| Shape | Examples | Where it runs |
+|---|---|---|
+| **Effect** | send an email, charge a card, publish a deployment, post a public listing, register a domain | effect service, via an adapter; receipt required |
+| **Ordinary external work** | research, reading, browsing, cloning, testing against a public endpoint | the Company Runtime, directly; no receipt |
+| **Prepared last mile** | identity verification, payout details, 2FA, an account that is legally a person | preserved state handed to the owner |
+
+**A receipt does not require an API.** An effect may be performed by an HTTP adapter or by driving the company's own authenticated browser session in its runtime; the receipt, idempotency key, party and reconciliation are identical either way. Accountability attaches to the consequence, not to the transport. This matters because the set of consequential actions with clean APIs is much smaller than the set of consequential actions, and an adapter per provider does not scale.
+
+The practical consequence for adapters: build a small number of API adapters where an API exists and the volume justifies it, plus **one browser adapter** that performs consequential actions through the runtime's own session — rather than pursuing coverage of every provider.
+
 ## 2.3 Resource controller
 
 Resources are continuing, bounded capabilities used to perform work.

@@ -283,37 +283,59 @@ here so they are not relitigated or silently lost.
 
 ---
 
-## The effect surface is an accountability boundary, not an API gateway
+## What is and is not an effect
 
-A tension surfaced while planning this sprint and it is worth settling before T1
-picks a shape: the real world of a company's external actions is far larger than
-the set of things with clean APIs. Listing on TES, posting in a forum, replying
-to a marketplace message — none of these are `POST /v1/send`, and building an
-adapter per provider is unbounded and hopeless.
+Settled in `authority-plane` §2.2 during this sprint's planning, and load-bearing
+for T1's shape: the effect service is an **accountability boundary, not an API
+gateway**. Research, browsing and reading are ordinary runtime work with no
+receipt; publishing a listing or sending an email is an effect. **A receipt does
+not require an API** — a consequential action driven through the company's own
+browser session earns the same receipt, idempotency key and party as an HTTP
+adapter. So T1 builds provider dispatch, not a provider catalogue.
 
-The resolution is that **a receipt does not require an API.** Governance attaches
-to *consequence*, not to transport. Three categories, and only the first is what
-we have built so far:
+`aris_test` therefore simulates the **failure shapes** — success, denial, timeout
+before execution, timeout after, duplicate, ambiguous outcome, delayed reply —
+not a catalogue of providers. Seven shapes cover the behaviour; no number of
+provider mocks would.
 
-| | Examples | Shape |
-|---|---|---|
-| **API effects** | `email.send`, `payment.charge`, `web.deploy`, `order.receive` | adapter behind `request_effect`; receipt, idempotency, party |
-| **Session work** | listing on a marketplace, posting in a community, replying in a web inbox | the company's **own browser and persistent profile** in its runtime (`ARCHITECTURE.md` §5). A consequential action still earns a receipt — the transport is a browser, the accountability is unchanged |
-| **Prepared last mile** | identity verification, payout details, 2FA, an account that is legally a person | handed to the owner with state preserved. **By design, not a gap** |
+## Strategy is an OrgIntel problem, and the spec already solved it
 
-So the roadmap is not an adapter per provider. It is: a few API adapters where
-APIs exist and matter, **one browser adapter** driving the company's own
-authenticated sessions, and the last-mile handoff. The test for "is this an
-effect?" stays the spec's own — *meaningful external consequence* — not "does it
-touch the network." Researching prices on TES is ordinary work; publishing a
-listing is an effect.
+Sprint 02 found that Aris recorded a price rejection against an incumbent and a
+segment mismatch in its own journal, then kept selling to parents. It never asked
+whether the segment was wrong. The instinct is to treat that as "the model needs
+a better prompt". It is not — it is the absence of the two mechanisms
+`orgintel` §1.1 names as what OrgIntel *is*, and §3.2 / §3.4 already specify
+them.
 
-**Simulate failure shapes, not providers.** `aris_test` cannot simulate TES,
-Mumsnet and Companies House, and should not try. There are roughly seven
-provider-independent shapes worth simulating — success, denial, timeout before
-execution, timeout after, duplicate, ambiguous outcome, delayed reply — and they
-cover the behaviour the system must get right. Simulation proves system
-behaviour; it never proves market demand.
+**They are cheap.** §3.2 says an exploration record "may begin as a readable file
+with lightweight metadata" and — explicitly — **"do not build an experiment state
+machine in V0."** §3.4's evolution record is a markdown template. So this is a
+file convention plus context assembly, not a subsystem.
+
+Aris's own case maps onto §3.4's template exactly, which is the test of whether
+the template is real:
+
+```text
+Observed problem:      parents reject on price against an entrenched Bond/CGP
+                       stack; one prospect wanted an exam board we do not serve
+Proposed change:       shift the primary segment to incorporated tutoring
+                       businesses; parents become inbound-only
+Why it may help:       a tutor buys once and serves many; less price-sensitive
+                       per unit; is a distribution channel to parents we may not
+                       lawfully email
+Predicted effect:      higher reply rate per send; price objection stops being
+                       the dominant loss reason
+Scope and budget:      one sprint, the existing ceiling
+Baseline:              the parent funnel's own conversion, already recorded
+Result / Adopt:        pending
+```
+
+Sprint 03 therefore adds one thing to T0, and it is small: **Aris maintains
+`/company/org/hypotheses/` and `/company/org/improvements/` as files, and open
+records enter its wake context** — the same pattern as the effect ledger and the
+shared spine. No state machine, no new tables, no `add_hypothesis` API. If the
+company revises its own strategy from its own evidence, that is the first
+evidence the value proposition is real rather than asserted.
 
 ## Channels: lawful, cheap, ranked by leverage
 
