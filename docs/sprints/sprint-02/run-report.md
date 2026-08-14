@@ -124,7 +124,7 @@ Held identical: model `zai/glm-5.2`, $15 ceiling, image, starting commit
 | Mode | Termination | Tools | Staff | Cost | Elapsed | Owner acceptance |
 |---|---|---|---|---|---|---|
 | `single_agent` | `done` | 192 | 0 | **$6.35** | **37m** | **PASS** — contract met in full |
-| `minimal_team` | PENDING | | | | | |
+| `minimal_team` | `done` | 137 | **0** | $4.49 | 46m | **PASS** — contract met |
 | `orgintel` | PENDING | | | | | |
 
 Acceptance is manual, against the scenario's success contract. Numbers do not
@@ -154,6 +154,40 @@ which is the process-leak fix working as designed.
 trainer battles with real mechanics, a scaled mini-boss gating traversal, and a
 full biome transition with atmosphere and bounds changes, for $6.35 in 37
 minutes with zero owner interventions.
+
+#### `minimal_team` — the middle arm collapsed into the baseline
+
+`done`, commit `d75ae16`, 20 files, +837/−62. Verified independently: **18/18, 0
+errors** — boss battle with bonding disabled, cavern unlock, portal transition,
+cavern-specific creatures, bond offered in-cavern, exit portal.
+
+**It did not delegate.** `restless spawn` was available to it — that is the only
+thing separating this mode from `single_agent` — and the Exec never called it.
+
+That is the sprint's most important result so far, and it is not the one the
+harness was built to measure. Sprint 02 diagnosed three runs of
+`spawn_requests: []` as a *plumbing* failure: delegation was an end-of-turn
+envelope field rather than a tool, so an agent working naturally wrote briefs
+instead. T2 fixed that, and was verified working. Given the tool, at the moment
+of decision, on a task the Exec had itself previously decomposed into two
+parallel workstreams — it still chose to do the work alone.
+
+So the middle arm is not a distinct configuration. It is `single_agent` with an
+unused affordance, and the two runs differ only by noise:
+
+| | tools | cost | elapsed | lines |
+|---|---|---|---|---|
+| `single_agent` | 192 | $6.35 | 37m | +1090/−90 |
+| `minimal_team` | 137 | $4.49 | 46m | +837/−62 |
+
+Cheaper, slower, less work, same verdict. Nothing here separates them.
+
+Two readings remain open until `orgintel` lands. Either delegation genuinely is
+not worth its overhead at this size of task — a real and useful finding — or
+the Exec will not reach for it unless the context makes the case, in which case
+`orgintel` mode (which tells a worker what company it works for) may be the
+thing that tips it. If `orgintel` also declines to delegate, the honest reading
+is the first.
 
 ### Reading
 
