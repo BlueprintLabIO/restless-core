@@ -164,27 +164,30 @@
 				>
 				<h2 class="exr-lock-h">Connect your executive</h2>
 				<p class="exr-lock-p">
-					Bind {execName} to a local ACP runtime to start the conversation.
-					Each company connects its own — pick a provider.
+					Bind {execName} to the company's configured ACP runtime to start the conversation.
 				</p>
-				<div class="exr-lock-providers">
-					<button
-						type="button"
-						class="exr-lock-provider"
-						disabled={!canOperate || connecting !== null || !onconnect}
-						onclick={() => connect('codex')}
-					>
-						{connecting === 'codex' ? 'Connecting…' : 'Codex'}
-					</button>
-					<button
-						type="button"
-						class="exr-lock-provider"
-						disabled={!canOperate || connecting !== null || !onconnect}
-						onclick={() => connect('claude')}
-					>
-						{connecting === 'claude' ? 'Connecting…' : 'Claude'}
-					</button>
-				</div>
+				{#if onconnect}
+					<div class="exr-lock-providers">
+						<button
+							type="button"
+							class="exr-lock-provider"
+							disabled={!canOperate || connecting !== null}
+							onclick={() => connect('codex')}
+						>
+							{connecting === 'codex' ? 'Connecting…' : 'Codex'}
+						</button>
+						<button
+							type="button"
+							class="exr-lock-provider"
+							disabled={!canOperate || connecting !== null}
+							onclick={() => connect('claude')}
+						>
+							{connecting === 'claude' ? 'Connecting…' : 'Claude'}
+						</button>
+					</div>
+				{:else}
+					<p class="exr-lock-note">Connection is managed by the company Runtime.</p>
+				{/if}
 				{#if !canOperate}
 					<p class="exr-lock-note">Ask an owner or operator to connect the executive.</p>
 				{/if}

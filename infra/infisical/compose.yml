@@ -1,0 +1,64 @@
+name: restless-infisical
+
+# Infisical is imported host infrastructure, not a Company Runtime service.
+# Only its HTTP API is published, and only on loopback. PostgreSQL and Redis
+# never leave this private Compose network.
+services:
+  backend:
+    image: infisical/infisical:v0.162.19
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    env_file:
+      - ${RESTLESS_INFISICAL_RUNTIME_ENV:?set by provision.sh}
+    environment:
+      NODE_ENV: production
+    ports:
+      - "127.0.0.1:${RESTLESS_INFISICAL_PORT:-7793}:8080"
+    networks:
+      - infisical
+    security_opt:
+      - no-new-privileges:true
+
+  db:
+    image: postgres:14.17-alpine
+    restart: unless-stopped
+    env_file:
+      - ${RESTLESS_INFISICAL_RUNTIME_ENV:?set by provision.sh}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready --username=$${POSTGRES_USER} --dbname=$${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - infisical
+    security_opt:
+      - no-new-privileges:true
+
+  redis:
+    image: redis:7.4.2-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    volumes:
+      - redis_data:/data
+    networks:
+      - infisical
+    security_opt:
+      - no-new-privileges:true
+
+volumes:
+  postgres_data:
+  redis_data:
+
+networks:
+  infisical:

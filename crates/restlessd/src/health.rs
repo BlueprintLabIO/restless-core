@@ -342,6 +342,8 @@ pub struct OrgSignal {
 /// Read the company's own coordination state and report what looks wrong.
 pub async fn organisational(
     org: &restless_orgintel::OrgIntel,
+    authority: &crate::authority::AuthorityStore,
+    company: &str,
     spent_usd: f64,
 ) -> Result<Vec<OrgSignal>> {
     use restless_orgintel::CommitmentState;
@@ -367,7 +369,7 @@ pub async fn organisational(
     // 2. Repeating a failed approach. Observed: Aris asked for ~95 capability
     //    names that did not exist, in one wake, and blocked on the owner.
     let mut failures: std::collections::BTreeMap<String, usize> = std::collections::BTreeMap::new();
-    for event in org.events_of_kind("effect").await? {
+    for event in authority.records_of_kind(company, "effect").await? {
         let Some(capability) = event.body.get("capability").and_then(|v| v.as_str()) else {
             continue;
         };

@@ -13,3 +13,4 @@ The restless CLI. Empty stub. Grown from the first sprint slice that needs it.
 anyhow = "1"
 clap = { version = "4", features = ["derive", "env"] }
 serde_json = "1"
+toml = "0.8"

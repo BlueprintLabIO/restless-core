@@ -10,7 +10,7 @@
 //!   RESTLESS_ACTOR        — who "message send" is from
 //!   RESTLESS_COORDINATOR  — host:port; when set, TCP instead of unix socket
 
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufRead, BufReader, Read, Write};
 use std::os::unix::net::UnixStream;
 use std::path::PathBuf;
 
@@ -26,6 +26,24 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
+    /// Create and configure companies without hand-editing daemon state.
+    Company {
+        #[command(subcommand)]
+        command: CompanyCommand,
+    },
+    /// Configure and probe secret references. Secret values remain in their backend.
+    Credential {
+        #[command(subcommand)]
+        command: CredentialCommand,
+    },
+    /// Generate or rotate the one-owner web credential (shown once).
+    OwnerToken {
+        #[arg(
+            long,
+            help = "Required acknowledgement: invalidates the previous web credential"
+        )]
+        rotate: bool,
+    },
     /// Bring a company environment up (create if absent, then start).
     Up {
         #[arg(long, short = 'c', env = "RESTLESS_COMPANY")]
@@ -59,6 +77,21 @@ enum Command {
     Doctor {
         #[arg(long, short = 'c', env = "RESTLESS_COMPANY")]
         company: Option<String>,
+    },
+    /// Ensure and inspect the company's OrgIntel schema.
+    OrgintelInit {
+        #[arg(long, short = 'c', env = "RESTLESS_COMPANY")]
+        company: Option<String>,
+    },
+    /// Outstanding owner work, projected from Authority and OrgIntel.
+    Attention {
+        #[arg(long, short = 'c', env = "RESTLESS_COMPANY")]
+        company: Option<String>,
+    },
+    /// Persistent browser controller coordination and health.
+    Browser {
+        #[command(subcommand)]
+        command: BrowserCommand,
     },
     /// Wake the company's Exec for one turn (rehydrate → work → decide).
     Wake {
@@ -198,6 +231,12 @@ enum Command {
         /// The address or party identifier being approved.
         #[arg(long)]
         party: String,
+        /// Withdraw standing approval instead of granting it.
+        #[arg(long)]
+        revoke: bool,
+        /// Close the current request without granting standing authority.
+        #[arg(long, conflicts_with = "revoke")]
+        decline: bool,
     },
     /// Request an external effect (T8). Args are JSON.
     Effect {
@@ -209,6 +248,72 @@ enum Command {
         /// Idempotency key: a retry with the same key replays the receipt.
         #[arg(long)]
         key: String,
+    },
+}
+
+#[derive(Subcommand)]
+enum CompanyCommand {
+    /// Validate and create a company from the canonical TOML interface.
+    Create {
+        #[arg(long)]
+        from_file: PathBuf,
+    },
+    /// Print canonical TOML; credential references are shown, never values.
+    Show {
+        #[arg(long, short = 'c', env = "RESTLESS_COMPANY")]
+        company: Option<String>,
+    },
+    /// Set one deterministic configuration key: mission, model,
+    /// spend_ceiling_usd, from_address, providers.<capability>, or
+    /// credentials.<capability>. Name is immutable; create a new company.
+    Set {
+        #[arg(long, short = 'c', env = "RESTLESS_COMPANY")]
+        company: Option<String>,
+        key: String,
+        value: String,
+    },
+    /// List configured companies.
+    List,
+}
+
+#[derive(Subcommand)]
+enum CredentialCommand {
+    /// Store a capability's scheme:locator reference, never its value.
+    Set {
+        #[arg(long, short = 'c', env = "RESTLESS_COMPANY")]
+        company: Option<String>,
+        capability: String,
+        reference: String,
+        /// Forward a value from @<file> or `-` (stdin) to a supporting backend.
+        /// Secret material is never accepted as an argv value.
+        #[arg(long)]
+        value: Option<String>,
+    },
+    /// Probe every configured reference as present, absent or invalid.
+    Check {
+        #[arg(long, short = 'c', env = "RESTLESS_COMPANY")]
+        company: Option<String>,
+    },
+}
+
+#[derive(Subcommand)]
+enum BrowserCommand {
+    /// Probe desktop, Chromium, automation and controller state.
+    Status {
+        #[arg(long, short = 'c', env = "RESTLESS_COMPANY")]
+        company: Option<String>,
+    },
+    /// Yield the shared visible browser to the owner.
+    Request {
+        #[arg(long, short = 'c', env = "RESTLESS_COMPANY")]
+        company: Option<String>,
+        #[arg(long, env = "RESTLESS_ACTOR")]
+        session: Option<String>,
+    },
+    /// Release an agent-held browser controller claim.
+    Release {
+        #[arg(long, short = 'c', env = "RESTLESS_COMPANY")]
+        company: Option<String>,
     },
 }
 
@@ -308,6 +413,56 @@ fn stamp(mut request: serde_json::Value) -> serde_json::Value {
 /// One request/response pair; `watch` and `attach` handle their own I/O.
 fn request_json(command: Command) -> Result<serde_json::Value> {
     Ok(match command {
+        Command::Company { command } => match command {
+            CompanyCommand::Create { from_file } => {
+                let body = std::fs::read_to_string(&from_file)
+                    .with_context(|| format!("read {}", from_file.display()))?;
+                let value: toml::Value = toml::from_str(&body)
+                    .with_context(|| format!("parse {}", from_file.display()))?;
+                let company = value
+                    .get("name")
+                    .and_then(toml::Value::as_str)
+                    .context("company TOML needs a string name")?;
+                serde_json::json!({ "cmd": "company-create", "company": company, "body": body })
+            }
+            CompanyCommand::Show { company } => {
+                serde_json::json!({ "cmd": "company-show", "company": company })
+            }
+            CompanyCommand::Set {
+                company,
+                key,
+                value,
+            } => serde_json::json!({
+                "cmd": "company-set", "company": company, "state": key, "body": value,
+            }),
+            CompanyCommand::List => serde_json::json!({ "cmd": "company-list" }),
+        },
+        Command::Credential { command } => match command {
+            CredentialCommand::Set {
+                company,
+                capability,
+                reference,
+                value,
+            } => {
+                let secret_value = value
+                    .map(|source| read_secret_source(&source))
+                    .transpose()?;
+                serde_json::json!({
+                    "cmd": "credential-set", "company": company,
+                    "capability": capability, "body": reference,
+                    "secret_value": secret_value,
+                })
+            }
+            CredentialCommand::Check { company } => {
+                serde_json::json!({ "cmd": "credential-check", "company": company })
+            }
+        },
+        Command::OwnerToken { rotate } => {
+            if !rotate {
+                bail!("pass --rotate to generate a new owner credential; only its digest will be stored");
+            }
+            serde_json::json!({ "cmd": "owner-token" })
+        }
         Command::Up {
             company: c,
             from,
@@ -332,6 +487,24 @@ fn request_json(command: Command) -> Result<serde_json::Value> {
         Command::Doctor { company: c } => {
             serde_json::json!({ "cmd": "doctor", "company": c })
         }
+        Command::OrgintelInit { company: c } => {
+            serde_json::json!({ "cmd": "orgintel-init", "company": c })
+        }
+        Command::Attention { company: c } => {
+            serde_json::json!({ "cmd": "attention", "company": c })
+        }
+        Command::Browser { command } => match command {
+            BrowserCommand::Status { company } => {
+                serde_json::json!({ "cmd": "browser-status", "company": company })
+            }
+            BrowserCommand::Request { company, session } => serde_json::json!({
+                "cmd": "browser-request", "company": company,
+                "id": session.unwrap_or_else(|| "exec".to_string()),
+            }),
+            BrowserCommand::Release { company } => {
+                serde_json::json!({ "cmd": "browser-release", "company": company })
+            }
+        },
         Command::Wake { company: c, reason } => {
             serde_json::json!({ "cmd": "wake", "company": c, "reason": reason })
         }
@@ -366,8 +539,13 @@ fn request_json(command: Command) -> Result<serde_json::Value> {
             "cmd": "clear-poison",
             "company": c,
         }),
-        Command::Approve { company: c, party } => serde_json::json!({
-            "cmd": "approve",
+        Command::Approve {
+            company: c,
+            party,
+            revoke,
+            decline,
+        } => serde_json::json!({
+            "cmd": if revoke { "revoke" } else if decline { "decline" } else { "approve" },
             "company": c,
             "party": party,
         }),
@@ -432,6 +610,21 @@ fn request_json(command: Command) -> Result<serde_json::Value> {
         }
         Command::Watch { .. } | Command::Attach { .. } => unreachable!("handled above"),
     })
+}
+
+fn read_secret_source(source: &str) -> Result<String> {
+    if source == "-" {
+        let mut value = String::new();
+        std::io::stdin()
+            .read_to_string(&mut value)
+            .context("read secret value from stdin")?;
+        return Ok(value);
+    }
+    let path = source
+        .strip_prefix('@')
+        .filter(|path| !path.is_empty())
+        .context("--value accepts only @<file> or - (stdin), never raw secret material")?;
+    std::fs::read_to_string(path).with_context(|| format!("read secret value from {path}"))
 }
 
 fn print_response(response: &str) -> Result<()> {

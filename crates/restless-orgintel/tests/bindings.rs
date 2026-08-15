@@ -95,8 +95,16 @@ fn typescript_bindings_match_the_rust_types() {
             let at = committed.lines().count().min(rendered.lines().count()) + 1;
             (
                 at,
-                committed.lines().nth(at - 1).unwrap_or("<end of file>").to_string(),
-                rendered.lines().nth(at - 1).unwrap_or("<end of file>").to_string(),
+                committed
+                    .lines()
+                    .nth(at - 1)
+                    .unwrap_or("<end of file>")
+                    .to_string(),
+                rendered
+                    .lines()
+                    .nth(at - 1)
+                    .unwrap_or("<end of file>")
+                    .to_string(),
             )
         });
 

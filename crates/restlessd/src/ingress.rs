@@ -14,8 +14,9 @@
 //! lesson generalises — a public listener that shares a failure path with the
 //! scheduler means a slow, malformed, or flood-abused request can stall the
 //! company. So this runs on its own listener and its own task, and does
-//! **exactly three things**: verify the signature, dedupe by provider event id,
-//! enqueue. It never touches OrgIntel synchronously.
+//! **exactly three things**: verify the signature, durably dedupe/record in
+//! Authority, and schedule the OrgIntel projection. It never waits for
+//! OrgIntel before answering the provider.
 //!
 //! ## The trust boundary is the signature, not the network
 //!
@@ -27,6 +28,7 @@
 //! over `{id}.{timestamp}.{body}`, keyed by the base64 body of a `whsec_` secret.
 
 use std::sync::Arc;
+use std::{future::Future, pin::Pin};
 
 use anyhow::{bail, Context as _, Result};
 use base64::Engine as _;
@@ -61,10 +63,11 @@ pub struct InboundEvent {
     pub body: serde_json::Value,
 }
 
-/// What the ingress does with an accepted event. A trait so the listener can be
-/// tested without OrgIntel, a database, or a company.
+/// What the ingress does with a verified event. The response waits for this
+/// future: 202 means Authority durably accepted the event, not merely that a
+/// task was spawned and might disappear with the process.
 pub trait Sink: Send + Sync + 'static {
-    fn accept(&self, event: InboundEvent);
+    fn accept(&self, event: InboundEvent) -> Pin<Box<dyn Future<Output = Result<()>> + Send + '_>>;
 }
 
 /// Verify a Svix-style signature over the raw body.
@@ -257,13 +260,20 @@ async fn handle<S: Sink>(stream: tokio::net::TcpStream, secret: &str, sink: &S) 
         .map(str::to_string)
         .unwrap_or_else(|| svix_id.clone());
 
-    sink.accept(InboundEvent {
+    let event = InboundEvent {
         provider_event_id,
         company,
         body: parsed,
-    });
-    // Accepted, not processed — §4.4: long work returns an accepted identity
-    // rather than holding the connection. Resend needs a fast 2xx or it retries.
+    };
+    if let Err(error) = sink.accept(event).await {
+        // A non-2xx asks the provider to redeliver. Returning 202 before
+        // Authority committed created a crash window in which a real reply
+        // could vanish forever.
+        respond(&mut write, 503, r#"{"error":"event not recorded"}"#).await?;
+        return Err(error.context("verified inbound event was not recorded"));
+    }
+    // Authority is durable. OrgIntel projection may still be pending or
+    // degraded, but provider redelivery is no longer needed for custody.
     respond(&mut write, 202, r#"{"status":"accepted"}"#).await?;
     Ok(())
 }
@@ -280,6 +290,7 @@ async fn respond<W: tokio::io::AsyncWrite + Unpin>(
         404 => "Not Found",
         405 => "Method Not Allowed",
         413 => "Payload Too Large",
+        503 => "Service Unavailable",
         _ => "Error",
     };
     let response = format!(

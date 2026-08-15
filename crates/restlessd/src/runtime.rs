@@ -3,12 +3,16 @@
 //! container + one named volume per company; the volume is the company home.
 
 use std::path::{Path, PathBuf};
+use std::pin::Pin;
 use std::process::Stdio;
+use std::task::{Context as TaskContext, Poll};
 
 use anyhow::{bail, Context, Result};
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use tokio::io::AsyncWriteExt;
+use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt, ReadBuf};
+use tokio::process::{Child, ChildStdin, ChildStdout};
 
 pub const COMPANY_IMAGE: &str = "restless-company-image:latest";
 const SOURCE_DIGEST_LABEL: &str = "io.restless.source-digest";
@@ -45,10 +49,9 @@ pub struct CompanyConfig {
     /// point of use; the secret itself never appears here.
     #[serde(default)]
     pub credentials: std::collections::BTreeMap<String, String>,
-    /// S03-T5: parties the owner has already blessed for real effects. A list
-    /// in a file, not an approvals table — revocable with an editor, and
-    /// `authority-plane §6.5` warns off building a policy engine before a
-    /// workload demands one.
+    /// Legacy S03 approval input. At daemon boot these values migrate into the
+    /// Authority-owned governance store and this list is purged. It remains in
+    /// the parser only so upgrading cannot silently discard an existing grant.
     #[serde(default)]
     pub approved_parties: Vec<String>,
 }
@@ -59,6 +62,7 @@ fn default_ceiling() -> f64 {
 
 impl CompanyConfig {
     pub fn load(root: &Path, name: &str) -> Result<Self> {
+        validate_company_name(name)?;
         let path = root.join("companies").join(format!("{name}.toml"));
         let raw = std::fs::read_to_string(&path).with_context(|| {
             format!(
@@ -77,8 +81,8 @@ impl CompanyConfig {
         Ok(config)
     }
 
-    /// Write the config back. Used by `restless approve` (S03-T5), which is the
-    /// only path that mutates a company file at runtime.
+    /// Write the config back. Used by the bounded company/credential CLI and
+    /// by one-time approval migration cleanup.
     ///
     /// Writes to a temporary file and renames, because the alternative — a
     /// truncating write interrupted midway — leaves the company with no config
@@ -86,6 +90,7 @@ impl CompanyConfig {
     /// told why. Rename within a directory is atomic on every filesystem we run
     /// on.
     pub fn save(root: &Path, config: &Self) -> Result<()> {
+        validate_company_name(&config.name)?;
         let dir = root.join("companies");
         let path = dir.join(format!("{}.toml", config.name));
         let temporary = dir.join(format!(".{}.toml.tmp", config.name));
@@ -96,6 +101,22 @@ impl CompanyConfig {
             .with_context(|| format!("replace {}", path.display()))?;
         Ok(())
     }
+}
+
+fn validate_company_name(name: &str) -> Result<()> {
+    if name.is_empty()
+        || name.len() > 63
+        || !name.bytes().enumerate().all(|(index, byte)| {
+            if index == 0 {
+                byte.is_ascii_lowercase()
+            } else {
+                byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'_'
+            }
+        })
+    {
+        bail!("invalid company name {name:?}: use lowercase letters, digits or underscores, starting with a letter");
+    }
+    Ok(())
 }
 
 pub fn container_name(company: &str) -> String {
@@ -136,6 +157,18 @@ pub struct RuntimeDoctor {
     pub image_source_digest: Option<String>,
     pub reconciliation: ReconciliationStatus,
     pub action: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub browser: Option<BrowserDoctor>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct BrowserDoctor {
+    pub status: String,
+    pub desktop: String,
+    pub chromium: String,
+    pub automation: String,
+    pub web_transport: String,
+    pub controller: String,
 }
 
 async fn docker(args: &[&str]) -> Result<std::process::Output> {
@@ -172,10 +205,16 @@ pub async fn up(config: &CompanyConfig, reconcile: bool) -> Result<String> {
             && container_uses_old_image(company).await?
         {
             let name = container_name(company);
-            // The caller has already checked for supervised actors. Removing
-            // only the container preserves the named company volume, which is
-            // the durable computer; the image is replaceable (§13.4).
-            run_ok(&["rm", "-f", &name]).await?;
+            // Give supervised Chromium long enough to flush its persistent
+            // profile before replacing the shell. Docker's ten-second default
+            // is shorter than Chromium's configured 20-second stop window and
+            // was observed dropping a persistent cookie during reconciliation.
+            if status(company).await? == ContainerStatus::Running {
+                run_ok(&["stop", "--time", "30", &name]).await?;
+            }
+            // Only the replaceable container is removed; the named company
+            // volume remains the durable computer (§13.4).
+            run_ok(&["rm", &name]).await?;
             replaced = true;
         }
     }
@@ -239,15 +278,16 @@ pub async fn doctor(company: &str) -> Result<RuntimeDoctor> {
         .ok()
         .and_then(|root| digest_source(&root).ok());
 
-    let reconciliation = if container == ContainerStatus::Absent {
-        ReconciliationStatus::Required
-    } else if matches!(
-        (&container_image_id, &target_image_id),
-        (Some(container_id), Some(target_id)) if container_id != target_id
-    ) || matches!(
-        (&source_digest, &image_source_digest),
-        (Some(source), Some(image)) if source != image
-    ) {
+    let runtime_missing_or_stale = container == ContainerStatus::Absent
+        || matches!(
+            (&container_image_id, &target_image_id),
+            (Some(container_id), Some(target_id)) if container_id != target_id
+        )
+        || matches!(
+            (&source_digest, &image_source_digest),
+            (Some(source), Some(image)) if source != image
+        );
+    let reconciliation = if runtime_missing_or_stale {
         ReconciliationStatus::Required
     } else if container_image_id.is_some()
         && target_image_id.is_some()
@@ -257,6 +297,12 @@ pub async fn doctor(company: &str) -> Result<RuntimeDoctor> {
         ReconciliationStatus::Current
     } else {
         ReconciliationStatus::Unknown
+    };
+
+    let browser = if container == ContainerStatus::Running {
+        Some(browser_doctor(company).await)
+    } else {
+        None
     };
 
     Ok(RuntimeDoctor {
@@ -270,7 +316,273 @@ pub async fn doctor(company: &str) -> Result<RuntimeDoctor> {
         reconciliation,
         action: (reconciliation != ReconciliationStatus::Current)
             .then(|| format!("restless up -c {company} --reconcile")),
+        browser,
     })
+}
+
+/// The container id is the V0 Runtime generation: it changes when the
+/// replaceable shell changes and stays stable across ordinary process restarts.
+pub async fn generation(company: &str) -> Result<Option<String>> {
+    inspect_value(&["inspect", "-f", "{{.Id}}", &container_name(company)]).await
+}
+
+async fn browser_doctor(company: &str) -> BrowserDoctor {
+    let name = container_name(company);
+    let process = async |program: &str| -> String {
+        let output = docker(&[
+            "exec",
+            &name,
+            "supervisorctl",
+            "-c",
+            "/etc/supervisor/conf.d/restless.conf",
+            "status",
+            program,
+        ])
+        .await;
+        match output {
+            Ok(output) if output.status.success() => {
+                let line = String::from_utf8_lossy(&output.stdout);
+                if line.contains("RUNNING") {
+                    "available".into()
+                } else {
+                    "degraded".into()
+                }
+            }
+            _ => "unavailable".into(),
+        }
+    };
+    let desktop = process("desktop").await;
+    let chromium = process("chromium").await;
+    let web_transport = process("desktop-web").await;
+    let automation: String = match docker(&[
+        "exec",
+        &name,
+        "curl",
+        // Preserve the broker's structured 423 body. `--fail` discarded it,
+        // so an intentional owner pause was misreported as a broken browser.
+        "--fail-with-body",
+        "--silent",
+        "--max-time",
+        "2",
+        "http://127.0.0.1:9223/json/version",
+    ])
+    .await
+    {
+        Ok(output) if output.status.success() => "available".into(),
+        Ok(output) if String::from_utf8_lossy(&output.stdout).contains("owner_controls") => {
+            "owner_paused".into()
+        }
+        _ => "unavailable".into(),
+    };
+    let controller = read_browser_control(company)
+        .await
+        .ok()
+        .flatten()
+        .and_then(|value| value["controller"].as_str().map(str::to_string))
+        .unwrap_or_else(|| "unclaimed".into());
+    let status = if [&desktop, &chromium, &web_transport]
+        .iter()
+        .all(|part| part.as_str() == "available")
+        && matches!(automation.as_str(), "available" | "owner_paused")
+    {
+        "available"
+    } else {
+        "degraded"
+    }
+    .into();
+    BrowserDoctor {
+        status,
+        desktop,
+        chromium,
+        automation,
+        web_transport,
+        controller,
+    }
+}
+
+/// Fetch one noVNC asset through an ephemeral Runtime Bridge process. The
+/// desktop service remains bound inside the company computer; there is no host
+/// port that can bypass owner authentication.
+pub async fn desktop_asset(company: &str, asset: &str) -> Result<Vec<u8>> {
+    if asset.is_empty() || asset.contains("..") || asset.contains('\0') {
+        bail!("invalid desktop asset path");
+    }
+    let url = format!("http://127.0.0.1:6080/{asset}");
+    let output = docker(&[
+        "exec",
+        &container_name(company),
+        "curl",
+        "--fail",
+        "--silent",
+        "--show-error",
+        "--max-time",
+        "5",
+        &url,
+    ])
+    .await?;
+    if !output.status.success() {
+        bail!(
+            "desktop asset unavailable: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        );
+    }
+    Ok(output.stdout)
+}
+
+/// A full-duplex byte stream backed by `docker exec socat`. This is the V0
+/// Runtime Bridge for the private desktop transport: mature process tooling,
+/// not a published port or a browser-action protocol.
+pub struct DesktopStream {
+    _child: Child,
+    stdin: ChildStdin,
+    stdout: ChildStdout,
+}
+
+impl AsyncRead for DesktopStream {
+    fn poll_read(
+        mut self: Pin<&mut Self>,
+        cx: &mut TaskContext<'_>,
+        buffer: &mut ReadBuf<'_>,
+    ) -> Poll<std::io::Result<()>> {
+        Pin::new(&mut self.stdout).poll_read(cx, buffer)
+    }
+}
+
+impl AsyncWrite for DesktopStream {
+    fn poll_write(
+        mut self: Pin<&mut Self>,
+        cx: &mut TaskContext<'_>,
+        buffer: &[u8],
+    ) -> Poll<std::io::Result<usize>> {
+        Pin::new(&mut self.stdin).poll_write(cx, buffer)
+    }
+
+    fn poll_flush(mut self: Pin<&mut Self>, cx: &mut TaskContext<'_>) -> Poll<std::io::Result<()>> {
+        Pin::new(&mut self.stdin).poll_flush(cx)
+    }
+
+    fn poll_shutdown(
+        mut self: Pin<&mut Self>,
+        cx: &mut TaskContext<'_>,
+    ) -> Poll<std::io::Result<()>> {
+        Pin::new(&mut self.stdin).poll_shutdown(cx)
+    }
+}
+
+pub async fn desktop_stream(company: &str) -> Result<DesktopStream> {
+    let mut child = tokio::process::Command::new("docker")
+        .args([
+            "exec",
+            "-i",
+            &container_name(company),
+            "socat",
+            "STDIO",
+            "TCP:127.0.0.1:6080",
+        ])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .kill_on_drop(true)
+        .spawn()
+        .context("open private desktop bridge")?;
+    let stdin = child.stdin.take().context("desktop bridge stdin")?;
+    let stdout = child.stdout.take().context("desktop bridge stdout")?;
+    Ok(DesktopStream {
+        _child: child,
+        stdin,
+        stdout,
+    })
+}
+
+pub async fn read_browser_control(company: &str) -> Result<Option<serde_json::Value>> {
+    let name = container_name(company);
+    let output = docker(&[
+        "exec",
+        &name,
+        "sh",
+        "-c",
+        "test -f /company/run/browser-control.json && cat /company/run/browser-control.json",
+    ])
+    .await?;
+    if !output.status.success() || output.stdout.is_empty() {
+        return Ok(None);
+    }
+    let state = serde_json::from_slice(&output.stdout).context("parse browser controller state")?;
+    Ok(Some(normalize_expired_browser_control(state)))
+}
+
+/// An owner lease is bounded even if the SPA vanishes without hand-back.
+/// The Runtime file is reconstructable coordination, not durable truth, so a
+/// reader projects an expired owner back to the requesting agent (or
+/// unclaimed rescue state). The browser broker independently uses the same
+/// expiry to reopen CDP; keeping the health projection stale at `owner` while
+/// automation had resumed was precisely the split-brain this lease prevents.
+fn normalize_expired_browser_control(mut state: serde_json::Value) -> serde_json::Value {
+    if state["controller"] != "owner" {
+        return state;
+    }
+    let Some(expires_at) = state["expires_at"].as_str().map(str::to_string) else {
+        return state;
+    };
+    let Ok(expires) = DateTime::parse_from_rfc3339(&expires_at) else {
+        return state;
+    };
+    if expires.with_timezone(&Utc) > Utc::now() {
+        return state;
+    }
+
+    let requester = state["requester"]
+        .as_str()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string);
+    state = match requester {
+        Some(session_id) => serde_json::json!({
+            "controller": "agent",
+            "session_id": session_id,
+            "reason": "owner_lease_expired",
+            "expired_at": expires_at,
+        }),
+        None => serde_json::json!({
+            "controller": "unclaimed",
+            "reason": "owner_lease_expired",
+            "expired_at": expires_at,
+        }),
+    };
+    state
+}
+
+/// Replace the reconstructable lease atomically inside the persistent Runtime.
+/// This is deterministic process coordination, not an Authority effect.
+pub async fn write_browser_control(company: &str, state: &serde_json::Value) -> Result<()> {
+    let name = container_name(company);
+    let mut child = tokio::process::Command::new("docker")
+        .args([
+            "exec",
+            "-i",
+            "-u",
+            "company",
+            &name,
+            "sh",
+            "-c",
+            "umask 077; cat > /company/run/browser-control.json.tmp && mv /company/run/browser-control.json.tmp /company/run/browser-control.json",
+        ])
+        .stdin(Stdio::piped())
+        .spawn()
+        .context("write browser controller state")?;
+    let mut stdin = child.stdin.take().expect("piped");
+    stdin
+        .write_all(serde_json::to_string(state)?.as_bytes())
+        .await?;
+    drop(stdin);
+    let output = child.wait_with_output().await?;
+    if !output.status.success() {
+        bail!(
+            "write browser controller state failed: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        );
+    }
+    Ok(())
 }
 
 /// Build only when the image's source label differs. Docker remains the
@@ -341,7 +653,7 @@ async fn inspect_value(args: &[&str]) -> Result<Option<String>> {
 /// override supports a daemon launched outside the repository; otherwise walk
 /// upward from its working directory. We do not silently build from an
 /// arbitrary directory.
-fn source_root() -> Result<PathBuf> {
+pub(crate) fn source_root() -> Result<PathBuf> {
     if let Ok(root) = std::env::var("RESTLESS_SOURCE_ROOT") {
         let root = PathBuf::from(root);
         validate_source_root(&root)?;
@@ -379,7 +691,7 @@ fn validate_source_root(root: &Path) -> Result<()> {
 fn digest_source(root: &Path) -> Result<String> {
     let mut files = Vec::new();
     for relative in ["Cargo.toml", "Cargo.lock", "crates", "infra/company-image"] {
-        collect_files(root, &root.join(relative), &mut files)?;
+        collect_files(&root.join(relative), &mut files)?;
     }
     files.sort();
     let mut digest = Sha256::new();
@@ -395,7 +707,7 @@ fn digest_source(root: &Path) -> Result<String> {
     Ok(format!("{:x}", digest.finalize()))
 }
 
-fn collect_files(root: &Path, path: &Path, files: &mut Vec<PathBuf>) -> Result<()> {
+fn collect_files(path: &Path, files: &mut Vec<PathBuf>) -> Result<()> {
     let metadata = std::fs::symlink_metadata(path)
         .with_context(|| format!("inspect image input {}", path.display()))?;
     if metadata.file_type().is_symlink() {
@@ -416,7 +728,7 @@ fn collect_files(root: &Path, path: &Path, files: &mut Vec<PathBuf>) -> Result<(
         .collect();
     children.sort();
     for child in children {
-        collect_files(root, &child, files)?;
+        collect_files(&child, files)?;
     }
     Ok(())
 }
@@ -427,7 +739,10 @@ pub async fn down(company: &str) -> Result<String> {
     match status(company).await? {
         ContainerStatus::Running => {
             let name = container_name(company);
-            run_ok(&["stop", &name]).await?;
+            // Chromium's supervisor stop window is 20 seconds. Use a longer
+            // container deadline so cookies and profile state reach disk
+            // before Docker escalates to SIGKILL.
+            run_ok(&["stop", "--time", "30", &name]).await?;
             Ok(format!("{company}: stopped (volume kept)"))
         }
         ContainerStatus::Stopped => Ok(format!("{company}: already stopped")),
@@ -618,4 +933,34 @@ pub fn state_root() -> PathBuf {
     }
     let home = std::env::var("HOME").expect("HOME");
     PathBuf::from(home).join(".restless")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::normalize_expired_browser_control;
+
+    #[test]
+    fn an_expired_owner_lease_returns_to_its_requester() {
+        let state = serde_json::json!({
+            "controller": "owner",
+            "client_id": "owner-tab",
+            "requester": "exec/session-7",
+            "expires_at": "2000-01-01T00:00:00Z",
+        });
+        let normalized = normalize_expired_browser_control(state);
+        assert_eq!(normalized["controller"], "agent");
+        assert_eq!(normalized["session_id"], "exec/session-7");
+        assert_eq!(normalized["reason"], "owner_lease_expired");
+    }
+
+    #[test]
+    fn a_live_owner_lease_stays_exclusive() {
+        let state = serde_json::json!({
+            "controller": "owner",
+            "client_id": "owner-tab",
+            "requester": "exec/session-7",
+            "expires_at": "2999-01-01T00:00:00Z",
+        });
+        assert_eq!(normalize_expired_browser_control(state.clone()), state);
+    }
 }

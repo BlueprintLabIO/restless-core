@@ -1,11 +1,13 @@
 //! restlessd — the stable coordination core (ARCHITECTURE.md §4.4).
 //!
-//! Sprint 01 slice: company environment lifecycle over a unix socket, plus
-//! the embedded model gateway (T2). JSON-lines protocol: one request line,
-//! one response line.
+//! Sprint 01 slice: company environment lifecycle over a unix socket and the
+//! stable coordination core. JSON-lines protocol: one request line, one
+//! response line.
 
 mod acp;
 mod approval;
+mod attention;
+mod authority;
 mod context;
 mod credential;
 mod effect;
@@ -13,6 +15,8 @@ mod exec;
 mod health;
 mod inbound;
 mod ingress;
+mod model_gateway;
+mod owner;
 mod provider;
 mod reconcile;
 mod runtime;
@@ -38,6 +42,11 @@ struct Request {
     // T10 coordination fields (presence depends on cmd).
     #[serde(default)]
     body: Option<String>,
+    /// Secret material forwarded once to the configured credential backend.
+    /// This field is never persisted or logged; company config stores only
+    /// `body`, the credential reference.
+    #[serde(default)]
+    secret_value: Option<String>,
     #[serde(default)]
     from: Option<String>,
     #[serde(default)]
@@ -127,7 +136,18 @@ impl Principal {
 ///
 /// The membership rule: could a company, by running this, widen what it is
 /// allowed to do to the world — or stop the owner from watching it try?
-const OWNER_ONLY: &[&str] = &["approve", "up", "down", "clear-poison"];
+const OWNER_ONLY: &[&str] = &[
+    "approve",
+    "decline",
+    "revoke",
+    "up",
+    "down",
+    "clear-poison",
+    "company-create",
+    "company-set",
+    "credential-set",
+    "owner-token",
+];
 
 /// The whole gate, as one pure decision so it can be tested adversarially
 /// rather than only observed through a socket.
@@ -233,6 +253,23 @@ impl OrgIntelConfig {
     }
 }
 
+fn configured_companies(root: &Path) -> Result<Vec<String>> {
+    let directory = root.join("companies");
+    let mut companies = Vec::new();
+    for entry in
+        std::fs::read_dir(&directory).with_context(|| format!("read {}", directory.display()))?
+    {
+        let path = entry?.path();
+        if path.extension().and_then(|value| value.to_str()) == Some("toml") {
+            if let Some(name) = path.file_stem().and_then(|value| value.to_str()) {
+                companies.push(name.to_string());
+            }
+        }
+    }
+    companies.sort();
+    Ok(companies)
+}
+
 /// Lazily ensured per-company OrgIntel handles (one pool per company).
 pub(crate) struct OrgIntelRegistry {
     pub(crate) database_url: String,
@@ -285,6 +322,7 @@ impl OrgIntelRegistry {
 pub(crate) struct Daemon {
     pub(crate) root: PathBuf,
     pub(crate) spend: spend::SpendLedger,
+    pub(crate) authority: authority::AuthorityStore,
     pub(crate) orgintel: OrgIntelRegistry,
     pub(crate) staff: staff::StaffRegistry,
     /// One wake at a time per company, however the wake was requested —
@@ -298,6 +336,15 @@ pub(crate) const COORD_TCP_PORT: u16 = 7791;
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    // Local source checkouts conventionally keep bootstrap credentials in an
+    // ignored `.env`. Load it before any subsystem reads configuration, while
+    // preserving explicitly inherited service-manager variables. Infisical is
+    // the durable backend; this is the one-time/local migration source.
+    match dotenvy::dotenv() {
+        Ok(path) => eprintln!("loaded local environment from {}", path.display()),
+        Err(dotenvy::Error::Io(error)) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => return Err(error).context("load local .env"),
+    }
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env()
@@ -308,8 +355,18 @@ async fn main() -> Result<()> {
     std::fs::create_dir_all(root.join("companies"))
         .with_context(|| format!("create state root {}", root.display()))?;
 
-    // T2: the model gateway is part of the coordination core. Without it no
-    // agent can think, so a failed start is a failed daemon start.
+    // Model access is a host authority boundary. OMP's imported broker and
+    // gateway hold the provider credential; company processes receive only a
+    // narrower gateway bearer. A failed start is a failed daemon start because
+    // no configured Exec can think without it.
+    let company_configs = configured_companies(&root)?
+        .into_iter()
+        .map(|company| runtime::CompanyConfig::load(&root, &company))
+        .collect::<Result<Vec<_>>>()?;
+    let _model_gateway = model_gateway::start(&company_configs).await?;
+
+    // The spend ledger remains in the coordination core, but metering comes
+    // from OMP's ACP usage updates rather than from a custom HTTP proxy.
     let spend = spend::SpendLedger::open(&root)?;
     // T5: coordination state. The database must answer at boot — probe,
     // never guess that it will be there when a company wakes.
@@ -318,9 +375,34 @@ async fn main() -> Result<()> {
         .await
         .context("orgintel database is not reachable at boot")?;
 
+    let authority = authority::AuthorityStore::connect(&orgintel_config.database_url).await?;
+
+    // One-time custody transfer from the old recoverable event stream. Do it
+    // before listeners open so no effect can race its own migration.
+    let bootstrap_orgintel = OrgIntelRegistry {
+        database_url: orgintel_config.database_url.clone(),
+        handles: std::sync::Mutex::new(HashMap::new()),
+    };
+    for company in configured_companies(&root)? {
+        let mut config = runtime::CompanyConfig::load(&root, &company)?;
+        let org = bootstrap_orgintel.get(&company).await?;
+        let imported = authority
+            .import_legacy_company(&company, &org, &approval::legacy_config_approvals(&config))
+            .await?;
+        if imported > 0 {
+            tracing::info!(
+                company,
+                imported,
+                "migrated governance truth into Authority"
+            );
+        }
+        approval::purge_legacy_config_approvals(&root, &mut config)?;
+    }
+
     let daemon = std::sync::Arc::new(Daemon {
         root: root.clone(),
         spend,
+        authority,
         orgintel: OrgIntelRegistry {
             database_url: orgintel_config.database_url,
             handles: std::sync::Mutex::new(HashMap::new()),
@@ -337,6 +419,16 @@ async fn main() -> Result<()> {
     // typing — time triggers (exec-set schedules + periodic tick) and
     // OrgIntel LISTEN/NOTIFY events share one loop.
     tokio::spawn(schedule::run(std::sync::Arc::clone(&daemon)));
+
+    // S05-T1/T5: the authenticated owner projection and browser transport are
+    // a separate failure boundary. Losing the SPA must not stop schedules,
+    // coordination or provider ingress.
+    let owner_daemon = std::sync::Arc::clone(&daemon);
+    tokio::spawn(async move {
+        if let Err(error) = owner::serve(owner_daemon).await {
+            tracing::error!("owner gateway stopped: {error:#}");
+        }
+    });
 
     let sock = root.join("restlessd.sock");
     if sock.exists() {
@@ -384,12 +476,11 @@ async fn main() -> Result<()> {
     // where one company's hung Docker took down all three. Absent secret means
     // absent rail: we do not open an unauthenticated public port, ever, and a
     // company that cannot receive is honest about it rather than silently open.
-    match std::env::var("RESEND_WEBHOOK_SECRET")
-        .ok()
-        .filter(|s| !s.trim().is_empty())
-    {
-        Some(secret) => {
-            let sink = std::sync::Arc::new(inbound::OrgIntelSink {
+    let webhook_reference = std::env::var("RESTLESS_RESEND_WEBHOOK_CREDENTIAL")
+        .unwrap_or_else(|_| "env:RESEND_WEBHOOK_SECRET".to_string());
+    match credential::resolve_reference(&webhook_reference).await {
+        Ok(secret) => {
+            let sink = std::sync::Arc::new(inbound::AuthoritySink {
                 daemon: std::sync::Arc::clone(&daemon),
             });
             tokio::spawn(async move {
@@ -398,8 +489,9 @@ async fn main() -> Result<()> {
                 }
             });
         }
-        None => tracing::warn!(
-            "RESEND_WEBHOOK_SECRET is not set — the event ingress is NOT listening. \
+        Err(error) => tracing::warn!(
+            reference = %webhook_reference,
+            "event ingress is NOT listening because its credential did not resolve: {error:#}. \
              The company can send but cannot receive; inbound replies will not wake it"
         ),
     }
@@ -523,6 +615,36 @@ where
 }
 
 async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Response {
+    // The one-owner credential and company catalogue exist above any one
+    // company. Keep these explicit instead of inventing a fake global company.
+    if request.cmd == "owner-token" {
+        return match owner::rotate_token(&daemon.root) {
+            Ok(token) => Response::ok(serde_json::json!({
+                "token": token,
+                "note": "shown once; only its digest is stored. Sign in at the owner gateway, then remove this output from scrollback if needed.",
+            })),
+            Err(error) => Response::err(format!("{error:#}")),
+        };
+    }
+    if request.cmd == "company-list" {
+        let directory = daemon.root.join("companies");
+        let mut companies = Vec::new();
+        match std::fs::read_dir(&directory) {
+            Ok(entries) => {
+                for entry in entries.flatten() {
+                    let path = entry.path();
+                    if path.extension().and_then(|value| value.to_str()) == Some("toml") {
+                        if let Some(name) = path.file_stem().and_then(|value| value.to_str()) {
+                            companies.push(name.to_string());
+                        }
+                    }
+                }
+                companies.sort();
+                return Response::ok(serde_json::json!(companies));
+            }
+            Err(error) => return Response::err(format!("read {}: {error}", directory.display())),
+        }
+    }
     let company = match request.company.as_deref() {
         Some(name) => name,
         None => return Response::err("missing company"),
@@ -535,7 +657,21 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
             match runtime::clone_config(&daemon.root, from, company) {
                 Ok(config) => match runtime::up(&config, request.reconcile).await {
                     Ok(message) => match daemon.orgintel.get(company).await {
-                        Ok(_) => Response::ok(format!("{message} (cloned from {from}, simulated)")),
+                        Ok(_) => match daemon
+                            .authority
+                            .initialise_company(
+                                company,
+                                &approval::legacy_config_approvals(&config),
+                            )
+                            .await
+                        {
+                            Ok(()) => {
+                                Response::ok(format!("{message} (cloned from {from}, simulated)"))
+                            }
+                            Err(error) => Response::err(format!(
+                                "container up but Authority initialisation failed: {error:#}"
+                            )),
+                        },
                         Err(error) => Response::err(format!(
                             "container up but orgintel schema failed: {error:#}"
                         )),
@@ -546,7 +682,7 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
             }
         }
         "up" => match runtime::CompanyConfig::load(&daemon.root, company) {
-            Ok(config) => {
+            Ok(mut config) => {
                 let _reconcile_guard = if request.reconcile {
                     // Claim the same company-wide slot as an Exec wake before
                     // the image build starts. The build awaits Docker; without
@@ -584,7 +720,28 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
                     Ok(message) => {
                         // Company up = environment AND coordination state ready.
                         match daemon.orgintel.get(company).await {
-                            Ok(_) => Response::ok(message),
+                            Ok(org) => match daemon
+                                .authority
+                                .import_legacy_company(
+                                    company,
+                                    &org,
+                                    &approval::legacy_config_approvals(&config),
+                                )
+                                .await
+                            {
+                                Ok(_) => match approval::purge_legacy_config_approvals(
+                                    &daemon.root,
+                                    &mut config,
+                                ) {
+                                    Ok(()) => Response::ok(message),
+                                    Err(error) => Response::err(format!(
+                                        "Authority ready but legacy config cleanup failed: {error:#}"
+                                    )),
+                                },
+                                Err(error) => Response::err(format!(
+                                    "container up but Authority initialisation failed: {error:#}"
+                                )),
+                            },
                             Err(error) => Response::err(format!(
                                 "container up but orgintel schema failed: {error:#}"
                             )),
@@ -615,7 +772,12 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
             match runtime::destroy(&daemon.root, company, &org, &daemon.spend).await {
                 Ok(message) => {
                     daemon.orgintel.forget(company);
-                    Response::ok(message)
+                    match daemon.authority.delete_test_company(company).await {
+                        Ok(()) => Response::ok(message),
+                        Err(error) => Response::err(format!(
+                            "test runtime destroyed but Authority cleanup failed: {error:#}"
+                        )),
+                    }
                 }
                 Err(error) => Response::err(format!("{error:#}")),
             }
@@ -633,6 +795,152 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
                 Ok(value) => Response::ok(value),
                 Err(error) => Response::err(format!("encode runtime report: {error}")),
             },
+            Err(error) => Response::err(format!("{error:#}")),
+        },
+        "company-create" => match request.body {
+            Some(raw) => {
+                let path = daemon
+                    .root
+                    .join("companies")
+                    .join(format!("{company}.toml"));
+                if path.exists() {
+                    return Response::err_kind(
+                        "conflict",
+                        format!("company {company} already exists at {}", path.display()),
+                    );
+                }
+                match toml::from_str::<runtime::CompanyConfig>(&raw) {
+                    Ok(config) if config.name != company => Response::err(format!(
+                        "company config name mismatch: command names {company}, file says {}",
+                        config.name
+                    )),
+                    Ok(mut config) => match runtime::CompanyConfig::save(&daemon.root, &config) {
+                        Ok(()) => match daemon
+                            .authority
+                            .initialise_company(
+                                company,
+                                &approval::legacy_config_approvals(&config),
+                            )
+                            .await
+                        {
+                            Ok(()) => match approval::purge_legacy_config_approvals(
+                                &daemon.root,
+                                &mut config,
+                            ) {
+                                Ok(()) => Response::ok(format!("created company {company}")),
+                                Err(error) => Response::err(format!(
+                                    "company and Authority created but legacy config cleanup failed: {error:#}"
+                                )),
+                            },
+                            Err(error) => Response::err(format!(
+                                "company config created but Authority initialisation failed: {error:#}"
+                            )),
+                        },
+                        Err(error) => Response::err(format!("{error:#}")),
+                    },
+                    Err(error) => Response::err(format!("invalid company TOML: {error}")),
+                }
+            }
+            None => Response::err("company-create needs config TOML"),
+        },
+        "company-show" => match runtime::CompanyConfig::load(&daemon.root, company) {
+            Ok(config) => match toml::to_string_pretty(&config) {
+                Ok(rendered) => Response::ok(rendered),
+                Err(error) => Response::err(format!("render company config: {error}")),
+            },
+            Err(error) => Response::err(format!("{error:#}")),
+        },
+        "company-set" => match (request.state.as_deref(), request.body.as_deref()) {
+            (Some(key), Some(value)) => match runtime::CompanyConfig::load(&daemon.root, company) {
+                Ok(mut config) => {
+                    let result = match key {
+                        "mission" => {
+                            config.mission = value.to_string();
+                            Ok(())
+                        }
+                        "model" => {
+                            config.model = value.to_string();
+                            Ok(())
+                        }
+                        "spend_ceiling_usd" => value
+                            .parse::<f64>()
+                            .map(|parsed| config.spend_ceiling_usd = parsed)
+                            .map_err(|_| anyhow::anyhow!("spend_ceiling_usd must be a number")),
+                        "from_address" => {
+                            config.from_address = (!value.trim().is_empty()).then(|| value.to_string());
+                            Ok(())
+                        }
+                        _ if key.starts_with("providers.") => {
+                            config.providers.insert(key[10..].to_string(), value.to_string());
+                            Ok(())
+                        }
+                        _ if key.starts_with("credentials.") => {
+                            config.credentials.insert(key[12..].to_string(), value.to_string());
+                            Ok(())
+                        }
+                        _ => Err(anyhow::anyhow!(
+                            "unknown company key {key:?}; use mission, model, spend_ceiling_usd, from_address, providers.<capability>, or credentials.<capability>"
+                        )),
+                    };
+                    match result.and_then(|()| runtime::CompanyConfig::save(&daemon.root, &config))
+                    {
+                        Ok(()) => Response::ok(format!("set {key} for {company}")),
+                        Err(error) => Response::err(format!("{error:#}")),
+                    }
+                }
+                Err(error) => Response::err(format!("{error:#}")),
+            },
+            _ => Response::err("company-set needs key and value"),
+        },
+        "credential-set" => match (request.capability.as_deref(), request.body.as_deref()) {
+            (Some(capability), Some(reference)) => {
+                if let Some(value) = request.secret_value.as_deref() {
+                    if let Err(error) = credential::store_reference(reference, value).await {
+                        return Response::err(format!("{error:#}"));
+                    }
+                } else if credential::probe_reference(reference).await.status
+                    == credential::ProbeStatus::Invalid
+                {
+                    // Probe syntax/configuration before persisting. Absence is
+                    // a valid reference state; malformed or unsupported is not.
+                    let probe = credential::probe_reference(reference).await;
+                    return Response::err(
+                        probe
+                            .detail
+                            .unwrap_or_else(|| "invalid credential reference".to_string()),
+                    );
+                }
+                match runtime::CompanyConfig::load(&daemon.root, company) {
+                    Ok(mut config) => {
+                        config
+                            .credentials
+                            .insert(capability.to_string(), reference.to_string());
+                        match runtime::CompanyConfig::save(&daemon.root, &config) {
+                            Ok(()) => Response::ok(format!(
+                                "stored reference for {capability}; no secret value was stored"
+                            )),
+                            Err(error) => Response::err(format!("{error:#}")),
+                        }
+                    }
+                    Err(error) => Response::err(format!("{error:#}")),
+                }
+            }
+            _ => Response::err("credential-set needs capability and reference"),
+        },
+        "credential-check" => match runtime::CompanyConfig::load(&daemon.root, company) {
+            Ok(config) => {
+                let mut rows = Vec::with_capacity(config.credentials.len());
+                for (capability, reference) in &config.credentials {
+                    let probe = credential::probe_reference(reference).await;
+                    rows.push(serde_json::json!({
+                        "capability": capability,
+                        "reference": reference,
+                        "status": probe.status.as_str(),
+                        "detail": probe.detail,
+                    }));
+                }
+                Response::ok(serde_json::Value::Array(rows))
+            }
             Err(error) => Response::err(format!("{error:#}")),
         },
         // T5 probe: ensure the company schema and report what is in it.
@@ -664,7 +972,8 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
                     }
                     let _guard = schedule::WakeGuard::new(company, &daemon.in_flight);
                     let reason = request.reason.as_deref().unwrap_or("owner-requested wake");
-                    match exec::wake(&config, &daemon.spend, &org, reason).await {
+                    match exec::wake(&config, &daemon.spend, &daemon.authority, &org, reason).await
+                    {
                         Ok(report) => {
                             // T9: the Exec's spawn requests are honored after
                             // its outcome is recorded; refusals reach it by mail.
@@ -761,32 +1070,29 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
             },
             Err(error) => Response::err(format!("{error:#}")),
         },
-        "receipts" => match daemon.orgintel.get(company).await {
-            Ok(org) => match org.events_of_kind("effect").await {
-                Ok(events) => {
-                    let wanted = request.capability.as_deref();
-                    let limit = request.limit.unwrap_or(50).max(1) as usize;
-                    let rows: Vec<serde_json::Value> = events
-                        .iter()
-                        .rev()
-                        .filter(|event| wanted.is_none_or(|cap| event.body["capability"] == cap))
-                        .take(limit)
-                        .map(|event| {
-                            serde_json::json!({
-                                "capability": event.body["capability"],
-                                "provider": event.body["provider"],
-                                "party": event.body["party"],
-                                "actor": event.body["actor"],
-                                "outcome": event.body["outcome"],
-                                "idempotency_key": event.body["idempotency_key"],
-                                "at": event.created_at,
-                            })
+        "receipts" => match daemon.authority.records_of_kind(company, "effect").await {
+            Ok(events) => {
+                let wanted = request.capability.as_deref();
+                let limit = request.limit.unwrap_or(50).max(1) as usize;
+                let rows: Vec<serde_json::Value> = events
+                    .iter()
+                    .rev()
+                    .filter(|event| wanted.is_none_or(|cap| event.body["capability"] == cap))
+                    .take(limit)
+                    .map(|event| {
+                        serde_json::json!({
+                            "capability": event.body["capability"],
+                            "provider": event.body["provider"],
+                            "party": event.body["party"],
+                            "actor": event.body["actor"],
+                            "outcome": event.body["outcome"],
+                            "idempotency_key": event.body["idempotency_key"],
+                            "at": event.created_at,
                         })
-                        .collect();
-                    Response::ok(serde_json::Value::Array(rows))
-                }
-                Err(error) => Response::err(format!("{error:#}")),
-            },
+                    })
+                    .collect();
+                Response::ok(serde_json::Value::Array(rows))
+            }
             Err(error) => Response::err(format!("{error:#}")),
         },
         "spend" => match (
@@ -897,9 +1203,10 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
                 let state = match state {
                     "completed" | "complete" => restless_orgintel::CommitmentState::Completed,
                     "blocked" | "block" => restless_orgintel::CommitmentState::Blocked,
+                    "abandoned" | "abandon" => restless_orgintel::CommitmentState::Abandoned,
                     other => {
                         return Response::err(format!(
-                            "state must be completed|blocked, got {other:?}"
+                            "state must be completed|blocked|abandoned, got {other:?}"
                         ))
                     }
                 };
@@ -930,8 +1237,6 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
             },
             Err(error) => Response::err(format!("{error:#}")),
         },
-        // T8: the effect surface. Ungoverned this sprint (accepted risk) —
-        // the receipt and the idempotency replay are what exist.
         // S02-T2: delegation as a tool. The Exec calls this the moment it
         // decides to delegate, rather than remembering a JSON field when it
         // stops. Refusals (bad name, cap reached, empty task) come back on
@@ -945,61 +1250,105 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
             })),
             Err(error) => Response::err(format!("{error:#}")),
         },
-        // S03-T5: the owner's yes. Writes the party into company config, which
-        // is where the gate reads it — one store, editable by hand, revocable
-        // the same way. Idempotent: approving twice is not an error, because an
-        // owner re-confirming should never look like a failure.
-        "approve" => match request.party {
-            Some(party) => match runtime::CompanyConfig::load(&daemon.root, company) {
-                Ok(mut config) => {
-                    let party = party.trim().to_lowercase();
-                    if config
-                        .approved_parties
-                        .iter()
-                        .any(|p| p.trim().to_lowercase() == party)
-                    {
-                        return Response::ok(format!("{party} was already approved for {company}"));
+        // S03-T5: the owner's yes. Authority is the one writer; OrgIntel gets
+        // only a best-effort wake message. Idempotent: approving twice is not
+        // an error, because an owner re-confirming should never look like a
+        // failure.
+        "approve" | "revoke" | "decline" => match request.party {
+            Some(party) => {
+                let org = daemon.orgintel.get(company).await.ok();
+                let result = match request.cmd.as_str() {
+                    "approve" => {
+                        approval::grant(
+                            &daemon.root,
+                            company,
+                            &party,
+                            &daemon.authority,
+                            org.as_ref(),
+                            principal.as_str(),
+                        )
+                        .await
                     }
-                    config.approved_parties.push(party.clone());
-                    match runtime::CompanyConfig::save(&daemon.root, &config) {
-                        Ok(()) => {
-                            if let Ok(org) = daemon.orgintel.get(company).await {
-                                // The authenticated principal, not a literal:
-                                // the record of an authority act must say who
-                                // was allowed to perform it (`cross-layer §2.2`).
-                                let _ = org
-                                    .emit_event(
-                                        "approval_granted",
-                                        Some("owner"),
-                                        serde_json::json!({
-                                            "party": party,
-                                            "principal": principal.as_str(),
-                                        }),
-                                    )
-                                    .await;
-                                let _ = org.add_actor("exec", "exec", "The Exec").await;
-                                let _ = org
-                                    .send_message(
-                                        "owner",
-                                        Some("exec"),
-                                        &format!(
-                                            "The owner approved real external effects to {party}. \
-                                             You may proceed."
-                                        ),
-                                    )
-                                    .await;
-                            }
-                            Response::ok(format!(
-                                "{party} approved for real effects from {company}"
-                            ))
-                        }
-                        Err(error) => Response::err(format!("{error:#}")),
+                    "revoke" => {
+                        approval::revoke(
+                            &daemon.root,
+                            company,
+                            &party,
+                            &daemon.authority,
+                            org.as_ref(),
+                            principal.as_str(),
+                        )
+                        .await
                     }
+                    _ => {
+                        approval::decline(
+                            &daemon.root,
+                            company,
+                            &party,
+                            &daemon.authority,
+                            principal.as_str(),
+                        )
+                        .await
+                    }
+                };
+                match result {
+                    Ok(message) => Response::ok(message),
+                    Err(error) => Response::err(format!("{error:#}")),
                 }
-                Err(error) => Response::err(format!("{error:#}")),
-            },
-            None => Response::err("approve needs --party"),
+            }
+            None => Response::err("approval action needs --party"),
         },
+        "attention" => match runtime::CompanyConfig::load(&daemon.root, company) {
+            Ok(config) => {
+                let org = daemon.orgintel.get(company).await.ok();
+                match attention::project(&config, &daemon.authority, org.as_ref()).await {
+                    Ok(view) => match serde_json::to_value(view) {
+                        Ok(value) => Response::ok(value),
+                        Err(error) => Response::err(format!("encode attention: {error}")),
+                    },
+                    Err(error) => Response::err(format!("{error:#}")),
+                }
+            }
+            Err(error) => Response::err(format!("{error:#}")),
+        },
+        "browser-status" => match runtime::doctor(company).await {
+            Ok(report) => Response::ok(serde_json::json!({
+                "generation": runtime::generation(company).await.ok().flatten(),
+                "browser": report.browser,
+                "control": runtime::read_browser_control(company).await.ok().flatten(),
+            })),
+            Err(error) => Response::err(format!("{error:#}")),
+        },
+        "browser-request" => {
+            let requester = request.id.as_deref().unwrap_or("exec");
+            let current = runtime::read_browser_control(company).await.ok().flatten();
+            if current.as_ref().is_some_and(|value| {
+                value["controller"] == "owner"
+                    && value["expires_at"]
+                        .as_str()
+                        .and_then(|value| value.parse::<chrono::DateTime<chrono::Utc>>().ok())
+                        .is_some_and(|expires| expires > chrono::Utc::now())
+            }) {
+                return Response::err_kind("conflict", "owner already controls the browser");
+            }
+            let state = serde_json::json!({
+                "controller": "owner_requested",
+                "requester": requester,
+                "requested_at": chrono::Utc::now(),
+            });
+            match runtime::write_browser_control(company, &state).await {
+                Ok(()) => Response::ok(state),
+                Err(error) => Response::err(format!("{error:#}")),
+            }
+        }
+        "browser-release" => {
+            let state =
+                serde_json::json!({ "controller": "unclaimed", "released_at": chrono::Utc::now() });
+            match runtime::write_browser_control(company, &state).await {
+                Ok(()) => Response::ok(state),
+                Err(error) => Response::err(format!("{error:#}")),
+            }
+        }
         "spawn" => match (request.name, request.body) {
             (Some(name), Some(task)) => match runtime::CompanyConfig::load(&daemon.root, company) {
                 Ok(config) => match daemon.orgintel.get(company).await {
@@ -1034,11 +1383,15 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
             (Some(capability), Some(key)) => {
                 let actor = request.actor.as_deref().unwrap_or("owner");
                 match runtime::CompanyConfig::load(&daemon.root, company) {
-                    Ok(config) => match daemon.orgintel.get(company).await {
-                        Ok(org) => match effect::request_effect(
-                            &daemon.root,
-                            &config,
-                            &org,
+                    Ok(config) => {
+                        let org = daemon.orgintel.get(company).await.ok();
+                        match effect::request_effect(
+                            effect::EffectEnvironment {
+                                root: &daemon.root,
+                                config: &config,
+                                authority: &daemon.authority,
+                                org: org.as_ref(),
+                            },
                             &capability,
                             request.args.unwrap_or(serde_json::Value::Null),
                             &key,
@@ -1051,9 +1404,8 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
                                 Err(error) => Response::err(format!("encode receipt: {error}")),
                             },
                             Err(error) => Response::err(format!("{error:#}")),
-                        },
-                        Err(error) => Response::err(format!("{error:#}")),
-                    },
+                        }
+                    }
                     Err(error) => Response::err(format!("{error:#}")),
                 }
             }
@@ -1076,6 +1428,68 @@ mod tests {
             let refusal = authorize(Some("company/exec"), cmd)
                 .expect_err("company/exec must not perform {cmd}");
             assert!(refusal.contains("owner authority"), "{cmd}: {refusal}");
+        }
+    }
+
+    /// Sprint 05's administrative-surface guard. The dispatcher remains an
+    /// intentionally ordinary match rather than a universal command algebra,
+    /// so this test reads that match and fails when a new coordination verb is
+    /// added without an owner CLI spelling. Open-ended Linux/browser work is
+    /// deliberately outside this enumeration (`attach` is its door).
+    #[test]
+    fn every_dispatch_verb_has_a_cli_spelling() {
+        let daemon_source = include_str!("main.rs");
+        let cli_source = include_str!("../../restless/src/main.rs");
+        let dispatch = daemon_source
+            .split("match request.cmd.as_str() {")
+            .nth(1)
+            .expect("dispatch match")
+            .split("other =>")
+            .next()
+            .expect("dispatch end");
+        let mut verbs = std::collections::BTreeSet::new();
+        for line in dispatch.lines() {
+            if !line.starts_with("        \"") {
+                continue;
+            }
+            let trimmed = line.trim_start();
+            if !trimmed.contains("=>") {
+                continue;
+            }
+            let before_arrow = trimmed.split("=>").next().unwrap_or_default();
+            for quoted in before_arrow.split('"').skip(1).step_by(2) {
+                if !quoted.is_empty() {
+                    verbs.insert(quoted.to_string());
+                }
+            }
+        }
+        verbs.extend(["owner-token".to_string(), "company-list".to_string()]);
+        for verb in verbs {
+            assert!(
+                cli_source.contains(&format!("\"{verb}\"")),
+                "daemon dispatch verb {verb:?} has no CLI spelling"
+            );
+        }
+
+        for field in [
+            "name",
+            "mission",
+            "spend_ceiling_usd",
+            "model",
+            "providers.",
+            "from_address",
+            "credentials.",
+            "approved_parties",
+        ] {
+            let reachable = match field {
+                "approved_parties" => cli_source.contains("Approve"),
+                "name" => cli_source.contains("CompanyCommand::Create"),
+                other => cli_source.contains(other),
+            };
+            assert!(
+                reachable,
+                "CompanyConfig field {field} is not owner-reachable"
+            );
         }
     }
 

@@ -13,8 +13,9 @@ Empty stub. Grown from the first sprint slice that needs it.
 [dependencies]
 agent-client-protocol = "2.0.0"
 anyhow = "1"
-axum = "0.8"
+axum = { version = "0.8", features = ["ws"] }
 chrono = "0.4"
+dotenvy = "0.15"
 restless-model-gateway = { path = "../restless-model-gateway" }
 restless-orgintel = { path = "../restless-orgintel" }
 reqwest = { version = "0.12", features = ["rustls-tls", "json"], default-features = false }
@@ -31,3 +32,6 @@ url = "2"
 uuid = { version = "1", features = ["v4"] }
 hmac = "0.12"
 base64 = "0.23.1"
+futures-util = "0.3"
+tokio-tungstenite = "0.26"
+tower-http = { version = "0.6", features = ["fs", "trace"] }

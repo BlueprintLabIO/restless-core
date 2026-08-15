@@ -105,7 +105,16 @@ pub fn resolve(config: &CompanyConfig, capability: &str) -> Result<Provider> {
     // config, which is exactly how the first contamination happened (the live
     // company was the convenient one).
     if crate::runtime::is_test_company(&config.name) {
-        return Ok(Provider::Simulated);
+        // A self-reported receipt does not contact a provider: it records an
+        // action that already happened in the isolated company computer and
+        // says plainly that the company, not the outside world, attested it.
+        // Keeping this path lets `_test` exercise browser/CLI consequences and
+        // idempotency without a model-driven fake world. Real transports remain
+        // structurally unreachable whatever a hand-written config claims.
+        return Ok(match config.providers.get(capability).map(String::as_str) {
+            Some("self" | "self-reported") => Provider::SelfReported,
+            _ => Provider::Simulated,
+        });
     }
     match config.providers.get(capability) {
         None => Ok(Provider::Simulated),
@@ -156,6 +165,7 @@ pub async fn resend_send(
          the same arguments the simulator takes",
     )?;
     let api_key = crate::credential::resolve(config, "email.send")
+        .await
         .context("resolving the Resend credential")?;
     let from_address = config
         .from_address
@@ -241,8 +251,9 @@ pub async fn git_push(
 ) -> Result<serde_json::Value> {
     let parsed: PushArgs =
         serde_json::from_value(args.clone()).context("repo.push needs {\"repo\", \"branch\"}")?;
-    let token =
-        crate::credential::resolve(config, "repo.push").context("resolving the git credential")?;
+    let token = crate::credential::resolve(config, "repo.push")
+        .await
+        .context("resolving the git credential")?;
     let container = crate::runtime::container_name(&config.name);
     let workdir = format!("/company/repos/{}", parsed.repo);
 
@@ -565,6 +576,21 @@ mod tests {
         // this test would pass for the wrong reason.
         config.name = "aris".to_string();
         assert_eq!(resolve(&config, "email.send").unwrap(), Provider::Resend);
+    }
+
+    #[test]
+    fn a_test_company_can_record_a_self_report_without_reaching_a_provider() {
+        let mut config = config_with(&[("browser.form.submit", "self-reported")]);
+        config.name = "handover_test".to_string();
+        assert_eq!(
+            resolve(&config, "browser.form.submit").unwrap(),
+            Provider::SelfReported
+        );
+
+        config
+            .providers
+            .insert("repo.push".to_string(), "git".to_string());
+        assert_eq!(resolve(&config, "repo.push").unwrap(), Provider::Simulated);
     }
 
     /// The structural guarantee S03-T7 rests on: a company with no entry for a

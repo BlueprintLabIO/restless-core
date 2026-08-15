@@ -208,68 +208,71 @@ const hq: HqView = {
 const needsYou: NeedsYouItem[] = [
 	{
 		id: 'ny-creature',
-		kind: 'decision',
+		category: 'review',
 		title: 'Keep or cut the third creature',
-		detail:
+		whatHappened:
 			'Juno recommends cutting the Lumen Drifter and folding its capture behaviour into the Verge Moth. Two distinct creatures land better than three blurred ones.',
+		whyItMatters: 'Keeping it costs roughly nine days and makes the first playable less distinct.',
+		recommendation: 'Cut the Lumen Drifter; keep two creatures for the first playable.',
+		requestedAction: 'Accept or reject the creative recommendation.',
+		ifNoAction: 'The creature work remains held and the playable can continue around it.',
 		createdAt: ago(3 * HOUR),
-		ref: { decisionId: 'dec-creature' },
-		context: {
-			kind: 'decision',
-			proposalFacts: [
-				['recommendation', 'Cut the Lumen Drifter; keep two creatures for the first playable.'],
-				['reason', 'Its silhouette reads as a variant of the Verge Moth at play distance.'],
-				['work saved', 'Roughly nine days of art and tuning across Indra and Pell.'],
-				['risk if kept', 'Three shallow creatures make the capture loop feel repetitive, not varied.'],
-				['reversible', 'Yes — the model and ability are recorded and can be restored.']
-			]
-		}
+		source: { plane: 'orgintel', kind: 'decision_request', reference: 'dec-creature' },
+		evidence: [],
+		actions: [{ id: 'respond', label: 'Give your word', consequence: 'Records the owner decision.' }],
+		canContinue: true
 	},
 	{
 		id: 'ny-playtest',
-		kind: 'email-approval',
+		category: 'approval',
 		title: 'Playtest invitation to the eleven people who asked',
-		detail: 'Marlow drafted the first outside invitation. It goes to real inboxes, so it needs your signature.',
+		whatHappened: 'Marlow drafted the first outside invitation. It goes to real inboxes, so it needs your signature.',
+		whyItMatters: 'This is the studio’s first real contact with outside playtesters.',
+		recommendation: 'Read the exact draft and grant only if the recipients and promise are right.',
+		requestedAction: 'Grant or decline first contact.',
+		ifNoAction: 'Nothing sends.',
 		createdAt: ago(9 * HOUR),
-		ref: { approvalRequestId: 'apr-playtest', version: 3 },
-		context: {
-			kind: 'email-approval',
-			draft: {
-				fromName: 'Marlow Quill',
-				fromEmail: 'studio@cosmon.example',
-				toName: 'Playtest list',
-				toEmail: 'eleven recipients',
-				subject: 'Come break the first playable',
-				textBody:
-					'You asked to be told when there was something to play. There is — barely.\n\nOne zone, two creatures, one capture loop, one battle. It runs in a browser and it will take you about twelve minutes. We want to know where you got bored and where you got stuck, in that order.\n\nIf you are still in, reply and we will send you the link on Thursday.\n\n— Marlow, for the studio'
-			}
-		}
+		source: { plane: 'authority', kind: 'approval_required', reference: 'apr-playtest' },
+		evidence: [{
+			label: 'Exact prepared draft', kind: 'draft',
+			content: 'You asked to be told when there was something to play. There is — barely.\n\nOne zone, two creatures, one capture loop, one battle. It runs in a browser and it will take you about twelve minutes. We want to know where you got bored and where you got stuck, in that order.\n\nIf you are still in, reply and we will send you the link on Thursday.\n\n— Marlow, for the studio'
+		}],
+		actions: [
+			{ id: 'grant', label: 'Grant first contact', consequence: 'Allows the exact real recipients.' },
+			{ id: 'decline', label: 'Decline', consequence: 'Nothing sends.' }
+		],
+		canContinue: true
 	},
 	{
 		id: 'ny-promote',
-		kind: 'promotion-approval',
+		category: 'review',
 		title: 'Promote the capture-loop branch to the playable build',
-		detail:
+		whatHappened:
 			'Cass finished the escape-window retune. The build is green and the run is recorded; promoting it is what makes it the thing playtesters see.',
+		whyItMatters: 'Promotion changes the public playable build.',
+		recommendation: 'Review the recorded run, then accept or reject promotion.',
+		requestedAction: 'Review the prepared change at its source.',
+		ifNoAction: 'The current playable remains live.',
 		createdAt: ago(1 * DAY),
-		ref: { approvalRequestId: 'apr-promote', version: 1 },
-		context: { kind: 'promotion-approval', branch: 'feat/capture-escape-window', runId: 'run-8841' }
+		source: { plane: 'orgintel', kind: 'outcome_review', reference: 'run-8841' },
+		evidence: [],
+		actions: [{ id: 'open-browser', label: 'Open live browser', consequence: 'Transfers browser control only.' }],
+		canContinue: true
 	},
 	{
 		id: 'ny-registrar',
-		kind: 'escalation',
+		category: 'blocker',
 		title: 'The registrar wants a director’s identity document',
-		detail: 'Everything up to the identity check is prepared and waiting. Only you can be the named director.',
+		whatHappened: 'Everything up to the identity check is prepared and waiting. Only you can be the named director.',
+		whyItMatters: 'Company registration is a legal attestation by a named human director.',
+		recommendation: 'Use the prepared browser only if this scoped identity may remain in the company profile.',
+		requestedAction: 'Complete the bounded identity step.',
+		ifNoAction: 'Registration stays blocked.',
 		createdAt: ago(2 * DAY),
-		ref: { escalationId: 'esc-registrar', version: 2 },
-		context: {
-			kind: 'escalation',
-			escalationKind: 'human_identity_required',
-			what: 'A government photo ID and a live selfie check, in the registrar’s own portal.',
-			why: 'Company registration is a legal attestation by a named human director. It cannot be delegated.',
-			expiresAt: ahead(5 * DAY),
-			workTitle: 'Reserve the studio storefront name'
-		}
+		source: { plane: 'orgintel', kind: 'blocked_commitment', reference: 'esc-registrar' },
+		evidence: [],
+		actions: [{ id: 'open-browser', label: 'Open live browser', consequence: 'Transfers browser control only.' }],
+		canContinue: false
 	}
 ];
 

@@ -34,53 +34,51 @@ export function initialsOf(name: string): string {
 		.join('');
 }
 
-/* ============ needs you — the inbox queue ============ */
-
-export type NeedsYouKind = 'decision' | 'email-approval' | 'promotion-approval' | 'escalation';
-
-/** Ids (and expected versions) needed to submit whatever resolves the item. */
-export type NeedsYouRef =
-	| { decisionId: string }
-	| { approvalRequestId: string; version: number }
-	| { escalationId: string; version: number };
-
-/** The exact email draft awaiting a signature. */
-export interface EmailDraftView {
-	fromName: string;
-	fromEmail: string;
-	toName: string | null;
-	toEmail: string;
-	subject: string;
-	textBody: string;
-}
+/* ============ attention — the owner queue ============ */
 
 /**
- * Everything the operator needs to act in place: the card carries the ask, the
- * evidence, and the exact thing being signed, so judgement never requires a journey.
+ * One common read envelope over source-owned work. Category is intentionally
+ * open: adding a new real owner moment does not add a new mutation type or a
+ * page component. `source` and `actions` say who owns resolution.
  */
-export type NeedsYouContext =
-	| { kind: 'decision'; proposalFacts: [string, string][] }
-	| { kind: 'email-approval'; draft: EmailDraftView | null }
-	| { kind: 'promotion-approval'; branch: string; runId: string }
-	| {
-			kind: 'escalation';
-			escalationKind: string;
-			what: string | null;
-			why: string | null;
-			expiresAt: Date | string | null;
-			workTitle: string;
-	  };
-
-export interface NeedsYouItem {
+export interface AttentionItem {
 	id: string;
-	kind: NeedsYouKind;
+	source: {
+		plane: 'authority' | 'orgintel' | 'runtime' | string;
+		kind: string;
+		reference: string;
+	};
+	category: 'approval' | 'review' | 'blocker' | string;
 	title: string;
-	detail: string;
-	/** Null sorts oldest — undated items have by definition been waiting at least as long. */
-	createdAt: Date | string | null;
-	ref: NeedsYouRef;
-	context: NeedsYouContext;
+	whatHappened: string;
+	whyItMatters: string;
+	recommendation: string;
+	requestedAction: string;
+	ifNoAction: string;
+	evidence: Array<{
+		label: string;
+		kind: string;
+		uri?: string;
+		content?: string;
+	}>;
+	runtimeAttach?: {
+		company: string;
+		generation: string;
+		requestingActor?: string;
+		kind: 'persistent-browser';
+	};
+	actions: Array<{
+		id: string;
+		label: string;
+		consequence: string;
+	}>;
+	canContinue: boolean;
+	createdAt: Date | string;
 }
+
+/** Kept as a compatibility name for composed surfaces while the fixtures are
+ * removed page by page. It is the common envelope, not the old workflow union. */
+export type NeedsYouItem = AttentionItem;
 
 /* ============ conversation ============ */
 

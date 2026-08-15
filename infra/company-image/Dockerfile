@@ -32,10 +32,15 @@ RUN apt-get update \
         git \
         jq \
         make \
+        novnc \
+        openbox \
         python3 \
         ripgrep \
         socat \
+        supervisor \
+        tigervnc-standalone-server \
         tini \
+        websockify \
     && rm -rf /var/lib/apt/lists/*
 
 # The ACP agent binary: omp (Oh My Pi), which speaks ACP natively and reports
@@ -81,7 +86,12 @@ RUN groupadd --gid 2000 company \
     && useradd --uid 2000 --gid 2000 --no-create-home --home-dir /company/home company
 
 COPY infra/company-image/entrypoint.sh /usr/local/bin/company-init
-RUN chmod 0555 /usr/local/bin/company-init
+COPY infra/company-image/wait-for-display.sh /usr/local/bin/wait-for-company-display
+COPY infra/company-image/start-chromium.sh /usr/local/bin/start-company-chromium
+COPY infra/company-image/browser-broker.mjs /usr/local/lib/restless/browser-broker.mjs
+COPY infra/company-image/supervisord.conf /etc/supervisor/conf.d/restless.conf
+RUN chmod 0555 /usr/local/bin/company-init /usr/local/bin/wait-for-company-display /usr/local/bin/start-company-chromium \
+    && chmod 0444 /usr/local/lib/restless/browser-broker.mjs /etc/supervisor/conf.d/restless.conf
 
 # The coordination CLI, and where it finds the daemon from inside the
 # container (TCP: unix sockets do not cross the Docker Desktop file share —

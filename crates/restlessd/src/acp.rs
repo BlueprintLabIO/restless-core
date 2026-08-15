@@ -26,27 +26,70 @@ use agent_client_protocol::{
     Agent, ByteStreams, Client, ConnectionTo,
 };
 use anyhow::{Context, Result};
+use tokio::io::AsyncWriteExt as _;
 use tokio_util::compat::{TokioAsyncReadCompatExt as _, TokioAsyncWriteCompatExt as _};
 
 /// Everything a wake needs to start an agent against a provider.
 ///
 /// The agent binary is `omp` (Oh My Pi), which speaks ACP natively and
-/// reports its own token and dollar usage per turn. It resolves credentials
-/// from its process environment, so `provider_key_env` names the variable and
-/// `provider_key` carries the value into `docker exec -e` — the value lives
-/// in the agent process's environment for the life of the turn, not in the
-/// image, the container's persistent env, or any file on the volume.
+/// reports its own token and dollar usage per turn. The process receives a
+/// narrow OMP auth-gateway bearer, never the provider credential or Infisical
+/// machine identity.
 pub struct AgentAuth {
     /// Provider-qualified model, e.g. `moonshot/k3-256k`.
     pub model: String,
-    pub provider_key_env: String,
-    pub provider_key: String,
-    /// Optional `<PROVIDER>_BASE_URL` override, forwarded when the daemon has
-    /// one. A provider's default host is not always the one a given plan is
-    /// served from — a Kimi For Coding key authenticates against
-    /// `api.kimi.com/coding/v1` and 401s against `api.moonshot.ai`, which is
-    /// indistinguishable from a dead key unless the override exists.
-    pub provider_base_url: Option<(String, String)>,
+    pub provider: String,
+    pub gateway_token_env: String,
+    pub gateway_token: String,
+    pub gateway_url: String,
+}
+
+pub(crate) const AGENT_CONFIG_DIR: &str = "/company/home/.restless/omp-agent";
+
+/// Install the provider's credential-free OMP route in a Restless-owned agent
+/// directory. This never touches the company's general-purpose ~/.omp config
+/// and never writes a bearer or provider key to the volume.
+pub(crate) async fn prepare_agent_runtime(container: &str, auth: &AgentAuth) -> Result<()> {
+    let config = crate::model_gateway::models_config(
+        &auth.provider,
+        &auth.gateway_url,
+        &auth.gateway_token_env,
+    )?;
+    let mut child = tokio::process::Command::new("docker")
+        .args([
+            "exec",
+            "-i",
+            "-u",
+            "company",
+            container,
+            "sh",
+            "-c",
+            "set -eu; dir=/company/home/.restless/omp-agent; mkdir -p \"$dir\"; umask 077; tmp=\"$dir/models.yml.tmp\"; trap 'rm -f \"$tmp\"' EXIT; cat > \"$tmp\"; mv \"$tmp\" \"$dir/models.yml\"; trap - EXIT",
+        ])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .kill_on_drop(true)
+        .spawn()
+        .context("prepare credential-free OMP gateway config")?;
+    let mut stdin = child.stdin.take().context("open OMP config stdin")?;
+    stdin.write_all(config.as_bytes()).await?;
+    stdin.shutdown().await?;
+    drop(stdin);
+    let output = child
+        .wait_with_output()
+        .await
+        .context("write OMP gateway config")?;
+    if !output.status.success() {
+        anyhow::bail!(
+            "prepare OMP gateway config failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+                .chars()
+                .take(300)
+                .collect::<String>()
+        );
+    }
+    Ok(())
 }
 
 /// What one turn consumed, as the agent reported it (ACP `UsageUpdate`).
@@ -351,6 +394,7 @@ where
         Box<dyn std::future::Future<Output = Result<T>> + Send + 'a>,
     >,
 {
+    prepare_agent_runtime(container, auth).await?;
     // Every docker-exec process is a Linux session leader. Record this turn's
     // session id inside the container so cleanup can reap only its process
     // tree. A before/after PID diff is not ownership: a staff turn may start
@@ -369,7 +413,7 @@ where
         "-w",
         "/company",
         "-e",
-        "OMP_HOME=/company/home/.omp",
+        &format!("PI_CODING_AGENT_DIR={AGENT_CONFIG_DIR}"),
         "-e",
         "NO_BROWSER=1",
     ]
@@ -379,11 +423,10 @@ where
     args.push("-e".to_string());
     args.push(format!("RESTLESS_ACTOR={actor}"));
     args.push("-e".to_string());
-    args.push(format!("{}={}", auth.provider_key_env, auth.provider_key));
-    if let Some((name, value)) = &auth.provider_base_url {
-        args.push("-e".to_string());
-        args.push(format!("{name}={value}"));
-    }
+    // `docker exec -e NAME` copies NAME from the docker client's environment.
+    // Passing NAME=VALUE in argv would expose even the narrow gateway bearer
+    // to host process listings during session bootstrap.
+    args.push(auth.gateway_token_env.clone());
     args.extend(
         [
             container,
@@ -401,6 +444,7 @@ where
         .map(|arg| (*arg).to_string()),
     );
     let mut child = tokio::process::Command::new("docker")
+        .env(&auth.gateway_token_env, &auth.gateway_token)
         .args(&args)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())

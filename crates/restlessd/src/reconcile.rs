@@ -17,7 +17,6 @@
 use std::collections::BTreeMap;
 
 use anyhow::Result;
-use restless_orgintel::OrgIntel;
 use serde::Serialize;
 
 /// What the kernel's receipts record, per capability.
@@ -124,9 +123,12 @@ impl EffectLedger {
 }
 
 /// Read every effect receipt this company has and total it up.
-pub async fn effect_ledger(org: &OrgIntel) -> Result<EffectLedger> {
+pub async fn effect_ledger(
+    authority: &crate::authority::AuthorityStore,
+    company: &str,
+) -> Result<EffectLedger> {
     let mut ledger = EffectLedger::default();
-    for event in org.events_of_kind("effect").await? {
+    for event in authority.records_of_kind(company, "effect").await? {
         let Some(capability) = event.body.get("capability").and_then(|v| v.as_str()) else {
             continue;
         };
@@ -158,8 +160,14 @@ pub async fn effect_ledger(org: &OrgIntel) -> Result<EffectLedger> {
             }
         }
     }
-    ledger.replays_suppressed = org.events_of_kind("effect_replayed").await?.len();
-    ledger.party_repeats = org.events_of_kind("effect_repeat_party").await?.len();
+    ledger.replays_suppressed = authority
+        .records_of_kind(company, "effect_replayed")
+        .await?
+        .len();
+    ledger.party_repeats = authority
+        .records_of_kind(company, "effect_repeat_party")
+        .await?
+        .len();
     Ok(ledger)
 }
 

@@ -9,18 +9,46 @@
 	 * tab, and configuration reached once lives in the account menu. */
 
 	import { page } from '$app/state';
+	import { onMount } from 'svelte';
 	import AppShell, { type ShellTab } from '$lib/components/AppShell.svelte';
 	import ExecutiveRail from '$lib/components/ExecutiveRail.svelte';
 	import CommandPalette from '$lib/components/CommandPalette.svelte';
 	import { rail as railState } from '$lib/model/rail.svelte';
-	import { cosmon, companies, viewer } from '$lib/fixtures/cosmon';
+	import { getAttention } from '$lib/model/attention';
+	import type { AttentionItem } from '$lib/model/view';
 
 	let { children } = $props();
 
-	const desk = cosmon;
-	const companyId = $derived(page.params.companyId ?? desk.company.id);
+	const companyId = $derived(page.params.companyId ?? 'aris');
+	let companyName = $state('');
+	let companyMission = $state('');
+	let liveNeedsYou = $state<AttentionItem[]>([]);
+	let projectionLoaded = $state(false);
+	const companies = $derived([
+		{
+			id: companyId,
+			name: companyName || companyId.charAt(0).toUpperCase() + companyId.slice(1),
+			mission: companyMission
+		}
+	]);
 
-	const executiveThread = $derived(desk.threads.find((thread) => thread.kind === 'executive') ?? null);
+	onMount(() => {
+		async function refreshShell() {
+			try {
+				const attention = await getAttention(companyId);
+				companyName = attention.company.name;
+				companyMission = attention.company.mission;
+				liveNeedsYou = attention.items;
+				projectionLoaded = true;
+			} catch {
+				// The page owns sign-in and source error presentation. The shell
+				// stays neutral rather than substituting fixture company data.
+			}
+		}
+		void refreshShell();
+		const interval = window.setInterval(refreshShell, 8_000);
+		return () => window.clearInterval(interval);
+	});
 
 	const tabs = $derived.by((): ShellTab[] => {
 		const path = page.url.pathname;
@@ -31,7 +59,7 @@
 				label: 'Inbox',
 				href: inbox,
 				on: path === inbox,
-				badge: desk.needsYou.length || undefined
+				badge: projectionLoaded ? liveNeedsYou.length || undefined : undefined
 			},
 			{ key: 'chats', label: 'Chats', href: `${inbox}/chats`, on: path.startsWith(`${inbox}/chats`) },
 			{ key: 'ops', label: 'Ops', href: `${inbox}/ops`, on: path.startsWith(`${inbox}/ops`) },
@@ -66,22 +94,22 @@
 
 <AppShell
 	{companyId}
-	companyName={desk.company.name}
+	companyName={companyName || companyId.charAt(0).toUpperCase() + companyId.slice(1)}
 	{companies}
 	{tabs}
-	execName={desk.execName}
-	execLive={executiveThread?.live ?? false}
+	execName="Exec"
+	execLive={false}
 	railOpen={railState.open}
 	onconversation={() => railState.toggle()}
-	accountName={viewer.name}
-	accountRole={desk.membershipRole}
-	accountDemo={true}
+	accountName="Owner"
+	accountRole="owner"
+	accountDemo={false}
 >
 	<!-- the palette lives inside .bridge-root so the Bridge tokens reach it -->
 	<CommandPalette
-		threads={desk.threads}
-		team={desk.hq.team}
-		execName={desk.execName}
+		threads={[]}
+		team={[]}
+		execName="Exec"
 		{companyId}
 		open={paletteOpen}
 		onclose={() => (paletteOpen = false)}
@@ -93,14 +121,14 @@
 	{@render children()}
 	{#snippet rail()}
 		<ExecutiveRail
-			thread={executiveThread}
-			messages={desk.messages.executive ?? []}
-			needsYou={desk.needsYou}
-			execName={desk.execName}
+			thread={null}
+			messages={[]}
+			needsYou={liveNeedsYou}
+			execName="Exec"
 			{companyId}
-			membershipRole={desk.membershipRole}
-			providerDisclosureEnabled={desk.providerDisclosureEnabled}
-			executiveConnected={desk.executiveConnected}
+			membershipRole="owner"
+			providerDisclosureEnabled={false}
+			executiveConnected={false}
 			open={railState.open}
 			onclose={() => (railState.open = false)}
 		/>
