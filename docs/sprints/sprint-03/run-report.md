@@ -285,3 +285,53 @@ platform-injected error is not yet evidence that it runs on a real one.
 **What must land before any further live-company testing: S03-T7.** Its `_test`
 companies are no longer a convenience — they are the fix for the one incident
 this sprint caused.
+
+---
+
+## The recon: six wakes of work were about a business that does not exist
+
+Given the real repository and told to report what exists versus what it assumed,
+Aris probed production and corrected its own worldview. Every claim in its report
+carries a file path or a probe result.
+
+| It assumed | What exists |
+|---|---|
+| UK 11+, GL/CEM boards, parents of Y5–6 | **NSW Selective High School Placement Test, Australia.** No GL/CEM anywhere |
+| One-off PDF papers at £9/set | **Subscription SaaS, $78 AUD/month**, Stripe fully integrated with guest checkout, portal, webhook dedup, retry queue and a reconciler cron |
+| Static papers it writes by hand | **~80+ deterministic seeded question generators** with SVG diagrams, benchmarked against three real NSW papers |
+| It has no print/PDF capability | A booklet system with Playwright print-to-PDF, and **five finished PDF booklets already in `static/booklets/`** |
+| The landing page is 404 | `https://aris-academy.com/` returned **HTTP 200** this wake, serving a 985-line marketing site across ~30 routes, trilingual en/ko/zh |
+
+Its own summary of the 404 it had chased for three wakes:
+
+> The "404" I chased for three wakes was my own static file
+> (`repos/site/dist/index.html`) pushed through the simulated `web.deploy`
+> surface — a side-show artifact, not the company's landing page.
+
+**This is the strongest possible evidence for the argument this report has been
+building.** Simulation does not merely fail to prove things — it *manufactures a
+world*, and the company reasons diligently inside it. Six wakes of genuine,
+well-cited, self-correcting work were about the wrong country, the wrong exam and
+the wrong business model, and nothing internal could have detected it. The only
+thing that broke the loop was contact with something real.
+
+It separated what survives from what does not, unprompted:
+
+> What does **not** transfer: geography/exam system (UK≠NSW), the one-off-PDF
+> offer shape (real offer is subscription), and my price points… The repo shows
+> the owner's real business independently converged on the same shape: same
+> parent segment, same exam-fit discipline, same FB-first channel, same
+> "feedback, not papers" wedge.
+
+That is the honest reading: the **method** transferred and the **facts** did not.
+
+### What it does to sprint 04
+
+The draft assumed the next question was "can the company ship code". The prior
+question is now obvious: **a company must be able to check its beliefs against
+something real, continuously, or it will build a coherent fiction.** The repo
+handover did more for Aris in one wake than six wakes of simulated selling.
+
+Sprint 04 should be re-cut around that. `_test` companies (S03-T7) stop being
+about safety and become about *keeping fiction out of the live company's
+evidence*.
