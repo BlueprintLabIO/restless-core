@@ -662,6 +662,45 @@ Initial library:
 
 OrgIntel should recommend and explain a pattern, allow override, observe health, suggest repair, and learn from the result. It should normally warn rather than freeze work.
 
+### 6.3.1 A team requires difference, or it is not a team
+
+**Core contract.** Added 15 August 2026 from three sprints of evidence.
+
+Across three companies and three sprints, **organic delegation happened zero
+times.** The cause was not reluctance and not prompting — it was arithmetic. Every
+staff member ran the Exec's own model under the generic role `staff`, so
+delegating meant handing work to a copy of yourself with **less** context. That
+buys parallelism and nothing else, and an Exec that declines is reasoning
+correctly.
+
+Therefore a spawned actor must be able to differ in:
+
+- **Role** — its durable identity, recorded on the actor, so the owner can ask
+  who did what. Never a generic label; the literal `"staff"` on every actor is
+  what made three sprints of delegation invisible.
+- **Model** — a different mind. A critic on the producer's model, with the
+  producer's context, is an echo chamber with a second invoice.
+- **Context** — deliberately *less*, and deliberately different. Narrow context
+  is the feature, not a compromise: the value of a specialist is an opinion you
+  do not already hold.
+
+The first real specialist confirmed it in one run. A critic given a narrow brief
+and no drafting context returned three specific, quoted objections to copy the
+Exec had judged finished — including that it pattern-matched to spam and
+contained two competing asks. The producing actor had not seen any of them.
+
+**Two failure modes arrive with heterogeneity**, both observed on the first
+spawn and neither reachable with one model:
+
+1. A provider error that arrives as message *content* rather than transport is
+   reported as the specialist's failure. Every path that reads an agent's final
+   output must classify provider errors before blaming the model.
+2. **One role's dead provider account can stop the whole company.** An
+   unaccountable turn fail-closes the spend ledger by design, so a second
+   provider running out of credit poisoned a company whose own provider was
+   healthy. Correct behaviour, new blast radius; it needs an explicit
+   disposition rather than a surprise.
+
 ## 6.4 Business processes
 
 **Core contract**

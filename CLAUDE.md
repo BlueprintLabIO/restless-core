@@ -114,11 +114,15 @@ this), *Product hypothesis* (dogfood must test this; it may be wrong), *Default 
 though it were a **Core contract** is how a spec turns into speculative machinery — it is the same
 failure as building before evidence, wearing a citation.
 
-Two known defects in the set, pending a pass: the specs still call the parent *"Helm Architecture
-Source of Truth v0.9"* (its former name — the file is `ARCHITECTURE.md`, titled *Restless*), and they
-carry versions in their filenames, which guarantees that a v0.4 either breaks every link or
-accumulates silently beside a stale v0.3. That already cost us once: OrgIntel v0.2 and v0.3 disagree
-on where OrgIntel lives, and nothing in the repo said which was live.
+Both defects previously listed here — the old *"Helm Architecture Source of Truth v0.9"* parent name
+and versions in filenames — are **fixed**. Neither appears in the set any more.
+
+The live risk is now the opposite one: **the specs are ahead of the code, and silently.** `orgintel`
+§6.3 (teamwork patterns) was labelled *Core contract*, sat in the §10.1 V0 acceptance list, and went
+unimplemented for two sprints while a comparison harness was built and run four times to measure its
+absence. Nothing in this repo checks Core-contract coverage. Until something does, a spec section
+labelled *Core contract* is a claim about intent, not about the build — check the code before
+believing it.
 
 ## How we decide
 
@@ -192,3 +196,11 @@ This repo is built in sprints by two founders collaborating on the `dev` branch.
 - **Never report green without running it.** No component is described as working — in a commit
   message, spec, or summary — unless it has been executed with stated inputs and observed output.
   "Compiles" is not "works"; "tests pass" is not "the company produced the artifact".
+- **A check that happens to pass is not evidence.** Grepping for `re_` to prove a secret is absent
+  matches three unrelated files and proves nothing; grep the exact secret. A test asserting
+  `"YaiLives"` normalises to `"yaillives"` passes on a typo and tests nothing. Before believing a
+  green check, ask what it would look like if the thing were broken.
+- **Never exercise a simulated capability against a live company.** A simulated outcome is
+  indistinguishable from a real one by design, so it enters the company's evidence and stays there.
+  This has cost us three times, most expensively six wakes of sound reasoning about a market that did
+  not exist. Use a `_test` company (`evaluation-dogfood` §9.6.1).

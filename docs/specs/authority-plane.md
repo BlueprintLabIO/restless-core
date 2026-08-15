@@ -196,6 +196,32 @@ Three shapes, and only the first belongs to this service:
 
 The practical consequence for adapters: build a small number of API adapters where an API exists and the volume justifies it, plus **one browser adapter** that performs consequential actions through the runtime's own session — rather than pursuing coverage of every provider.
 
+### 2.2.1 Attestation is not confirmation
+
+**Core contract.** Added 15 August 2026, from building this backwards.
+
+When the company performs an effect itself and reports the outcome, the receipt
+is an **attestation**: the company's own account of what happened, with an
+idempotency key attached. When a provider performs it and answers, the receipt
+carries **confirmation**. Both are receipts and both reconcile — but they are not
+equal evidence, and the record must say which it holds.
+
+- The receipt's `provider` field names the attester: a provider's own name when
+  the provider answered, `self-reported` when the company did.
+- The outcome of a self-reported effect is **arbitrary JSON by design.** We do
+  not know the shape of every consequential action in the world, and a schema
+  here would be a provider catalogue wearing a different hat.
+- Any ledger, summary or owner-facing surface that tallies effects must keep the
+  two apart. A company once reported £45 of revenue against £18 confirmable; a
+  ledger that counted self-attested effects as confirmed would launder exactly
+  that error into evidence.
+
+**Implementation note, recorded because the order was wrong.** The first live
+provider was built as an HTTP adapter, and the next capability was drafted as a
+second adapter, before the self-reported path existed at all. That is this
+section read backwards: the adapter is the exception justified by a credential
+that must stay host-side, and self-reported is the general case.
+
 ## 2.3 Resource controller
 
 Resources are continuing, bounded capabilities used to perform work.

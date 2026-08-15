@@ -178,6 +178,33 @@ The mechanism matters. Knowing *why* a failure happens tells you which cure will
 | Regex and keyword matching over content | Same as above, in its most visible form | Frame 2 |
 | Adding instead of removing | The ask is always "do this task," and removal is never the literal ask. Knowing what is removable also needs run data the agent does not have | Frame 3 |
 | Tunnelling on the first approach | **Autoregressive commitment.** Once a design paragraph is written, everything after is conditioned on it. This one is close to mechanical, which is why it needs a mechanical counter | Frame 3 |
+| **Collapsing "unknown" into a value** | **Two-valued reflex.** `Option`, `bool` and truthiness are the nearest tools, and "we could not tell" has no natural home in any of them, so it silently becomes the falsy one. The code then reads *unknown* as *zero*, *absent* or *failed* | Frame 2 |
+| **Reading a claim as evidence** | Prose from a model looks like a report. Nothing in the text marks whether it was observed, simulated, or asserted — so a simulated outcome, a self-attested effect and a confirmed fact all arrive as sentences | Frame 2 |
+
+### The one that keeps coming back: unknown is not a value
+
+This failure has now been shipped **four times in one codebase**, in four
+disguises, each caught only after it cost something:
+
+```
+classify_turn(Option<u64>, …)   None meant "unknown" and was read as zero
+outcome allowlist               an unrecognised status word was read as failure
+turn end                        a wedge, a failure and a budget halt all read as "consumed nothing"
+receipts                        a self-attested outcome was tallied as a confirmed one
+```
+
+The cure is not vigilance — vigilance failed all four times. It is **making the
+third state expressible in the type**, so the compiler asks the question:
+
+```rust
+enum Outcome { Succeeded, Failed, Unknown }
+enum Verdict { Ran, Resume(String), Blocked(Blocked) }
+enum TurnEnd { Completed{..}, Wedged{..}, OverBudget{..}, Failed{..} }
+```
+
+The tell that you are about to ship it again: a function takes two `Option`s and
+a comment explains how to interpret them together. That comment is the invariant
+that should have been a type, and the next caller will not read it.
 
 Two of these diagnoses do most of the work:
 

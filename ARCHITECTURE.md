@@ -996,6 +996,8 @@ Use two simulator types:
 
 The company should not need different logic for a simulated provider. Development should progress from scripted simulation, to noisy behavioural simulation, to a small controlled real run. Simulation tests operating behaviour; only the real world validates demand, product quality and customer value.
 
+**Simulation also manufactures belief, and that is the sharper risk.** Because the interface is identical by design, a company cannot tell a simulated fact from a real one — so it records simulated outcomes as evidence and builds durable strategy on them. Observed live: a simulated `web.deploy` 404 chased for three wakes as a real blocker, and six wakes of sound commercial reasoning conducted about the wrong country, exam and business model. Therefore: **simulated capabilities belong only in throwaway companies**, receipts must record which world produced them, and every live company needs something real to check itself against — a repository, a live URL, a provider's own record — early and continuously. See `evaluation-dogfood` §9.6.1.
+
 The simulated world should support the first dogfoods without becoming a second product:
 
 - **Cosmon:** build deployment, asset purchase, collaborator feedback and failure conditions;

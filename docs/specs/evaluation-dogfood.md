@@ -705,6 +705,50 @@ scripted deterministic scenario
 
 Do not remain in simulation once real external validation is safe and affordable.
 
+### 9.6.1 Simulation manufactures beliefs, not just missing evidence
+
+**Core contract.** Added 15 August 2026 from three escalating incidents in one
+sprint. The earlier framing — simulation tests operating behaviour, only reality
+validates demand — is true and **far too weak**. It describes an absence. What
+actually happens is production of false fact:
+
+> A simulated capability emits outcomes. A company records those outcomes as
+> evidence, reasons from them correctly, and builds durable strategy on them.
+> Nothing internal can distinguish a simulated fact from a real one, because the
+> whole point of the interface is that they are identical.
+
+Observed, in ascending severity:
+
+1. A synthetic webhook injected to test an ingress became *"the strongest single
+   demand signal so far"* in a real hypothesis file.
+2. A simulated `web.deploy` produced a 404 that a company chased for **three
+   wakes** as a real blocker.
+3. Six wakes of well-cited, self-correcting commercial work — segment analysis,
+   an offer, price points, a channel plan, a sample artifact — turned out to be
+   about **the wrong country, the wrong exam and the wrong business model.** The
+   company's reasoning was sound throughout. Only contact with the real
+   repository revealed it.
+
+The company is not at fault in any of these, and better prompting would not have
+helped: **the failure is epistemic, not cognitive.**
+
+Three rules follow.
+
+1. **Never exercise a simulated capability inside a live company.** Simulation
+   belongs in `_test` companies, whose purpose is therefore not safety but
+   *keeping fiction out of a live company's evidence base*.
+2. **Simulated outcomes must be distinguishable in the record.** A receipt says
+   which world produced it; reconciliation and any owner-facing summary must
+   carry that distinction rather than flattening it.
+3. **Give a company something real to check itself against, early and
+   continuously.** A repository, a live URL, a provider's own record. One wake
+   with the real repository corrected more false belief than six wakes of
+   simulated selling produced true belief.
+
+The progression above is still right about *order*. It is wrong if read as
+"simulation is a safe place to accumulate knowledge." It is a safe place to
+exercise **mechanism**, and an unsafe place to accumulate **facts**.
+
 ---
 
 # 10. Dogfood scenario package
