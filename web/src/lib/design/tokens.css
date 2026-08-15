@@ -1,128 +1,108 @@
+/* ============================================================================
+ * Tokens — generated from design.pen's variable table.
+ *
+ * Light is the default and dark is a switch, deliberately: the founders picked
+ * light, and the system preference does not override that choice. Dark is
+ * reached only by an explicit `data-theme="dark"` on the root, which is what the
+ * pre-paint script in app.html and the toggle both set.
+ *
+ * Every value below appears in design.pen. If you change one here, change it
+ * there too — the .pen is the source, this file is the port.
+ * ========================================================================== */
 
-/* ============ v3 — the company is a chat app, scoped under .bridge-root ============
- * Bridge design language (docs/design-language.md): the dark cockpit. Matte ink,
- * dot-field ground, pure-white annunciation — emissive white is the machine,
- * material white is the operator. */
-
-.bridge-root {
-	/* palette — the Bridge 9-step dark ramp. No hue: the agent owns the top of
-	 * the ramp as light; the operator's action is solid white as material.
-	 * Body text uses only --text-secondary and brighter, so AA holds by
-	 * construction (≥4.5:1 on --bg-app). */
-	--bg-app: #0a0b0d;
-	--surface: #0e1013;
-	--surface-alt: #131619;
-	--r3: #181b1f;
-	--r4: #1e2227;
-	--sidebar-bg: rgba(14, 16, 19, 0.55);
-	--glass: rgba(10, 11, 13, 0.72);
-	--glass-strong: rgba(10, 11, 13, 0.88);
-	--accent: #f4f5f6;
-	--accent-soft: rgba(244, 245, 246, 0.08);
-	--accent-strong: #ffffff;
-	--ink: #f4f5f6;
-	/* Quiet, but never below WCAG AA on the ramp (4.5:1) — the product's own
-	 * gate holds every caption and timestamp to that. */
-	--text-secondary: rgba(244, 245, 246, 0.66);
-	--text-tertiary: rgba(244, 245, 246, 0.5);
-	--text-inverse: #0a0b0d;
-	--border: rgba(255, 255, 255, 0.07);
-	--border-strong: rgba(255, 255, 255, 0.12);
-	/* Operator bubbles are material white; agent rows are raised ink. */
-	--bubble-user: #f4f5f6;
-	--bubble-agent: #131619;
-	/* Status is shape-first (L6); these steps only ever reinforce a glyph. */
-	--status-working: #f4f5f6;
-	--status-waiting: #a8adb4;
-	--status-blocked: #9aa0a8;
-	--status-offline: #3c4046;
-	--info: #a8adb4;
-	/* The employee palette in monochrome: neutral steps, white initials at
-	 * 13px stay above WCAG AA against every one. */
-	--pig-0: #4a5058;
-	--pig-1: #3a3f46;
-	--pig-2: #565d66;
-	--pig-3: #2f3339;
-	--pig-4: #444a52;
-	--radius-sm: 4px;
-	--radius-md: 6px;
-	--radius-lg: 8px;
-	/* The seam between panes. Wide enough to read as a channel, thin enough
-	 * that the panes still read as one divided surface rather than as cards
-	 * scattered on a page. */
-	--pane-gap: 4px;
-	--shadow-soft: 0 1px 2px rgba(0, 0, 0, 0.35), 0 4px 14px rgba(0, 0, 0, 0.28);
-	--shadow-lift: 0 2px 6px rgba(0, 0, 0, 0.4), 0 12px 32px rgba(0, 0, 0, 0.45);
-	/* One light source, top-left (L4). Felt, not seen. */
-	--bevel: inset 0 1px 0 rgba(255, 255, 255, 0.14);
-	--bevel-subtle: inset 0 1px 0 rgba(255, 255, 255, 0.08);
-	/* The dot field — still, sub-threshold, the machine under the glass. */
-	--dot: rgba(255, 255, 255, 0.05);
-	/* The hold-to-approve fill sweep. */
-	--hold-fill: rgba(255, 255, 255, 0.22);
-	--topbar-h: 46px;
-	/* the seam under the chrome — same channel as the pane gutter, so the bar
-	 * reads as separate from the surface below it rather than welded to it */
-	--topbar-seam: var(--pane-gap);
-	--topbar-total: calc(var(--topbar-h) + var(--topbar-seam));
-
-	/* The z-index ladder lives on :root in layout.css — see the comment there. */
-
-	min-height: 100vh;
-	background: var(--bg-app);
-	background-image: radial-gradient(var(--dot) 1px, transparent 1.3px);
-	background-size: 14px 14px;
-	color: var(--ink);
-	font-family: 'Inter', system-ui, sans-serif;
-	font-size: 14px;
-	line-height: 1.5;
-	/* Titles carry model- and operator-supplied text, which can be one
-	 * unbroken 200-character run. break-word inherits everywhere and only
-	 * fires when a word genuinely cannot fit a line by itself, so ordinary
-	 * prose still wraps on spaces. The wrap belongs at the root: any surface
-	 * that renders a name is one bad string away from the same overflow. */
-	overflow-wrap: break-word;
-}
-
-/* ---------- the light sibling (D2): the same language, inverted. Still
- * monochrome — the machine's "light" becomes the darkest step, the operator's
- * action is solid ink. Avatar tiles stay dark so white initials keep AA. */
-html[data-theme='light'] .bridge-root {
-	--bg-app: #f3f4f6;
+:root {
+	--bg-app: #f2f3f5;
 	--surface: #ffffff;
-	--surface-alt: #f4f5f7;
-	--r3: #eceef1;
-	--r4: #e2e5e9;
-	--sidebar-bg: rgba(255, 255, 255, 0.55);
-	--glass: rgba(255, 255, 255, 0.72);
-	--glass-strong: rgba(255, 255, 255, 0.88);
-	--accent: #17181c;
-	--accent-soft: rgba(23, 24, 28, 0.07);
-	--accent-strong: #000000;
-	--ink: #17181c;
-	--text-secondary: rgba(23, 24, 28, 0.66);
-	--text-tertiary: rgba(23, 24, 28, 0.6);
-	--text-inverse: #f4f5f6;
-	--border: rgba(23, 24, 28, 0.09);
-	--border-strong: rgba(23, 24, 28, 0.16);
-	--bubble-user: #17181c;
+	--surface-alt: #f7f8fa;
+	--sidebar-bg: #eceef1;
+	--border: #dfe2e7;
+	--border-strong: #c8ccd4;
+
+	--ink: #14161a;
+	--text-secondary: #5c6470;
+	--text-tertiary: #868e9b;
+	--on-accent: #ffffff;
+
+	--accent: #2f6684;
+	--accent-strong: #24506a;
+	--accent-soft: #e7edf2;
+
 	--bubble-agent: #ffffff;
-	--status-working: #17181c;
-	--status-waiting: #5c6169;
-	--status-blocked: #6b7280;
-	--status-offline: #c3c7cd;
-	--info: #5c6169;
-	--shadow-soft: 0 1px 2px rgba(23, 24, 28, 0.06), 0 4px 14px rgba(23, 24, 28, 0.06);
-	--shadow-lift: 0 2px 6px rgba(23, 24, 28, 0.08), 0 12px 32px rgba(23, 24, 28, 0.1);
-	--bevel: inset 0 1px 0 rgba(255, 255, 255, 0.8);
-	--bevel-subtle: inset 0 1px 0 rgba(255, 255, 255, 0.5);
-	--dot: rgba(23, 24, 28, 0.055);
-	--hold-fill: rgba(23, 24, 28, 0.14);
+	--bubble-user: #e4ebf1;
+
+	--status-working: #3f7a6b;
+	--status-waiting: #8a5d21;
+	--status-blocked: #8e4f42;
+	--status-offline: #a8acb3;
+
+	--tone-ok-bg: #e7f1eb;
+	--tone-ok-fg: #1f6b49;
+	--tone-ask-bg: #fbf3e4;
+	--tone-ask-fg: #8a6d14;
+	--tone-no-bg: #f7e7e5;
+	--tone-no-fg: #a63a30;
+
+	--shadow-color: rgba(16, 18, 22, 0.35);
+	--paper: #fdfcfa;
+	--paper-edge: #e6e2d9;
+	--tree-guide: #e1e4e9;
+
+	--radius-sm: 2px;
+	--radius-md: 3px;
+	--radius-lg: 4px;
+
+	--font-body: 'Inter', system-ui, sans-serif;
+	--font-display: 'Inter', system-ui, sans-serif;
+	--font-mono: 'JetBrains Mono', ui-monospace, monospace;
+
+	/* Chrome geometry. The dock width is the whole horizontal-space argument —
+	 * it is what the Board pays a kanban column for, so it lives in one place. */
+	--nav-h: 56px;
+	--dock-w: 380px;
+	--rail-w: 52px;
+	--directory-w: 288px;
+
+	/* The z ladder, so nothing invents its own number. */
+	--z-surface: 1;
+	--z-nav: 40;
+	--z-dock: 50;
+	--z-overlay: 100;
 }
 
-.bridge-root *,
-.bridge-root *::before,
-.bridge-root *::after {
-	box-sizing: border-box;
-}
+:root[data-theme='dark'] {
+	--bg-app: #08090b;
+	--surface: #101216;
+	--surface-alt: #171a20;
+	--sidebar-bg: #0c0e12;
+	--border: #23272f;
+	--border-strong: #2f3542;
 
+	--ink: #e7e9ee;
+	--text-secondary: #8b929e;
+	--text-tertiary: #5f6672;
+	--on-accent: #08090b;
+
+	--accent: #6fa6c4;
+	--accent-strong: #8fbcd6;
+	--accent-soft: #16222b;
+
+	--bubble-agent: #14171c;
+	--bubble-user: #1b2732;
+
+	--status-working: #74a98c;
+	--status-waiting: #c9924f;
+	--status-blocked: #c08579;
+	--status-offline: #4e5563;
+
+	--tone-ok-bg: #14201a;
+	--tone-ok-fg: #7fb694;
+	--tone-ask-bg: #241e12;
+	--tone-ask-fg: #c9924f;
+	--tone-no-bg: #251916;
+	--tone-no-fg: #c08579;
+
+	--shadow-color: rgba(0, 0, 0, 0.9);
+	--paper: #14171c;
+	--paper-edge: #272b33;
+	--tree-guide: #242830;
+}

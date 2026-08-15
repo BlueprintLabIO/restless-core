@@ -1,18 +1,18 @@
 <!doctype html>
-<html lang="en" style="background: #0a0b0d">
+<html lang="en" style="background: #f2f3f5">
 	<head>
 		<meta charset="utf-8" />
 		<meta name="viewport" content="width=device-width, initial-scale=1" />
-		<meta name="theme-color" content="#0a0b0d" />
+		<meta name="theme-color" content="#f2f3f5" />
 		<link rel="icon" href="%sveltekit.assets%/favicon.svg" type="image/svg+xml" />
 		<script>
-			/* The light sibling, applied pre-paint so nothing flashes.
-			 * design-language.md D2: the ramp is authored dark; light inverts it coherently. */
+			/* Light is the default and dark is a switch, so only an explicit choice
+			 * is restored — the system preference does not get a vote. Applied
+			 * pre-paint so the ground never flashes. */
 			try {
-				const theme = localStorage.getItem('bridge-theme');
-				if (theme === 'light' || theme === 'dark') {
-					document.documentElement.dataset.theme = theme;
-					document.documentElement.style.background = theme === 'light' ? '#f3f4f6' : '#0a0b0d';
+				if (localStorage.getItem('theme') === 'dark') {
+					document.documentElement.dataset.theme = 'dark';
+					document.documentElement.style.background = '#08090b';
 				}
 			} catch {}
 		</script>

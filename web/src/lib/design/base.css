@@ -1,47 +1,204 @@
-/* ---------- the z-index ladder ----------
- * One place, in order, so the next value is chosen rather than guessed.
- *
- * It lives on :root rather than on `.bridge-root`, because the app-level chrome
- * (offline banner, loading bar) renders OUTSIDE the design scope — a token defined
- * on `.bridge-root` would not inherit to them.
- *
- * Deliberately absent: hints. A hint bubble renders in the browser's TOP LAYER via the
- * Popover API, which paints above the whole document regardless of z-index — so it needs
- * no rung here, and adding one would imply it competes with these when it does not. */
-:root {
-	--z-raised: 2; /* in-flow lift: the rail's gate over the conversation */
-	--z-sticky: 40; /* the glass topbar */
-	--z-docked: 50; /* fixed notices docked to a window edge */
-	--z-rail: 60; /* the executive rail when narrow screens make it float over the page */
-	--z-overlay: 90; /* modal scrim */
-	--z-palette: 95; /* command palette, above the scrim it may open over */
-	--z-app: 1000; /* the app shell outside .bridge-root: offline banner, loading bar */
-}
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
 
-:root {
-	font-family: 'Inter', system-ui, sans-serif;
-	color: #f4f5f6;
-	background: #0a0b0d;
-	font-synthesis: none;
-}
-
-* {
+*,
+*::before,
+*::after {
 	box-sizing: border-box;
 }
 
+html,
 body {
+	height: 100%;
 	margin: 0;
-	min-width: 320px;
-	min-height: 100vh;
 }
 
-button,
-textarea,
-input,
-select {
-	font: inherit;
+body {
+	background: var(--bg-app);
+	color: var(--ink);
+	font-family: var(--font-body);
+	font-size: 14px;
+	line-height: 1.5;
+	-webkit-font-smoothing: antialiased;
+	/* Names and titles carry model-supplied text, which can be one unbroken run.
+	 * Only fires when a word genuinely cannot fit; prose still wraps on spaces. */
+	overflow-wrap: break-word;
 }
 
 button {
+	font: inherit;
 	color: inherit;
+	background: none;
+	border: none;
+	padding: 0;
+	cursor: pointer;
+}
+
+a {
+	color: inherit;
+	text-decoration: none;
+}
+
+input {
+	font: inherit;
+	color: inherit;
+}
+
+:focus-visible {
+	outline: 2px solid var(--accent);
+	outline-offset: 2px;
+	border-radius: var(--radius-sm);
+}
+
+/* ---- type helpers ------------------------------------------------------- */
+
+/* The mono over-label: section headings throughout the design, tracked wide.
+ * 1.3px at 10.5px is the .12em the .pen uses. */
+.over-label {
+	font-family: var(--font-mono);
+	font-size: 10.5px;
+	font-weight: 400;
+	letter-spacing: 1.3px;
+	color: var(--text-tertiary);
+	text-transform: uppercase;
+	margin: 0;
+}
+
+.display {
+	font-family: var(--font-display);
+	font-weight: 600;
+	letter-spacing: -0.25px;
+}
+
+.caption {
+	font-size: 11.5px;
+	color: var(--text-tertiary);
+}
+
+.mono {
+	font-family: var(--font-mono);
+	font-size: 11px;
+}
+
+.muted {
+	color: var(--text-secondary);
+}
+
+/* ---- shared small parts ------------------------------------------------- */
+
+.avatar {
+	flex: none;
+	display: grid;
+	place-items: center;
+	position: relative;
+	border-radius: 999px;
+	color: #ffffff;
+	font-family: var(--font-display);
+	font-weight: 600;
+	font-size: 12px;
+	user-select: none;
+}
+
+.avatar .status-dot {
+	position: absolute;
+	right: -1px;
+	bottom: -1px;
+	width: 10px;
+	height: 10px;
+	border-radius: 999px;
+	border: 2px solid var(--surface);
+}
+
+.status-working {
+	background: var(--status-working);
+}
+.status-waiting {
+	background: var(--status-waiting);
+}
+.status-blocked {
+	background: var(--status-blocked);
+}
+.status-offline {
+	background: var(--status-offline);
+}
+
+.chip {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	padding: 4px 10px;
+	border-radius: var(--radius-sm);
+	background: var(--accent-soft);
+	color: var(--accent-strong);
+	font-size: 12px;
+	font-weight: 500;
+}
+
+.chip-quiet {
+	background: var(--surface-alt);
+	border: 1px solid var(--border);
+	color: var(--text-secondary);
+}
+
+.tone {
+	display: inline-flex;
+	align-items: center;
+	padding: 4px 9px;
+	border-radius: var(--radius-sm);
+	font-family: var(--font-mono);
+	font-size: 10.5px;
+	letter-spacing: 0.3px;
+}
+.tone-ok {
+	background: var(--tone-ok-bg);
+	color: var(--tone-ok-fg);
+}
+.tone-ask {
+	background: var(--tone-ask-bg);
+	color: var(--tone-ask-fg);
+}
+.tone-no {
+	background: var(--tone-no-bg);
+	color: var(--tone-no-fg);
+}
+
+.btn {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	gap: 8px;
+	padding: 8px 14px;
+	border-radius: var(--radius-md);
+	font-size: 13px;
+	font-weight: 500;
+	white-space: nowrap;
+}
+
+.btn-primary {
+	background: var(--accent);
+	color: var(--on-accent);
+	font-weight: 600;
+}
+
+.btn-secondary {
+	background: var(--surface);
+	border: 1px solid var(--border-strong);
+	color: var(--ink);
+}
+
+.btn:disabled {
+	background: var(--surface-alt);
+	border: 1px solid var(--border);
+	color: var(--text-tertiary);
+	cursor: default;
+}
+
+.link {
+	color: var(--accent);
+	font-size: 12.5px;
+	font-weight: 500;
+}
+
+.spacer {
+	flex: 1 1 auto;
+	min-width: 0;
 }

@@ -1,0 +1,832 @@
+openapi: 3.1.0
+
+info:
+  title: Restless — owner cockpit API
+  version: 0.1.0
+  description: |
+    The transport the operator SPA talks to. It is a **thin shim over the
+    daemon's existing JSON-lines socket protocol**, not a separately designed
+    API: every route builds the same request the `restless` CLI puts on the
+    socket and runs it through the same `authorize` → `dispatch` path.
+
+    That is deliberate. The CLI was already the API — a dumb client over a line
+    protocol, with a principal on every request, typed errors, and one streaming
+    command. Deriving a second surface from product concepts would give us two
+    things to keep in step.
+
+    ## The envelope
+
+    Every response carries the same shape, success or failure:
+
+    ```json
+    { "ok": true,  "data": ... }
+    { "ok": false, "error": { "kind": "authority", "message": "..." } }
+    ```
+
+    **Switch on `error.kind`, not on prose and not only on the status code.** An
+    owner who sees `authority` knows to change what they are allowed to do; one
+    who sees `transport` knows to check the daemon. HTTP has no code for that
+    distinction, so the status is a second signal for proxies, never the only one.
+
+    ## Authority
+
+    The listener binds loopback only and stamps `principal: "owner"` — the same
+    claim the unix socket makes, that a process on the host is the owner. It is a
+    claim, not a proof. The stamp still travels through the daemon's `authorize`
+    gate, so owner-only commands are decided in one place rather than by which
+    port a request arrived on.
+
+    ## Not implemented yet
+
+    Routes tagged **stub** answer `{"ok": true, "data": null, "stub": {...}}`.
+    They exist so the frontend can be written against the agreed shape and so the
+    gap is visible here rather than in someone's head. A stub returns `null` and
+    never an empty list: a UI cannot tell "no settings exist" from "this was
+    never built", and would render the wrong thing confidently.
+
+    See `docs/api/MISSING.md` for what each stub is for and which surface needs it.
+
+servers:
+  - url: http://127.0.0.1:7792
+    description: The daemon on the owner's machine. Loopback only.
+
+tags:
+  - name: meta
+    description: Health and this document.
+  - name: read
+    description: Backed today.
+  - name: write
+    description: Backed today. Every one of these is a governed change.
+  - name: stub
+    description: Shape agreed, implementation absent. Returns null.
+
+paths:
+  /v1/health:
+    get:
+      tags: [meta]
+      summary: Is the daemon answering
+      description: Does not touch the database or any company.
+      responses:
+        '200':
+          description: The daemon is up.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean }
+                  data:
+                    type: object
+                    properties:
+                      service: { type: string, examples: ['restlessd'] }
+                      api: { type: string, examples: ['v1'] }
+
+  /v1/openapi.yaml:
+    get:
+      tags: [meta]
+      summary: This document
+      description: |
+        Embedded from `docs/api/openapi.yaml` at compile time, so the served
+        spec and the committed file are the same bytes and cannot drift.
+      responses:
+        '200':
+          description: The spec.
+          content:
+            application/yaml:
+              schema: { type: string }
+
+  /v1/docs:
+    get:
+      tags: [meta]
+      summary: Rendered API reference
+      responses:
+        '200':
+          description: Redoc over the embedded spec.
+          content:
+            text/html:
+              schema: { type: string }
+
+  /v1/companies/{company}/status:
+    get:
+      tags: [read]
+      summary: Company environment lifecycle status
+      parameters: [{ $ref: '#/components/parameters/Company' }]
+      responses:
+        '200': { $ref: '#/components/responses/Ok' }
+        '400': { $ref: '#/components/responses/Failed' }
+
+  /v1/companies/{company}/people:
+    get:
+      tags: [read]
+      summary: Who is in this company
+      description: |
+        Role, model, what each has cost, and whether a session is running right
+        now. Cost is joined from the spend ledger rather than stored on the
+        actor: OrgIntel owns role, the ledger owns cost, and neither becomes a
+        second writer of the other.
+
+        **Surface:** People (the directory).
+      parameters: [{ $ref: '#/components/parameters/Company' }]
+      responses:
+        '200':
+          description: One row per actor.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items: { $ref: '#/components/schemas/Person' }
+        '400': { $ref: '#/components/responses/Failed' }
+
+  /v1/companies/{company}/goals:
+    get:
+      tags: [read]
+      summary: Goals
+      description: '**Surface:** Board (the roots of the tree).'
+      parameters: [{ $ref: '#/components/parameters/Company' }]
+      responses:
+        '200':
+          description: Goals, newest last.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items: { $ref: '#/components/schemas/Goal' }
+        '400': { $ref: '#/components/responses/Failed' }
+
+  /v1/companies/{company}/commitments:
+    get:
+      tags: [read]
+      summary: Commitments, all states
+      description: |
+        `goal_id` links a commitment to its goal, which is what makes the Board's
+        tree real rather than drawn. A null `goal_id` is work that belongs to no
+        goal — worth surfacing, not hiding.
+
+        **Surface:** Board (tree children, and every kanban card).
+      parameters: [{ $ref: '#/components/parameters/Company' }]
+      responses:
+        '200':
+          description: Commitments.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items: { $ref: '#/components/schemas/Commitment' }
+        '400': { $ref: '#/components/responses/Failed' }
+
+  /v1/companies/{company}/inbox:
+    get:
+      tags: [read]
+      summary: Unread mail
+      description: |
+        **This read mutates.** It marks every message it returns as read, which
+        breaks the safety a GET is supposed to have: a refresh or a prefetch
+        silently destroys the owner's unread state. See `docs/api/MISSING.md` §6
+        for the proposed split into a safe read plus `POST /inbox/seen`.
+
+        Passing `as` inspects without marking — but it matches
+        `to_actor = <actor>`, and the owner's own mail is stored with
+        `to_actor IS NULL`, so `?as=owner` returns nothing rather than the
+        owner's mail. There is currently no non-consuming read of the owner's
+        inbox.
+
+        **Surface:** Inbox (the message-shaped items), People (a person's mail).
+      parameters:
+        - { $ref: '#/components/parameters/Company' }
+        - name: as
+          in: query
+          required: false
+          schema: { type: string }
+          description: Inspect this actor's inbox instead, without marking read.
+      responses:
+        '200':
+          description: Messages.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items: { $ref: '#/components/schemas/Message' }
+        '400': { $ref: '#/components/responses/Failed' }
+
+  /v1/companies/{company}/events:
+    get:
+      tags: [read]
+      summary: Recent operational events, newest first
+      description: '**Surface:** the executive dock, and any activity view.'
+      parameters:
+        - { $ref: '#/components/parameters/Company' }
+        - { $ref: '#/components/parameters/Limit' }
+      responses:
+        '200':
+          description: Events.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items: { $ref: '#/components/schemas/Event' }
+        '400': { $ref: '#/components/responses/Failed' }
+
+  /v1/companies/{company}/receipts:
+    get:
+      tags: [read]
+      summary: What the company actually did to the world
+      description: |
+        The strongest evidence the system holds about external effects: the
+        capability, the provider, the party, the outcome, and the idempotency key
+        that would replay it.
+
+        **Surface:** none yet — nothing in the current design renders these, which
+        is a gap in the design rather than in the API.
+      parameters:
+        - { $ref: '#/components/parameters/Company' }
+        - name: capability
+          in: query
+          required: false
+          schema: { type: string, examples: ['email.send'] }
+        - { $ref: '#/components/parameters/Limit' }
+      responses:
+        '200':
+          description: Receipts, newest first.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items: { $ref: '#/components/schemas/Receipt' }
+        '400': { $ref: '#/components/responses/Failed' }
+
+  /v1/companies/{company}/spend:
+    get:
+      tags: [read]
+      summary: Spend against the ceiling
+      description: |
+        Note `poisoned`. A fail-closed accounting failure pins the ledger total at
+        a sentinel so every preflight refuses; rendering that as money would print
+        a fabricated figure. When `poisoned` is true, `remaining_usd` is **null**
+        and `accounted_usd` is the real recorded spend. A UI must show the stopped
+        state, not a number.
+
+        **Surface:** People (a person's monthly spend), and any ceiling display.
+      parameters: [{ $ref: '#/components/parameters/Company' }]
+      responses:
+        '200':
+          description: Spend.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data: { $ref: '#/components/schemas/Spend' }
+        '400': { $ref: '#/components/responses/Failed' }
+
+  /v1/companies/{company}/stream:
+    get:
+      tags: [read]
+      summary: The operational event stream (SSE)
+      description: |
+        A snapshot of the last 20 events, then new ones as they land. Same poll,
+        same watermark, and the same durable table as the CLI's `watch` — the
+        stream survives the client's attention, not the other way around.
+
+        Each `message` event's `data` is one `Event` object. A failure arrives as
+        an SSE event named `error` whose data is the standard failure envelope.
+      parameters: [{ $ref: '#/components/parameters/Company' }]
+      responses:
+        '200':
+          description: An endless SSE stream.
+          content:
+            text/event-stream:
+              schema: { type: string }
+
+  /v1/companies/{company}/up:
+    post:
+      tags: [write]
+      summary: Start the company's computer
+      description: |
+        Creates the volume and container if absent, starts it if stopped, seeds
+        the mission onto the volume, and ensures the OrgIntel schema. Separate
+        from creation on purpose: a launch that fails must not lose the company
+        the owner just described.
+
+        `reconcile: true` rebuilds the image first and takes **minutes** — it
+        compiles Rust and installs a browser. Prefer `restless up --reconcile`
+        from the CLI for that; this route defaults it to false.
+
+        Owner-only.
+
+        **Surface:** onboarding.
+      parameters: [{ $ref: '#/components/parameters/Company' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                reconcile: { type: boolean, default: false }
+      responses:
+        '200': { $ref: '#/components/responses/Ok' }
+        '403': { $ref: '#/components/responses/Refused' }
+        '400': { $ref: '#/components/responses/Failed' }
+
+  /v1/companies/{company}/tell:
+    post:
+      tags: [write]
+      summary: Issue a directive to the Exec
+      description: |
+        Wakes the company. Also how a blocked judgement request is answered.
+
+        **Surface:** the executive dock composer.
+      parameters: [{ $ref: '#/components/parameters/Company' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [body]
+              properties:
+                body: { type: string, description: What to tell the Exec. }
+      responses:
+        '200': { $ref: '#/components/responses/Ok' }
+        '400': { $ref: '#/components/responses/Failed' }
+
+  /v1/companies/{company}/wake:
+    post:
+      tags: [write]
+      summary: Wake the Exec for one turn
+      parameters: [{ $ref: '#/components/parameters/Company' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                reason:
+                  type: [string, 'null']
+                  description: Why this wake is happening. Absent means owner-requested.
+      responses:
+        '200': { $ref: '#/components/responses/Ok' }
+        '400': { $ref: '#/components/responses/Failed' }
+
+  /v1/companies/{company}/messages:
+    post:
+      tags: [write]
+      summary: Send mail between actors
+      description: |
+        Omit `to` to address the owner.
+
+        **Surface:** People (talking to a staff member).
+      parameters: [{ $ref: '#/components/parameters/Company' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [body]
+              properties:
+                from: { type: [string, 'null'], description: Defaults to `owner`. }
+                to: { type: [string, 'null'], description: Absent addresses the owner. }
+                body: { type: string }
+      responses:
+        '200':
+          description: The stored message id.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          message_id: { type: integer, format: int64 }
+        '400': { $ref: '#/components/responses/Failed' }
+
+  /v1/companies/{company}/staff:
+    post:
+      tags: [write]
+      summary: Hire — hand a task to a new staff member
+      description: |
+        Creates the actor, its worktree and its branch, and starts it on the task.
+        `role` is what this actor **is** (`copywriter`, `critic`, `engineer`) and
+        becomes durable, so the owner can later ask who did what. Absent means a
+        generalist — honest, but not a team.
+
+        **Surface:** People ("Hire someone").
+      parameters: [{ $ref: '#/components/parameters/Company' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, task]
+              properties:
+                name:
+                  type: string
+                  description: Lowercase, digits and dashes. Becomes the actor id, the worktree path and the branch name.
+                repo: { type: [string, 'null'], description: Repository under /company/repos to give a worktree of. Omit for non-code work. }
+                role: { type: [string, 'null'] }
+                model: { type: [string, 'null'], description: Provider-qualified. Absent inherits the company's. }
+                task: { type: string, description: What to do and why, in enough detail to work unsupervised. }
+      responses:
+        '200': { $ref: '#/components/responses/Ok' }
+        '400': { $ref: '#/components/responses/Failed' }
+
+  /v1/companies/{company}/approvals:
+    post:
+      tags: [write]
+      summary: Approve a party for real external effects
+      description: |
+        Owner-only. Per-party rather than per-send, so the owner governs rather
+        than dispatches: first contact carries the irreversible weight, and asking
+        again for a follow-up would train them to click through.
+
+        **Surface:** Inbox (approving what is waiting), Authority.
+      parameters: [{ $ref: '#/components/parameters/Company' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [party]
+              properties:
+                party: { type: string, description: The address or party identifier being approved. }
+      responses:
+        '200': { $ref: '#/components/responses/Ok' }
+        '403': { $ref: '#/components/responses/Refused' }
+        '400': { $ref: '#/components/responses/Failed' }
+
+  /v1/companies/{company}/commitments/{id}/state:
+    post:
+      tags: [write]
+      summary: Report a commitment completed or blocked
+      description: '**Surface:** Board (moving a card).'
+      parameters:
+        - { $ref: '#/components/parameters/Company' }
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [state]
+              properties:
+                state: { type: string, enum: [completed, blocked] }
+                resolution: { type: [string, 'null'] }
+      responses:
+        '200': { $ref: '#/components/responses/Ok' }
+        '400': { $ref: '#/components/responses/Failed' }
+
+  /v1/companies:
+    post:
+      tags: [write]
+      summary: Create a company
+      description: |
+        The first step of onboarding. Writes the company's config and **stops** —
+        it does not start a container and does not touch Postgres. `POST
+        /v1/companies/{company}/up` is a separate act, so a launch that fails
+        does not lose the company the owner just described.
+
+        The name is validated **before anything is created**. It becomes a
+        Postgres schema, a Docker volume and a container name, so it must match
+        `[a-z_][a-z0-9_]{0,62}`. Finding that out after `docker run` would leave
+        resources named after a company that can never exist.
+
+        A new company starts with **no providers, no credentials, no standing
+        approvals and no sender address**. Absent providers already mean
+        simulated; approvals are the owner's blessing of a live company's
+        counterparties; and nothing new may send as the owner from its first
+        minute. Each is a later, deliberate decision.
+
+        Owner-only. A company that can create companies is a company that can
+        widen its own reach.
+
+        **Surface:** onboarding (`design.pen` 05–09).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, model]
+              properties:
+                name:
+                  type: string
+                  pattern: '^[a-z_][a-z0-9_]{0,62}$'
+                model:
+                  type: string
+                  description: 'Provider-qualified, e.g. `zai/glm-5.2`. Unqualified is refused.'
+                  examples: ['zai/glm-5.2']
+                mission: { type: string, description: "What the business is, in the owner's words." }
+                spend_ceiling_usd: { type: number, description: 'The fuse, not governance.' }
+      responses:
+        '200':
+          description: Created.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          name: { type: string }
+                          model: { type: string }
+                          spend_ceiling_usd: { type: number }
+                          created: { type: boolean, const: true }
+                          next: { type: string, description: 'What to do next, and what is deliberately not set.' }
+        '400':
+          description: |
+            Bad name, unqualified model, or the company already exists —
+            creating over one would destroy the owner's accumulated decisions.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Failure' }
+        '403': { $ref: '#/components/responses/Refused' }
+
+  /v1/companies/{company}/attention:
+    get:
+      tags: [stub]
+      summary: 'STUB — the merged attention stack'
+      description: |
+        **Not implemented. Returns `data: null`.**
+
+        **Surface:** Inbox. See `docs/api/MISSING.md`.
+      parameters: [{ $ref: '#/components/parameters/Company' }]
+      responses:
+        '200': { $ref: '#/components/responses/Stub' }
+
+  /v1/companies/{company}/authority:
+    get:
+      tags: [stub]
+      summary: 'STUB — every standing authority setting'
+      description: |
+        **Not implemented. Returns `data: null`.**
+
+        **Surface:** Authority — the whole surface. See `docs/api/MISSING.md`.
+      parameters: [{ $ref: '#/components/parameters/Company' }]
+      responses:
+        '200': { $ref: '#/components/responses/Stub' }
+
+  /v1/companies/{company}/people/{actor}:
+    get:
+      tags: [stub]
+      summary: "STUB — one person's page"
+      description: |
+        **Not implemented. Returns `data: null`.**
+
+        **Surface:** People (the detail pane). See `docs/api/MISSING.md`.
+      parameters:
+        - { $ref: '#/components/parameters/Company' }
+        - name: actor
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { $ref: '#/components/responses/Stub' }
+
+  /v1/companies/{company}/org:
+    get:
+      tags: [stub]
+      summary: 'STUB — reporting lines'
+      description: |
+        **Not implemented. Returns `data: null`.**
+
+        **Surface:** People (the tree view). See `docs/api/MISSING.md`.
+      parameters: [{ $ref: '#/components/parameters/Company' }]
+      responses:
+        '200': { $ref: '#/components/responses/Stub' }
+
+  /v1/companies/{company}/artifacts:
+    get:
+      tags: [stub]
+      summary: 'STUB — what an actor produced lately'
+      description: |
+        **Not implemented. Returns `data: null`.**
+
+        **Surface:** People ("made lately"). See `docs/api/MISSING.md`.
+      parameters:
+        - { $ref: '#/components/parameters/Company' }
+        - name: actor
+          in: query
+          required: false
+          schema: { type: string }
+      responses:
+        '200': { $ref: '#/components/responses/Stub' }
+
+components:
+  parameters:
+    Company:
+      name: company
+      in: path
+      required: true
+      schema: { type: string }
+      description: Company name — also its container, volume and OrgIntel schema.
+    Limit:
+      name: limit
+      in: query
+      required: false
+      schema: { type: integer, format: int64, default: 50 }
+
+  responses:
+    Ok:
+      description: Succeeded.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Envelope' }
+    Failed:
+      description: |
+        Refused or failed. Read `error.kind` — the status code cannot carry the
+        distinctions it makes.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Failure' }
+    Refused:
+      description: An act of owner authority, refused for this principal.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Failure' }
+    Stub:
+      description: |
+        Route exists, implementation does not. `data` is null — never an empty
+        list, which a UI would render as "nothing here" instead of "not built".
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              ok: { type: boolean, const: true }
+              data: { type: 'null' }
+              stub:
+                type: object
+                properties:
+                  implemented: { type: boolean, const: false }
+                  what: { type: string }
+                  see: { type: string, const: 'docs/api/MISSING.md' }
+
+  schemas:
+    Envelope:
+      type: object
+      required: [ok]
+      properties:
+        ok: { type: boolean, const: true }
+        data: {}
+
+    Failure:
+      type: object
+      required: [ok, error]
+      properties:
+        ok: { type: boolean, const: false }
+        error:
+          type: object
+          required: [kind, message]
+          properties:
+            kind:
+              type: string
+              description: |
+                Switch on this. `authority` means the principal may not do it.
+                `transport` means the daemon or a dependency could not be reached.
+                `error` is the unclassified remainder.
+              examples: ['authority', 'transport', 'error']
+            message: { type: string }
+
+    Person:
+      type: object
+      properties:
+        actor_id: { type: string }
+        role:
+          type: string
+          description: The actor's durable role — `exec`, `copywriter`, `critic`.
+        display: { type: string }
+        model:
+          type: [string, 'null']
+          description: Null means inherited or not applicable — never "unknown".
+        spent_usd: { type: number }
+        session_running:
+          type: boolean
+          description: Probed, not assumed.
+
+    Goal:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        title: { type: string }
+        body: { type: string }
+        created_by: { type: string }
+        created_at: { type: string, format: date-time }
+        closed_at: { type: [string, 'null'], format: date-time }
+
+    Commitment:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        goal_id: { type: [string, 'null'], format: uuid }
+        owner_id: { type: string }
+        title: { type: string }
+        body: { type: string }
+        state:
+          type: string
+          enum: [proposed, active, blocked, completed, abandoned]
+          description: 'snake_case. Five states, not three — there is no `open`.'
+        resolution: { type: string }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+
+    Message:
+      type: object
+      properties:
+        id: { type: integer, format: int64 }
+        from_actor: { type: string }
+        to_actor: { type: [string, 'null'], description: Null addresses the owner. }
+        body: { type: string }
+        created_at: { type: string, format: date-time }
+        read_at: { type: [string, 'null'], format: date-time }
+
+    Event:
+      type: object
+      properties:
+        id: { type: integer, format: int64 }
+        kind: { type: string }
+        actor_id: { type: [string, 'null'] }
+        body: { type: object, additionalProperties: true }
+        created_at: { type: string, format: date-time }
+
+    Receipt:
+      type: object
+      properties:
+        capability: { type: string }
+        provider: { type: string }
+        party: { type: string }
+        actor: { type: string }
+        outcome: { type: string }
+        idempotency_key: { type: string }
+        at: { type: string, format: date-time }
+
+    Spend:
+      type: object
+      properties:
+        accounted_usd:
+          type: number
+          description: Real recorded spend, summed from the ledger.
+        ceiling_usd: { type: number }
+        remaining_usd:
+          type: [number, 'null']
+          description: Null when poisoned — there is no honest remaining figure.
+        poisoned:
+          type: boolean
+          description: |
+            Fail-closed. A turn could not be accounted, so the company is stopped
+            until `clear-poison` runs. Show the stopped state, not a number.
+        note: { type: [string, 'null'] }
+        by_actor:
+          type: array
+          items:
+            type: object
+            properties:
+              actor: { type: string }
+              role: { type: [string, 'null'] }
+              model: { type: string }
+              spent_usd: { type: number }

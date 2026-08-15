@@ -41,7 +41,15 @@ pub type Result<T> = std::result::Result<T, OrgIntelError>;
 /// Company schema names are SQL identifiers injected into DDL — validated so
 /// `SET search_path` can never carry injection. Deliberately stricter than
 /// company names elsewhere: lowercase, starts with a letter.
-fn valid_schema_name(name: &str) -> bool {
+/// The company-name rule, and the reason it is an allowlist rather than an
+/// escape: the name is interpolated into `CREATE SCHEMA {name}` and into
+/// `SET search_path TO {name}`, neither of which can take a bind parameter.
+///
+/// Public because it is the *first* thing any caller that is about to create a
+/// company must check. A name that fails here cannot become a schema, so
+/// anything built before the check — a Docker volume, a container, a config
+/// file — is an orphan named after a company that will never exist.
+pub fn valid_schema_name(name: &str) -> bool {
     !name.is_empty()
         && name.len() <= 63
         && name.bytes().enumerate().all(|(index, byte)| {

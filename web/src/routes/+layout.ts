@@ -1,4 +1,5 @@
-/* No server, no data loading. The whole app is a client-rendered shell over
- * `$lib/fixtures` until the OrgIntel read API exists (ARCHITECTURE.md §4.4). */
+/* Client-rendered throughout: the daemon's cockpit API is a loopback service on
+ * the owner's own machine, so there is no server-side render to do and nothing
+ * to render it on. */
 export const ssr = false;
 export const prerender = false;

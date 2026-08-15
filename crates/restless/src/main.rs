@@ -26,6 +26,27 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
+    /// Create a company — the first step, and until now the only one that had
+    /// to be done by hand in a text editor. Writes the config and stops; `up`
+    /// starts it. The new company has no providers, no credentials, no standing
+    /// approvals and no sender address: every one of those is a separate,
+    /// deliberate owner decision.
+    New {
+        /// Lowercase letters, digits and underscores; must start with a letter
+        /// or underscore. It becomes the Postgres schema, the Docker volume and
+        /// the container name, so it is validated before anything is created.
+        #[arg(long, short = 'c', env = "RESTLESS_COMPANY")]
+        company: String,
+        /// Provider-qualified, e.g. `zai/glm-5.2`.
+        #[arg(long)]
+        model: String,
+        /// What the business is, in the owner's words.
+        #[arg(long, default_value = "")]
+        mission: String,
+        /// Monthly model-spend ceiling in USD. The fuse, not governance.
+        #[arg(long)]
+        ceiling: Option<f64>,
+    },
     /// Bring a company environment up (create if absent, then start).
     Up {
         #[arg(long, short = 'c', env = "RESTLESS_COMPANY")]
@@ -308,6 +329,18 @@ fn stamp(mut request: serde_json::Value) -> serde_json::Value {
 /// One request/response pair; `watch` and `attach` handle their own I/O.
 fn request_json(command: Command) -> Result<serde_json::Value> {
     Ok(match command {
+        Command::New {
+            company: c,
+            model,
+            mission,
+            ceiling,
+        } => serde_json::json!({
+            "cmd": "create-company",
+            "company": c,
+            "model": model,
+            "mission": mission,
+            "ceiling_usd": ceiling,
+        }),
         Command::Up {
             company: c,
             from,

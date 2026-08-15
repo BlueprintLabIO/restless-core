@@ -5,6 +5,7 @@
 //! one response line.
 
 mod acp;
+mod api;
 mod approval;
 mod context;
 mod credential;
@@ -30,7 +31,7 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::UnixListener;
 
 #[derive(Debug, Deserialize)]
-struct Request {
+pub(crate) struct Request {
     cmd: String,
     company: Option<String>,
     #[serde(default)]
@@ -81,6 +82,14 @@ struct Request {
     /// exactly the case this field exists to catch.
     #[serde(default)]
     principal: Option<String>,
+    /// Company creation (mission text and ceiling; `name` and `model` reuse the
+    /// fields above). Mission is its own field rather than `body`: `body` is a
+    /// directive to the Exec everywhere else, and overloading it here would make
+    /// the audit line for "created a company" read like a `tell`.
+    #[serde(default)]
+    mission: Option<String>,
+    #[serde(default)]
+    ceiling_usd: Option<f64>,
     /// S04-T1. `up --from <live>` clones a company into a throwaway;
     /// `down --destroy` removes container, volume, schema and spend spool.
     #[serde(default)]
@@ -127,7 +136,7 @@ impl Principal {
 ///
 /// The membership rule: could a company, by running this, widen what it is
 /// allowed to do to the world — or stop the owner from watching it try?
-const OWNER_ONLY: &[&str] = &["approve", "up", "down", "clear-poison"];
+const OWNER_ONLY: &[&str] = &["approve", "up", "down", "clear-poison", "create-company"];
 
 /// The whole gate, as one pure decision so it can be tested adversarially
 /// rather than only observed through a socket.
@@ -171,13 +180,13 @@ const POISON_SENTINEL_USD: f64 = 1_000_000_000.0;
 /// on prose — `S03-T8` item 2. This ticket does not un-flatten every existing
 /// error; it declines to add a new flattened one.
 #[derive(Debug, Serialize)]
-struct ErrorBody {
+pub(crate) struct ErrorBody {
     kind: String,
     message: String,
 }
 
 #[derive(Debug, Serialize)]
-struct Response {
+pub(crate) struct Response {
     ok: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     data: Option<serde_json::Value>,
@@ -378,6 +387,18 @@ async fn main() -> Result<()> {
         }
     }
 
+    // The owner cockpit's transport. Loopback only and on its own task, for the
+    // same reason the ingress is: a browser client must not be able to stall the
+    // scheduler. It carries no authority of its own — see `api::serve`.
+    {
+        let api_daemon = std::sync::Arc::clone(&daemon);
+        tokio::spawn(async move {
+            if let Err(error) = api::serve(api::API_PORT, api_daemon).await {
+                tracing::error!("cockpit API stopped: {error:#}");
+            }
+        });
+    }
+
     // S03-T2: the world's front door, on its OWN listener and its own task.
     // The failure boundary is the point (AC6): a slow, malformed or flooded
     // inbound request must not be able to stall the scheduler — F12's lesson,
@@ -522,12 +543,70 @@ where
     }
 }
 
+
+/// The one entry point for transports that are not the JSON-lines socket.
+///
+/// It runs the *same* `authorize` → `dispatch` path, so the HTTP shim cannot
+/// acquire authority the CLI does not have, and a new command becomes reachable
+/// everywhere at once rather than being wired twice and drifting.
+///
+/// Takes and returns `serde_json::Value` because that is exactly what is on the
+/// wire today; the shim's job is transport, not translation.
+pub(crate) async fn dispatch_value(raw: serde_json::Value, daemon: &Daemon) -> serde_json::Value {
+    let request: Request = match serde_json::from_value(raw) {
+        Ok(request) => request,
+        Err(error) => {
+            return serde_json::to_value(Response::err(format!("bad request: {error}")))
+                .unwrap_or_default()
+        }
+    };
+    let principal = match authorize(request.principal.as_deref(), &request.cmd) {
+        Ok(principal) => principal,
+        Err(refusal) => {
+            tracing::warn!(cmd = %request.cmd, "refused: {refusal}");
+            return serde_json::to_value(Response::err_kind("authority", refusal))
+                .unwrap_or_default();
+        }
+    };
+    serde_json::to_value(dispatch(request, daemon, principal).await).unwrap_or_default()
+}
+
 async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Response {
     let company = match request.company.as_deref() {
         Some(name) => name,
         None => return Response::err("missing company"),
     };
     match request.cmd.as_str() {
+        // The first step of onboarding. Until this existed the only way to bring
+        // a company into being was to hand-write a TOML file, which is why the
+        // designed first-contact screen had nothing to call.
+        //
+        // It writes the config and stops. Starting the runtime stays `up`: a
+        // container that fails to launch must not take the company the owner
+        // just described down with it.
+        "create-company" => match request.model.as_deref() {
+            Some(model) => match runtime::create_config(
+                &daemon.root,
+                company,
+                request.mission.as_deref().unwrap_or_default(),
+                model,
+                request.ceiling_usd,
+            ) {
+                Ok(config) => Response::ok(serde_json::json!({
+                    "name": config.name,
+                    "model": config.model,
+                    "spend_ceiling_usd": config.spend_ceiling_usd,
+                    "created": true,
+                    "next": format!(
+                        "restless up -c {} — nothing is running yet, and no provider, \
+                         credential or standing approval is set",
+                        config.name
+                    ),
+                })),
+                Err(error) => Response::err(format!("{error:#}")),
+            },
+            None => Response::err("create-company needs a provider-qualified model, e.g. zai/glm-5.2"),
+        },
         // S04-T1. Clone-then-up, so a throwaway is one command rather than a
         // config file someone hand-copies and forgets to strip.
         "up" if request.from_company.is_some() => {

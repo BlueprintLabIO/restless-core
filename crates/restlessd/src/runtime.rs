@@ -164,6 +164,10 @@ pub async fn status(company: &str) -> Result<ContainerStatus> {
 /// replace an outdated container while keeping its named volume.
 pub async fn up(config: &CompanyConfig, reconcile: bool) -> Result<String> {
     let company = &config.name;
+    // Before Docker, not after. Until this check existed, an invalid name got a
+    // volume and a container and *then* failed at the schema step, leaving
+    // orphans named after a company that could never exist.
+    check_company_name(company)?;
     let mut rebuilt = false;
     let mut replaced = false;
     if reconcile {
@@ -523,6 +527,67 @@ pub fn is_test_company(company: &str) -> bool {
 /// a synthetic webhook once already — "the strongest single demand signal so
 /// far" turned out to be us — and that happened because the live company was
 /// the only one available to try things on.
+/// The company-name rule, in one place. Delegates to OrgIntel's schema-name
+/// allowlist rather than restating it: a name that cannot become a schema is
+/// not a company, whatever Docker would accept.
+pub fn check_company_name(name: &str) -> Result<()> {
+    if restless_orgintel::valid_schema_name(name) {
+        return Ok(());
+    }
+    bail!(
+        "company name {name:?} is not usable: it becomes a Postgres schema, a Docker \
+         volume and a container name, so it must start with a lowercase letter or \
+         underscore and contain only lowercase letters, digits and underscores (max 63)"
+    )
+}
+
+/// Create a company from nothing — the first step of onboarding, and until now
+/// the only one a human had to do by hand in a text editor.
+///
+/// A new company starts with **no providers, no credentials, no standing
+/// approvals and no sender address**, for the reasons `clone_config` drops the
+/// same four: absent already means simulated, approvals are the owner's blessing
+/// of a *live* company's counterparties, and nothing new should be able to send
+/// as the owner from its first minute. Every one of those is an owner decision
+/// taken later, deliberately.
+///
+/// This writes the config and nothing else. It does not start a container and
+/// does not touch Postgres — `up` does that, and keeping them separate means a
+/// failed launch does not lose the config the owner just described.
+pub fn create_config(
+    root: &Path,
+    name: &str,
+    mission: &str,
+    model: &str,
+    spend_ceiling_usd: Option<f64>,
+) -> Result<CompanyConfig> {
+    check_company_name(name)?;
+    let path = root.join("companies").join(format!("{name}.toml"));
+    if path.exists() {
+        bail!(
+            "company {name} already exists at {}; creating would overwrite it — \
+             use a different name, or edit that file",
+            path.display()
+        );
+    }
+    if model.trim().is_empty() || !model.contains('/') {
+        bail!("model must be provider-qualified, e.g. zai/glm-5.2 (got {model:?})");
+    }
+    std::fs::create_dir_all(root.join("companies")).context("create companies directory")?;
+    let config = CompanyConfig {
+        name: name.to_string(),
+        mission: mission.to_string(),
+        spend_ceiling_usd: spend_ceiling_usd.unwrap_or_else(default_ceiling),
+        model: model.to_string(),
+        providers: std::collections::BTreeMap::new(),
+        credentials: std::collections::BTreeMap::new(),
+        from_address: None,
+        approved_parties: Vec::new(),
+    };
+    CompanyConfig::save(root, &config)?;
+    Ok(config)
+}
+
 pub fn clone_config(root: &Path, from: &str, to: &str) -> Result<CompanyConfig> {
     if !is_test_company(to) {
         bail!(
@@ -618,4 +683,74 @@ pub fn state_root() -> PathBuf {
     }
     let home = std::env::var("HOME").expect("HOME");
     PathBuf::from(home).join(".restless")
+}
+
+#[cfg(test)]
+mod create_tests {
+    use super::*;
+
+    fn root() -> tempfile::TempDir {
+        let dir = tempfile::tempdir().expect("tempdir");
+        std::fs::create_dir_all(dir.path().join("companies")).expect("companies dir");
+        dir
+    }
+
+    /// The check that must happen before anything is created. A name that
+    /// cannot become a Postgres schema is not a company, and finding that out
+    /// after `docker run` leaves an orphan named after nothing.
+    #[test]
+    fn a_name_that_cannot_be_a_schema_is_refused() {
+        for bad in ["Foo Bar", "9lives", "drop;table", "", "a-dash", "Café"] {
+            assert!(check_company_name(bad).is_err(), "{bad:?} must be refused");
+        }
+        for good in ["thymelake", "_scratch", "co_2"] {
+            assert!(check_company_name(good).is_ok(), "{good:?} must be allowed");
+        }
+    }
+
+    #[test]
+    fn an_invalid_name_writes_no_config() {
+        let dir = root();
+        assert!(create_config(dir.path(), "Foo Bar", "", "zai/glm-5.2", None).is_err());
+        let written: Vec<_> = std::fs::read_dir(dir.path().join("companies"))
+            .expect("read")
+            .collect();
+        assert!(written.is_empty(), "a refused name must leave nothing behind");
+    }
+
+    /// Creating over an existing company would silently destroy its providers,
+    /// credentials and standing approvals — the owner's accumulated decisions.
+    #[test]
+    fn create_never_overwrites_an_existing_company() {
+        let dir = root();
+        create_config(dir.path(), "thymelake", "first", "zai/glm-5.2", None).expect("first");
+        let error = create_config(dir.path(), "thymelake", "second", "zai/glm-5.2", None)
+            .expect_err("second must refuse");
+        assert!(format!("{error:#}").contains("already exists"));
+        let config = CompanyConfig::load(dir.path(), "thymelake").expect("load");
+        assert_eq!(config.mission, "first", "the original must survive");
+    }
+
+    /// A new company can reach nothing and speak for no one until the owner
+    /// says otherwise, one decision at a time.
+    #[test]
+    fn a_new_company_starts_with_no_reach_into_the_world() {
+        let dir = root();
+        let config =
+            create_config(dir.path(), "fresh", "a bakery", "zai/glm-5.2", Some(25.0)).expect("create");
+        assert!(config.providers.is_empty(), "no provider may be preset");
+        assert!(config.credentials.is_empty(), "no credential may be preset");
+        assert!(config.approved_parties.is_empty(), "no party may be pre-approved");
+        assert!(config.from_address.is_none(), "it may not speak as the owner");
+        assert_eq!(config.spend_ceiling_usd, 25.0);
+    }
+
+    /// The model must name its provider, or the key lookup has nothing to match
+    /// and the failure surfaces much later, at the first wake.
+    #[test]
+    fn the_model_must_name_its_provider() {
+        let dir = root();
+        assert!(create_config(dir.path(), "fresh", "", "company-general-v1", None).is_err());
+        assert!(create_config(dir.path(), "fresh", "", "", None).is_err());
+    }
 }
