@@ -112,7 +112,6 @@ mod tests {
             name: "aris".to_string(),
             mission: String::new(),
             spend_ceiling_usd: 30.0,
-            org_mode: crate::runtime::OrgMode::default(),
             model: "moonshot/kimi-k3".to_string(),
             providers: std::collections::BTreeMap::new(),
             from_address: None,
@@ -147,7 +146,10 @@ mod tests {
             // check() is async but the simulated path is pure; assert the
             // property directly on the branch that governs it.
             matches!(
-                (Provider::Simulated == Provider::Simulated, config.approved_parties.len()),
+                (
+                    Provider::Simulated == Provider::Simulated,
+                    config.approved_parties.len()
+                ),
                 (true, 0)
             )
         })

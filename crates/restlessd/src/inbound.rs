@@ -67,7 +67,11 @@ pub async fn record_and_project(
     // event, and waking the company twice for one reply is exactly the
     // "double-fire" AC this sprint tests.
     if org
-        .find_event_body("inbound_effect", "provider_event_id", &event.provider_event_id)
+        .find_event_body(
+            "inbound_effect",
+            "provider_event_id",
+            &event.provider_event_id,
+        )
         .await?
         .is_some()
     {
@@ -79,8 +83,16 @@ pub async fn record_and_project(
         return Ok(false);
     }
 
-    let kind = event.body.get("type").and_then(|t| t.as_str()).unwrap_or("unknown");
-    let data = event.body.get("data").cloned().unwrap_or(serde_json::Value::Null);
+    let kind = event
+        .body
+        .get("type")
+        .and_then(|t| t.as_str())
+        .unwrap_or("unknown");
+    let data = event
+        .body
+        .get("data")
+        .cloned()
+        .unwrap_or(serde_json::Value::Null);
     let from = first_string(&data, &["from", "sender", "email"]);
     let subject = first_string(&data, &["subject"]).unwrap_or_default();
     let text = first_string(&data, &["text", "body", "html"]).unwrap_or_default();
@@ -107,7 +119,9 @@ pub async fn record_and_project(
     //    already recorded above, and putting it in the Exec's inbox as if it
     //    were correspondence would be noise the agent pays tokens to read.
     if kind == "email.received" || kind == "email.inbound" {
-        org.add_actor("world", "world", "The outside world").await.ok();
+        org.add_actor("world", "world", "The outside world")
+            .await
+            .ok();
         org.add_actor("exec", "exec", "The Exec").await.ok();
         let body = format!(
             "REPLY from {}\nsubject: {}\n\n{}",
@@ -163,16 +177,29 @@ mod tests {
     #[test]
     fn a_sender_is_found_whatever_shape_the_provider_used() {
         let string_form = serde_json::json!({ "from": "greg@example.com" });
-        assert_eq!(first_string(&string_form, &["from"]).as_deref(), Some("greg@example.com"));
+        assert_eq!(
+            first_string(&string_form, &["from"]).as_deref(),
+            Some("greg@example.com")
+        );
 
-        let object_form = serde_json::json!({ "from": { "name": "Greg", "email": "greg@example.com" } });
-        assert_eq!(first_string(&object_form, &["from"]).as_deref(), Some("greg@example.com"));
+        let object_form =
+            serde_json::json!({ "from": { "name": "Greg", "email": "greg@example.com" } });
+        assert_eq!(
+            first_string(&object_form, &["from"]).as_deref(),
+            Some("greg@example.com")
+        );
 
         let array_form = serde_json::json!({ "to": ["aris@blueprintlab.io"] });
-        assert_eq!(first_string(&array_form, &["to"]).as_deref(), Some("aris@blueprintlab.io"));
+        assert_eq!(
+            first_string(&array_form, &["to"]).as_deref(),
+            Some("aris@blueprintlab.io")
+        );
 
         // Absent and blank both mean "no sender", not an empty-string sender.
-        assert_eq!(first_string(&serde_json::json!({ "from": "   " }), &["from"]), None);
+        assert_eq!(
+            first_string(&serde_json::json!({ "from": "   " }), &["from"]),
+            None
+        );
         assert_eq!(first_string(&serde_json::json!({}), &["from"]), None);
     }
 }

@@ -56,6 +56,16 @@ pub struct SpendRecord {
     #[serde(default)]
     pub total_tokens: u64,
     pub cost_micro_usd: u64,
+    /// S04-T9. Which actor's turn this was. Defaulted so the records written
+    /// before this field existed still rebuild on boot — the spool is
+    /// append-only history, and a schema change must not invalidate it.
+    ///
+    /// The **role** is deliberately not stored here: OrgIntel owns role
+    /// (`cross-layer §3.1`) and is the single writer of it. Cost is joined to
+    /// role at read time, so a renamed role does not leave the ledger
+    /// disagreeing with the org.
+    #[serde(default)]
+    pub actor_id: String,
     pub occurred_at: DateTime<Utc>,
 }
 
@@ -84,9 +94,9 @@ impl SpendStore {
     /// A corrupt line with more content after it is real damage and stays
     /// fatal — a gateway that cannot account does not serve.
     pub fn open(root: &std::path::Path) -> GatewayResult<Self> {
-        let root = root.canonicalize().map_err(|error| {
-            GatewayError::Configuration(format!("spend root: {error}"))
-        })?;
+        let root = root
+            .canonicalize()
+            .map_err(|error| GatewayError::Configuration(format!("spend root: {error}")))?;
         let path = root.join("spend.jsonl");
         let mut totals: HashMap<String, u64> = HashMap::new();
         let mut poisons: std::collections::HashSet<String> = std::collections::HashSet::new();
@@ -99,43 +109,44 @@ impl SpendStore {
                 if line.trim().is_empty() {
                     continue;
                 }
-                let record: SpendRecord = match serde_json::from_str(line) {
-                    Ok(record) => record,
-                    Err(error) => {
-                        let torn_tail =
-                            lines[index + 1..].iter().all(|rest| rest.trim().is_empty());
-                        if torn_tail {
-                            let truncate_at: u64 = lines[..index]
-                                .iter()
-                                .map(|line| line.len() as u64 + 1)
-                                .sum();
-                            tracing::error!(
-                                line = index + 1,
-                                %error,
-                                "truncating torn spend-spool tail (crash or full disk \
-                                 mid-append); the fsync'd prefix is accounted truth"
-                            );
-                            let file = OpenOptions::new().write(true).open(&path).map_err(
-                                |error| {
+                let record: SpendRecord =
+                    match serde_json::from_str(line) {
+                        Ok(record) => record,
+                        Err(error) => {
+                            let torn_tail =
+                                lines[index + 1..].iter().all(|rest| rest.trim().is_empty());
+                            if torn_tail {
+                                let truncate_at: u64 = lines[..index]
+                                    .iter()
+                                    .map(|line| line.len() as u64 + 1)
+                                    .sum();
+                                tracing::error!(
+                                    line = index + 1,
+                                    %error,
+                                    "truncating torn spend-spool tail (crash or full disk \
+                                     mid-append); the fsync'd prefix is accounted truth"
+                                );
+                                let file = OpenOptions::new().write(true).open(&path).map_err(
+                                    |error| {
+                                        GatewayError::Configuration(format!(
+                                            "open spend spool for tail repair: {error}"
+                                        ))
+                                    },
+                                )?;
+                                file.set_len(truncate_at).map_err(|error| {
                                     GatewayError::Configuration(format!(
-                                        "open spend spool for tail repair: {error}"
+                                        "truncate torn spend-spool tail: {error}"
                                     ))
-                                },
-                            )?;
-                            file.set_len(truncate_at).map_err(|error| {
-                                GatewayError::Configuration(format!(
-                                    "truncate torn spend-spool tail: {error}"
-                                ))
-                            })?;
-                            file.sync_all()?;
-                            break;
+                                })?;
+                                file.sync_all()?;
+                                break;
+                            }
+                            return Err(GatewayError::Configuration(format!(
+                                "corrupt spend spool line {}: {error}",
+                                index + 1
+                            )));
                         }
-                        return Err(GatewayError::Configuration(format!(
-                            "corrupt spend spool line {}: {error}",
-                            index + 1
-                        )));
-                    }
-                };
+                    };
                 // A cleared poison is cancelled, not erased: both records stay
                 // in the spool so the incident is still legible, but the
                 // company's total returns to its real spend. Without this a
@@ -163,7 +174,11 @@ impl SpendStore {
             .append(true)
             .open(&path)
             .map_err(|error| GatewayError::Configuration(format!("append spend spool: {error}")))?;
-        Ok(Self { path, writer: Mutex::new(writer), totals: Mutex::new(totals) })
+        Ok(Self {
+            path,
+            writer: Mutex::new(writer),
+            totals: Mutex::new(totals),
+        })
     }
 
     #[must_use]
@@ -172,6 +187,88 @@ impl SpendStore {
             .lock()
             .map(|totals| totals.get(company_id).copied().unwrap_or(0))
             .unwrap_or(u64::MAX) // poisoned lock fails closed
+    }
+
+    /// S04-T9. Spend broken down by `(actor, model)` for one company, read
+    /// from the spool rather than from memory — the in-memory totals are a
+    /// per-company sum and cannot answer "what did the critic cost".
+    ///
+    /// Reads the file each call. That is fine at this size and honest: the
+    /// alternative is a second aggregate to keep in sync with the first.
+    #[must_use]
+    pub fn breakdown_micro_usd(&self, company_id: &str) -> Vec<(String, String, u64)> {
+        let mut by_key: HashMap<(String, String), u64> = HashMap::new();
+        let Ok(text) = fs::read_to_string(&self.path) else {
+            return Vec::new();
+        };
+        for line in text.lines() {
+            let Ok(record) = serde_json::from_str::<SpendRecord>(line) else {
+                continue;
+            };
+            if record.company_id != company_id || record.request_id == Uuid::nil() {
+                continue;
+            }
+            let actor = if record.actor_id.is_empty() {
+                // Records written before the actor dimension existed. Named for
+                // what they are rather than blamed on a guess.
+                "unattributed".to_string()
+            } else {
+                record.actor_id.clone()
+            };
+            *by_key.entry((actor, record.model.clone())).or_default() += record.cost_micro_usd;
+        }
+        let mut rows: Vec<(String, String, u64)> =
+            by_key.into_iter().map(|((a, m), c)| (a, m, c)).collect();
+        rows.sort_by(|a, b| b.2.cmp(&a.2));
+        rows
+    }
+
+    /// S04-T1. Forget one company entirely: its spool records, its total and
+    /// its poison.
+    ///
+    /// The spool is **one shared file**, not one per company, so destroying a
+    /// throwaway cannot be done by deleting a path — and a `--destroy` that
+    /// silently left spend behind is precisely the sprint-02 defect this was
+    /// meant to close, where three "identical" comparison arms ran with
+    /// $2.45 / $10.51 / $12.85 of headroom against a nominal $15 ceiling.
+    pub fn forget(&self, company_id: &str) -> GatewayResult<()> {
+        let text = match fs::read_to_string(&self.path) {
+            Ok(text) => text,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+            Err(error) => {
+                return Err(GatewayError::Configuration(format!(
+                    "read spend spool: {error}"
+                )))
+            }
+        };
+        let kept: Vec<&str> = text
+            .lines()
+            .filter(|line| {
+                serde_json::from_str::<SpendRecord>(line)
+                    .map(|record| record.company_id != company_id)
+                    .unwrap_or(true)
+            })
+            .collect();
+        let mut rewritten = kept.join("\n");
+        if !rewritten.is_empty() {
+            rewritten.push('\n');
+        }
+        // Write-then-rename: a crash mid-rewrite must not lose other companies'
+        // accounted spend.
+        let temporary = self.path.with_extension("jsonl.tmp");
+        fs::write(&temporary, rewritten)
+            .map_err(|error| GatewayError::Configuration(format!("write spend spool: {error}")))?;
+        fs::rename(&temporary, &self.path).map_err(|error| {
+            GatewayError::Configuration(format!("replace spend spool: {error}"))
+        })?;
+
+        if let Ok(mut totals) = self.totals.lock() {
+            totals.remove(company_id);
+        }
+        if let Ok(mut writer) = self.writer.lock() {
+            let _ = writer.flush();
+        }
+        Ok(())
     }
 
     /// Pin a company's total at the maximum so every later pre-flight check
@@ -189,6 +286,7 @@ impl SpendStore {
             output_tokens: 0,
             total_tokens: 0,
             cost_micro_usd: u64::MAX,
+            actor_id: "daemon".into(),
             occurred_at: Utc::now(),
         };
         if self.record(&marker).is_err() {
@@ -210,6 +308,7 @@ impl SpendStore {
             output_tokens: 0,
             total_tokens: 0,
             cost_micro_usd: 0,
+            actor_id: "daemon".into(),
             occurred_at: Utc::now(),
         };
         self.record(&marker)?;
@@ -221,8 +320,9 @@ impl SpendStore {
 
     /// Append one accounted call, fsync, then update the in-memory total.
     pub fn record(&self, record: &SpendRecord) -> GatewayResult<()> {
-        let mut line = serde_json::to_vec(record)
-            .map_err(|error| GatewayError::Configuration(format!("encode spend record: {error}")))?;
+        let mut line = serde_json::to_vec(record).map_err(|error| {
+            GatewayError::Configuration(format!("encode spend record: {error}"))
+        })?;
         line.push(b'\n');
         let mut writer = self.writer.lock().map_err(|_| GatewayError::Upstream)?;
         writer.write_all(&line)?;
@@ -257,12 +357,16 @@ pub fn parse_token_usage(tail: &[u8]) -> Option<TokenUsage> {
     let text = std::str::from_utf8(tail).ok()?;
     // SSE: scan data lines from the end; the completed event is last.
     for line in text.lines().rev() {
-        let Some(data) = line.strip_prefix("data:") else { continue };
+        let Some(data) = line.strip_prefix("data:") else {
+            continue;
+        };
         let data = data.trim();
         if data.is_empty() || data == "[DONE]" {
             continue;
         }
-        let Ok(value) = serde_json::from_str::<serde_json::Value>(data) else { continue };
+        let Ok(value) = serde_json::from_str::<serde_json::Value>(data) else {
+            continue;
+        };
         if let Some(usage) = extract_usage(&value) {
             return Some(usage);
         }
@@ -276,12 +380,17 @@ fn extract_usage(value: &serde_json::Value) -> Option<TokenUsage> {
     let usage = value
         .pointer("/response/usage")
         .or_else(|| value.pointer("/usage"))?;
-    let input = usage.get("input_tokens").and_then(serde_json::Value::as_u64);
-    let output = usage.get("output_tokens").and_then(serde_json::Value::as_u64);
+    let input = usage
+        .get("input_tokens")
+        .and_then(serde_json::Value::as_u64);
+    let output = usage
+        .get("output_tokens")
+        .and_then(serde_json::Value::as_u64);
     match (input, output) {
-        (Some(input_tokens), Some(output_tokens)) => {
-            Some(TokenUsage { input_tokens, output_tokens })
-        }
+        (Some(input_tokens), Some(output_tokens)) => Some(TokenUsage {
+            input_tokens,
+            output_tokens,
+        }),
         _ => None,
     }
 }
@@ -292,7 +401,10 @@ mod tests {
 
     #[test]
     fn rate_cost_is_integer_exact() {
-        let rate = ModelRate { input_usd_per_mtok: 3.0, output_usd_per_mtok: 15.0 };
+        let rate = ModelRate {
+            input_usd_per_mtok: 3.0,
+            output_usd_per_mtok: 15.0,
+        };
         // 1000 in + 500 out = $0.003 + $0.0075 = $0.0105 = 10500 micro
         assert_eq!(rate.cost_micro_usd(1000, 500), 10_500);
     }
@@ -301,19 +413,34 @@ mod tests {
     fn parses_sse_completed_usage() {
         let tail = b"data: {\"type\":\"response.output_text.delta\"}\n\ndata: {\"type\":\"response.completed\",\"response\":{\"usage\":{\"input_tokens\":42,\"output_tokens\":17}}}\n\n";
         let usage = parse_token_usage(tail).expect("usage");
-        assert_eq!(usage, TokenUsage { input_tokens: 42, output_tokens: 17 });
+        assert_eq!(
+            usage,
+            TokenUsage {
+                input_tokens: 42,
+                output_tokens: 17
+            }
+        );
     }
 
     #[test]
     fn parses_plain_json_usage() {
         let body = br#"{"id":"r1","usage":{"input_tokens":5,"output_tokens":9}}"#;
         let usage = parse_token_usage(body).expect("usage");
-        assert_eq!(usage, TokenUsage { input_tokens: 5, output_tokens: 9 });
+        assert_eq!(
+            usage,
+            TokenUsage {
+                input_tokens: 5,
+                output_tokens: 9
+            }
+        );
     }
 
     #[test]
     fn missing_usage_is_none_not_zero() {
-        assert_eq!(parse_token_usage(b"data: {\"type\":\"response.completed\",\"response\":{}}\n"), None);
+        assert_eq!(
+            parse_token_usage(b"data: {\"type\":\"response.completed\",\"response\":{}}\n"),
+            None
+        );
     }
 
     fn spend_record(company: &str, cost: u64) -> SpendRecord {
@@ -325,6 +452,7 @@ mod tests {
             output_tokens: 1,
             total_tokens: 0,
             cost_micro_usd: cost,
+            actor_id: "exec".to_owned(),
             occurred_at: Utc::now(),
         }
     }
@@ -361,5 +489,70 @@ mod tests {
         let good = serde_json::to_string(&spend_record("acme", 100)).unwrap();
         fs::write(root.join("spend.jsonl"), format!("garbage\n{good}\n")).unwrap();
         assert!(SpendStore::open(root).is_err());
+    }
+
+    /// S04-T1. Destroying a throwaway must clear its spend, and must not touch
+    /// anyone else's.
+    ///
+    /// This exists because the first implementation deleted
+    /// `spend/<company>.jsonl` — a path that has never existed, since the spool
+    /// is one shared file. It "passed" every observable check while silently
+    /// leaving spend accounted, which is the sprint-02 comparison defect
+    /// verbatim: three arms that looked identical and ran with different
+    /// headroom because only three of four states were reset.
+    #[test]
+    fn forgetting_one_company_leaves_the_others_accounted() {
+        let dir = std::env::temp_dir().join(format!("restless-forget-{}", Uuid::new_v4()));
+        fs::create_dir_all(&dir).unwrap();
+        let store = SpendStore::open(&dir).unwrap();
+        store.record(&spend_record("keeper", 500)).unwrap();
+        store.record(&spend_record("throwaway", 900)).unwrap();
+        store.record(&spend_record("keeper", 250)).unwrap();
+        assert_eq!(store.spent_micro_usd("throwaway"), 900);
+
+        store.forget("throwaway").unwrap();
+
+        assert_eq!(
+            store.spent_micro_usd("throwaway"),
+            0,
+            "destroyed spend must be gone"
+        );
+        assert_eq!(
+            store.spent_micro_usd("keeper"),
+            750,
+            "another company must be untouched"
+        );
+
+        // And it survives a restart: the spool itself was rewritten, not just
+        // the in-memory total.
+        let reopened = SpendStore::open(&dir).unwrap();
+        assert_eq!(reopened.spent_micro_usd("throwaway"), 0);
+        assert_eq!(reopened.spent_micro_usd("keeper"), 750);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// A poisoned company's total is a sentinel, not money. The breakdown must
+    /// keep reporting real accounted spend so the owner can still see what was
+    /// actually burned before the fuse blew.
+    #[test]
+    fn a_poison_does_not_contaminate_the_accounted_breakdown() {
+        let dir = std::env::temp_dir().join(format!("restless-poison-{}", Uuid::new_v4()));
+        fs::create_dir_all(&dir).unwrap();
+        let store = SpendStore::open(&dir).unwrap();
+        store.record(&spend_record("acme", 1_500)).unwrap();
+        store.poison("acme");
+
+        assert_eq!(
+            store.spent_micro_usd("acme"),
+            u64::MAX,
+            "the fuse must fail closed"
+        );
+        let breakdown = store.breakdown_micro_usd("acme");
+        let accounted: u64 = breakdown.iter().map(|(_, _, cost)| cost).sum();
+        assert_eq!(
+            accounted, 1_500,
+            "real spend must survive the poison, un-inflated"
+        );
+        let _ = fs::remove_dir_all(&dir);
     }
 }

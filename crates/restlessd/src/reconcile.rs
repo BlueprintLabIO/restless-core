@@ -76,7 +76,11 @@ impl EffectLedger {
             .iter()
             .map(|(capability, tally)| {
                 if tally.failed > 0 {
-                    format!("{capability} {}✓/{}✗", tally.total - tally.failed, tally.failed)
+                    format!(
+                        "{capability} {}✓/{}✗",
+                        tally.total - tally.failed,
+                        tally.failed
+                    )
                 } else {
                     format!("{capability} {}", tally.total)
                 }
@@ -86,7 +90,10 @@ impl EffectLedger {
             parts.push(format!("{} {:.2} moved", currency, *amount as f64 / 100.0));
         }
         if self.replays_suppressed > 0 {
-            parts.push(format!("{} duplicate(s) suppressed", self.replays_suppressed));
+            parts.push(format!(
+                "{} duplicate(s) suppressed",
+                self.replays_suppressed
+            ));
         }
         if self.self_reported > 0 {
             parts.push(format!(
@@ -95,7 +102,10 @@ impl EffectLedger {
             ));
         }
         if self.unknown_outcomes > 0 {
-            parts.push(format!("{} receipt(s) with an unrecognised status", self.unknown_outcomes));
+            parts.push(format!(
+                "{} receipt(s) with an unrecognised status",
+                self.unknown_outcomes
+            ));
         }
         if self.party_repeats > 0 {
             parts.push(format!(
@@ -125,7 +135,10 @@ pub async fn effect_ledger(org: &OrgIntel) -> Result<EffectLedger> {
         if event.body.get("provider").and_then(|p| p.as_str()) == Some("self-reported") {
             ledger.self_reported += 1;
         }
-        let tally = ledger.by_capability.entry(capability.to_string()).or_default();
+        let tally = ledger
+            .by_capability
+            .entry(capability.to_string())
+            .or_default();
         tally.total += 1;
         if outcome.is_some_and(|o| outcome_of(o) == Outcome::Failed) {
             tally.failed += 1;
@@ -184,7 +197,14 @@ pub fn outcome_of(outcome: &serde_json::Value) -> Outcome {
     let status = status.to_lowercase();
     if matches!(
         status.as_str(),
-        "succeeded" | "success" | "ok" | "delivered" | "sent" | "deployed" | "refunded" | "accepted"
+        "succeeded"
+            | "success"
+            | "ok"
+            | "delivered"
+            | "sent"
+            | "deployed"
+            | "refunded"
+            | "accepted"
     ) {
         return Outcome::Succeeded;
     }
@@ -223,7 +243,13 @@ mod tests {
     #[test]
     fn real_provider_status_words_classify_correctly() {
         let succeeded = ["succeeded", "delivered", "deployed", "refunded"];
-        let failed = ["failed", "declined", "bounced", "rejected_invalid_address", "refund_failed"];
+        let failed = [
+            "failed",
+            "declined",
+            "bounced",
+            "rejected_invalid_address",
+            "refund_failed",
+        ];
         for status in succeeded {
             assert_eq!(
                 outcome_of(&serde_json::json!({ "status": status })),
@@ -255,7 +281,10 @@ mod tests {
     #[test]
     fn counts_successes_failures_and_refuses_to_guess_units() {
         let events = vec![
-            receipt("email.send", serde_json::json!({ "note": "delivered", "status": "sent" })),
+            receipt(
+                "email.send",
+                serde_json::json!({ "note": "delivered", "status": "sent" }),
+            ),
             receipt(
                 "email.send",
                 serde_json::json!({ "note": "example.com is a reserved domain", "status": "bounced" }),
@@ -265,7 +294,10 @@ mod tests {
                 serde_json::json!({ "amount": 900, "status": "succeeded", "currency": "GBP" }),
             ),
             // Real receipt: succeeded, but no currency — unreconcilable.
-            receipt("payment.charge", serde_json::json!({ "amount": 900, "status": "succeeded" })),
+            receipt(
+                "payment.charge",
+                serde_json::json!({ "amount": 900, "status": "succeeded" }),
+            ),
             receipt(
                 "payment.charge",
                 serde_json::json!({ "error": "invalid_request", "reason": "missing fields" }),
@@ -276,20 +308,25 @@ mod tests {
             let capability = body["capability"].as_str().unwrap();
             let outcome = body.get("outcome");
             ledger.total += 1;
-            let tally = ledger.by_capability.entry(capability.to_string()).or_default();
+            let tally = ledger
+                .by_capability
+                .entry(capability.to_string())
+                .or_default();
             tally.total += 1;
             if outcome.is_some_and(|o| outcome_of(o) == Outcome::Failed) {
                 tally.failed += 1;
                 continue;
             }
             // Only count money for receipts that actually claim success.
-        if outcome.is_some_and(|o| outcome_of(o) == Outcome::Unknown) {
-            ledger.unknown_outcomes += 1;
-            continue;
-        }
-        if capability.starts_with("payment.") {
+            if outcome.is_some_and(|o| outcome_of(o) == Outcome::Unknown) {
+                ledger.unknown_outcomes += 1;
+                continue;
+            }
+            if capability.starts_with("payment.") {
                 match money(outcome) {
-                    Some((currency, minor)) => *ledger.money_minor.entry(currency).or_default() += minor,
+                    Some((currency, minor)) => {
+                        *ledger.money_minor.entry(currency).or_default() += minor
+                    }
                     None => ledger.unattributable_payments += 1,
                 }
             }

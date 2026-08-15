@@ -52,6 +52,25 @@ RUN npm install -g bun@1.3.14 \
     && chmod -R a+rX ${BUN_INSTALL} \
     && npm cache clean --force
 
+# S04-T2. pnpm, pinned, installed system-wide.
+#
+# The Study repo's `.husky/pre-commit` runs `pnpm lint-staged`, so without pnpm
+# the company **cannot commit at all** — discovered by trying, not by reading.
+# Two details, both learned the hard way:
+#
+#  * The version is pinned to the 10.x line because `pnpm-lock.yaml` is
+#    `lockfileVersion: '9.0'` and the repo declares `pnpm.onlyBuiltDependencies`
+#    in package.json. pnpm 11 stopped reading that field and fails the commit
+#    with ERR_PNPM_IGNORED_BUILDS. `corepack prepare pnpm@latest` is therefore
+#    exactly the wrong instinct — it installs a version the repo predates.
+#  * It is prepared here, as root, into a system path. Corepack's per-user cache
+#    lives under the company user's home on the *volume*, so activating as root
+#    at runtime leaves the company user still on whatever it had.
+ENV COREPACK_ENABLE_DOWNLOAD_PROMPT=0
+RUN corepack enable pnpm \
+    && corepack prepare pnpm@10.18.0 --activate \
+    && pnpm --version
+
 # Playwright library for browser-driven acceptance (T11). Uses the Debian
 # chromium installed above — do NOT download Playwright's own browser build.
 # Scripts must pass `executablePath: '/usr/bin/chromium'` to chromium.launch.

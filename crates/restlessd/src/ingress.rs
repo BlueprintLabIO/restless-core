@@ -28,7 +28,7 @@
 
 use std::sync::Arc;
 
-use anyhow::{Context as _, Result, bail};
+use anyhow::{bail, Context as _, Result};
 use base64::Engine as _;
 use hmac::{Hmac, Mac};
 use sha2::Sha256;
@@ -161,16 +161,15 @@ pub async fn serve<S: Sink>(port: u16, secret: String, sink: Arc<S>) -> Result<(
 /// and three jobs, and a framework would be more surface than the thing it
 /// serves. When the owner API needs HTTP (S03-T8 defers it), that is the moment
 /// to reconsider — not now.
-async fn handle<S: Sink>(
-    stream: tokio::net::TcpStream,
-    secret: &str,
-    sink: &S,
-) -> Result<()> {
+async fn handle<S: Sink>(stream: tokio::net::TcpStream, secret: &str, sink: &S) -> Result<()> {
     let (read, mut write) = tokio::io::split(stream);
     let mut reader = BufReader::new(read);
 
     let mut request_line = String::new();
-    reader.read_line(&mut request_line).await.context("read request line")?;
+    reader
+        .read_line(&mut request_line)
+        .await
+        .context("read request line")?;
     let mut parts = request_line.split_whitespace();
     let method = parts.next().unwrap_or_default().to_string();
     let path = parts.next().unwrap_or_default().to_string();
@@ -212,7 +211,12 @@ async fn handle<S: Sink>(
     // The company is the path segment: /inbound/<company>. Routing by path
     // keeps one listener serving every company without a header convention a
     // provider may not let us set.
-    let company = path.trim_start_matches('/').split('/').nth(1).unwrap_or("").to_string();
+    let company = path
+        .trim_start_matches('/')
+        .split('/')
+        .nth(1)
+        .unwrap_or("")
+        .to_string();
     if company.is_empty() {
         respond(&mut write, 404, r#"{"error":"POST /inbound/<company>"}"#).await?;
         bail!("no company in path {path:?}");
@@ -224,15 +228,27 @@ async fn handle<S: Sink>(
         headers.get("svix-signature").cloned().unwrap_or_default(),
     );
     let now = chrono::Utc::now().timestamp();
-    if let Err(error) = verify_signature(secret, &svix_id, &svix_timestamp, &svix_signature, &body, now)
-    {
+    if let Err(error) = verify_signature(
+        secret,
+        &svix_id,
+        &svix_timestamp,
+        &svix_signature,
+        &body,
+        now,
+    ) {
         // 401 and no detail on the wire: an attacker probing the endpoint
         // learns nothing about which part failed. The reason goes to our log.
-        respond(&mut write, 401, r#"{"error":"signature verification failed"}"#).await?;
+        respond(
+            &mut write,
+            401,
+            r#"{"error":"signature verification failed"}"#,
+        )
+        .await?;
         return Err(error.context("rejecting unsigned or mis-signed inbound event"));
     }
 
-    let parsed: serde_json::Value = serde_json::from_slice(&body).unwrap_or(serde_json::Value::Null);
+    let parsed: serde_json::Value =
+        serde_json::from_slice(&body).unwrap_or(serde_json::Value::Null);
     // Provider event id, preferred from the body, falling back to the svix id.
     let provider_event_id = parsed
         .get("data")
@@ -241,7 +257,11 @@ async fn handle<S: Sink>(
         .map(str::to_string)
         .unwrap_or_else(|| svix_id.clone());
 
-    sink.accept(InboundEvent { provider_event_id, company, body: parsed });
+    sink.accept(InboundEvent {
+        provider_event_id,
+        company,
+        body: parsed,
+    });
     // Accepted, not processed — §4.4: long work returns an accepted identity
     // rather than holding the connection. Resend needs a fast 2xx or it retries.
     respond(&mut write, 202, r#"{"status":"accepted"}"#).await?;
@@ -267,7 +287,10 @@ async fn respond<W: tokio::io::AsyncWrite + Unpin>(
          Content-Length: {}\r\nConnection: close\r\n\r\n{body}",
         body.len()
     );
-    write.write_all(response.as_bytes()).await.context("write response")?;
+    write
+        .write_all(response.as_bytes())
+        .await
+        .context("write response")?;
     write.flush().await.ok();
     Ok(())
 }
@@ -288,7 +311,10 @@ mod tests {
         mac.update(timestamp.to_string().as_bytes());
         mac.update(b".");
         mac.update(body);
-        format!("v1,{}", base64::engine::general_purpose::STANDARD.encode(mac.finalize().into_bytes()))
+        format!(
+            "v1,{}",
+            base64::engine::general_purpose::STANDARD.encode(mac.finalize().into_bytes())
+        )
     }
 
     /// The sprint's one Invariant: a forged or unsigned request never reaches
@@ -298,12 +324,12 @@ mod tests {
         let body = br#"{"type":"email.received"}"#;
         let now = 1_700_000_000;
         assert!(verify_signature(SECRET, "msg_1", &now.to_string(), "", body, now).is_err());
-        assert!(
-            verify_signature(SECRET, "msg_1", &now.to_string(), "v1,AAAA", body, now).is_err()
-        );
+        assert!(verify_signature(SECRET, "msg_1", &now.to_string(), "v1,AAAA", body, now).is_err());
         // And a valid signature over a DIFFERENT body does not transfer.
         let signature = sign(SECRET, "msg_1", now, br#"{"type":"other"}"#);
-        assert!(verify_signature(SECRET, "msg_1", &now.to_string(), &signature, body, now).is_err());
+        assert!(
+            verify_signature(SECRET, "msg_1", &now.to_string(), &signature, body, now).is_err()
+        );
     }
 
     #[test]
@@ -325,11 +351,19 @@ mod tests {
         let signature = sign(SECRET, "msg_1", signed_at, body);
         let much_later = signed_at + 3600;
         let error = verify_signature(
-            SECRET, "msg_1", &signed_at.to_string(), &signature, body, much_later,
+            SECRET,
+            "msg_1",
+            &signed_at.to_string(),
+            &signature,
+            body,
+            much_later,
         )
         .unwrap_err()
         .to_string();
-        assert!(error.contains("replay") || error.contains("tolerance"), "{error}");
+        assert!(
+            error.contains("replay") || error.contains("tolerance"),
+            "{error}"
+        );
     }
 
     /// Rotation delivers two signatures in one header. Rejecting the second

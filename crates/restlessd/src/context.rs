@@ -93,7 +93,10 @@ pub fn assemble(snapshot: &ContextSnapshot) -> ContextPackage {
         } else {
             "internal decision"
         };
-        inbox.push_str(&format!("- [{trust}] from {}: {}\n", message.from_actor, message.body));
+        inbox.push_str(&format!(
+            "- [{trust}] from {}: {}\n",
+            message.from_actor, message.body
+        ));
     }
 
     let capabilities = if snapshot.capabilities.is_empty() {
@@ -142,12 +145,13 @@ pub fn assemble(snapshot: &ContextSnapshot) -> ContextPackage {
          becomes their durable identity, so the owner can ask who did what. `--model` gives \
          them a different mind from yours; omit it and they inherit yours.\n\
          **Delegate when the job is genuinely a different job, not when it is merely more \
-         work.** A second copy of you, on a smaller context, is worth almost nothing — which \
-         is why you have been right to do things yourself. A specialist with a different model, \
-         a narrow brief, and deliberately less of your context is worth a great deal: it is the \
-         only way to get an opinion you do not already hold. The clearest case is producing and \
-         then criticising the same artifact — the critic must NOT be you, or you will approve \
-         your own work.\n\
+         work.** Independence can come from a different model, deliberately withheld drafting \
+         context, an adversarial role, or independent evidence. Use only models for which this \
+         company is actually configured; never invent or substitute a provider to make a team \
+         look diverse. A second copy of you on the same context is worth almost nothing, but a \
+         critic who sees the artifact and acceptance criteria without the producer's reasoning \
+         can still find errors you did not. The clearest case is producing and then criticising \
+         the same artifact — the critic must NOT be you, or you will approve your own work.\n\
          Give a brief detailed enough to work unsupervised: the outcome, the constraints, and how \
          you will know it is done. A code task with `--repo` gets its own git worktree at \
          /company/worktrees/<name> on branch staff/<name>, and works only there — so two staff on \
@@ -183,11 +187,30 @@ pub fn assemble(snapshot: &ContextSnapshot) -> ContextPackage {
         signals = signals,
         remaining = snapshot.budget_remaining_usd,
         ceiling = snapshot.budget_ceiling_usd,
-        plan_exists = if plan_exists { "yes" } else { "no — first wake, create it" },
-        plan = if plan_exists { snapshot.current_plan.trim() } else { "(none yet)" },
-        journal = snapshot.latest_journal.as_deref().unwrap_or("(none yet — first wake)"),
-        commitments = if commitments.is_empty() { "(none)\n".to_string() } else { commitments },
-        inbox = if inbox.is_empty() { "(empty)\n".to_string() } else { inbox },
+        plan_exists = if plan_exists {
+            "yes"
+        } else {
+            "no — first wake, create it"
+        },
+        plan = if plan_exists {
+            snapshot.current_plan.trim()
+        } else {
+            "(none yet)"
+        },
+        journal = snapshot
+            .latest_journal
+            .as_deref()
+            .unwrap_or("(none yet — first wake)"),
+        commitments = if commitments.is_empty() {
+            "(none)\n".to_string()
+        } else {
+            commitments
+        },
+        inbox = if inbox.is_empty() {
+            "(empty)\n".to_string()
+        } else {
+            inbox
+        },
         reason = snapshot.wake_reason,
     );
     let digest = format!("{:x}", sha2::Sha256::digest(text.as_bytes()));
@@ -231,7 +254,10 @@ mod tests {
     fn same_snapshot_same_digest_and_new_mail_changes_it() {
         let first = assemble(&snapshot());
         let second = assemble(&snapshot());
-        assert_eq!(first.digest, second.digest, "assembly must be deterministic");
+        assert_eq!(
+            first.digest, second.digest,
+            "assembly must be deterministic"
+        );
         assert_eq!(first.text, second.text);
 
         let mut with_mail = snapshot();
@@ -244,7 +270,10 @@ mod tests {
             read_at: None,
         });
         let third = assemble(&with_mail);
-        assert_ne!(first.digest, third.digest, "new state must change the digest");
+        assert_ne!(
+            first.digest, third.digest,
+            "new state must change the digest"
+        );
         assert!(third.text.contains("prioritise the red one"));
         assert!(third.text.contains("[owner directive] from owner"));
     }

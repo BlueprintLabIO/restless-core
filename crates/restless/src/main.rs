@@ -14,7 +14,7 @@ use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::UnixStream;
 use std::path::PathBuf;
 
-use anyhow::{Context, Result, bail};
+use anyhow::{bail, Context, Result};
 use clap::{Parser, Subcommand};
 
 #[derive(Parser)]
@@ -27,14 +27,39 @@ struct Cli {
 #[derive(Subcommand)]
 enum Command {
     /// Bring a company environment up (create if absent, then start).
-    Up { #[arg(long, short = 'c', env = "RESTLESS_COMPANY")]
-        company: Option<String> },
+    Up {
+        #[arg(long, short = 'c', env = "RESTLESS_COMPANY")]
+        company: Option<String>,
+        /// Clone a live company's mission and config into this one as a
+        /// throwaway (S04-T1). Target name must end in `_test`; every real
+        /// provider, credential, standing approval and the sender address are
+        /// stripped, so the worst outcome of a mistake is a simulated send.
+        #[arg(long)]
+        from: Option<String>,
+        /// Rebuild the company image from this Restless source tree and
+        /// replace an outdated container while preserving its volume.
+        #[arg(long)]
+        reconcile: bool,
+    },
     /// Stop a company environment. The volume — files, Git, browser — survives.
-    Down { #[arg(long, short = 'c', env = "RESTLESS_COMPANY")]
-        company: Option<String> },
-    /// Company environment status.
-    Status { #[arg(long, short = 'c', env = "RESTLESS_COMPANY")]
-        company: Option<String> },
+    Down {
+        #[arg(long, short = 'c', env = "RESTLESS_COMPANY")]
+        company: Option<String>,
+        /// Remove container, volume, OrgIntel schema AND spend spool.
+        /// Throwaway companies only — a live company's history is evidence.
+        #[arg(long)]
+        destroy: bool,
+    },
+    /// Company environment lifecycle status.
+    Status {
+        #[arg(long, short = 'c', env = "RESTLESS_COMPANY")]
+        company: Option<String>,
+    },
+    /// Probe the runtime image and in-container CLI for version skew.
+    Doctor {
+        #[arg(long, short = 'c', env = "RESTLESS_COMPANY")]
+        company: Option<String>,
+    },
     /// Wake the company's Exec for one turn (rehydrate → work → decide).
     Wake {
         #[arg(long, short = 'c', env = "RESTLESS_COMPANY")]
@@ -45,20 +70,57 @@ enum Command {
     },
     /// Issue a directive to the Exec — also how a blocked judgement request
     /// is answered. Wakes the company.
-    Tell { #[arg(long, short = 'c', env = "RESTLESS_COMPANY")]
-        company: Option<String>, body: String },
+    Tell {
+        #[arg(long, short = 'c', env = "RESTLESS_COMPANY")]
+        company: Option<String>,
+        body: String,
+    },
     /// Stream the company's operational event stream (snapshot, then live).
-    Watch { #[arg(long, short = 'c', env = "RESTLESS_COMPANY")]
-        company: Option<String> },
+    Watch {
+        #[arg(long, short = 'c', env = "RESTLESS_COMPANY")]
+        company: Option<String>,
+    },
     /// Drop into a shell on the company computer.
-    Attach { #[arg(long, short = 'c', env = "RESTLESS_COMPANY")]
-        company: Option<String> },
+    Attach {
+        #[arg(long, short = 'c', env = "RESTLESS_COMPANY")]
+        company: Option<String>,
+        /// Run an ordinary command on the company computer. Omit it for an
+        /// interactive shell. This is the unbounded runtime door: do not grow
+        /// one Restless verb per Linux command.
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        command: Vec<String>,
+    },
+    /// Who is in this company: role, model, and what each has cost (S04-T9).
+    People {
+        #[arg(long, short = 'c', env = "RESTLESS_COMPANY")]
+        company: Option<String>,
+    },
+    /// What the company's receipts actually record — the strongest evidence
+    /// the system holds about what it did to the world.
+    Receipts {
+        #[arg(long, short = 'c', env = "RESTLESS_COMPANY")]
+        company: Option<String>,
+        /// Only this capability, e.g. `email.send`.
+        #[arg(long)]
+        capability: Option<String>,
+        #[arg(long, default_value = "50")]
+        limit: i64,
+    },
+    /// Spend against the ceiling, broken down by actor and model.
+    Spend {
+        #[arg(long, short = 'c', env = "RESTLESS_COMPANY")]
+        company: Option<String>,
+    },
     /// List goals.
-    Goals { #[arg(long, short = 'c', env = "RESTLESS_COMPANY")]
-        company: Option<String> },
+    Goals {
+        #[arg(long, short = 'c', env = "RESTLESS_COMPANY")]
+        company: Option<String>,
+    },
     /// List commitments (all states).
-    Commitments { #[arg(long, short = 'c', env = "RESTLESS_COMPANY")]
-        company: Option<String> },
+    Commitments {
+        #[arg(long, short = 'c', env = "RESTLESS_COMPANY")]
+        company: Option<String>,
+    },
     /// Recent events from the operational stream (newest first).
     Events {
         #[arg(long, short = 'c', env = "RESTLESS_COMPANY")]
@@ -150,6 +212,24 @@ enum Command {
     },
 }
 
+/// S04-T10. Who this invocation is, at the authority boundary.
+///
+/// Inside a company container `RESTLESS_COORDINATOR` is set by the image, and
+/// that is already how the CLI knows where to connect — so it is also how it
+/// knows what it is. On the host, the caller is the owner.
+///
+/// This is a claim, not a proof: on a single-operator host the container is
+/// still trusted to say what it is. What changes is that it now *says* it, the
+/// daemon acts on it, and the audit record carries it. Hardening the claim is
+/// the Authority Kernel's job.
+fn principal() -> &'static str {
+    if std::env::var_os("RESTLESS_COORDINATOR").is_some() {
+        "company/exec"
+    } else {
+        "owner"
+    }
+}
+
 fn state_root() -> PathBuf {
     if let Ok(root) = std::env::var("RESTLESS_HOME") {
         return PathBuf::from(root);
@@ -161,19 +241,37 @@ fn state_root() -> PathBuf {
 fn main() -> Result<()> {
     let cli = Cli::parse();
     match cli.command {
-        Command::Attach { company: name } => {
+        Command::Attach {
+            company: name,
+            command,
+        } => {
             let name = name.context("no company: pass -c or set RESTLESS_COMPANY")?;
-            // Owner-only path: a shell on the company computer, straight
-            // through docker. The coordination env travels so the CLI works
-            // inside the shell too.
+            // `attach` is the generic door to the company computer. Docker is
+            // the V0 Runtime Bridge implementation, not an owner operation.
+            // A supplied command is deliberately passed through unchanged;
+            // judgement and productive work stay in ordinary Linux.
+            let mut args = vec!["exec".to_string()];
+            if command.is_empty() {
+                args.push("-it".to_string());
+            } else {
+                args.push("-i".to_string());
+            }
+            args.extend([
+                "-u".to_string(),
+                "company".to_string(),
+                "-e".to_string(),
+                format!("RESTLESS_COMPANY={name}"),
+                "-e".to_string(),
+                "RESTLESS_ACTOR=owner".to_string(),
+                format!("restless-co-{name}"),
+            ]);
+            if command.is_empty() {
+                args.push("bash".to_string());
+            } else {
+                args.extend(command);
+            }
             let status = std::process::Command::new("docker")
-                .args([
-                    "exec", "-it", "-u", "company",
-                    "-e", &format!("RESTLESS_COMPANY={name}"),
-                    "-e", "RESTLESS_ACTOR=owner",
-                    &format!("restless-co-{name}"),
-                    "bash",
-                ])
+                .args(&args)
                 .stdin(std::process::Stdio::inherit())
                 .stdout(std::process::Stdio::inherit())
                 .stderr(std::process::Stdio::inherit())
@@ -186,24 +284,53 @@ fn main() -> Result<()> {
         }
         Command::Watch { company: name } => {
             let name = name.context("no company: pass -c or set RESTLESS_COMPANY")?;
-            let request = serde_json::json!({ "cmd": "watch", "company": name });
+            let request = stamp(serde_json::json!({ "cmd": "watch", "company": name }));
             watch(&request.to_string())
         }
         other => {
-            let request = request_json(other)?;
+            let request = stamp(request_json(other)?);
             let response = request_once(&request.to_string())?;
             print_response(&response)
         }
     }
 }
 
+/// Every request carries its principal. One place, so a new command cannot
+/// forget to — the daemon rejects an unstamped request rather than defaulting
+/// one, which makes forgetting loud instead of silently privileged.
+fn stamp(mut request: serde_json::Value) -> serde_json::Value {
+    if let Some(object) = request.as_object_mut() {
+        object.insert("principal".into(), principal().into());
+    }
+    request
+}
+
 /// One request/response pair; `watch` and `attach` handle their own I/O.
 fn request_json(command: Command) -> Result<serde_json::Value> {
     Ok(match command {
-        Command::Up { company: c } => serde_json::json!({ "cmd": "up", "company": c }),
-        Command::Down { company: c } => serde_json::json!({ "cmd": "down", "company": c }),
+        Command::Up {
+            company: c,
+            from,
+            reconcile,
+        } => {
+            serde_json::json!({
+                "cmd": "up",
+                "company": c,
+                "from_company": from,
+                "reconcile": reconcile,
+            })
+        }
+        Command::Down {
+            company: c,
+            destroy,
+        } => {
+            serde_json::json!({ "cmd": "down", "company": c, "destroy": destroy })
+        }
         Command::Status { company: c } => {
             serde_json::json!({ "cmd": "status", "company": c })
+        }
+        Command::Doctor { company: c } => {
+            serde_json::json!({ "cmd": "doctor", "company": c })
         }
         Command::Wake { company: c, reason } => {
             serde_json::json!({ "cmd": "wake", "company": c, "reason": reason })
@@ -211,6 +338,15 @@ fn request_json(command: Command) -> Result<serde_json::Value> {
         Command::Tell { company: c, body } => {
             serde_json::json!({ "cmd": "tell", "company": c, "body": body })
         }
+        Command::People { company: c } => serde_json::json!({ "cmd": "people", "company": c }),
+        Command::Spend { company: c } => serde_json::json!({ "cmd": "spend", "company": c }),
+        Command::Receipts {
+            company: c,
+            capability,
+            limit,
+        } => serde_json::json!({
+            "cmd": "receipts", "company": c, "capability": capability, "limit": limit,
+        }),
         Command::Goals { company: c } => {
             serde_json::json!({ "cmd": "goals", "company": c })
         }
@@ -220,7 +356,10 @@ fn request_json(command: Command) -> Result<serde_json::Value> {
         Command::Events { company: c, limit } => {
             serde_json::json!({ "cmd": "events", "company": c, "limit": limit })
         }
-        Command::Inbox { company: c, as_actor } => {
+        Command::Inbox {
+            company: c,
+            as_actor,
+        } => {
             serde_json::json!({ "cmd": "inbox", "company": c, "as_actor": as_actor })
         }
         Command::ClearPoison { company: c } => serde_json::json!({
@@ -232,7 +371,14 @@ fn request_json(command: Command) -> Result<serde_json::Value> {
             "company": c,
             "party": party,
         }),
-        Command::Spawn { company: c, name, repo, role, model, task } => serde_json::json!({
+        Command::Spawn {
+            company: c,
+            name,
+            repo,
+            role,
+            model,
+            task,
+        } => serde_json::json!({
             "cmd": "spawn",
             "company": c,
             "name": name,
@@ -242,7 +388,12 @@ fn request_json(command: Command) -> Result<serde_json::Value> {
             "body": task,
             "from": std::env::var("RESTLESS_ACTOR").ok(),
         }),
-        Command::Message { company: c, from, to, body } => serde_json::json!({
+        Command::Message {
+            company: c,
+            from,
+            to,
+            body,
+        } => serde_json::json!({
             "cmd": "message",
             "company": c,
             "from": from.or_else(|| std::env::var("RESTLESS_ACTOR").ok())
@@ -250,14 +401,24 @@ fn request_json(command: Command) -> Result<serde_json::Value> {
             "to": to,
             "body": body,
         }),
-        Command::Commitment { company: c, state, id, resolution } => serde_json::json!({
+        Command::Commitment {
+            company: c,
+            state,
+            id,
+            resolution,
+        } => serde_json::json!({
             "cmd": "commitment-state",
             "company": c,
             "id": id,
             "state": state,
             "resolution": resolution,
         }),
-        Command::Effect { company: c, capability, args, key } => {
+        Command::Effect {
+            company: c,
+            capability,
+            args,
+            key,
+        } => {
             let args: serde_json::Value =
                 serde_json::from_str(&args).context("--args must be JSON")?;
             serde_json::json!({
@@ -282,7 +443,19 @@ fn print_response(response: &str) -> Result<()> {
         }
         Ok(())
     } else {
-        bail!("{}", parsed["error"].as_str().unwrap_or("unknown error"))
+        bail!("{}", render_error(&parsed["error"]))
+    }
+}
+
+/// Errors are `{kind, message}` (S04-T10). The kind is shown, not swallowed:
+/// an owner who sees `[authority]` knows to change what they are allowed to do,
+/// and one who sees `[transport]` knows to check the daemon — the distinction
+/// prose cannot carry reliably.
+fn render_error(error: &serde_json::Value) -> String {
+    let message = error["message"].as_str().unwrap_or("unknown error");
+    match error["kind"].as_str() {
+        Some(kind) if kind != "error" => format!("[{kind}] {message}"),
+        _ => message.to_string(),
     }
 }
 
@@ -304,7 +477,7 @@ fn watch(line: &str) -> Result<()> {
             Err(_) => continue,
         };
         if parsed["ok"].as_bool() == Some(false) {
-            bail!("{}", parsed["error"].as_str().unwrap_or("watch failed"));
+            bail!("{}", render_error(&parsed["error"]));
         }
         let at = parsed["created_at"].as_str().unwrap_or("");
         let kind = parsed["kind"].as_str().unwrap_or("?");

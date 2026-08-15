@@ -21,7 +21,7 @@ use restless_orgintel::{CommitmentState, OrgIntel};
 use sqlx::postgres::PgListener;
 
 use crate::runtime::{self, CompanyConfig, ContainerStatus};
-use crate::{Daemon, exec};
+use crate::{exec, Daemon};
 
 /// How often time triggers are evaluated.
 const SCAN_INTERVAL: Duration = Duration::from_secs(5);
@@ -48,7 +48,10 @@ impl WakeGuard {
     /// inserted it into the set already (the insert is how contenders
     /// learn to refuse).
     pub(crate) fn new(company: &str, in_flight: &InFlight) -> Self {
-        Self { company: company.to_string(), in_flight: Arc::clone(in_flight) }
+        Self {
+            company: company.to_string(),
+            in_flight: Arc::clone(in_flight),
+        }
     }
 }
 
@@ -91,13 +94,17 @@ pub async fn run(daemon: Arc<Daemon>) {
 /// the last wake. This is what makes delivery at-least-once for real (§9.3)
 /// and what lets event-driven wakeups survive a restlessd restart.
 async fn reconcile_missed_events(daemon: &Arc<Daemon>, in_flight: &InFlight) {
-    let Ok(entries) = std::fs::read_dir(daemon.root.join("companies")) else { return };
+    let Ok(entries) = std::fs::read_dir(daemon.root.join("companies")) else {
+        return;
+    };
     for entry in entries.flatten() {
         let path = entry.path();
         if path.extension().and_then(|ext| ext.to_str()) != Some("toml") {
             continue;
         }
-        let Some(name) = path.file_stem().and_then(|stem| stem.to_str()) else { continue };
+        let Some(name) = path.file_stem().and_then(|stem| stem.to_str()) else {
+            continue;
+        };
         if in_flight.lock().expect("in-flight guard").contains(name) {
             continue;
         }
@@ -107,11 +114,21 @@ async fn reconcile_missed_events(daemon: &Arc<Daemon>, in_flight: &InFlight) {
         if CompanyConfig::load(&daemon.root, name).is_err() {
             continue;
         }
-        let Ok(org) = daemon.orgintel.get(name).await else { continue };
-        let Some(last_wake) = org.latest_event_at("wake").await.ok().flatten() else { continue };
+        let Ok(org) = daemon.orgintel.get(name).await else {
+            continue;
+        };
+        let Some(last_wake) = org.latest_event_at("wake").await.ok().flatten() else {
+            continue;
+        };
         if let Ok(mail) = org.inbox(Some("exec")).await {
             if mail.iter().any(|message| message.created_at > last_wake) {
-                fire(daemon, in_flight, name, "event: unread mail waiting (reconciled)").await;
+                fire(
+                    daemon,
+                    in_flight,
+                    name,
+                    "event: unread mail waiting (reconciled)",
+                )
+                .await;
                 continue;
             }
         }
@@ -157,20 +174,27 @@ async fn handle_notification(daemon: &Arc<Daemon>, in_flight: &InFlight, payload
         tracing::warn!(payload, "unparseable orgintel notification");
         return;
     };
-    let Some(company) = value["company"].as_str() else { return };
+    let Some(company) = value["company"].as_str() else {
+        return;
+    };
     let reason = match value["kind"].as_str() {
         // A dependent result landed: someone ELSE's commitment completed
         // under the Exec. The Exec's own completions need no wake — it was
         // awake to complete them (this guard is what stops a done milestone
         // from immediately re-waking the company into a new milestone).
         Some("commitment_completed") if value["body"]["owner"] != "exec" => {
-            format!("event: commitment completed by {}: {}",
+            format!(
+                "event: commitment completed by {}: {}",
                 value["body"]["owner"].as_str().unwrap_or("unknown"),
-                value["body"]["title"].as_str().unwrap_or("untitled"))
+                value["body"]["title"].as_str().unwrap_or("untitled")
+            )
         }
         // Mail addressed to the Exec (e.g. the owner unblocking it).
         Some("message") if value["body"]["to"] == "exec" => {
-            format!("event: mail from {}", value["body"]["from"].as_str().unwrap_or("unknown"))
+            format!(
+                "event: mail from {}",
+                value["body"]["from"].as_str().unwrap_or("unknown")
+            )
         }
         _ => return,
     };
@@ -180,13 +204,17 @@ async fn handle_notification(daemon: &Arc<Daemon>, in_flight: &InFlight, payload
 /// Time-driven triggers: the Exec's own scheduled continuation, and the
 /// periodic tick for open unblocked milestones that have gone quiet.
 async fn scan_time_triggers(daemon: &Arc<Daemon>, in_flight: &InFlight) {
-    let Ok(entries) = std::fs::read_dir(daemon.root.join("companies")) else { return };
+    let Ok(entries) = std::fs::read_dir(daemon.root.join("companies")) else {
+        return;
+    };
     for entry in entries.flatten() {
         let path = entry.path();
         if path.extension().and_then(|ext| ext.to_str()) != Some("toml") {
             continue;
         }
-        let Some(name) = path.file_stem().and_then(|stem| stem.to_str()) else { continue };
+        let Some(name) = path.file_stem().and_then(|stem| stem.to_str()) else {
+            continue;
+        };
         if in_flight.lock().expect("in-flight guard").contains(name) {
             continue;
         }
@@ -197,8 +225,12 @@ async fn scan_time_triggers(daemon: &Arc<Daemon>, in_flight: &InFlight) {
         if CompanyConfig::load(&daemon.root, name).is_err() {
             continue;
         }
-        let Ok(org) = daemon.orgintel.get(name).await else { continue };
-        let Ok(commitments) = org.list_commitments().await else { continue };
+        let Ok(org) = daemon.orgintel.get(name).await else {
+            continue;
+        };
+        let Ok(commitments) = org.list_commitments().await else {
+            continue;
+        };
         let milestone = commitments.iter().find(|c| {
             c.owner_id == "exec"
                 && matches!(

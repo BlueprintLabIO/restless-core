@@ -44,7 +44,14 @@ pub struct TurnMeter {
 impl TurnMeter {
     /// A turn we cannot account for poisons the company fail-closed:
     /// unaccounted spend and unbounded spend are indistinguishable.
-    pub fn record(&self, company: &str, model: &str, used: u64, cost_usd: Option<f64>) {
+    pub fn record(
+        &self,
+        company: &str,
+        actor: &str,
+        model: &str,
+        used: u64,
+        cost_usd: Option<f64>,
+    ) {
         let Some(cost_usd) = cost_usd else {
             tracing::error!(
                 company,
@@ -62,11 +69,15 @@ impl TurnMeter {
             output_tokens: 0,
             total_tokens: used,
             cost_micro_usd: (cost_usd * 1_000_000.0).round().max(0.0) as u64,
+            actor_id: actor.to_owned(),
             occurred_at: Utc::now(),
         };
         if self.store.record(&record).is_err() {
             self.store.poison(company);
-            tracing::error!(company, "turn spend record failed; company poisoned fail-closed");
+            tracing::error!(
+                company,
+                "turn spend record failed; company poisoned fail-closed"
+            );
         }
     }
 }
@@ -85,7 +96,9 @@ impl SpendLedger {
                 use std::os::unix::fs::DirBuilderExt as _;
                 builder.mode(0o700);
             }
-            builder.create(&dir).with_context(|| format!("create {}", dir.display()))?;
+            builder
+                .create(&dir)
+                .with_context(|| format!("create {}", dir.display()))?;
         }
         // The spool used to live under gateway/spend/ when this was a proxy.
         // Carry it across rather than silently starting a company's accounting
@@ -97,8 +110,11 @@ impl SpendLedger {
                 .with_context(|| format!("migrate spend spool from {}", legacy.display()))?;
             tracing::info!(from = %legacy.display(), "migrated spend spool out of the retired gateway directory");
         }
-        let store = SpendStore::open(&dir).map_err(|error| anyhow::anyhow!("spend store: {error}"))?;
-        Ok(Self { store: std::sync::Arc::new(store) })
+        let store =
+            SpendStore::open(&dir).map_err(|error| anyhow::anyhow!("spend store: {error}"))?;
+        Ok(Self {
+            store: std::sync::Arc::new(store),
+        })
     }
 
     /// What this company has spent so far, in USD. Shown to the agent so it can
@@ -121,7 +137,9 @@ impl SpendLedger {
     /// in spawned tasks but spend the same budget.
     #[must_use]
     pub fn meter(&self) -> TurnMeter {
-        TurnMeter { store: std::sync::Arc::clone(&self.store) }
+        TurnMeter {
+            store: std::sync::Arc::clone(&self.store),
+        }
     }
 
     /// Clear a fail-closed poison once an operator has looked. The spool keeps
@@ -132,8 +150,32 @@ impl SpendLedger {
             .map_err(|error| anyhow::anyhow!("clear poison: {error}"))
     }
 
+    /// S04-T9. Spend by `(actor, model)` for one company.
+    #[must_use]
+    pub fn breakdown(&self, company: &str) -> Vec<(String, String, f64)> {
+        self.store
+            .breakdown_micro_usd(company)
+            .into_iter()
+            .map(|(actor, model, micro)| (actor, model, micro as f64 / 1_000_000.0))
+            .collect()
+    }
+
+    /// S04-T1. Drop a destroyed company's accounted spend.
+    pub fn forget(&self, company: &str) -> Result<()> {
+        self.store
+            .forget(company)
+            .map_err(|error| anyhow::anyhow!("forget spend: {error}"))
+    }
+
     /// Record what one turn cost, from the agent's own ACP usage report.
-    pub fn record_turn(&self, company: &str, model: &str, used: u64, cost_usd: Option<f64>) {
-        self.meter().record(company, model, used, cost_usd);
+    pub fn record_turn(
+        &self,
+        company: &str,
+        actor: &str,
+        model: &str,
+        used: u64,
+        cost_usd: Option<f64>,
+    ) {
+        self.meter().record(company, actor, model, used, cost_usd);
     }
 }

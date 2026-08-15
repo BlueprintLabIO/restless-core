@@ -14,7 +14,7 @@
 
 use std::path::Path;
 
-use anyhow::{Context as _, Result, bail};
+use anyhow::{bail, Context as _, Result};
 use chrono::{DateTime, Utc};
 use serde::Serialize;
 use sha2::Digest as _;
@@ -77,9 +77,12 @@ pub async fn request_effect(
     // second run of the world. The same key with DIFFERENT args is not a
     // retry — answering it with the old receipt would silently certify an
     // effect that never happened.
-    if let Some(stored) = org.find_event_body("effect", "idempotency_key", key).await? {
-        let mut receipt: Receipt = serde_json::from_value(stored)
-            .context("stored effect receipt is not a receipt")?;
+    if let Some(stored) = org
+        .find_event_body("effect", "idempotency_key", key)
+        .await?
+    {
+        let mut receipt: Receipt =
+            serde_json::from_value(stored).context("stored effect receipt is not a receipt")?;
         if receipt.args_digest != args_digest {
             bail!("idempotency key {key:?} was already used with different arguments");
         }
@@ -142,7 +145,8 @@ pub async fn request_effect(
             }),
         )
         .await?;
-        org.send_message(actor, None, &format!("approval required: {reason}")).await?;
+        org.send_message(actor, None, &format!("approval required: {reason}"))
+            .await?;
         bail!("{reason}");
     }
     match provider {
@@ -151,7 +155,40 @@ pub async fn request_effect(
         crate::provider::Provider::Resend => {
             let outcome = crate::provider::resend_send(config, &args, key).await?;
             return finish_effect(
-                org, capability, args_digest, party, outcome, provider.name(), actor, key, repeat,
+                org,
+                capability,
+                args_digest,
+                party,
+                outcome,
+                provider.name(),
+                actor,
+                key,
+                repeat,
+            )
+            .await;
+        }
+        // S04-T3. The daemon pushes; the credential stays on this side of the
+        // container boundary. Restricted to `repo.push` because this transport
+        // does one thing, and a provider entry that silently applied to another
+        // capability would be a catalogue growing by accident.
+        crate::provider::Provider::Git => {
+            if capability != "repo.push" {
+                bail!(
+                    "company {} maps {capability} to the git provider, which serves only repo.push",
+                    config.name
+                );
+            }
+            let outcome = crate::provider::git_push(config, &args, key).await?;
+            return finish_effect(
+                org,
+                capability,
+                args_digest,
+                party,
+                outcome,
+                provider.name(),
+                actor,
+                key,
+                repeat,
             )
             .await;
         }
@@ -175,7 +212,15 @@ pub async fn request_effect(
                 )
             })?;
             return finish_effect(
-                org, capability, args_digest, party, outcome, provider.name(), actor, key, repeat,
+                org,
+                capability,
+                args_digest,
+                party,
+                outcome,
+                provider.name(),
+                actor,
+                key,
+                repeat,
             )
             .await;
         }
@@ -215,8 +260,12 @@ pub async fn request_effect(
         args = serde_json::to_string_pretty(&args)?
     );
     let text = call_world_model(config, &prompt).await?;
-    let outcome = extract_json_object(&text)
-        .with_context(|| format!("world model answered unparseably: {}", &text[..text.len().min(300)]))?;
+    let outcome = extract_json_object(&text).with_context(|| {
+        format!(
+            "world model answered unparseably: {}",
+            &text[..text.len().min(300)]
+        )
+    })?;
 
     let receipt = Receipt {
         id: Uuid::new_v4(),
@@ -302,7 +351,14 @@ async fn write_receipt(
 /// sends. Deterministic key lookup, never inference: if none of these fields
 /// is present the effect simply has no party and the guard stays silent.
 fn party_of(args: &serde_json::Value) -> Option<String> {
-    for key in ["customer", "to", "party", "recipient", "email", "customer_email"] {
+    for key in [
+        "customer",
+        "to",
+        "party",
+        "recipient",
+        "email",
+        "customer_email",
+    ] {
         if let Some(value) = args.get(key).and_then(|value| value.as_str()) {
             let value = value.trim().to_lowercase();
             if !value.is_empty() {
@@ -328,7 +384,11 @@ pub(crate) async fn prior_effect_on(
         if event.body.get("party").and_then(|v| v.as_str()) != Some(party) {
             continue;
         }
-        let earlier = event.body.get("idempotency_key").and_then(|v| v.as_str()).unwrap_or("");
+        let earlier = event
+            .body
+            .get("idempotency_key")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
         if earlier == key || earlier.is_empty() {
             continue;
         }
@@ -347,7 +407,9 @@ pub(crate) async fn prior_effect_on(
 /// filenames ARE the surface — no registry to drift out of sync with them.
 pub fn available_capabilities(root: &std::path::Path, company: &str) -> Vec<String> {
     let dir = root.join("simulators").join(company);
-    let Ok(entries) = std::fs::read_dir(&dir) else { return Vec::new() };
+    let Ok(entries) = std::fs::read_dir(&dir) else {
+        return Vec::new();
+    };
     let mut names: Vec<String> = entries
         .flatten()
         .filter_map(|entry| {
@@ -367,21 +429,50 @@ pub fn available_capabilities(root: &std::path::Path, company: &str) -> Vec<Stri
 async fn call_world_model(config: &CompanyConfig, prompt: &str) -> Result<String> {
     let auth = crate::exec::agent_auth(config)?;
     let container = runtime::container_name(&config.name);
+    let mut args: Vec<String> = vec![
+        "exec".into(),
+        "-i".into(),
+        "-u".into(),
+        "company".into(),
+        "-w".into(),
+        "/company".into(),
+        "-e".into(),
+        "OMP_HOME=/company/home/.omp".into(),
+        "-e".into(),
+        format!("{}={}", auth.provider_key_env, auth.provider_key),
+    ];
+    // The base-URL override travels with the key, exactly as it does on the
+    // agent path (`acp.rs:365`). Dropping it here was a real bug with a real
+    // cost: a Kimi For Coding key authenticates against `api.kimi.com/coding/v1`
+    // and 401s against the provider default, so every simulated effect failed
+    // with "Invalid Authentication" while the Exec — which forwards it — worked
+    // fine. Sprint 03 recorded the world model 401ing twice and read it as a
+    // dead key. Two paths building the same auth, one honouring it.
+    if let Some((name, value)) = &auth.provider_base_url {
+        args.push("-e".into());
+        args.push(format!("{name}={value}"));
+    }
+    args.extend([
+        container,
+        "omp".into(),
+        "-p".into(),
+        "--model".into(),
+        auth.model.clone(),
+        "--no-tools".into(),
+        prompt.to_string(),
+    ]);
     let output = tokio::process::Command::new("docker")
-        .args([
-            "exec", "-i", "-u", "company", "-w", "/company",
-            "-e", "OMP_HOME=/company/home/.omp",
-            "-e", &format!("{}={}", auth.provider_key_env, auth.provider_key),
-            &container,
-            "omp", "-p", "--model", &auth.model, "--no-tools", prompt,
-        ])
+        .args(&args)
         .output()
         .await
         .context("spawn world-model call")?;
     if !output.status.success() {
         bail!(
             "world model call failed: {}",
-            String::from_utf8_lossy(&output.stderr).chars().take(300).collect::<String>()
+            String::from_utf8_lossy(&output.stderr)
+                .chars()
+                .take(300)
+                .collect::<String>()
         );
     }
     Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())

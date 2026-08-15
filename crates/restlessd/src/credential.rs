@@ -23,7 +23,7 @@
 //! one file, not a change to any adapter. That is the cheap-early half of a
 //! boundary whose expensive-late half we have already paid twice.
 
-use anyhow::{Context as _, Result, bail};
+use anyhow::{bail, Context as _, Result};
 
 use crate::runtime::CompanyConfig;
 
@@ -54,7 +54,9 @@ pub fn resolve(config: &CompanyConfig, capability: &str) -> Result<String> {
 /// alive the whole time.
 fn resolve_reference(reference: &str) -> Result<String> {
     let (scheme, locator) = reference.split_once(':').with_context(|| {
-        format!("credential reference {reference:?} must be `scheme:locator`, e.g. env:RESEND_API_KEY")
+        format!(
+            "credential reference {reference:?} must be `scheme:locator`, e.g. env:RESEND_API_KEY"
+        )
     })?;
     match scheme {
         "env" => {
@@ -86,7 +88,6 @@ mod tests {
             name: "aris".to_string(),
             mission: String::new(),
             spend_ceiling_usd: 30.0,
-            org_mode: crate::runtime::OrgMode::default(),
             model: "moonshot/kimi-k3".to_string(),
             providers: std::collections::BTreeMap::new(),
             from_address: None,
@@ -127,6 +128,9 @@ mod tests {
     fn env_scheme_reads_the_daemon_environment() {
         // SAFETY: single-threaded test process, variable is test-local.
         unsafe { std::env::set_var("RESTLESS_TEST_CRED", "sk-test-value") };
-        assert_eq!(resolve_reference("env:RESTLESS_TEST_CRED").unwrap(), "sk-test-value");
+        assert_eq!(
+            resolve_reference("env:RESTLESS_TEST_CRED").unwrap(),
+            "sk-test-value"
+        );
     }
 }

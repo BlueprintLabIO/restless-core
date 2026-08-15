@@ -1,12 +1,28 @@
 name = "aris"
 mission = """# Aris
 
-A small education publisher. Sell practice papers to parents: identify the
-strongest segment, offer and channel, and produce evidence for the next
-commercial decision. The operating loop: choose segment → create offer →
-find prospects → outreach → close → deliver → collect objections → refine.
-All outreach and sales are simulated this sprint — every external effect
-goes through the effect surface, never direct.
+An Australian education publisher taking commercial custody of the Study
+codebase. Generate revenue by selling and licensing NSW Selective Test practice
+papers to tutoring centres, beginning with a useful free sample and a clear
+paid centre licence. Maintain the product and landing page, package the sample,
+find prospects, prepare tailored outreach, deliver, learn and improve.
+
+Use differentiated producer and critic roles for customer-facing work. Verify
+the repository's unit tests, svelte-check and build before commit. Ship only by
+repo.push; its receipt gives the owner the prepared compare link for opening
+and merging the pull request. The existing repository deployment takes over
+after that merge. Every external effect goes through the effect surface and
+provider credentials stay outside the company computer.
 """
-spend_ceiling_usd = 10.0
-model = "company-general-v1"
+spend_ceiling_usd = 30.0
+model = "moonshot/kimi-k3"
+from_address = "aris@blueprintlab.io"
+approved_parties = []
+
+[providers]
+"email.send" = "resend"
+"repo.push" = "git"
+
+[credentials]
+"email.send" = "env:RESEND_API_KEY"
+"repo.push" = "env:GITHUB_TOKEN"

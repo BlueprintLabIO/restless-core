@@ -13,14 +13,14 @@
 use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
 
-use anyhow::{Context as _, Result, bail};
+use anyhow::{bail, Context as _, Result};
 use serde::Serialize;
 
 use crate::acp::{self, AgentAuth};
 use crate::exec::{self, Termination};
 use crate::health;
-use crate::spend::SpendLedger;
 use crate::runtime::{self, CompanyConfig};
+use crate::spend::SpendLedger;
 
 /// Enough to produce handoff and crash friction without tripling token burn
 /// across three companies (T9).
@@ -83,7 +83,10 @@ pub struct StaffRegistry {
 
 impl StaffRegistry {
     fn try_claim(&self, company: &str, name: &str) -> Result<()> {
-        let mut running = self.running.lock().map_err(|_| anyhow::anyhow!("staff registry"))?;
+        let mut running = self
+            .running
+            .lock()
+            .map_err(|_| anyhow::anyhow!("staff registry"))?;
         if running.contains(&(company.to_string(), name.to_string())) {
             bail!("staff {name} is already running");
         }
@@ -100,6 +103,37 @@ impl StaffRegistry {
             running.remove(&(company.to_string(), name.to_string()));
         }
     }
+
+    /// Whether this durable actor currently has a supervised process. The
+    /// actor id is what OrgIntel owns; the registry's internal key remains the
+    /// short staff name used for its worktree and process.
+    pub fn is_actor_running(&self, company: &str, actor: &str) -> bool {
+        let Some(name) = actor.strip_prefix("staff-") else {
+            return false;
+        };
+        self.running
+            .lock()
+            .map(|running| running.contains(&(company.to_string(), name.to_string())))
+            .unwrap_or(false)
+    }
+
+    /// Actor ids currently supervised for one company. Runtime replacement
+    /// refuses while this is non-empty; the owner chooses `down` explicitly
+    /// rather than an image refresh silently killing useful work.
+    pub fn running_actors(&self, company: &str) -> Vec<String> {
+        self.running
+            .lock()
+            .map(|running| {
+                let mut actors: Vec<String> = running
+                    .iter()
+                    .filter(|(running_company, _)| running_company == company)
+                    .map(|(_, name)| format!("staff-{name}"))
+                    .collect();
+                actors.sort();
+                actors
+            })
+            .unwrap_or_default()
+    }
 }
 
 /// A staff name (or repo name) becomes an actor id, a path, a branch name —
@@ -107,7 +141,9 @@ impl StaffRegistry {
 fn valid_slug(slug: &str) -> bool {
     !slug.is_empty()
         && slug.len() <= 32
-        && slug.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
+        && slug
+            .bytes()
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
 }
 
 /// The daemon is a real correspondent in the company (refusals, crash
@@ -164,13 +200,6 @@ async fn spawn_one(
     registry: &StaffRegistry,
     request: &SpawnRequest,
 ) -> Result<()> {
-    // The baseline is a real configuration, not a crippled one: it gets the
-    // same model, tools, budget and time, and is simply one actor.
-    if config.org_mode == crate::runtime::OrgMode::SingleAgent {
-        bail!(
-            "this company runs in single_agent mode — there are no staff.              Do the work yourself; you have the same tools and budget."
-        );
-    }
     // Validate everything before claiming the slot: a refusal must leave the
     // registry untouched.
     if !valid_slug(&request.name) {
@@ -200,9 +229,31 @@ async fn spawn_claimed(
     request: &SpawnRequest,
 ) -> Result<()> {
     let actor = format!("staff-{}", request.name);
-    org.add_actor(&actor, &request.role_or_default(), &request.name).await?;
-    let title = request.task.lines().next().unwrap_or("staff task").trim().to_string();
-    let commitment = org.add_commitment(&actor, &title, &request.task, None).await?;
+    // S04-T9. The model is persisted with the actor, so "which model wrote
+    // this" is answerable from OrgIntel rather than from a process that has
+    // already exited. Resolved the same way `agent_auth` resolves it below —
+    // the role's model when it names one, the company's otherwise.
+    let model = request
+        .model
+        .clone()
+        .unwrap_or_else(|| config.model.clone());
+    org.add_actor_with_model(
+        &actor,
+        &request.role_or_default(),
+        &request.name,
+        Some(&model),
+    )
+    .await?;
+    let title = request
+        .task
+        .lines()
+        .next()
+        .unwrap_or("staff task")
+        .trim()
+        .to_string();
+    let commitment = org
+        .add_commitment(&actor, &title, &request.task, None)
+        .await?;
     org.set_commitment_state(commitment, restless_orgintel::CommitmentState::Active, "")
         .await?;
 
@@ -234,7 +285,11 @@ async fn spawn_claimed(
         Err(error) => {
             let note = format!("spawn failed before the process started: {error:#}");
             if let Err(e) = org
-                .set_commitment_state(commitment, restless_orgintel::CommitmentState::Blocked, &note)
+                .set_commitment_state(
+                    commitment,
+                    restless_orgintel::CommitmentState::Blocked,
+                    &note,
+                )
                 .await
             {
                 tracing::warn!("failed to block unlaunched staff commitment: {e:#}");
@@ -243,15 +298,13 @@ async fn spawn_claimed(
         }
     };
 
-    // The independent variable of the OrgIntel comparison. minimal_team gives
-    // a worker its task and nothing else — several agents sharing a computer,
-    // which is exactly what sprint 01 shipped and never tested against.
-    // orgintel additionally hands it the shared spine, so it knows what the
-    // company is for and what else is in flight.
-    let spine = match config.org_mode {
-        crate::runtime::OrgMode::OrgIntel => shared_spine(config, org).await,
-        _ => String::new(),
-    };
+    // Every worker gets the shared spine: mission, plan, open commitments, and
+    // what the company already knows. This used to be the independent variable
+    // of the three-mode comparison, which was retired when its arms turned out
+    // not to be distinct — two of the three were byte-identical. Withholding
+    // context from a worker is not a configuration anyone should be able to
+    // choose; it was a measurement apparatus, and the measurement is over.
+    let spine = shared_spine(config, org).await;
     let company = config.name.clone();
     let name = request.name.clone();
     let task = request.task.clone();
@@ -278,7 +331,7 @@ async fn spawn_claimed(
         // company ceiling whether the task succeeded or not.
         if let Ok((_, _, spent)) = &outcome {
             for usage in spent {
-                meter.record(&company, &model, usage.used, usage.cost_usd);
+                meter.record(&company, &actor, &model, usage.used, usage.cost_usd);
             }
         }
         let outcome = outcome.map(|(termination, reason, _)| (termination, reason));
@@ -304,7 +357,14 @@ async fn shared_spine(config: &CompanyConfig, org: &restless_orgintel::OrgIntel)
                             | restless_orgintel::CommitmentState::Blocked
                     )
                 })
-                .map(|c| format!("- [{}] {} (owner: {})", format!("{:?}", c.state).to_lowercase(), c.title, c.owner_id))
+                .map(|c| {
+                    format!(
+                        "- [{}] {} (owner: {})",
+                        format!("{:?}", c.state).to_lowercase(),
+                        c.title,
+                        c.owner_id
+                    )
+                })
                 .collect();
             if !open.is_empty() {
                 spine.push_str(&format!(
@@ -360,10 +420,18 @@ fn staff_halt(end: &acp::TurnEnd) -> Option<String> {
     }
 }
 
-async fn run_staff(
-    brief: StaffBrief,
-) -> Result<(Termination, String, Vec<acp::TurnUsage>)> {
-    let StaffBrief { container, auth, workdir, company, actor, name, task, role, spine } = brief;
+async fn run_staff(brief: StaffBrief) -> Result<(Termination, String, Vec<acp::TurnUsage>)> {
+    let StaffBrief {
+        container,
+        auth,
+        workdir,
+        company,
+        actor,
+        name,
+        task,
+        role,
+        spine,
+    } = brief;
     let (container, auth, workdir, actor) =
         (container.as_str(), &auth, workdir.as_str(), actor.as_str());
     let prompt = format!(
@@ -406,7 +474,9 @@ async fn run_staff(
                     bail!("staff turn: {blocked}");
                 }
 
-                let end = session.prompt_live(exec::TERMINATION_PROMPT, |_| false).await;
+                let end = session
+                    .prompt_live(exec::TERMINATION_PROMPT, |_| false)
+                    .await;
                 if let Some(usage) = end.usage() {
                     spent.push(usage);
                 }
@@ -543,47 +613,55 @@ async fn ensure_worktree(config: &CompanyConfig, name: &str, repo: &str) -> Resu
         .await
         .context("docker exec worktree")?;
     if !output.status.success() {
-        bail!("worktree setup failed: {}", String::from_utf8_lossy(&output.stderr));
+        bail!(
+            "worktree setup failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
     }
     Ok(path)
 }
 
-/// Boot sweep: any codex-acp still running in a company container when the
-/// daemon starts is an orphan of the last daemon's lifetime — unsupervised,
-/// its transcript unreachable. Kill it (deterministic liveness), mark open
-/// staff commitments blocked with the worktree named, and mail the Exec.
+/// Boot sweep: any marked ACP session still running in a company container
+/// when the daemon starts is an orphan of the last daemon's lifetime —
+/// unsupervised, its transcript unreachable. Reap only those Linux sessions,
+/// mark open staff commitments blocked with the worktree named, and mail the
+/// Exec.
 /// Exec sessions orphaned the same way leave their milestone open; the next
 /// wake continues it (T4).
 pub async fn sweep_orphans(root: &std::path::Path, orgintel: &crate::OrgIntelRegistry) {
-    let Ok(entries) = std::fs::read_dir(root.join("companies")) else { return };
+    let Ok(entries) = std::fs::read_dir(root.join("companies")) else {
+        return;
+    };
     for entry in entries.flatten() {
         let path = entry.path();
         if path.extension().and_then(|ext| ext.to_str()) != Some("toml") {
             continue;
         }
-        let Some(name) = path.file_stem().and_then(|stem| stem.to_str()) else { continue };
-        if !matches!(runtime::status(name).await, Ok(runtime::ContainerStatus::Running)) {
+        let Some(name) = path.file_stem().and_then(|stem| stem.to_str()) else {
+            continue;
+        };
+        if !matches!(
+            runtime::status(name).await,
+            Ok(runtime::ContainerStatus::Running)
+        ) {
             continue;
         }
         let container = runtime::container_name(name);
-        // Bracket pattern: a bare "codex-acp" would match this very wrapper
-        // shell's own cmdline (sh -c '... codex-acp ...'), so detection
-        // would always "find orphans" — observed: 28 false warns in one day.
-        let found = tokio::process::Command::new("docker")
-            .args(["exec", &container, "sh", "-c", "pgrep -f codex-ac[p]"])
-            .output()
-            .await;
-        let Ok(found) = found else { continue };
-        if !found.status.success() {
+        let reaped = crate::acp::reap_orphan_sessions(&container).await;
+        if reaped == 0 {
             continue; // no orphans
         }
-        tracing::warn!(company = name, "killing orphaned agent processes from before restart");
-        let _ = tokio::process::Command::new("docker")
-            .args(["exec", &container, "sh", "-c", "pkill -9 -f codex-ac[p]"])
-            .output()
-            .await;
-        let Ok(org) = orgintel.get(name).await else { continue };
-        let Ok(commitments) = org.list_commitments().await else { continue };
+        tracing::warn!(
+            company = name,
+            reaped,
+            "reaped marked agent processes from before restart"
+        );
+        let Ok(org) = orgintel.get(name).await else {
+            continue;
+        };
+        let Ok(commitments) = org.list_commitments().await else {
+            continue;
+        };
         for c in commitments.iter().filter(|c| {
             c.owner_id.starts_with("staff-")
                 && matches!(

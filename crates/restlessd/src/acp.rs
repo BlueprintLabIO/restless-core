@@ -13,16 +13,17 @@ use std::process::Stdio;
 use std::sync::{Arc, Mutex};
 
 use agent_client_protocol::{
-    self as acp, Agent, ByteStreams, Client, ConnectionTo,
+    self as acp,
     schema::{
-        ProtocolVersion,
         v1::{
-            CancelNotification, ContentBlock, InitializeRequest,
-            NewSessionRequest, PermissionOptionKind, PromptRequest, RequestPermissionOutcome,
+            CancelNotification, ContentBlock, InitializeRequest, NewSessionRequest,
+            PermissionOptionKind, PromptRequest, RequestPermissionOutcome,
             RequestPermissionRequest, RequestPermissionResponse, SelectedPermissionOutcome,
             SessionId, SessionNotification, SessionUpdate, TextContent, ToolCallStatus,
         },
+        ProtocolVersion,
     },
+    Agent, ByteStreams, Client, ConnectionTo,
 };
 use anyhow::{Context, Result};
 use tokio_util::compat::{TokioAsyncReadCompatExt as _, TokioAsyncWriteCompatExt as _};
@@ -106,7 +107,8 @@ impl TurnTranscript {
                 }
             }
             SessionUpdate::ToolCall(call) => {
-                self.tool_calls.push(format!("{:?}: {}", call.kind, call.title));
+                self.tool_calls
+                    .push(format!("{:?}: {}", call.kind, call.title));
                 self.tools_in_flight += 1;
             }
             SessionUpdate::ToolCallUpdate(update) => {
@@ -179,11 +181,17 @@ pub enum TurnEnd {
     /// separate question, answered from the usage — see `health::classify`.
     Completed { transcript: TurnTranscript },
     /// No output of any kind for longer than the idle allowance.
-    Wedged { idle: std::time::Duration, transcript: TurnTranscript },
+    Wedged {
+        idle: std::time::Duration,
+        transcript: TurnTranscript,
+    },
     /// The company reached its ceiling mid-turn.
     OverBudget { transcript: TurnTranscript },
     /// The session or its transport failed. `error` is the anyhow chain.
-    Failed { error: String, transcript: TurnTranscript },
+    Failed {
+        error: String,
+        transcript: TurnTranscript,
+    },
 }
 
 impl TurnEnd {
@@ -339,21 +347,31 @@ pub async fn with_agent<F, T>(
 where
     F: for<'a> FnOnce(
         &'a AgentSession,
-    )
-        -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<T>> + Send + 'a>>,
+    ) -> std::pin::Pin<
+        Box<dyn std::future::Future<Output = Result<T>> + Send + 'a>,
+    >,
 {
-    // Snapshot before the agent starts: anything new and still alive when the
-    // turn ends was started by this turn and is ours to clean up.
-    let before = pids(container).await;
+    // Every docker-exec process is a Linux session leader. Record this turn's
+    // session id inside the container so cleanup can reap only its process
+    // tree. A before/after PID diff is not ownership: a staff turn may start
+    // while the Exec is running, and the Exec must never kill it on exit.
+    let session_marker = format!("/tmp/restless-agent-{}.sid", uuid::Uuid::new_v4().simple());
     // docker exec takes its -e flags BEFORE the container name; anything after
     // it belongs to the command. Build the vector explicitly rather than
     // chaining .args() and hoping the order is right — appending the base-URL
     // override after the container silently handed it to omp as an argument,
     // which surfaced as "No model selected".
     let mut args: Vec<String> = [
-        "exec", "-i", "-u", "company", "-w", "/company",
-        "-e", "OMP_HOME=/company/home/.omp",
-        "-e", "NO_BROWSER=1",
+        "exec",
+        "-i",
+        "-u",
+        "company",
+        "-w",
+        "/company",
+        "-e",
+        "OMP_HOME=/company/home/.omp",
+        "-e",
+        "NO_BROWSER=1",
     ]
     .iter()
     .map(|arg| (*arg).to_string())
@@ -367,9 +385,20 @@ where
         args.push(format!("{name}={value}"));
     }
     args.extend(
-        [container, "omp", "acp", "--model", auth.model.as_str()]
-            .iter()
-            .map(|arg| (*arg).to_string()),
+        [
+            container,
+            "sh",
+            "-c",
+            "umask 077; printf '%s\\n' \"$$\" > \"$1\"; shift; exec \"$@\"",
+            "restless-agent",
+            session_marker.as_str(),
+            "omp",
+            "acp",
+            "--model",
+            auth.model.as_str(),
+        ]
+        .iter()
+        .map(|arg| (*arg).to_string()),
     );
     let mut child = tokio::process::Command::new("docker")
         .args(&args)
@@ -458,7 +487,11 @@ where
                     .await
                     .context("acp session/new")?;
 
-                let agent = AgentSession { cx, session_id: session.session_id, transcript };
+                let agent = AgentSession {
+                    cx,
+                    session_id: session.session_id,
+                    transcript,
+                };
                 drive(&agent).await
             };
             match step.await {
@@ -474,8 +507,17 @@ where
         })
         .await;
 
+    let owned_session = read_session_id(container, &session_marker).await;
     let _ = child.kill().await;
-    reap(container, &before).await;
+    if let Some(session_id) = owned_session {
+        let _ = reap_session(container, &session_id).await;
+    } else {
+        tracing::warn!(container, marker = %session_marker, "agent session ownership marker missing; declining broad process cleanup");
+    }
+    let _ = tokio::process::Command::new("docker")
+        .args(["exec", container, "unlink", &session_marker])
+        .output()
+        .await;
     if let Ok(mut slot) = failure.lock() {
         if let Some(error) = slot.take() {
             return Err(error);
@@ -484,22 +526,24 @@ where
     Ok(result?)
 }
 
-/// Every process id currently alive in the container.
-async fn pids(container: &str) -> std::collections::HashSet<String> {
+/// Read and validate the Linux session id written by this turn's wrapper.
+async fn read_session_id(container: &str, marker: &str) -> Option<String> {
     let Ok(output) = tokio::process::Command::new("docker")
-        .args(["exec", container, "ps", "-eo", "pid="])
+        .args(["exec", container, "cat", marker])
         .output()
         .await
     else {
-        return std::collections::HashSet::new();
+        return None;
     };
-    String::from_utf8_lossy(&output.stdout)
-        .split_whitespace()
-        .map(str::to_owned)
-        .collect()
+    let session_id = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    (output.status.success()
+        && session_id != "1"
+        && !session_id.is_empty()
+        && session_id.bytes().all(|byte| byte.is_ascii_digit()))
+    .then_some(session_id)
 }
 
-/// Kill whatever the turn started and left behind.
+/// Kill whatever this turn's Linux session started and left behind.
 ///
 /// The persistent company computer (§5, §17 step 2) is the right model, but
 /// the per-turn disposable sandbox it replaced was doing garbage collection
@@ -514,26 +558,95 @@ async fn pids(container: &str) -> std::collections::HashSet<String> {
 /// company that genuinely needs a durable service will need a way to say so,
 /// and that is the tripwire for revisiting this — no company has wanted one
 /// yet (§16.1, observe before modelling).
-async fn reap(container: &str, before: &std::collections::HashSet<String>) {
-    let after = pids(container).await;
-    let leaked: Vec<&str> = after
-        .difference(before)
-        .map(String::as_str)
-        // PID 1 is the container's init and never ours to kill.
-        .filter(|pid| *pid != "1")
-        .collect();
+async fn reap_session(container: &str, session_id: &str) -> usize {
+    let Ok(output) = tokio::process::Command::new("docker")
+        .args(["exec", container, "ps", "-eo", "pid=,sid="])
+        .output()
+        .await
+    else {
+        return 0;
+    };
+    let leaked = pids_in_session(&String::from_utf8_lossy(&output.stdout), session_id);
     if leaked.is_empty() {
-        return;
+        return 0;
     }
-    tracing::info!(container, count = leaked.len(), "reaping processes the turn left behind");
+    tracing::info!(
+        container,
+        session_id,
+        count = leaked.len(),
+        "reaping processes this turn left behind"
+    );
     let mut args = vec!["exec", container, "kill", "-9"];
-    args.extend(leaked.iter().copied());
-    let _ = tokio::process::Command::new("docker").args(&args).output().await;
+    args.extend(leaked.iter().map(String::as_str));
+    let _ = tokio::process::Command::new("docker")
+        .args(&args)
+        .output()
+        .await;
+    leaked.len()
+}
+
+/// Reap sessions whose owning daemon disappeared. The marker is the
+/// ownership record; a process-name search is incomplete (`omp` replaced
+/// `codex-acp`) and can claim unrelated work.
+pub(crate) async fn reap_orphan_sessions(container: &str) -> usize {
+    let Ok(output) = tokio::process::Command::new("docker")
+        .args([
+            "exec",
+            container,
+            "find",
+            "/tmp",
+            "-maxdepth",
+            "1",
+            "-type",
+            "f",
+            "-name",
+            "restless-agent-*.sid",
+            "-print",
+        ])
+        .output()
+        .await
+    else {
+        return 0;
+    };
+    if !output.status.success() {
+        return 0;
+    }
+
+    let mut reaped = 0;
+    for marker in String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .filter(|path| path.starts_with("/tmp/restless-agent-") && path.ends_with(".sid"))
+    {
+        if let Some(session_id) = read_session_id(container, marker).await {
+            reaped += reap_session(container, &session_id).await;
+        }
+        let _ = tokio::process::Command::new("docker")
+            .args(["exec", container, "unlink", marker])
+            .output()
+            .await;
+    }
+    reaped
+}
+
+/// Parse `ps -eo pid=,sid=` without teaching cleanup about process names.
+/// Ownership is the kernel's session id, not a substring such as `omp`.
+fn pids_in_session(table: &str, session_id: &str) -> Vec<String> {
+    table
+        .lines()
+        .filter_map(|line| {
+            let mut columns = line.split_whitespace();
+            let pid = columns.next()?;
+            let sid = columns.next()?;
+            (sid == session_id && pid != "1").then(|| pid.to_string())
+        })
+        .collect()
 }
 
 #[cfg(test)]
 mod tests {
     use agent_client_protocol::schema::v1::ClientCapabilities;
+
+    use super::pids_in_session;
 
     /// Guards the silent failure that cost a probe cycle: if the client ever
     /// advertises filesystem capabilities, the agent stops writing to the
@@ -544,5 +657,15 @@ mod tests {
         let capabilities = ClientCapabilities::default();
         assert!(!capabilities.fs.read_text_file);
         assert!(!capabilities.fs.write_text_file);
+    }
+
+    /// S04-T6 regression: a staff process started during an Exec turn is new
+    /// in a PID snapshot but belongs to another Linux session. Cleanup must
+    /// select only the caller's session.
+    #[test]
+    fn cleanup_never_claims_a_concurrent_actor_session() {
+        let table = "  101  101\n  102  101\n  201  201\n  202  201\n";
+        assert_eq!(pids_in_session(table, "101"), vec!["101", "102"]);
+        assert_eq!(pids_in_session(table, "201"), vec!["201", "202"]);
     }
 }

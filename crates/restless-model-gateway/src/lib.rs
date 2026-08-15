@@ -16,4 +16,4 @@ mod error;
 mod spend;
 
 pub use error::{GatewayError, GatewayResult};
-pub use spend::{ModelRate, SpendRecord, SpendStore, TokenUsage, parse_token_usage};
+pub use spend::{parse_token_usage, ModelRate, SpendRecord, SpendStore, TokenUsage};

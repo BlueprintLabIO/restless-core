@@ -86,7 +86,10 @@ pub struct Blocked {
 
 impl Blocked {
     fn new(kind: BlockKind, detail: impl Into<String>) -> Self {
-        Self { kind, detail: detail.into() }
+        Self {
+            kind,
+            detail: detail.into(),
+        }
     }
 
     /// A transport or process failure that matched no sharper class. The
@@ -94,7 +97,10 @@ impl Blocked {
     /// honestly rather than dressed up as a decision.
     #[must_use]
     pub fn transport(detail: &str) -> Self {
-        Self::new(BlockKind::Transport, format!("the agent session failed: {}", trim(detail)))
+        Self::new(
+            BlockKind::Transport,
+            format!("the agent session failed: {}", trim(detail)),
+        )
     }
 
     /// The company is out of money. Reachable two ways — before a wake, from
@@ -159,7 +165,10 @@ pub async fn preflight(company: &str) -> Result<Option<Blocked>> {
         if free < MIN_FREE_BYTES {
             return Ok(Some(Blocked::new(
                 BlockKind::Disk,
-                format!("/company is down to {} free — work would fail mid-write", human_bytes(free)),
+                format!(
+                    "/company is down to {} free — work would fail mid-write",
+                    human_bytes(free)
+                ),
             )));
         }
     }
@@ -205,13 +214,18 @@ pub fn classify(end: &acp::TurnEnd) -> Verdict {
             Some(_) => Verdict::Ran,
         },
 
-        // Silence is not failure. The agent's work up to the wedge is on the
-        // volume, and a fresh session rehydrates from it. Killing a turn that
-        // had been streaming reasoning for 50 minutes and reporting it as
-        // "the model never ran" is the exact bug this type exists to prevent.
+        // Silence is not failure. Files the agent already wrote survive on the
+        // volume, but tool results and uncommitted reasoning may not. Sprint 04
+        // prospecting proved that claiming *all* work was on disk was false:
+        // browser evidence vanished across a cut until the task checkpointed
+        // each candidate to /company. A fresh session rehydrates from durable
+        // state only. Killing a turn that had been streaming reasoning for 50
+        // minutes and reporting it as "the model never ran" is still the exact
+        // bug this type exists to prevent.
         acp::TurnEnd::Wedged { idle, .. } => Verdict::Resume(format!(
             "the agent produced nothing for {} minutes and the turn was cut; \
-             its work so far is on disk and the next wake continues it",
+             anything already written to the company computer is preserved, and the next wake \
+             continues from durable state",
             idle.as_secs() / 60
         )),
 
@@ -226,7 +240,8 @@ pub fn classify(end: &acp::TurnEnd) -> Verdict {
                 BlockKind::Budget,
                 format!(
                     "the turn reached the company's remaining spend ceiling{spent}; \
-                     work so far is on disk and the owner must raise the ceiling to continue"
+                     anything already written to the company computer is preserved, and the owner \
+                     must raise the ceiling to continue"
                 ),
             ))
         }
@@ -257,13 +272,19 @@ pub fn classify_provider_error(text: &str) -> Option<Blocked> {
     if has("402") || has("insufficient") || has("credit") || has("quota") {
         return Some(Blocked::new(
             BlockKind::Quota,
-            format!("provider refused on quota or credit — owner action required: {}", trim(text)),
+            format!(
+                "provider refused on quota or credit — owner action required: {}",
+                trim(text)
+            ),
         ));
     }
     if has("401") || has("403") || has("invalid authentication") || has("unauthor") {
         return Some(Blocked::new(
             BlockKind::Credential,
-            format!("provider rejected the credential — it is missing, expired, or revoked: {}", trim(text)),
+            format!(
+                "provider rejected the credential — it is missing, expired, or revoked: {}",
+                trim(text)
+            ),
         ));
     }
     if has("429") || has("rate limit") {
@@ -275,7 +296,10 @@ pub fn classify_provider_error(text: &str) -> Option<Blocked> {
     if has("model") && (has("not found") || has("unknown") || has("does not exist")) {
         return Some(Blocked::new(
             BlockKind::Model,
-            format!("the configured model is not offered by the provider: {}", trim(text)),
+            format!(
+                "the configured model is not offered by the provider: {}",
+                trim(text)
+            ),
         ));
     }
     None
@@ -368,7 +392,10 @@ pub async fn organisational(
     // 3. Blocked on a person. Observed: F1 latched blocked milestones so the
     //    company stops rather than re-mailing the owner every tick — which is
     //    correct, and also means a blockage can sit unnoticed.
-    for commitment in commitments.iter().filter(|c| matches!(c.state, CommitmentState::Blocked)) {
+    for commitment in commitments
+        .iter()
+        .filter(|c| matches!(c.state, CommitmentState::Blocked))
+    {
         signals.push(OrgSignal {
             kind: "blocked-on-a-person",
             detail: format!(
@@ -430,8 +457,11 @@ mod tests {
     /// A transcript reporting `used` tokens and `cost` dollars.
     fn transcript(used: Option<u64>, cost: Option<f64>) -> acp::TurnTranscript {
         let mut transcript = acp::TurnTranscript::default();
-        transcript.usage =
-            used.map(|used| acp::TurnUsage { used, size: 256_000, cost_usd: cost });
+        transcript.usage = used.map(|used| acp::TurnUsage {
+            used,
+            size: 256_000,
+            cost_usd: cost,
+        });
         transcript
     }
 
@@ -448,10 +478,14 @@ mod tests {
     #[test]
     fn a_completed_turn_that_consumed_nothing_did_not_happen() {
         for used in [Some(0), None] {
-            let end = acp::TurnEnd::Completed { transcript: transcript(used, None) };
+            let end = acp::TurnEnd::Completed {
+                transcript: transcript(used, None),
+            };
             assert_eq!(blocked(classify(&end)).kind, BlockKind::NoOp, "{used:?}");
         }
-        let end = acp::TurnEnd::Completed { transcript: transcript(Some(16_042), None) };
+        let end = acp::TurnEnd::Completed {
+            transcript: transcript(Some(16_042), None),
+        };
         assert!(matches!(classify(&end), Verdict::Ran));
     }
 
@@ -490,7 +524,9 @@ mod tests {
                 idle: std::time::Duration::from_secs(8 * 60),
                 transcript: nothing(),
             },
-            acp::TurnEnd::OverBudget { transcript: nothing() },
+            acp::TurnEnd::OverBudget {
+                transcript: nothing(),
+            },
             acp::TurnEnd::Failed {
                 error: "connection reset by peer".to_string(),
                 transcript: nothing(),
@@ -506,10 +542,12 @@ mod tests {
         }
     }
 
-    /// A wedge is recoverable, not a blockage: the work is on the volume and
-    /// the next wake rehydrates from it. Spending owner attention on it is the
-    /// expensive half of the bug — a false kill 50 minutes into real work got
-    /// reported as a company-stopping failure.
+    /// A wedge is recoverable, not a blockage: files already written survive
+    /// on the volume and the next wake rehydrates from durable state. It must
+    /// not claim ephemeral tool results were checkpointed. Spending owner
+    /// attention on the wedge is the expensive half of the original bug — a
+    /// false kill 50 minutes into real work was reported as a company-stopping
+    /// failure.
     #[test]
     fn a_wedge_resumes_rather_than_blocking_the_owner() {
         let end = acp::TurnEnd::Wedged {
@@ -520,14 +558,17 @@ mod tests {
             panic!("a wedge must resume");
         };
         assert!(reason.contains("8 minutes"), "{reason}");
-        assert!(reason.contains("on disk"), "{reason}");
+        assert!(reason.contains("already written"), "{reason}");
+        assert!(reason.contains("durable state"), "{reason}");
     }
 
     /// Over-budget is the owner's call and says so with the number, rather
     /// than arriving as a generic block.
     #[test]
     fn over_budget_blocks_on_the_owner_with_the_amount() {
-        let end = acp::TurnEnd::OverBudget { transcript: transcript(Some(500_000), Some(3.5)) };
+        let end = acp::TurnEnd::OverBudget {
+            transcript: transcript(Some(500_000), Some(3.5)),
+        };
         let blocked = blocked(classify(&end));
         assert_eq!(blocked.kind, BlockKind::Budget);
         assert!(blocked.message().contains("$3.50"), "{}", blocked.message());
@@ -552,9 +593,11 @@ mod org_tests {
     /// completing work, or both.
     #[test]
     fn real_sprint_01_spend_would_not_have_fired_the_signal() {
-        for (company, spent, completed) in
-            [("cosmon", 7.16, 4), ("aris", 1.97, 2), ("thymelake", 2.78, 2)]
-        {
+        for (company, spent, completed) in [
+            ("cosmon", 7.16, 4),
+            ("aris", 1.97, 2),
+            ("thymelake", 2.78, 2),
+        ] {
             let fires = completed == 0 && spent >= EFFORT_WITHOUT_OUTPUT_USD;
             assert!(!fires, "{company} would have been falsely flagged");
         }

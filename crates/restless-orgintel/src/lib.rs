@@ -73,12 +73,11 @@ impl OrgIntel {
 
     /// Table names in this company's schema (observability probe).
     pub async fn table_names(&self) -> Result<Vec<String>> {
-        let rows = sqlx::query(
-            "SELECT tablename FROM pg_tables WHERE schemaname = $1 ORDER BY tablename",
-        )
-        .bind(&self.schema)
-        .fetch_all(&self.pool)
-        .await?;
+        let rows =
+            sqlx::query("SELECT tablename FROM pg_tables WHERE schemaname = $1 ORDER BY tablename")
+                .bind(&self.schema)
+                .fetch_all(&self.pool)
+                .await?;
         Ok(rows.iter().map(|row| row.get(0)).collect())
     }
 
@@ -90,15 +89,13 @@ impl OrgIntel {
     /// `relation "actors" does not exist`. Reconcile after failure rather than
     /// assuming the world held still (docs/specs/cross-layer-contract.md §18.5).
     pub async fn is_live(&self) -> bool {
-        sqlx::query_scalar::<_, Option<String>>(
-            "SELECT to_regclass(format('%I.actors', $1))::text",
-        )
-        .bind(&self.schema)
-        .fetch_one(&self.pool)
-        .await
-        .ok()
-        .flatten()
-        .is_some()
+        sqlx::query_scalar::<_, Option<String>>("SELECT to_regclass(format('%I.actors', $1))::text")
+            .bind(&self.schema)
+            .fetch_one(&self.pool)
+            .await
+            .ok()
+            .flatten()
+            .is_some()
     }
 
     pub async fn drop_schema(&self) -> Result<()> {
@@ -162,16 +159,42 @@ impl OrgIntel {
     // ---- actors ----
 
     pub async fn add_actor(&self, id: &str, kind: &str, display: &str) -> Result<()> {
+        self.add_actor_with_model(id, kind, display, None).await
+    }
+
+    /// S04-T9. The same insert, carrying what this actor thinks with.
+    ///
+    /// `ON CONFLICT DO NOTHING` on the row, but the model is refreshed: an
+    /// actor persists across wakes (`orgintel §2.1`) while the model it is
+    /// given can change between them, and the owner asking "which model wrote
+    /// this" wants the one that ran, not the one it was first created with.
+    pub async fn add_actor_with_model(
+        &self,
+        id: &str,
+        kind: &str,
+        display: &str,
+        model: Option<&str>,
+    ) -> Result<()> {
         sqlx::query(
-            "INSERT INTO actors (id, kind, display) VALUES ($1, $2, $3) \
-             ON CONFLICT (id) DO NOTHING",
+            "INSERT INTO actors (id, kind, display, model) VALUES ($1, $2, $3, $4) \
+             ON CONFLICT (id) DO UPDATE SET model = COALESCE(EXCLUDED.model, actors.model)",
         )
         .bind(id)
         .bind(kind)
         .bind(display)
+        .bind(model)
         .execute(&self.pool)
         .await?;
         Ok(())
+    }
+
+    /// Every actor the company has, for `restless people`.
+    pub async fn list_actors(&self) -> Result<Vec<ActorRow>> {
+        Ok(sqlx::query_as::<_, ActorRow>(
+            "SELECT id, kind, display, model, created_at FROM actors ORDER BY created_at",
+        )
+        .fetch_all(&self.pool)
+        .await?)
     }
 
     // ---- goals ----
@@ -405,12 +428,11 @@ impl OrgIntel {
 
     /// When the most recent event of a kind happened (e.g. the last wake).
     pub async fn latest_event_at(&self, kind: &str) -> Result<Option<DateTime<Utc>>> {
-        let row = sqlx::query(
-            "SELECT created_at FROM events WHERE kind = $1 ORDER BY id DESC LIMIT 1",
-        )
-        .bind(kind)
-        .fetch_optional(&self.pool)
-        .await?;
+        let row =
+            sqlx::query("SELECT created_at FROM events WHERE kind = $1 ORDER BY id DESC LIMIT 1")
+                .bind(kind)
+                .fetch_optional(&self.pool)
+                .await?;
         Ok(row.map(|row| row.get(0)))
     }
 
@@ -424,7 +446,19 @@ impl OrgIntel {
         .await?;
         Ok(row.map(|row| row.get(0)))
     }
+}
 
+#[derive(Debug, Serialize, sqlx::FromRow)]
+pub struct ActorRow {
+    pub id: String,
+    /// The actor's durable role — `copywriter`, `critic`, `exec`, `owner`.
+    /// S04-T5 stopped flattening every worker to the literal `"staff"`, which
+    /// is why AC5 can ask for rows whose kind is not `"staff"`.
+    pub kind: String,
+    pub display: String,
+    /// NULL means inherited or not applicable, never "unknown".
+    pub model: Option<String>,
+    pub created_at: DateTime<Utc>,
 }
 
 #[derive(Debug, Serialize, sqlx::FromRow)]

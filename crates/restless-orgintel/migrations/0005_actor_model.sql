@@ -1,0 +1,12 @@
+-- S04-T9. What an actor thinks with.
+--
+-- S04-T5 gave staff real roles and per-role models, but only the role was
+-- persisted (as `actors.kind`). The model was passed to the process and lost,
+-- so sprint 04's AC7 — "which role, which model, what it cost" — was not
+-- answerable from OrgIntel at all.
+--
+-- Nullable because the Exec, the owner, the daemon and the world are actors
+-- that either inherit the company model or do not think: NULL means "not
+-- applicable or inherited", which is honest, where an empty string would be a
+-- claim.
+ALTER TABLE actors ADD COLUMN IF NOT EXISTS model TEXT;
