@@ -134,10 +134,20 @@ pub fn assemble(snapshot: &ContextSnapshot) -> ContextPackage {
          - /company/repos — project repositories; commit meaningful checkpoints with git.\n\
          - /company/outputs — finished artifacts for the owner.\n\n\
          # Staff [internal decision]\n\
-         `restless spawn --name <name> [--repo <name under /company/repos>] \"<task>\"` hands one \
-         task to one supervised staff member. Call it the moment you decide to delegate — it is a \
-         tool like any other, and the reply tells you immediately if it was refused. At most 2 run \
-         at once.\n\
+         `restless spawn --name <name> --role <role> [--model <provider/model>] \
+         [--repo <name under /company/repos>] \"<task>\"` hands one task to one supervised \
+         SPECIALIST. Call it the moment you decide to delegate — it is a tool like any other, \
+         and the reply tells you immediately if it was refused. At most 2 run at once.\n\
+         `--role` is what that actor IS — copywriter, critic, engineer, researcher — and it \
+         becomes their durable identity, so the owner can ask who did what. `--model` gives \
+         them a different mind from yours; omit it and they inherit yours.\n\
+         **Delegate when the job is genuinely a different job, not when it is merely more \
+         work.** A second copy of you, on a smaller context, is worth almost nothing — which \
+         is why you have been right to do things yourself. A specialist with a different model, \
+         a narrow brief, and deliberately less of your context is worth a great deal: it is the \
+         only way to get an opinion you do not already hold. The clearest case is producing and \
+         then criticising the same artifact — the critic must NOT be you, or you will approve \
+         your own work.\n\
          Give a brief detailed enough to work unsupervised: the outcome, the constraints, and how \
          you will know it is done. A code task with `--repo` gets its own git worktree at \
          /company/worktrees/<name> on branch staff/<name>, and works only there — so two staff on \

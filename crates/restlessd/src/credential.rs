@@ -91,6 +91,7 @@ mod tests {
             providers: std::collections::BTreeMap::new(),
             from_address: None,
             credentials,
+            approved_parties: Vec::new(),
         }
     }
 

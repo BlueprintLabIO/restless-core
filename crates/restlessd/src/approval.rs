@@ -126,8 +126,15 @@ mod tests {
     /// a gate that fails on capitalisation trains people to disable it.
     #[test]
     fn standing_approval_matches_regardless_of_case_or_padding() {
-        let config = config(&["  YaiLives@Gmail.com  "]);
-        assert!(approved_parties(&config).contains(&"yaillives@gmail.com".to_string()));
+        let padded = config(&["  YaiLLives@Gmail.com  "]);
+        assert!(approved_parties(&padded).contains(&"yaillives@gmail.com".to_string()));
+        // Normalisation must not silently accept a DIFFERENT address: one
+        // dropped character is a different person, and a gate that is loose
+        // about identity is not a gate. (This assertion exists because the
+        // first version of the test above had exactly that typo and passed
+        // nothing useful.)
+        let typo = config(&["yailives@gmail.com"]);
+        assert!(!approved_parties(&typo).contains(&"yaillives@gmail.com".to_string()));
     }
 
     /// A simulated provider never asks. This is what keeps `_test` companies

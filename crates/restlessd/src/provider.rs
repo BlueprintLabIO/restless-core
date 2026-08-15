@@ -34,18 +34,47 @@ use crate::runtime::CompanyConfig;
 pub enum Provider {
     Simulated,
     Resend,
+    /// **The general case.** The company performed the action itself — through
+    /// its browser session, a CLI, a vendor dashboard, anything — and reports
+    /// what happened. The daemon records the receipt without having performed
+    /// the action.
+    ///
+    /// `authority-plane §2.2` is explicit that this is the *primary* shape and
+    /// an adapter is the exception: *"A receipt does not require an API… the
+    /// receipt, idempotency key, party and reconciliation are identical either
+    /// way. Accountability attaches to the consequence, not to the transport.
+    /// This matters because the set of consequential actions with clean APIs is
+    /// much smaller than the set of consequential actions, and an adapter per
+    /// provider does not scale."*
+    ///
+    /// We built the adapter first anyway, which got email working and got the
+    /// architecture backwards. This is the path that scales.
+    SelfReported,
 }
 
 impl Provider {
     /// The string that lands in the receipt. This is the value
     /// `evaluation-dogfood` reads to tell a real outcome from a rehearsed one,
     /// so it is the provider's own name, never a category.
+    ///
+    /// `self-reported` is deliberately not dressed up. A receipt the company
+    /// wrote about itself is **weaker evidence** than one a provider confirmed,
+    /// and reconciliation must be able to tell them apart — Aris once reported
+    /// £45 of revenue that receipts put at £18, and the whole value of this
+    /// field is that it says who is attesting.
     #[must_use]
     pub fn name(&self) -> &'static str {
         match self {
             Self::Simulated => "simulated",
             Self::Resend => "resend",
+            Self::SelfReported => "self-reported",
         }
+    }
+
+    /// Whether the daemon performs this effect, or merely records it.
+    #[must_use]
+    pub fn is_performed_by_daemon(&self) -> bool {
+        matches!(self, Self::Resend)
     }
 }
 
@@ -61,9 +90,10 @@ pub fn resolve(config: &CompanyConfig, capability: &str) -> Result<Provider> {
         Some(name) => match name.as_str() {
             "simulated" => Ok(Provider::Simulated),
             "resend" => Ok(Provider::Resend),
+            "self" | "self-reported" => Ok(Provider::SelfReported),
             other => bail!(
                 "company {} maps {capability} to unknown provider {other:?}; \
-                 known providers are: simulated, resend",
+                 known providers are: simulated, resend, self",
                 config.name
             ),
         },
@@ -175,6 +205,7 @@ mod tests {
             providers,
             from_address: None,
             credentials: std::collections::BTreeMap::new(),
+            approved_parties: Vec::new(),
         }
     }
 

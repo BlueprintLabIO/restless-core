@@ -69,6 +69,11 @@ struct Request {
     // S03-T5 approval field.
     #[serde(default)]
     party: Option<String>,
+    // S04-T5 role/model fields: what a spawned actor IS, and what it thinks with.
+    #[serde(default)]
+    role: Option<String>,
+    #[serde(default)]
+    model: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -605,7 +610,13 @@ async fn dispatch(request: Request, daemon: &Daemon) -> Response {
                 match runtime::CompanyConfig::load(&daemon.root, company) {
                     Ok(config) => match daemon.orgintel.get(company).await {
                         Ok(org) => {
-                            let ask = staff::SpawnRequest { name, task, repo: request.repo };
+                            let ask = staff::SpawnRequest {
+                                name,
+                                task,
+                                repo: request.repo,
+                                role: request.role,
+                                model: request.model,
+                            };
                             match staff::spawn_now(&config, &daemon.spend, &org, &daemon.staff, &ask)
                                 .await
                             {

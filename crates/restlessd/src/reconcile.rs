@@ -45,6 +45,16 @@ pub struct EffectLedger {
     /// Duplicate requests the idempotency guard suppressed. Counted so the
     /// protection is auditable rather than merely asserted.
     pub replays_suppressed: usize,
+    /// Receipts the company wrote about its own actions (`provider:
+    /// "self-reported"`), as opposed to ones a provider confirmed.
+    ///
+    /// Counted separately because they are **weaker evidence**, and the whole
+    /// point of showing the Exec its ledger each wake is that receipts outrank
+    /// belief. A self-reported receipt IS the belief — it just has an
+    /// idempotency key attached. Aris once claimed £45 against £18 confirmable;
+    /// if self-attested effects were silently tallied as confirmed, this ledger
+    /// would launder exactly that mistake into evidence.
+    pub self_reported: usize,
     /// Effects repeated on a party already acted on under a different key.
     /// Idempotency cannot catch these: two honest keys, one party.
     pub party_repeats: usize,
@@ -78,6 +88,12 @@ impl EffectLedger {
         if self.replays_suppressed > 0 {
             parts.push(format!("{} duplicate(s) suppressed", self.replays_suppressed));
         }
+        if self.self_reported > 0 {
+            parts.push(format!(
+                "{} of these are YOUR OWN account of what happened, not a provider's —                  weaker evidence, do not report them as confirmed",
+                self.self_reported
+            ));
+        }
         if self.unknown_outcomes > 0 {
             parts.push(format!("{} receipt(s) with an unrecognised status", self.unknown_outcomes));
         }
@@ -106,6 +122,9 @@ pub async fn effect_ledger(org: &OrgIntel) -> Result<EffectLedger> {
         };
         let outcome = event.body.get("outcome");
         ledger.total += 1;
+        if event.body.get("provider").and_then(|p| p.as_str()) == Some("self-reported") {
+            ledger.self_reported += 1;
+        }
         let tally = ledger.by_capability.entry(capability.to_string()).or_default();
         tally.total += 1;
         if outcome.is_some_and(|o| outcome_of(o) == Outcome::Failed) {

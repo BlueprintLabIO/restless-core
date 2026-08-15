@@ -145,17 +145,41 @@ pub async fn request_effect(
         org.send_message(actor, None, &format!("approval required: {reason}")).await?;
         bail!("{reason}");
     }
-    if provider != crate::provider::Provider::Simulated {
-        let outcome = match provider {
-            crate::provider::Provider::Resend => {
-                crate::provider::resend_send(config, &args, key).await?
-            }
-            crate::provider::Provider::Simulated => unreachable!("checked above"),
-        };
-        return finish_effect(
-            org, capability, args_digest, party, outcome, provider.name(), actor, key, repeat,
-        )
-        .await;
+    match provider {
+        // The daemon performs it. An adapter exists because the credential must
+        // stay host-side, not because adapters are the model.
+        crate::provider::Provider::Resend => {
+            let outcome = crate::provider::resend_send(config, &args, key).await?;
+            return finish_effect(
+                org, capability, args_digest, party, outcome, provider.name(), actor, key, repeat,
+            )
+            .await;
+        }
+        // The company performed it itself and is attesting to the outcome.
+        // This is `authority-plane §2.2`'s general case: accountability attaches
+        // to the consequence, not to the transport, so a listing published
+        // through the company's own browser earns the same receipt, idempotency
+        // key, party and reconciliation as an HTTP call.
+        //
+        // The attestation is arbitrary JSON on purpose. We do not know the shape
+        // of every consequential action in the world, and a schema here would be
+        // a provider catalogue wearing a different hat.
+        crate::provider::Provider::SelfReported => {
+            let outcome = args.get("outcome").cloned().ok_or_else(|| {
+                anyhow::anyhow!(
+                    "{capability} is a self-reported capability for {}: you perform it yourself, \
+                     then record what happened. Include an \"outcome\" object in --args describing \
+                     the result — what you did, what came back, and any identifier the other side \
+                     gave you. It is recorded as YOUR attestation, not as confirmed fact.",
+                    config.name
+                )
+            })?;
+            return finish_effect(
+                org, capability, args_digest, party, outcome, provider.name(), actor, key, repeat,
+            )
+            .await;
+        }
+        crate::provider::Provider::Simulated => {}
     }
 
     let persona_path = root

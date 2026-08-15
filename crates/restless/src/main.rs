@@ -107,6 +107,16 @@ enum Command {
         /// Omit for non-code work.
         #[arg(long)]
         repo: Option<String>,
+        /// What this actor IS — `copywriter`, `critic`, `engineer`. Becomes its
+        /// durable role, so the owner can ask who did what. Absent means a
+        /// generalist, which is honest but is not a team.
+        #[arg(long)]
+        role: Option<String>,
+        /// Provider-qualified model for this role. Absent inherits the
+        /// company's. A critic running the producer's own model on the
+        /// producer's own context is an echo chamber with a second invoice.
+        #[arg(long)]
+        model: Option<String>,
         /// What to do and why, in enough detail to work unsupervised.
         task: String,
     },
@@ -222,11 +232,13 @@ fn request_json(command: Command) -> Result<serde_json::Value> {
             "company": c,
             "party": party,
         }),
-        Command::Spawn { company: c, name, repo, task } => serde_json::json!({
+        Command::Spawn { company: c, name, repo, role, model, task } => serde_json::json!({
             "cmd": "spawn",
             "company": c,
             "name": name,
             "repo": repo,
+            "role": role,
+            "model": model,
             "body": task,
             "from": std::env::var("RESTLESS_ACTOR").ok(),
         }),
