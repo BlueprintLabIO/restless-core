@@ -1,0 +1,3 @@
+# Generated from the Rust types — formatting is the generator's, and the
+# drift test in crates/restless-orgintel/tests/bindings.rs is the authority.
+src/lib/model/generated/
