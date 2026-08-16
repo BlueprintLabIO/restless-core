@@ -223,6 +223,37 @@ does, and the container's Dockerfile is the only place the install line exists
 repo hits `Error: create OMP auth-broker bearer / No such file or directory` with nothing to
 search for. Worth a line in `.env.example` and a check with a useful message.
 
+**The agent cannot select a subscription-plan model.** Creating `harbourline` on
+`moonshot/kimi-for-coding` produced a wake that failed with `No model selected`. The model is not
+missing — the gateway offers it, and `/v1/models` through the gateway lists 21 models — but omp's
+own catalogue inside the container knows only 17. The four it does not know are exactly the
+Kimi-For-Coding plan's: `k3`, `k3-256k`, `kimi-for-coding`, `kimi-for-coding-highspeed`. So
+`omp acp --model moonshot/kimi-for-coding` cannot resolve the name it was given.
+
+This is the second failure caused by the same plan (see the spend poison below), and together they
+say something worth acting on: **subscription plans are not a supported way to run a company.**
+The metered path works end to end; the subscription path fails at model selection, and if it got
+past that it would poison the ledger. Either omp's catalogue must be extendable from the gateway's
+`/v1/models`, or a company on a plan omp cannot enumerate should be refused at `company-create`
+with that reason, rather than accepted and failing at the first wake.
+
+**An infrastructure failure is presented to the owner as an errand.** The failed wake above became
+an attention item whose `what_happened` is a raw ACP error — `acp session/prompt: Internal error:
+{ "details": "No model selected.\n\nUse /login, ...` — and whose `requested_action` is "Take the
+prepared last mile in the live company browser", with a single action labelled "Open live browser".
+No browser can fix a missing model. `attention::project` classifies every blocked commitment as
+`review` or `blocker` by keyword and gives blockers the browser action unconditionally, so a
+company that cannot think is indistinguishable from one waiting on a human step. A blocked
+commitment whose resolution came from a transport or configuration failure is a third thing, and
+it belongs to the operator, not to the CEO.
+
+**Changing a company's model does not reach the People surface.** `restless company set -c
+harbourline model moonshot/kimi-k2-0905-preview` rewrites the config, and the next wake uses it,
+but `harbourline.actors.model` still reads `moonshot/kimi-for-coding` — the value seeded when the
+actor was created. `GET /people` reads the actor row, so the surface confidently shows a model that
+is not the one in use. Either the actor's model is a projection that `company-set` refreshes, or
+`/people` should read it from the config and the column should go.
+
 **One company with an unset key stops every company.** `provider_keys` walks *all* configured
 companies at boot and fails the whole start if any one of them has no credential for its
 configured model. A scratch company left on `zai/glm-5.2` therefore takes the daemon down for a
