@@ -256,6 +256,42 @@ is worse than the errand misclassification below: an owner who clicks it learns 
 to action are not load-bearing. The action should be withheld — with the reason — when the runtime
 cannot serve it.
 
+*Cause, found afterwards, and it is not the one this paragraph implies.* The browser stack is
+built and works: `restless up -c harbourline --reconcile` rebuilt the image and the same probe
+returned `desktop`, `chromium`, `automation` and `web_transport` all `available`, with Xtigervnc,
+openbox, ten Chromium processes, websockify and the broker running in the container. Harbourline
+had an image built before the sprint-5 browser stack landed, because **the cockpit never
+reconciles**: `client.ts:159` sends `reconcile: false`, deliberately (a rebuild is minutes and a UI
+should not hang), so a company created through `/start` runs whatever image is on disk, silently.
+Two separate items, then: the create path needs a way to reach a current image — or to say which
+one it got — and `attention::project` still builds `open-browser` unconditionally at
+`attention.rs:262`, so the contradiction recurs on any company whose runtime is degraded.
+
+**A refused wake never honours its schedule, so it re-fires every five seconds forever.** Observed
+live on 16 Aug: `aura` had emitted **10,669** `wake_end` events since 15 Aug against 3 `wake`
+events, one every five seconds for eighteen hours, each writing an identical message row. The
+mechanism: `schedule.rs:247` treats a scheduled wake as honoured only when a `wake` event is newer
+than the schedule, and `exec.rs:95` refuses on the budget preflight through `blocked_wake` —
+returning *before* any `wake` event is written. aura's last schedule is `10:50:24` and its last
+`wake` is `10:48:52`, so `honored` is false and cannot become true. Every refusal in that preflight
+block (stopped container, full disk, budget) returns by the same path, so any of them puts a
+company into this loop permanently. The refusal must still record that the schedule was seen.
+
+**The fail-closed poison sentinel is printed to the owner as money, with a remedy that cannot
+work.** The message above reads `aura has spent $18446744073709.55 of its $20.00 ceiling; the owner
+must raise it before work continues`. That figure is `u64::MAX` micro-USD — the poison sentinel.
+`main.rs:186` already defines `POISON_SENTINEL_USD` for exactly this, and the `spend` path guards
+against printing it, with a comment calling it "a fabricated figure where the honest answer is
+poisoned". `exec.rs:95` does not use the guard. Raising the ceiling does nothing to a poison;
+`restless clear-poison` is the fix and the message never mentions it.
+
+**Eleven cockpit controls have no handler.** Enumerated from source, not sampled by clicking:
+`New run` (the primary CTA), the ⌘K search (a `<span>`, not an input), Board's `+ New task`,
+`Active` filter and cards, People's `Hire someone`, `Pause` and `Revise role`, and `+ new goal`
+(an `<a href="/board">` to the page you are already on). The read path is fully wired; the write
+path is wired on the Inbox, the chat dock and `/start`, and nowhere else. `POST /staff` exists in
+the API with no caller anywhere in the SPA — `Hire someone` is where it would go.
+
 **The create-company form defaults to a model that does not exist.** `start/+page.svelte:28` is
 `let model = $state('moonshot/kimi-k2-0905')` — a value, not a placeholder, so it is what an owner
 gets by accepting the form. That id is in no catalogue: the published Moonshot one is
