@@ -230,12 +230,38 @@ own catalogue inside the container knows only 17. The four it does not know are 
 Kimi-For-Coding plan's: `k3`, `k3-256k`, `kimi-for-coding`, `kimi-for-coding-highspeed`. So
 `omp acp --model moonshot/kimi-for-coding` cannot resolve the name it was given.
 
+Probing the provider directly on 16 Aug sharpens this, and corrects the framing above. `GET
+{MOONSHOT_BASE_URL}/models` with the configured key returns **exactly those four ids and nothing
+else** — `api.kimi.com/coding/v1` is not a subset of the Moonshot catalogue, it is a different
+catalogue. So the disagreement is total: every model this key can serve is one omp does not know,
+and every model omp knows is one this key cannot serve. There is no id that satisfies both, which
+is why repointing the company at `moonshot/kimi-k2-0905-preview` did not help either — that id is
+absent from the key's catalogue too.
+
 This is the second failure caused by the same plan (see the spend poison below), and together they
 say something worth acting on: **subscription plans are not a supported way to run a company.**
 The metered path works end to end; the subscription path fails at model selection, and if it got
 past that it would poison the ledger. Either omp's catalogue must be extendable from the gateway's
 `/v1/models`, or a company on a plan omp cannot enumerate should be refused at `company-create`
 with that reason, rather than accepted and failing at the first wake.
+
+**The Inbox offers an action the runtime cannot honour, on a page that says so.** Screenshotting
+every surface on 16 Aug put both facts in one frame. The banner across the top of the Inbox reads
+"This queue is incomplete — browser is degraded", which is correct: `runtime::doctor` reports
+`desktop`, `chromium`, `automation` and `web_transport` all `unavailable`, and the container is
+running `tini` and `sleep` and nothing else. Four hundred pixels below it, the item's only action
+is **"Open live browser"**. `attention::project` builds that action without consulting the browser
+health it puts in the same response, so the projection contradicts itself within one payload. This
+is worse than the errand misclassification below: an owner who clicks it learns the product's calls
+to action are not load-bearing. The action should be withheld — with the reason — when the runtime
+cannot serve it.
+
+**The create-company form defaults to a model that does not exist.** `start/+page.svelte:28` is
+`let model = $state('moonshot/kimi-k2-0905')` — a value, not a placeholder, so it is what an owner
+gets by accepting the form. That id is in no catalogue: the published Moonshot one is
+`kimi-k2-0905-preview`, and the configured key serves neither. The default path through the
+product's own onboarding therefore creates a company that cannot think, which is the exact failure
+the rest of this section documents. Placeholder, or a value read from the gateway's `/v1/models`.
 
 **An infrastructure failure is presented to the owner as an errand.** The failed wake above became
 an attention item whose `what_happened` is a raw ACP error — `acp session/prompt: Internal error:
