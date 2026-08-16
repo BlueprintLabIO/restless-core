@@ -44,8 +44,9 @@ sleep 1
 if [[ "${1:-}" == "--background" ]]; then
 	nohup ./target/debug/restlessd >"$log" 2>&1 &
 	sleep 3
-	if curl -fsS -m 3 http://127.0.0.1:7792/v1/health >/dev/null 2>&1; then
-		echo "restlessd up — API on :7792, docs at http://127.0.0.1:7792/v1/docs"
+	if curl -fsS -m 3 http://127.0.0.1:7788/v1/health >/dev/null 2>&1; then
+		echo "restlessd up — owner gateway on :7788, docs at http://127.0.0.1:7788/v1/docs"
+		echo "everything else there needs the owner cookie: restless owner-token --rotate"
 		echo "logs: $log"
 	else
 		echo "restlessd did not come up; last lines of $log:" >&2

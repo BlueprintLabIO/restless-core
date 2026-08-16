@@ -7,7 +7,7 @@
 //! Termination is a model decision (judgement over an open-ended turn,
 //! enumerable output — LLM_CURE.md frame 2), never a turn-count or timer.
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result};
 use restless_orgintel::{CommitmentState, OrgIntel};
 use serde::Serialize;
 use uuid::Uuid;
@@ -32,7 +32,7 @@ const TERMINATION_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(
 pub enum Termination {
     Continue,
     Blocked,
-    Done,
+    OutcomeMet,
     Abandon,
 }
 
@@ -75,6 +75,7 @@ pub(crate) struct TerminationDecision {
 pub async fn wake(
     config: &CompanyConfig,
     spend: &SpendLedger,
+    authority: &crate::authority::AuthorityStore,
     org: &OrgIntel,
     reason: &str,
 ) -> Result<WakeReport> {
@@ -100,12 +101,13 @@ pub async fn wake(
         return blocked_wake(org, milestone, config, &blocked.message()).await;
     }
 
-    let auth = agent_auth(config)?;
+    let auth = agent_auth(config).await?;
     // T7: gather the snapshot (IO), then assemble (pure, digested). The
     // digest lands in the wake event so the Exec's worldview is auditable.
     let snapshot = gather_snapshot(
         &container,
         org,
+        authority,
         config,
         reason,
         spend.spent_usd(&config.name),
@@ -203,39 +205,17 @@ async fn blocked_wake(
     Ok(report)
 }
 
-/// Resolve the provider credential for this company's model. The value is
-/// read from the daemon's own environment and handed to the agent process
-/// through `docker exec -e`; it is never written to the image, the
-/// container's persistent environment, or the volume.
-pub(crate) fn agent_auth(config: &CompanyConfig) -> Result<acp::AgentAuth> {
-    let (provider, _) = config.model.split_once('/').with_context(|| {
-        format!(
-            "model {} must be provider-qualified, e.g. zai/glm-5.2",
-            config.model
-        )
-    })?;
-    let key_env = match provider {
-        "zai" => "ZAI_API_KEY",
-        "anthropic" => "ANTHROPIC_API_KEY",
-        "openai" => "OPENAI_API_KEY",
-        "moonshot" => "MOONSHOT_API_KEY",
-        "openrouter" => "OPENROUTER_API_KEY",
-        other => bail!("no credential mapping for provider {other}"),
-    };
-    let provider_key = std::env::var(key_env)
-        .with_context(|| format!("{key_env} must be set for model {}", config.model))?;
-    // Forward a base-URL override when the daemon has one. Some plans are
-    // served from a different host than the provider's default.
-    let base_env = key_env.replace("_API_KEY", "_BASE_URL");
-    let provider_base_url = std::env::var(&base_env)
-        .ok()
-        .filter(|value| !value.trim().is_empty())
-        .map(|value| (base_env, value));
+/// Resolve the narrow host-gateway access for this company's model. Provider
+/// credentials were loaded into the host-side broker at daemon boot; the
+/// company process receives only the gateway bearer.
+pub(crate) async fn agent_auth(config: &CompanyConfig) -> Result<acp::AgentAuth> {
+    let access = crate::model_gateway::client()?.auth_for(&config.model)?;
     Ok(acp::AgentAuth {
         model: config.model.clone(),
-        provider_key_env: key_env.to_string(),
-        provider_key,
-        provider_base_url,
+        provider: access.provider,
+        gateway_token_env: access.token_env,
+        gateway_token: access.token,
+        gateway_url: access.runtime_url,
     })
 }
 
@@ -323,12 +303,15 @@ async fn run_turn(
 pub(crate) const TERMINATION_PROMPT: &str =
     "The turn is ending now. Based on everything above, decide how the \
     work stands and answer with JSON only, no prose:\n\
-    {\"decision\": \"continue\" | \"blocked\" | \"done\" | \"abandon\", \
+    {\"decision\": \"continue\" | \"blocked\" | \"outcome_met\" | \"abandon\", \
      \"reason\": \"<one line>\", \
      \"next_wake_minutes\": <integer, only when continue>}\n\
     - continue: more machine-doable work remains\n\
-    - blocked: you cannot proceed — say exactly what you need and from whom\n\
-    - done: the stated outcome is met\n\
+    - blocked: the company cannot advance the active outcome until a human or external event acts; \
+      use this even when this wake's narrower instruction is finished, and say exactly what is needed\n\
+    - outcome_met: the active company milestone itself is fully achieved, with no remaining owner or \
+      external gate required by its outcome contract; this closes the milestone, so never use it merely \
+      because the current wake's checklist is finished\n\
     - abandon: the work is not worth continuing — say why";
 
 /// Ask the Exec to end the turn explicitly. One retry on an unparseable
@@ -416,7 +399,7 @@ pub(crate) fn parse_termination(text: &str) -> Option<TerminationDecision> {
     let termination = match output.decision.as_str() {
         "continue" => Termination::Continue,
         "blocked" | "blocked_on_owner" => Termination::Blocked,
-        "done" => Termination::Done,
+        "outcome_met" => Termination::OutcomeMet,
         "abandon" => Termination::Abandon,
         _ => return None,
     };
@@ -454,6 +437,7 @@ pub(crate) fn parse_termination(text: &str) -> Option<TerminationDecision> {
 async fn gather_snapshot(
     container: &str,
     org: &OrgIntel,
+    authority: &crate::authority::AuthorityStore,
     config: &CompanyConfig,
     reason: &str,
     spent_usd: f64,
@@ -484,8 +468,10 @@ async fn gather_snapshot(
         budget_remaining_usd: (config.spend_ceiling_usd - spent_usd).max(0.0),
         budget_ceiling_usd: config.spend_ceiling_usd,
         capabilities: crate::effect::available_capabilities(&root, &config.name),
-        effect_ledger: crate::reconcile::effect_ledger(org).await?.summary(),
-        org_signals: health::organisational(org, spent_usd)
+        effect_ledger: crate::reconcile::effect_ledger(authority, &config.name)
+            .await?
+            .summary(),
+        org_signals: health::organisational(org, authority, &config.name, spent_usd)
             .await?
             .into_iter()
             .map(|signal| format!("[{}] {}", signal.kind, signal.detail))
@@ -537,7 +523,7 @@ async fn record_outcome(org: &OrgIntel, milestone: Uuid, report: &WakeReport) ->
             org.send_message("exec", None, &format!("blocked: {}", report.reason))
                 .await?;
         }
-        Termination::Done => {
+        Termination::OutcomeMet => {
             org.set_commitment_state(milestone, CommitmentState::Completed, &report.reason)
                 .await?;
         }
@@ -650,12 +636,28 @@ mod tests {
     }
 
     /// A spawn field of the wrong SHAPE must not sink the decision it came
-    /// with — the exec's "done" still lands even if it fumbled the syntax.
+    /// with — the exec's outcome decision still lands even if it fumbled the syntax.
     #[test]
     fn malformed_spawn_never_kills_the_decision() {
-        let text = r#"{"decision":"done","reason":"shipped","spawn":{"not":"a list"}}"#;
+        let text = r#"{"decision":"outcome_met","reason":"shipped","spawn":{"not":"a list"}}"#;
         let decision = parse_termination(text).expect("decision parses despite bad spawn");
-        assert!(matches!(decision.termination, Termination::Done));
+        assert!(matches!(decision.termination, Termination::OutcomeMet));
         assert!(decision.spawn.is_empty());
+    }
+
+    /// Observed in Aris wake 0018: the model said the wake directive was
+    /// "done" while also naming owner-gated commercial work, and the daemon
+    /// completed the whole company milestone. The ambiguous old word is no
+    /// longer a valid envelope; only the explicitly milestone-scoped decision
+    /// can close the commitment.
+    #[test]
+    fn a_finished_wake_is_not_a_completed_company_outcome() {
+        assert!(parse_termination(r#"{"decision":"done","reason":"this wake is done"}"#).is_none());
+        let decision = parse_termination(
+            r#"{"decision":"outcome_met","reason":"the active milestone is achieved"}"#,
+        )
+        .unwrap();
+        assert_eq!(decision.termination, Termination::OutcomeMet);
+        assert!(TERMINATION_PROMPT.contains("current wake's checklist"));
     }
 }

@@ -1,117 +1,205 @@
-# S05-T1 · The attention queue, as a projection
+# S05-T1 · Unified attention projection and SPA review loop
 
-**Layer:** Owner surface, projecting OrgIntel events. No new owned concept.
-**Serves:** `owner-cockpit` §5 — the Attention Inbox, Core contract, the owner's primary work queue
-**Depends on:** S04-T10 (landed in sprint 04 — an attention item is resolved by an authority act, which needs a principal)
-**Makes deletable:** the owner-notification-as-prose path at `effect.rs:145`
+**Layer:** Owner surface, projecting source-owned OrgIntel, Authority and Runtime references. No new
+authoritative attention store.
+**Serves:** `owner-cockpit` §5 — the Attention Inbox as the owner's primary work queue
+**Depends on:** S04-T10 (owner principal), S05-T4 (generated OrgIntel wire rows)
+**Makes deletable:** owner-notification-as-prose at `effect.rs:145`, the SPA's fixture-only company
+desk, and `NeedsYouContext` as four hard-coded product workflows
 
 ---
 
-## The item already exists. It is addressed to the wrong reader.
+## The run proved a queue; it also disproved the email-only shape
 
-`approval.rs:96` constructs the owner's ask — party, capability, provider, and the sentence explaining
-why it is irreversible. `effect.rs:134` emits it as an `approval_required` event carrying
-`{capability, party, provider, reason}`.
+`approval.rs:96` already constructs an exact owner ask for first contact. `effect.rs:134` emits the
+source event, then `effect.rs:145` copies it into ordinary mail and `effect.rs:146` returns prose to the
+blocked agent. That loses outstanding/resolved state and asks the agent to relay the owner's work.
 
-Then `effect.rs:146` `bail!`s the sentence back to **the agent that was blocked**, and the owner gets
-an untyped copy as ordinary mail (`effect.rs:145`, `to: None`).
+Sprint 04 then produced two other owner moments that cannot fit
+`approval_required - approval_granted`:
 
-Three consequences, all observable today:
+- a real Git compare link that needs owner review/merge;
+- a production gate that must remain open until the centre page is observed live.
 
-- The owner's ask arrives as prose in a message body. There is no way to list what is *outstanding*
-  versus what has been dealt with.
-- `restless inbox` **marks read on read** (`orgintel::mark_read` behind the `inbox` arm). The one
-  notification the owner gets disappears the first time they look at their mail.
-- The instruction to act — *"approve with `restless approve -c aris --party …`"* — is handed to the
-  agent, which is then expected to relay it. CLAUDE.md's prepared-last-mile rule names this exactly:
-  *never hand the surrounding workflow back as instructions.*
+The current SPA is further ahead in appearance than semantics. It renders a left queue and selected
+detail pane from `$lib/fixtures/cosmon`, but `view.ts` recognises only `decision`, `email-approval`,
+`promotion-approval` and `escalation`; its buttons are inert. Adding `browser-handover`, then
+`github-review`, then one kind per website would preserve the wrong abstraction.
 
-So this is not a missing feature. It is a working mechanism pointed at the wrong consumer.
+## Project the common envelope, not a universal command
 
-## Project, do not invent
+The queue is a read projection over source-owned requests. The first live envelope contains:
 
-`ARCHITECTURE.md` §16.1 and §16.6: introduce a first-class entity only after repeated real scenarios
-reveal the same need. There is one category of attention item in existence. Building
-`owner-cockpit` §5.3's eight categories, §5.4's priority model and §5.6's learning loop now would be
-the exact failure CLAUDE.md warns about — *building a Product hypothesis as though it were a Core
-contract*.
-
-What is derivable **today, with no new table**:
-
+```text
+id derived from source reference
+source plane + source object/reference
+category
+title
+what happened
+why it matters
+recommendation
+specific owner action requested
+what happens if the owner does nothing
+deadline/review date where present
+evidence/artifact references
+optional runtime attach reference
+cost, consequence and reversibility where present
+whether work can continue while waiting
+available actions supplied by the source
+created/resolved timestamps
 ```
-outstanding attention =
-    events of kind `approval_required`
-    minus those whose party has a later `approval_granted`
+
+This is not a new mutation algebra. Each action routes to its existing owner:
+
+| Source | Examples in this sprint | Resolution writer |
+|---|---|---|
+| Authority | four exact `email.send` first-contact grants | existing approval/grant operation |
+| OrgIntel | merge recommendation, outcome review or production blocker | decision/directive/commitment operation |
+| Runtime reference | open the prepared browser/desktop | no organisational resolution; attach is inspection |
+
+The SPA never marks a source request resolved because a row was read, dismissed locally, a desktop
+closed, or a lease ended. A refetch reconstructs the queue from the authoritative source state.
+
+## Only proven categories
+
+Sprint 05 implements the smallest categories its real run produced:
+
+- **approval** — a source-owned Authority request;
+- **outcome review / decision** — a prepared Git change and recommendation;
+- **failure/recovery** — the production gate or Runtime attach failure.
+
+The category is presentation, not the source object's identity. Opportunity, contradiction,
+information, attention-learning, visible priority formulae and arbitrary user-created categories stay
+deferred until a run produces them.
+
+## The owner gateway seam
+
+The static SPA cannot safely reach a Unix socket, Postgres, Docker or a VNC endpoint. Add one narrow,
+authenticated owner gateway to the existing modular daemon:
+
+- serves the built SPA and the owner-ready `DeskView` projection;
+- subscribes to meaningful updates only: added/resolved attention, source health and Runtime attach
+  state;
+- invokes the same typed application operations as the CLI for owner actions;
+- exchanges opaque Runtime attach references through S05-T5;
+- attributes every write to the single V0 owner principal;
+- exposes no generic shell, file, Git, browser-action or raw-database endpoint.
+
+The exact HTTP route names are not the contract. The contract is one authenticated owner boundary,
+typed inputs and outcomes, and no second writer. SSE is sufficient for queue changes; raw ACP tokens,
+shell output and browser commands do not enter this stream.
+
+V0 authentication is deliberately one-owner:
+
+- a generated owner credential is stored host-side as a hash;
+- login exchanges it for a Secure, HttpOnly, SameSite session cookie;
+- state-changing requests require same-origin protection;
+- the listener defaults to loopback and remote exposure requires TLS;
+- there are no invitations, human role editor or multiplayer presence.
+
+## SPA interaction
+
+Retain the existing queue/detail composition at `web/src/routes/[companyId]/+page.svelte`:
+
+```text
+queue item
+→ inspect recommendation and evidence in the detail pane
+→ open direct artifact or enter browser focus mode
+→ accept, reject, direct, ask, defer, or invoke the source-specific authority action
+→ refetch/reconcile source state
+→ move to next item
 ```
 
-Both event kinds already exist and are already emitted. `events_of_kind` already exists on `OrgIntel`.
+For Sprint 05, only actions backed by a real source operation are enabled. An unsupported action is
+absent, not a button that posts into a void. The four email drafts are shown in full, with exact party,
+sender, subject and body, before the grant action.
 
-Two properties fall out for free, and they are the reason this shape is worth preferring:
-
-- **No new identity authority.** The `attention_item_id` is *derived from the source event id*, not
-  minted. `owner-cockpit` §14.6's `attention_source_ref` is the event; the item is a projection over
-  it. Nothing becomes a second writer of anything (`cross-layer` §3.1).
-- **S03-T8 item 6 holds for free.** A client that missed events while disconnected reconstructs
-  correct state by refetching, with no event replay — because there is nothing to replay. The
-  projection *is* the state.
-
-## Reconciling with the SPA, which is ahead of us
-
-`web/src/lib/model/view.ts:74` already has `NeedsYouItem`, and S03-T8 says reconcile with it rather
-than invent alongside it. Adopt now:
-
-- `id`, `kind`, `title`, `detail`, `createdAt` — the envelope's spine, and `owner-cockpit` §5.2's
-  minimum.
-- `kind` as an enum. Only `'email-approval'` has a producer today; the type carries the others
-  (`'decision'`, `'promotion-approval'`, `'escalation'`) as declared-but-unproduced rather than
-  deleted, because T3's `repo.push` is a `promotion-approval` in waiting.
-
-Defer, explicitly:
-
-- `NeedsYouContext`'s rich per-kind payloads. `EmailDraftView` is the tempting one — it is the exact
-  draft awaiting signature — but the daemon does not persist outbound bodies in a form the projection
-  can reach without a second store, and Aris only started persisting them at all last sprint. One
-  category does not justify a context union.
-- `NeedsYouRef.version`. It answers the double-clicked-Approve problem, which is real and which
-  §4.5 lists among the five idempotency classes. It is not reachable in a terminal, where the failure
-  mode is not a double click. It becomes required the moment the SPA is wired, and should be built
-  then, against a UI that can demonstrate the bug.
+An item with a Runtime attach reference offers **Open live browser**. T5 owns the desktop and control
+protocol; T1 only supplies the context, attach reference and focus-mode frame. The queue collapses so
+the desktop gets the main canvas; the executive rail may remain available on demand.
 
 ## Scope
 
-1. **`restless attention [-c]`** — outstanding items, oldest first (`view.ts:80`: *"null sorts oldest
-   — undated items have by definition been waiting at least as long"*). Per item: id, kind, title,
-   detail, age, and the exact command that resolves it.
-2. **Resolution stays where it is.** `restless approve` is the writer. This ticket adds no second way
-   to grant authority — one act, one writer, and T10 gates it.
-3. **The owner's ask stops being mail.** `effect.rs:145`'s untyped `send_message` to the owner is
-   removed; the event remains and the projection reads it. The agent still gets its typed refusal —
-   that one is correct and stays.
-4. **A count, for the status line.** `owner-cockpit` §12.6 and `view.ts:160`'s `needsYou: number`.
+1. Replace the hard-coded `NeedsYouContext` workflow union with the common attention envelope and
+   typed source/action/reference fields. Keep the mapping from generated wire rows to `DeskView` pure
+   and explicit.
+2. Project the four exact email approvals, the prepared merge review and the production gate from
+   their source state. Do not mint a second attention lifecycle.
+3. Remove the untyped owner-mail copy for requests represented by the queue. The blocked agent keeps
+   its typed refusal.
+4. Serve the real Aris desk through the authenticated owner gateway and replace the company page's
+   fixture import with the read client.
+5. Wire real grant/decline and organisational response callbacks to their existing operations.
+6. Add meaningful live refresh and explicit source health/staleness. A dead source never renders as a
+   generic green state.
+7. Provide the browser focus-mode host and attach-state presentation for T5.
+8. Keep `restless attention` as a headless rendering of the same projection for diagnosis and
+   fallback. Reading ordinary `inbox` must not resolve it.
 
-**Not in scope:** the other seven categories, the priority model (§5.4), attention-spam learning
-(§5.6), defer/dismiss/delegate actions (§5.5). One category, one action, no lifecycle.
+**Not in scope:** a new attention table, universal command endpoint, all eight hypothetical categories,
+attention-learning, full resolved-history analytics, raw logs, an artifact database, or website-specific
+browser controls.
 
 ## Acceptance
 
-Run against a `_test` company (S04-T1), so no live party is contacted.
+Run first against a `_test` company; no live party is contacted.
 
-1. An `email.send` to a never-contacted party through a **real** provider raises an item that appears
-   in `restless attention` with its party and capability — and the same run's transcript shows the
-   agent received a typed refusal, not a request to relay instructions.
-2. `restless approve --party <that party>` is followed by the item **leaving** `restless attention`,
-   observed, with no second command run to clear it.
-3. Reading `restless inbox` does **not** cause the item to disappear from `restless attention` — the
-   regression this ticket exists to fix, asserted directly.
-4. Killing and restarting the daemon between steps 1 and 2 leaves the queue identical, demonstrating
-   the projection reconstructs rather than remembers.
-5. Zero `psql` in the transcript.
+1. A first-contact attempt to an ungranted `_test` party produces one Authority attention item. The
+   same source reference appears in `restless attention` and the live SPA, and ordinary inbox reading
+   cannot remove it.
+2. Refreshing the SPA and restarting the daemon reconstruct the same outstanding queue. No client-side
+   cache or replay log is required for correctness.
+3. Granting or declining through the SPA invokes the existing owner-authorised operation and the item
+   leaves or changes state because its source changed, not because the UI deleted it.
+4. A real OrgIntel review item with a Git compare URL and a real production blocker render through the
+   common envelope without adding two new page components or command variants.
+5. The four Aris drafts render exactly as persisted and remain unsent. Before T3's explicit live gate,
+   there are zero new `email.send` receipts.
+6. Killing OrgIntel or the Runtime produces distinct stale/unavailable presentations while available
+   Authority controls remain usable.
+7. An unauthenticated owner projection request, a cross-company reference and a forged principal are
+   denied. No VNC/CDP credential or provider secret appears in the desk JSON, page source or logs.
+8. The selected item can host T5's live desktop in focus mode and return to the same queue position.
+9. `npm run check`, the generated binding drift guard and focused owner-gateway tests pass; the run
+   report also includes one intentionally failing auth/reference probe so green is meaningful.
+
+## Observed completion — 16 August 2026
+
+All nine checks passed. In addition to auth, source-reference, restart and live Aris projection
+probes, an isolated Chrome client signed into the built SPA, selected an actual Authority item and
+clicked **Decline**. The item disappeared only after `approval_declined` landed in Authority; the
+client did not delete local queue state.
+
+The run exposed and removed a source-ownership violation: approvals, effects and receipts still lived
+in OrgIntel's compactable `events` table. They now live in the daemon's narrow private Authority
+schema. A versioned, idempotent import preserved Aris's 154 governance rows and purged legacy config
+grants after transfer. With the `_test` OrgIntel actor/message/commitment tables unavailable, the SPA
+projection reported `orgintel: unavailable` and `authority: available`, retained its Authority item,
+accepted a grant and recorded then replayed one generic self-reported effect. The same-key replay
+returned the original receipt ID and created no second receipt.
+
+Both temporary companies and their Authority/OrgIntel state were destroyed after the proof. No Aris
+grant or effect was exercised.
+
+## Risks
+
+| Risk | Disposition | Why |
+|---|---|---|
+| Projection becomes a second source of truth | **Invariant** | IDs derive from source refs; actions write to source owner; refetch reconstructs state |
+| Generic envelope becomes a universal command enum | **Guarded** | Actions are typed source references/callbacks; the envelope is read composition only |
+| Owner gateway becomes a shell/filesystem API | **Invariant** | It serves owner projections, source-owned actions and attach transport only |
+| Existing fixture UI dictates backend ontology | **Guarded** | Replace the per-kind context union; map proven source rows into the owner-facing contract |
+| Authentication work expands into a user platform | **Accepted** | One owner credential and session in V0; multi-human identity is deferred |
 
 ## What this makes deletable
 
-`effect.rs:145` — the owner-notification-as-untyped-mail path. And the assumption behind it: that a
-message in an inbox is how the owner learns something needs them. After this, mail is correspondence
-and attention is a queue, which is `owner-cockpit` §5.1 as written.
+- `effect.rs:145`'s owner-notification-as-untyped-mail path for projected requests;
+- `$lib/fixtures/cosmon` as the company inbox's runtime data source;
+- four hard-coded workflow variants as the only vocabulary for owner attention;
+- the instruction that asks a blocked agent to relay the exact owner command.
+
+Mail returns to correspondence. Attention becomes the high-signal owner queue, and its browser target
+is just one piece of evidence/action context rather than a new workflow system.
 
 ---
 Sprint spec: [`../sprint-05.md`](../sprint-05.md)

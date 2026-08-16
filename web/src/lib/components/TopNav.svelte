@@ -6,6 +6,7 @@
 	 */
 	import Icon from './Icon.svelte';
 	import { company as companyName } from '$lib/api/client';
+	import { waiting } from '$lib/model/attention.svelte';
 
 	let { current }: { current: string } = $props();
 
@@ -14,18 +15,24 @@
 	const name = $derived(companyName());
 	const mark = $derived(name.slice(0, 1).toUpperCase());
 
+	/* Real, from the attention projection. `null` when the queue could not be
+	 * read — the badge then shows nothing rather than a zero, because "nothing
+	 * needs you" and "nobody asked" are different claims and only one of them
+	 * is safe to make on the owner's behalf. */
+	const count = $derived(waiting());
+
 	const destinations = $derived([
-		// No count: nothing answers "how many are waiting on you" yet
-		// (docs/api/MISSING.md §2), and a fabricated 0 is a claim.
-		{ id: 'inbox', label: 'Inbox', icon: 'inbox', href: '/inbox', count: 0 },
-		{ id: 'people', label: 'People', icon: 'users', href: '/people', count: 0 },
-		{ id: 'board', label: 'Board', icon: 'list-tree', href: '/board', count: 0 },
+		{ id: 'inbox', label: 'Inbox', icon: 'inbox', href: '/inbox', count },
+		// The other three carry no count: nothing answers "how many here need
+		// you", and a fabricated 0 is a claim.
+		{ id: 'people', label: 'People', icon: 'users', href: '/people', count: null },
+		{ id: 'board', label: 'Board', icon: 'list-tree', href: '/board', count: null },
 		{
 			id: 'authority',
 			label: 'Authority',
 			icon: 'shield-check',
 			href: '/authority',
-			count: 0
+			count: null
 		}
 	]);
 </script>
@@ -44,7 +51,7 @@
 			<a class="nav-item" href={d.href} aria-current={current === d.id ? 'page' : undefined}>
 				<Icon name={d.icon} />
 				{d.label}
-				{#if d.count > 0}
+				{#if d.count !== null && d.count > 0}
 					<span class="nav-count">{d.count}</span>
 				{/if}
 			</a>

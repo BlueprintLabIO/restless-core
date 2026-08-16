@@ -3,17 +3,26 @@
 The operator's surface: four destinations across the top, the work in the middle, and the
 executive docked on the right of every screen.
 
-> **Status: wired to the daemon, partly backed.** Every surface reads from `restlessd`'s
-> cockpit API on `127.0.0.1:7792` (`docs/api/openapi.yaml`, rendered at `/v1/docs`). Where an
-> endpoint does not exist yet the surface says so and names the gap — it does not fall back to
-> sample data. `docs/api/MISSING.md` lists what is missing and which page needs it.
+> **Status: wired to the daemon, partly backed.** Every surface reads from `restlessd`'s owner
+> gateway on `127.0.0.1:7788` — `/v1` for the cockpit's reads and writes
+> (`docs/api/openapi.yaml`, rendered at `/v1/docs`), `/api` for the attention queue, approvals
+> and the browser handover. Where an endpoint does not exist yet the surface says so and names
+> the gap — it does not fall back to sample data. `docs/api/MISSING.md` lists what is missing
+> and which page needs it.
 
 ```
 pnpm install
-pnpm dev        # http://localhost:5180 — proxies /v1 to restlessd on 7792
+pnpm dev        # http://localhost:5180 — proxies /v1 and /api to restlessd on 7788
 pnpm check      # svelte-check — must be clean
 pnpm build      # static build via @sveltejs/adapter-static
 ```
+
+**You must sign in.** Everything except `/v1/health`, `/v1/openapi.yaml` and `/v1/docs` needs
+the owner credential. Generate it with `restless owner-token --rotate` — it is printed once and
+only its digest is stored — and paste it into the Inbox's sign-in panel, which exchanges it for
+an HttpOnly cookie at `POST /api/session`. Signing in through the Vite proxy works because the
+proxy keeps the browser same-origin with the gateway; a cross-origin fetch would never send the
+cookie.
 
 ## The shape
 
@@ -88,12 +97,16 @@ second write path. The surface states the intent; the caller owns the authority.
 
 ## Wiring it later
 
-Run `restlessd`, then `pnpm dev`. Vite proxies `/v1` to `127.0.0.1:7792`; the daemon's listener
-is loopback-only and does not do CORS, deliberately.
+Run `restlessd` (`scripts/restlessd.sh`), then `pnpm dev`. Vite proxies `/v1` and `/api` to
+`127.0.0.1:7788`; the gateway is loopback-only and does not do CORS, deliberately.
 
 Point the SPA at a company with `VITE_RESTLESS_COMPANY`, or `localStorage.setItem('company', …)`.
-There is no company switcher yet and no auth — the API stamps `principal: "owner"` because a
-process on the host is the owner, which is a claim rather than a proof.
+There is no company switcher yet. Authority behind the cookie is still one principal: every
+`/v1` request is stamped `principal: "owner"`, and the daemon's `authorize` gate decides from
+there. The credential proves you hold the owner token, not which human you are.
 
-What is still fixture-free but unbacked: the Authority surface, the merged attention stack, the
-reporting tree, per-person authority, and artifacts. All five are registered stub routes.
+What is still fixture-free but unbacked: the Authority surface, the reporting tree, per-person
+authority, and artifacts. All four are registered stub routes and the surfaces say so.
+
+The attention queue is **no longer** among them — the Inbox renders the real projection from
+`GET /api/companies/{company}/attention`, and the count on the nav is the same read.

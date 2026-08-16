@@ -15,7 +15,7 @@ use uuid::Uuid;
 
 /// The commitment lifecycle — the one place a state machine is correct
 /// (deterministic, enumerable; LLM_CURE.md frame 2).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, sqlx::Type)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, sqlx::Type, ts_rs::TS)]
 #[sqlx(type_name = "commitment_state", rename_all = "snake_case")]
 #[serde(rename_all = "snake_case")]
 pub enum CommitmentState {
@@ -456,7 +456,7 @@ impl OrgIntel {
     }
 }
 
-#[derive(Debug, Serialize, sqlx::FromRow)]
+#[derive(Debug, Serialize, sqlx::FromRow, ts_rs::TS)]
 pub struct ActorRow {
     pub id: String,
     /// The actor's durable role — `copywriter`, `critic`, `exec`, `owner`.
@@ -469,7 +469,7 @@ pub struct ActorRow {
     pub created_at: DateTime<Utc>,
 }
 
-#[derive(Debug, Serialize, sqlx::FromRow)]
+#[derive(Debug, Serialize, sqlx::FromRow, ts_rs::TS)]
 pub struct GoalRow {
     pub id: Uuid,
     pub title: String,
@@ -479,7 +479,7 @@ pub struct GoalRow {
     pub closed_at: Option<DateTime<Utc>>,
 }
 
-#[derive(Debug, Serialize, sqlx::FromRow)]
+#[derive(Debug, Serialize, sqlx::FromRow, ts_rs::TS)]
 pub struct CommitmentRow {
     pub id: Uuid,
     pub goal_id: Option<Uuid>,
@@ -492,7 +492,7 @@ pub struct CommitmentRow {
     pub updated_at: DateTime<Utc>,
 }
 
-#[derive(Debug, Serialize, sqlx::FromRow)]
+#[derive(Debug, Serialize, sqlx::FromRow, ts_rs::TS)]
 pub struct MessageRow {
     pub id: i64,
     pub from_actor: String,
@@ -502,7 +502,7 @@ pub struct MessageRow {
     pub read_at: Option<DateTime<Utc>>,
 }
 
-#[derive(Debug, Serialize, sqlx::FromRow)]
+#[derive(Debug, Serialize, sqlx::FromRow, ts_rs::TS)]
 pub struct EventRow {
     pub id: i64,
     pub kind: String,

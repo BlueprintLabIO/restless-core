@@ -1,0 +1,23 @@
+# Remote owner ingress for Sprint 05. Set RESTLESS_OWNER_HOST to the trusted
+# owner-facing origin: localhost, a private/VPN DNS name, or a public hostname.
+# Caddy carries both ordinary HTTPS and the remote-desktop WebSocket upgrade to
+# the loopback-only owner gateway. The company Runtime is never an upstream.
+{
+	http_port {$RESTLESS_OWNER_HTTP_PORT:80}
+	# Local development certificates remain deliberately untrusted unless the
+	# operator installs the generated root. Public ACME certificates do not need
+	# local trust-store mutation.
+	skip_install_trust
+}
+
+{$RESTLESS_OWNER_HOST:localhost} {
+	encode zstd gzip
+	reverse_proxy 127.0.0.1:7788
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "same-origin"
+		Permissions-Policy "camera=(), microphone=(), geolocation=()"
+	}
+}

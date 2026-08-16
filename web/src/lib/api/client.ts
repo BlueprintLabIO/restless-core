@@ -118,7 +118,8 @@ export const getStatus = () => request<unknown>(`${base()}/status`);
 // ---- reads that are stubs (docs/api/MISSING.md) -----------------------------
 
 export const getAuthority = () => request<unknown>(`${base()}/authority`);
-export const getAttention = () => request<unknown>(`${base()}/attention`);
+// The attention queue is not here. It is served by the owner gateway at `/api`
+// and read through `$lib/api/attention` — one projection, one path to it.
 export const getPerson = (actor: string) =>
 	request<unknown>(`${base()}/people/${encodeURIComponent(actor)}`);
 export const getOrg = () => request<unknown>(`${base()}/org`);

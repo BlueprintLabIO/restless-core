@@ -1,4 +1,4 @@
-# S05-T2 · The CLI is the complete control surface
+# S05-T2 · The CLI is the complete administrative control surface
 
 **Layer:** Owner surface, over Authority config and the credential backend
 **Serves:** The owner journey. An owner who must hand-write TOML to start a company is not the
@@ -10,7 +10,8 @@
 
 ## The principle
 
-> **Every act of control over a company is available through the CLI.**
+> **Every deterministic act of coordination, authority and configuration over a company is available
+> through the CLI.**
 
 Not "most things", not "the common path". The exceptions stated below are exceptions to *control*, not
 gaps in it.
@@ -18,16 +19,17 @@ gaps in it.
 ### What "control" bounds, and why the bound is not a hedge
 
 An earlier draft said *"anything the owner can do to a company"*, which is unbounded — a company
-contains a full Linux computer, and no verb set enumerates a filesystem. There are three surfaces and
+contains a full Linux computer, and no verb set enumerates a filesystem. There are four surfaces and
 conflating them is how a control surface turns into a file browser:
 
 | What | Surface | Why |
 |---|---|---|
 | Coordination, authority, configuration | **CLI verbs** — this ticket | Finite, enumerable, checkable |
-| The company computer itself | **`restless attach`** — already exists | Unbounded. Build a door, not a verb for `cat` |
+| The company computer, terminal | **`restless attach`** — already exists | Unbounded. Build a door, not a verb for `cat` |
+| The company computer, visible browser/desktop | **SPA remote attach** — S05-T5 | The same generic door for visual/manual work; not a verb per click |
 | Judgement about what is in there | **The Exec, via `tell`** | Language, not enumeration |
 
-The tempting fourth option is *the CLI asks the Exec to report on the runtime*. That is correct for row
+The tempting fifth option is *the CLI asks the Exec to report on the runtime*. That is correct for row
 three and unacceptable as the general answer: it makes the owner's only view of the machine the account
 of the actor being reviewed. This repo has paid for that twice — Aris reasoned across three wakes about
 a "404 landing page" produced by a *simulated* `web.deploy`, and `reconcile.rs` exists because a
@@ -36,8 +38,9 @@ before self-report*.
 
 So the CLI's obligation toward the runtime is neither to render it nor to narrate it, but to hand the
 owner **independently checkable pointers into it**: a commit SHA, a PR URL, a receipt, a suite's exit
-code. T2 already requires observed output rather than a claim; T3 already puts the PR URL in a receipt.
-This ticket adds no runtime introspection, and a future ticket proposing "`restless files`" or
+code. The SPA may open those pointers and S05-T5 may attach to the same visible browser, but neither
+creates a second control algebra. T2 already requires observed output rather than a claim; T3 already
+puts the PR URL in a receipt. This ticket adds no runtime introspection, and a future ticket proposing "`restless files`" or
 "`restless ps`" should be read as an argument that `attach` has failed, and made on that basis.
 
 This replaces the weaker criterion this sprint started with ("no `psql` to operate"). No-psql is a
@@ -109,15 +112,16 @@ Both are exceptions to *control*, and neither is a gap in it:
    forwards; nothing persists. `check` reports status; nothing prints values.
 
 3. **The contents of the company computer.** Not an exception grudgingly made — a different surface.
-   `attach` is complete for it in a way no verb set can be, and the owner's *check* on what is in there
-   is evidence (commits, receipts, PR URLs, suite output), not a rendering.
+   `restless attach` is the terminal door and S05-T5's remote desktop is the visual door. Together they
+   are complete for open-ended inspection in a way no verb set can be, and the owner's *check* on what
+   is in there is evidence (commits, receipts, PR URLs, suite output), not an Exec narrative.
 
 Infrastructure below the company — starting `restlessd`, Postgres, `docker build` of the company image
 — is not exempted on principle, only unbuilt. It is a natural follow-on ticket and is not claimed here.
 
 The completeness test must encode this bound, or it will fail for the wrong reasons: it enumerates
 `dispatch()` arms and writable `CompanyConfig` fields — the coordination and authority surface — not
-paths on the volume.
+paths on the volume, browser DOM operations or ephemeral controller-lease transitions.
 
 ## Acceptance
 
@@ -140,6 +144,18 @@ Headless, observed output in the run report.
 `CompanyConfig::load`'s *"create one (see companies/ in the repo)"* error, and the onboarding step it
 stands for. If AC5 holds, it also deletes the class of bug where a config field exists, is read by the
 daemon, and no owner knows it is there.
+
+## Observed completion — 16 August 2026
+
+- `control_surface_test` was created from TOML, shown, changed, started and woken through
+  `restless`; no editor or database console was part of the path.
+- The config emitted by `company show` recreated an identical company config.
+- `credential check` returned `present` for Aris `email.send` and `absent` for its unset
+  `repo.push` reference while exact values stayed out of the transcript.
+- Revocation re-armed the next party effect gate, including after an older receipt.
+- The daemon/CLI completeness guard passed; a temporary missing-verb mutation failed it.
+- The final real Aris probe ran `moonshot/kimi-k3` through the host credential boundary after the
+  daemon loaded `.env`; no model substitution was available or observed.
 
 ---
 Sprint spec: [`../sprint-05.md`](../sprint-05.md)

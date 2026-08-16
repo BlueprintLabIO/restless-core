@@ -13,14 +13,26 @@
 //!
 //! ## Authority
 //!
-//! This listener binds loopback only and stamps `principal: "owner"`. That is
-//! the same claim the unix socket makes — a process on the host is the owner —
-//! and it is a claim, not a proof (`S04-T10`). What it must never become is a
-//! second, weaker gate: the stamp goes into the request and through `authorize`
-//! like everyone else's, so `OWNER_ONLY` still decides.
+//! These routes are **not a listener**. They are mounted by `owner::serve` on
+//! the owner gateway, behind the same signed-cookie check as `/api`, and there
+//! is exactly one HTTP port for the owner (`7788`).
 //!
-//! The gate is not moved to "which listener did this arrive on". That would work
-//! today and would have to be torn out the moment a second human exists.
+//! That matters more than tidiness. This module stamps `principal: "owner"` on
+//! every request it forwards, so anything that can reach it can act as the
+//! owner. On its own loopback listener that stamp rested on "a process on this
+//! machine is the owner" — the same claim the unix socket makes, and a claim
+//! rather than a proof (`S04-T10`). Once the daemon grew a *token-authenticated*
+//! gateway, a second unauthenticated port asserting the same authority was no
+//! longer a parallel claim but a way around the stronger one. So the weaker gate
+//! was removed rather than kept beside it.
+//!
+//! What survives is the rule that the stamp travels *through* `authorize` rather
+//! than around it, so `OWNER_ONLY` still decides which commands are acts of
+//! owner authority. The gate is never "which listener did this arrive on".
+//!
+//! `public()` — health, the spec, the docs page — carries no company data and
+//! stays open, because a health check that needs a credential is a health check
+//! nothing runs.
 //!
 //! ## Stubs
 //!
@@ -33,7 +45,6 @@
 
 use std::sync::Arc;
 
-use anyhow::{Context, Result};
 use axum::extract::{Path, Query, State};
 use axum::http::{header, HeaderValue, StatusCode};
 use axum::response::sse::{Event, Sse};
@@ -45,10 +56,6 @@ use serde_json::{json, Value};
 use tokio_stream::wrappers::ReceiverStream;
 
 use crate::Daemon;
-
-/// Loopback port for the cockpit. Next to the coordination TCP port (7791) and
-/// the model gateway (7790), so the daemon's ports read as one block.
-pub(crate) const API_PORT: u16 = 7792;
 
 /// The OpenAPI document, embedded from the repo so the served spec and the
 /// committed file are the same bytes and cannot drift.
@@ -80,7 +87,10 @@ pub(crate) mod path {
     pub const APPROVALS: &str = "/v1/companies/{company}/approvals";
     pub const COMMITMENT_STATE: &str = "/v1/companies/{company}/commitments/{id}/state";
     pub const CREATE_COMPANY: &str = "/v1/companies";
-    pub const ATTENTION: &str = "/v1/companies/{company}/attention";
+    // Deliberately absent: the attention queue. `attention::project` is owned by
+    // the owner gateway at `GET /api/companies/{company}/attention`, and a
+    // second path to the same projection is the duplication the working
+    // agreement calls accumulation. The cockpit reads it from `/api`.
     pub const AUTHORITY: &str = "/v1/companies/{company}/authority";
     pub const PERSON: &str = "/v1/companies/{company}/people/{actor}";
     pub const ORG: &str = "/v1/companies/{company}/org";
@@ -90,18 +100,26 @@ pub(crate) mod path {
     pub const ALL: &[&str] = &[
         HEALTH, OPENAPI, DOCS, STATUS, PEOPLE, GOALS, COMMITMENTS, INBOX, EVENTS,
         RECEIPTS, SPEND, STREAM, TELL, WAKE, MESSAGES, STAFF, APPROVALS,
-        UP, COMMITMENT_STATE, CREATE_COMPANY, ATTENTION, AUTHORITY, PERSON, ORG, ARTIFACTS,
+        UP, COMMITMENT_STATE, CREATE_COMPANY, AUTHORITY, PERSON, ORG, ARTIFACTS,
     ];
 }
 
 type Ctx = State<Arc<Daemon>>;
 
-/// The router, separate from the listener so tests can drive the real thing.
-fn router(daemon: Arc<Daemon>) -> Router {
+/// Health, spec and docs. No company data passes through these, so they are
+/// mounted outside the owner gate — a health check that needs a credential is
+/// one that nothing runs.
+pub(crate) fn public() -> Router {
     Router::new()
         .route(path::HEALTH, get(health))
         .route(path::OPENAPI, get(openapi))
         .route(path::DOCS, get(docs))
+}
+
+/// Everything that touches a company. `owner::serve` mounts this behind the
+/// owner cookie; it must never be mounted without one.
+pub(crate) fn guarded(daemon: Arc<Daemon>) -> Router {
+    Router::new()
         // ---- reads, all backed today --------------------------------------
         .route(path::STATUS, get(status))
         .route(path::PEOPLE, get(people))
@@ -120,27 +138,13 @@ fn router(daemon: Arc<Daemon>) -> Router {
         .route(path::STAFF, post(spawn))
         .route(path::APPROVALS, post(approve))
         .route(path::COMMITMENT_STATE, post(commitment_state))
-        // ---- not implemented yet: see docs/api/MISSING.md -----------------
         .route(path::CREATE_COMPANY, post(create_company))
-        .route(path::ATTENTION, get(stub_attention))
+        // ---- not implemented yet: see docs/api/MISSING.md -----------------
         .route(path::AUTHORITY, get(stub_authority))
         .route(path::PERSON, get(stub_person))
         .route(path::ORG, get(stub_org))
         .route(path::ARTIFACTS, get(stub_artifacts))
         .with_state(daemon)
-}
-
-pub(crate) async fn serve(port: u16, daemon: Arc<Daemon>) -> Result<()> {
-    let app = router(daemon);
-
-    // Loopback only. This port is the owner's own machine talking to itself;
-    // binding 0.0.0.0 would hand company authority to anyone on the network.
-    let addr = format!("127.0.0.1:{port}");
-    let listener = tokio::net::TcpListener::bind(&addr)
-        .await
-        .with_context(|| format!("bind {addr}"))?;
-    tracing::info!(addr = %addr, "cockpit API listening (docs at /v1/docs)");
-    axum::serve(listener, app).await.context("cockpit API")
 }
 
 /// Build the socket request, run it, and shape the result as HTTP.
@@ -460,19 +464,55 @@ struct CreateCompanyBody {
 
 /// The only route whose company comes from the body rather than the path —
 /// there is no company yet to put in a path.
-async fn create_company(
-    State(daemon): Ctx,
-    Json(input): Json<CreateCompanyBody>,
-) -> HttpResponse {
+///
+/// This takes fields and renders the TOML that `company-create` expects, rather
+/// than asking a browser to post a config file. The command is the single write
+/// path — it is what also initialises the company in Authority, which a second
+/// creation path would silently skip.
+///
+/// The four fields are the whole of it, and that is the point: a company
+/// created here has no providers, no credentials, no standing approvals and no
+/// sender address, because `CompanyConfig`'s defaults are empty and nothing
+/// here fills them. Reach into the world is a later owner decision, one at a
+/// time.
+async fn create_company(State(daemon): Ctx, Json(input): Json<CreateCompanyBody>) -> HttpResponse {
+    let config = match crate::runtime::new_config(
+        &input.name,
+        input.mission.as_deref().unwrap_or_default(),
+        &input.model,
+        input.spend_ceiling_usd,
+    ) {
+        Ok(config) => config,
+        // Refused before anything exists: an invalid name that reached `up`
+        // would get a Docker volume and a container and *then* fail at the
+        // schema step, leaving orphans named after a company that cannot exist.
+        Err(error) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(json!({
+                    "ok": false,
+                    "error": { "kind": "invalid", "message": format!("{error:#}") }
+                })),
+            )
+                .into_response()
+        }
+    };
+    let body = match toml::to_string_pretty(&config) {
+        Ok(body) => body,
+        Err(error) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({
+                    "ok": false,
+                    "error": { "kind": "error", "message": format!("render config: {error}") }
+                })),
+            )
+                .into_response()
+        }
+    };
     run(
         &daemon,
-        json!({
-            "cmd": "create-company",
-            "company": input.name,
-            "model": input.model,
-            "mission": input.mission.unwrap_or_default(),
-            "ceiling_usd": input.spend_ceiling_usd,
-        }),
+        json!({ "cmd": "company-create", "company": input.name, "body": body }),
     )
     .await
 }
@@ -519,10 +559,6 @@ async fn commitment_state(
 
 // ---- not implemented yet ---------------------------------------------------
 
-async fn stub_attention() -> HttpResponse {
-    stub("the merged attention stack the Inbox surface renders")
-}
-
 async fn stub_authority() -> HttpResponse {
     stub("every standing authority setting, as one flat list")
 }
@@ -546,30 +582,27 @@ mod tests {
     use axum::http::Request as HttpRequest;
     use tower::ServiceExt;
 
-    /// A daemon with no reachable database. Enough to exercise the transport —
-    /// which is all this module is — without standing up Postgres and a company.
-    fn test_daemon(root: &std::path::Path) -> Arc<Daemon> {
-        Arc::new(Daemon {
-            root: root.to_path_buf(),
-            spend: crate::spend::SpendLedger::open(root).expect("spend ledger"),
-            orgintel: crate::OrgIntelRegistry {
-                // A closed port, so "unreachable" is fast and deterministic.
-                database_url: "postgres://nobody@127.0.0.1:1/nothing".to_string(),
-                handles: std::sync::Mutex::new(std::collections::HashMap::new()),
-            },
-            staff: crate::staff::StaffRegistry::default(),
-            in_flight: Arc::new(std::sync::Mutex::new(std::collections::HashSet::new())),
-        })
+    use crate::test_daemon;
+
+    /// The routes as the gateway mounts them, minus the owner cookie layer —
+    /// which is `owner`'s to test, and which these routes know nothing about.
+    fn app(daemon: Arc<Daemon>) -> Router {
+        public().merge(guarded(daemon))
     }
 
     async fn get(path: &str) -> (StatusCode, Value) {
         let dir = tempfile::tempdir().expect("tempdir");
-        let app = router(test_daemon(dir.path()));
+        send(app(test_daemon(dir.path())), "GET", path, Body::empty()).await
+    }
+
+    async fn send(app: Router, method: &str, path: &str, body: Body) -> (StatusCode, Value) {
         let response = app
             .oneshot(
                 HttpRequest::builder()
+                    .method(method)
                     .uri(path)
-                    .body(Body::empty())
+                    .header("content-type", "application/json")
+                    .body(body)
                     .expect("request"),
             )
             .await
@@ -610,7 +643,6 @@ mod tests {
     #[tokio::test]
     async fn a_stub_returns_null_and_says_so() {
         for route in [
-            "/v1/companies/acme/attention",
             "/v1/companies/acme/authority",
             "/v1/companies/acme/people/sage",
             "/v1/companies/acme/org",
@@ -635,6 +667,58 @@ mod tests {
             "failure must carry a kind: {body}"
         );
         assert!(body["error"]["message"].is_string());
+    }
+
+    /// Creating over an existing company would silently destroy its providers,
+    /// credentials and standing approvals — the owner's accumulated decisions.
+    /// Tested here because `company-create` is where the check now lives, and
+    /// the refusal must arrive before Authority or Postgres are touched, which
+    /// is why this passes without either running.
+    #[tokio::test]
+    async fn creating_over_an_existing_company_is_refused() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        std::fs::create_dir_all(dir.path().join("companies")).expect("companies dir");
+        let existing = crate::runtime::new_config("thymelake", "first", "zai/glm-5.2", None)
+            .expect("build config");
+        crate::runtime::CompanyConfig::save(dir.path(), &existing).expect("save");
+
+        let (status, body) = send(
+            app(test_daemon(dir.path())),
+            "POST",
+            path::CREATE_COMPANY,
+            Body::from(
+                json!({ "name": "thymelake", "model": "zai/glm-5.2", "mission": "second" })
+                    .to_string(),
+            ),
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(body["error"]["kind"], json!("conflict"), "{body}");
+        let survivor = crate::runtime::CompanyConfig::load(dir.path(), "thymelake").expect("load");
+        assert_eq!(survivor.mission, "first", "the original must survive");
+    }
+
+    /// The name becomes a Postgres schema, a Docker volume and a container. A
+    /// bad one must be refused before any of the three is created, or `up`
+    /// leaves orphans named after a company that cannot exist.
+    #[tokio::test]
+    async fn an_unusable_company_name_never_reaches_the_disk() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let (status, body) = send(
+            app(test_daemon(dir.path())),
+            "POST",
+            path::CREATE_COMPANY,
+            Body::from(json!({ "name": "Thyme Lake", "model": "zai/glm-5.2" }).to_string()),
+        )
+        .await;
+
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(body["error"]["kind"], json!("invalid"), "{body}");
+        assert!(
+            !dir.path().join("companies").exists(),
+            "a refused name must leave nothing behind"
+        );
     }
 
     /// The shim must not become a second, weaker authority gate: owner-only

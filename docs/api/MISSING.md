@@ -1,6 +1,10 @@
 # Endpoints the cockpit needs and the daemon does not have
 
-Every route here is **registered and stubbed** in `crates/restlessd/src/api.rs`. They answer:
+Two of the seven are now done — §2 (the attention queue) and §7 (creating a company). Both are
+struck through below with what actually shipped, because a list that only grows is a list nobody
+reads twice.
+
+The rest are **registered and stubbed** in `crates/restlessd/src/api.rs`. They answer:
 
 ```json
 { "ok": true, "data": null, "stub": { "implemented": false, "what": "...", "see": "docs/api/MISSING.md" } }
@@ -42,29 +46,34 @@ decision about where the invariants are declared.
 
 ---
 
-## 2. `GET /v1/companies/{company}/attention`
+## 2. ~~`GET /v1/companies/{company}/attention`~~ — **done, and it lives at `/api`**
 
-**Surface:** Inbox — the stack, and the count on the nav.
+Implemented by S05-T1 as `GET /api/companies/{company}/attention`, on the owner gateway rather
+than in this shim. The `/v1` stub was **deleted** rather than pointed at it: two paths to one
+projection is the accumulation the working agreement warns off, and the gateway's is the one
+with a credential in front of it.
 
-**Use case.** The Inbox shows one merged stack of everything waiting on the owner, ordered by
-what blocks the most work. Three separate reads exist (`inbox` for messages, `commitments` for
-blocked work, and the approval decision inside `effect`), but nothing unions them, and nothing
-answers "how many are waiting" — which the top nav badge needs on every page.
+Wired into the Inbox on the frontend branch. The nav badge is real, from
+`$lib/model/attention.svelte`, read once per window so the count and the stack cannot disagree.
 
-**Suggested shape.** The attention envelope from `owner-cockpit` §5.2, one array, each item
-carrying its kind, who raised it, what it is blocking, and the standing setting that made it a
-question rather than an action:
+What shipped is better than what this section asked for, in two ways worth recording:
 
-```json
-{ "waiting": 3, "items": [ { "id": "...", "kind": "approval|message|blocked",
-  "title": "...", "raised_by": "sage", "why": "Sage may draft outside mail but not send it",
-  "blocking": ["commitment-uuid"], "at": "..." } ] }
-```
+- Each item answers five questions rather than one: `what_happened`, `why_it_matters`,
+  `recommendation`, `requested_action`, and **`if_no_action`**. The last is the one this document
+  did not think to ask for and is the most valuable — an owner who cannot see the cost of ignoring
+  a request learns to clear the queue rather than read it.
+- `source_health` reports whether each plane could answer. The projection degrades rather than
+  failing, so a partial queue is normal, and without this field a degraded source renders as
+  "nothing needs you" — the one lie this surface cannot tell.
 
-**Note.** The `why` field is the load-bearing one. An approval request that cannot say which
-standing setting produced it trains the owner to click through.
+Still open, and deliberately: **there is no priority model.** Items are sorted by `created_at`.
+`owner-cockpit` §5.4 wants "ordered by what blocks the most work", which needs a notion of how
+much a blocked commitment is holding up, and nothing measures that yet. Oldest-first is honest
+and the surface says so.
 
-**Estimated work.** Medium. The union is easy; the priority model (§5.4) is the real work.
+Also still open: **messages are not in the queue.** That is a decision, not a gap. Mail is read
+separately and shown separately, because a count that mixed "a decision is waiting" with "you have
+unread mail" would mean neither. Revisit only if real use shows the owner wanting one pile.
 
 ---
 
@@ -154,8 +163,9 @@ So `?as=owner` matches nothing and returns an empty list — which reads as "no 
 **Estimated work.** Small — the marking loop already sits in the `inbox` command handler in
 `main.rs`, separate from the query. It is a move, not a rewrite.
 
-**Related.** Once §2 (`/attention`) exists it must not inherit this behaviour: reading the
-attention stack must never clear it.
+**Related.** §2 (`/attention`) landed **without** this behaviour — reading the queue does not
+resolve anything in it, and `attention::project` cannot: it is a projection with no write path.
+That is now the contract, recorded in `openapi.yaml`. The defect below is confined to mail.
 
 ---
 
@@ -200,9 +210,25 @@ design, not in the API, and it is worth a surface.
 
 ---
 
-## Two more things found while running it
+## Things found while running it
 
-Neither is a missing endpoint; both are worth a decision.
+None is a missing endpoint; all are worth a decision.
+
+**The daemon will not start without `omp` on the host.** `model_gateway::start` shells out to
+`omp` (`@oh-my-pi/pi-coding-agent`) to run the credential broker, and a missing binary is a fatal
+start — deliberately, per the comment at `main.rs:361`: "no configured Exec can think without it".
+But the requirement is written down nowhere. `.env.example` does not mention it, neither README
+does, and the container's Dockerfile is the only place the install line exists
+(`bun install -g @oh-my-pi/pi-coding-agent@17.2.15`, needing bun ≥ 1.3.14). Anyone cloning this
+repo hits `Error: create OMP auth-broker bearer / No such file or directory` with nothing to
+search for. Worth a line in `.env.example` and a check with a useful message.
+
+**One company with an unset key stops every company.** `provider_keys` walks *all* configured
+companies at boot and fails the whole start if any one of them has no credential for its
+configured model. A scratch company left on `zai/glm-5.2` therefore takes the daemon down for a
+live company whose key is present. Fail-closed is right; the granularity is not. A company whose
+key is missing should refuse to *wake*, and say so on its own surface, rather than preventing the
+daemon from serving the others.
 
 **A read creates the company.** `GET /v1/companies/anything/goals` returns `{"ok":true,"data":[]}`
 and, as a side effect, provisions a full OrgIntel schema named `anything` — `OrgIntelRegistry::get`

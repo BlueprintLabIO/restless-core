@@ -12,6 +12,7 @@
 	import ChatRail from './ChatRail.svelte';
 	import TopNav from './TopNav.svelte';
 	import { isCollapsed, toggleDock } from '$lib/model/dock.svelte';
+	import { refreshAttention, waiting } from '$lib/model/attention.svelte';
 	import { getEvents, openStream, tell, type ApiEvent } from '$lib/api/client';
 	import { eventLine } from '$lib/api/map';
 	import type { ChatMessage, DockView } from '$lib/model/view';
@@ -28,6 +29,13 @@
 		board: 'Sees this board · reads the same events you do',
 		authority: 'Sees these settings · reads the same events you do'
 	};
+
+	// The nav badge is on every surface, so the queue is read once here rather
+	// than by each page. The Inbox reads the same store and refreshes it after
+	// acting, so the count and the stack cannot disagree.
+	$effect(() => {
+		refreshAttention();
+	});
 
 	$effect(() => {
 		let cancelled = false;
@@ -84,7 +92,10 @@
 		messages,
 		placeholder: 'Tell the Exec what you want',
 		foot: 'sending this wakes the company',
-		waiting: 0
+		// Shown when she is collapsed to a rail, which is exactly when the owner
+		// cannot see the stack. Unknown reads as zero here — the rail has room
+		// for a number and not for a caveat, and the Inbox states it properly.
+		waiting: waiting() ?? 0
 	});
 
 	const collapsed = $derived(isCollapsed(surface));

@@ -1,11 +1,9 @@
-//! The effect surface (sprint 01 T8): `request_effect(capability, args,
-//! idempotency_key) -> Receipt`. External effects are a kernel concern
-//! (§3.2); this sprint the grant check, capability check and approval gate
-//! are deliberately ABSENT (accepted risk, sprint risk register) — what
-//! exists is the interface shape they will govern, plus receipts.
+//! The generic effect surface: `request_effect(capability, args,
+//! idempotency_key) -> Receipt`. External effects, approvals, idempotency and
+//! receipts are Authority concerns (§3.2); provider transports remain a small
+//! replaceable detail behind that one path.
 //!
-//! Providers: a trait, with `Simulated` now and `Http` later; the company-
-//! side code path is identical either way (§10.8). A simulator is a
+//! A simulator is a
 //! MODEL-DRIVEN WORLD, not a system: the persona file at
 //! `$RESTLESS_HOME/simulators/<company>/<capability>.md` is a prompt, and
 //! the daemon plays the world through the gateway (the company's own spend
@@ -50,17 +48,28 @@ pub struct Receipt {
     pub repeat_of: Option<String>,
 }
 
-/// One effect request. The company-side path here is what a real provider
-/// would take; only the world behind it is simulated this sprint.
+/// One effect request. Real, simulated and self-reported transports share this
+/// Authority path and converge on one receipt writer.
+pub struct EffectEnvironment<'a> {
+    pub root: &'a Path,
+    pub config: &'a CompanyConfig,
+    pub authority: &'a crate::authority::AuthorityStore,
+    pub org: Option<&'a restless_orgintel::OrgIntel>,
+}
+
 pub async fn request_effect(
-    root: &Path,
-    config: &CompanyConfig,
-    org: &restless_orgintel::OrgIntel,
+    environment: EffectEnvironment<'_>,
     capability: &str,
     args: serde_json::Value,
     key: &str,
     actor: &str,
 ) -> Result<Receipt> {
+    let EffectEnvironment {
+        root,
+        config,
+        authority,
+        org,
+    } = environment;
     if key.trim().is_empty() {
         bail!("effect request needs an idempotency key");
     }
@@ -77,8 +86,8 @@ pub async fn request_effect(
     // second run of the world. The same key with DIFFERENT args is not a
     // retry — answering it with the old receipt would silently certify an
     // effect that never happened.
-    if let Some(stored) = org
-        .find_event_body("effect", "idempotency_key", key)
+    if let Some(stored) = authority
+        .find_body(&config.name, "effect", "idempotency_key", key)
         .await?
     {
         let mut receipt: Receipt =
@@ -95,16 +104,18 @@ pub async fn request_effect(
         // verified" and the record could neither confirm nor refute it,
         // because a suppressed duplicate looked identical to one that never
         // happened.
-        org.emit_event(
-            "effect_replayed",
-            Some(actor),
-            serde_json::json!({
-                "capability": capability,
-                "idempotency_key": key,
-                "receipt_id": receipt.id,
-            }),
-        )
-        .await?;
+        authority
+            .emit(
+                &config.name,
+                "effect_replayed",
+                Some(actor),
+                serde_json::json!({
+                    "capability": capability,
+                    "idempotency_key": key,
+                    "receipt_id": receipt.id,
+                }),
+            )
+            .await?;
         return Ok(receipt);
     }
 
@@ -115,7 +126,7 @@ pub async fn request_effect(
     // the same party twice. It tells the Exec, immediately, so the second time
     // is a choice rather than an accident (frame: escalate, never unlock).
     let repeat = match &party {
-        Some(party) => prior_effect_on(org, capability, party, key).await?,
+        Some(party) => prior_effect_on(authority, &config.name, capability, party, key).await?,
         None => None,
     };
 
@@ -131,21 +142,29 @@ pub async fn request_effect(
     // on — it names the party and the command that unblocks it, because an
     // error that cannot be acted on is a missing feature, not a message.
     if let crate::approval::Decision::NeedsOwner(reason) =
-        crate::approval::check(config, org, capability, party.as_deref(), &provider).await?
+        crate::approval::check(config, authority, capability, party.as_deref(), &provider).await?
     {
-        org.add_actor("exec", "exec", "The Exec").await.ok();
-        org.emit_event(
-            "approval_required",
-            Some(actor),
-            serde_json::json!({
-                "capability": capability,
-                "party": party,
-                "provider": provider.name(),
-                "reason": reason,
-            }),
-        )
-        .await?;
-        org.send_message(actor, None, &format!("approval required: {reason}"))
+        if let Some(org) = org {
+            org.add_actor("exec", "exec", "The Exec").await.ok();
+        }
+        authority
+            .emit(
+                &config.name,
+                "approval_required",
+                Some(actor),
+                serde_json::json!({
+                    "capability": capability,
+                    "party": party,
+                    "provider": provider.name(),
+                    "reason": reason,
+                    // The approval source must carry the exact prepared act the
+                    // owner is being asked to allow. It is Authority evidence,
+                    // not a receipt and not a secret store.
+                    // Without it the UI can show only "send something", forcing
+                    // the owner back into agent prose to inspect the draft.
+                    "request": args,
+                }),
+            )
             .await?;
         bail!("{reason}");
     }
@@ -155,7 +174,8 @@ pub async fn request_effect(
         crate::provider::Provider::Resend => {
             let outcome = crate::provider::resend_send(config, &args, key).await?;
             return finish_effect(
-                org,
+                authority,
+                &config.name,
                 capability,
                 args_digest,
                 party,
@@ -180,7 +200,8 @@ pub async fn request_effect(
             }
             let outcome = crate::provider::git_push(config, &args, key).await?;
             return finish_effect(
-                org,
+                authority,
+                &config.name,
                 capability,
                 args_digest,
                 party,
@@ -212,7 +233,8 @@ pub async fn request_effect(
                 )
             })?;
             return finish_effect(
-                org,
+                authority,
+                &config.name,
                 capability,
                 args_digest,
                 party,
@@ -280,7 +302,7 @@ pub async fn request_effect(
         replayed: false,
         repeat_of: repeat.clone(),
     };
-    write_receipt(org, receipt, actor, repeat, key).await
+    write_receipt(authority, &config.name, receipt, actor, repeat, key).await
 }
 
 /// Build and record the receipt for a real provider's outcome.
@@ -291,7 +313,8 @@ pub async fn request_effect(
 /// applying to exactly the effects that matter most.
 #[allow(clippy::too_many_arguments)]
 async fn finish_effect(
-    org: &restless_orgintel::OrgIntel,
+    authority: &crate::authority::AuthorityStore,
+    company: &str,
     capability: &str,
     args_digest: String,
     party: Option<String>,
@@ -314,35 +337,44 @@ async fn finish_effect(
         replayed: false,
         repeat_of: repeat.clone(),
     };
-    write_receipt(org, receipt, actor, repeat, key).await
+    write_receipt(authority, company, receipt, actor, repeat, key).await
 }
 
 /// Emit the receipt and, when this effect repeats a party, the advisory beside
 /// it. One writer for both worlds.
 async fn write_receipt(
-    org: &restless_orgintel::OrgIntel,
+    authority: &crate::authority::AuthorityStore,
+    company: &str,
     receipt: Receipt,
     actor: &str,
     repeat: Option<String>,
     key: &str,
 ) -> Result<Receipt> {
-    org.emit_event("effect", Some(actor), serde_json::to_value(&receipt)?)
+    authority
+        .emit(
+            company,
+            "effect",
+            Some(actor),
+            serde_json::to_value(&receipt)?,
+        )
         .await?;
     if let Some(earlier) = repeat {
         tracing::warn!(capability = %receipt.capability, party = ?receipt.party,
             earlier_key = %earlier,
             "repeat effect on the same party under a different idempotency key");
-        org.emit_event(
-            "effect_repeat_party",
-            Some(actor),
-            serde_json::json!({
-                "capability": receipt.capability,
-                "party": receipt.party,
-                "earlier_key": earlier,
-                "this_key": key,
-            }),
-        )
-        .await?;
+        authority
+            .emit(
+                company,
+                "effect_repeat_party",
+                Some(actor),
+                serde_json::json!({
+                    "capability": receipt.capability,
+                    "party": receipt.party,
+                    "earlier_key": earlier,
+                    "this_key": key,
+                }),
+            )
+            .await?;
     }
     Ok(receipt)
 }
@@ -372,12 +404,13 @@ fn party_of(args: &serde_json::Value) -> Option<String> {
 /// The idempotency key of an earlier SUCCESSFUL effect of the same capability
 /// on the same party, if one exists under a different key.
 pub(crate) async fn prior_effect_on(
-    org: &restless_orgintel::OrgIntel,
+    authority: &crate::authority::AuthorityStore,
+    company: &str,
     capability: &str,
     party: &str,
     key: &str,
 ) -> Result<Option<String>> {
-    for event in org.events_of_kind("effect").await? {
+    for event in authority.records_of_kind(company, "effect").await? {
         if event.body.get("capability").and_then(|v| v.as_str()) != Some(capability) {
             continue;
         }
@@ -427,8 +460,9 @@ pub fn available_capabilities(root: &std::path::Path, company: &str) -> Vec<Stri
 /// with the codex runtime, so every simulated effect would have failed at the
 /// first call. The world now runs on omp in the company's own container.
 async fn call_world_model(config: &CompanyConfig, prompt: &str) -> Result<String> {
-    let auth = crate::exec::agent_auth(config)?;
+    let auth = crate::exec::agent_auth(config).await?;
     let container = runtime::container_name(&config.name);
+    crate::acp::prepare_agent_runtime(&container, &auth).await?;
     let mut args: Vec<String> = vec![
         "exec".into(),
         "-i".into(),
@@ -437,21 +471,10 @@ async fn call_world_model(config: &CompanyConfig, prompt: &str) -> Result<String
         "-w".into(),
         "/company".into(),
         "-e".into(),
-        "OMP_HOME=/company/home/.omp".into(),
+        format!("PI_CODING_AGENT_DIR={}", crate::acp::AGENT_CONFIG_DIR),
         "-e".into(),
-        format!("{}={}", auth.provider_key_env, auth.provider_key),
+        auth.gateway_token_env.clone(),
     ];
-    // The base-URL override travels with the key, exactly as it does on the
-    // agent path (`acp.rs:365`). Dropping it here was a real bug with a real
-    // cost: a Kimi For Coding key authenticates against `api.kimi.com/coding/v1`
-    // and 401s against the provider default, so every simulated effect failed
-    // with "Invalid Authentication" while the Exec — which forwards it — worked
-    // fine. Sprint 03 recorded the world model 401ing twice and read it as a
-    // dead key. Two paths building the same auth, one honouring it.
-    if let Some((name, value)) = &auth.provider_base_url {
-        args.push("-e".into());
-        args.push(format!("{name}={value}"));
-    }
     args.extend([
         container,
         "omp".into(),
@@ -462,6 +485,7 @@ async fn call_world_model(config: &CompanyConfig, prompt: &str) -> Result<String
         prompt.to_string(),
     ]);
     let output = tokio::process::Command::new("docker")
+        .env(&auth.gateway_token_env, &auth.gateway_token)
         .args(&args)
         .output()
         .await

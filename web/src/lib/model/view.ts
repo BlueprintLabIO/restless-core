@@ -157,3 +157,75 @@ export interface Company {
 	mark: string;
 	inboxCount: number;
 }
+
+/* ============ attention — the owner queue ============ */
+
+/**
+ * One common read envelope over source-owned work, produced by
+ * `restlessd::attention::project`. Not modelled here as a union of workflow
+ * types: `category` is deliberately open, so a new kind of owner moment adds
+ * neither a mutation type nor a page component.
+ *
+ * `source` and `actions` are the load-bearing fields. Attention is a
+ * projection and can resolve nothing by itself — Authority owns approvals and
+ * OrgIntel owns blocked commitments, so every action names the plane that
+ * will actually carry it out.
+ *
+ * Unlike `InboxItem` below, this is not a shape the frontend invented. It
+ * mirrors the Rust struct field for field; the snake_case → camelCase mapping
+ * is the only liberty taken, in `$lib/api/attention`.
+ */
+export interface AttentionItem {
+	id: string;
+	source: {
+		plane: 'authority' | 'orgintel' | 'runtime' | string;
+		kind: string;
+		reference: string;
+	};
+	category: 'approval' | 'review' | 'blocker' | string;
+	title: string;
+	whatHappened: string;
+	whyItMatters: string;
+	recommendation: string;
+	requestedAction: string;
+	/** What happens if the owner closes the tab. Never blank — silence is a claim. */
+	ifNoAction: string;
+	evidence: Array<{
+		label: string;
+		kind: string;
+		uri?: string;
+		content?: string;
+	}>;
+	/** Present when the last mile is a live browser the owner can take over. */
+	runtimeAttach?: {
+		company: string;
+		generation: string;
+		requestingActor?: string;
+		kind: 'persistent-browser';
+	};
+	actions: Array<{
+		id: string;
+		label: string;
+		consequence: string;
+	}>;
+	/** Whether the company can keep working on other things while this waits. */
+	canContinue: boolean;
+	createdAt: Date | string;
+}
+
+/** Whether each plane could answer. A degraded source must read as unknown,
+ *  never as an empty queue — "nothing needs you" is the one lie this surface
+ *  cannot tell. */
+export interface SourceHealth {
+	orgintel: string;
+	authority: string;
+	runtime: string;
+	browser: string;
+}
+
+export interface AttentionView {
+	company: { id: string; name: string; mission: string; model: string };
+	sourceHealth: SourceHealth;
+	items: AttentionItem[];
+	refreshedAt: string;
+}

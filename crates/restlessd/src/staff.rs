@@ -271,11 +271,14 @@ async fn spawn_claimed(
         // ticket: a critic that runs the same model as the producer, on the
         // same context, is an echo chamber with a second invoice.
         let auth = match &request.model {
-            Some(model) => crate::exec::agent_auth(&CompanyConfig {
-                model: model.clone(),
-                ..config.clone()
-            })?,
-            None => crate::exec::agent_auth(config)?,
+            Some(model) => {
+                crate::exec::agent_auth(&CompanyConfig {
+                    model: model.clone(),
+                    ..config.clone()
+                })
+                .await?
+            }
+            None => crate::exec::agent_auth(config).await?,
         };
         anyhow::Ok((workdir, auth))
     }
@@ -541,7 +544,7 @@ async fn record_staff_outcome(
 ) {
     let record = async {
         match outcome {
-            Ok((Termination::Done, summary)) => {
+            Ok((Termination::OutcomeMet, summary)) => {
                 org.set_commitment_state(
                     commitment,
                     restless_orgintel::CommitmentState::Completed,

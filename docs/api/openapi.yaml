@@ -30,11 +30,30 @@ info:
 
     ## Authority
 
-    The listener binds loopback only and stamps `principal: "owner"` — the same
-    claim the unix socket makes, that a process on the host is the owner. It is a
-    claim, not a proof. The stamp still travels through the daemon's `authorize`
-    gate, so owner-only commands are decided in one place rather than by which
-    port a request arrived on.
+    **These routes require the owner credential.** They are mounted on the owner
+    gateway (`owner.rs`, port 7788) behind an HttpOnly `restless_owner` cookie —
+    the same gate as `/api`. Obtain the token with `restless owner-token
+    --rotate`, which prints it once and stores only its digest, and exchange it
+    for the cookie at `POST /api/session`. `/v1/health`, `/v1/openapi.yaml` and
+    `/v1/docs` carry no company data and are open.
+
+    Behind that gate every request is stamped `principal: "owner"` and travels
+    through the daemon's `authorize` gate, so owner-only commands are decided in
+    one place rather than by which port a request arrived on.
+
+    These routes briefly had a loopback listener of their own on 7792, with no
+    credential. That was removed rather than kept: an unauthenticated port able
+    to act as the owner is not a parallel claim to an authenticated one, it is a
+    way around it.
+
+    ## Two surfaces, one port
+
+    `/v1` (this document) is the cockpit's read/write transport, generated from
+    the CLI's line protocol. `/api` is a deliberately narrow BFF owned by
+    `owner.rs`: the attention projection, approval actions, and the browser
+    handover. Where they would overlap, `/api` wins and `/v1` does not restate
+    it — see `GET /api/companies/{company}/attention`, which is the only path to
+    the owner's queue.
 
     ## Not implemented yet
 
@@ -47,8 +66,10 @@ info:
     See `docs/api/MISSING.md` for what each stub is for and which surface needs it.
 
 servers:
-  - url: http://127.0.0.1:7792
-    description: The daemon on the owner's machine. Loopback only.
+  - url: http://127.0.0.1:7788
+    description: >
+      The owner gateway on the owner's machine. Loopback by default; override
+      with RESTLESS_OWNER_ADDR. Serves the built SPA, /api, and these /v1 routes.
 
 tags:
   - name: meta
@@ -59,6 +80,10 @@ tags:
     description: Backed today. Every one of these is a governed change.
   - name: stub
     description: Shape agreed, implementation absent. Returns null.
+  - name: gateway
+    description: >
+      Owned by the owner gateway (`owner.rs`) rather than this shim, and carrying
+      its own envelope. Documented here because the SPA reads it.
 
 paths:
   /v1/health:
@@ -587,17 +612,67 @@ paths:
               schema: { $ref: '#/components/schemas/Failure' }
         '403': { $ref: '#/components/responses/Refused' }
 
-  /v1/companies/{company}/attention:
+  /api/companies/{company}/attention:
     get:
-      tags: [stub]
-      summary: 'STUB — the merged attention stack'
+      tags: [gateway]
+      summary: The owner's attention queue
       description: |
-        **Not implemented. Returns `data: null`.**
+        **Owned by the owner gateway, not by this shim** — it is the one route
+        the SPA reads outside `/v1`, so its envelope is the projection itself
+        rather than the `{ok, data}` wrapper the socket commands share.
 
-        **Surface:** Inbox. See `docs/api/MISSING.md`.
+        **Surface:** Inbox — the stack, and the count on the top nav.
+
+        A union of what is genuinely waiting on the owner: approvals Authority
+        is holding, and commitments OrgIntel has blocked. Messages are *not* in
+        it — mail is read separately, because a count that mixed "a decision is
+        waiting" with "you have unread mail" would mean neither.
+
+        **It is a projection and resolves nothing.** Each item carries `source`
+        naming the plane that owns it and `actions` naming what may be done;
+        acting means posting to `/api/companies/{company}/approvals/{action}`.
+
+        **Reading it never clears it**, unlike `GET /v1/.../inbox`. That is a
+        contract, not an accident: this is the owner's attention queue, and a
+        prefetch or a double render must not consume it.
+
+        **`source_health` must be rendered.** The projection degrades rather
+        than failing — Authority stays readable when OrgIntel is down — so a
+        partial queue is normal and only this field distinguishes "nothing needs
+        you" from "a source could not answer".
       parameters: [{ $ref: '#/components/parameters/Company' }]
       responses:
-        '200': { $ref: '#/components/responses/Stub' }
+        '200':
+          description: The queue, with the health of each contributing source.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [company, source_health, items, refreshed_at]
+                properties:
+                  company:
+                    type: object
+                    properties:
+                      id: { type: string }
+                      name: { type: string }
+                      mission: { type: string }
+                      model: { type: string }
+                  source_health:
+                    type: object
+                    description: '`available`, `unavailable`, or `unknown` per plane.'
+                    properties:
+                      orgintel: { type: string }
+                      authority: { type: string }
+                      runtime: { type: string }
+                      browser: { type: string }
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/AttentionItem' }
+                  refreshed_at: { type: string, format: date-time }
+        '401':
+          description: No owner cookie. Sign in at `POST /api/session`.
+        '404':
+          description: No such company.
 
   /v1/companies/{company}/authority:
     get:
@@ -714,6 +789,78 @@ components:
       properties:
         ok: { type: boolean, const: true }
         data: {}
+
+    AttentionItem:
+      type: object
+      description: >
+        One thing waiting on the owner. `category` is deliberately open rather
+        than an enum: a new kind of owner moment should add neither a mutation
+        type nor a page component.
+      required:
+        [id, source, category, title, what_happened, why_it_matters,
+         recommendation, requested_action, if_no_action, evidence, actions,
+         can_continue, created_at]
+      properties:
+        id:
+          type: string
+          description: >
+            `authority:approval:<capability>:<party>` or
+            `orgintel:commitment:<uuid>`. Structured because the party is not a
+            separate field — Authority owns it, and a copy here would be a
+            second writer of it.
+        source:
+          type: object
+          description: Which plane owns resolution. Attention itself resolves nothing.
+          properties:
+            plane: { type: string, examples: [authority, orgintel] }
+            kind: { type: string, examples: [approval_required, blocked_commitment] }
+            reference: { type: string }
+        category: { type: string, examples: [approval, review, blocker] }
+        title: { type: string }
+        what_happened: { type: string }
+        why_it_matters: { type: string }
+        recommendation: { type: string }
+        requested_action: { type: string }
+        if_no_action:
+          type: string
+          description: >
+            The cost of ignoring this. Load-bearing — an owner who cannot see it
+            learns to clear the queue rather than read it.
+        evidence:
+          type: array
+          description: >
+            The exact material, not a description of it. A draft arrives as
+            `content` so the owner approves the thing that will be sent.
+          items:
+            type: object
+            properties:
+              label: { type: string }
+              kind: { type: string, examples: [draft, url] }
+              uri: { type: string }
+              content: { type: string }
+        runtime_attach:
+          type: object
+          description: Present when the last mile is a live browser the owner can take over.
+          properties:
+            company: { type: string }
+            generation: { type: string }
+            requesting_actor: { type: string }
+            kind: { type: string, const: persistent-browser }
+        actions:
+          type: array
+          description: >
+            Each carries its consequence, so the surface never has to decide what
+            a button means.
+          items:
+            type: object
+            properties:
+              id: { type: string, examples: [grant, decline, open-browser] }
+              label: { type: string }
+              consequence: { type: string }
+        can_continue:
+          type: boolean
+          description: Whether the company can work on other things while this waits.
+        created_at: { type: string, format: date-time }
 
     Failure:
       type: object
