@@ -35,6 +35,22 @@ set -a
 source "$env_file"
 set +a
 
+# The daemon runs OMP's credential broker on the host and spawns it as `omp`,
+# by name, so it has to be on PATH — and bun's global bin usually is not. A
+# missing binary is a fatal daemon start whose error ("create OMP auth-broker
+# bearer / No such file or directory") names neither omp nor PATH, so this is
+# resolved here rather than left to be rediscovered.
+if [[ -z "${RESTLESS_OMP_BIN:-}" ]] && ! command -v omp >/dev/null 2>&1; then
+	if [[ -x "$HOME/.bun/bin/omp" ]]; then
+		export PATH="$HOME/.bun/bin:$PATH"
+	else
+		echo "no \`omp\` on PATH — the daemon cannot start without it. Install with:" >&2
+		echo "    bun install -g @oh-my-pi/pi-coding-agent@17.2.15   # needs bun >= 1.3.14" >&2
+		echo "or point RESTLESS_OMP_BIN at an existing one." >&2
+		exit 1
+	fi
+fi
+
 cd "$root"
 cargo build -p restlessd
 
