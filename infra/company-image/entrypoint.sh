@@ -23,7 +23,8 @@ mkdir -p \
 	/company/home \
 	/company/browser-profile \
 	/company/downloads \
-	/company/run
+	/company/run \
+	/company/services/supervisor
 
 if [ ! -f /company/.seeded ]; then
 	if [ ! -f /company/mission.md ]; then

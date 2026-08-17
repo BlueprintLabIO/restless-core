@@ -4,10 +4,10 @@
 	import { onMount } from 'svelte';
 	import AppShell, { type ShellTab } from '$lib/components/AppShell.svelte';
 	import ExecutiveRail from '$lib/components/ExecutiveRail.svelte';
-	import { getActorConversation, sendActorMessage } from '$lib/model/attention';
+	import { getActorConversation, reviewAction, sendActorMessage } from '$lib/model/attention';
 	import { attentionSource } from '$lib/model/attentionSource.svelte';
 	import {
-		execCanReceive,
+		actorCanReceive,
 		getCockpit,
 		getCompanies,
 		type CockpitView,
@@ -19,9 +19,10 @@
 
 	const companyId = $derived(page.params.companyId ?? 'aris');
 	let cockpit = $state<CockpitView | null>(null);
-	let executiveMessages = $state<ThreadMessage[]>([]);
+	let railMessages = $state<ThreadMessage[]>([]);
 	let companies = $state<CompanyCatalogEntry[]>([]);
 	let execRailOpen = $state(true);
+	let conversationKey = $state('');
 
 	/* The shell and the Attention surface read one source rather than polling the
 	 * same endpoint on two clocks. The badge can no longer disagree with the
@@ -31,6 +32,25 @@
 
 	const companyName = $derived(attention.view?.company.name ?? '');
 	const liveNeedsYou = $derived(attention.view?.items ?? []);
+	const focusedReviewId = $derived(page.url.searchParams.get('review'));
+	const focusedReview = $derived(
+		liveNeedsYou.find((item) => item.id === focusedReviewId && item.category === 'review') ?? null
+	);
+	const railActorId = $derived(focusedReview?.responsibleActor?.id ?? 'exec');
+	const railActorName = $derived(
+		focusedReview?.responsibleActor?.display ?? (railActorId === 'exec' ? 'Exec' : railActorId)
+	);
+	const railActorRole = $derived(focusedReview ? 'Responsible lead' : 'Executive');
+	const railConnected = $derived(actorCanReceive(cockpit, railActorId));
+
+	$effect(() => {
+		const key = `${companyId}:${railActorId}:${focusedReview?.workId ?? ''}`;
+		if (conversationKey === key) return;
+		conversationKey = key;
+		railMessages = [];
+		if (focusedReview) execRailOpen = true;
+		void refreshConversation(railActorId, focusedReview?.workId);
+	});
 
 	/* An unanswered session is the shell's business — the surfaces below it
 	 * cannot render anything truthful without one. */
@@ -49,7 +69,9 @@
 				]);
 				cockpit = nextCockpit;
 				companies = nextCompanies;
-				if (execCanReceive(nextCockpit)) await refreshConversation();
+				if (actorCanReceive(nextCockpit, railActorId)) {
+					await refreshConversation(railActorId, focusedReview?.workId);
+				}
 			} catch {
 				/* The active page owns authentication and source errors. The shell
 				 * stays truthful instead of substituting fixture company data. */
@@ -60,10 +82,12 @@
 		return () => window.clearInterval(interval);
 	});
 
-	async function refreshConversation() {
+	async function refreshConversation(actor = railActorId, workId = focusedReview?.workId) {
 		try {
-			const conversation = await getActorConversation(companyId, 'exec');
-			executiveMessages = conversation.messages.map((message) => ({
+			const conversation = await getActorConversation(companyId, actor, workId);
+			const key = `${companyId}:${actor}:${workId ?? ''}`;
+			if (conversationKey && conversationKey !== key) return;
+			railMessages = conversation.messages.map((message) => ({
 				id: String(message.id),
 				from: message.from_actor === 'owner' ? 'you' : 'agent',
 				author: message.from_actor === 'owner' ? 'You' : conversation.actor.display,
@@ -81,7 +105,7 @@
 		}
 	}
 
-	async function askExec(
+	async function askRail(
 		text: string,
 		files: File[],
 		includeContext: boolean
@@ -89,17 +113,37 @@
 		try {
 			await sendActorMessage(
 				companyId,
-				'exec',
+				railActorId,
 				text,
-				undefined,
+				focusedReview?.workId,
 				files,
-				includeContext ? page.url.pathname : undefined
+				includeContext ? `${page.url.pathname}${page.url.search}` : undefined
 			);
-			await refreshConversation();
+			await refreshConversation(railActorId, focusedReview?.workId);
 			return null;
 		} catch (cause) {
 			return cause instanceof Error ? cause.message : 'Your message was not delivered.';
 		}
+	}
+
+	async function decideFocusedReview(
+		decision: 'accept' | 'request_changes',
+		feedback: string
+	): Promise<string | null> {
+		if (!focusedReview) return 'This review is no longer outstanding.';
+		try {
+			await reviewAction(companyId, focusedReview.source.reference, decision, feedback);
+			await attention.refresh();
+			await goto(`/${companyId}`);
+			return null;
+		} catch (cause) {
+			return cause instanceof Error ? cause.message : 'The review decision was not recorded.';
+		}
+	}
+
+	function closeFocusedReview() {
+		if (!focusedReview) return;
+		void goto(`/${companyId}?item=${encodeURIComponent(focusedReview.id)}`);
 	}
 
 	/* People holds its own conversation with the selected person, so a permanent
@@ -118,7 +162,7 @@
 		if (path === `${root}/people` || path.startsWith(`${root}/people/`)) return 'Linked · People';
 		if (path === `${root}/authority` || path.startsWith(`${root}/authority/`))
 			return 'Linked · Authority';
-		return 'Linked · Attention';
+		return focusedReview ? 'Linked · Outcome review' : 'Linked · Attention';
 	});
 
 	const tabs = $derived.by((): ShellTab[] => {
@@ -159,14 +203,23 @@
 
 {#snippet executiveRail()}
 	<ExecutiveRail
-		messages={executiveMessages}
-		execName="Exec"
+		messages={railMessages}
+		participantName={railActorName}
+		participantRole={railActorRole}
 		{companyId}
 		membershipRole="owner"
-		executiveConnected={execCanReceive(cockpit)}
+		connected={railConnected}
 		contextLabel={currentContext}
 		open={execRailOpen}
-		onask={askExec}
+		onask={askRail}
+		review={focusedReview
+			? {
+					title: focusedReview.title,
+					recommendation: focusedReview.recommendation,
+					onback: closeFocusedReview,
+					ondecide: decideFocusedReview
+				}
+			: null}
 	/>
 {/snippet}
 
@@ -175,8 +228,8 @@
 	companyName={companyName || companyId.charAt(0).toUpperCase() + companyId.slice(1)}
 	{companies}
 	{tabs}
-	execName="Exec"
-	execLive={execCanReceive(cockpit)}
+	execName={railActorName}
+	execLive={railConnected}
 	railOpen={execRailOpen}
 	onexectoggle={() => (execRailOpen = !execRailOpen)}
 	rail={railVisible ? executiveRail : null}

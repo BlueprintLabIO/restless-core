@@ -1,12 +1,10 @@
 <script lang="ts">
-	/* The executive rail for v3: the Chief of Staff, one gesture away on any
-	 * surface. It stays mounted and opens by taking real space — the page slides
-	 * left as the rail grows to its full width, nothing floats on top. Everything
-	 * it renders arrives as props; nothing is fetched here. Asking hands the text
-	 * to `onask`, which owns the one governed path to the executive. */
+	/* One contextual conversation rail. It normally belongs to the Exec; while
+	 * the owner focuses a review it belongs to that Work's accountable lead.
+	 * The rail stays mounted and takes real space rather than nesting another
+	 * chat inside the outcome surface. */
 
 	import { SvelteDate } from 'svelte/reactivity';
-	import { EXEC_FALLBACK_NAME } from '$lib/brand/brand';
 	import AttachmentList from '$lib/primitives/AttachmentList.svelte';
 	import Composer from '$lib/primitives/Composer.svelte';
 	import IntentReceipt from '$lib/primitives/IntentReceipt.svelte';
@@ -17,16 +15,19 @@
 
 	let {
 		messages = [],
-		execName = EXEC_FALLBACK_NAME,
+		participantName = 'Exec',
+		participantRole = 'Executive',
 		companyId,
 		membershipRole,
-		executiveConnected = false,
+		connected = false,
 		contextLabel = 'Current screen',
 		open = true,
-		onask = null
+		onask = null,
+		review = null
 	}: {
 		messages?: ThreadMessage[];
-		execName?: string;
+		participantName?: string;
+		participantRole?: string;
 		companyId: string;
 		membershipRole: string;
 		/**
@@ -35,12 +36,21 @@
 		 * it is true the rail is glass-locked instead of implying that conversation is
 		 * available. Runtime/provider administration stays outside the owner cockpit.
 		 */
-		executiveConnected?: boolean;
+		connected?: boolean;
 		contextLabel?: string;
 		open?: boolean;
 		/** Returns an error message, or null on success. Unwired: null, composer inert. */
 		onask?:
 			((text: string, files: File[], includeContext: boolean) => Promise<string | null>) | null;
+		review?: {
+			title: string;
+			recommendation: string;
+			onback: () => void;
+			ondecide: (
+				decision: 'accept' | 'request_changes',
+				feedback: string
+			) => Promise<string | null>;
+		} | null;
 	} = $props();
 
 	const canOperate = $derived(['owner', 'operator'].includes(membershipRole ?? ''));
@@ -77,6 +87,8 @@
 	let composerFiles = $state<File[]>([]);
 	let includeContext = $state(true);
 	let askError = $state('');
+	let reviewError = $state('');
+	let deciding = $state(false);
 	let scrollEl = $state<HTMLDivElement | undefined>();
 
 	/* keep the newest word in view — only while the rail is actually showing */
@@ -110,43 +122,76 @@
 			sending = false;
 		}
 	}
+
+	const reviewFeedback = $derived(
+		composer.trim() || messages.findLast((message) => message.from === 'you')?.text.trim() || ''
+	);
+
+	async function decideReview(decision: 'accept' | 'request_changes') {
+		if (!review || deciding) return;
+		const feedback = decision === 'request_changes' ? reviewFeedback : '';
+		if (decision === 'request_changes' && !feedback) {
+			reviewError = 'Write the exact change you want first.';
+			return;
+		}
+		deciding = true;
+		reviewError = '';
+		try {
+			const failure = await review.ondecide(decision, feedback);
+			if (failure) reviewError = failure;
+			else composer = '';
+		} finally {
+			deciding = false;
+		}
+	}
 </script>
 
 <aside
 	id="bridge-exrail"
 	class="bridge-exrail"
 	class:open
-	aria-label="Executive conversation"
+	aria-label={`${participantRole} conversation`}
 	aria-hidden={!open}
 	inert={!open}
 >
-	{#if !executiveConnected}
+	{#if !connected}
 		<div class="exr-lock">
 			<div class="exr-lock-card">
 				<span class="exr-lock-badge" aria-hidden="true"
 					><MatrixGlyph rows={GLYPHS.p} size={18} glow /></span
 				>
-				<h2 class="exr-lock-h">Executive unavailable</h2>
+				<h2 class="exr-lock-h">{participantRole} unavailable</h2>
 				<p class="exr-lock-p">
-					The company computer has not confirmed that {execName} is reachable. Conversation will open
-					automatically when the live connection returns.
+					The company computer has not confirmed that {participantName} is reachable. Conversation will
+					open automatically when the live connection returns.
 				</p>
 				<p class="exr-lock-note">Connection is managed by the company computer.</p>
 			</div>
 		</div>
 	{/if}
-	<div class="exr-inner" inert={!executiveConnected}>
+	<div class="exr-inner" inert={!connected}>
 		<header class="exr-head">
 			<div class="exr-who">
-				<SemanticMark meaning="executive" />
+				<SemanticMark meaning={review ? 'work' : 'executive'} />
 				<span>
-					<strong class="exr-name">Executive</strong>
-					<small class="exr-sub">Context follows the focused work</small>
+					<strong class="exr-name">{participantName}</strong>
+					<small class="exr-sub">{participantRole}</small>
 				</span>
 			</div>
+			{#if review}
+				<button class="rail-back" type="button" onclick={review.onback}>Back to inbox</button>
+			{/if}
 		</header>
 
 		<div class="exr-msgs" bind:this={scrollEl}>
+			{#if review}
+				<div class="review-context">
+					<span>Outcome under review</span>
+					<strong>{review.title}</strong>
+					<p>{review.recommendation}</p>
+					<small>Discussion stays open until you make an explicit decision below.</small>
+				</div>
+			{/if}
 			{#each messages as message, i (message.id)}
 				{#if i === 0 || dayOf(message.createdAt) !== dayOf(messages[i - 1].createdAt)}
 					<div class="day-sep" aria-hidden="true"><span>{dayLabel(message.createdAt)}</span></div>
@@ -157,7 +202,7 @@
 							{#if message.from === 'agent'}
 								<MatrixGlyph rows={GLYPHS.p} size={7} />
 							{/if}
-							<span>{message.from === 'you' ? 'You' : message.author || execName}</span>
+							<span>{message.from === 'you' ? 'You' : message.author || participantName}</span>
 							<time>{timeLabel(message.createdAt)}</time>
 						</div>
 						{#if message.from === 'system'}
@@ -183,15 +228,16 @@
 				</div>
 			{:else}
 				<div class="exr-empty">
-					<p class="exr-empty-h">Ask anything.</p>
+					<p class="exr-empty-h">{review ? `Talk to ${participantName}.` : 'Ask anything.'}</p>
 					<p class="exr-empty-p">
-						The executive reads the whole company record before it answers — goals, staff, work in
-						flight, and what needs your word.
+						{review
+							? 'This conversation is scoped to the reviewed Work and its evidence.'
+							: 'The executive reads the whole company record before it answers — goals, staff, work in flight, and what needs your word.'}
 					</p>
 				</div>
 			{/each}
 			{#if waiting}
-				<div class="exr-thinking" aria-label="The executive is preparing an answer">
+				<div class="exr-thinking" aria-label={`${participantName} is preparing an answer`}>
 					<i></i><i></i><i></i>
 				</div>
 			{/if}
@@ -202,8 +248,10 @@
 				bind:value={composer}
 				bind:files={composerFiles}
 				disabled={!canOperate || !onask}
-				placeholder="Ask, redirect, or make a judgement…"
-				ariaLabel={`Ask ${execName}`}
+				placeholder={review
+					? `Ask ${participantName}, or write exact revision feedback…`
+					: 'Ask, redirect, or make a judgement…'}
+				ariaLabel={`Ask ${participantName}`}
 			>
 				{#snippet controls()}
 					<div class="exec-context-line">
@@ -222,12 +270,103 @@
 				{/snippet}
 			</Composer>
 			<div class="composer-foot">
-				<span>Exec interprets intent and confirms consequential changes</span>
+				<span
+					>{review
+						? 'Sending is discussion only'
+						: 'Exec interprets intent and confirms consequential changes'}</span
+				>
 				<span>⌘ ↵ send</span>
 			</div>
 			{#if askError}
 				<p class="exr-error" role="alert">{askError}</p>
 			{/if}
 		</form>
+		{#if review}
+			<section class="rail-review-gate" aria-label="Review decision">
+				<span>Your decision</span>
+				<div>
+					<button
+						class="btn small primary"
+						type="button"
+						disabled={deciding}
+						onclick={() => decideReview('accept')}
+					>
+						{deciding ? 'Recording…' : 'Accept outcome'}
+					</button>
+					<button
+						class="btn small danger"
+						type="button"
+						disabled={deciding || !reviewFeedback}
+						onclick={() => decideReview('request_changes')}
+					>
+						Request changes
+					</button>
+				</div>
+				<small>Your typed note, or latest delivered message, becomes the next revision brief.</small
+				>
+				{#if reviewError}<p role="alert">{reviewError}</p>{/if}
+			</section>
+		{/if}
 	</div>
 </aside>
+
+<style>
+	.rail-back {
+		flex: none;
+		padding: 5px 8px;
+		border: 1px solid var(--control-edge);
+		border-radius: var(--radius-control);
+		background: rgba(255, 255, 255, 0.58);
+		color: var(--text-secondary);
+		font: 500 var(--t-label) var(--font-mono);
+		cursor: pointer;
+	}
+	.review-context {
+		display: grid;
+		gap: 5px;
+		padding: 14px 15px;
+		border-bottom: 1px solid var(--border);
+		background: var(--intent-feedback-soft);
+	}
+	.review-context > span,
+	.rail-review-gate > span {
+		font: 600 var(--t-label) var(--font-mono);
+		letter-spacing: 0.07em;
+		text-transform: uppercase;
+		color: var(--intent-feedback);
+	}
+	.review-context strong {
+		font-size: var(--t-body);
+	}
+	.review-context p,
+	.review-context small {
+		margin: 0;
+		line-height: 1.45;
+		color: var(--text-secondary);
+	}
+	.review-context small {
+		color: var(--text-tertiary);
+	}
+	.rail-review-gate {
+		display: grid;
+		gap: 8px;
+		padding: 12px 14px 14px;
+		border-top: 1px solid var(--border-strong);
+		background: color-mix(in srgb, var(--intent-feedback-soft) 60%, white);
+	}
+	.rail-review-gate > div {
+		display: grid;
+		grid-template-columns: 1fr 1fr;
+		gap: 8px;
+	}
+	.rail-review-gate small,
+	.rail-review-gate p {
+		margin: 0;
+		font-size: var(--t-label);
+		line-height: 1.4;
+		color: var(--text-tertiary);
+	}
+	.rail-review-gate p {
+		color: var(--danger);
+	}
+</style>

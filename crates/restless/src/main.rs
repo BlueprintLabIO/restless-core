@@ -457,6 +457,19 @@ enum WorkCommand {
         #[arg(long)]
         revises: Vec<String>,
     },
+    /// Move unsettled Work to another durable actor.
+    Assign {
+        #[arg(long, short = 'c', env = "RESTLESS_COMPANY")]
+        company: Option<String>,
+        #[arg(long)]
+        work: String,
+        #[arg(long)]
+        owner: String,
+        #[arg(long)]
+        reason: String,
+        #[arg(long = "as", env = "RESTLESS_ACTOR")]
+        as_actor: Option<String>,
+    },
     Edge {
         #[arg(long, short = 'c', env = "RESTLESS_COMPANY")]
         company: Option<String>,
@@ -523,6 +536,22 @@ enum WorkCommand {
         prepared: String,
         #[arg(long)]
         resume_when: String,
+    },
+    /// Replace stale prepared evidence on an outstanding handoff without
+    /// resolving it or creating a second owner request.
+    RefreshHandoff {
+        #[arg(long, short = 'c', env = "RESTLESS_COMPANY")]
+        company: Option<String>,
+        #[arg(long)]
+        handoff: String,
+        #[arg(long)]
+        action: String,
+        #[arg(long)]
+        prepared: String,
+        #[arg(long)]
+        resume_when: String,
+        #[arg(long = "as", env = "RESTLESS_ACTOR")]
+        as_actor: Option<String>,
     },
     /// Record the observed outcome of one prepared owner handoff.
     ResolveHandoff {
@@ -1054,6 +1083,16 @@ fn request_json(command: Command) -> Result<serde_json::Value> {
                 "attempt_limit": attempt_limit, "goal": goal,
                 "requires": requires, "revises": revises,
             }),
+            WorkCommand::Assign {
+                company,
+                work,
+                owner,
+                reason,
+                as_actor,
+            } => serde_json::json!({
+                "cmd": "work-assign", "company": company, "id": work, "to": owner,
+                "reason": reason, "actor": as_actor.unwrap_or_else(acting_actor),
+            }),
             WorkCommand::Edge {
                 company,
                 from,
@@ -1107,6 +1146,19 @@ fn request_json(command: Command) -> Result<serde_json::Value> {
                 "category": category, "action": action, "prepared": prepared,
                 "resume_when": resume_when,
                 "actor": std::env::var("RESTLESS_ACTOR").unwrap_or_else(|_| "owner".to_string()),
+            }),
+            WorkCommand::RefreshHandoff {
+                company,
+                handoff,
+                action,
+                prepared,
+                resume_when,
+                as_actor,
+            } => serde_json::json!({
+                "cmd": "work-handoff-refresh", "company": company, "id": handoff,
+                "action": action, "prepared": prepared, "resume_when": resume_when,
+                "as_actor": as_actor.or_else(|| std::env::var("RESTLESS_ACTOR").ok())
+                    .unwrap_or_else(|| "owner".to_string()),
             }),
             WorkCommand::EscalateHandoff {
                 company,

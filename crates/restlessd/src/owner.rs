@@ -14,11 +14,13 @@ use std::time::{Duration, SystemTime};
 use anyhow::{Context as _, Result};
 use axum::body::Body;
 use axum::extract::ws::{Message as AxumMessage, WebSocket, WebSocketUpgrade};
-use axum::extract::{DefaultBodyLimit, Multipart, Path as AxumPath, Query, State};
-use axum::http::header::{CACHE_CONTROL, CONTENT_DISPOSITION, CONTENT_TYPE, COOKIE, SET_COOKIE};
-use axum::http::{HeaderMap, HeaderValue, Response, StatusCode};
+use axum::extract::{DefaultBodyLimit, Multipart, OriginalUri, Path as AxumPath, Query, State};
+use axum::http::header::{
+    CACHE_CONTROL, CONTENT_DISPOSITION, CONTENT_TYPE, COOKIE, HOST, SET_COOKIE,
+};
+use axum::http::{HeaderMap, HeaderValue, Method, Response, StatusCode};
 use axum::response::{IntoResponse, Redirect};
-use axum::routing::{get, post};
+use axum::routing::{any, get, post};
 use axum::{Json, Router};
 use chrono::{Duration as ChronoDuration, Utc};
 use futures_util::{SinkExt as _, StreamExt as _};
@@ -34,6 +36,7 @@ const OWNER_COOKIE: &str = "restless_owner";
 const ATTACH_COOKIE: &str = "restless_attach";
 const TICKET_TTL: Duration = Duration::from_secs(30);
 const ATTACH_TTL: Duration = Duration::from_secs(30 * 60);
+const REVIEW_TTL: Duration = Duration::from_secs(30 * 60);
 const CONTROL_TTL_SECONDS: i64 = 45;
 const MAX_ATTACHMENTS: usize = 6;
 const MAX_ATTACHMENT_BYTES: usize = 5 * 1024 * 1024;
@@ -48,6 +51,8 @@ struct OwnerState {
     daemon: Arc<Daemon>,
     tickets: Arc<Mutex<HashMap<String, AttachTicket>>>,
     attaches: Arc<Mutex<HashMap<String, AttachSession>>>,
+    reviews: Arc<Mutex<HashMap<String, ReviewSession>>>,
+    review_public_url: String,
     secure_cookie: bool,
 }
 
@@ -66,6 +71,16 @@ struct AttachSession {
     company: String,
     client_id: String,
     requesting_actor: Option<String>,
+    expires_at: SystemTime,
+}
+
+#[derive(Clone)]
+struct ReviewSession {
+    company: String,
+    generation: String,
+    item_id: String,
+    port: u16,
+    expected_host: String,
     expires_at: SystemTime,
 }
 
@@ -149,6 +164,17 @@ struct TicketResponse {
 }
 
 #[derive(Debug, Deserialize)]
+struct ReviewTicketRequest {
+    item_id: String,
+}
+
+#[derive(Debug, Serialize)]
+struct ReviewTicketResponse {
+    review_url: String,
+    expires_in_seconds: u64,
+}
+
+#[derive(Debug, Deserialize)]
 struct TicketQuery {
     ticket: String,
 }
@@ -188,10 +214,22 @@ pub async fn serve(daemon: Arc<Daemon>) -> Result<()> {
     let secure_cookie = std::env::var("RESTLESS_OWNER_SECURE_COOKIE")
         .map(|value| value != "0" && !value.eq_ignore_ascii_case("false"))
         .unwrap_or(false);
+    let review_address = std::env::var("RESTLESS_REVIEW_ADDR")
+        // 7788 is the owner gateway, 7789 the auth broker, 7790 the model
+        // gateway, 7791 coordination, 7792 ingress and 7793 Infisical. Keep
+        // review on its own local origin.
+        .unwrap_or_else(|_| "127.0.0.1:7794".to_string())
+        .parse::<SocketAddr>()
+        .context("parse RESTLESS_REVIEW_ADDR")?;
+    let review_public_url = std::env::var("RESTLESS_REVIEW_PUBLIC_URL")
+        .unwrap_or_else(|_| format!("http://{{ticket}}.localhost:{}", review_address.port()));
+    validate_review_public_url(&review_public_url)?;
     let state = OwnerState {
         daemon,
         tickets: Arc::new(Mutex::new(HashMap::new())),
         attaches: Arc::new(Mutex::new(HashMap::new())),
+        reviews: Arc::new(Mutex::new(HashMap::new())),
+        review_public_url,
         secure_cookie,
     };
 
@@ -218,6 +256,10 @@ pub async fn serve(daemon: Arc<Daemon>) -> Result<()> {
         .route("/companies/{company}/approvals/decline", post(decline))
         .route("/companies/{company}/approvals/revoke", post(revoke))
         .route("/companies/{company}/browser/ticket", post(issue_ticket))
+        .route(
+            "/companies/{company}/reviews/ticket",
+            post(issue_review_ticket),
+        )
         .route("/companies/{company}/browser/status", get(browser_status))
         .route("/companies/{company}/browser/take", post(take_control))
         .route("/companies/{company}/browser/heartbeat", post(heartbeat))
@@ -234,13 +276,27 @@ pub async fn serve(daemon: Arc<Daemon>) -> Result<()> {
         .route("/desktop/{company}/websockify", get(desktop_websocket))
         .route("/desktop/{company}/{*asset}", get(desktop_asset))
         .fallback_service(static_files)
-        .with_state(state);
+        .with_state(state.clone());
+
+    // A separate origin is load-bearing. Reviewed company code may run
+    // JavaScript and use root-relative assets, but it must never inherit the
+    // host-only owner cookie used by the cockpit API.
+    let preview = Router::new().fallback(any(review_proxy)).with_state(state);
 
     let listener = tokio::net::TcpListener::bind(address)
         .await
         .with_context(|| format!("bind owner gateway {address}"))?;
+    let preview_listener = tokio::net::TcpListener::bind(review_address)
+        .await
+        .with_context(|| format!("bind review gateway {review_address}"))?;
     tracing::info!(addr = %address, "owner gateway listening");
-    axum::serve(listener, app).await.context("owner gateway")
+    tracing::info!(addr = %review_address, "isolated review gateway listening");
+    tokio::try_join!(
+        axum::serve(listener, app),
+        axum::serve(preview_listener, preview)
+    )
+    .map(|_| ())
+    .context("owner gateways")
 }
 
 /// Generate/rotate the one-owner credential. Only its digest is persisted;
@@ -1275,6 +1331,249 @@ async fn revoke(
     }
 }
 
+async fn issue_review_ticket(
+    State(state): State<OwnerState>,
+    AxumPath(company): AxumPath<String>,
+    headers: HeaderMap,
+    Json(input): Json<ReviewTicketRequest>,
+) -> impl IntoResponse {
+    if let Some(response) = require_owner(&state, &headers) {
+        return response;
+    }
+    let config = match runtime::CompanyConfig::load(&state.daemon.root, &company) {
+        Ok(config) => config,
+        Err(error) => return api_error(StatusCode::NOT_FOUND, "company", format!("{error:#}")),
+    };
+    let org = state.daemon.orgintel.get(&company).await.ok();
+    let view = match attention::project(&config, &state.daemon.authority, org.as_ref()).await {
+        Ok(view) => view,
+        Err(error) => {
+            return api_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "projection",
+                format!("{error:#}"),
+            )
+        }
+    };
+    let Some(item) = view.items.iter().find(|item| item.id == input.item_id) else {
+        return api_error(
+            StatusCode::NOT_FOUND,
+            "attention",
+            "review is no longer outstanding",
+        );
+    };
+    let Some(reference) = item.review_target.as_ref() else {
+        return api_error(
+            StatusCode::CONFLICT,
+            "review",
+            "this item has no directly reviewable web outcome",
+        );
+    };
+    let current = runtime::generation(&company).await.ok().flatten();
+    if current.as_deref() != Some(reference.generation.as_str()) {
+        return api_error(
+            StatusCode::CONFLICT,
+            "runtime",
+            "runtime generation changed; refresh the review",
+        );
+    }
+    let target = match runtime::runtime_http_target(&reference.uri) {
+        Ok(target) => target,
+        Err(error) => {
+            return api_error(
+                StatusCode::BAD_REQUEST,
+                "review",
+                format!("invalid review target: {error:#}"),
+            )
+        }
+    };
+    if let Err(error) = runtime::probe_runtime_http(&company, &reference.uri).await {
+        return api_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "review",
+            format!("live outcome is unavailable: {error:#}"),
+        );
+    }
+
+    let ticket = Uuid::new_v4().simple().to_string();
+    let (review_url, expected_host) =
+        match materialize_review_url(&state.review_public_url, &ticket, &target.path_and_query) {
+            Ok(value) => value,
+            Err(error) => {
+                return api_error(
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    "review",
+                    format!("review origin is invalid: {error:#}"),
+                )
+            }
+        };
+    state.reviews.lock().expect("review registry").insert(
+        ticket,
+        ReviewSession {
+            company: company.clone(),
+            generation: reference.generation.clone(),
+            item_id: item.id.clone(),
+            port: target.port,
+            expected_host,
+            expires_at: SystemTime::now() + REVIEW_TTL,
+        },
+    );
+    Json(ReviewTicketResponse {
+        review_url,
+        expires_in_seconds: REVIEW_TTL.as_secs(),
+    })
+    .into_response()
+}
+
+async fn review_proxy(
+    State(state): State<OwnerState>,
+    method: Method,
+    OriginalUri(uri): OriginalUri,
+    headers: HeaderMap,
+) -> Response<Body> {
+    if !matches!(method, Method::GET | Method::HEAD) {
+        return api_error(
+            StatusCode::METHOD_NOT_ALLOWED,
+            "review",
+            "review previews are read-only",
+        );
+    }
+    let host = headers
+        .get(HOST)
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or_default()
+        .to_string();
+    let token = host
+        .split(':')
+        .next()
+        .and_then(|hostname| hostname.split('.').next())
+        .unwrap_or_default();
+    if token.len() != 32 || !token.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        return api_error(
+            StatusCode::UNAUTHORIZED,
+            "review",
+            "review ticket is invalid",
+        );
+    }
+    let session = {
+        let mut reviews = state.reviews.lock().expect("review registry");
+        reviews.retain(|_, review| review.expires_at > SystemTime::now());
+        reviews
+            .get(token)
+            .filter(|review| review.expected_host.eq_ignore_ascii_case(&host))
+            .cloned()
+    };
+    let Some(session) = session else {
+        return api_error(
+            StatusCode::UNAUTHORIZED,
+            "review",
+            "review ticket is absent or expired",
+        );
+    };
+    let current = runtime::generation(&session.company).await.ok().flatten();
+    if current.as_deref() != Some(session.generation.as_str()) {
+        return api_error(
+            StatusCode::CONFLICT,
+            "runtime",
+            "review points at a replaced company computer",
+        );
+    }
+    let path = uri
+        .path_and_query()
+        .map(|value| value.as_str())
+        .unwrap_or("/");
+    let upstream =
+        match runtime::runtime_http_request(&session.company, session.port, method, path, &headers)
+            .await
+        {
+            Ok(response) => response,
+            Err(error) => {
+                return api_error(
+                    StatusCode::BAD_GATEWAY,
+                    "review",
+                    format!("live outcome bridge: {error:#}"),
+                )
+            }
+        };
+    let (parts, body) = upstream.into_parts();
+    let mut response = Response::from_parts(parts, Body::new(body));
+    for name in [
+        "connection",
+        "keep-alive",
+        "proxy-authenticate",
+        "proxy-authorization",
+        "set-cookie",
+        "te",
+        "trailer",
+        "transfer-encoding",
+        "upgrade",
+        // The preview iframe is already isolated on its own origin and
+        // sandboxed by the cockpit. Upstream anti-framing headers describe a
+        // public deployment, not this owner-only review projection.
+        "content-security-policy",
+        "x-frame-options",
+    ] {
+        response.headers_mut().remove(name);
+    }
+    response
+        .headers_mut()
+        .insert(CACHE_CONTROL, HeaderValue::from_static("no-store"));
+    response
+        .headers_mut()
+        .insert("referrer-policy", HeaderValue::from_static("no-referrer"));
+    response.headers_mut().insert(
+        "x-content-type-options",
+        HeaderValue::from_static("nosniff"),
+    );
+    tracing::debug!(
+        company = %session.company,
+        item = %session.item_id,
+        path,
+        "served isolated live review"
+    );
+    response
+}
+
+fn validate_review_public_url(template: &str) -> Result<()> {
+    if template.matches("{ticket}").count() != 1 {
+        anyhow::bail!("RESTLESS_REVIEW_PUBLIC_URL must contain one {{ticket}} placeholder");
+    }
+    let (url, _) = materialize_review_url(template, &"a".repeat(32), "/")?;
+    let parsed = url::Url::parse(&url)?;
+    if !matches!(parsed.scheme(), "http" | "https") || parsed.host_str().is_none() {
+        anyhow::bail!("review public URL must be an http(s) origin");
+    }
+    Ok(())
+}
+
+fn materialize_review_url(
+    template: &str,
+    ticket: &str,
+    path_and_query: &str,
+) -> Result<(String, String)> {
+    let mut url = url::Url::parse(&template.replace("{ticket}", ticket))?;
+    let hostname = url
+        .host_str()
+        .context("review public URL has no host")?
+        .to_string();
+    if !hostname.starts_with(&format!("{ticket}.")) {
+        anyhow::bail!("review ticket must be the first hostname label");
+    }
+    if url.path() != "/" || url.query().is_some() || url.fragment().is_some() {
+        anyhow::bail!("review public URL must be an origin without a path, query, or fragment");
+    }
+    let (path, query) = path_and_query
+        .split_once('?')
+        .map_or((path_and_query, None), |(path, query)| (path, Some(query)));
+    url.set_path(path);
+    url.set_query(query);
+    let expected_host = match url.port() {
+        Some(port) => format!("{hostname}:{port}"),
+        None => hostname,
+    };
+    Ok((url.to_string(), expected_host))
+}
+
 async fn issue_ticket(
     State(state): State<OwnerState>,
     AxumPath(company): AxumPath<String>,
@@ -1881,6 +2180,24 @@ mod tests {
             digest.as_bytes(),
             token_digest("wrong-token").as_bytes()
         ));
+    }
+
+    #[test]
+    fn review_url_uses_ticket_as_an_isolated_origin_and_preserves_route() {
+        let ticket = "0123456789abcdef0123456789abcdef";
+        let (url, host) = materialize_review_url(
+            "http://{ticket}.localhost:7794",
+            ticket,
+            "/for-tutoring-centres?language=en",
+        )
+        .unwrap();
+        assert_eq!(
+            url,
+            "http://0123456789abcdef0123456789abcdef.localhost:7794/for-tutoring-centres?language=en"
+        );
+        assert_eq!(host, "0123456789abcdef0123456789abcdef.localhost:7794");
+        assert!(materialize_review_url("http://localhost:7794/{ticket}", ticket, "/").is_err());
+        assert!(validate_review_public_url("http://preview.localhost:7794").is_err());
     }
 
     #[test]

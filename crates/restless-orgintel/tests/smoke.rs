@@ -1257,3 +1257,155 @@ async fn superseded_work_is_abandoned_with_attribution_but_never_while_running()
 
     org.drop_schema().await.unwrap();
 }
+
+#[tokio::test]
+async fn unsettled_work_reassignment_is_attributed_and_never_steals_a_running_attempt() {
+    let Ok(url) = std::env::var("RESTLESS_TEST_DATABASE_URL") else {
+        eprintln!("RESTLESS_TEST_DATABASE_URL unset; skipping Work reassignment test");
+        return;
+    };
+    let company = format!("assign{}", uuid::Uuid::new_v4().simple());
+    let org = OrgIntel::ensure(&url, &company).await.unwrap();
+    org.add_actor("owner", "owner", "The Owner").await.unwrap();
+    org.add_actor("exec", "exec", "The Exec").await.unwrap();
+    org.add_actor("builder-a", "builder", "Builder A")
+        .await
+        .unwrap();
+    org.add_actor("builder-b", "builder", "Builder B")
+        .await
+        .unwrap();
+    let work = org
+        .add_work(NewWork {
+            owner_id: "builder-a",
+            title: "Outcome with a new accountable owner",
+            outcome: "the reassigned actor receives the same durable responsibility",
+            goal_id: None,
+            priority: 20,
+            expected_artifact: "",
+            workspace: WorkspaceSpec::default(),
+            attempt_limit: Some(2),
+        })
+        .await
+        .unwrap();
+
+    assert_eq!(
+        org.reassign_work(
+            work,
+            "builder-b",
+            "owner",
+            "Builder B now leads this outcome"
+        )
+        .await
+        .unwrap(),
+        "builder-a"
+    );
+    assert_eq!(
+        org.get_work(work).await.unwrap().unwrap().owner_id,
+        "builder-b"
+    );
+    assert!(org
+        .reassign_work(
+            work,
+            "builder-a",
+            "builder-b",
+            "take it back without a team"
+        )
+        .await
+        .unwrap_err()
+        .to_string()
+        .contains("lead may only"));
+
+    let attempt = org
+        .claim_ready_work("reassigned owner starts")
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(attempt.work.owner_id, "builder-b");
+    assert!(org
+        .reassign_work(work, "builder-a", "owner", "do not steal a live process")
+        .await
+        .unwrap_err()
+        .to_string()
+        .contains("running Attempt"));
+    org.finish_work_attempt(
+        attempt.attempt_id,
+        WorkAttemptState::Failed,
+        "stopped for repair",
+    )
+    .await
+    .unwrap();
+    org.reassign_work(
+        work,
+        "builder-a",
+        "owner",
+        "Builder A owns the repaired mechanism",
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        org.get_work(work).await.unwrap().unwrap().owner_id,
+        "builder-a"
+    );
+    assert!(
+        org.list_events(10)
+            .await
+            .unwrap()
+            .iter()
+            .any(|event| event.kind == "work_reassigned"
+                && event.actor_id.as_deref() == Some("owner"))
+    );
+
+    let handoff = org
+        .request_owner_handoff(NewOwnerHandoff {
+            work_id: work,
+            attempt_id: None,
+            requested_by: "builder-a",
+            category: OwnerHandoffCategory::OwnerJudgement,
+            requested_action: "Review the first candidate",
+            prepared_state: "Candidate commit old is running",
+            resume_condition: "Owner accepts or requests changes",
+        })
+        .await
+        .unwrap();
+    org.refresh_owner_handoff(
+        handoff,
+        "builder-a",
+        "Review the exact final candidate",
+        "Candidate commit final is running and its gates passed",
+        "Owner accepts this exact commit or requests exact changes",
+    )
+    .await
+    .unwrap();
+    let refreshed = org
+        .list_owner_handoffs()
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|row| row.id == handoff)
+        .unwrap();
+    assert_eq!(
+        refreshed.requested_action,
+        "Review the exact final candidate"
+    );
+    assert_eq!(
+        refreshed.prepared_state,
+        "Candidate commit final is running and its gates passed"
+    );
+    assert!(org
+        .refresh_owner_handoff(
+            handoff,
+            "builder-b",
+            "Replace another actor's review",
+            "Unattributed replacement",
+            "Owner decides",
+        )
+        .await
+        .unwrap_err()
+        .to_string()
+        .contains("only the Work owner"));
+    assert!(org.list_events(10).await.unwrap().iter().any(|event| {
+        event.kind == "owner_handoff_refreshed" && event.actor_id.as_deref() == Some("builder-a")
+    }));
+
+    org.drop_schema().await.unwrap();
+}

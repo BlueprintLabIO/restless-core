@@ -9,6 +9,11 @@ use std::task::{Context as TaskContext, Poll};
 
 use anyhow::{bail, Context, Result};
 use chrono::{DateTime, Utc};
+use http_body_util::Empty;
+use hyper::body::{Bytes, Incoming};
+use hyper::client::conn::http1;
+use hyper::{HeaderMap, Method, Request, Response, Uri};
+use hyper_util::rt::TokioIo;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt, ReadBuf};
@@ -562,6 +567,112 @@ pub struct DesktopStream {
     stdout: ChildStdout,
 }
 
+/// A reviewed web outcome is an ordinary HTTP project service inside the
+/// company computer. Only loopback HTTP services are eligible, and the
+/// desktop/browser control ports are deliberately excluded: review is a
+/// read-only outcome surface, never a second way around the browser handoff.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RuntimeHttpTarget {
+    pub port: u16,
+    pub path_and_query: String,
+}
+
+pub fn runtime_http_target(value: &str) -> Result<RuntimeHttpTarget> {
+    let url = url::Url::parse(value).context("parse runtime review URL")?;
+    if url.scheme() != "http"
+        || !matches!(url.host_str(), Some("127.0.0.1" | "localhost"))
+        || !url.username().is_empty()
+        || url.password().is_some()
+        || url.fragment().is_some()
+    {
+        bail!("review target must be an uncredentialed loopback http URL");
+    }
+    let port = url.port_or_known_default().unwrap_or(80);
+    if matches!(port, 5901 | 6080 | 9222 | 9223) {
+        bail!("review target names a reserved browser/desktop port");
+    }
+    let mut path_and_query = url.path().to_string();
+    if path_and_query.is_empty() {
+        path_and_query.push('/');
+    }
+    if let Some(query) = url.query() {
+        path_and_query.push('?');
+        path_and_query.push_str(query);
+    }
+    Ok(RuntimeHttpTarget {
+        port,
+        path_and_query,
+    })
+}
+
+/// Issue one GET/HEAD over a private `docker exec socat` stream. The project
+/// service remains unpublished; the owner gateway is the only host-side
+/// transport and decides which headers and methods may cross it.
+pub async fn runtime_http_request(
+    company: &str,
+    port: u16,
+    method: Method,
+    path_and_query: &str,
+    headers: &HeaderMap,
+) -> Result<Response<Incoming>> {
+    if !matches!(method, Method::GET | Method::HEAD) {
+        bail!("runtime review transport is read-only");
+    }
+    let uri: Uri = path_and_query
+        .parse()
+        .context("parse runtime request path")?;
+    if uri.scheme().is_some() || uri.authority().is_some() {
+        bail!("runtime request must use an origin-relative path");
+    }
+    let stream = private_tcp_stream(company, port).await?;
+    let (mut sender, connection) = http1::handshake(TokioIo::new(stream))
+        .await
+        .context("open runtime HTTP connection")?;
+    tokio::spawn(async move {
+        if let Err(error) = connection.await {
+            tracing::debug!("runtime review HTTP connection ended: {error}");
+        }
+    });
+
+    let mut request = Request::builder()
+        .method(method)
+        .uri(uri)
+        .header("host", format!("127.0.0.1:{port}"))
+        .header("connection", "close");
+    for name in [
+        hyper::header::ACCEPT,
+        hyper::header::ACCEPT_LANGUAGE,
+        hyper::header::IF_MODIFIED_SINCE,
+        hyper::header::IF_NONE_MATCH,
+        hyper::header::RANGE,
+    ] {
+        if let Some(value) = headers.get(&name) {
+            request = request.header(name, value);
+        }
+    }
+    sender
+        .send_request(request.body(Empty::<Bytes>::new())?)
+        .await
+        .context("request runtime web outcome")
+}
+
+pub async fn probe_runtime_http(company: &str, value: &str) -> Result<()> {
+    let target = runtime_http_target(value)?;
+    let response = runtime_http_request(
+        company,
+        target.port,
+        Method::HEAD,
+        &target.path_and_query,
+        &HeaderMap::new(),
+    )
+    .await?;
+    if response.status().is_success() || response.status().is_redirection() {
+        Ok(())
+    } else {
+        bail!("runtime review target returned {}", response.status())
+    }
+}
+
 impl AsyncRead for DesktopStream {
     fn poll_read(
         mut self: Pin<&mut Self>,
@@ -594,6 +705,10 @@ impl AsyncWrite for DesktopStream {
 }
 
 pub async fn desktop_stream(company: &str) -> Result<DesktopStream> {
+    private_tcp_stream(company, 6080).await
+}
+
+async fn private_tcp_stream(company: &str, port: u16) -> Result<DesktopStream> {
     let mut child = tokio::process::Command::new("docker")
         .args([
             "exec",
@@ -601,7 +716,7 @@ pub async fn desktop_stream(company: &str) -> Result<DesktopStream> {
             &container_name(company),
             "socat",
             "STDIO",
-            "TCP:127.0.0.1:6080",
+            &format!("TCP:127.0.0.1:{port}"),
         ])
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -1115,7 +1230,7 @@ pub fn state_root() -> PathBuf {
 mod tests {
     use super::{
         move_active_config_to_archive, move_archived_config_to_active,
-        normalize_expired_browser_control, CompanyConfig,
+        normalize_expired_browser_control, runtime_http_target, CompanyConfig,
     };
 
     #[test]
@@ -1163,6 +1278,23 @@ model_failover = ["anthropic/claude-haiku-4-5", "zai/glm-5"]
         );
         config.model_failover.push("moonshot/kimi-k3".into());
         assert!(config.model_candidates().is_err());
+    }
+
+    #[test]
+    fn review_targets_are_loopback_http_but_never_browser_control() {
+        let target =
+            runtime_http_target("http://127.0.0.1:4173/for-tutoring-centres?language=en").unwrap();
+        assert_eq!(target.port, 4173);
+        assert_eq!(target.path_and_query, "/for-tutoring-centres?language=en");
+        for refused in [
+            "https://127.0.0.1:4173/",
+            "http://example.com:4173/",
+            "http://localhost:6080/vnc.html",
+            "http://127.0.0.1:9223/json/version",
+            "http://user:secret@localhost:4173/",
+        ] {
+            assert!(runtime_http_target(refused).is_err(), "accepted {refused}");
+        }
     }
 
     #[test]

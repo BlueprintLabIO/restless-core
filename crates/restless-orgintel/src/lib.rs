@@ -1351,6 +1351,107 @@ impl OrgIntel {
         .await?)
     }
 
+    /// Move an unsettled responsibility to another durable actor. This is
+    /// ordinary recoverable coordination: owner/Exec may repair any assignment,
+    /// while a lead may only move Work between members of the team it leads.
+    pub async fn reassign_work(
+        &self,
+        work_id: Uuid,
+        new_owner_id: &str,
+        changed_by: &str,
+        reason: &str,
+    ) -> Result<String> {
+        if reason.trim().is_empty() {
+            return Err(OrgIntelError::InvalidWork(
+                "reassigning Work needs the outcome or repair this change buys".into(),
+            ));
+        }
+        let mut tx = self.pool.begin().await?;
+        let row = sqlx::query("SELECT owner_id, status FROM work WHERE id=$1 FOR UPDATE")
+            .bind(work_id)
+            .fetch_optional(&mut *tx)
+            .await?
+            .ok_or_else(|| OrgIntelError::InvalidWork(format!("Work {work_id} does not exist")))?;
+        let previous_owner: String = row.get("owner_id");
+        let status: WorkStatus = row.get("status");
+        if matches!(status, WorkStatus::Completed | WorkStatus::Abandoned) {
+            return Err(OrgIntelError::InvalidWork(
+                "settled Work is historical; revise it instead of rewriting its owner".into(),
+            ));
+        }
+        if previous_owner == new_owner_id {
+            return Err(OrgIntelError::InvalidWork(
+                "Work is already assigned to that actor".into(),
+            ));
+        }
+        let new_owner_team: Option<Uuid> =
+            sqlx::query_scalar("SELECT team_id FROM actors WHERE id=$1 AND retired_at IS NULL")
+                .bind(new_owner_id)
+                .fetch_optional(&mut *tx)
+                .await?
+                .ok_or_else(|| {
+                    OrgIntelError::InvalidWork(format!(
+                        "new Work owner {new_owner_id:?} is not an existing active actor"
+                    ))
+                })?;
+        let coordinating_actor = sqlx::query(
+            "SELECT a.id, a.team_id, t.id AS led_team FROM actors a LEFT JOIN teams t \
+             ON t.lead_actor_id=a.id AND t.disbanded_at IS NULL \
+             WHERE a.id=$1 AND a.retired_at IS NULL",
+        )
+        .bind(changed_by)
+        .fetch_optional(&mut *tx)
+        .await?
+        .ok_or_else(|| {
+            OrgIntelError::InvalidWork(format!("coordinating actor {changed_by:?} is not active"))
+        })?;
+        let override_assignment = matches!(changed_by, "owner" | "exec");
+        if !override_assignment {
+            let led_team: Option<Uuid> = coordinating_actor.get("led_team");
+            let previous_owner_team: Option<Uuid> =
+                sqlx::query_scalar("SELECT team_id FROM actors WHERE id=$1 AND retired_at IS NULL")
+                    .bind(&previous_owner)
+                    .fetch_optional(&mut *tx)
+                    .await?
+                    .flatten();
+            if led_team.is_none() || previous_owner_team != led_team || new_owner_team != led_team {
+                return Err(OrgIntelError::InvalidWork(
+                    "a lead may only reassign Work between active members of its own team".into(),
+                ));
+            }
+        }
+        let attempt_running: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM work_attempts WHERE work_id=$1 AND state='running')",
+        )
+        .bind(work_id)
+        .fetch_one(&mut *tx)
+        .await?;
+        if attempt_running {
+            return Err(OrgIntelError::InvalidWork(
+                "stop or settle the running Attempt before reassigning its Work".into(),
+            ));
+        }
+
+        sqlx::query("UPDATE work SET owner_id=$2, updated_at=now() WHERE id=$1")
+            .bind(work_id)
+            .bind(new_owner_id)
+            .execute(&mut *tx)
+            .await?;
+        sqlx::query("INSERT INTO events (kind, actor_id, body) VALUES ('work_reassigned',$1,$2)")
+            .bind(changed_by)
+            .bind(serde_json::json!({
+                "work_id": work_id,
+                "from_actor_id": previous_owner,
+                "to_actor_id": new_owner_id,
+                "reason": reason.trim(),
+                "override": override_assignment,
+            }))
+            .execute(&mut *tx)
+            .await?;
+        tx.commit().await?;
+        Ok(previous_owner)
+    }
+
     /// Add one graph edge. Only hard prerequisites must be acyclic. Revision
     /// edges deliberately close producer/reviewer loops; each traversal creates
     /// a new Work revision and therefore a new, ordered Attempt generation.
@@ -2267,6 +2368,89 @@ impl OrgIntel {
             .await?;
         tx.commit().await?;
         Ok(id)
+    }
+
+    /// Refresh the prepared state of an outstanding handoff when the same Work
+    /// has advanced after the owner request was first raised. The handoff stays
+    /// pending and keeps its identity; only the exact outcome presented for the
+    /// eventual decision changes. This is ordinary, attributable OrgIntel
+    /// coordination, not an Authority mutation.
+    pub async fn refresh_owner_handoff(
+        &self,
+        id: Uuid,
+        changed_by: &str,
+        requested_action: &str,
+        prepared_state: &str,
+        resume_condition: &str,
+    ) -> Result<()> {
+        if requested_action.trim().is_empty()
+            || prepared_state.trim().is_empty()
+            || resume_condition.trim().is_empty()
+        {
+            return Err(OrgIntelError::InvalidWork(
+                "refreshing a handoff needs an exact action, prepared state and observable resume condition"
+                    .into(),
+            ));
+        }
+
+        let mut tx = self.pool.begin().await?;
+        let row = sqlx::query(
+            "SELECT h.work_id, h.requested_action, h.prepared_state, h.resume_condition, \
+                    w.owner_id \
+             FROM owner_handoffs h JOIN work w ON w.id=h.work_id \
+             WHERE h.id=$1 AND h.state='pending' FOR UPDATE",
+        )
+        .bind(id)
+        .fetch_optional(&mut *tx)
+        .await?
+        .ok_or_else(|| OrgIntelError::InvalidWork("no outstanding handoff with that id".into()))?;
+        let work_id: Uuid = row.get("work_id");
+        let work_owner: String = row.get("owner_id");
+        if !matches!(changed_by, "owner" | "exec") && changed_by != work_owner {
+            return Err(OrgIntelError::InvalidWork(
+                "only the Work owner, Exec or owner may refresh its prepared handoff".into(),
+            ));
+        }
+        let previous_action: String = row.get("requested_action");
+        let previous_prepared: String = row.get("prepared_state");
+        let previous_resume: String = row.get("resume_condition");
+        if previous_action == requested_action.trim()
+            && previous_prepared == prepared_state.trim()
+            && previous_resume == resume_condition.trim()
+        {
+            return Err(OrgIntelError::InvalidWork(
+                "the prepared handoff is unchanged".into(),
+            ));
+        }
+
+        sqlx::query(
+            "UPDATE owner_handoffs SET requested_action=$2, prepared_state=$3, \
+                    resume_condition=$4 WHERE id=$1",
+        )
+        .bind(id)
+        .bind(requested_action.trim())
+        .bind(prepared_state.trim())
+        .bind(resume_condition.trim())
+        .execute(&mut *tx)
+        .await?;
+        sqlx::query(
+            "INSERT INTO events (kind, actor_id, body) VALUES ('owner_handoff_refreshed',$1,$2)",
+        )
+        .bind(changed_by)
+        .bind(serde_json::json!({
+            "handoff_id": id,
+            "work_id": work_id,
+            "previous_requested_action": previous_action,
+            "requested_action": requested_action.trim(),
+            "previous_prepared_state": previous_prepared,
+            "prepared_state": prepared_state.trim(),
+            "previous_resume_condition": previous_resume,
+            "resume_condition": resume_condition.trim(),
+        }))
+        .execute(&mut *tx)
+        .await?;
+        tx.commit().await?;
+        Ok(())
     }
 
     pub async fn resolve_owner_handoff(

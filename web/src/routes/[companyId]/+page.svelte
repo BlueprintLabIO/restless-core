@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { page } from '$app/state';
+	import { goto } from '$app/navigation';
 	import HoldApprove from '$lib/primitives/HoldApprove.svelte';
 	import Markdown from '$lib/primitives/Markdown.svelte';
 	import MatrixGlyph, { GLYPHS } from '$lib/primitives/MatrixGlyph.svelte';
@@ -12,7 +13,7 @@
 		browserControl,
 		getActorConversation,
 		issueDesktopTicket,
-		reviewAction,
+		issueReviewTicket,
 		sendActorMessage
 	} from '$lib/model/attention';
 	import type { ActorConversation } from '$lib/model/attention';
@@ -39,6 +40,9 @@
 	let messageDraft = $state('');
 	let sendingMessage = $state(false);
 	let clientId = $state('');
+	let reviewUrl = $state('');
+	let reviewError = $state('');
+	let reviewRequestKey = $state('');
 
 	const items = $derived(view?.items ?? []);
 	const graph = $derived(view?.workGraph ?? null);
@@ -60,6 +64,10 @@
 	const selectedItem = $derived(
 		items.find((item) => item.id === selectedItemId) ?? (selectedItemId ? null : (items[0] ?? null))
 	);
+	const focusedReviewId = $derived(page.url.searchParams.get('review'));
+	const focusedReview = $derived(
+		items.find((item) => item.id === focusedReviewId && item.category === 'review') ?? null
+	);
 	const baseHref = $derived(`/${companyId}`);
 	const requestingActor = $derived(
 		focusItem?.responsibleActor?.id ?? focusItem?.runtimeAttach?.requestingActor ?? ''
@@ -70,13 +78,40 @@
 			focusItem?.runtimeAttach?.requestingActorDisplay ||
 			(requestingActor === 'exec' ? 'Exec' : requestingActor || 'Company context')
 	);
-	const reviewItem = $derived(focusItem?.category === 'review');
 	const lastConversationMessage = $derived(conversation?.messages.at(-1) ?? null);
-	const latestOwnerMessage = $derived(
-		conversation?.messages.findLast((message) => message.from_actor === 'owner') ?? null
-	);
 	const awaitingLeadReply = $derived(lastConversationMessage?.from_actor === 'owner');
-	const reviewFeedback = $derived(messageDraft.trim() || latestOwnerMessage?.body.trim() || '');
+
+	$effect(() => {
+		const item = focusedReview;
+		if (!item) {
+			reviewUrl = '';
+			reviewError = '';
+			reviewRequestKey = '';
+			return;
+		}
+		const key = `${item.id}:${item.reviewTarget?.generation ?? 'none'}:${item.reviewTarget?.status ?? 'none'}`;
+		if (reviewRequestKey === key) return;
+		reviewRequestKey = key;
+		reviewUrl = '';
+		if (!item.reviewTarget) {
+			reviewError = 'This outcome does not have a directly reviewable website.';
+			return;
+		}
+		if (item.reviewTarget.status !== 'available') {
+			reviewError = 'The live website is restarting. This page will reconnect automatically.';
+			return;
+		}
+		reviewError = '';
+		void issueReviewTicket(companyId, item.id)
+			.then((url) => {
+				if (reviewRequestKey === key) reviewUrl = url;
+			})
+			.catch((cause) => {
+				if (reviewRequestKey === key) {
+					reviewError = cause instanceof Error ? cause.message : 'The live website is unavailable.';
+				}
+			});
+	});
 
 	onMount(() => {
 		clientId = crypto.randomUUID();
@@ -139,6 +174,10 @@
 	}
 
 	async function openReview(item: AttentionItem) {
+		if (item.category === 'review') {
+			await goto(`${baseHref}?review=${encodeURIComponent(item.id)}`);
+			return;
+		}
 		if (!clientId) return;
 		error = '';
 		focusItem = item;
@@ -192,7 +231,7 @@
 				messageStatus.startsWith('Delivered to ') &&
 				refreshed.messages.at(-1)?.from_actor !== 'owner'
 			) {
-				messageStatus = `Reply received from ${requestingActorName}. The review remains open until you accept the outcome or request changes.`;
+				messageStatus = `Reply received from ${requestingActorName}.`;
 			}
 			conversationError = '';
 		} catch (cause) {
@@ -200,33 +239,6 @@
 				conversationError =
 					cause instanceof Error ? cause.message : 'The requester conversation is unavailable.';
 			}
-		}
-	}
-
-	async function decideReview(decision: 'accept' | 'request_changes') {
-		if (!focusItem || focusItem.category !== 'review' || acting) return;
-		const feedback = decision === 'request_changes' ? reviewFeedback : '';
-		if (decision === 'request_changes' && !feedback) {
-			conversationError = 'Write the exact change you want first.';
-			return;
-		}
-		acting = true;
-		conversationError = '';
-		try {
-			await reviewAction(companyId, focusItem.source.reference, decision, feedback);
-			if (controller === 'owner' && clientId) {
-				await browserControl(companyId, 'return', clientId).catch(() => undefined);
-			}
-			focusItem = null;
-			desktopUrl = '';
-			controller = 'observer';
-			messageDraft = '';
-			window.history.replaceState({}, '', baseHref);
-			await refresh();
-		} catch (cause) {
-			conversationError = cause instanceof Error ? cause.message : 'The review was not recorded.';
-		} finally {
-			acting = false;
 		}
 	}
 
@@ -240,7 +252,7 @@
 		try {
 			await sendActorMessage(companyId, requestingActor, body, focusItem.workId);
 			messageDraft = '';
-			messageStatus = `Delivered to ${requestingActorName}. This is discussion only. Request these changes below to start a new revision.`;
+			messageStatus = `Delivered to ${requestingActorName}.`;
 			await refreshConversation(false);
 		} catch (cause) {
 			conversationError =
@@ -253,7 +265,24 @@
 
 <svelte:head><title>Attention — {view?.company.name ?? companyId}</title></svelte:head>
 
-{#if focusItem}
+{#if focusedReview}
+	<section class="review-canvas" aria-label={`Review ${focusedReview.title}`}>
+		{#if reviewUrl}
+			<iframe
+				title={focusedReview.reviewTarget?.label ?? focusedReview.title}
+				src={reviewUrl}
+				sandbox="allow-downloads allow-forms allow-modals allow-popups allow-same-origin allow-scripts"
+				referrerpolicy="no-referrer"
+			></iframe>
+		{:else}
+			<div class="review-unavailable" role="status">
+				<span class="mono">LIVE OUTCOME</span>
+				<h1>{reviewError ? 'The website is not ready yet.' : 'Opening the website…'}</h1>
+				{#if reviewError}<p>{reviewError}</p>{/if}
+			</div>
+		{/if}
+	</section>
+{:else if focusItem}
 	<div class="browser-focus">
 		<header class="handover-rail">
 			<div class="handover-context">
@@ -338,13 +367,11 @@
 						<form class="handover-composer" onsubmit={sendMessage}>
 							<textarea
 								bind:value={messageDraft}
-								placeholder={reviewItem
-									? `Ask ${requestingActorName} a question or write exact revision feedback…`
-									: `Ask or tell ${requestingActorName} anything…`}
+								placeholder={`Ask or tell ${requestingActorName} anything…`}
 								aria-label={`Message ${requestingActorName}`}
 								rows="3"></textarea>
 							<div>
-								<small>Sending keeps this review open. Replies appear in this conversation.</small>
+								<small>Replies appear in this conversation.</small>
 								<button
 									class="btn small"
 									type="submit"
@@ -361,33 +388,6 @@
 								Your last message is delivered. This page is checking for {requestingActorName}’s
 								reply.
 							</p>
-						{/if}
-						{#if reviewItem}
-							<div class="review-gate">
-								<span class="mono">YOUR DECISION / EXACT OUTCOME</span>
-								<div>
-									<button
-										class="btn small primary"
-										type="button"
-										onclick={() => decideReview('accept')}
-										disabled={acting}
-									>
-										{acting ? 'Recording…' : 'Accept outcome'}
-									</button>
-									<button
-										class="btn small danger"
-										type="button"
-										onclick={() => decideReview('request_changes')}
-										disabled={acting || !reviewFeedback}
-									>
-										Request these changes
-									</button>
-								</div>
-								<small
-									>Uses the text above, or your latest delivered message, as the next revision’s
-									exact brief.</small
-								>
-							</div>
 						{/if}
 						{#if conversationError}<p class="conversation-error">{conversationError}</p>{/if}
 					</div>
@@ -428,8 +428,7 @@
 					? 'You are the sole input controller.'
 					: 'The desktop is observe-only.'
 				: 'No live desktop is attached.'}
-			Browser control and conversation never decide “{focusItem.title}”. Use the explicit review
-			controls.
+			Conversation does not complete “{focusItem.title}”.
 		</footer>
 	</div>
 {:else}
@@ -631,6 +630,43 @@
 {/snippet}
 
 <style>
+	.review-canvas {
+		width: 100%;
+		height: 100%;
+		min-width: 0;
+		min-height: 0;
+		display: flex;
+		overflow: hidden;
+		background: #fff;
+	}
+	.review-canvas iframe {
+		width: 100%;
+		height: 100%;
+		border: 0;
+		background: #fff;
+	}
+	.review-unavailable {
+		width: 100%;
+		height: 100%;
+		display: grid;
+		place-content: center;
+		gap: 8px;
+		padding: 40px;
+		background: #fff;
+		color: var(--ink);
+	}
+	.review-unavailable .mono {
+		color: var(--intent-feedback);
+		letter-spacing: 0.09em;
+	}
+	.review-unavailable h1,
+	.review-unavailable p {
+		max-width: 560px;
+		margin: 0;
+	}
+	.review-unavailable p {
+		color: var(--text-secondary);
+	}
 	.evidence-label,
 	.source-ref {
 		font-size: var(--t-body);
@@ -861,27 +897,6 @@
 		margin-top: 7px;
 	}
 	.handover-composer small {
-		font-size: var(--t-label);
-		line-height: 1.35;
-		color: var(--text-tertiary);
-	}
-	.review-gate {
-		display: grid;
-		gap: 7px;
-		padding: 10px 12px 12px;
-		border-top: 1px solid var(--border);
-		background: color-mix(in srgb, var(--accent) 4%, var(--glass-strong));
-	}
-	.review-gate > .mono {
-		font-size: var(--t-label);
-		letter-spacing: 0.08em;
-		color: var(--text-tertiary);
-	}
-	.review-gate > div {
-		display: flex;
-		gap: 7px;
-	}
-	.review-gate small {
 		font-size: var(--t-label);
 		line-height: 1.35;
 		color: var(--text-tertiary);

@@ -33,6 +33,13 @@ export interface AttentionItem {
 		requestingActorDisplay?: string;
 		kind: 'persistent-browser';
 	};
+	reviewTarget?: {
+		company: string;
+		generation: string;
+		status: 'available' | 'unavailable';
+		kind: 'runtime-web';
+		label: string;
+	};
 	actions: Array<{
 		id: string;
 		label: string;

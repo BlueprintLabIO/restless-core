@@ -1674,6 +1674,31 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
             }
             Err(error) => Response::err(format!("{error:#}")),
         },
+        "work-assign" => match (
+            request.id.as_deref().map(uuid::Uuid::parse_str).transpose(),
+            request.to.as_deref(),
+            request.actor.as_deref(),
+            request.reason.as_deref(),
+        ) {
+            (Ok(Some(work_id)), Some(new_owner), Some(changed_by), Some(reason)) => {
+                match daemon.orgintel.get(company).await {
+                    Ok(org) => match org
+                        .reassign_work(work_id, new_owner, changed_by, reason)
+                        .await
+                    {
+                        Ok(previous_owner) => Response::ok(serde_json::json!({
+                            "work_id": work_id,
+                            "from_actor_id": previous_owner,
+                            "to_actor_id": new_owner,
+                        })),
+                        Err(error) => Response::err(format!("{error:#}")),
+                    },
+                    Err(error) => Response::err(format!("{error:#}")),
+                }
+            }
+            (Err(error), _, _, _) => Response::err(format!("bad Work id: {error}")),
+            _ => Response::err("work-assign needs Work id, new owner, reason and acting actor"),
+        },
         "work-add" => match (
             request.actor.as_deref(),
             request.role.as_deref(),
@@ -1924,6 +1949,35 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
             }
             _ => Response::err(
                 "work-handoff needs work, category, action, prepared and resume condition",
+            ),
+        },
+        "work-handoff-refresh" => match (
+            request.id.as_deref(),
+            request.as_actor.as_deref(),
+            request.action.as_deref(),
+            request.prepared.as_deref(),
+            request.resume_when.as_deref(),
+        ) {
+            (Some(id), Some(changed_by), Some(action), Some(prepared), Some(resume_when)) => {
+                let Ok(id) = uuid::Uuid::parse_str(id) else {
+                    return Response::err("bad handoff id");
+                };
+                match daemon.orgintel.get(company).await {
+                    Ok(org) => match org
+                        .refresh_owner_handoff(id, changed_by, action, prepared, resume_when)
+                        .await
+                    {
+                        Ok(()) => Response::ok(serde_json::json!({
+                            "handoff_id": id,
+                            "refreshed_by": changed_by,
+                        })),
+                        Err(error) => Response::err(format!("{error:#}")),
+                    },
+                    Err(error) => Response::err(format!("{error:#}")),
+                }
+            }
+            _ => Response::err(
+                "work-handoff-refresh needs handoff, action, prepared, resume condition and --as",
             ),
         },
         "work-handoff-resolve" => match (

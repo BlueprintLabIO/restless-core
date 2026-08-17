@@ -63,6 +63,8 @@ pub struct AttentionItem {
     pub responsible_actor: Option<AttentionActorRef>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub runtime_attach: Option<RuntimeAttachRef>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub review_target: Option<ReviewTargetRef>,
     pub actions: Vec<AttentionAction>,
     pub can_continue: bool,
     pub created_at: DateTime<Utc>,
@@ -101,6 +103,16 @@ pub struct RuntimeAttachRef {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub requesting_actor_display: Option<String>,
     pub kind: &'static str,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ReviewTargetRef {
+    pub company: String,
+    pub generation: String,
+    pub uri: String,
+    pub status: &'static str,
+    pub kind: &'static str,
+    pub label: &'static str,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -239,6 +251,7 @@ pub async fn project(
             evidence,
             responsible_actor: None,
             runtime_attach: None,
+            review_target: None,
             actions: vec![
                 AttentionAction {
                     id: "grant",
@@ -294,6 +307,7 @@ pub async fn project(
         };
         let mut evidence = Vec::new();
         let mut seen = HashSet::new();
+        let mut runtime_review_url = None;
         for artifact in work_graph
             .as_ref()
             .into_iter()
@@ -305,17 +319,37 @@ pub async fn project(
         {
             if seen.insert(artifact.uri.clone()) {
                 let is_url = is_url(&artifact.uri);
+                let runtime_local = is_runtime_local_url(&artifact.uri);
+                if runtime_local {
+                    runtime_review_url = Some(artifact.uri.clone());
+                }
                 evidence.push(AttentionEvidence {
                     label: artifact.label.clone(),
-                    uri: is_url.then(|| artifact.uri.clone()),
-                    content: (!is_url).then(|| artifact.uri.clone()),
-                    kind: if is_url { "url" } else { "artifact" },
+                    uri: (is_url && !runtime_local).then(|| artifact.uri.clone()),
+                    content: if runtime_local {
+                        Some(format!(
+                            "Live inside the company computer: {}",
+                            artifact.uri
+                        ))
+                    } else {
+                        (!is_url).then(|| artifact.uri.clone())
+                    },
+                    kind: if runtime_local {
+                        "runtime-url"
+                    } else if is_url {
+                        "url"
+                    } else {
+                        "artifact"
+                    },
                 });
             }
         }
         for uri in extract_urls(&handoff.prepared_state) {
+            let runtime_local = is_runtime_local_url(&uri);
+            if runtime_local {
+                runtime_review_url = Some(uri.clone());
+            }
             if seen.insert(uri.clone()) {
-                let runtime_local = is_runtime_local_url(&uri);
                 evidence.push(AttentionEvidence {
                     label: if runtime_local {
                         "Prepared browser route".into()
@@ -338,6 +372,31 @@ pub async fn project(
             })
         });
         let runtime_attach = attach_for(Some(&item.owner_id));
+        let review_target = if judgement {
+            match (generation.as_ref(), runtime_review_url) {
+                (Some(generation), Some(uri)) if runtime::runtime_http_target(&uri).is_ok() => {
+                    let status = if runtime::probe_runtime_http(&config.name, &uri)
+                        .await
+                        .is_ok()
+                    {
+                        "available"
+                    } else {
+                        "unavailable"
+                    };
+                    Some(ReviewTargetRef {
+                        company: config.name.clone(),
+                        generation: generation.clone(),
+                        uri,
+                        status,
+                        kind: "runtime-web",
+                        label: "Live website",
+                    })
+                }
+                _ => None,
+            }
+        } else {
+            None
+        };
         let mut actions = if judgement {
             vec![
                 AttentionAction {
@@ -359,7 +418,7 @@ pub async fn project(
         } else {
             Vec::new()
         };
-        if runtime_attach.is_some() {
+        if review_target.is_some() || (!judgement && runtime_attach.is_some()) {
             actions.insert(
                 0,
                 AttentionAction {
@@ -369,7 +428,11 @@ pub async fn project(
                     } else {
                         "Open prepared browser"
                     },
-                    consequence: "Opens the prepared company browser without deciding or approving anything.",
+                    consequence: if judgement {
+                        "Opens the real outcome without deciding or approving anything."
+                    } else {
+                        "Opens the prepared company browser without deciding or approving anything."
+                    },
                 },
             );
         }
@@ -410,6 +473,7 @@ pub async fn project(
             evidence,
             responsible_actor,
             runtime_attach,
+            review_target,
             actions,
             can_continue: false,
             created_at: handoff.created_at,

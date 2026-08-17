@@ -53,6 +53,13 @@ type WireItem = {
 		requesting_actor_display?: string;
 		kind: 'persistent-browser';
 	};
+	review_target?: {
+		company: string;
+		generation: string;
+		status: 'available' | 'unavailable';
+		kind: 'runtime-web';
+		label: string;
+	};
 	actions: AttentionItem['actions'];
 	can_continue: boolean;
 	created_at: string;
@@ -100,6 +107,15 @@ export async function getAttention(company: string): Promise<AttentionView> {
 						requestingActor: item.runtime_attach.requesting_actor,
 						requestingActorDisplay: item.runtime_attach.requesting_actor_display,
 						kind: item.runtime_attach.kind
+					}
+				: undefined,
+			reviewTarget: item.review_target
+				? {
+						company: item.review_target.company,
+						generation: item.review_target.generation,
+						status: item.review_target.status,
+						kind: item.review_target.kind,
+						label: item.review_target.label
 					}
 				: undefined,
 			actions: item.actions,
@@ -208,6 +224,17 @@ export async function issueDesktopTicket(
 	});
 	if (!response.ok) throw await ownerError(response);
 	return (await response.json()).desktop_url;
+}
+
+export async function issueReviewTicket(company: string, itemId: string): Promise<string> {
+	const response = await fetch(`/api/companies/${encodeURIComponent(company)}/reviews/ticket`, {
+		method: 'POST',
+		headers: { 'content-type': 'application/json' },
+		body: JSON.stringify({ item_id: itemId }),
+		credentials: 'same-origin'
+	});
+	if (!response.ok) throw await ownerError(response);
+	return (await response.json()).review_url;
 }
 
 export async function browserControl(

@@ -145,8 +145,14 @@ export async function getCockpit(company: string, probeCredentials = false): Pro
 
 /** The runtime truth used by the Exec rail. Presence in config is not enough. */
 export function execCanReceive(view: CockpitView | null): boolean {
+	return actorCanReceive(view, 'exec');
+}
+
+/** Conversation availability follows durable OrgIntel identity, not whether
+ * that actor happens to have a model process running in this instant. */
+export function actorCanReceive(view: CockpitView | null, actorId: string): boolean {
 	if (!view || view.source_health.orgintel !== 'available') return false;
-	return view.people.some((person) => person.actor_id === 'exec');
+	return view.people.some((person) => person.actor_id === actorId);
 }
 
 /** Stable identity tile derived from the actor id, independent of display order. */

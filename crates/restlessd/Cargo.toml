@@ -33,5 +33,8 @@ uuid = { version = "1", features = ["v4"] }
 hmac = "0.12"
 base64 = "0.23.1"
 futures-util = "0.3"
+http-body-util = "0.1"
+hyper = { version = "1", features = ["client", "http1"] }
+hyper-util = { version = "0.1", features = ["tokio"] }
 tokio-tungstenite = "0.26"
 tower-http = { version = "0.6", features = ["fs", "trace"] }
