@@ -17,7 +17,6 @@ mod inbound;
 mod ingress;
 mod model_gateway;
 mod owner;
-mod provider;
 mod reconcile;
 mod runtime;
 mod schedule;
@@ -61,28 +60,94 @@ struct Request {
     resolution: Option<String>,
     #[serde(default)]
     limit: Option<i64>,
-    // S02-T2 spawn fields.
+    // Kernel spend-recovery fields. These are deliberately distinct from
+    // Work ids and effect costs: hard-budget truth belongs to Authority.
+    #[serde(default)]
+    correction_id: Option<String>,
+    #[serde(default)]
+    request_ids: Vec<String>,
+    #[serde(default)]
+    delta_micro_usd: Option<i64>,
+    #[serde(default)]
+    apply: bool,
+    #[serde(default)]
+    include_retired: bool,
+    // Work graph fields.
     #[serde(default)]
     name: Option<String>,
+    #[serde(default)]
+    new_name: Option<String>,
     #[serde(default)]
     repo: Option<String>,
     // T8 effect fields.
     #[serde(default)]
     capability: Option<String>,
     #[serde(default)]
-    args: Option<serde_json::Value>,
+    effect_class: Option<String>,
+    #[serde(default)]
+    purpose: Option<String>,
+    #[serde(default)]
+    artifacts: Option<Vec<String>>,
+    #[serde(default)]
+    secret_bindings: Option<std::collections::BTreeMap<String, String>>,
     #[serde(default)]
     key: Option<String>,
+    #[serde(default)]
+    execution_no: Option<i32>,
     #[serde(default)]
     actor: Option<String>,
     // S03-T5 approval field.
     #[serde(default)]
     party: Option<String>,
-    // S04-T5 role/model fields: what a spawned actor IS, and what it thinks with.
+    // Work actor fields: who owns the Attempt and what it thinks with.
     #[serde(default)]
     role: Option<String>,
     #[serde(default)]
     model: Option<String>,
+    #[serde(default)]
+    title: Option<String>,
+    #[serde(default)]
+    priority: Option<i16>,
+    #[serde(default)]
+    expected_artifact: Option<String>,
+    #[serde(default)]
+    base_ref: Option<String>,
+    #[serde(default)]
+    integration_branch: Option<String>,
+    #[serde(default)]
+    worktree: Option<String>,
+    #[serde(default)]
+    attempt_limit: Option<i32>,
+    #[serde(default)]
+    goal: Option<String>,
+    #[serde(default)]
+    requires: Vec<String>,
+    #[serde(default)]
+    revises: Vec<String>,
+    #[serde(default)]
+    kind: Option<String>,
+    #[serde(default)]
+    attempt: Option<String>,
+    #[serde(default)]
+    uri: Option<String>,
+    #[serde(default)]
+    digest: Option<String>,
+    #[serde(default)]
+    source_commit: Option<String>,
+    #[serde(default)]
+    label: Option<String>,
+    #[serde(default)]
+    cwd: Option<String>,
+    #[serde(default)]
+    argv: Option<Vec<String>>,
+    #[serde(default)]
+    category: Option<String>,
+    #[serde(default)]
+    action: Option<String>,
+    #[serde(default)]
+    prepared: Option<String>,
+    #[serde(default)]
+    resume_when: Option<String>,
     /// S04-T10. Who is asking, at the authority boundary. `authority-plane §4.1`
     /// names the V0 set; `cross-layer §2.2` keeps `principal_id` distinct from
     /// `actor_id` (an actor is who did the work, a principal is who was allowed
@@ -143,10 +208,13 @@ const OWNER_ONLY: &[&str] = &[
     "up",
     "down",
     "clear-poison",
+    "spend-correct",
     "company-create",
     "company-set",
+    "company-unset",
     "credential-set",
     "owner-token",
+    "work-review",
 ];
 
 /// The whole gate, as one pure decision so it can be tested adversarially
@@ -408,11 +476,16 @@ async fn main() -> Result<()> {
             handles: std::sync::Mutex::new(HashMap::new()),
         },
         staff: staff::StaffRegistry::default(),
-        in_flight: std::sync::Arc::new(std::sync::Mutex::new(std::collections::HashSet::new())),
+        in_flight: std::sync::Arc::new(std::sync::Mutex::new(schedule::WakeClaims::default())),
     });
 
-    // T9: agent processes outliving the daemon that spawned them are orphans
-    // — kill them and mark their staff commitments before anything new wakes.
+    // Effect children carry the narrowest live secret boundary. Reap an old
+    // daemon's dedicated effect UID before a new child or scheduler may start;
+    // Authority keeps the interrupted intent unknown until explicit evidence.
+    effect::sweep_orphans(&daemon.root).await;
+
+    // T9: agent processes outliving their supervising daemon are orphans —
+    // reap them and close their running Work Attempts before anything new wakes.
     staff::sweep_orphans(&daemon.root, &daemon.orgintel).await;
 
     // T6: the scheduler is what makes the company act without the owner
@@ -665,9 +738,9 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
                             )
                             .await
                         {
-                            Ok(()) => {
-                                Response::ok(format!("{message} (cloned from {from}, simulated)"))
-                            }
+                            Ok(()) => Response::ok(format!(
+                                "{message} (cloned from {from}, live authority stripped)"
+                            )),
                             Err(error) => Response::err(format!(
                                 "container up but Authority initialisation failed: {error:#}"
                             )),
@@ -691,7 +764,7 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
                     let claimed = daemon
                         .in_flight
                         .lock()
-                        .map(|mut running| running.insert(company.to_string()))
+                        .map(|mut running| running.claim(company))
                         .unwrap_or(false);
                     if !claimed {
                         return Response::err_kind(
@@ -862,24 +935,25 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
                             config.model = value.to_string();
                             Ok(())
                         }
+                        "model_failover" => {
+                            config.model_failover = value
+                                .split(',')
+                                .map(str::trim)
+                                .filter(|model| !model.is_empty())
+                                .map(str::to_string)
+                                .collect();
+                            config.model_candidates().map(|_| ())
+                        }
                         "spend_ceiling_usd" => value
                             .parse::<f64>()
                             .map(|parsed| config.spend_ceiling_usd = parsed)
                             .map_err(|_| anyhow::anyhow!("spend_ceiling_usd must be a number")),
-                        "from_address" => {
-                            config.from_address = (!value.trim().is_empty()).then(|| value.to_string());
-                            Ok(())
-                        }
-                        _ if key.starts_with("providers.") => {
-                            config.providers.insert(key[10..].to_string(), value.to_string());
-                            Ok(())
-                        }
                         _ if key.starts_with("credentials.") => {
                             config.credentials.insert(key[12..].to_string(), value.to_string());
                             Ok(())
                         }
                         _ => Err(anyhow::anyhow!(
-                            "unknown company key {key:?}; use mission, model, spend_ceiling_usd, from_address, providers.<capability>, or credentials.<capability>"
+                            "unknown company key {key:?}; use mission, model, model_failover, spend_ceiling_usd, or credentials.<binding>"
                         )),
                     };
                     match result.and_then(|()| runtime::CompanyConfig::save(&daemon.root, &config))
@@ -892,8 +966,32 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
             },
             _ => Response::err("company-set needs key and value"),
         },
+        "company-unset" => match request.state.as_deref() {
+            Some(key) if key.starts_with("credentials.") && key.len() > 12 => {
+                match runtime::CompanyConfig::load(&daemon.root, company) {
+                    Ok(mut config) => {
+                        let binding = &key[12..];
+                        if config.credentials.remove(binding).is_none() {
+                            Response::err(format!(
+                                "company {company} has no credential binding {binding:?}"
+                            ))
+                        } else {
+                            match runtime::CompanyConfig::save(&daemon.root, &config) {
+                                Ok(()) => Response::ok(format!("unset {key} for {company}")),
+                                Err(error) => Response::err(format!("{error:#}")),
+                            }
+                        }
+                    }
+                    Err(error) => Response::err(format!("{error:#}")),
+                }
+            }
+            Some(key) => Response::err(format!(
+                "cannot unset {key:?}; only credentials.<binding> is removable"
+            )),
+            None => Response::err("company-unset needs a key"),
+        },
         "credential-set" => match (request.capability.as_deref(), request.body.as_deref()) {
-            (Some(capability), Some(reference)) => {
+            (Some(binding), Some(reference)) => {
                 if let Some(value) = request.secret_value.as_deref() {
                     if let Err(error) = credential::store_reference(reference, value).await {
                         return Response::err(format!("{error:#}"));
@@ -914,10 +1012,10 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
                     Ok(mut config) => {
                         config
                             .credentials
-                            .insert(capability.to_string(), reference.to_string());
+                            .insert(binding.to_string(), reference.to_string());
                         match runtime::CompanyConfig::save(&daemon.root, &config) {
                             Ok(()) => Response::ok(format!(
-                                "stored reference for {capability}; no secret value was stored"
+                                "stored reference for {binding}; no secret value was stored"
                             )),
                             Err(error) => Response::err(format!("{error:#}")),
                         }
@@ -925,15 +1023,15 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
                     Err(error) => Response::err(format!("{error:#}")),
                 }
             }
-            _ => Response::err("credential-set needs capability and reference"),
+            _ => Response::err("credential-set needs binding and reference"),
         },
         "credential-check" => match runtime::CompanyConfig::load(&daemon.root, company) {
             Ok(config) => {
                 let mut rows = Vec::with_capacity(config.credentials.len());
-                for (capability, reference) in &config.credentials {
+                for (binding, reference) in &config.credentials {
                     let probe = credential::probe_reference(reference).await;
                     rows.push(serde_json::json!({
-                        "capability": capability,
+                        "binding": binding,
                         "reference": reference,
                         "status": probe.status.as_str(),
                         "detail": probe.detail,
@@ -961,9 +1059,14 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
         "wake" => match runtime::CompanyConfig::load(&daemon.root, company) {
             Ok(config) => match daemon.orgintel.get(company).await {
                 Ok(org) => {
+                    if daemon.staff.is_actor_running(company, "exec") {
+                        return Response::err(format!(
+                            "Exec is running claimed Work for {company}; its Attempt owns the actor"
+                        ));
+                    }
                     {
                         let mut claims = daemon.in_flight.lock().expect("in-flight guard");
-                        if !claims.insert(company.to_string()) {
+                        if !claims.claim(company) {
                             return Response::err(format!(
                                 "a wake is already in flight for {company}; \
                                  its outcome lands in the event stream"
@@ -974,22 +1077,10 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
                     let reason = request.reason.as_deref().unwrap_or("owner-requested wake");
                     match exec::wake(&config, &daemon.spend, &daemon.authority, &org, reason).await
                     {
-                        Ok(report) => {
-                            // T9: the Exec's spawn requests are honored after
-                            // its outcome is recorded; refusals reach it by mail.
-                            staff::process_spawns(
-                                &config,
-                                &daemon.spend,
-                                &org,
-                                &daemon.staff,
-                                &report.spawn_requests,
-                            )
-                            .await;
-                            match serde_json::to_value(&report) {
-                                Ok(value) => Response::ok(value),
-                                Err(error) => Response::err(format!("encode report: {error}")),
-                            }
-                        }
+                        Ok(report) => match serde_json::to_value(&report) {
+                            Ok(value) => Response::ok(value),
+                            Err(error) => Response::err(format!("encode report: {error}")),
+                        },
                         Err(error) => Response::err(format!("{error:#}")),
                     }
                 }
@@ -1031,44 +1122,328 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
         // what it cost, what it produced" — until now answerable only by
         // reading the Exec's assembled prompt or the database.
         "people" => match daemon.orgintel.get(company).await {
-            Ok(org) => match org.list_actors().await {
-                Ok(actors) => {
-                    let breakdown = daemon.spend.breakdown(company);
-                    let rows: Vec<serde_json::Value> = actors
+            Ok(org) => {
+                let actors = if request.include_retired {
+                    org.list_actors_including_retired().await
+                } else {
+                    org.list_actors().await
+                };
+                match (actors, org.list_work().await) {
+                    (Ok(actors), Ok(work)) => {
+                        let breakdown = daemon.spend.breakdown(company);
+                        let cooldowns = daemon
+                            .authority
+                            .active_model_cooldowns(company)
+                            .await
+                            .unwrap_or_default();
+                        let rows: Vec<serde_json::Value> = actors
+                            .iter()
+                            .map(|actor| {
+                                // Cost is joined here rather than stored on the
+                                // actor: OrgIntel owns role, the ledger owns cost,
+                                // and neither becomes a second writer of the other.
+                                let spent: f64 = breakdown
+                                    .iter()
+                                    .filter(|(id, _, _)| id == &actor.id)
+                                    .map(|(_, _, usd)| usd)
+                                    .sum();
+                                let session_running = if actor.id == "exec" {
+                                    daemon
+                                        .in_flight
+                                        .lock()
+                                        .map(|running| running.is_active(company))
+                                        .unwrap_or(false)
+                                } else {
+                                    daemon.staff.is_actor_running(company, &actor.id)
+                                };
+                                let owned_work: Vec<&restless_orgintel::WorkRow> = work
+                                    .iter()
+                                    .filter(|item| item.owner_id == actor.id)
+                                    .collect();
+                                serde_json::json!({
+                                    "actor_id": actor.id,
+                                    "role": actor.kind,
+                                    "display": actor.display,
+                                    "model": actor.model,
+                                    "team_id": actor.team_id,
+                                    "retired_at": actor.retired_at,
+                                    "retired_by": actor.retired_by,
+                                    "retirement_reason": actor.retirement_reason,
+                                    "work_count": owned_work.len(),
+                                    "completed_work_count": owned_work.iter().filter(|item| {
+                                        item.status == restless_orgintel::WorkStatus::Completed
+                                    }).count(),
+                                    "recent_work": owned_work.iter().take(5).map(|item| {
+                                        serde_json::json!({
+                                            "id": item.id,
+                                            "title": item.title,
+                                            "status": item.status,
+                                            "revision": item.revision,
+                                        })
+                                    }).collect::<Vec<_>>(),
+                                    "spent_usd": round_usd(spent),
+                                    "session_running": session_running,
+                                    "model_cooldown": actor.model.as_deref().and_then(|model| {
+                                        cooldowns.iter().find(|cooldown| cooldown.model == model)
+                                    }),
+                                })
+                            })
+                            .collect();
+                        Response::ok(serde_json::Value::Array(rows))
+                    }
+                    (Err(error), _) | (_, Err(error)) => Response::err(format!("{error:#}")),
+                }
+            }
+            Err(error) => Response::err(format!("{error:#}")),
+        },
+        "actor-create" => match (
+            request.as_actor.as_deref(),
+            request.role.as_deref(),
+            request.name.as_deref(),
+            request.actor.as_deref(),
+            request.reason.as_deref(),
+        ) {
+            (Some(actor_id), Some(role), Some(display), Some(created_by), Some(reason)) => {
+                match daemon.orgintel.get(company).await {
+                    Ok(org) => match org
+                        .create_actor(
+                            actor_id,
+                            role,
+                            display,
+                            request.model.as_deref(),
+                            created_by,
+                            reason,
+                        )
+                        .await
+                    {
+                        Ok(()) => Response::ok(serde_json::json!({
+                            "actor_id": actor_id,
+                            "role": role,
+                            "display": display,
+                        })),
+                        Err(error) => Response::err(format!("{error:#}")),
+                    },
+                    Err(error) => Response::err(format!("{error:#}")),
+                }
+            }
+            _ => Response::err(
+                "actor create needs --id, --role, --display, --reason, and an acting actor",
+            ),
+        },
+        "actor-retire" => match (
+            request.as_actor.as_deref(),
+            request.actor.as_deref(),
+            request.reason.as_deref(),
+        ) {
+            (Some(actor_id), Some(retired_by), Some(reason)) => {
+                match daemon.orgintel.get(company).await {
+                    Ok(org) => match org.retire_actor(actor_id, retired_by, reason).await {
+                        Ok(()) => Response::ok(serde_json::json!({
+                            "actor_id": actor_id,
+                            "retired": true,
+                        })),
+                        Err(error) => Response::err(format!("{error:#}")),
+                    },
+                    Err(error) => Response::err(format!("{error:#}")),
+                }
+            }
+            _ => Response::err("actor retire needs --actor, --reason, and an acting actor"),
+        },
+        // ---- teams and the judgement queue below the owner (S06-T4/T5) ----
+        "teams" => match daemon.orgintel.get(company).await {
+            Ok(org) => match (org.list_teams().await, org.list_actors().await) {
+                (Ok(teams), Ok(actors)) => {
+                    let rows: Vec<serde_json::Value> = teams
                         .iter()
-                        .map(|actor| {
-                            // Cost is joined here rather than stored on the
-                            // actor: OrgIntel owns role, the ledger owns cost,
-                            // and neither becomes a second writer of the other.
-                            let spent: f64 = breakdown
+                        .map(|team| {
+                            let members: Vec<serde_json::Value> = actors
                                 .iter()
-                                .filter(|(id, _, _)| id == &actor.id)
-                                .map(|(_, _, usd)| usd)
-                                .sum();
-                            let session_running = if actor.id == "exec" {
-                                daemon
-                                    .in_flight
-                                    .lock()
-                                    .map(|running| running.contains(company))
-                                    .unwrap_or(false)
-                            } else {
-                                daemon.staff.is_actor_running(company, &actor.id)
-                            };
+                                .filter(|actor| actor.team_id == Some(team.id))
+                                .map(|actor| {
+                                    serde_json::json!({
+                                        "actor_id": actor.id,
+                                        "display": actor.display,
+                                        "role": actor.kind,
+                                        "lead": actor.id == team.lead_actor_id,
+                                    })
+                                })
+                                .collect();
                             serde_json::json!({
-                                "actor_id": actor.id,
-                                "role": actor.kind,
-                                "display": actor.display,
-                                "model": actor.model,
-                                "spent_usd": round_usd(spent),
-                                "session_running": session_running,
+                                "id": team.id,
+                                "name": team.name,
+                                "brief": team.brief,
+                                "lead_actor_id": team.lead_actor_id,
+                                "members": members,
+                                "created_at": team.created_at,
                             })
                         })
                         .collect();
-                    Response::ok(serde_json::Value::Array(rows))
+                    let unassigned: Vec<&str> = actors
+                        .iter()
+                        .filter(|actor| {
+                            actor.team_id.is_none()
+                                && !matches!(
+                                    actor.kind.as_str(),
+                                    "owner" | "exec" | "world" | "daemon"
+                                )
+                        })
+                        .map(|actor| actor.id.as_str())
+                        .collect();
+                    Response::ok(serde_json::json!({ "teams": rows, "unassigned": unassigned }))
                 }
-                Err(error) => Response::err(format!("{error:#}")),
+                (Err(error), _) | (_, Err(error)) => Response::err(format!("{error:#}")),
             },
             Err(error) => Response::err(format!("{error:#}")),
+        },
+        "team-create" => match (
+            request.name.as_deref(),
+            request.to.as_deref(),
+            request.body.as_deref(),
+            request.actor.as_deref(),
+        ) {
+            (Some(name), Some(lead), Some(brief), Some(created_by)) => {
+                match daemon.orgintel.get(company).await {
+                    Ok(org) => match org.create_team(name, brief, lead, created_by).await {
+                        Ok(id) => Response::ok(serde_json::json!({ "team_id": id })),
+                        Err(error) => Response::err(format!("{error:#}")),
+                    },
+                    Err(error) => Response::err(format!("{error:#}")),
+                }
+            }
+            _ => Response::err("team create needs --name, --lead, --brief, and an acting actor"),
+        },
+        "team-update" => match (
+            request.name.as_deref(),
+            request.actor.as_deref(),
+            request.reason.as_deref(),
+        ) {
+            (Some(team), Some(changed_by), Some(reason)) => {
+                match daemon.orgintel.get(company).await {
+                    Ok(org) => match resolve_team(&org, team).await {
+                        Ok(id) => match org
+                            .update_team(
+                                id,
+                                request.new_name.as_deref(),
+                                request.body.as_deref(),
+                                changed_by,
+                                reason,
+                            )
+                            .await
+                        {
+                            Ok(()) => Response::ok(serde_json::json!({ "team_id": id })),
+                            Err(error) => Response::err(format!("{error:#}")),
+                        },
+                        Err(error) => Response::err(error),
+                    },
+                    Err(error) => Response::err(format!("{error:#}")),
+                }
+            }
+            _ => Response::err("team update needs --team, --reason, and an acting actor"),
+        },
+        "team-assign" => match (
+            request.as_actor.as_deref(),
+            request.name.as_deref(),
+            request.actor.as_deref(),
+            request.reason.as_deref(),
+        ) {
+            (Some(actor), Some(team), Some(changed_by), Some(reason)) => {
+                match daemon.orgintel.get(company).await {
+                    Ok(org) => {
+                        let target = if team.eq_ignore_ascii_case("none") {
+                            Ok(None)
+                        } else {
+                            resolve_team(&org, team).await.map(Some)
+                        };
+                        match target {
+                            Ok(target) => {
+                                match org.set_actor_team(actor, target, changed_by, reason).await {
+                                    Ok(()) => Response::ok(serde_json::json!({
+                                        "actor": actor, "team_id": target,
+                                    })),
+                                    Err(error) => Response::err(format!("{error:#}")),
+                                }
+                            }
+                            Err(error) => Response::err(error),
+                        }
+                    }
+                    Err(error) => Response::err(format!("{error:#}")),
+                }
+            }
+            _ => Response::err("team assign needs --actor, --team, --reason, and an acting actor"),
+        },
+        "team-lead" => match (
+            request.name.as_deref(),
+            request.to.as_deref(),
+            request.actor.as_deref(),
+            request.reason.as_deref(),
+        ) {
+            (Some(team), Some(actor), Some(changed_by), Some(reason)) => {
+                match daemon.orgintel.get(company).await {
+                    Ok(org) => match resolve_team(&org, team).await {
+                        Ok(id) => match org.set_team_lead(id, actor, changed_by, reason).await {
+                            Ok(()) => {
+                                Response::ok(serde_json::json!({ "team_id": id, "lead": actor }))
+                            }
+                            Err(error) => Response::err(format!("{error:#}")),
+                        },
+                        Err(error) => Response::err(error),
+                    },
+                    Err(error) => Response::err(format!("{error:#}")),
+                }
+            }
+            _ => Response::err("team lead needs --team, --actor, --reason, and an acting actor"),
+        },
+        "team-disband" => match (
+            request.name.as_deref(),
+            request.actor.as_deref(),
+            request.reason.as_deref(),
+        ) {
+            (Some(team), Some(changed_by), Some(reason)) => {
+                match daemon.orgintel.get(company).await {
+                    Ok(org) => match resolve_team(&org, team).await {
+                        Ok(id) => match org.disband_team(id, changed_by, reason).await {
+                            Ok(stranded) => Response::ok(serde_json::json!({
+                                "team_id": id,
+                                // Judgement the team still owed did not vanish with
+                                // it: it fell through to the Exec, recorded.
+                                "reassigned_judgements": stranded,
+                            })),
+                            Err(error) => Response::err(format!("{error:#}")),
+                        },
+                        Err(error) => Response::err(error),
+                    },
+                    Err(error) => Response::err(format!("{error:#}")),
+                }
+            }
+            _ => Response::err("team disband needs --team, --reason, and an acting actor"),
+        },
+        "judgement" => match request.as_actor.as_deref() {
+            Some(actor) => match daemon.orgintel.get(company).await {
+                Ok(org) => match org.handoffs_assigned_to(actor).await {
+                    Ok(rows) => Response::ok(serde_json::to_value(rows).unwrap_or_default()),
+                    Err(error) => Response::err(format!("{error:#}")),
+                },
+                Err(error) => Response::err(format!("{error:#}")),
+            },
+            None => Response::err("judgement needs --as <actor>"),
+        },
+        "work-handoff-escalate" => match (
+            request.id.as_deref().map(uuid::Uuid::parse_str).transpose(),
+            request.as_actor.as_deref(),
+            request.reason.as_deref(),
+        ) {
+            (Ok(Some(id)), Some(actor), Some(reason)) => match daemon.orgintel.get(company).await {
+                Ok(org) => match org.escalate_handoff(id, actor, reason).await {
+                    Ok(()) => Response::ok(serde_json::json!({
+                        "handoff_id": id, "escalated_from": actor,
+                        "now_owed_by": if actor == "exec" { "owner" } else { "exec" },
+                    })),
+                    Err(error) => Response::err(format!("{error:#}")),
+                },
+                Err(error) => Response::err(format!("{error:#}")),
+            },
+            (Err(error), _, _) => Response::err(format!("bad handoff id: {error}")),
+            _ => Response::err("escalate needs --handoff, --as and --reason"),
         },
         "receipts" => match daemon.authority.records_of_kind(company, "effect").await {
             Ok(events) => {
@@ -1077,16 +1452,26 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
                 let rows: Vec<serde_json::Value> = events
                     .iter()
                     .rev()
-                    .filter(|event| wanted.is_none_or(|cap| event.body["capability"] == cap))
+                    .filter(|event| wanted.is_none_or(|class| {
+                        event.body.get("effect_class").or_else(|| event.body.get("capability"))
+                            .and_then(serde_json::Value::as_str) == Some(class)
+                    }))
                     .take(limit)
                     .map(|event| {
+                        let evidence_quality = if reconcile::is_governed_receipt(&event.body) {
+                            "governed"
+                        } else {
+                            "legacy_unverified"
+                        };
                         serde_json::json!({
-                            "capability": event.body["capability"],
-                            "provider": event.body["provider"],
+                            "effect_class": event.body.get("effect_class").or_else(|| event.body.get("capability")),
+                            "tool": event.body["tool"],
+                            "success": event.body["success"],
                             "party": event.body["party"],
                             "actor": event.body["actor"],
                             "outcome": event.body["outcome"],
                             "idempotency_key": event.body["idempotency_key"],
+                            "evidence_quality": evidence_quality,
                             "at": event.created_at,
                         })
                     })
@@ -1152,6 +1537,67 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
             },
             (Err(error), _) | (_, Err(error)) => Response::err(format!("{error:#}")),
         },
+        "spend-correct" => {
+            if let Err(error) = runtime::CompanyConfig::load(&daemon.root, company) {
+                return Response::err(format!("{error:#}"));
+            }
+            let Some(correction_id) = request.correction_id.as_deref() else {
+                return Response::err("spend-correct needs --correction-id");
+            };
+            let Ok(correction_id) = uuid::Uuid::parse_str(correction_id) else {
+                return Response::err("spend-correct correction id must be a UUID");
+            };
+            let request_ids = match request
+                .request_ids
+                .iter()
+                .map(|request_id| uuid::Uuid::parse_str(request_id))
+                .collect::<std::result::Result<Vec<_>, _>>()
+            {
+                Ok(request_ids) => request_ids,
+                Err(_) => return Response::err("spend-correct request ids must be UUIDs"),
+            };
+            let Some(delta_micro_usd) = request.delta_micro_usd else {
+                return Response::err("spend-correct needs --delta-micro-usd");
+            };
+            let Some(reason) = request.reason.as_deref() else {
+                return Response::err("spend-correct needs --reason");
+            };
+            if request.apply {
+                match daemon.spend.correct(
+                    correction_id,
+                    company,
+                    &request_ids,
+                    delta_micro_usd,
+                    reason,
+                    principal.as_str(),
+                ) {
+                    Ok((correction, preview)) => Response::ok(serde_json::json!({
+                        "applied": true,
+                        "spool_written": true,
+                        "correction": correction,
+                        "current_total_micro_usd": preview.current_total_micro_usd,
+                        "post_correction_total_micro_usd": preview.post_correction_total_micro_usd,
+                    })),
+                    Err(error) => Response::err(format!("{error:#}")),
+                }
+            } else {
+                match daemon.spend.preview_correction(
+                    correction_id,
+                    company,
+                    &request_ids,
+                    delta_micro_usd,
+                    reason,
+                    principal.as_str(),
+                ) {
+                    Ok(preview) => Response::ok(serde_json::json!({
+                        "applied": false,
+                        "spool_written": false,
+                        "preview": preview,
+                    })),
+                    Err(error) => Response::err(format!("{error:#}")),
+                }
+            }
+        }
         "goals" => match daemon.orgintel.get(company).await {
             Ok(org) => match org.list_goals().await {
                 Ok(goals) => Response::ok(serde_json::to_value(goals).unwrap_or_default()),
@@ -1159,14 +1605,426 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
             },
             Err(error) => Response::err(format!("{error:#}")),
         },
-        "commitments" => match daemon.orgintel.get(company).await {
-            Ok(org) => match org.list_commitments().await {
-                Ok(commitments) => {
-                    Response::ok(serde_json::to_value(commitments).unwrap_or_default())
+        "goal-add" => match (
+            request.title.as_deref(),
+            request.body.as_deref(),
+            request.actor.as_deref(),
+        ) {
+            (Some(title), Some(body), Some(actor)) => match daemon.orgintel.get(company).await {
+                Ok(org) => match org.add_goal(title, body, actor).await {
+                    Ok(goal_id) => Response::ok(serde_json::json!({ "goal_id": goal_id })),
+                    Err(error) => Response::err(format!("{error:#}")),
+                },
+                Err(error) => Response::err(format!("{error:#}")),
+            },
+            _ => Response::err("goal-add needs title, body and actor attribution"),
+        },
+        "work-goal" => match (
+            request.id.as_deref(),
+            request.goal.as_deref(),
+            request.actor.as_deref(),
+        ) {
+            (Some(work_id), Some(goal_id), Some(actor)) => {
+                let work_id = match uuid::Uuid::parse_str(work_id) {
+                    Ok(work_id) => work_id,
+                    Err(error) => return Response::err(format!("bad Work id: {error}")),
+                };
+                let goal_id = match uuid::Uuid::parse_str(goal_id) {
+                    Ok(goal_id) => goal_id,
+                    Err(error) => return Response::err(format!("bad Goal id: {error}")),
+                };
+                match daemon.orgintel.get(company).await {
+                    Ok(org) => match org.set_work_goal(work_id, goal_id, actor).await {
+                        Ok(previous_goal_id) => Response::ok(serde_json::json!({
+                            "work_id": work_id,
+                            "goal_id": goal_id,
+                            "previous_goal_id": previous_goal_id,
+                        })),
+                        Err(error) => Response::err(format!("{error:#}")),
+                    },
+                    Err(error) => Response::err(format!("{error:#}")),
                 }
+            }
+            _ => Response::err("work-goal needs Work id, Goal id and actor attribution"),
+        },
+        "work" => match daemon.orgintel.get(company).await {
+            Ok(org) => match org.list_work().await {
+                Ok(work) => Response::ok(serde_json::to_value(work).unwrap_or_default()),
                 Err(error) => Response::err(format!("{error:#}")),
             },
             Err(error) => Response::err(format!("{error:#}")),
+        },
+        "work-graph" => match daemon.orgintel.get(company).await {
+            Ok(org) => match org.work_graph_snapshot().await {
+                Ok(graph) => Response::ok(serde_json::to_value(graph).unwrap_or_default()),
+                Err(error) => Response::err(format!("{error:#}")),
+            },
+            Err(error) => Response::err(format!("{error:#}")),
+        },
+        "work-attempts" => match daemon.orgintel.get(company).await {
+            Ok(org) => {
+                let work_id = match request.id.as_deref().map(uuid::Uuid::parse_str).transpose() {
+                    Ok(value) => value,
+                    Err(error) => return Response::err(format!("bad Work id: {error}")),
+                };
+                match org.list_work_attempts(work_id).await {
+                    Ok(rows) => Response::ok(serde_json::to_value(rows).unwrap_or_default()),
+                    Err(error) => Response::err(format!("{error:#}")),
+                }
+            }
+            Err(error) => Response::err(format!("{error:#}")),
+        },
+        "work-add" => match (
+            request.actor.as_deref(),
+            request.role.as_deref(),
+            request.title.as_deref(),
+            request.body.as_deref(),
+        ) {
+            (Some(owner), Some(role), Some(title), Some(outcome)) => {
+                match daemon.orgintel.get(company).await {
+                    Ok(org) => {
+                        let actor = match org.active_actor(owner).await {
+                            Ok(Some(actor)) => actor,
+                            Ok(None) => return Response::err(format!(
+                                "Work owner {owner:?} is not an existing active actor; inspect `restless people` and commission one stable specialist if none fits"
+                            )),
+                            Err(error) => return Response::err(format!("{error:#}")),
+                        };
+                        if actor.kind != role {
+                            return Response::err(format!(
+                                "Work requested role {role:?}, but durable actor {owner:?} has role {:?}; reuse the actor's recorded role",
+                                actor.kind
+                            ));
+                        }
+                        if let Some(requested_model) = request.model.as_deref() {
+                            if actor.model.as_deref() != Some(requested_model) {
+                                return Response::err(format!(
+                                    "Work requested model {requested_model:?}, but durable actor {owner:?} uses {:?}; model changes belong to the actor/session, not a Work assignment",
+                                    actor.model
+                                ));
+                            }
+                        }
+                        let goal_id = match request.goal.as_deref() {
+                            Some(goal_id) => match uuid::Uuid::parse_str(goal_id) {
+                                Ok(goal_id) => Some(goal_id),
+                                Err(error) => {
+                                    return Response::err(format!("bad Goal id: {error}"))
+                                }
+                            },
+                            None => None,
+                        };
+                        let work = restless_orgintel::NewWork {
+                            owner_id: owner,
+                            title,
+                            outcome,
+                            goal_id,
+                            priority: request.priority.unwrap_or(0),
+                            expected_artifact: request.expected_artifact.as_deref().unwrap_or(""),
+                            workspace: restless_orgintel::WorkspaceSpec {
+                                repo: request.repo,
+                                base_ref: request.base_ref,
+                                integration_branch: request.integration_branch,
+                                worktree: request.worktree,
+                            },
+                            attempt_limit: request.attempt_limit,
+                        };
+                        let parse_edges = |values: &[String], label: &str| {
+                            values
+                                .iter()
+                                .map(|value| {
+                                    uuid::Uuid::parse_str(value).map_err(|error| {
+                                        format!("bad {label} Work id {value:?}: {error}")
+                                    })
+                                })
+                                .collect::<Result<Vec<_>, _>>()
+                        };
+                        let requires = match parse_edges(&request.requires, "required") {
+                            Ok(values) => values,
+                            Err(error) => return Response::err(error),
+                        };
+                        let revises = match parse_edges(&request.revises, "revised") {
+                            Ok(values) => values,
+                            Err(error) => return Response::err(error),
+                        };
+                        match org.add_work_with_edges(work, &requires, &revises).await {
+                            Ok(id) => Response::ok(serde_json::json!({ "work_id": id })),
+                            Err(error) => Response::err(format!("{error:#}")),
+                        }
+                    }
+                    Err(error) => Response::err(format!("{error:#}")),
+                }
+            }
+            _ => Response::err("work-add needs owner, role, title and outcome"),
+        },
+        "work-edge" => match (
+            request.from.as_deref(),
+            request.to.as_deref(),
+            request.kind.as_deref(),
+        ) {
+            (Some(from), Some(to), Some(kind)) => {
+                let (Ok(from), Ok(to)) = (uuid::Uuid::parse_str(from), uuid::Uuid::parse_str(to))
+                else {
+                    return Response::err("work-edge needs UUID from/to");
+                };
+                let kind = match kind {
+                    "requires" => restless_orgintel::WorkEdgeKind::Requires,
+                    "revises" => restless_orgintel::WorkEdgeKind::Revises,
+                    other => {
+                        return Response::err(format!(
+                            "edge kind must be requires|revises, got {other:?}"
+                        ))
+                    }
+                };
+                match daemon.orgintel.get(company).await {
+                    Ok(org) => {
+                        if request.action.as_deref() == Some("remove") {
+                            let Some(changed_by) = request.as_actor.as_deref() else {
+                                return Response::err("removing a Work edge needs --as");
+                            };
+                            let Some(reason) = request.reason.as_deref() else {
+                                return Response::err("removing a Work edge needs --reason");
+                            };
+                            match org
+                                .remove_work_edge(from, to, kind, changed_by, reason)
+                                .await
+                            {
+                                Ok(()) => Response::ok("removed"),
+                                Err(error) => Response::err(format!("{error:#}")),
+                            }
+                        } else {
+                            match org.add_work_edge(from, to, kind).await {
+                                Ok(()) => Response::ok("recorded"),
+                                Err(error) => Response::err(format!("{error:#}")),
+                            }
+                        }
+                    }
+                    Err(error) => Response::err(format!("{error:#}")),
+                }
+            }
+            _ => Response::err("work-edge needs from, to and kind"),
+        },
+        "work-artifact" => match (
+            request.id.as_deref(),
+            request.attempt.as_deref(),
+            request.kind.as_deref(),
+            request.uri.as_deref(),
+        ) {
+            (Some(work), Some(attempt), Some(kind), Some(uri)) => {
+                let (Ok(work_id), Ok(attempt_id)) =
+                    (uuid::Uuid::parse_str(work), uuid::Uuid::parse_str(attempt))
+                else {
+                    return Response::err("work-artifact needs UUID work and attempt");
+                };
+                match daemon.orgintel.get(company).await {
+                    Ok(org) => match org
+                        .link_work_artifact(restless_orgintel::NewArtifactRef {
+                            kind,
+                            uri,
+                            note: request.body.as_deref().unwrap_or(""),
+                            created_by: request.actor.as_deref().unwrap_or("owner"),
+                            work_id: Some(work_id),
+                            attempt_id: Some(attempt_id),
+                            digest: request.digest.as_deref(),
+                            source_commit: request.source_commit.as_deref(),
+                            runtime_generation: None,
+                            label: request.label.as_deref().unwrap_or("output"),
+                        })
+                        .await
+                    {
+                        Ok(id) => Response::ok(serde_json::json!({ "artifact_ref_id": id })),
+                        Err(error) => Response::err(format!("{error:#}")),
+                    },
+                    Err(error) => Response::err(format!("{error:#}")),
+                }
+            }
+            _ => Response::err("work-artifact needs work, attempt, kind and uri"),
+        },
+        "work-gate" => match (
+            request.id.as_deref(),
+            request.name.as_deref(),
+            request.cwd.as_deref(),
+            request.argv.as_deref(),
+        ) {
+            (Some(work), Some(name), Some(cwd), Some(argv)) => {
+                let Ok(work_id) = uuid::Uuid::parse_str(work) else {
+                    return Response::err("bad Work id");
+                };
+                match daemon.orgintel.get(company).await {
+                    Ok(org) => match org
+                        .add_work_gate(restless_orgintel::NewWorkGate {
+                            work_id,
+                            name,
+                            cwd,
+                            command: argv,
+                            created_by: request.actor.as_deref().unwrap_or("owner"),
+                        })
+                        .await
+                    {
+                        Ok(id) => Response::ok(serde_json::json!({ "gate_id": id })),
+                        Err(error) => Response::err(format!("{error:#}")),
+                    },
+                    Err(error) => Response::err(format!("{error:#}")),
+                }
+            }
+            _ => Response::err("work-gate needs work, name, cwd and command"),
+        },
+        "work-handoff" => match (
+            request.id.as_deref(),
+            request.category.as_deref(),
+            request.action.as_deref(),
+            request.prepared.as_deref(),
+            request.resume_when.as_deref(),
+        ) {
+            (Some(work), Some(category), Some(action), Some(prepared), Some(resume_when)) => {
+                let Ok(work_id) = uuid::Uuid::parse_str(work) else {
+                    return Response::err("bad Work id");
+                };
+                let attempt_id = match request
+                    .attempt
+                    .as_deref()
+                    .map(uuid::Uuid::parse_str)
+                    .transpose()
+                {
+                    Ok(value) => value,
+                    Err(error) => return Response::err(format!("bad Attempt id: {error}")),
+                };
+                let category = match category {
+                    "identity" => restless_orgintel::OwnerHandoffCategory::Identity,
+                    "captcha" => restless_orgintel::OwnerHandoffCategory::Captcha,
+                    "mfa" => restless_orgintel::OwnerHandoffCategory::Mfa,
+                    "legal_attestation" => {
+                        restless_orgintel::OwnerHandoffCategory::LegalAttestation
+                    }
+                    "payment_confirmation" => {
+                        restless_orgintel::OwnerHandoffCategory::PaymentConfirmation
+                    }
+                    "owner_judgement" => restless_orgintel::OwnerHandoffCategory::OwnerJudgement,
+                    other => {
+                        return Response::err(format!("unsupported handoff category {other:?}"))
+                    }
+                };
+                match daemon.orgintel.get(company).await {
+                    Ok(org) => match org
+                        .request_owner_handoff(restless_orgintel::NewOwnerHandoff {
+                            work_id,
+                            attempt_id,
+                            requested_by: request.actor.as_deref().unwrap_or("owner"),
+                            category,
+                            requested_action: action,
+                            prepared_state: prepared,
+                            resume_condition: resume_when,
+                        })
+                        .await
+                    {
+                        Ok(id) => Response::ok(serde_json::json!({ "handoff_id": id })),
+                        Err(error) => Response::err(format!("{error:#}")),
+                    },
+                    Err(error) => Response::err(format!("{error:#}")),
+                }
+            }
+            _ => Response::err(
+                "work-handoff needs work, category, action, prepared and resume condition",
+            ),
+        },
+        "work-handoff-resolve" => match (
+            request.id.as_deref(),
+            request.state.as_deref(),
+            request.resolution.as_deref(),
+            request.as_actor.as_deref(),
+        ) {
+            (Some(id), Some(state), Some(resolution), Some(resolved_by))
+                if !resolution.trim().is_empty() =>
+            {
+                let Ok(id) = uuid::Uuid::parse_str(id) else {
+                    return Response::err("bad handoff id");
+                };
+                let state = match state {
+                    "resolved" => restless_orgintel::OwnerHandoffState::Resolved,
+                    "declined" => restless_orgintel::OwnerHandoffState::Declined,
+                    "withdrawn" => restless_orgintel::OwnerHandoffState::Withdrawn,
+                    other => {
+                        return Response::err(format!(
+                            "handoff state must be resolved|declined|withdrawn, got {other:?}"
+                        ))
+                    }
+                };
+                match daemon.orgintel.get(company).await {
+                    Ok(org) => match org
+                        .resolve_handoff_as(id, resolved_by, state, resolution)
+                        .await
+                    {
+                        Ok(()) => Response::ok("recorded"),
+                        Err(error) => Response::err(format!("{error:#}")),
+                    },
+                    Err(error) => Response::err(format!("{error:#}")),
+                }
+            }
+            _ => Response::err("work-handoff-resolve needs handoff, state, resolution and --as"),
+        },
+        "work-resume" => match (
+            request.id.as_deref().map(uuid::Uuid::parse_str).transpose(),
+            request.as_actor.as_deref(),
+            request.reason.as_deref(),
+        ) {
+            (Ok(Some(id)), Some(actor), Some(reason)) => match daemon.orgintel.get(company).await {
+                Ok(org) => match org.resume_work(id, actor, reason).await {
+                    Ok(()) => Response::ok(serde_json::json!({
+                        "work_id": id, "resumed_by": actor, "repair": reason,
+                    })),
+                    Err(error) => Response::err(format!("{error:#}")),
+                },
+                Err(error) => Response::err(format!("{error:#}")),
+            },
+            (Err(error), _, _) => Response::err(format!("bad Work id: {error}")),
+            _ => Response::err("work-resume needs work, reason and --as"),
+        },
+        "work-abandon" => match (
+            request.id.as_deref().map(uuid::Uuid::parse_str).transpose(),
+            request.as_actor.as_deref(),
+            request.reason.as_deref(),
+        ) {
+            (Ok(Some(id)), Some(actor), Some(reason)) => match daemon.orgintel.get(company).await {
+                Ok(org) => match org.abandon_work(id, actor, reason).await {
+                    Ok(()) => Response::ok(serde_json::json!({
+                        "work_id": id, "abandoned_by": actor, "reason": reason,
+                    })),
+                    Err(error) => Response::err(format!("{error:#}")),
+                },
+                Err(error) => Response::err(format!("{error:#}")),
+            },
+            (Err(error), _, _) => Response::err(format!("bad Work id: {error}")),
+            _ => Response::err("work-abandon needs work, reason and --as"),
+        },
+        "work-review" => match (request.id.as_deref(), request.state.as_deref()) {
+            (Some(id), Some(state)) => {
+                let Ok(id) = uuid::Uuid::parse_str(id) else {
+                    return Response::err("bad handoff id");
+                };
+                let decision = match state {
+                    "accept" => restless_orgintel::OwnerReviewDecision::Accepted,
+                    "request_changes" => restless_orgintel::OwnerReviewDecision::ChangesRequested,
+                    other => {
+                        return Response::err(format!(
+                            "review decision must be accept|request_changes, got {other:?}"
+                        ))
+                    }
+                };
+                match daemon.orgintel.get(company).await {
+                    Ok(org) => match org
+                        .decide_owner_review(
+                            id,
+                            decision,
+                            request.resolution.as_deref().unwrap_or(""),
+                        )
+                        .await
+                    {
+                        Ok(()) => Response::ok("recorded"),
+                        Err(error) => Response::err(format!("{error:#}")),
+                    },
+                    Err(error) => Response::err(format!("{error:#}")),
+                }
+            }
+            _ => Response::err("work-review needs handoff and accept|request_changes decision"),
         },
         // Reading your own inbox marks read; inspecting another actor's
         // (--as) does not — an observer must not hide mail from its
@@ -1189,46 +2047,27 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
         },
         "message" => match (request.from, request.body) {
             (Some(from), Some(body)) => match daemon.orgintel.get(company).await {
-                Ok(org) => match org.send_message(&from, request.to.as_deref(), &body).await {
-                    Ok(id) => Response::ok(serde_json::json!({ "message_id": id })),
-                    Err(error) => Response::err(format!("{error:#}")),
-                },
+                Ok(org) => {
+                    let result = match request.id.as_deref() {
+                        Some(work_id) => {
+                            let Ok(work_id) = uuid::Uuid::parse_str(work_id) else {
+                                return Response::err("bad Work id on message");
+                            };
+                            match request.to.as_deref() {
+                                Some(to) => org.send_work_message(&from, to, work_id, &body).await,
+                                None => org.send_work_message_to_owner(&from, work_id, &body).await,
+                            }
+                        }
+                        None => org.send_message(&from, request.to.as_deref(), &body).await,
+                    };
+                    match result {
+                        Ok(id) => Response::ok(serde_json::json!({ "message_id": id })),
+                        Err(error) => Response::err(format!("{error:#}")),
+                    }
+                }
                 Err(error) => Response::err(format!("{error:#}")),
             },
             _ => Response::err("message needs from and body"),
-        },
-        // The agents' report path: complete or block a commitment.
-        "commitment-state" => match (request.id, request.state.as_deref()) {
-            (Some(id), Some(state)) => {
-                let state = match state {
-                    "completed" | "complete" => restless_orgintel::CommitmentState::Completed,
-                    "blocked" | "block" => restless_orgintel::CommitmentState::Blocked,
-                    "abandoned" | "abandon" => restless_orgintel::CommitmentState::Abandoned,
-                    other => {
-                        return Response::err(format!(
-                            "state must be completed|blocked|abandoned, got {other:?}"
-                        ))
-                    }
-                };
-                let Ok(id) = uuid::Uuid::parse_str(&id) else {
-                    return Response::err(format!("bad commitment id {id:?}"));
-                };
-                match daemon.orgintel.get(company).await {
-                    Ok(org) => match org
-                        .set_commitment_state(
-                            id,
-                            state,
-                            request.resolution.as_deref().unwrap_or(""),
-                        )
-                        .await
-                    {
-                        Ok(()) => Response::ok("recorded"),
-                        Err(error) => Response::err(format!("{error:#}")),
-                    },
-                    Err(error) => Response::err(format!("{error:#}")),
-                }
-            }
-            _ => Response::err("commitment-state needs id and state"),
         },
         "events" => match daemon.orgintel.get(company).await {
             Ok(org) => match org.list_events(request.limit.unwrap_or(50)).await {
@@ -1237,11 +2076,6 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
             },
             Err(error) => Response::err(format!("{error:#}")),
         },
-        // S02-T2: delegation as a tool. The Exec calls this the moment it
-        // decides to delegate, rather than remembering a JSON field when it
-        // stops. Refusals (bad name, cap reached, empty task) come back on
-        // this call instead of arriving later as mail nobody connected to the
-        // decision.
         "clear-poison" => match daemon.spend.clear_poison(company) {
             Ok(()) => Response::ok(serde_json::json!({
                 "company": company,
@@ -1349,51 +2183,31 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
                 Err(error) => Response::err(format!("{error:#}")),
             }
         }
-        "spawn" => match (request.name, request.body) {
-            (Some(name), Some(task)) => match runtime::CompanyConfig::load(&daemon.root, company) {
-                Ok(config) => match daemon.orgintel.get(company).await {
-                    Ok(org) => {
-                        let ask = staff::SpawnRequest {
-                            name,
-                            task,
-                            repo: request.repo,
-                            role: request.role,
-                            model: request.model,
-                        };
-                        match staff::spawn_now(&config, &daemon.spend, &org, &daemon.staff, &ask)
-                            .await
-                        {
-                            Ok(()) => Response::ok(serde_json::json!({
-                                "spawned": ask.name,
-                                "workdir": ask.repo.as_ref().map(|_| {
-                                    format!("/company/worktrees/{}", ask.name)
-                                }),
-                                "note": "supervised; its completion or blockage will wake you",
-                            })),
-                            Err(error) => Response::err(format!("{error:#}")),
-                        }
-                    }
-                    Err(error) => Response::err(format!("{error:#}")),
-                },
-                Err(error) => Response::err(format!("{error:#}")),
-            },
-            _ => Response::err("spawn needs --name and a task".to_string()),
-        },
-        "effect" => match (request.capability, request.key) {
-            (Some(capability), Some(key)) => {
+        "effect" => match (
+            request.effect_class,
+            request.purpose,
+            request.key,
+            request.cwd,
+            request.argv,
+        ) {
+            (Some(effect_class), Some(purpose), Some(key), Some(cwd), Some(argv)) => {
                 let actor = request.actor.as_deref().unwrap_or("owner");
                 match runtime::CompanyConfig::load(&daemon.root, company) {
                     Ok(config) => {
                         let org = daemon.orgintel.get(company).await.ok();
                         match effect::request_effect(
                             effect::EffectEnvironment {
-                                root: &daemon.root,
                                 config: &config,
                                 authority: &daemon.authority,
                                 org: org.as_ref(),
                             },
-                            &capability,
-                            request.args.unwrap_or(serde_json::Value::Null),
+                            &effect_class,
+                            request.party.as_deref(),
+                            &purpose,
+                            request.artifacts.unwrap_or_default(),
+                            &cwd,
+                            argv,
+                            request.secret_bindings.unwrap_or_default(),
                             &key,
                             actor,
                         )
@@ -1409,9 +2223,68 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
                     Err(error) => Response::err(format!("{error:#}")),
                 }
             }
-            _ => Response::err("effect needs capability and key"),
+            _ => Response::err("effect needs class, purpose, key, cwd and command"),
+        },
+        "effect-reconcile" => match (
+            request.key.as_deref(),
+            request.execution_no,
+            request.state.as_deref(),
+            request.id.as_deref(),
+        ) {
+            (Some(key), Some(execution_no), Some(result), Some(evidence_receipt)) => {
+                match effect::reconcile_unknown(
+                    &daemon.authority,
+                    company,
+                    key,
+                    execution_no,
+                    result,
+                    evidence_receipt,
+                    request.actor.as_deref().unwrap_or("owner"),
+                )
+                .await
+                {
+                    Ok(receipt) => match serde_json::to_value(receipt) {
+                        Ok(value) => Response::ok(value),
+                        Err(error) => Response::err(format!("encode receipt: {error}")),
+                    },
+                    Err(error) => Response::err(format!("{error:#}")),
+                }
+            }
+            _ => Response::err(
+                "effect-reconcile needs key, execution, succeeded|failed and evidence receipt",
+            ),
         },
         other => Response::err(format!("unknown command {other:?}")),
+    }
+}
+
+/// Accept a team by name or id. Names are what an Exec or owner actually types;
+/// ids are what another command just returned. Refusing one of the two would
+/// make the surface awkward for no safety gain — both resolve to one live team
+/// or to an error that says so.
+async fn resolve_team(
+    org: &restless_orgintel::OrgIntel,
+    reference: &str,
+) -> std::result::Result<uuid::Uuid, String> {
+    let teams = org
+        .list_teams()
+        .await
+        .map_err(|error| format!("{error:#}"))?;
+    if let Ok(id) = uuid::Uuid::parse_str(reference) {
+        if teams.iter().any(|team| team.id == id) {
+            return Ok(id);
+        }
+        return Err(format!("no live team with id {reference}"));
+    }
+    let mut matched = teams
+        .iter()
+        .filter(|team| team.name.eq_ignore_ascii_case(reference));
+    match (matched.next(), matched.next()) {
+        (Some(team), None) => Ok(team.id),
+        (Some(_), Some(_)) => Err(format!(
+            "{reference:?} matches more than one live team; use the team id"
+        )),
+        _ => Err(format!("no live team named {reference:?}")),
     }
 }
 
@@ -1476,8 +2349,7 @@ mod tests {
             "mission",
             "spend_ceiling_usd",
             "model",
-            "providers.",
-            "from_address",
+            "model_failover",
             "credentials.",
             "approved_parties",
         ] {
@@ -1497,14 +2369,7 @@ mod tests {
     /// would be a worse bug than the one it fixes.
     #[test]
     fn the_company_keeps_its_coordination_channel() {
-        for cmd in [
-            "commitments",
-            "message",
-            "commitment-state",
-            "spawn",
-            "effect",
-            "inbox",
-        ] {
+        for cmd in ["work", "message", "work-handoff-resolve", "effect", "inbox"] {
             assert_eq!(
                 authorize(Some("company/exec"), cmd).unwrap(),
                 Principal::CompanyExec,

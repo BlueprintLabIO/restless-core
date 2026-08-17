@@ -78,6 +78,37 @@ impl BlockKind {
     }
 }
 
+/// Read the stable prefix produced by [`Blocked::message`]. This is used by
+/// provider continuity after a turn has already been classified; it does not
+/// re-interpret model prose.
+#[must_use]
+pub fn block_kind_from_message(message: &str) -> Option<BlockKind> {
+    [
+        BlockKind::Disk,
+        BlockKind::Container,
+        BlockKind::Credential,
+        BlockKind::Quota,
+        BlockKind::Model,
+        BlockKind::NoOp,
+        BlockKind::Budget,
+        BlockKind::Transport,
+    ]
+    .into_iter()
+    .find(|kind| message.starts_with(&format!("[{}] ", kind.as_str())))
+}
+
+#[must_use]
+pub fn is_provider_failover_kind(kind: BlockKind) -> bool {
+    matches!(
+        kind,
+        BlockKind::Credential
+            | BlockKind::Quota
+            | BlockKind::Model
+            | BlockKind::NoOp
+            | BlockKind::Transport
+    )
+}
+
 #[derive(Debug, Clone)]
 pub struct Blocked {
     pub kind: BlockKind,
@@ -346,21 +377,21 @@ pub async fn organisational(
     company: &str,
     spent_usd: f64,
 ) -> Result<Vec<OrgSignal>> {
-    use restless_orgintel::CommitmentState;
+    use restless_orgintel::WorkStatus;
     let mut signals = Vec::new();
-    let commitments = org.list_commitments().await?;
+    let work = org.list_work().await?;
 
     // 1. Effort without output. Observed: two cosmon wakes burned a 20-minute
     //    boundary each and produced nothing at all.
-    let completed = commitments
+    let completed = work
         .iter()
-        .filter(|c| matches!(c.state, CommitmentState::Completed))
+        .filter(|item| matches!(item.status, WorkStatus::Completed))
         .count();
     if completed == 0 && spent_usd >= EFFORT_WITHOUT_OUTPUT_USD {
         signals.push(OrgSignal {
             kind: "effort-without-output",
             detail: format!(
-                "${spent_usd:.2} spent and no commitment has ever completed — \
+                "${spent_usd:.2} spent and no Work item has ever completed — \
                  is the work too big to finish, or is something quietly failing?"
             ),
         });
@@ -370,7 +401,12 @@ pub async fn organisational(
     //    names that did not exist, in one wake, and blocked on the owner.
     let mut failures: std::collections::BTreeMap<String, usize> = std::collections::BTreeMap::new();
     for event in authority.records_of_kind(company, "effect").await? {
-        let Some(capability) = event.body.get("capability").and_then(|v| v.as_str()) else {
+        let Some(capability) = event
+            .body
+            .get("effect_class")
+            .or_else(|| event.body.get("capability"))
+            .and_then(|v| v.as_str())
+        else {
             continue;
         };
         if event.body.get("outcome").is_some_and(|outcome| {
@@ -394,16 +430,16 @@ pub async fn organisational(
     // 3. Blocked on a person. Observed: F1 latched blocked milestones so the
     //    company stops rather than re-mailing the owner every tick — which is
     //    correct, and also means a blockage can sit unnoticed.
-    for commitment in commitments
+    for item in work
         .iter()
-        .filter(|c| matches!(c.state, CommitmentState::Blocked))
+        .filter(|item| matches!(item.status, WorkStatus::Blocked))
     {
         signals.push(OrgSignal {
             kind: "blocked-on-a-person",
             detail: format!(
                 "\"{}\" is blocked and waiting on someone: {}",
-                commitment.title.chars().take(60).collect::<String>(),
-                commitment.resolution.chars().take(120).collect::<String>()
+                item.title.chars().take(60).collect::<String>(),
+                item.resolution.chars().take(120).collect::<String>()
             ),
         });
     }

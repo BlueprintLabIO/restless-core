@@ -38,28 +38,21 @@ pub struct EffectLedger {
     pub money_minor: BTreeMap<String, i64>,
     /// Receipts that moved money but did not say how much, or in what
     /// currency. These are the ones nobody can reconcile — naming them is the
-    /// honest alternative to guessing a unit. Observed: the same simulated
+    /// honest alternative to guessing a unit. Observed: the same legacy test
     /// provider accepted `900` and `9` for the same £9 charge.
     pub unattributable_payments: usize,
     /// Duplicate requests the idempotency guard suppressed. Counted so the
     /// protection is auditable rather than merely asserted.
     pub replays_suppressed: usize,
-    /// Receipts the company wrote about its own actions (`provider:
-    /// "self-reported"`), as opposed to ones a provider confirmed.
-    ///
-    /// Counted separately because they are **weaker evidence**, and the whole
-    /// point of showing the Exec its ledger each wake is that receipts outrank
-    /// belief. A self-reported receipt IS the belief — it just has an
-    /// idempotency key attached. Aris once claimed £45 against £18 confirmable;
-    /// if self-attested effects were silently tallied as confirmed, this ledger
-    /// would launder exactly that mistake into evidence.
-    pub self_reported: usize,
     /// Effects repeated on a party already acted on under a different key.
     /// Idempotency cannot catch these: two honest keys, one party.
     pub party_repeats: usize,
     /// Receipts whose status word we do not recognise. Reported rather than
     /// guessed in either direction.
     pub unknown_outcomes: usize,
+    /// Imported pre-runner rows without the generic command/evidence contract.
+    /// Preserved as history but excluded from confirmed effect and money totals.
+    pub legacy_unverified: usize,
     pub total: usize,
 }
 
@@ -68,7 +61,14 @@ impl EffectLedger {
     #[must_use]
     pub fn summary(&self) -> String {
         if self.total == 0 {
-            return "no external effects recorded yet".to_string();
+            return if self.legacy_unverified > 0 {
+                format!(
+                    "no governed external effects recorded yet · {} legacy unverified record(s) excluded",
+                    self.legacy_unverified
+                )
+            } else {
+                "no governed external effects recorded yet".to_string()
+            };
         }
         let mut parts: Vec<String> = self
             .by_capability
@@ -94,12 +94,6 @@ impl EffectLedger {
                 self.replays_suppressed
             ));
         }
-        if self.self_reported > 0 {
-            parts.push(format!(
-                "{} of these are YOUR OWN account of what happened, not a provider's —                  weaker evidence, do not report them as confirmed",
-                self.self_reported
-            ));
-        }
         if self.unknown_outcomes > 0 {
             parts.push(format!(
                 "{} receipt(s) with an unrecognised status",
@@ -118,6 +112,12 @@ impl EffectLedger {
                 self.unattributable_payments
             ));
         }
+        if self.legacy_unverified > 0 {
+            parts.push(format!(
+                "{} legacy unverified record(s) excluded",
+                self.legacy_unverified
+            ));
+        }
         parts.join(" · ")
     }
 }
@@ -128,21 +128,48 @@ pub async fn effect_ledger(
     company: &str,
 ) -> Result<EffectLedger> {
     let mut ledger = EffectLedger::default();
-    for event in authority.records_of_kind(company, "effect").await? {
-        let Some(capability) = event.body.get("capability").and_then(|v| v.as_str()) else {
+    let effect_records = authority.records_of_kind(company, "effect").await?;
+    let completed = effect_records
+        .iter()
+        .filter(|event| is_governed_receipt(&event.body))
+        .filter_map(|event| {
+            Some((
+                event.body.get("idempotency_key")?.as_str()?.to_string(),
+                event
+                    .body
+                    .get("execution_no")
+                    .and_then(serde_json::Value::as_i64)
+                    .unwrap_or(1),
+            ))
+        })
+        .collect::<std::collections::BTreeSet<_>>();
+    for event in effect_records {
+        if !is_governed_receipt(&event.body) {
+            ledger.legacy_unverified += 1;
+            continue;
+        }
+        let Some(capability) = event
+            .body
+            .get("effect_class")
+            .or_else(|| event.body.get("capability"))
+            .and_then(|v| v.as_str())
+        else {
             continue;
         };
         let outcome = event.body.get("outcome");
         ledger.total += 1;
-        if event.body.get("provider").and_then(|p| p.as_str()) == Some("self-reported") {
-            ledger.self_reported += 1;
-        }
         let tally = ledger
             .by_capability
             .entry(capability.to_string())
             .or_default();
         tally.total += 1;
-        if outcome.is_some_and(|o| outcome_of(o) == Outcome::Failed) {
+        if event
+            .body
+            .get("success")
+            .and_then(serde_json::Value::as_bool)
+            == Some(false)
+            || outcome.is_some_and(|o| outcome_of(o) == Outcome::Failed)
+        {
             tally.failed += 1;
             continue;
         }
@@ -160,6 +187,23 @@ pub async fn effect_ledger(
             }
         }
     }
+    for intent in authority.records_of_kind(company, "effect_intent").await? {
+        let Some(key) = intent
+            .body
+            .get("idempotency_key")
+            .and_then(serde_json::Value::as_str)
+        else {
+            continue;
+        };
+        let execution = intent
+            .body
+            .get("execution_no")
+            .and_then(serde_json::Value::as_i64)
+            .unwrap_or(1);
+        if !completed.contains(&(key.to_string(), execution)) {
+            ledger.unknown_outcomes += 1;
+        }
+    }
     ledger.replays_suppressed = authority
         .records_of_kind(company, "effect_replayed")
         .await?
@@ -169,6 +213,24 @@ pub async fn effect_ledger(
         .await?
         .len();
     Ok(ledger)
+}
+
+pub(crate) fn is_governed_receipt(body: &serde_json::Value) -> bool {
+    body.get("command_digest")
+        .and_then(serde_json::Value::as_str)
+        .is_some()
+        && body
+            .get("tool")
+            .and_then(serde_json::Value::as_str)
+            .is_some()
+        && body
+            .get("success")
+            .and_then(serde_json::Value::as_bool)
+            .is_some()
+        && body
+            .get("execution_no")
+            .and_then(serde_json::Value::as_i64)
+            .is_some()
 }
 
 /// What a receipt says happened. Three states, not two — an allowlist of
@@ -245,6 +307,21 @@ mod tests {
         serde_json::json!({ "capability": capability, "outcome": outcome })
     }
 
+    #[test]
+    fn legacy_self_reports_are_not_upgraded_into_governed_receipts() {
+        assert!(!is_governed_receipt(&receipt(
+            "email.send",
+            serde_json::json!({"status": "sent"})
+        )));
+        assert!(is_governed_receipt(&serde_json::json!({
+            "effect_class": "customer-contact.email",
+            "command_digest": "sha256",
+            "tool": "resend",
+            "success": true,
+            "execution_no": 1,
+        })));
+    }
+
     /// Every status word both companies actually emitted. An allowlist built
     /// from imagination would have called `deployed` and `refunded` failures
     /// and fired a "repeating a failed approach" signal at a healthy company.
@@ -290,11 +367,11 @@ mod tests {
     fn counts_successes_failures_and_refuses_to_guess_units() {
         let events = vec![
             receipt(
-                "email.send",
+                "customer-contact.email",
                 serde_json::json!({ "note": "delivered", "status": "sent" }),
             ),
             receipt(
-                "email.send",
+                "customer-contact.email",
                 serde_json::json!({ "note": "example.com is a reserved domain", "status": "bounced" }),
             ),
             receipt(
@@ -340,7 +417,7 @@ mod tests {
             }
         }
         assert_eq!(ledger.total, 5);
-        assert_eq!(ledger.by_capability["email.send"].failed, 1);
+        assert_eq!(ledger.by_capability["customer-contact.email"].failed, 1);
         assert_eq!(ledger.by_capability["payment.charge"].failed, 1);
         // Only the receipt carrying BOTH amount and currency is counted.
         assert_eq!(ledger.money_minor["GBP"], 900);

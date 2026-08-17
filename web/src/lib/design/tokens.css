@@ -1,65 +1,127 @@
+/* Bridge Light: quiet operational glass over the dot-matrix machine. Colour is
+ * semantic, never decorative: it identifies intent, authority and outcome. */
 
-/* ============ v3 — the company is a chat app, scoped under .bridge-root ============
- * Bridge design language (docs/design-language.md): the dark cockpit. Matte ink,
- * dot-field ground, pure-white annunciation — emissive white is the machine,
- * material white is the operator. */
+/* ---------- type ----------
+ * Five steps. Before this there were 24 distinct sizes across these files, 13 of
+ * them fractional and 64 declarations below 10px, plus four rival clamp() curves
+ * so that "the title of this page" rendered at 30px on Work, 34px on Attention
+ * and 43px on the portfolio.
+ *
+ * Two zones, because perceived difference is a ratio and not a delta. The UI
+ * zone is tight (11 -> 13, x1.18); the display zone jumps (13 -> 16 -> title ->
+ * hero, x1.2 to x1.6). Deliberately absent is any step one pixel from its
+ * neighbour: 13px next to 14px is not a level anyone perceives, so a heading
+ * that wants to feel smaller than 16 is body at weight 600, and a line that
+ * wants to feel quieter than body is body in --text-tertiary.
+ *
+ * These live on :root rather than on .bridge-root because the app-level chrome
+ * — the offline banner, the loading bar, the document default in base.css —
+ * renders OUTSIDE the design scope and still has to be set in the company's
+ * typeface. Everything below the token layer stays scoped.
+ *
+ * Sizes are chosen here and only here. A raw px font-size anywhere else is out
+ * of band, and `npm run check:type` fails on one. */
+:root {
+	--font-ui: 'IBM Plex Sans', system-ui, sans-serif;
+	--font-mono: 'IBM Plex Mono', ui-monospace, monospace;
+	/* Silkscreen is bitmap-derived: it only resolves cleanly on integer multiples
+	 * of its 8px design size, which is why the wordmark is 16px and never 15. */
+	--font-mark: 'Silkscreen', 'IBM Plex Mono', monospace;
+
+	--t-label: 11px; /* uppercase mono data labels, timestamps, badges */
+	--t-body: 13px; /* everything prose: paragraphs, controls, list rows */
+	--t-head: 16px; /* pane and section headings */
+	--t-title: clamp(22px, 2vw, 26px); /* the title of a surface — one curve */
+	--t-hero: clamp(26px, 2.6vw, 34px); /* zero states, the door, the portfolio */
+	--t-mark: 16px; /* the wordmark: a brand asset, not a ramp step */
+	--track-label: 0.07em;
+}
 
 .bridge-root {
-	/* palette — the Bridge 9-step dark ramp. No hue: the agent owns the top of
-	 * the ramp as light; the operator's action is solid white as material.
-	 * Body text uses only --text-secondary and brighter, so AA holds by
-	 * construction (≥4.5:1 on --bg-app). */
-	--bg-app: #0a0b0d;
-	--surface: #0e1013;
-	--surface-alt: #131619;
-	--r3: #181b1f;
-	--r4: #1e2227;
-	--sidebar-bg: rgba(14, 16, 19, 0.55);
-	--glass: rgba(10, 11, 13, 0.72);
-	--glass-strong: rgba(10, 11, 13, 0.88);
-	--accent: #f4f5f6;
-	--accent-soft: rgba(244, 245, 246, 0.08);
-	--accent-strong: #ffffff;
-	--ink: #f4f5f6;
-	/* Quiet, but never below WCAG AA on the ramp (4.5:1) — the product's own
-	 * gate holds every caption and timestamp to that. */
-	--text-secondary: rgba(244, 245, 246, 0.66);
-	--text-tertiary: rgba(244, 245, 246, 0.5);
-	--text-inverse: #0a0b0d;
-	--border: rgba(255, 255, 255, 0.07);
-	--border-strong: rgba(255, 255, 255, 0.12);
-	/* Operator bubbles are material white; agent rows are raised ink. */
-	--bubble-user: #f4f5f6;
-	--bubble-agent: #131619;
-	/* Status is shape-first (L6); these steps only ever reinforce a glyph. */
-	--status-working: #f4f5f6;
-	--status-waiting: #a8adb4;
-	--status-blocked: #9aa0a8;
-	--status-offline: #3c4046;
-	--info: #a8adb4;
-	/* The employee palette in monochrome: neutral steps, white initials at
-	 * 13px stay above WCAG AA against every one. */
-	--pig-0: #4a5058;
-	--pig-1: #3a3f46;
-	--pig-2: #565d66;
-	--pig-3: #2f3339;
-	--pig-4: #444a52;
+	--bg-app: #e9edf3;
+	--surface: rgba(255, 255, 255, 0.9);
+	--surface-alt: rgba(244, 247, 251, 0.9);
+	/* Opaque paint for the two surfaces that carry prose. These are the colours
+	 * the old translucent panes resolved to over --bg-app, so the look holds
+	 * while the text stops compositing through a blur layer. */
+	--surface-pane: #fafbfd;
+	--surface-rail: #fcfdff;
+	--r4: #dce2ea;
+	--sidebar-bg: rgba(248, 250, 252, 0.62);
+	--glass: rgba(250, 251, 253, 0.74);
+	--glass-strong: rgba(255, 255, 255, 0.9);
+	--glass-pane: rgba(255, 255, 255, 0.78);
+	--glass-pane-strong: rgba(255, 255, 255, 0.92);
+	--accent: #222733;
+	--accent-soft: rgba(34, 39, 51, 0.065);
+	--accent-strong: #12151b;
+	/* ---------- ink ----------
+	 * Three levels, and they are a hierarchy lever in their own right: a line is
+	 * "less important" because it is lighter, not because it is smaller.
+	 *
+	 * The values are higher than they look like they should be. macOS has drawn
+	 * text with grayscale antialiasing only since Mojave, and the owner's main
+	 * display is a 2560x1440 panel at devicePixelRatio 1 — at that density a
+	 * stroke set at 52% opacity is light grey with even lighter grey edges, and
+	 * there is barely any ink left to antialias. Most of what read as "blurry
+	 * type" in this app was never blur; it was absence of ink. */
+	--ink: #171b24;
+	--text-secondary: rgba(23, 27, 36, 0.84);
+	--text-tertiary: rgba(23, 27, 36, 0.66);
+	--text-inverse: #f8fafc;
+	--border: rgba(48, 57, 74, 0.09);
+	--border-strong: rgba(48, 57, 74, 0.16);
+	--status-offline: #aab1bd;
+	--intent-conversation: #2f6ca8;
+	--intent-conversation-soft: rgba(63, 120, 182, 0.09);
+	--intent-feedback: #237563;
+	--intent-feedback-soft: rgba(45, 138, 120, 0.09);
+	--intent-direction: #6447a6;
+	--intent-direction-soft: rgba(115, 89, 182, 0.09);
+	--intent-authority: #8f5c16;
+	--intent-authority-soft: rgba(184, 118, 32, 0.1);
+	--state-success: #2f7752;
+	--state-success-soft: rgba(60, 138, 98, 0.09);
+	--state-danger: #ad4944;
+	--state-danger-soft: rgba(193, 91, 85, 0.09);
+	--surface-attention: #6f58a8;
+	--surface-attention-soft: rgba(111, 88, 168, 0.1);
+	--surface-work: var(--intent-feedback);
+	--surface-people: var(--intent-conversation);
+	--surface-authority: var(--intent-authority);
+	--danger: var(--state-danger);
 	--radius-sm: 4px;
 	--radius-md: 6px;
 	--radius-lg: 8px;
+	/* A compact geometry scale. Product surfaces use pane radius; controls use
+	 * control radius. Keeping these semantic avoids every new surface inventing
+	 * its own almost-identical corner and spacing values. */
+	--radius-control: var(--radius-sm);
+	--radius-pane: var(--radius-md);
+	--space-1: 4px;
+	--space-2: 8px;
+	--space-3: 12px;
+	--space-4: 16px;
+	--space-5: 20px;
+	--space-6: 24px;
 	/* The seam between panes. Wide enough to read as a channel, thin enough
 	 * that the panes still read as one divided surface rather than as cards
 	 * scattered on a page. */
 	--pane-gap: 4px;
-	--shadow-soft: 0 1px 2px rgba(0, 0, 0, 0.35), 0 4px 14px rgba(0, 0, 0, 0.28);
-	--shadow-lift: 0 2px 6px rgba(0, 0, 0, 0.4), 0 12px 32px rgba(0, 0, 0, 0.45);
-	/* One light source, top-left (L4). Felt, not seen. */
-	--bevel: inset 0 1px 0 rgba(255, 255, 255, 0.14);
-	--bevel-subtle: inset 0 1px 0 rgba(255, 255, 255, 0.08);
-	/* The dot field — still, sub-threshold, the machine under the glass. */
-	--dot: rgba(255, 255, 255, 0.05);
-	/* The hold-to-approve fill sweep. */
-	--hold-fill: rgba(255, 255, 255, 0.22);
+	--app-gutter: 8px;
+	--pane-head-h: 58px;
+	--exec-rail-w: 382px;
+	--glass-blur: 22px;
+	--shadow-soft: 0 1px 2px rgba(43, 51, 66, 0.045), 0 7px 20px rgba(43, 51, 66, 0.045);
+	--shadow-lift: 0 6px 16px rgba(43, 51, 66, 0.1), 0 26px 60px rgba(43, 51, 66, 0.12);
+	--bevel: inset 0 1px 0 rgba(255, 255, 255, 0.96);
+	--bevel-subtle: inset 0 1px 0 rgba(255, 255, 255, 0.72);
+	--control-edge: #c9d0d9;
+	--control-depth:
+		inset 0 1px 0 rgba(255, 255, 255, 0.88), 0 1px 1px rgba(43, 51, 66, 0.08),
+		0 3px 8px rgba(43, 51, 66, 0.055);
+	--control-depth-pressed: inset 0 1px 2px rgba(43, 51, 66, 0.1), 0 1px 2px rgba(43, 51, 66, 0.04);
+	--dot: rgba(34, 39, 51, 0.055);
 	--topbar-h: 46px;
 	/* the seam under the chrome — same channel as the pane gutter, so the bar
 	 * reads as separate from the surface below it rather than welded to it */
@@ -68,13 +130,26 @@
 
 	/* The z-index ladder lives on :root in layout.css — see the comment there. */
 
-	min-height: 100vh;
-	background: var(--bg-app);
-	background-image: radial-gradient(var(--dot) 1px, transparent 1.3px);
-	background-size: 14px 14px;
+	width: 100%;
+	height: 100vh;
+	min-height: 0;
+	overflow: hidden;
+	background-color: var(--bg-app);
+	background-image:
+		radial-gradient(circle at 78% 12%, rgba(90, 111, 203, 0.12), transparent 30%),
+		radial-gradient(circle at 16% 90%, rgba(57, 151, 126, 0.09), transparent 28%),
+		radial-gradient(circle at 48% 58%, rgba(216, 156, 70, 0.045), transparent 24%),
+		radial-gradient(var(--dot) 1px, transparent 1.3px);
+	background-size:
+		auto,
+		auto,
+		auto,
+		14px 14px;
 	color: var(--ink);
-	font-family: 'Inter', system-ui, sans-serif;
-	font-size: 14px;
+	font-family: var(--font-ui);
+	/* explicit, so nothing in the tree silently inherits the 16px document
+	 * default and reintroduces a size that is not on the ramp */
+	font-size: var(--t-body);
 	line-height: 1.5;
 	/* Titles carry model- and operator-supplied text, which can be one
 	 * unbroken 200-character run. break-word inherits everywhere and only
@@ -84,45 +159,8 @@
 	overflow-wrap: break-word;
 }
 
-/* ---------- the light sibling (D2): the same language, inverted. Still
- * monochrome — the machine's "light" becomes the darkest step, the operator's
- * action is solid ink. Avatar tiles stay dark so white initials keep AA. */
-html[data-theme='light'] .bridge-root {
-	--bg-app: #f3f4f6;
-	--surface: #ffffff;
-	--surface-alt: #f4f5f7;
-	--r3: #eceef1;
-	--r4: #e2e5e9;
-	--sidebar-bg: rgba(255, 255, 255, 0.55);
-	--glass: rgba(255, 255, 255, 0.72);
-	--glass-strong: rgba(255, 255, 255, 0.88);
-	--accent: #17181c;
-	--accent-soft: rgba(23, 24, 28, 0.07);
-	--accent-strong: #000000;
-	--ink: #17181c;
-	--text-secondary: rgba(23, 24, 28, 0.66);
-	--text-tertiary: rgba(23, 24, 28, 0.6);
-	--text-inverse: #f4f5f6;
-	--border: rgba(23, 24, 28, 0.09);
-	--border-strong: rgba(23, 24, 28, 0.16);
-	--bubble-user: #17181c;
-	--bubble-agent: #ffffff;
-	--status-working: #17181c;
-	--status-waiting: #5c6169;
-	--status-blocked: #6b7280;
-	--status-offline: #c3c7cd;
-	--info: #5c6169;
-	--shadow-soft: 0 1px 2px rgba(23, 24, 28, 0.06), 0 4px 14px rgba(23, 24, 28, 0.06);
-	--shadow-lift: 0 2px 6px rgba(23, 24, 28, 0.08), 0 12px 32px rgba(23, 24, 28, 0.1);
-	--bevel: inset 0 1px 0 rgba(255, 255, 255, 0.8);
-	--bevel-subtle: inset 0 1px 0 rgba(255, 255, 255, 0.5);
-	--dot: rgba(23, 24, 28, 0.055);
-	--hold-fill: rgba(23, 24, 28, 0.14);
-}
-
 .bridge-root *,
 .bridge-root *::before,
 .bridge-root *::after {
 	box-sizing: border-box;
 }
-

@@ -16,7 +16,13 @@
 //! silently rewrite a checked-in file during an ordinary `cargo build`, which
 //! hides drift instead of reporting it.
 
-use restless_orgintel::{ActorRow, CommitmentRow, CommitmentState, EventRow, GoalRow, MessageRow};
+use restless_orgintel::{
+    ActorRow, ArtifactRefRow, ArtifactRefState, EventRow, GoalRow, MessageRow,
+    OwnerHandoffCategory, OwnerHandoffRow, OwnerHandoffState, ScheduleRow, TeamRow,
+    WorkAttemptFeedbackRow, WorkAttemptInputRow, WorkAttemptRow, WorkAttemptState, WorkEdgeKind,
+    WorkEdgeRow, WorkGateRow, WorkGateRunRow, WorkGraphSnapshot, WorkRow, WorkStatus,
+    WorkspaceSpec,
+};
 use ts_rs::TS;
 
 const BINDINGS: &str = "../../web/src/lib/model/generated/orgintel.ts";
@@ -45,15 +51,37 @@ fn render() -> String {
         // `EventRow.body` is an untyped JSON blob; emit the type it refers to
         // rather than leaving the file referencing an undeclared name.
         serde_json::Value::decl(&cfg),
-        CommitmentState::decl(&cfg),
+        WorkStatus::decl(&cfg),
+        WorkEdgeKind::decl(&cfg),
+        WorkAttemptState::decl(&cfg),
+        ArtifactRefState::decl(&cfg),
+        OwnerHandoffCategory::decl(&cfg),
+        OwnerHandoffState::decl(&cfg),
+        WorkspaceSpec::decl(&cfg),
+        TeamRow::decl(&cfg),
         ActorRow::decl(&cfg),
         GoalRow::decl(&cfg),
-        CommitmentRow::decl(&cfg),
+        WorkRow::decl(&cfg),
+        WorkEdgeRow::decl(&cfg),
+        WorkAttemptRow::decl(&cfg),
+        WorkAttemptInputRow::decl(&cfg),
+        WorkAttemptFeedbackRow::decl(&cfg),
+        ArtifactRefRow::decl(&cfg),
+        WorkGateRow::decl(&cfg),
+        WorkGateRunRow::decl(&cfg),
+        OwnerHandoffRow::decl(&cfg),
+        WorkGraphSnapshot::decl(&cfg),
+        ScheduleRow::decl(&cfg),
         MessageRow::decl(&cfg),
         EventRow::decl(&cfg),
     ] {
         out.push_str("export ");
-        out.push_str(&decl);
+        for (index, line) in decl.lines().enumerate() {
+            if index > 0 {
+                out.push('\n');
+            }
+            out.push_str(line.trim_end());
+        }
         out.push_str("\n\n");
     }
     out

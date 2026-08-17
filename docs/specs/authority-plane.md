@@ -23,7 +23,7 @@ This document distinguishes:
 
 The central MVP principle is:
 
-> **Keep the authority boundary real, but make its initial policy permissive. Mock providers, not the architecture.**
+> **Keep the authority boundary real, but make its initial policy permissive. Test mechanics with a fake CLI in `_test`, never a parallel provider architecture.**
 
 The Authority Plane should make useful work possible. It should not turn ordinary company operation into an approval workflow.
 
@@ -50,12 +50,12 @@ It owns:
 - consequential effect intents and receipts;
 - bounded productive resource grants;
 - runtime lifecycle and recovery authority;
-- provider credential references and trusted access paths;
+- external-tool credential references and trusted access paths;
 - authoritative usage records where required for enforcement.
 
 It does not own:
 
-- goals, commitments, teams, messages, schedules, or company learning;
+- goals, Work nodes, teams, messages, schedules, or company learning;
 - project files, code, documents, builds, or browser state;
 - company strategy or creative judgment;
 - agent reasoning or ordinary internal work;
@@ -76,7 +76,7 @@ Owner
 │ └── effect/resource/runtime authority state             │
 │                                                        │
 │ Privileged brokers                                     │
-│ ├── effect service and provider adapters               │
+│ ├── generic governed-process runner                    │
 │ ├── resource controller                                │
 │ ├── runtime lifecycle manager                          │
 │ ├── model gateway / metering                           │
@@ -117,7 +117,7 @@ The V0 plane should primarily provide:
 - a real boundary;
 - hard outer ceilings;
 - a small catastrophic denylist;
-- mock and real provider adapters;
+- one generic effect runner plus deterministic fake-CLI fixtures for `_test` companies;
 - clear outcomes and receipts;
 - owner freeze and revoke;
 - enough observability to learn what later needs hardening.
@@ -150,7 +150,7 @@ It should contain no open-ended LLM judgment in the authoritative path.
 
 An LLM may later summarise a request or flag an anomaly for a human. It cannot grant authority, approve an operation, reveal a secret, modify a receipt, or expand a budget.
 
-## 2.2 Effect service and adapters
+## 2.2 Generic governed-process effect runner
 
 Effects are discrete operations that cause meaningful external consequences.
 
@@ -162,19 +162,23 @@ Examples:
 - purchase an asset;
 - register a domain;
 - delete production data;
-- create a legally meaningful external commitment.
+- create a legally meaningful external promise.
 
-The effect service:
+The effect runner:
 
 - accepts effect intents;
 - asks the Kernel for an authority decision;
 - waits for approval where required;
-- dispatches the approved effect to a provider adapter;
+- launches the actor-selected installed CLI with exact argv in an isolated child;
+- injects only named credential bindings into that child;
 - records success, failure, or unknown outcome;
 - reconciles ambiguous outcomes;
 - returns an authoritative receipt or denial.
 
-Provider-specific implementation belongs in replaceable adapters, not in the Kernel.
+Tool-specific implementation remains in the mature CLI or SDK installed in the Company Runtime. The
+Authority Plane records a generic receipt containing effect class, purpose, tool, exact original
+argv, declared artifacts, outcome, idempotency key and execution number. It must not grow one
+Restless command, payload schema, or adapter per external service.
 
 ### What is and is not an effect
 
@@ -324,11 +328,9 @@ The runtime process does not receive the real provider secret.
 
 Infisical decides how credentials are safely stored or applied. It does not decide whether a refund, campaign, purchase, or deployment is economically or constitutionally authorised.
 
-## 2.7 External-world simulator
+## 2.7 Throwaway-company fake effects
 
-Mocks and simulators live behind the same provider interfaces as real integrations.
-
-The simulator should support:
+A deterministic fake CLI installed only in a `_test` company should support:
 
 - deterministic success;
 - deterministic failure;
@@ -337,10 +339,11 @@ The simulator should support:
 - duplicate request;
 - delayed completion;
 - partial success where the provider permits it;
-- provider state that must be queried during reconciliation;
-- simulated owner approval or rejection.
+- fake external state that must be queried through a separate status command during reconciliation;
+- deterministic test approval or rejection.
 
-Behavioural world simulation—such as customer replies or campaign conversion—may be probabilistic or model-driven, but it is not authoritative policy logic.
+Behavioural inputs such as customer replies may be controlled files or messages in a `_test`
+company. They are never live-company evidence and do not justify a provider-shaped simulation layer.
 
 ---
 
@@ -349,7 +352,7 @@ Behavioural world simulation—such as customer replies or campaign conversion�
 | State | Authoritative source |
 |---|---|
 | Owner mandate, root company authority, grants, budgets, approvals, effect intents, receipts, resource grants, runtime lifecycle | **Authority Plane store** |
-| Actors, goals, commitments, messages, schedules, decisions, hypotheses, experiments, organisational learning, artifact references | **OrgIntel service and store** |
+| Actors, goals, Work nodes, messages, schedules, decisions, hypotheses, experiments, organisational learning, artifact references | **OrgIntel service and store** |
 | Code, documents, assets, builds, browser state, project databases, installed tools, working files, active experiments | **Company Runtime filesystem, Git, and project applications** |
 | Actual external provider state | **External provider**, referenced by Authority Plane receipts and reconciled state |
 | Raw secret material | **Infisical or provider-native credential system** |
@@ -515,7 +518,7 @@ resource_class
 limits
 maximum_cost
 requested_duration
-related_actor / commitment
+related_actor / Work
 ```
 
 Conceptual lifecycle:
@@ -635,7 +638,7 @@ Use them when:
 - an operation exceeds a standing threshold;
 - authority would expand;
 - the action is materially irreversible;
-- a public or legal commitment falls outside the mandate;
+- a public or legal promise falls outside the mandate;
 - the owner explicitly reserved the decision.
 
 An approval pauses only the affected effect. It must not freeze unrelated company work.
@@ -766,8 +769,8 @@ A successful receipt should record enough to answer:
 - what was requested;
 - who requested it;
 - under which grant and approval it was authorised;
-- which provider adapter executed it;
-- provider reference or result;
+- which runtime tool and exact argv executed it;
+- declared artifact references and the tool's result or external reference;
 - cost where known;
 - when it occurred;
 - whether later reconciliation changed the interpretation.
@@ -781,12 +784,12 @@ Unknown is a first-class result, not an exception hidden by retries.
 Example:
 
 ```text
-Authority sends Aris campaign request
-→ provider accepts campaign
-→ network response is lost
+Authority records an Aris send intent
+→ the installed email CLI may accept the send
+→ the daemon loses the child result
 → Authority records unknown
 → unrelated work continues
-→ reconciliation queries provider state
+→ a separate governed status command queries the provider's own state
 → receipt becomes succeeded or confirmed failed
 ```
 
@@ -794,7 +797,8 @@ The effect must not be blindly repeated while unknown.
 
 ## 9.4 Reconciliation
 
-Adapters should expose a provider-specific reconciliation operation where the provider permits it.
+Reconciliation uses a separate successful generic effect receipt containing the external system's
+own status observation. Restless does not implement a service-specific reconciliation API.
 
 Reconciliation may use:
 
@@ -885,7 +889,7 @@ After restore:
 
 1. Runtime manager records the new generation.
 2. Runtime Bridge reconnects and reports visible state.
-3. OrgIntel retains current actors, commitments, messages, and learning.
+3. OrgIntel retains current actors, Work nodes, messages, and learning.
 4. Authority Plane retains current grants, receipts, and resource/effect history.
 5. The Exec receives a recovery context.
 6. Stale artifact references and missing work are surfaced.
@@ -997,15 +1001,15 @@ Operational logs may exist for debugging and telemetry, with normal retention an
 |---|---|
 | Authority Service unavailable | Internal runtime work continues; new effects/resources pause |
 | Authority DB unavailable | Do not guess authority; preserve work and retry later |
-| Provider adapter fails before execution | Return confirmed failure when known |
-| Provider response is ambiguous | Record unknown and reconcile before retry |
+| Tool fails before execution | Return confirmed failure when known |
+| Tool result is ambiguous | Record unknown and reconcile before retry |
 | Resource controller fails | Existing ready resources may continue; new provisioning pauses |
 | Infisical Agent Proxy unavailable | Affected authenticated direct APIs fail; local work continues |
 | Credential revoked | New proxied/provider access fails closed; terminate urgent sessions if needed |
 | Runtime fails | Authority and OrgIntel history remain; restart or restore runtime |
 | OrgIntel fails | Authority state remains; running local work may continue; organisational requests pause |
 | Budget exhausted | Only the affected category is denied or paused |
-| Bad adapter implementation | Disable that adapter; other providers and internal work continue |
+| Bad runtime tool release | Disable or replace that tool; other tools and internal work continue |
 
 No component should invent a successful effect because another service is unavailable.
 
@@ -1109,12 +1113,11 @@ resource_grants
 runtime_instances
 runtime_snapshots
 usage_records
-provider_connections       # references and metadata, not raw secrets
+credential_bindings        # references and metadata, not raw secrets
 ```
 
-Avoid adding a durable entity for every provider concept.
-
-Provider-specific payloads may live in bounded JSON fields or adapter-owned metadata where appropriate. Promote fields only when common semantics become stable across real providers.
+Avoid adding a durable entity for every external tool concept. Generic effect intents and receipts
+may carry bounded JSON outcome data; tool-specific state remains in the external system.
 
 No Work, Attempt, Team, Asset, Review, or internal process entities belong here.
 
@@ -1173,33 +1176,17 @@ usage.current
 usage.history
 ```
 
-Provider-specific operations should generally map through effect or resource types rather than create an unbounded top-level API namespace.
+Tool-specific operations remain ordinary argv under one generic effect operation rather than an
+unbounded top-level API namespace.
 
 Do not force all APIs into one universal `Command` enum.
 
 ---
 
-# 19. Mock and real provider contract
+# 19. Generic effect-runner contract
 
-Each provider interface must support both mock and real implementations.
-
-Examples:
-
-```text
-MockEmailEffectProvider
-RealEmailEffectProvider
-
-MockGpuResourceProvider
-LocalGpuResourceProvider
-CloudGpuResourceProvider
-
-MockDeploymentEffectProvider
-RealDeploymentEffectProvider
-```
-
-Mocks should reproduce important failure semantics, not merely return success.
-
-A provider test matrix should include:
+One deterministic fake CLI should exercise the same runner used by installed real tools. The matrix
+should include:
 
 - success;
 - safe failure;
@@ -1212,9 +1199,10 @@ A provider test matrix should include:
 - freeze denial;
 - delayed approval;
 - credential revocation;
-- adapter restart during operation.
+- daemon restart during operation.
 
-The Company Runtime and OrgIntel should use the same request shape in simulated and real dogfood.
+The runtime uses ordinary tool syntax in both cases. Only the executable and `_test` company differ;
+Restless's generic envelope and receipt do not.
 
 ---
 
@@ -1225,8 +1213,8 @@ The Company Runtime and OrgIntel should use the same request shape in simulated 
 Initial Authority Plane use:
 
 - model budget;
-- optional local or mock GPU allocation;
-- deploy a playable browser build through a mock or staging adapter;
+- optional local GPU allocation;
+- deploy a playable browser build through the installed deployment tool's staging target;
 - optionally purchase one low-cost licensed asset under a broad threshold.
 
 Passing evidence:
@@ -1242,7 +1230,7 @@ Initial Authority Plane use:
 
 - scoped email access or brokered campaign send;
 - model and API budgets;
-- mocked payment/conversion provider, then controlled real sales;
+- payment/conversion observations from a controlled real sale;
 - optional landing-page deployment.
 
 Passing evidence:
@@ -1330,7 +1318,7 @@ Passing evidence:
 1. Create the Authority Service skeleton and separate Authority database ownership.
 2. Add company, owner mandate, broad operating envelope, freeze state, and authenticated principals.
 3. Implement the permissive policy core with hard ceilings and a tiny denylist.
-4. Implement one mock effect provider with idempotency, receipts, unknown outcome, and reconciliation.
+4. Implement one generic governed-process runner with idempotency, receipts, unknown outcome, and reconciliation.
 5. Connect OrgIntel/Exec to the effect request path.
 6. Implement runtime lifecycle operations against the existing Docker provider.
 7. Implement one resource provider: fixed local GPU or mock temporary worker.
@@ -1339,7 +1327,7 @@ Passing evidence:
 10. Add Infisical Agent Proxy for one ordinary authenticated API such as GitHub.
 11. Preserve or integrate the model gateway under a standing company model budget.
 12. Run runtime-restore and external-effect reconciliation tests.
-13. Replace one mock adapter with a controlled real provider.
+13. Run a deterministic fake CLI in a `_test` company, then a real tool dry-run/status probe, then one controlled live effect.
 14. Add controls only in response to observed dogfood risk or friction.
 
 ---
@@ -1351,7 +1339,7 @@ Do not build in V0:
 - a universal command or event ontology;
 - a general policy language;
 - per-worker hostile-process isolation;
-- one microservice per provider adapter;
+- one service or adapter per external tool;
 - semantic inspection of arbitrary network traffic;
 - a custom secrets manager;
 - a custom container runtime;

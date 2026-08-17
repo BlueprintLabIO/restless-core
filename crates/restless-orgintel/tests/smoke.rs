@@ -1,10 +1,15 @@
 //! Live Postgres round-trip for the OrgIntel core (T5). OrgIntel testing is
 //! behavioural: a scratch company schema is created, every table is written
-//! and read back, the commitment state machine is exercised, and the schema
+//! and read back, the Work graph is exercised, and the schema
 //! is dropped at the end. Runs only when RESTLESS_TEST_DATABASE_URL is set —
 //! the daemon's own acceptance covers this against the real database.
 
-use restless_orgintel::{CommitmentState, OrgIntel};
+use chrono::Utc;
+use restless_orgintel::{
+    NewArtifactRef, NewGateRun, NewOwnerHandoff, NewWork, NewWorkGate, OrgIntel,
+    OwnerHandoffCategory, OwnerHandoffState, OwnerReviewDecision, WorkAttemptState, WorkEdgeKind,
+    WorkStatus, WorkspaceSpec,
+};
 
 #[tokio::test]
 async fn company_schema_round_trip() {
@@ -25,6 +30,9 @@ async fn company_schema_round_trip() {
     org.add_actor("staff-builder", "staff", "Builder")
         .await
         .unwrap();
+    org.add_actor("staff-verifier", "verifier", "Verifier")
+        .await
+        .unwrap();
 
     let goal = org
         .add_goal("Ship the walking skeleton", "", "exec")
@@ -34,19 +42,491 @@ async fn company_schema_round_trip() {
     assert_eq!(goals.len(), 1);
     assert!(goals[0].closed_at.is_none());
 
-    let commitment = org
-        .add_commitment("staff-builder", "First slice", "prove the loop", Some(goal))
+    let work = org
+        .add_work(NewWork {
+            owner_id: "staff-builder",
+            title: "First slice",
+            outcome: "prove the loop",
+            goal_id: Some(goal),
+            priority: 10,
+            expected_artifact: "HTML page",
+            workspace: WorkspaceSpec::default(),
+            attempt_limit: Some(3),
+        })
         .await
         .unwrap();
-    org.set_commitment_state(commitment, CommitmentState::Active, "")
+    let feedback = org
+        .send_work_message(
+            "owner",
+            "staff-builder",
+            work,
+            "Use the short human headline and keep the exact answer key.",
+        )
         .await
         .unwrap();
-    org.set_commitment_state(commitment, CommitmentState::Completed, "slice shipped")
+    let review = org
+        .add_work_with_edges(
+            NewWork {
+                owner_id: "staff-verifier",
+                title: "Independent review",
+                outcome: "review the exact producer artifact",
+                goal_id: Some(goal),
+                priority: 5,
+                expected_artifact: "",
+                workspace: WorkspaceSpec::default(),
+                attempt_limit: Some(1),
+            },
+            &[work],
+            &[work],
+        )
         .await
         .unwrap();
-    let commitments = org.list_commitments().await.unwrap();
-    assert_eq!(commitments[0].state, CommitmentState::Completed);
-    assert_eq!(commitments[0].resolution, "slice shipped");
+    let initial_edges = org.list_work_edges().await.unwrap();
+    assert!(initial_edges.iter().any(|edge| {
+        edge.from_work_id == work
+            && edge.to_work_id == review
+            && edge.kind == WorkEdgeKind::Requires
+    }));
+    assert!(initial_edges.iter().any(|edge| {
+        edge.from_work_id == review && edge.to_work_id == work && edge.kind == WorkEdgeKind::Revises
+    }));
+    let attempt = org.claim_ready_work("smoke").await.unwrap().unwrap();
+    // The higher-level verifier exists, but the hard graph edge keeps it from
+    // starting before the producer has accepted evidence.
+    assert_eq!(attempt.work.id, work);
+    assert_eq!(attempt.feedback.len(), 1);
+    assert_eq!(attempt.feedback[0].id, feedback);
+    org.link_work_artifact(NewArtifactRef {
+        kind: "path",
+        uri: "/company/outputs/demo/index.html",
+        note: "first output",
+        created_by: "staff-builder",
+        work_id: Some(work),
+        attempt_id: Some(attempt.attempt_id),
+        digest: Some("sha256:abc"),
+        source_commit: None,
+        runtime_generation: Some("test"),
+        label: "landing page",
+    })
+    .await
+    .unwrap();
+    let gate = org
+        .add_work_gate(NewWorkGate {
+            work_id: work,
+            name: "html exists",
+            cwd: "/company",
+            command: &["test".into(), "-f".into(), "outputs/demo/index.html".into()],
+            created_by: "exec",
+        })
+        .await
+        .unwrap();
+    org.record_gate_run(NewGateRun {
+        gate_id: gate,
+        attempt_id: attempt.attempt_id,
+        exit_code: Some(0),
+        output_digest: "sha256:empty",
+        output_excerpt: "",
+        passed: true,
+    })
+    .await
+    .unwrap();
+    org.finish_work_attempt(
+        attempt.attempt_id,
+        WorkAttemptState::Produced,
+        "slice shipped",
+    )
+    .await
+    .unwrap();
+    let rows = org.list_work().await.unwrap();
+    assert_eq!(rows[0].status, WorkStatus::Completed);
+    assert_eq!(rows[0].resolution, "slice shipped");
+
+    // Re-open the service handle between graph nodes. Readiness lives in
+    // Postgres, so a supervisor/daemon restart cannot forget the handoff or
+    // manufacture a duplicate producer Attempt.
+    let restarted = OrgIntel::ensure(&url, &company)
+        .await
+        .expect("re-open OrgIntel after producer completion");
+    let review_attempt = restarted
+        .claim_ready_work("producer completed")
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(review_attempt.work.id, review);
+    restarted
+        .finish_work_attempt(
+            review_attempt.attempt_id,
+            WorkAttemptState::ChangesRequested,
+            "fix the headline",
+        )
+        .await
+        .unwrap();
+    assert_eq!(org.get_work(work).await.unwrap().unwrap().revision, 2);
+    let after_feedback = org.work_graph_snapshot().await.unwrap();
+    assert!(after_feedback.artifacts.iter().any(|artifact| {
+        artifact.digest.as_deref() == Some("sha256:abc")
+            && artifact.state == restless_orgintel::ArtifactRefState::Superseded
+    }));
+
+    // Review does not auto-launch the same mechanism. A coordinator records
+    // what changed, then explicitly resumes the new revision.
+    org.resume_work(
+        work,
+        "exec",
+        "producer brief now requires the critic's exact headline correction",
+    )
+    .await
+    .unwrap();
+
+    let second = org
+        .claim_ready_work("review requested a new producer revision")
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(second.work.id, work);
+    assert_eq!(second.work.revision, 2);
+    assert!(second.feedback.iter().any(|message| message.id == feedback));
+    assert!(
+        second
+            .feedback
+            .iter()
+            .any(|message| message.from_actor == "staff-verifier"
+                && message.body == "fix the headline"),
+        "critic feedback must be exact input to the next producer revision"
+    );
+    assert_eq!(
+        org.list_actors()
+            .await
+            .unwrap()
+            .iter()
+            .filter(|actor| actor.id.starts_with("staff-"))
+            .count(),
+        2,
+        "producer and critic identities survive the revision; no v2 actors"
+    );
+    org.link_work_artifact(NewArtifactRef {
+        kind: "path",
+        uri: "/company/outputs/demo/index.html",
+        note: "corrected output",
+        created_by: "staff-builder",
+        work_id: Some(work),
+        attempt_id: Some(second.attempt_id),
+        digest: Some("sha256:def"),
+        source_commit: Some("def456"),
+        runtime_generation: Some("test"),
+        label: "landing page revision 2",
+    })
+    .await
+    .unwrap();
+    org.record_gate_run(NewGateRun {
+        gate_id: gate,
+        attempt_id: second.attempt_id,
+        exit_code: Some(0),
+        output_digest: "sha256:gate-two",
+        output_excerpt: "",
+        passed: true,
+    })
+    .await
+    .unwrap();
+    assert_eq!(
+        org.finish_work_attempt(
+            second.attempt_id,
+            WorkAttemptState::Produced,
+            "corrected slice shipped",
+        )
+        .await
+        .unwrap(),
+        WorkAttemptState::Produced
+    );
+
+    let second_review = org
+        .claim_ready_work("producer revision two completed")
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(second_review.work.id, review);
+    assert_eq!(second_review.work.revision, 2);
+    assert_eq!(second_review.inputs.len(), 1);
+    assert_eq!(
+        second_review.inputs[0].digest.as_deref(),
+        Some("sha256:def")
+    );
+    org.finish_work_attempt(
+        second_review.attempt_id,
+        WorkAttemptState::Produced,
+        "revision two independently accepted",
+    )
+    .await
+    .unwrap();
+
+    // A crashed process closes its Attempt and preserves the exact workspace.
+    // A coordinator records the repair before the same durable Work is claimed
+    // again; the scheduler never burns attempts in a blind retry loop.
+    let crash_work = org
+        .add_work(NewWork {
+            owner_id: "staff-builder",
+            title: "Recover preserved worktree",
+            outcome: "continue the same workspace after a process crash",
+            goal_id: Some(goal),
+            priority: 50,
+            expected_artifact: "",
+            workspace: WorkspaceSpec {
+                repo: Some("study".into()),
+                base_ref: Some("dev".into()),
+                integration_branch: Some("dev".into()),
+                worktree: Some("recover-test".into()),
+            },
+            attempt_limit: Some(3),
+        })
+        .await
+        .unwrap();
+    let crashed = org
+        .claim_ready_work("runtime launch")
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(crashed.work.id, crash_work);
+    org.finish_work_attempt(
+        crashed.attempt_id,
+        WorkAttemptState::Failed,
+        "process crashed; worktree preserved",
+    )
+    .await
+    .unwrap();
+    org.resume_work(
+        crash_work,
+        "exec",
+        "verified the preserved worktree and selected the same durable builder",
+    )
+    .await
+    .unwrap();
+    let recovered = org
+        .claim_ready_work("supervisor recovery")
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(recovered.work.id, crash_work);
+    assert_eq!(recovered.attempt_no, 2);
+    assert_eq!(recovered.work.repo.as_deref(), Some("study"));
+    assert_eq!(recovered.work.base_ref.as_deref(), Some("dev"));
+    assert_eq!(recovered.work.worktree.as_deref(), Some("recover-test"));
+    org.finish_work_attempt(
+        recovered.attempt_id,
+        WorkAttemptState::Produced,
+        "recovered from the same workspace",
+    )
+    .await
+    .unwrap();
+
+    let running_handoff_work = org
+        .add_work(NewWork {
+            owner_id: "staff-builder",
+            title: "Prepare a bounded owner intervention",
+            outcome: "attach the exact running Attempt before blocking on the owner",
+            goal_id: Some(goal),
+            priority: 40,
+            expected_artifact: "",
+            workspace: WorkspaceSpec::default(),
+            attempt_limit: Some(1),
+        })
+        .await
+        .unwrap();
+    let running_handoff_attempt = org
+        .claim_ready_work("prepare owner intervention")
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(running_handoff_attempt.work.id, running_handoff_work);
+    let invalid_handoff = org
+        .request_owner_handoff(NewOwnerHandoff {
+            work_id: running_handoff_work,
+            attempt_id: None,
+            requested_by: "staff-builder",
+            category: OwnerHandoffCategory::Identity,
+            requested_action: "sign in",
+            prepared_state: "browser at login",
+            resume_condition: "session cookie observed",
+        })
+        .await
+        .expect_err("a running Work must name the Attempt being handed over");
+    assert!(invalid_handoff
+        .to_string()
+        .contains("must attach that Attempt"));
+    let running_handoff = org
+        .request_owner_handoff(NewOwnerHandoff {
+            work_id: running_handoff_work,
+            attempt_id: Some(running_handoff_attempt.attempt_id),
+            requested_by: "staff-builder",
+            category: OwnerHandoffCategory::Identity,
+            requested_action: "sign in",
+            prepared_state: "browser at login",
+            resume_condition: "session cookie observed",
+        })
+        .await
+        .unwrap();
+    org.resolve_owner_handoff(
+        running_handoff,
+        OwnerHandoffState::Declined,
+        "test intervention declined",
+    )
+    .await
+    .unwrap();
+
+    let owner_work = org
+        .add_work(NewWork {
+            owner_id: "staff-builder",
+            title: "Owner sign-in",
+            outcome: "prepare sign-in",
+            goal_id: Some(goal),
+            priority: 1,
+            expected_artifact: "",
+            workspace: WorkspaceSpec::default(),
+            attempt_limit: None,
+        })
+        .await
+        .unwrap();
+    let handoff = org
+        .request_owner_handoff(NewOwnerHandoff {
+            work_id: owner_work,
+            attempt_id: None,
+            requested_by: "staff-builder",
+            category: OwnerHandoffCategory::Identity,
+            requested_action: "sign in",
+            prepared_state: "browser at login",
+            resume_condition: "session cookie observed",
+        })
+        .await
+        .unwrap();
+    org.resolve_owner_handoff(handoff, OwnerHandoffState::Resolved, "signed in")
+        .await
+        .unwrap();
+
+    let judgement_work = org
+        .add_work(NewWork {
+            owner_id: "staff-builder",
+            title: "Choose the human headline",
+            outcome: "apply the owner's copy judgement",
+            goal_id: Some(goal),
+            priority: 1,
+            expected_artifact: "",
+            workspace: WorkspaceSpec::default(),
+            attempt_limit: None,
+        })
+        .await
+        .unwrap();
+    let judgement_handoff = org
+        .request_owner_handoff(NewOwnerHandoff {
+            work_id: judgement_work,
+            attempt_id: None,
+            requested_by: "staff-builder",
+            category: OwnerHandoffCategory::OwnerJudgement,
+            requested_action: "choose the clearer headline",
+            prepared_state: "both finished headlines are visible",
+            resume_condition: "owner records an explicit outcome review",
+        })
+        .await
+        .unwrap();
+    org.send_work_message(
+        "owner",
+        "staff-builder",
+        judgement_work,
+        "Use the short headline. It sounds more human.",
+    )
+    .await
+    .unwrap();
+    let lead_reply = org
+        .send_work_message_to_owner(
+            "staff-builder",
+            judgement_work,
+            "I can make that change. Do you want the supporting line shorter too?",
+        )
+        .await
+        .unwrap();
+    let judgement_handoff = org
+        .list_owner_handoffs()
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|row| row.id == judgement_handoff)
+        .unwrap();
+    assert_eq!(judgement_handoff.state, OwnerHandoffState::Pending);
+    assert_eq!(
+        org.get_work(judgement_work).await.unwrap().unwrap().status,
+        WorkStatus::Blocked
+    );
+    org.decide_owner_review(
+        judgement_handoff.id,
+        OwnerReviewDecision::ChangesRequested,
+        "Use the short headline. It sounds more human.",
+    )
+    .await
+    .unwrap();
+    let revised = org.get_work(judgement_work).await.unwrap().unwrap();
+    assert_eq!(revised.status, WorkStatus::Blocked);
+    assert_eq!(revised.revision, 2);
+    assert_eq!(
+        org.list_owner_handoffs()
+            .await
+            .unwrap()
+            .into_iter()
+            .find(|row| row.id == judgement_handoff.id)
+            .unwrap()
+            .state,
+        OwnerHandoffState::Declined
+    );
+    let review_conversation = org
+        .owner_work_conversation("staff-builder", judgement_work, 100)
+        .await
+        .unwrap();
+    assert_eq!(review_conversation.len(), 2);
+    assert_eq!(review_conversation[1].from_actor, "staff-builder");
+    org.resume_work(
+        judgement_work,
+        "exec",
+        "owner feedback is now the exact revision brief",
+    )
+    .await
+    .unwrap();
+    assert!(
+        org.message_is_work_attempt_input(review_conversation[0].id)
+            .await
+            .unwrap(),
+        "after repair, request-changes feedback must route through the new Work Attempt, not a competing free-form wake"
+    );
+    org.mark_read(lead_reply).await.unwrap();
+
+    let accepted_handoff = org
+        .request_owner_handoff(NewOwnerHandoff {
+            work_id: judgement_work,
+            attempt_id: None,
+            requested_by: "staff-builder",
+            category: OwnerHandoffCategory::OwnerJudgement,
+            requested_action: "accept or request another revision",
+            prepared_state: "the revised outcome is open",
+            resume_condition: "owner records an explicit outcome review",
+        })
+        .await
+        .unwrap();
+    org.decide_owner_review(
+        accepted_handoff,
+        OwnerReviewDecision::Accepted,
+        "Accepted as the outcome to ship.",
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        org.get_work(judgement_work).await.unwrap().unwrap().status,
+        WorkStatus::Completed
+    );
+    org.add_schedule(
+        "staff-builder",
+        Some(owner_work),
+        "wait for opening",
+        Utc::now(),
+    )
+    .await
+    .unwrap();
+    assert_eq!(org.claim_due_schedules().await.unwrap().len(), 1);
 
     let message = org
         .send_message("exec", None, "status: alive")
@@ -58,14 +538,36 @@ async fn company_schema_round_trip() {
     org.mark_read(message).await.unwrap();
     assert!(org.inbox(None).await.unwrap().is_empty());
 
-    org.add_artifact_ref(
-        "path",
-        "/company/outputs/demo/index.html",
-        "first output",
-        "exec",
+    // The owner handover surface is an ordinary two-party read over messages,
+    // not a thread entity or a scripted workflow. Unrelated company mail must
+    // never leak into the selected actor's conversation.
+    org.send_message("owner", Some("staff-builder"), "Please take another look")
+        .await
+        .unwrap();
+    org.send_message(
+        "staff-builder",
+        None,
+        "I need your judgement on the open page",
     )
     .await
     .unwrap();
+    org.send_message("exec", Some("staff-builder"), "internal coordination")
+        .await
+        .unwrap();
+    let conversation = org.owner_conversation("staff-builder", 100).await.unwrap();
+    assert!(conversation
+        .iter()
+        .any(|message| message.body == "Please take another look"));
+    assert!(conversation
+        .iter()
+        .any(|message| message.body == "I need your judgement on the open page"));
+    assert!(conversation
+        .iter()
+        .all(|message| matches!(message.from_actor.as_str(), "owner" | "staff-builder")));
+    assert!(!conversation
+        .iter()
+        .any(|message| message.body == "internal coordination"));
+
     org.add_decision("Codex over Claude Code", "T3 spike evidence", "exec")
         .await
         .unwrap();
@@ -75,14 +577,23 @@ async fn company_schema_round_trip() {
         .unwrap();
     assert!(event > 0);
     let events = org.list_events(10).await.unwrap();
-    assert_eq!(events.len(), 1);
+    assert!(events.len() >= 4, "repair events must remain observable");
     assert_eq!(events[0].kind, "wake");
 
     let tables = org.table_names().await.unwrap();
     for expected in [
         "actors",
         "goals",
-        "commitments",
+        "work",
+        "work_edges",
+        "work_attempts",
+        "work_attempt_inputs",
+        "work_feedback",
+        "work_attempt_feedback",
+        "work_gates",
+        "work_gate_runs",
+        "owner_handoffs",
+        "schedules",
         "messages",
         "artifact_refs",
         "decisions",
@@ -96,7 +607,139 @@ async fn company_schema_round_trip() {
 
     // A second handle to the same company sees the same state (schema pin).
     let again = OrgIntel::ensure(&url, &company).await.unwrap();
-    assert_eq!(again.list_commitments().await.unwrap().len(), 1);
+    assert_eq!(again.list_work().await.unwrap().len(), 6);
+    let graph = again.work_graph_snapshot().await.unwrap();
+    assert_eq!(graph.attempt_feedback.len(), 3);
+    assert!(graph
+        .attempt_feedback
+        .iter()
+        .any(|link| link.message_id == feedback));
+    assert!(graph
+        .attempt_feedback
+        .iter()
+        .any(|link| link.message_id != feedback));
+
+    org.drop_schema().await.unwrap();
+}
+
+#[tokio::test]
+async fn goals_group_new_and_existing_work_without_becoming_a_workflow() {
+    let Ok(url) = std::env::var("RESTLESS_TEST_DATABASE_URL") else {
+        eprintln!("RESTLESS_TEST_DATABASE_URL unset; skipping Goal behavioral test");
+        return;
+    };
+    let company = format!("goals{}", uuid::Uuid::new_v4().simple());
+    let org = OrgIntel::ensure(&url, &company).await.unwrap();
+    org.add_actor("exec", "exec", "The Exec").await.unwrap();
+    org.add_actor("builder", "builder", "Builder")
+        .await
+        .unwrap();
+
+    let launch = org
+        .add_goal(
+            "Publish the centre offer",
+            "Make the complete paper offer real",
+            "exec",
+        )
+        .await
+        .unwrap();
+    let validation = org
+        .add_goal("Validate centre demand", "", "exec")
+        .await
+        .unwrap();
+    let goals = org.list_goals().await.unwrap();
+    assert_eq!(goals.len(), 2);
+    assert_eq!(goals[0].title, "Publish the centre offer");
+    assert_eq!(goals[0].created_by, "exec");
+
+    let under_goal = org
+        .add_work(NewWork {
+            owner_id: "builder",
+            title: "Prepare the offer",
+            outcome: "one inspectable centre offer",
+            goal_id: Some(launch),
+            priority: 20,
+            expected_artifact: "offer",
+            workspace: WorkspaceSpec::default(),
+            attempt_limit: Some(1),
+        })
+        .await
+        .unwrap();
+    assert_eq!(
+        org.get_work(under_goal).await.unwrap().unwrap().goal_id,
+        Some(launch)
+    );
+
+    let previously_unassigned = org
+        .add_work(NewWork {
+            owner_id: "builder",
+            title: "Check the sample",
+            outcome: "one checked sample",
+            goal_id: None,
+            priority: 10,
+            expected_artifact: "sample check",
+            workspace: WorkspaceSpec::default(),
+            attempt_limit: Some(1),
+        })
+        .await
+        .unwrap();
+    assert_eq!(
+        org.set_work_goal(previously_unassigned, launch, "exec")
+            .await
+            .unwrap(),
+        None
+    );
+    assert_eq!(
+        org.set_work_goal(previously_unassigned, validation, "exec")
+            .await
+            .unwrap(),
+        Some(launch),
+        "the same ordinary write path reassigns existing Work"
+    );
+    assert_eq!(
+        org.get_work(previously_unassigned)
+            .await
+            .unwrap()
+            .unwrap()
+            .goal_id,
+        Some(validation)
+    );
+
+    let nonexistent = uuid::Uuid::new_v4();
+    assert!(org
+        .set_work_goal(previously_unassigned, nonexistent, "exec")
+        .await
+        .unwrap_err()
+        .to_string()
+        .contains("does not exist in this company"));
+    assert!(org
+        .add_work(NewWork {
+            owner_id: "builder",
+            title: "Misfiled Work",
+            outcome: "must not be inserted",
+            goal_id: Some(nonexistent),
+            priority: 0,
+            expected_artifact: "",
+            workspace: WorkspaceSpec::default(),
+            attempt_limit: Some(1),
+        })
+        .await
+        .unwrap_err()
+        .to_string()
+        .contains("does not exist in this company"));
+    assert_eq!(org.list_work().await.unwrap().len(), 2);
+
+    let events = org.list_events(20).await.unwrap();
+    assert!(events
+        .iter()
+        .any(|event| event.kind == "goal_created" && event.actor_id.as_deref() == Some("exec")));
+    assert!(events.iter().any(|event| {
+        event.kind == "work_goal_assigned"
+            && event.actor_id.as_deref() == Some("exec")
+            && event.body["work_id"] == previously_unassigned.to_string()
+            && event.body["goal_id"] == validation.to_string()
+            && event.body["previous_goal_id"] == launch.to_string()
+    }));
 
     org.drop_schema().await.unwrap();
 }
@@ -117,4 +760,500 @@ async fn bad_schema_names_are_rejected() {
             "accepted {name:?}"
         );
     }
+}
+
+#[tokio::test]
+async fn one_durable_actor_has_one_live_attempt() {
+    let Ok(url) = std::env::var("RESTLESS_TEST_DATABASE_URL") else {
+        eprintln!("RESTLESS_TEST_DATABASE_URL unset; skipping actor claim scenario");
+        return;
+    };
+    let company = format!("claim{}", std::process::id());
+    let org = OrgIntel::ensure(&url, &company).await.unwrap();
+    org.add_actor("builder", "design-engineer", "Builder")
+        .await
+        .unwrap();
+    for title in ["first surface", "second surface"] {
+        org.add_work(NewWork {
+            owner_id: "builder",
+            title,
+            outcome: "one bounded surface",
+            goal_id: None,
+            priority: 0,
+            expected_artifact: "",
+            workspace: WorkspaceSpec::default(),
+            attempt_limit: Some(2),
+        })
+        .await
+        .unwrap();
+    }
+    let first = org.claim_ready_work("ready").await.unwrap().unwrap();
+    assert!(org.claim_ready_work("also ready").await.unwrap().is_none());
+    org.finish_work_attempt(
+        first.attempt_id,
+        WorkAttemptState::Abandoned,
+        "test releases actor",
+    )
+    .await
+    .unwrap();
+    assert!(org
+        .claim_ready_work("actor released")
+        .await
+        .unwrap()
+        .is_some());
+    org.drop_schema().await.unwrap();
+}
+
+#[tokio::test]
+async fn a_busy_conversation_actor_does_not_consume_ready_work() {
+    let Ok(url) = std::env::var("RESTLESS_TEST_DATABASE_URL") else {
+        eprintln!("RESTLESS_TEST_DATABASE_URL unset; skipping busy actor claim scenario");
+        return;
+    };
+    let company = format!("busyclaim{}", uuid::Uuid::new_v4().simple());
+    let org = OrgIntel::ensure(&url, &company).await.unwrap();
+    org.add_actor("busy-lead", "lead", "Busy validation lead")
+        .await
+        .unwrap();
+    org.add_actor("free-builder", "builder", "Available builder")
+        .await
+        .unwrap();
+
+    let busy_work = org
+        .add_work(NewWork {
+            owner_id: "busy-lead",
+            title: "Validate the published site",
+            outcome: "the deployed outcome is checked",
+            goal_id: None,
+            priority: 100,
+            expected_artifact: "validation evidence",
+            workspace: WorkspaceSpec::default(),
+            attempt_limit: Some(2),
+        })
+        .await
+        .unwrap();
+    let free_work = org
+        .add_work(NewWork {
+            owner_id: "free-builder",
+            title: "Prepare the next sample",
+            outcome: "one ready sample exists",
+            goal_id: None,
+            priority: 10,
+            expected_artifact: "sample PDF",
+            workspace: WorkspaceSpec::default(),
+            attempt_limit: Some(2),
+        })
+        .await
+        .unwrap();
+
+    let claimed = org
+        .claim_ready_work_excluding(
+            "scheduler sees a conversation turn",
+            &["busy-lead".to_string()],
+        )
+        .await
+        .unwrap()
+        .expect("the other ready actor remains claimable");
+    assert_eq!(claimed.work.id, free_work);
+    assert!(
+        org.list_work_attempts(Some(busy_work))
+            .await
+            .unwrap()
+            .is_empty(),
+        "skipping a busy actor must not create or consume an Attempt"
+    );
+    let untouched = org.get_work(busy_work).await.unwrap().unwrap();
+    assert_eq!(untouched.status, WorkStatus::Proposed);
+
+    org.finish_work_attempt(
+        claimed.attempt_id,
+        WorkAttemptState::Abandoned,
+        "release the free actor for the test",
+    )
+    .await
+    .unwrap();
+    let later = org
+        .claim_ready_work("the conversation ended")
+        .await
+        .unwrap()
+        .expect("the preserved public claim path can take the formerly busy actor");
+    assert_eq!(later.work.id, busy_work);
+
+    org.drop_schema().await.unwrap();
+}
+
+#[tokio::test]
+async fn evidence_findings_complete_without_review_power_and_formal_review_still_invalidates() {
+    let Ok(url) = std::env::var("RESTLESS_TEST_DATABASE_URL") else {
+        eprintln!("RESTLESS_TEST_DATABASE_URL unset; skipping review semantics scenario");
+        return;
+    };
+    let company = format!("reviewsem{}", uuid::Uuid::new_v4().simple());
+    let org = OrgIntel::ensure(&url, &company).await.unwrap();
+    org.add_actor("producer", "builder", "Producer")
+        .await
+        .unwrap();
+    org.add_actor("researcher", "researcher", "Evidence researcher")
+        .await
+        .unwrap();
+    org.add_actor("critic", "critic", "Final critic")
+        .await
+        .unwrap();
+
+    let producer = org
+        .add_work(NewWork {
+            owner_id: "producer",
+            title: "Build the candidate",
+            outcome: "one candidate exists for review",
+            goal_id: None,
+            priority: 30,
+            expected_artifact: "candidate",
+            workspace: WorkspaceSpec::default(),
+            attempt_limit: Some(2),
+        })
+        .await
+        .unwrap();
+    let evidence = org
+        .add_work(NewWork {
+            owner_id: "researcher",
+            title: "Research candidate evidence",
+            outcome: "a report identifies issues for the final critic",
+            goal_id: None,
+            priority: 20,
+            expected_artifact: "evidence report",
+            workspace: WorkspaceSpec::default(),
+            attempt_limit: Some(1),
+        })
+        .await
+        .unwrap();
+    let critic = org
+        .add_work_with_edges(
+            NewWork {
+                owner_id: "critic",
+                title: "Final acceptance review",
+                outcome: "judge the candidate using the evidence report",
+                goal_id: None,
+                priority: 10,
+                expected_artifact: "",
+                workspace: WorkspaceSpec::default(),
+                attempt_limit: Some(1),
+            },
+            &[producer, evidence],
+            &[producer],
+        )
+        .await
+        .unwrap();
+
+    let producer_attempt = org
+        .claim_ready_work("candidate ready")
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(producer_attempt.work.id, producer);
+    org.link_work_artifact(NewArtifactRef {
+        kind: "path",
+        uri: "/company/outputs/candidate.html",
+        note: "candidate",
+        created_by: "producer",
+        work_id: Some(producer),
+        attempt_id: Some(producer_attempt.attempt_id),
+        digest: Some("sha256:candidate"),
+        source_commit: None,
+        runtime_generation: Some("test"),
+        label: "candidate",
+    })
+    .await
+    .unwrap();
+    org.finish_work_attempt(
+        producer_attempt.attempt_id,
+        WorkAttemptState::Produced,
+        "candidate produced",
+    )
+    .await
+    .unwrap();
+
+    let evidence_attempt = org
+        .claim_ready_work("research ready")
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(evidence_attempt.work.id, evidence);
+    org.link_work_artifact(NewArtifactRef {
+        kind: "path",
+        uri: "/company/outputs/evidence.md",
+        note: "research findings",
+        created_by: "researcher",
+        work_id: Some(evidence),
+        attempt_id: Some(evidence_attempt.attempt_id),
+        digest: Some("sha256:evidence"),
+        source_commit: None,
+        runtime_generation: Some("test"),
+        label: "evidence report",
+    })
+    .await
+    .unwrap();
+    let evidence_gate = org
+        .add_work_gate(NewWorkGate {
+            work_id: evidence,
+            name: "report rendered",
+            cwd: "/company",
+            command: &["test".into(), "-s".into(), "outputs/evidence.md".into()],
+            created_by: "researcher",
+        })
+        .await
+        .unwrap();
+    org.record_gate_run(NewGateRun {
+        gate_id: evidence_gate,
+        attempt_id: evidence_attempt.attempt_id,
+        exit_code: Some(0),
+        output_digest: "sha256:gate-evidence",
+        output_excerpt: "",
+        passed: true,
+    })
+    .await
+    .unwrap();
+    let findings = "the candidate needs changes; final critic should judge these findings";
+    assert_eq!(
+        org.finish_work_attempt(
+            evidence_attempt.attempt_id,
+            WorkAttemptState::ChangesRequested,
+            findings,
+        )
+        .await
+        .unwrap(),
+        WorkAttemptState::Produced,
+        "an evidence node without a revises edge produces findings rather than invalidating"
+    );
+    let evidence_row = org.get_work(evidence).await.unwrap().unwrap();
+    assert_eq!(evidence_row.status, WorkStatus::Completed);
+    assert_eq!(evidence_row.resolution, findings);
+    let evidence_attempt_row = org
+        .list_work_attempts(Some(evidence))
+        .await
+        .unwrap()
+        .pop()
+        .unwrap();
+    assert_eq!(evidence_attempt_row.state, WorkAttemptState::Produced);
+    assert_eq!(evidence_attempt_row.summary, findings);
+
+    let critic_attempt = org
+        .claim_ready_work("inputs complete")
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(critic_attempt.work.id, critic);
+    assert!(critic_attempt
+        .inputs
+        .iter()
+        .any(|input| input.digest.as_deref() == Some("sha256:evidence")));
+    let criticism = "replace the unsupported claim before acceptance";
+    assert_eq!(
+        org.finish_work_attempt(
+            critic_attempt.attempt_id,
+            WorkAttemptState::ChangesRequested,
+            criticism,
+        )
+        .await
+        .unwrap(),
+        WorkAttemptState::ChangesRequested,
+        "a formal reviewer with a revises edge retains invalidating power"
+    );
+    let invalidated = org.get_work(producer).await.unwrap().unwrap();
+    assert_eq!(invalidated.revision, 2);
+    assert_eq!(invalidated.status, WorkStatus::Blocked);
+    assert!(invalidated.resolution.contains(criticism));
+    assert!(org
+        .list_artifact_refs(Some(producer))
+        .await
+        .unwrap()
+        .iter()
+        .any(
+            |artifact| artifact.digest.as_deref() == Some("sha256:candidate")
+                && artifact.state == restless_orgintel::ArtifactRefState::Superseded
+        ));
+
+    // The semantic conversion still enters the ordinary Produced validation
+    // path. A no-edge evidence node cannot use changes_requested to evade its
+    // declared artifact or deterministic gate.
+    let unproven = org
+        .add_work(NewWork {
+            owner_id: "researcher",
+            title: "Unproven evidence",
+            outcome: "must link its declared report",
+            goal_id: None,
+            priority: 50,
+            expected_artifact: "required report",
+            workspace: WorkspaceSpec::default(),
+            attempt_limit: Some(1),
+        })
+        .await
+        .unwrap();
+    let unproven_attempt = org
+        .claim_ready_work("missing report")
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(unproven_attempt.work.id, unproven);
+    assert_eq!(
+        org.finish_work_attempt(
+            unproven_attempt.attempt_id,
+            WorkAttemptState::ChangesRequested,
+            "findings without the required report",
+        )
+        .await
+        .unwrap(),
+        WorkAttemptState::Failed
+    );
+    assert!(org
+        .get_work(unproven)
+        .await
+        .unwrap()
+        .unwrap()
+        .resolution
+        .contains("without linking expected artifact"));
+
+    let ungated = org
+        .add_work(NewWork {
+            owner_id: "researcher",
+            title: "Ungated evidence",
+            outcome: "must pass its declared check",
+            goal_id: None,
+            priority: 50,
+            expected_artifact: "checked report",
+            workspace: WorkspaceSpec::default(),
+            attempt_limit: Some(1),
+        })
+        .await
+        .unwrap();
+    let ungated_attempt = org
+        .claim_ready_work("unchecked report")
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(ungated_attempt.work.id, ungated);
+    org.link_work_artifact(NewArtifactRef {
+        kind: "path",
+        uri: "/company/outputs/unchecked.md",
+        note: "not yet checked",
+        created_by: "researcher",
+        work_id: Some(ungated),
+        attempt_id: Some(ungated_attempt.attempt_id),
+        digest: Some("sha256:unchecked"),
+        source_commit: None,
+        runtime_generation: Some("test"),
+        label: "unchecked report",
+    })
+    .await
+    .unwrap();
+    org.add_work_gate(NewWorkGate {
+        work_id: ungated,
+        name: "report check",
+        cwd: "/company",
+        command: &["test".into(), "-s".into(), "outputs/unchecked.md".into()],
+        created_by: "researcher",
+    })
+    .await
+    .unwrap();
+    assert_eq!(
+        org.finish_work_attempt(
+            ungated_attempt.attempt_id,
+            WorkAttemptState::ChangesRequested,
+            "findings before the check ran",
+        )
+        .await
+        .unwrap(),
+        WorkAttemptState::Failed
+    );
+    assert!(org
+        .get_work(ungated)
+        .await
+        .unwrap()
+        .unwrap()
+        .resolution
+        .contains("gates did not pass"));
+
+    org.drop_schema().await.unwrap();
+}
+
+#[tokio::test]
+async fn superseded_work_is_abandoned_with_attribution_but_never_while_running() {
+    let Ok(url) = std::env::var("RESTLESS_TEST_DATABASE_URL") else {
+        eprintln!("RESTLESS_TEST_DATABASE_URL unset; skipping Work abandonment test");
+        return;
+    };
+    let company = format!("abandon{}", uuid::Uuid::new_v4().simple());
+    let org = OrgIntel::ensure(&url, &company).await.unwrap();
+    org.add_actor("owner", "owner", "The Owner").await.unwrap();
+    org.add_actor("exec", "exec", "The Exec").await.unwrap();
+    org.add_actor("builder", "builder", "Builder")
+        .await
+        .unwrap();
+
+    let proposed = org
+        .add_work(NewWork {
+            owner_id: "builder",
+            title: "Superseded brief",
+            outcome: "old target that must not run",
+            goal_id: None,
+            priority: 20,
+            expected_artifact: "",
+            workspace: WorkspaceSpec::default(),
+            attempt_limit: Some(2),
+        })
+        .await
+        .unwrap();
+    org.abandon_work(proposed, "owner", "the review target moved")
+        .await
+        .unwrap();
+    let row = org.get_work(proposed).await.unwrap().unwrap();
+    assert_eq!(row.status, WorkStatus::Abandoned);
+    assert!(row.resolution.contains("the review target moved"));
+    assert!(org
+        .list_events(10)
+        .await
+        .unwrap()
+        .iter()
+        .any(|event| event.kind == "work_abandoned" && event.actor_id.as_deref() == Some("owner")));
+
+    let running = org
+        .add_work(NewWork {
+            owner_id: "builder",
+            title: "Observed process",
+            outcome: "finish or stop before retirement",
+            goal_id: None,
+            priority: 10,
+            expected_artifact: "",
+            workspace: WorkspaceSpec::default(),
+            attempt_limit: Some(2),
+        })
+        .await
+        .unwrap();
+    let attempt = org
+        .claim_ready_work("test running guard")
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(attempt.work.id, running);
+    assert!(org
+        .abandon_work(running, "owner", "superseded while process is live")
+        .await
+        .unwrap_err()
+        .to_string()
+        .contains("running Attempt"));
+    org.finish_work_attempt(
+        attempt.attempt_id,
+        WorkAttemptState::Failed,
+        "process stopped and observed",
+    )
+    .await
+    .unwrap();
+    org.abandon_work(running, "owner", "replacement Work now carries the outcome")
+        .await
+        .unwrap();
+    assert_eq!(
+        org.get_work(running).await.unwrap().unwrap().status,
+        WorkStatus::Abandoned
+    );
+
+    org.drop_schema().await.unwrap();
 }

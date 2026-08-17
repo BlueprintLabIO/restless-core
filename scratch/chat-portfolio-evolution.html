@@ -1,0 +1,3766 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Restless — Conversation & Portfolio Studies</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      :root {
+        --ink: #191d25;
+        --muted: #686f7b;
+        --quiet: #8c929d;
+        --line: rgba(35, 43, 57, 0.13);
+        --line-strong: rgba(35, 43, 57, 0.2);
+        --paper: rgba(255, 255, 255, 0.76);
+        --paper-solid: #fafbfd;
+        --canvas: #edf1f5;
+        --canvas-blue: #eaf0f7;
+        --violet: #6e5ab7;
+        --violet-soft: #eeeafb;
+        --blue: #3e70a8;
+        --blue-soft: #e9f1f9;
+        --teal: #397a72;
+        --teal-soft: #e7f2ef;
+        --green: #477d5f;
+        --green-soft: #e9f2ec;
+        --amber: #966323;
+        --amber-soft: #f6eee0;
+        --red: #a85147;
+        --red-soft: #f8eae7;
+        --shadow-pane:
+          0 1px 1px rgba(22, 29, 41, 0.05), 0 10px 30px rgba(45, 56, 73, 0.07);
+        --shadow-raised:
+          0 1px 0 rgba(255, 255, 255, 0.95) inset,
+          0 1px 2px rgba(36, 44, 57, 0.14), 0 5px 12px rgba(36, 44, 57, 0.08);
+        --shadow-pressed:
+          0 1px 1px rgba(255, 255, 255, 0.85) inset,
+          0 2px 5px rgba(40, 48, 61, 0.12) inset;
+        --r-pane: 9px;
+        --r-control: 6px;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      [hidden] {
+        display: none !important;
+      }
+
+      html,
+      body {
+        min-height: 100%;
+      }
+
+      body {
+        margin: 0;
+        color: var(--ink);
+        background:
+          radial-gradient(
+            circle at 15% 10%,
+            rgba(255, 255, 255, 0.92),
+            transparent 28rem
+          ),
+          radial-gradient(
+            circle at 82% 25%,
+            rgba(203, 217, 238, 0.35),
+            transparent 36rem
+          ),
+          linear-gradient(
+            145deg,
+            #f2f4f6 0%,
+            var(--canvas-blue) 52%,
+            #edf2ef 100%
+          );
+        font-family:
+          "DM Sans",
+          system-ui,
+          -apple-system,
+          BlinkMacSystemFont,
+          sans-serif;
+        font-size: 15px;
+        letter-spacing: -0.01em;
+      }
+
+      body::before {
+        position: fixed;
+        inset: 0;
+        z-index: -1;
+        content: "";
+        pointer-events: none;
+        opacity: 0.52;
+        background-image: radial-gradient(
+          rgba(63, 76, 96, 0.13) 0.75px,
+          transparent 0.75px
+        );
+        background-size: 18px 18px;
+        mask-image: linear-gradient(to bottom, black, transparent 92%);
+      }
+
+      button,
+      textarea {
+        font: inherit;
+      }
+
+      button,
+      summary {
+        -webkit-tap-highlight-color: transparent;
+      }
+
+      button:focus-visible,
+      textarea:focus-visible,
+      summary:focus-visible {
+        outline: 2px solid rgba(62, 112, 168, 0.65);
+        outline-offset: 2px;
+      }
+
+      .eyebrow {
+        margin: 0;
+        color: var(--quiet);
+        font-family: "IBM Plex Mono", monospace;
+        font-size: 11px;
+        font-weight: 600;
+        letter-spacing: 0.13em;
+        line-height: 1.35;
+        text-transform: uppercase;
+      }
+
+      .semantic-mark {
+        --mark-color: var(--violet);
+        display: inline-grid;
+        flex: 0 0 auto;
+        grid-template-columns: repeat(5, 3px);
+        grid-template-rows: repeat(7, 3px);
+        gap: 2px;
+        width: 23px;
+        height: 33px;
+        place-content: center;
+      }
+
+      .semantic-mark.small {
+        grid-template-columns: repeat(5, 2px);
+        grid-template-rows: repeat(7, 2px);
+        gap: 1.5px;
+        width: 16px;
+        height: 23px;
+      }
+
+      .semantic-mark.large {
+        grid-template-columns: repeat(5, 4px);
+        grid-template-rows: repeat(7, 4px);
+        gap: 2.5px;
+        width: 31px;
+        height: 46px;
+      }
+
+      .semantic-mark i {
+        width: 100%;
+        height: 100%;
+        border-radius: 50%;
+        background: var(--mark-color);
+        opacity: 0.09;
+      }
+
+      .semantic-mark i.on {
+        opacity: 0.96;
+        box-shadow: 0 0 5px
+          color-mix(in srgb, var(--mark-color), transparent 58%);
+      }
+
+      .tone-violet {
+        --mark-color: var(--violet);
+      }
+
+      .tone-blue {
+        --mark-color: var(--blue);
+      }
+
+      .tone-teal {
+        --mark-color: var(--teal);
+      }
+
+      .tone-green {
+        --mark-color: var(--green);
+      }
+
+      .tone-amber {
+        --mark-color: var(--amber);
+      }
+
+      .tone-red {
+        --mark-color: var(--red);
+      }
+
+      .study-nav {
+        position: fixed;
+        top: 18px;
+        right: auto;
+        bottom: auto;
+        left: 50%;
+        z-index: 20;
+        display: flex;
+        gap: 4px;
+        padding: 5px;
+        border: 1px solid var(--line-strong);
+        border-radius: 9px;
+        background: rgba(249, 250, 252, 0.84);
+        box-shadow: 0 12px 32px rgba(28, 35, 49, 0.16);
+        backdrop-filter: blur(18px) saturate(1.15);
+        transform: translateX(-50%);
+      }
+
+      .study-nav button,
+      .state-switch button {
+        border: 1px solid transparent;
+        border-radius: 5px;
+        padding: 8px 12px;
+        color: var(--muted);
+        background: transparent;
+        cursor: pointer;
+        font-size: 13px;
+        font-weight: 600;
+      }
+
+      .study-nav button[aria-selected="true"],
+      .state-switch button[aria-pressed="true"] {
+        color: #34304c;
+        border-color: rgba(82, 69, 129, 0.25);
+        background: linear-gradient(180deg, #f7f5ff, #ece9f8);
+        box-shadow:
+          var(--shadow-pressed),
+          0 2px 0 rgba(88, 73, 145, 0.25);
+      }
+
+      .study {
+        display: none;
+        min-height: 100vh;
+        padding: 9px;
+      }
+
+      .study.active {
+        display: block;
+      }
+
+      .app-shell {
+        min-height: calc(100vh - 18px);
+        border: 1px solid rgba(42, 51, 67, 0.18);
+        border-radius: 10px;
+        overflow: hidden;
+        background: rgba(247, 249, 251, 0.58);
+        box-shadow: 0 18px 50px rgba(30, 38, 52, 0.12);
+        backdrop-filter: blur(16px) saturate(1.07);
+      }
+
+      .topbar {
+        display: flex;
+        align-items: center;
+        min-height: 64px;
+        padding: 0 18px;
+        border-bottom: 1px solid var(--line);
+        background: rgba(253, 253, 254, 0.76);
+        box-shadow: 0 2px 0 rgba(67, 78, 96, 0.08);
+        backdrop-filter: blur(20px);
+      }
+
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 11px;
+        min-width: 218px;
+      }
+
+      .brand strong {
+        font-size: 18px;
+        letter-spacing: -0.025em;
+      }
+
+      .company-switcher {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-left: 10px;
+        padding-left: 17px;
+        border-left: 1px solid var(--line-strong);
+        color: #555d68;
+        font-size: 14px;
+        font-weight: 600;
+      }
+
+      .company-switcher button {
+        display: inline-flex;
+        align-items: center;
+        gap: 7px;
+        border: 0;
+        color: inherit;
+        background: transparent;
+        cursor: pointer;
+      }
+
+      .chevron {
+        width: 7px;
+        height: 7px;
+        border-right: 1.5px solid currentColor;
+        border-bottom: 1.5px solid currentColor;
+        transform: rotate(45deg) translateY(-2px);
+      }
+
+      .tabs {
+        display: flex;
+        gap: 7px;
+        margin-left: 20px;
+      }
+
+      .tab {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        min-height: 38px;
+        padding: 0 13px;
+        border: 1px solid var(--line-strong);
+        border-radius: var(--r-control);
+        color: var(--muted);
+        background: linear-gradient(
+          180deg,
+          rgba(255, 255, 255, 0.9),
+          rgba(241, 244, 247, 0.9)
+        );
+        box-shadow:
+          var(--shadow-raised),
+          0 2px 0 rgba(81, 92, 108, 0.14);
+        font-size: 13px;
+        font-weight: 600;
+      }
+
+      .tab.active {
+        border-color: rgba(91, 74, 151, 0.35);
+        color: #51457d;
+        background: linear-gradient(180deg, #faf9ff, #eeeafb);
+        box-shadow:
+          var(--shadow-pressed),
+          0 2px 0 rgba(88, 73, 145, 0.26);
+      }
+
+      .tab-dot {
+        width: 7px;
+        height: 7px;
+        border: 1.5px solid currentColor;
+        border-radius: 2px;
+      }
+
+      .topbar-spacer {
+        flex: 1;
+      }
+
+      .exec-presence {
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        margin-right: 13px;
+        color: var(--blue);
+        font-family: "IBM Plex Mono", monospace;
+        font-size: 10px;
+        font-weight: 600;
+        letter-spacing: 0.11em;
+        text-transform: uppercase;
+      }
+
+      .presence-dots {
+        letter-spacing: 0.04em;
+      }
+
+      .account-button {
+        min-width: 42px;
+        height: 38px;
+        padding: 0 11px;
+        border: 1px solid #252a35;
+        border-radius: 7px;
+        color: #f6f7fb;
+        background: linear-gradient(180deg, #282e3a, #161a22);
+        box-shadow:
+          0 1px 0 rgba(255, 255, 255, 0.18) inset,
+          0 2px 0 #0e1016,
+          0 6px 12px rgba(24, 28, 37, 0.14);
+        font-family: "IBM Plex Mono", monospace;
+        font-size: 11px;
+        font-weight: 600;
+        letter-spacing: 0.06em;
+      }
+
+      /* Study 1: work + executive brief */
+      .workspace {
+        display: grid;
+        grid-template-columns: minmax(470px, 1fr) minmax(390px, 510px);
+        height: calc(100vh - 83px);
+        min-height: 0;
+      }
+
+      .work-canvas {
+        position: relative;
+        overflow: hidden;
+        border-right: 1px solid var(--line-strong);
+        background:
+          linear-gradient(rgba(250, 251, 252, 0.42), rgba(242, 247, 248, 0.48)),
+          radial-gradient(
+            circle at 40% 30%,
+            rgba(255, 255, 255, 0.92),
+            transparent 35rem
+          );
+      }
+
+      .work-canvas::before {
+        position: absolute;
+        inset: 0;
+        content: "";
+        opacity: 0.35;
+        background-image: radial-gradient(
+          rgba(74, 86, 102, 0.15) 0.7px,
+          transparent 0.7px
+        );
+        background-size: 18px 18px;
+      }
+
+      .canvas-head {
+        position: relative;
+        z-index: 1;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 23px 26px 15px;
+      }
+
+      .canvas-head h1 {
+        margin: 4px 0 0;
+        font-size: clamp(24px, 2.1vw, 34px);
+        letter-spacing: -0.04em;
+      }
+
+      .view-switch {
+        display: flex;
+        gap: 4px;
+        padding: 4px;
+        border: 1px solid var(--line);
+        border-radius: 7px;
+        background: rgba(255, 255, 255, 0.52);
+      }
+
+      .view-switch span {
+        padding: 6px 10px;
+        border-radius: 4px;
+        color: var(--quiet);
+        font-size: 12px;
+        font-weight: 600;
+      }
+
+      .view-switch .active {
+        color: var(--blue);
+        background: rgba(233, 241, 249, 0.9);
+        box-shadow: var(--shadow-pressed);
+      }
+
+      .work-stage {
+        position: relative;
+        z-index: 1;
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 14px;
+        max-width: 790px;
+        margin: 42px auto 0;
+        padding: 0 28px;
+      }
+
+      .work-card {
+        position: relative;
+        min-height: 174px;
+        padding: 19px;
+        border: 1px solid var(--line);
+        border-radius: var(--r-pane);
+        background: rgba(255, 255, 255, 0.69);
+        box-shadow: var(--shadow-pane);
+        backdrop-filter: blur(12px);
+      }
+
+      .work-card.focused {
+        border-color: rgba(62, 112, 168, 0.34);
+        box-shadow:
+          0 0 0 2px rgba(62, 112, 168, 0.08),
+          var(--shadow-pane);
+      }
+
+      .work-card .status {
+        display: inline-flex;
+        align-items: center;
+        gap: 7px;
+        color: var(--amber);
+        font-family: "IBM Plex Mono", monospace;
+        font-size: 10px;
+        font-weight: 600;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+      }
+
+      .work-card h2 {
+        margin: 13px 0 8px;
+        font-size: 17px;
+        line-height: 1.25;
+      }
+
+      .work-card p {
+        display: -webkit-box;
+        margin: 0;
+        overflow: hidden;
+        color: var(--muted);
+        font-size: 13px;
+        line-height: 1.5;
+        -webkit-box-orient: vertical;
+        -webkit-line-clamp: 3;
+      }
+
+      .work-card footer {
+        position: absolute;
+        right: 18px;
+        bottom: 15px;
+        left: 18px;
+        display: flex;
+        justify-content: space-between;
+        padding-top: 11px;
+        border-top: 1px solid var(--line);
+        color: var(--quiet);
+        font-family: "IBM Plex Mono", monospace;
+        font-size: 9px;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+
+      .canvas-note {
+        position: absolute;
+        right: 26px;
+        bottom: 25px;
+        left: 26px;
+        z-index: 1;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 12px 14px;
+        border: 1px solid rgba(71, 125, 95, 0.2);
+        border-radius: 7px;
+        color: #4f685a;
+        background: rgba(233, 242, 236, 0.66);
+        font-size: 12px;
+      }
+
+      .exec-rail {
+        display: flex;
+        min-width: 0;
+        min-height: 0;
+        flex-direction: column;
+        overflow: hidden;
+        background: rgba(250, 251, 253, 0.74);
+        backdrop-filter: blur(20px);
+      }
+
+      .rail-head {
+        display: flex;
+        align-items: center;
+        min-height: 76px;
+        padding: 14px 17px;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .rail-head .title-lockup {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        min-width: 0;
+      }
+
+      .rail-head h2 {
+        margin: 0;
+        font-size: 18px;
+        letter-spacing: -0.025em;
+      }
+
+      .rail-head p {
+        margin: 2px 0 0;
+        color: var(--quiet);
+        font-size: 12px;
+      }
+
+      .rail-head .close {
+        display: grid;
+        width: 34px;
+        height: 34px;
+        margin-left: auto;
+        border: 1px solid var(--line-strong);
+        border-radius: 6px;
+        color: var(--muted);
+        background: linear-gradient(#fff, #f0f3f6);
+        box-shadow: var(--shadow-raised);
+        cursor: pointer;
+        place-items: center;
+      }
+
+      .context-strip {
+        display: flex;
+        align-items: center;
+        gap: 9px;
+        padding: 10px 17px;
+        border-bottom: 1px solid rgba(62, 112, 168, 0.2);
+        color: #345f8d;
+        background: rgba(233, 241, 249, 0.66);
+        font-size: 12px;
+      }
+
+      .context-strip strong {
+        color: #294a6d;
+        font-weight: 600;
+      }
+
+      .context-strip .context-action {
+        margin-left: auto;
+        color: var(--blue);
+        font-size: 11px;
+        font-weight: 600;
+      }
+
+      .conversation {
+        min-height: 0;
+        flex: 1;
+        overflow: auto;
+        padding: 18px 17px 28px;
+      }
+
+      .older-turns {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        width: 100%;
+        margin: 0 0 17px;
+        padding: 0;
+        border: 0;
+        color: var(--quiet);
+        background: transparent;
+        cursor: pointer;
+        font-family: "IBM Plex Mono", monospace;
+        font-size: 9px;
+        font-weight: 600;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+      }
+
+      .older-turns::before,
+      .older-turns::after {
+        height: 1px;
+        flex: 1;
+        content: "";
+        background: var(--line);
+      }
+
+      .turn {
+        margin-bottom: 15px;
+      }
+
+      .turn-label {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 7px;
+        color: var(--quiet);
+        font-family: "IBM Plex Mono", monospace;
+        font-size: 9px;
+        font-weight: 600;
+        letter-spacing: 0.11em;
+        text-transform: uppercase;
+      }
+
+      .turn-label time {
+        margin-left: auto;
+        letter-spacing: 0;
+      }
+
+      .owner-turn {
+        position: relative;
+        padding: 13px 14px 10px 17px;
+        border: 1px solid rgba(62, 112, 168, 0.22);
+        border-radius: var(--r-pane);
+        background: rgba(235, 242, 249, 0.66);
+      }
+
+      .owner-turn::before {
+        position: absolute;
+        top: 10px;
+        bottom: 10px;
+        left: 0;
+        width: 3px;
+        border-radius: 0 2px 2px 0;
+        content: "";
+        background: var(--blue);
+      }
+
+      .owner-turn h3 {
+        margin: 0 0 5px;
+        font-size: 15px;
+        letter-spacing: -0.02em;
+      }
+
+      .owner-turn > p {
+        margin: 0;
+        color: #53606e;
+        font-size: 13px;
+        line-height: 1.48;
+      }
+
+      .exact-message {
+        margin-top: 9px;
+        padding-top: 8px;
+        border-top: 1px solid rgba(62, 112, 168, 0.15);
+      }
+
+      .exact-message summary {
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        color: var(--blue);
+        cursor: pointer;
+        font-size: 11px;
+        font-weight: 600;
+        list-style: none;
+      }
+
+      .exact-message summary::-webkit-details-marker {
+        display: none;
+      }
+
+      .exact-message summary::before {
+        width: 6px;
+        height: 6px;
+        border-right: 1px solid currentColor;
+        border-bottom: 1px solid currentColor;
+        content: "";
+        transform: rotate(-45deg);
+        transition: transform 150ms ease;
+      }
+
+      .exact-message[open] summary::before {
+        transform: rotate(45deg) translate(-1px, -1px);
+      }
+
+      .exact-copy {
+        max-height: 170px;
+        margin: 9px 0 2px;
+        padding: 11px 12px;
+        overflow: auto;
+        border: 1px solid var(--line);
+        border-radius: 5px;
+        color: #59616c;
+        background: rgba(255, 255, 255, 0.58);
+        font-size: 12px;
+        line-height: 1.55;
+      }
+
+      .intent-receipt {
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        margin-top: 9px;
+        color: var(--blue);
+        font-family: "IBM Plex Mono", monospace;
+        font-size: 8px;
+        font-weight: 600;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+
+      .intent-receipt .separator {
+        width: 2px;
+        height: 2px;
+        border-radius: 50%;
+        background: currentColor;
+      }
+
+      .exec-result {
+        overflow: hidden;
+        border: 1px solid rgba(57, 122, 114, 0.23);
+        border-radius: var(--r-pane);
+        background: rgba(255, 255, 255, 0.76);
+        box-shadow: var(--shadow-pane);
+      }
+
+      .result-head {
+        display: flex;
+        gap: 12px;
+        padding: 15px 15px 13px;
+        border-bottom: 1px solid rgba(57, 122, 114, 0.14);
+        background: linear-gradient(
+          135deg,
+          rgba(231, 242, 239, 0.82),
+          rgba(255, 255, 255, 0.55)
+        );
+      }
+
+      .result-head h3 {
+        margin: 1px 0 3px;
+        font-size: 17px;
+        letter-spacing: -0.025em;
+      }
+
+      .result-head p {
+        margin: 0;
+        color: #597068;
+        font-size: 12px;
+        line-height: 1.4;
+      }
+
+      .result-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+      }
+
+      .result-section {
+        min-width: 0;
+        padding: 13px 14px;
+      }
+
+      .result-section:nth-child(even) {
+        border-left: 1px solid var(--line);
+      }
+
+      .result-section:nth-child(n + 3) {
+        border-top: 1px solid var(--line);
+      }
+
+      .result-section h4 {
+        margin: 0 0 7px;
+        color: var(--quiet);
+        font-family: "IBM Plex Mono", monospace;
+        font-size: 8px;
+        font-weight: 600;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+      }
+
+      .result-section p {
+        margin: 0;
+        color: #4e5661;
+        font-size: 12px;
+        line-height: 1.45;
+      }
+
+      .result-section strong {
+        display: block;
+        margin-bottom: 3px;
+        color: var(--ink);
+        font-size: 13px;
+      }
+
+      .artifact-row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 9px 14px;
+        border-top: 1px solid rgba(57, 122, 114, 0.14);
+        color: var(--teal);
+        background: rgba(231, 242, 239, 0.46);
+        font-size: 11px;
+        font-weight: 600;
+      }
+
+      .artifact-row span:last-child {
+        margin-left: auto;
+        color: var(--quiet);
+        font-family: "IBM Plex Mono", monospace;
+        font-size: 8px;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+
+      .decision-prompt {
+        display: flex;
+        align-items: center;
+        gap: 11px;
+        margin-top: 11px;
+        padding: 11px 12px;
+        border: 1px solid rgba(150, 99, 35, 0.24);
+        border-radius: 7px;
+        color: #705020;
+        background: rgba(246, 238, 224, 0.66);
+        font-size: 12px;
+      }
+
+      .decision-prompt button {
+        margin-left: auto;
+        padding: 6px 9px;
+        border: 1px solid rgba(150, 99, 35, 0.24);
+        border-radius: 5px;
+        color: #744d18;
+        background: linear-gradient(#fffaf1, #f1e4cf);
+        box-shadow: var(--shadow-raised);
+        cursor: pointer;
+        font-size: 11px;
+        font-weight: 600;
+      }
+
+      .suggestions {
+        display: flex;
+        gap: 6px;
+        padding: 0 14px 8px;
+        overflow-x: auto;
+      }
+
+      .suggestions button {
+        flex: 0 0 auto;
+        padding: 6px 9px;
+        border: 1px solid var(--line);
+        border-radius: 999px;
+        color: #5b6571;
+        background: rgba(255, 255, 255, 0.66);
+        cursor: pointer;
+        font-size: 10px;
+      }
+
+      .composer-wrap {
+        position: relative;
+        z-index: 2;
+        flex: 0 0 auto;
+        border-top: 1px solid var(--line);
+        background: rgba(250, 251, 252, 0.82);
+      }
+
+      .composer {
+        margin: 0 13px 12px;
+        overflow: hidden;
+        border: 1px solid rgba(57, 122, 114, 0.3);
+        border-radius: 8px;
+        background: rgba(255, 255, 255, 0.94);
+        box-shadow:
+          0 1px 0 rgba(255, 255, 255, 0.9) inset,
+          0 7px 18px rgba(31, 40, 54, 0.1);
+      }
+
+      .composer-context {
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        min-height: 31px;
+        padding: 5px 10px;
+        border-bottom: 1px solid var(--line);
+        color: var(--teal);
+        background: rgba(231, 242, 239, 0.42);
+        font-family: "IBM Plex Mono", monospace;
+        font-size: 8px;
+        font-weight: 600;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+      }
+
+      .composer-context button {
+        margin-left: auto;
+        border: 0;
+        color: var(--quiet);
+        background: transparent;
+        cursor: pointer;
+      }
+
+      .composer-attachments {
+        display: flex;
+        gap: 7px;
+        padding: 8px 10px 0;
+      }
+
+      .attachment-chip {
+        display: inline-grid;
+        grid-template-columns: 24px minmax(0, 1fr) 20px;
+        align-items: center;
+        gap: 7px;
+        max-width: 260px;
+        padding: 6px 7px;
+        border: 1px solid rgba(57, 122, 114, 0.18);
+        border-radius: 6px;
+        color: #405d59;
+        background: rgba(231, 242, 239, 0.58);
+      }
+
+      .attachment-chip .file-mark {
+        display: grid;
+        width: 24px;
+        height: 27px;
+        border: 1px solid rgba(57, 122, 114, 0.22);
+        border-radius: 4px;
+        color: var(--teal);
+        background: rgba(255, 255, 255, 0.66);
+        font-family: "IBM Plex Mono", monospace;
+        font-size: 7px;
+        font-weight: 600;
+        place-items: center;
+      }
+
+      .attachment-chip strong,
+      .attachment-chip small {
+        display: block;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .attachment-chip strong {
+        font-size: 10px;
+      }
+
+      .attachment-chip small {
+        margin-top: 1px;
+        color: var(--quiet);
+        font-size: 8px;
+      }
+
+      .attachment-chip button {
+        border: 0;
+        color: var(--quiet);
+        background: transparent;
+        cursor: pointer;
+      }
+
+      .composer-main {
+        min-height: 66px;
+        padding: 9px 11px 5px;
+      }
+
+      .composer-main textarea {
+        display: block;
+        width: 100%;
+        min-height: 50px;
+        max-height: 130px;
+        resize: none;
+        border: 0;
+        outline: 0;
+        color: var(--ink);
+        background: transparent;
+        font-size: 13px;
+        line-height: 1.45;
+      }
+
+      .composer-main textarea::placeholder {
+        color: #949aa3;
+      }
+
+      .composer-toolbar {
+        display: flex;
+        align-items: center;
+        gap: 5px;
+        padding: 5px 7px 7px;
+      }
+
+      .composer-tool {
+        display: inline-flex;
+        min-height: 32px;
+        align-items: center;
+        gap: 7px;
+        padding: 0 8px;
+        border: 1px solid var(--line);
+        border-radius: 5px;
+        color: #596a6e;
+        background: linear-gradient(#fff, #f0f4f4);
+        box-shadow: 0 1px 0 rgba(255, 255, 255, 0.9) inset;
+        cursor: pointer;
+        font-size: 10px;
+        font-weight: 600;
+      }
+
+      .composer-note {
+        margin-left: auto;
+        color: var(--quiet);
+        font-size: 9px;
+      }
+
+      .composer-send {
+        display: grid;
+        width: 35px;
+        height: 34px;
+        margin-left: 5px;
+        border: 1px solid #3e6c68;
+        border-radius: 6px;
+        color: white;
+        background: linear-gradient(#5b9189, #39736c);
+        box-shadow:
+          0 1px 0 rgba(255, 255, 255, 0.28) inset,
+          0 2px 0 #285a54,
+          0 4px 8px rgba(45, 95, 88, 0.17);
+        cursor: pointer;
+        place-items: center;
+      }
+
+      .paperclip {
+        width: 14px;
+        height: 18px;
+        border: 2px solid currentColor;
+        border-top-color: transparent;
+        border-radius: 8px;
+        transform: rotate(42deg);
+      }
+
+      .send-arrow {
+        width: 0;
+        height: 0;
+        border-right: 6px solid transparent;
+        border-bottom: 11px solid currentColor;
+        border-left: 6px solid transparent;
+        transform: rotate(38deg);
+      }
+
+      .link-tool-icon {
+        width: 15px;
+        height: 8px;
+        border: 1.5px solid currentColor;
+        border-radius: 5px;
+        transform: rotate(-28deg);
+      }
+
+      /* Study 2: full-width People conversation */
+      .people-shell {
+        display: grid;
+        grid-template-columns: 258px minmax(0, 1fr);
+        height: calc(100vh - 83px);
+        min-height: 0;
+      }
+
+      .people-index {
+        display: flex;
+        min-width: 0;
+        min-height: 0;
+        flex-direction: column;
+        padding: 18px 12px;
+        border-right: 1px solid var(--line-strong);
+        background: rgba(248, 250, 252, 0.72);
+        backdrop-filter: blur(18px);
+      }
+
+      .people-index-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 0 6px 14px;
+      }
+
+      .people-index-head h1 {
+        margin: 0;
+        font-size: 22px;
+        letter-spacing: -0.035em;
+      }
+
+      .people-index-head button {
+        display: grid;
+        width: 30px;
+        height: 30px;
+        border: 1px solid var(--line);
+        border-radius: 5px;
+        color: var(--blue);
+        background: linear-gradient(#fff, #edf2f7);
+        box-shadow: var(--shadow-raised);
+        cursor: pointer;
+        place-items: center;
+      }
+
+      .people-search {
+        width: 100%;
+        height: 36px;
+        margin-bottom: 12px;
+        padding: 0 11px;
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        outline: 0;
+        color: var(--ink);
+        background: rgba(255, 255, 255, 0.66);
+        font-size: 12px;
+      }
+
+      .people-group-label {
+        margin: 13px 7px 7px;
+        color: var(--quiet);
+        font-family: "IBM Plex Mono", monospace;
+        font-size: 8px;
+        font-weight: 600;
+        letter-spacing: 0.09em;
+        text-transform: uppercase;
+      }
+
+      .person-entry {
+        display: flex;
+        width: 100%;
+        align-items: center;
+        gap: 10px;
+        margin-bottom: 4px;
+        padding: 10px;
+        border: 1px solid transparent;
+        border-radius: 7px;
+        color: var(--ink);
+        background: transparent;
+        cursor: pointer;
+        text-align: left;
+      }
+
+      .person-entry.active {
+        border-color: rgba(62, 112, 168, 0.22);
+        background: rgba(233, 241, 249, 0.78);
+        box-shadow: var(--shadow-pressed);
+      }
+
+      .person-avatar {
+        position: relative;
+        display: grid;
+        width: 37px;
+        height: 37px;
+        flex: 0 0 auto;
+        border: 1px solid var(--line);
+        border-radius: 7px;
+        background: rgba(255, 255, 255, 0.7);
+        place-items: center;
+      }
+
+      .person-avatar::after {
+        position: absolute;
+        right: -2px;
+        bottom: -2px;
+        width: 8px;
+        height: 8px;
+        border: 2px solid #f5f7f9;
+        border-radius: 3px;
+        content: "";
+        background: var(--green);
+      }
+
+      .person-entry strong,
+      .person-entry small {
+        display: block;
+      }
+
+      .person-entry strong {
+        margin-bottom: 2px;
+        font-size: 13px;
+      }
+
+      .person-entry small {
+        overflow: hidden;
+        color: var(--quiet);
+        font-size: 10px;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .person-unread {
+        min-width: 20px;
+        margin-left: auto;
+        padding: 3px 5px;
+        border-radius: 5px;
+        color: white;
+        background: var(--violet);
+        font-family: "IBM Plex Mono", monospace;
+        font-size: 8px;
+        text-align: center;
+      }
+
+      .person-context-card {
+        margin-top: auto;
+        padding: 12px;
+        border: 1px solid rgba(57, 122, 114, 0.16);
+        border-radius: 7px;
+        background: rgba(231, 242, 239, 0.48);
+      }
+
+      .person-context-card h2 {
+        margin: 0 0 5px;
+        font-size: 12px;
+      }
+
+      .person-context-card p {
+        margin: 0 0 9px;
+        color: var(--muted);
+        font-size: 10px;
+        line-height: 1.45;
+      }
+
+      .person-context-card button {
+        padding: 0;
+        border: 0;
+        color: var(--teal);
+        background: transparent;
+        cursor: pointer;
+        font-size: 10px;
+        font-weight: 600;
+      }
+
+      .people-chat {
+        display: flex;
+        min-width: 0;
+        min-height: 0;
+        height: 100%;
+        flex-direction: column;
+        overflow: hidden;
+        background:
+          radial-gradient(
+            circle at 70% 5%,
+            rgba(255, 255, 255, 0.86),
+            transparent 34rem
+          ),
+          rgba(246, 248, 251, 0.54);
+      }
+
+      .people-chat-head {
+        display: flex;
+        min-height: 74px;
+        align-items: center;
+        gap: 12px;
+        padding: 12px 22px;
+        border-bottom: 1px solid var(--line);
+        background: rgba(252, 253, 254, 0.62);
+      }
+
+      .people-chat-head h2 {
+        margin: 0 0 2px;
+        font-size: 18px;
+        letter-spacing: -0.025em;
+      }
+
+      .people-chat-head p {
+        margin: 0;
+        color: var(--quiet);
+        font-size: 11px;
+      }
+
+      .actor-focus {
+        margin-left: auto;
+        padding: 8px 10px;
+        border: 1px solid rgba(57, 122, 114, 0.17);
+        border-radius: 6px;
+        color: var(--teal);
+        background: rgba(231, 242, 239, 0.52);
+        font-size: 10px;
+      }
+
+      .chat-stage {
+        min-height: 0;
+        flex: 1;
+        overflow: auto;
+        padding: 0;
+      }
+
+      .chat-column {
+        display: flex;
+        width: 100%;
+        min-height: 100%;
+        flex-direction: column;
+        justify-content: flex-end;
+        margin: 0;
+      }
+
+      .chat-fold {
+        display: flex;
+        align-items: center;
+        gap: 11px;
+        width: 100%;
+        margin: 0;
+        padding: 13px 24px;
+        border: 0;
+        border-bottom: 1px solid var(--line);
+        color: var(--quiet);
+        background: transparent;
+        cursor: pointer;
+        font-size: 10px;
+      }
+
+      .chat-fold::before,
+      .chat-fold::after {
+        height: 1px;
+        flex: 1;
+        content: "";
+        background: var(--line);
+      }
+
+      .chat-message {
+        display: grid;
+        grid-template-columns: 128px minmax(0, 1fr) 210px;
+        align-items: start;
+        gap: 18px;
+        width: 100%;
+        margin: 0;
+        padding: 16px 24px;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .chat-message.owner {
+        width: 100%;
+        margin-left: 0;
+        background: rgba(233, 241, 249, 0.56);
+        box-shadow: inset -3px 0 var(--blue);
+      }
+
+      .chat-message.actor {
+        width: 100%;
+        margin-right: 0;
+        background: rgba(255, 255, 255, 0.53);
+        box-shadow: inset 3px 0 var(--teal);
+      }
+
+      .message-author {
+        display: flex;
+        align-items: flex-start;
+        align-self: start;
+        flex-direction: column;
+        gap: 7px;
+        margin: 0;
+        padding-top: 2px;
+        color: var(--quiet);
+        font-family: "IBM Plex Mono", monospace;
+        font-size: 9px;
+        font-weight: 600;
+        letter-spacing: 0.05em;
+        text-transform: uppercase;
+      }
+
+      .chat-message.owner .message-author {
+        justify-content: flex-start;
+        color: var(--blue);
+      }
+
+      .message-author time {
+        margin-left: 0;
+        color: var(--quiet);
+        letter-spacing: 0;
+        text-transform: lowercase;
+      }
+
+      .chat-message.owner .message-author time {
+        margin-left: 0;
+      }
+
+      .message-surface {
+        position: relative;
+        grid-column: 2;
+        padding: 0;
+        border-radius: 0;
+        font-size: 14px;
+        line-height: 1.55;
+      }
+
+      .chat-message.owner .message-surface {
+        border: 0;
+        color: #283847;
+        background: transparent;
+        box-shadow: none;
+      }
+
+      .chat-message.actor .message-surface {
+        border: 0;
+        color: #323b43;
+        background: transparent;
+        box-shadow: none;
+      }
+
+      .message-surface p {
+        margin: 0 0 10px;
+      }
+
+      .message-surface p:last-child {
+        margin-bottom: 0;
+      }
+
+      .message-surface > p {
+        max-width: 78ch;
+      }
+
+      .message-receipt {
+        display: flex;
+        align-items: center;
+        align-self: start;
+        gap: 6px;
+        grid-column: 3;
+        margin: 0;
+        padding-top: 2px;
+        color: var(--blue);
+        font-family: "IBM Plex Mono", monospace;
+        font-size: 8px;
+        font-weight: 600;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+      }
+
+      .chat-message.owner .message-receipt {
+        justify-content: flex-start;
+      }
+
+      .message-evidence {
+        display: grid;
+        grid-template-columns: 1fr;
+        align-self: start;
+        gap: 7px;
+        grid-column: 3;
+        margin: 0;
+      }
+
+      .evidence-link {
+        margin-left: 0;
+        padding: 9px 10px;
+        border: 1px solid rgba(57, 122, 114, 0.16);
+        border-radius: 5px;
+        color: var(--teal);
+        background: rgba(231, 242, 239, 0.44);
+        font-size: 11px;
+        font-weight: 600;
+      }
+
+      .evidence-link small {
+        display: block;
+        margin-top: 3px;
+        color: var(--quiet);
+        font-size: 9px;
+        font-weight: 400;
+      }
+
+      .system-event {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        margin: 0;
+        padding: 10px 24px;
+        border-bottom: 1px solid var(--line);
+        color: var(--quiet);
+        font-family: "IBM Plex Mono", monospace;
+        font-size: 8px;
+        font-weight: 600;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+      }
+
+      .system-event::before,
+      .system-event::after {
+        width: 36px;
+        height: 1px;
+        content: "";
+        background: var(--line);
+      }
+
+      .people-composer-wrap {
+        position: relative;
+        z-index: 3;
+        flex: 0 0 auto;
+        border-top: 1px solid var(--line);
+        background: rgba(250, 251, 253, 0.78);
+        backdrop-filter: blur(16px);
+      }
+
+      .people-composer-inner {
+        display: block;
+        width: 100%;
+        margin: 0;
+        padding: 8px 24px 12px;
+      }
+
+      .people-composer-inner .suggestions {
+        padding-right: 0;
+        padding-left: 0;
+      }
+
+      .people-composer-inner .composer {
+        margin-right: 0;
+        margin-bottom: 0;
+        margin-left: 0;
+      }
+
+      /* Study 3: portfolio */
+      .portfolio-main {
+        max-width: 1240px;
+        margin: 0 auto;
+        padding: clamp(34px, 6vh, 72px) 36px 90px;
+      }
+
+      .portfolio-hero {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        align-items: end;
+        gap: 28px;
+        padding-bottom: 24px;
+        border-bottom: 1px solid var(--line-strong);
+      }
+
+      .portfolio-hero h1 {
+        margin: 7px 0 7px;
+        font-size: clamp(36px, 4.2vw, 58px);
+        letter-spacing: -0.06em;
+        line-height: 0.98;
+      }
+
+      .portfolio-hero p:last-child {
+        max-width: 630px;
+        margin: 0;
+        color: var(--muted);
+        font-size: 15px;
+      }
+
+      .portfolio-actions {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+
+      .state-switch {
+        display: flex;
+        gap: 3px;
+        padding: 4px;
+        border: 1px solid var(--line);
+        border-radius: 7px;
+        background: rgba(255, 255, 255, 0.54);
+      }
+
+      .state-switch button {
+        padding: 6px 9px;
+        font-size: 11px;
+      }
+
+      .portfolio-summary {
+        display: grid;
+        grid-template-columns: 1.2fr repeat(3, 1fr);
+        margin: 22px 0 14px;
+        overflow: hidden;
+        border: 1px solid var(--line);
+        border-radius: var(--r-pane);
+        background: rgba(255, 255, 255, 0.6);
+        box-shadow: var(--shadow-pane);
+        backdrop-filter: blur(14px);
+      }
+
+      .summary-primary,
+      .summary-stat {
+        min-height: 94px;
+        padding: 16px 18px;
+      }
+
+      .summary-primary {
+        display: flex;
+        align-items: center;
+        gap: 13px;
+        color: #493d71;
+        background: linear-gradient(
+          135deg,
+          rgba(238, 234, 251, 0.78),
+          rgba(255, 255, 255, 0.45)
+        );
+      }
+
+      .summary-primary strong,
+      .summary-stat strong {
+        display: block;
+        margin-top: 5px;
+        color: var(--ink);
+        font-size: 21px;
+        letter-spacing: -0.035em;
+      }
+
+      .summary-stat {
+        border-left: 1px solid var(--line);
+      }
+
+      .summary-stat strong {
+        font-size: 18px;
+      }
+
+      .summary-stat span {
+        display: block;
+        margin-top: 4px;
+        color: var(--muted);
+        font-size: 11px;
+      }
+
+      .refresh-banner {
+        display: none;
+        align-items: center;
+        gap: 11px;
+        margin-bottom: 14px;
+        padding: 11px 13px;
+        border: 1px solid rgba(150, 99, 35, 0.23);
+        border-radius: 7px;
+        color: #6d511f;
+        background: rgba(246, 238, 224, 0.76);
+        font-size: 12px;
+      }
+
+      .refresh-banner strong {
+        color: #704811;
+      }
+
+      .refresh-banner button {
+        margin-left: auto;
+        border: 0;
+        color: var(--amber);
+        background: transparent;
+        cursor: pointer;
+        font-weight: 600;
+      }
+
+      .portfolio-main.degraded .refresh-banner {
+        display: flex;
+      }
+
+      .portfolio-main.degraded .company-ledger {
+        opacity: 0.72;
+      }
+
+      .company-ledger {
+        overflow: hidden;
+        border: 1px solid var(--line);
+        border-radius: var(--r-pane);
+        background: rgba(255, 255, 255, 0.66);
+        box-shadow: var(--shadow-pane);
+        transition: opacity 160ms ease;
+        backdrop-filter: blur(14px);
+      }
+
+      .ledger-head,
+      .company-row {
+        display: grid;
+        grid-template-columns:
+          46px minmax(240px, 1.45fr) minmax(220px, 1fr)
+          110px 100px 30px;
+        align-items: center;
+        gap: 14px;
+      }
+
+      .ledger-head {
+        min-height: 43px;
+        padding: 0 17px;
+        border-bottom: 1px solid var(--line);
+        color: var(--quiet);
+        background: rgba(246, 248, 250, 0.7);
+        font-family: "IBM Plex Mono", monospace;
+        font-size: 8px;
+        font-weight: 600;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+      }
+
+      .company-row {
+        position: relative;
+        min-height: 118px;
+        padding: 16px 17px;
+        border-bottom: 1px solid var(--line);
+        cursor: pointer;
+        transition:
+          background 150ms ease,
+          transform 150ms ease;
+      }
+
+      .company-row:last-child {
+        border-bottom: 0;
+      }
+
+      .company-row:hover {
+        z-index: 1;
+        background: rgba(255, 255, 255, 0.74);
+        box-shadow: 0 10px 24px rgba(40, 51, 68, 0.07);
+        transform: translateY(-1px);
+      }
+
+      .company-row h2 {
+        margin: 0 0 4px;
+        font-size: 20px;
+        letter-spacing: -0.035em;
+      }
+
+      .company-row p {
+        display: -webkit-box;
+        margin: 0;
+        overflow: hidden;
+        color: var(--muted);
+        font-size: 12px;
+        line-height: 1.45;
+        -webkit-box-orient: vertical;
+        -webkit-line-clamp: 2;
+      }
+
+      .company-state {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 5px;
+        font-size: 12px;
+        font-weight: 600;
+      }
+
+      .state-dot {
+        width: 7px;
+        height: 7px;
+        border-radius: 2px;
+        background: var(--green);
+        box-shadow: 0 0 0 3px rgba(71, 125, 95, 0.1);
+      }
+
+      .state-dot.amber {
+        background: var(--amber);
+        box-shadow: 0 0 0 3px rgba(150, 99, 35, 0.1);
+      }
+
+      .attention-count,
+      .spend {
+        font-family: "IBM Plex Mono", monospace;
+        font-size: 11px;
+        font-weight: 600;
+      }
+
+      .attention-count.has-attention {
+        color: var(--violet);
+      }
+
+      .attention-count span,
+      .spend span {
+        display: block;
+        margin-top: 4px;
+        color: var(--quiet);
+        font-family: "DM Sans", sans-serif;
+        font-size: 10px;
+        font-weight: 400;
+      }
+
+      .row-arrow {
+        width: 9px;
+        height: 9px;
+        border-top: 1.5px solid var(--quiet);
+        border-right: 1.5px solid var(--quiet);
+        transform: rotate(45deg);
+      }
+
+      .portfolio-footnote {
+        display: flex;
+        justify-content: space-between;
+        margin-top: 12px;
+        color: var(--quiet);
+        font-family: "IBM Plex Mono", monospace;
+        font-size: 8px;
+        letter-spacing: 0.07em;
+        text-transform: uppercase;
+      }
+
+      /* The portfolio is a cross-company briefing, not a catalogue. */
+      .portfolio-main {
+        max-width: 1120px;
+        padding: clamp(24px, 3.5vh, 40px) 30px 88px;
+      }
+
+      .portfolio-hero {
+        align-items: center;
+        padding-bottom: 20px;
+      }
+
+      .portfolio-hero h1 {
+        max-width: 720px;
+        margin: 0 0 9px;
+        font-size: clamp(31px, 3vw, 43px);
+        line-height: 1.03;
+      }
+
+      .portfolio-hero p:last-child {
+        max-width: 720px;
+      }
+
+      .new-company-button {
+        min-height: 36px;
+        padding: 0 12px;
+        border: 1px solid var(--line-strong);
+        border-radius: 6px;
+        color: #4e5662;
+        background: linear-gradient(#fff, #eef1f4);
+        box-shadow:
+          var(--shadow-raised),
+          0 2px 0 rgba(73, 82, 96, 0.12);
+        cursor: pointer;
+        font-size: 11px;
+        font-weight: 600;
+      }
+
+      .portfolio-brief-grid {
+        display: grid;
+        grid-template-columns: minmax(0, 1.55fr) minmax(270px, 0.72fr);
+        gap: 14px;
+        margin-top: 18px;
+      }
+
+      .needs-you-panel {
+        grid-column: 1;
+        grid-row: 1;
+      }
+
+      .company-switch-panel {
+        grid-column: 2;
+        grid-row: 1;
+      }
+
+      .progress-panel {
+        grid-column: 1 / -1;
+      }
+
+      .brief-panel {
+        overflow: hidden;
+        border: 1px solid var(--line);
+        border-radius: var(--r-pane);
+        background: rgba(255, 255, 255, 0.66);
+        box-shadow: var(--shadow-pane);
+        backdrop-filter: blur(14px);
+      }
+
+      .brief-panel-head {
+        display: flex;
+        align-items: center;
+        min-height: 51px;
+        padding: 0 17px;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .brief-panel-head h2 {
+        margin: 0;
+        font-size: 16px;
+        letter-spacing: -0.025em;
+      }
+
+      .brief-panel-head span,
+      .brief-panel-head button {
+        margin-left: auto;
+        color: var(--quiet);
+        font-size: 10px;
+      }
+
+      .brief-panel-head button {
+        border: 0;
+        color: var(--blue);
+        background: transparent;
+        cursor: pointer;
+        font-weight: 600;
+      }
+
+      .needs-you-panel {
+        border-color: rgba(110, 90, 183, 0.22);
+        background:
+          radial-gradient(
+            circle at 95% 0%,
+            rgba(238, 234, 251, 0.86),
+            transparent 22rem
+          ),
+          rgba(255, 255, 255, 0.72);
+      }
+
+      .attention-brief {
+        display: grid;
+        grid-template-columns: 54px minmax(0, 1fr) auto;
+        align-items: center;
+        gap: 16px;
+        padding: 22px 18px 20px;
+      }
+
+      .attention-brief h3 {
+        margin: 0 0 6px;
+        font-size: 22px;
+        letter-spacing: -0.035em;
+      }
+
+      .attention-brief p {
+        max-width: 680px;
+        margin: 0;
+        color: var(--muted);
+        font-size: 13px;
+        line-height: 1.5;
+      }
+
+      .attention-brief .review-button {
+        min-height: 38px;
+        padding: 0 13px;
+        border: 1px solid rgba(110, 90, 183, 0.32);
+        border-radius: 6px;
+        color: white;
+        background: linear-gradient(#8371c7, #6653ac);
+        box-shadow:
+          0 1px 0 rgba(255, 255, 255, 0.3) inset,
+          0 2px 0 #4d3d8d,
+          0 6px 13px rgba(83, 66, 145, 0.16);
+        cursor: pointer;
+        font-size: 11px;
+        font-weight: 600;
+      }
+
+      .attention-facts {
+        display: flex;
+        gap: 18px;
+        padding: 11px 18px;
+        border-top: 1px solid rgba(110, 90, 183, 0.13);
+        color: #6b627f;
+        background: rgba(238, 234, 251, 0.34);
+        font-size: 10px;
+      }
+
+      .attention-facts span:last-child {
+        margin-left: auto;
+      }
+
+      .condition-list {
+        padding: 6px 16px;
+      }
+
+      .condition-row {
+        display: grid;
+        grid-template-columns: 18px minmax(0, 1fr) auto;
+        align-items: center;
+        gap: 9px;
+        min-height: 48px;
+        border-bottom: 1px solid var(--line);
+        font-size: 11px;
+      }
+
+      .condition-row:last-child {
+        border-bottom: 0;
+      }
+
+      .condition-row strong,
+      .condition-row small {
+        display: block;
+      }
+
+      .condition-row strong {
+        font-size: 12px;
+      }
+
+      .condition-row small {
+        margin-top: 2px;
+        color: var(--quiet);
+        font-size: 9px;
+      }
+
+      .condition-value {
+        color: var(--green);
+        font-family: "IBM Plex Mono", monospace;
+        font-size: 9px;
+        font-weight: 600;
+      }
+
+      .condition-value.amber {
+        color: var(--amber);
+      }
+
+      .progress-feed {
+        padding: 0 17px;
+      }
+
+      .progress-item {
+        display: grid;
+        grid-template-columns: 30px minmax(0, 1fr) auto;
+        gap: 11px;
+        padding: 15px 0;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .progress-item:last-child {
+        border-bottom: 0;
+      }
+
+      .progress-item h3 {
+        margin: 0 0 4px;
+        font-size: 13px;
+      }
+
+      .progress-item p {
+        margin: 0;
+        color: var(--muted);
+        font-size: 11px;
+        line-height: 1.45;
+      }
+
+      .progress-company {
+        display: inline-block;
+        margin-top: 7px;
+        color: var(--blue);
+        font-family: "IBM Plex Mono", monospace;
+        font-size: 8px;
+        font-weight: 600;
+        letter-spacing: 0.05em;
+        text-transform: uppercase;
+      }
+
+      .progress-time {
+        color: var(--quiet);
+        font-family: "IBM Plex Mono", monospace;
+        font-size: 8px;
+      }
+
+      .company-switch-list {
+        padding: 4px 8px;
+      }
+
+      .company-switch-row {
+        display: grid;
+        grid-template-columns: 30px minmax(0, 1fr) auto;
+        align-items: center;
+        gap: 10px;
+        width: 100%;
+        min-height: 67px;
+        padding: 8px 9px;
+        border: 1px solid transparent;
+        border-radius: 7px;
+        color: var(--ink);
+        background: transparent;
+        cursor: pointer;
+        text-align: left;
+      }
+
+      .company-switch-row:hover {
+        border-color: var(--line);
+        background: rgba(255, 255, 255, 0.62);
+      }
+
+      .company-switch-row strong,
+      .company-switch-row small {
+        display: block;
+      }
+
+      .company-switch-row strong {
+        margin-bottom: 3px;
+        font-size: 13px;
+      }
+
+      .company-switch-row small {
+        overflow: hidden;
+        color: var(--quiet);
+        font-size: 9px;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .company-switch-status {
+        color: var(--green);
+        font-family: "IBM Plex Mono", monospace;
+        font-size: 8px;
+        font-weight: 600;
+        text-transform: uppercase;
+      }
+
+      .company-switch-status.waiting {
+        color: var(--amber);
+      }
+
+      .portfolio-management {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin-top: 14px;
+        padding: 11px 14px;
+        border: 1px solid var(--line);
+        border-radius: 7px;
+        color: var(--muted);
+        background: rgba(255, 255, 255, 0.45);
+        font-size: 10px;
+      }
+
+      .portfolio-management button {
+        margin-left: auto;
+        border: 0;
+        color: var(--blue);
+        background: transparent;
+        cursor: pointer;
+        font-size: 10px;
+        font-weight: 600;
+      }
+
+      .portfolio-main.degraded .portfolio-brief-grid,
+      .portfolio-main.degraded .portfolio-management {
+        opacity: 0.7;
+      }
+
+      /* Companies compares owner-level boundaries; company detail stays inside each company. */
+      .portfolio-main.comparison-mode {
+        max-width: 1320px;
+        padding-top: clamp(28px, 4vh, 48px);
+      }
+
+      .comparison-mode .portfolio-hero h1 {
+        margin-bottom: 0;
+        font-size: clamp(32px, 3.2vw, 46px);
+      }
+
+      .comparison-mode .portfolio-actions {
+        align-self: center;
+      }
+
+      .portfolio-new-company {
+        min-height: 37px;
+        padding: 0 13px;
+        border: 1px solid var(--line-strong);
+        border-radius: 6px;
+        color: #4a5360;
+        background: linear-gradient(#fff, #eef1f4);
+        box-shadow:
+          var(--shadow-raised),
+          0 2px 0 rgba(73, 82, 96, 0.12);
+        cursor: pointer;
+        font-size: 11px;
+        font-weight: 600;
+      }
+
+      .company-comparison {
+        margin-top: 18px;
+        overflow: hidden;
+        border: 1px solid var(--line);
+        border-radius: var(--r-pane);
+        background: rgba(255, 255, 255, 0.66);
+        box-shadow: var(--shadow-pane);
+        backdrop-filter: blur(14px);
+      }
+
+      .comparison-title {
+        display: flex;
+        min-height: 52px;
+        align-items: center;
+        padding: 0 17px;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .comparison-title h2 {
+        margin: 0;
+        font-size: 17px;
+        letter-spacing: -0.025em;
+      }
+
+      .portfolio-totals {
+        display: flex;
+        align-items: center;
+        gap: 24px;
+        margin-left: auto;
+      }
+
+      .portfolio-totals span {
+        display: flex;
+        align-items: baseline;
+        gap: 7px;
+      }
+
+      .portfolio-totals small {
+        color: var(--quiet);
+        font-size: 9px;
+      }
+
+      .portfolio-totals strong {
+        color: var(--ink);
+        font-size: 14px;
+      }
+
+      .portfolio-totals .profit strong {
+        color: var(--green);
+      }
+
+      .comparison-title button {
+        margin-left: 20px;
+        border: 0;
+        color: var(--blue);
+        background: transparent;
+        cursor: pointer;
+        font-size: 10px;
+        font-weight: 600;
+      }
+
+      .comparison-scroll {
+        overflow-x: auto;
+      }
+
+      .comparison-grid {
+        min-width: 900px;
+      }
+
+      .comparison-header,
+      .comparison-row {
+        display: grid;
+        grid-template-columns: 28% 13% 13% 27% 19%;
+      }
+
+      .comparison-corner,
+      .comparison-company,
+      .comparison-label,
+      .comparison-cell {
+        min-width: 0;
+        border-right: 1px solid var(--line);
+        border-bottom: 1px solid var(--line);
+      }
+
+      .comparison-header > :last-child,
+      .comparison-row > :last-child {
+        border-right: 0;
+      }
+
+      .comparison-row {
+        color: inherit;
+        text-decoration: none;
+        transition:
+          background 140ms ease,
+          box-shadow 140ms ease;
+      }
+
+      .comparison-row:hover {
+        background: rgba(57, 103, 158, 0.035);
+        box-shadow: 0 1px 0 rgba(255, 255, 255, 0.7) inset;
+      }
+
+      .comparison-row:focus-visible {
+        position: relative;
+        z-index: 1;
+        outline: 2px solid rgba(57, 103, 158, 0.58);
+        outline-offset: -2px;
+      }
+
+      .comparison-corner {
+        display: flex;
+        min-height: 48px;
+        align-items: center;
+        padding: 0 16px;
+        color: var(--quiet);
+        background: rgba(247, 249, 251, 0.48);
+        font-family: "IBM Plex Mono", monospace;
+        font-size: 8px;
+        font-weight: 600;
+        letter-spacing: 0.07em;
+        text-transform: uppercase;
+      }
+
+      .comparison-company {
+        display: flex;
+        min-height: 88px;
+        align-items: center;
+        gap: 10px;
+        padding: 13px 15px;
+        background: rgba(247, 249, 251, 0.58);
+      }
+
+      .comparison-company.company-aris {
+        box-shadow: 3px 0 0 rgba(110, 90, 183, 0.56) inset;
+      }
+
+      .comparison-company.company-cosmon {
+        box-shadow: 3px 0 0 rgba(62, 113, 170, 0.5) inset;
+      }
+
+      .comparison-company.company-thymelake {
+        box-shadow: 3px 0 0 rgba(46, 125, 114, 0.5) inset;
+      }
+
+      .comparison-company strong,
+      .comparison-company small {
+        display: block;
+      }
+
+      .comparison-company strong {
+        margin-bottom: 2px;
+        font-size: 15px;
+      }
+
+      .comparison-company small {
+        color: var(--quiet);
+        font-size: 9px;
+      }
+
+      .open-company {
+        position: relative;
+        display: grid;
+        width: 27px;
+        height: 27px;
+        margin-left: auto;
+        border: 1px solid var(--line);
+        border-radius: 5px;
+        color: var(--blue);
+        background: linear-gradient(#fff, #eef2f6);
+        box-shadow: var(--shadow-raised);
+        place-items: center;
+      }
+
+      .company-alert {
+        position: absolute;
+        top: -8px;
+        right: -8px;
+        display: grid;
+        min-width: 17px;
+        height: 17px;
+        padding: 0 4px;
+        border: 2px solid white;
+        border-radius: 9px;
+        color: white;
+        background: var(--violet);
+        box-shadow: 0 2px 5px rgba(71, 55, 126, 0.2);
+        font-family: "IBM Plex Mono", monospace;
+        font-size: 8px;
+        font-weight: 700;
+        place-items: center;
+      }
+
+      .comparison-label {
+        display: flex;
+        min-height: 48px;
+        align-items: center;
+        padding: 0 14px;
+        color: var(--quiet);
+        background: rgba(247, 249, 251, 0.48);
+        font-family: "IBM Plex Mono", monospace;
+        font-size: 8px;
+        font-weight: 600;
+        letter-spacing: 0.07em;
+        text-transform: uppercase;
+      }
+
+      .comparison-cell {
+        display: flex;
+        min-height: 88px;
+        flex-direction: column;
+        justify-content: center;
+        padding: 11px 15px;
+        color: #3f4752;
+        font-size: 11px;
+        line-height: 1.4;
+      }
+
+      .comparison-cell strong,
+      .comparison-cell small {
+        display: block;
+      }
+
+      .comparison-cell strong {
+        color: var(--ink);
+        font-size: 12px;
+      }
+
+      .comparison-cell small {
+        margin-top: 2px;
+        color: var(--quiet);
+        font-size: 9px;
+      }
+
+      .comparison-cell.attention {
+        color: var(--amber);
+        background: rgba(246, 238, 224, 0.43);
+      }
+
+      .comparison-cell.clear {
+        color: var(--green);
+      }
+
+      .comparison-cell.financial-positive strong {
+        color: var(--green);
+      }
+
+      .comparison-cell.financial-negative strong {
+        color: var(--amber);
+      }
+
+      .capital-track {
+        display: block;
+        width: 100%;
+        height: 4px;
+        margin-top: 7px;
+        overflow: hidden;
+        border-radius: 2px;
+        background: rgba(73, 84, 100, 0.1);
+      }
+
+      .capital-track i {
+        display: block;
+        height: 100%;
+        border-radius: inherit;
+        background: var(--blue);
+      }
+
+      .comparison-foot {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        min-height: 39px;
+        padding: 0 16px;
+        color: var(--quiet);
+        background: rgba(247, 249, 251, 0.48);
+        font-size: 9px;
+      }
+
+      .comparison-foot span:last-child {
+        margin-left: auto;
+      }
+
+      .portfolio-main.degraded .company-comparison {
+        opacity: 0.7;
+      }
+
+      @media (max-width: 1050px) {
+        .tabs {
+          display: none;
+        }
+
+        .workspace {
+          grid-template-columns: minmax(400px, 1fr) minmax(360px, 46vw);
+        }
+
+        .people-shell {
+          grid-template-columns: 220px minmax(0, 1fr);
+        }
+
+        .chat-message {
+          grid-template-columns: 92px minmax(0, 1fr);
+        }
+
+        .message-receipt,
+        .message-evidence {
+          grid-column: 2;
+          margin-top: 8px;
+        }
+
+        .portfolio-brief-grid {
+          grid-template-columns: minmax(0, 1.25fr) minmax(260px, 0.75fr);
+        }
+
+        .attention-brief {
+          grid-template-columns: 42px minmax(0, 1fr);
+        }
+
+        .attention-brief .review-button {
+          grid-column: 2;
+          justify-self: start;
+        }
+
+        .ledger-head,
+        .company-row {
+          grid-template-columns:
+            40px minmax(220px, 1.4fr) minmax(180px, 1fr)
+            90px 28px;
+        }
+
+        .ledger-head > :nth-child(5),
+        .company-row > :nth-child(5) {
+          display: none;
+        }
+      }
+
+      @media (max-width: 780px) {
+        .study {
+          padding: 0;
+        }
+
+        .app-shell {
+          min-height: 100vh;
+          border: 0;
+          border-radius: 0;
+        }
+
+        .brand {
+          min-width: auto;
+        }
+
+        .company-switcher,
+        .exec-presence {
+          display: none;
+        }
+
+        .workspace {
+          display: block;
+          height: auto;
+        }
+
+        .work-canvas {
+          display: none;
+        }
+
+        .exec-rail {
+          min-height: calc(100vh - 64px);
+        }
+
+        .people-shell {
+          display: grid;
+          grid-template-columns: 205px minmax(0, 1fr);
+          height: calc(100vh - 64px);
+          min-height: 0;
+        }
+
+        .people-index {
+          display: flex;
+        }
+
+        .chat-stage {
+          padding: 0;
+        }
+
+        .composer-note {
+          display: none;
+        }
+
+        .portfolio-main {
+          padding: 28px 16px 94px;
+        }
+
+        .portfolio-hero {
+          display: block;
+        }
+
+        .portfolio-actions {
+          margin-top: 17px;
+        }
+
+        .portfolio-brief-grid {
+          grid-template-columns: 1fr;
+        }
+
+        .needs-you-panel,
+        .company-switch-panel,
+        .progress-panel {
+          grid-column: 1;
+          grid-row: auto;
+        }
+
+        .ledger-head {
+          display: none;
+        }
+
+        .company-row {
+          grid-template-columns: 34px minmax(0, 1fr) 24px;
+          gap: 10px;
+        }
+
+        .company-row > :nth-child(3),
+        .company-row > :nth-child(4),
+        .company-row > :nth-child(5) {
+          display: none;
+        }
+
+        .study-nav {
+          top: 8px;
+          right: auto;
+          bottom: auto;
+          left: 50%;
+          justify-content: center;
+          transform: translateX(-50%);
+        }
+
+        .study-nav button {
+          flex: 1;
+          padding-right: 5px;
+          padding-left: 5px;
+        }
+      }
+
+      @media (max-width: 600px) {
+        .people-shell {
+          display: block;
+        }
+
+        .people-index {
+          display: none;
+        }
+
+        .actor-focus {
+          display: none;
+        }
+
+        .chat-message {
+          grid-template-columns: 1fr;
+          gap: 8px;
+          padding: 14px 16px;
+        }
+
+        .message-surface,
+        .message-receipt,
+        .message-evidence {
+          grid-column: 1;
+          margin-top: 0;
+        }
+
+        .message-author {
+          flex-direction: row;
+          align-items: center;
+        }
+
+        .message-author time {
+          margin-left: auto;
+        }
+
+        .people-composer-inner {
+          padding: 8px 12px 12px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <nav class="study-nav" aria-label="Mockup views">
+      <button type="button" data-view="brief" aria-selected="false">
+        Exec brief
+      </button>
+      <button type="button" data-view="people" aria-selected="false">
+        People chat
+      </button>
+      <button type="button" data-view="portfolio" aria-selected="true">
+        Companies
+      </button>
+    </nav>
+
+    <section class="study" id="brief" aria-label="Executive brief chat pattern">
+      <div class="app-shell">
+        <header class="topbar">
+          <div class="brand">
+            <span
+              class="semantic-mark tone-violet"
+              data-glyph="brand"
+              aria-hidden="true"
+            ></span>
+            <strong>Restless</strong>
+          </div>
+          <div class="company-switcher">
+            <button type="button">
+              Aris <span class="chevron" aria-hidden="true"></span>
+            </button>
+          </div>
+          <nav class="tabs" aria-label="Company views">
+            <span class="tab active"><i class="tab-dot"></i> Attention</span>
+            <span class="tab"
+              ><i class="tab-dot" style="color: var(--teal)"></i> Work</span
+            >
+            <span class="tab"
+              ><i class="tab-dot" style="color: var(--blue)"></i> People</span
+            >
+            <span class="tab"
+              ><i class="tab-dot" style="color: var(--amber)"></i>
+              Authority</span
+            >
+          </nav>
+          <span class="topbar-spacer"></span>
+          <span class="exec-presence"
+            ><span class="presence-dots">•••</span> Exec present</span
+          >
+          <button
+            class="account-button"
+            type="button"
+            title="Owner account: Yao Yao"
+          >
+            YY
+          </button>
+        </header>
+
+        <main class="workspace">
+          <section class="work-canvas" aria-label="Work surface preview">
+            <header class="canvas-head">
+              <div>
+                <h1>Work in motion</h1>
+              </div>
+              <div class="view-switch" aria-label="Work layout">
+                <span class="active">Map</span><span>Board</span>
+              </div>
+            </header>
+            <div class="work-stage">
+              <article class="work-card focused">
+                <span class="status">◫ Pending judgement</span>
+                <h2>Review the tutoring-centre offer</h2>
+                <p>
+                  The rendered page and four verified sample PDFs are ready for
+                  owner review.
+                </p>
+                <footer><span>Owner · You</span><span>6 outputs</span></footer>
+              </article>
+              <article class="work-card">
+                <span class="status" style="color: var(--green)"
+                  >✓ Evidence accepted</span
+                >
+                <h2>Independent content verification</h2>
+                <p>
+                  The critic checked every page, ran the build, and preserved
+                  the exact report.
+                </p>
+                <footer><span>Owner · Exec</span><span>Complete</span></footer>
+              </article>
+              <article class="work-card">
+                <span class="status" style="color: var(--teal)"
+                  >⋮ In motion</span
+                >
+                <h2>Prepare tutoring-centre outreach</h2>
+                <p>
+                  Four emails remain drafts until the page is accepted and party
+                  authority is granted.
+                </p>
+                <footer><span>Owner · Staff</span><span>Held</span></footer>
+              </article>
+              <article class="work-card">
+                <span class="status" style="color: var(--quiet)"
+                  >· Waiting</span
+                >
+                <h2>Measure centre response</h2>
+                <p>
+                  Begins after outreach. No action is required from you yet.
+                </p>
+                <footer><span>Dependency</span><span>Later</span></footer>
+              </article>
+            </div>
+            <div class="canvas-note">
+              <span
+                class="semantic-mark small tone-green"
+                data-glyph="check"
+                aria-hidden="true"
+              ></span>
+              The board follows real Work, evidence, and dependencies. Completed
+              work leaves the active board and remains in history.
+            </div>
+          </section>
+
+          <aside class="exec-rail" aria-label="Executive conversation">
+            <header class="rail-head">
+              <div class="title-lockup">
+                <span
+                  class="semantic-mark tone-blue"
+                  data-glyph="exec"
+                  aria-hidden="true"
+                ></span>
+                <div>
+                  <h2>Executive</h2>
+                  <p>Focused on the tutoring-centre review</p>
+                </div>
+              </div>
+              <button
+                class="close"
+                type="button"
+                aria-label="Close executive sidebar"
+              >
+                ×
+              </button>
+            </header>
+            <div class="context-strip">
+              <span
+                class="semantic-mark small tone-blue"
+                data-glyph="link"
+                aria-hidden="true"
+              ></span>
+              <span
+                ><strong>Linked to</strong> · Review the tutoring-centre
+                offer</span
+              >
+              <span class="context-action">Change</span>
+            </div>
+
+            <div class="conversation">
+              <button class="older-turns" type="button">
+                3 earlier turns · no unresolved decisions
+              </button>
+
+              <article class="turn">
+                <div class="turn-label">
+                  <span>You</span><time>1:37 pm</time>
+                </div>
+                <div class="owner-turn">
+                  <h3>You redirected the review</h3>
+                  <p>
+                    Resume only the pending owner review. Inspect local commit
+                    028ec9c and the critic report; do not push, merge, deploy,
+                    approve parties, or send email.
+                  </p>
+                  <details class="exact-message">
+                    <summary>Read your exact message</summary>
+                    <div class="exact-copy">
+                      Resume only the pending owner-review reconciliation from
+                      owner message 84. The prior review-branch push attempt
+                      failed before mutation with Git safe-directory exit 128;
+                      do not retry it. Do not push, merge, deploy, approve
+                      parties, or send email. Inspect local commit 028ec9c and
+                      the critic report, repair/advance the canonical Work
+                      graph, link the verified local outcome, and create the new
+                      pending owner_judgement handoff with the live browser page
+                      as primary review target and Exec as discussion lead. Stop
+                      when that SPA review exists.
+                    </div>
+                  </details>
+                  <div class="intent-receipt">
+                    <span
+                      class="semantic-mark small tone-blue"
+                      data-glyph="direction"
+                      aria-hidden="true"
+                    ></span>
+                    <span>Direction understood</span
+                    ><span class="separator"></span><span>Work changed</span>
+                  </div>
+                </div>
+              </article>
+
+              <article class="turn">
+                <div class="turn-label">
+                  <span>Exec</span><time>1:39 pm</time>
+                </div>
+                <div class="exec-result">
+                  <div class="result-head">
+                    <span
+                      class="semantic-mark tone-green"
+                      data-glyph="check"
+                      aria-hidden="true"
+                    ></span>
+                    <div>
+                      <h3>The owner review is ready</h3>
+                      <p>
+                        I reconciled the verified local outcome without crossing
+                        any of your boundaries.
+                      </p>
+                    </div>
+                  </div>
+                  <div class="result-grid">
+                    <section class="result-section">
+                      <h4>What changed</h4>
+                      <strong>Work advanced to review</strong>
+                      <p>
+                        The critic evidence and local commit are linked to the
+                        canonical Work.
+                      </p>
+                    </section>
+                    <section class="result-section">
+                      <h4>What needs you</h4>
+                      <strong>Judge the rendered offer</strong>
+                      <p>
+                        Accept it or request exact changes. I remain the
+                        discussion lead.
+                      </p>
+                    </section>
+                    <section class="result-section">
+                      <h4>Preserved boundary</h4>
+                      <strong>No external effect</strong>
+                      <p>
+                        No push, merge, deploy, party approval, or email
+                        occurred.
+                      </p>
+                    </section>
+                    <section class="result-section">
+                      <h4>Evidence</h4>
+                      <strong>6 linked outputs</strong>
+                      <p>
+                        Live page, critic report, commit, and four sample PDFs.
+                      </p>
+                    </section>
+                  </div>
+                  <div class="artifact-row">
+                    <span
+                      class="semantic-mark small tone-teal"
+                      data-glyph="artifact"
+                      aria-hidden="true"
+                    ></span>
+                    Open the prepared owner review
+                    <span>Primary target · live page ↗</span>
+                  </div>
+                </div>
+                <div class="decision-prompt">
+                  <span
+                    class="semantic-mark small tone-amber"
+                    data-glyph="judgement"
+                    aria-hidden="true"
+                  ></span>
+                  One bounded judgement is ready when you are.
+                  <button type="button">Review now</button>
+                </div>
+              </article>
+            </div>
+
+            <div class="composer-wrap">
+              <div class="suggestions" aria-label="Suggested replies">
+                <button
+                  type="button"
+                  data-prompt="Summarise what changed since the last review."
+                >
+                  What changed?
+                </button>
+                <button
+                  type="button"
+                  data-prompt="Show me the critic evidence first."
+                >
+                  Show the evidence
+                </button>
+                <button
+                  type="button"
+                  data-prompt="What would you recommend I decide, and why?"
+                >
+                  What do you recommend?
+                </button>
+              </div>
+              <div class="composer">
+                <div class="composer-context">
+                  <span
+                    class="semantic-mark small tone-teal"
+                    data-glyph="link"
+                    aria-hidden="true"
+                  ></span>
+                  Linked · tutoring-centre review
+                  <button type="button" aria-label="Remove linked context">
+                    ×
+                  </button>
+                </div>
+                <div class="composer-main">
+                  <textarea
+                    aria-label="Message Executive"
+                    placeholder="Ask, redirect, or make a judgement…"
+                  ></textarea>
+                </div>
+                <div class="composer-toolbar">
+                  <button
+                    class="composer-tool"
+                    type="button"
+                    aria-label="Attach file"
+                  >
+                    <span class="paperclip" aria-hidden="true"></span>
+                    Attach
+                  </button>
+                  <button
+                    class="composer-tool"
+                    type="button"
+                    aria-label="Link more context"
+                  >
+                    <span class="link-tool-icon" aria-hidden="true"></span>
+                    Link work
+                  </button>
+                  <span class="composer-note"
+                    >Exec confirms consequential changes</span
+                  >
+                  <button class="composer-send" type="button" aria-label="Send">
+                    <span class="send-arrow" aria-hidden="true"></span>
+                  </button>
+                </div>
+              </div>
+            </div>
+          </aside>
+        </main>
+      </div>
+    </section>
+
+    <section
+      class="study"
+      id="people"
+      aria-label="Full-width People conversation"
+    >
+      <div class="app-shell">
+        <header class="topbar">
+          <div class="brand">
+            <span
+              class="semantic-mark tone-violet"
+              data-glyph="brand"
+              aria-hidden="true"
+            ></span>
+            <strong>Restless</strong>
+          </div>
+          <div class="company-switcher">
+            <button type="button">Aris <span class="chevron"></span></button>
+          </div>
+          <nav class="tabs" aria-label="Company views">
+            <span class="tab"><i class="tab-dot"></i> Attention</span>
+            <span class="tab"
+              ><i class="tab-dot" style="color: var(--teal)"></i> Work</span
+            >
+            <span class="tab active"
+              ><i class="tab-dot" style="color: var(--blue)"></i> People</span
+            >
+            <span class="tab"
+              ><i class="tab-dot" style="color: var(--amber)"></i>
+              Authority</span
+            >
+          </nav>
+          <span class="topbar-spacer"></span>
+          <span class="exec-presence"
+            ><span class="presence-dots">•••</span> Exec present</span
+          >
+          <button class="account-button" type="button">YY</button>
+        </header>
+
+        <main class="people-shell">
+          <aside class="people-index" aria-label="People at Aris">
+            <header class="people-index-head">
+              <h1>People</h1>
+              <button type="button" aria-label="Start a conversation">
+                ＋
+              </button>
+            </header>
+            <input
+              class="people-search"
+              type="search"
+              placeholder="Find a person"
+            />
+            <p class="people-group-label">Leadership</p>
+            <button class="person-entry" type="button">
+              <span class="person-avatar">
+                <span
+                  class="semantic-mark small tone-blue"
+                  data-glyph="exec"
+                ></span>
+              </span>
+              <span
+                ><strong>Executive</strong
+                ><small>Running the company</small></span
+              >
+              <span class="person-unread">1</span>
+            </button>
+            <p class="people-group-label">Team</p>
+            <button class="person-entry active" type="button">
+              <span class="person-avatar">
+                <span
+                  class="semantic-mark small tone-teal"
+                  data-glyph="artifact"
+                ></span>
+              </span>
+              <span><strong>Mara</strong><small>Content verifier</small></span>
+            </button>
+            <button class="person-entry" type="button">
+              <span class="person-avatar">
+                <span
+                  class="semantic-mark small tone-green"
+                  data-glyph="check"
+                ></span>
+              </span>
+              <span
+                ><strong>Eli</strong><small>Commercial researcher</small></span
+              >
+            </button>
+            <button class="person-entry" type="button">
+              <span class="person-avatar">
+                <span
+                  class="semantic-mark small tone-violet"
+                  data-glyph="company"
+                ></span>
+              </span>
+              <span><strong>June</strong><small>Offer designer</small></span>
+            </button>
+            <div class="person-context-card">
+              <h2>Mara is working on</h2>
+              <p>
+                Independent verification of the Aris tutoring-centre page and
+                its four sample papers.
+              </p>
+              <button type="button">Open linked work →</button>
+            </div>
+          </aside>
+
+          <section class="people-chat" aria-label="Conversation with Mara">
+            <header class="people-chat-head">
+              <span class="person-avatar">
+                <span
+                  class="semantic-mark small tone-teal"
+                  data-glyph="artifact"
+                ></span>
+              </span>
+              <div>
+                <h2>Mara</h2>
+                <p>Independent content verifier · available now</p>
+              </div>
+              <span class="actor-focus"
+                >Reviewing the tutoring-centre offer</span
+              >
+            </header>
+
+            <div class="chat-stage">
+              <div class="chat-column">
+                <button class="chat-fold" type="button">
+                  5 earlier messages · one direction · no unresolved decision
+                </button>
+
+                <article class="chat-message owner">
+                  <div class="message-author">
+                    <span>You · Conversation</span><time>11:18 am</time>
+                  </div>
+                  <div class="message-surface">
+                    <p>
+                      Before I review this, are the four PDFs genuinely separate
+                      papers, or are we still repackaging sections of one
+                      booklet?
+                    </p>
+                  </div>
+                  <div class="message-receipt">
+                    <span
+                      class="semantic-mark small tone-blue"
+                      data-glyph="conversation"
+                    ></span>
+                    Understood as conversation · no state changed
+                  </div>
+                </article>
+
+                <article class="chat-message actor">
+                  <div class="message-author">
+                    <span
+                      class="semantic-mark small tone-teal"
+                      data-glyph="artifact"
+                    ></span>
+                    <span>Mara · Content verifier</span><time>11:20 am</time>
+                  </div>
+                  <div class="message-surface">
+                    <p>
+                      They are now four separate files with different questions
+                      and answer material. I rendered every page rather than
+                      trusting the filenames.
+                    </p>
+                    <p>
+                      The important caveat: they are honest practice papers, not
+                      past NSW papers. The revised page now says that plainly.
+                    </p>
+                  </div>
+                  <div class="message-evidence">
+                    <div class="evidence-link">
+                      Open critic report
+                      <small>Markdown · independently produced</small>
+                    </div>
+                    <div class="evidence-link">
+                      View rendered PDFs
+                      <small>4 files · 38 inspected pages</small>
+                    </div>
+                  </div>
+                </article>
+
+                <div class="system-event">
+                  <span
+                    class="semantic-mark small tone-green"
+                    data-glyph="check"
+                  ></span>
+                  Evidence linked to the current review
+                </div>
+
+                <article class="chat-message owner">
+                  <div class="message-author">
+                    <span>You · Work feedback</span><time>11:24 am</time>
+                  </div>
+                  <div class="message-surface">
+                    <p>
+                      Good. Keep that distinction prominent. Also remove any
+                      phrasing that implies guaranteed repeat supply until we
+                      actually have the next set.
+                    </p>
+                  </div>
+                  <div class="message-receipt">
+                    <span
+                      class="semantic-mark small tone-blue"
+                      data-glyph="direction"
+                    ></span>
+                    Exact feedback linked to the next attempt
+                  </div>
+                </article>
+              </div>
+            </div>
+
+            <div class="people-composer-wrap">
+              <div class="people-composer-inner">
+                <div class="suggestions" aria-label="Suggested replies">
+                  <button
+                    type="button"
+                    data-prompt="Show me the exact claim you flagged."
+                  >
+                    Show the flagged claim
+                  </button>
+                  <button
+                    type="button"
+                    data-prompt="What else would stop you accepting this work?"
+                  >
+                    What else concerns you?
+                  </button>
+                  <button
+                    type="button"
+                    data-prompt="Ask Exec to include this in my owner review."
+                  >
+                    Bring this to Exec
+                  </button>
+                </div>
+                <div class="composer">
+                  <div class="composer-context">
+                    <span
+                      class="semantic-mark small tone-teal"
+                      data-glyph="link"
+                    ></span>
+                    Message Mara · linked to tutoring-centre offer · current
+                    revision
+                    <button type="button" aria-label="Remove linked context">
+                      ×
+                    </button>
+                  </div>
+                  <div class="composer-attachments">
+                    <div class="attachment-chip">
+                      <span class="file-mark">PDF</span>
+                      <span
+                        ><strong>owner-notes.pdf</strong
+                        ><small>184 KB · ready</small></span
+                      >
+                      <button type="button" aria-label="Remove owner-notes.pdf">
+                        ×
+                      </button>
+                    </div>
+                  </div>
+                  <div class="composer-main">
+                    <textarea
+                      aria-label="Message Mara"
+                      placeholder="Message Mara about this work…"
+                    ></textarea>
+                  </div>
+                  <div class="composer-toolbar">
+                    <button class="composer-tool" type="button">
+                      <span class="paperclip" aria-hidden="true"></span>Attach
+                    </button>
+                    <button class="composer-tool" type="button">
+                      <span class="link-tool-icon" aria-hidden="true"></span
+                      >Link work
+                    </button>
+                    <span class="composer-note"
+                      >Intent is interpreted and confirmed after sending</span
+                    >
+                    <button
+                      class="composer-send"
+                      type="button"
+                      aria-label="Send message"
+                    >
+                      <span class="send-arrow" aria-hidden="true"></span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </section>
+        </main>
+      </div>
+    </section>
+
+    <section
+      class="study active"
+      id="portfolio"
+      aria-label="Company portfolio pattern"
+    >
+      <div class="app-shell">
+        <header class="topbar">
+          <div class="brand">
+            <span
+              class="semantic-mark tone-violet"
+              data-glyph="brand"
+              aria-hidden="true"
+            ></span>
+            <strong>Restless</strong>
+          </div>
+          <div class="company-switcher">Companies</div>
+          <span class="topbar-spacer"></span>
+          <button
+            class="account-button"
+            type="button"
+            title="Owner account: Yao Yao"
+          >
+            YY
+          </button>
+        </header>
+
+        <main class="portfolio-main comparison-mode" id="portfolio-main">
+          <header class="portfolio-hero">
+            <div>
+              <h1>Companies</h1>
+            </div>
+            <div class="portfolio-actions">
+              <button class="portfolio-new-company" type="button">
+                ＋ New company
+              </button>
+            </div>
+          </header>
+
+          <div class="refresh-banner" role="status">
+            <span
+              class="semantic-mark small tone-amber"
+              data-glyph="blocked"
+              aria-hidden="true"
+            ></span>
+            <span
+              ><strong>Couldn’t refresh.</strong> Showing the last known company
+              state from 1:37 pm.</span
+            >
+            <button type="button">Try again</button>
+          </div>
+
+          <div class="portfolio-brief-grid" hidden>
+            <section class="brief-panel needs-you-panel">
+              <header class="brief-panel-head">
+                <h2>Needs you</h2>
+                <span>1 prepared decision</span>
+              </header>
+              <div class="attention-brief">
+                <span
+                  class="semantic-mark large tone-violet"
+                  data-glyph="judgement"
+                  aria-hidden="true"
+                ></span>
+                <div>
+                  <h3>Review the Aris tutoring-centre offer</h3>
+                  <p>
+                    Exec has brought you the rendered page, four verified sample
+                    PDFs, and the critic report. Accept the outcome or request
+                    exact changes.
+                  </p>
+                </div>
+                <button class="review-button" type="button">
+                  Open prepared review →
+                </button>
+              </div>
+              <div class="attention-facts">
+                <span>Aris · owner judgement</span>
+                <span>6 evidence links</span>
+                <span>No deadline · outreach remains held</span>
+              </div>
+            </section>
+
+            <section class="brief-panel progress-panel">
+              <header class="brief-panel-head">
+                <h2>Since you last looked</h2>
+                <button type="button">See all outcomes</button>
+              </header>
+              <div class="progress-feed">
+                <article class="progress-item">
+                  <span
+                    class="semantic-mark small tone-green"
+                    data-glyph="check"
+                  ></span>
+                  <div>
+                    <h3>
+                      Four practice papers passed independent verification
+                    </h3>
+                    <p>
+                      Mara rendered and inspected all 38 pages; the evidence is
+                      attached to owner review.
+                    </p>
+                    <span class="progress-company"
+                      >Aris · evidence-backed outcome</span
+                    >
+                  </div>
+                  <time class="progress-time">24m</time>
+                </article>
+                <article class="progress-item">
+                  <span
+                    class="semantic-mark small tone-blue"
+                    data-glyph="company"
+                  ></span>
+                  <div>
+                    <h3>
+                      The first paid planning offer now has a testable shape
+                    </h3>
+                    <p>
+                      Exec narrowed the promise and assigned customer validation
+                      before building more.
+                    </p>
+                    <span class="progress-company"
+                      >Cosmon · operating decision</span
+                    >
+                  </div>
+                  <time class="progress-time">1h</time>
+                </article>
+                <article class="progress-item">
+                  <span
+                    class="semantic-mark small tone-teal"
+                    data-glyph="artifact"
+                  ></span>
+                  <div>
+                    <h3>
+                      Customer interviews produced three repeated objections
+                    </h3>
+                    <p>
+                      Staff linked the recordings and revised the next
+                      experiment rather than escalating.
+                    </p>
+                    <span class="progress-company"
+                      >Thymelake · market evidence</span
+                    >
+                  </div>
+                  <time class="progress-time">3h</time>
+                </article>
+              </div>
+            </section>
+
+            <section class="brief-panel company-switch-panel">
+              <header class="brief-panel-head">
+                <h2>Open a company</h2>
+                <button type="button">Manage</button>
+              </header>
+              <div class="company-switch-list">
+                <button class="company-switch-row" type="button">
+                  <span
+                    class="semantic-mark small tone-violet"
+                    data-glyph="brand"
+                  ></span>
+                  <span
+                    ><strong>Aris</strong
+                    ><small>Tutoring-centre offer awaiting you</small></span
+                  >
+                  <span class="company-switch-status waiting">Waiting</span>
+                </button>
+                <button class="company-switch-row" type="button">
+                  <span
+                    class="semantic-mark small tone-blue"
+                    data-glyph="company"
+                  ></span>
+                  <span
+                    ><strong>Cosmon</strong
+                    ><small>Validating the first paid offer</small></span
+                  >
+                  <span class="company-switch-status">Operating</span>
+                </button>
+                <button class="company-switch-row" type="button">
+                  <span
+                    class="semantic-mark small tone-teal"
+                    data-glyph="company-alt"
+                  ></span>
+                  <span
+                    ><strong>Thymelake</strong
+                    ><small>Gathering customer evidence</small></span
+                  >
+                  <span class="company-switch-status">Operating</span>
+                </button>
+              </div>
+            </section>
+          </div>
+
+          <section class="company-comparison" aria-label="Compare companies">
+            <header class="comparison-title">
+              <h2>Portfolio</h2>
+              <div class="portfolio-totals" aria-label="Portfolio totals">
+                <span><small>30-day revenue</small><strong>$545</strong></span>
+                <span class="profit"
+                  ><small>30-day profit</small><strong>$128</strong></span
+                >
+              </div>
+              <button type="button">Manage lifecycle</button>
+            </header>
+            <div class="comparison-scroll">
+              <div class="comparison-grid">
+                <div class="comparison-header" aria-hidden="true">
+                  <div class="comparison-corner">Company</div>
+                  <div class="comparison-label">Revenue · 30 days</div>
+                  <div class="comparison-label">Profit · 30 days</div>
+                  <div class="comparison-label">Next proof of value</div>
+                  <div class="comparison-label">Spend / envelope</div>
+                </div>
+
+                <a
+                  class="comparison-row"
+                  href="#aris"
+                  aria-label="Open Aris. 1 item needs your attention."
+                >
+                  <div class="comparison-company company-aris">
+                    <span
+                      class="semantic-mark small tone-violet"
+                      data-glyph="brand"
+                    ></span>
+                    <span
+                      ><strong>Aris</strong
+                      ><small>Education publishing · validation</small></span
+                    >
+                    <span class="open-company" aria-hidden="true"
+                      >→<span class="company-alert">1</span></span
+                    >
+                  </div>
+                  <div class="comparison-cell financial-positive">
+                    <strong>$225</strong><small>5 paid orders</small>
+                  </div>
+                  <div class="comparison-cell financial-positive">
+                    <strong>$62</strong><small>28% margin</small>
+                  </div>
+                  <div class="comparison-cell">
+                    <strong>First centre order</strong
+                    ><small>Review prepared · outreach held</small>
+                  </div>
+                  <div class="comparison-cell">
+                    <strong>$49.25 of $300</strong><small>16% committed</small>
+                    <span class="capital-track"
+                      ><i style="width: 16%"></i
+                    ></span>
+                  </div>
+                </a>
+
+                <a
+                  class="comparison-row"
+                  href="#cosmon"
+                  aria-label="Open Cosmon. No items need your attention."
+                >
+                  <div class="comparison-company company-cosmon">
+                    <span
+                      class="semantic-mark small tone-blue"
+                      data-glyph="company"
+                    ></span>
+                    <span
+                      ><strong>Cosmon</strong
+                      ><small>Planning studio · exploration</small></span
+                    >
+                    <span class="open-company" aria-hidden="true">→</span>
+                  </div>
+                  <div class="comparison-cell">
+                    <strong>$0</strong><small>Pre-revenue</small>
+                  </div>
+                  <div class="comparison-cell financial-negative">
+                    <strong>−$18</strong><small>Pre-revenue investment</small>
+                  </div>
+                  <div class="comparison-cell">
+                    <strong>First paid client</strong
+                    ><small>Offer interviews in progress</small>
+                  </div>
+                  <div class="comparison-cell">
+                    <strong>$18.40 of $200</strong><small>9% committed</small>
+                    <span class="capital-track"><i style="width: 9%"></i></span>
+                  </div>
+                </a>
+
+                <a
+                  class="comparison-row"
+                  href="#thymelake"
+                  aria-label="Open Thymelake. No items need your attention."
+                >
+                  <div class="comparison-company company-thymelake">
+                    <span
+                      class="semantic-mark small tone-teal"
+                      data-glyph="company-alt"
+                    ></span>
+                    <span
+                      ><strong>Thymelake</strong
+                      ><small>Product lab · validation</small></span
+                    >
+                    <span class="open-company" aria-hidden="true">→</span>
+                  </div>
+                  <div class="comparison-cell financial-positive">
+                    <strong>$320</strong><small>Current period</small>
+                  </div>
+                  <div class="comparison-cell financial-positive">
+                    <strong>$84</strong><small>26% margin</small>
+                  </div>
+                  <div class="comparison-cell">
+                    <strong>Five reservations</strong
+                    ><small>Three objections identified</small>
+                  </div>
+                  <div class="comparison-cell">
+                    <strong>$4.75 of $120</strong><small>4% committed</small>
+                    <span class="capital-track"><i style="width: 4%"></i></span>
+                  </div>
+                </a>
+              </div>
+            </div>
+            <footer class="comparison-foot">
+              <span
+                >Portfolio facts remain owned by each company’s Work and
+                Authority planes.</span
+              >
+              <span>Last refreshed just now</span>
+            </footer>
+          </section>
+        </main>
+      </div>
+    </section>
+
+    <script>
+      const glyphs = {
+        brand: ["11100", "10010", "11110", "10000", "10000", "10000", "10000"],
+        exec: ["11100", "10010", "11100", "10100", "10010", "10010", "11100"],
+        check: ["00000", "00001", "00010", "10100", "01000", "00000", "00000"],
+        link: ["01010", "10101", "01010", "00100", "01010", "10101", "01010"],
+        direction: [
+          "00100",
+          "01110",
+          "10101",
+          "00100",
+          "00100",
+          "00100",
+          "00100",
+        ],
+        judgement: [
+          "01110",
+          "10001",
+          "10101",
+          "10101",
+          "10001",
+          "01110",
+          "00100",
+        ],
+        artifact: [
+          "01110",
+          "01010",
+          "11111",
+          "01010",
+          "11111",
+          "01010",
+          "01110",
+        ],
+        blocked: [
+          "11111",
+          "10001",
+          "10101",
+          "10101",
+          "10101",
+          "10001",
+          "11111",
+        ],
+        conversation: [
+          "01110",
+          "10001",
+          "10101",
+          "10001",
+          "01110",
+          "00100",
+          "01000",
+        ],
+        company: [
+          "10101",
+          "01110",
+          "11111",
+          "10101",
+          "11111",
+          "10001",
+          "11111",
+        ],
+        "company-alt": [
+          "00100",
+          "01110",
+          "11111",
+          "10101",
+          "11111",
+          "01110",
+          "00100",
+        ],
+      };
+
+      document.querySelectorAll("[data-glyph]").forEach((mark) => {
+        const rows = glyphs[mark.dataset.glyph] || glyphs.brand;
+        rows
+          .join("")
+          .split("")
+          .forEach((bit) => {
+            const dot = document.createElement("i");
+            if (bit === "1") dot.className = "on";
+            mark.appendChild(dot);
+          });
+      });
+
+      const viewButtons = document.querySelectorAll("[data-view]");
+      const studies = document.querySelectorAll(".study");
+      viewButtons.forEach((button) => {
+        button.addEventListener("click", () => {
+          viewButtons.forEach((item) =>
+            item.setAttribute("aria-selected", String(item === button)),
+          );
+          studies.forEach((study) =>
+            study.classList.toggle("active", study.id === button.dataset.view),
+          );
+        });
+      });
+
+      const stateButtons = document.querySelectorAll("[data-state]");
+      const portfolio = document.querySelector("#portfolio-main");
+      stateButtons.forEach((button) => {
+        button.addEventListener("click", () => {
+          stateButtons.forEach((item) =>
+            item.setAttribute("aria-pressed", String(item === button)),
+          );
+          portfolio.classList.toggle(
+            "degraded",
+            button.dataset.state === "degraded",
+          );
+        });
+      });
+
+      document.querySelectorAll("[data-prompt]").forEach((button) => {
+        button.addEventListener("click", () => {
+          const composer = button.closest(".study").querySelector("textarea");
+          composer.value = button.dataset.prompt;
+          composer.focus();
+        });
+      });
+
+      document.querySelectorAll(".attachment-chip button").forEach((button) => {
+        button.addEventListener("click", () =>
+          button.closest(".attachment-chip").remove(),
+        );
+      });
+    </script>
+  </body>
+</html>

@@ -1,6 +1,6 @@
 //! The persistent Exec (sprint 01 T4). Identity is durable — an actor row
 //! plus `/company/org/exec/` (current-plan.md, journal/NNNN.md) — and the
-//! ACP session is disposable: each wake spawns a fresh one and rehydrates
+//! ACP session is disposable: each wake starts a fresh one and rehydrates
 //! from files + OrgIntel. A kill mid-turn loses at most the in-flight turn;
 //! the next wake continues the milestone rather than restarting it.
 //!
@@ -8,16 +8,14 @@
 //! enumerable output — LLM_CURE.md frame 2), never a turn-count or timer.
 
 use anyhow::{Context, Result};
-use restless_orgintel::{CommitmentState, OrgIntel};
+use restless_orgintel::OrgIntel;
 use serde::Serialize;
-use uuid::Uuid;
 
 use crate::acp::{self, AgentSession};
 use crate::context::{self, ContextSnapshot};
 use crate::health;
 use crate::runtime::{self, CompanyConfig};
 use crate::spend::SpendLedger;
-use crate::staff::SpawnRequest;
 
 /// Bound on the end-of-turn ask: the answer is one line of JSON, so a
 /// timeout means the agent wedged (e.g. launched a hanging tool) rather
@@ -32,6 +30,7 @@ const TERMINATION_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(
 pub enum Termination {
     Continue,
     Blocked,
+    ChangesRequested,
     OutcomeMet,
     Abandon,
 }
@@ -39,36 +38,39 @@ pub enum Termination {
 #[derive(Debug, Serialize)]
 pub struct WakeReport {
     pub company: String,
+    /// The model that produced the final wake outcome.
+    pub model: String,
+    /// Ordered provider transitions attempted inside this wake.
+    pub failovers: Vec<ModelFailoverReport>,
     pub termination: Termination,
     pub reason: String,
-    /// Model-suggested delay before the next wake (continue only).
-    pub next_wake_minutes: Option<u32>,
+    /// Deterministic substrate retry delay. Model prose cannot set this.
+    pub retry_after_seconds: Option<u32>,
     /// Tool calls the Exec made this turn (observability).
     pub tool_calls: Vec<String>,
     /// The Exec's closing text this turn, truncated.
     pub said: String,
-    /// Staff the Exec asked to spawn this turn (T9); the daemon processes
-    /// these after the outcome is recorded.
-    pub spawn_requests: Vec<SpawnRequest>,
 }
 
-/// Raw model output for the termination decision. `spawn` is deliberately
-/// untyped here: a malformed spawn entry must never kill the whole decision
-/// (envelope handling is deterministic; the judgement was the model's).
+#[derive(Debug, Clone, Serialize)]
+pub struct ModelFailoverReport {
+    pub from: String,
+    pub to: String,
+    pub kind: String,
+    pub reason: String,
+}
+
 #[derive(Debug, serde::Deserialize)]
 struct TerminationOutput {
     decision: String,
     reason: String,
-    next_wake_minutes: Option<u32>,
-    spawn: Option<serde_json::Value>,
 }
 
-/// The parsed end-of-turn decision (T4) plus any staff spawn requests (T9).
+/// The parsed end-of-turn decision. Delegation is ordinary Work graph data,
+/// never a second command hidden in an LLM envelope.
 pub(crate) struct TerminationDecision {
     pub termination: Termination,
     pub reason: String,
-    pub next_wake_minutes: Option<u32>,
-    pub spawn: Vec<SpawnRequest>,
 }
 
 /// One Exec wake: rehydrate → work turn → termination decision → record.
@@ -80,17 +82,18 @@ pub async fn wake(
     reason: &str,
 ) -> Result<WakeReport> {
     let container = runtime::container_name(&config.name);
+    // Exec conversation is free-form. Machine work is created and claimed
+    // through OrgIntel's Work graph, never inferred from this wake.
     org.add_actor_with_model("exec", "exec", "The Exec", Some(&config.model))
         .await?;
     org.add_actor("owner", "owner", "The Owner").await?;
-    let milestone = ensure_milestone(org, config).await?;
 
     // Preflight: a company whose computer is stopped or whose disk is full
     // must not be woken. Nothing below this line is free — context assembly
     // reads the volume and the turn spends money — so the cheap deterministic
     // checks come first (F2, F3, F12).
     if let Some(blocked) = health::preflight(&config.name).await? {
-        return blocked_wake(org, milestone, config, &blocked.message()).await;
+        return blocked_wake(org, config, &blocked.message()).await;
     }
     if let Some((spent, ceiling)) = spend.over_ceiling(config) {
         let blocked = health::Blocked::budget(format!(
@@ -98,10 +101,9 @@ pub async fn wake(
              the owner must raise it before work continues",
             config.name
         ));
-        return blocked_wake(org, milestone, config, &blocked.message()).await;
+        return blocked_wake(org, config, &blocked.message()).await;
     }
 
-    let auth = agent_auth(config).await?;
     // T7: gather the snapshot (IO), then assemble (pure, digested). The
     // digest lands in the wake event so the Exec's worldview is auditable.
     let snapshot = gather_snapshot(
@@ -114,62 +116,144 @@ pub async fn wake(
     )
     .await?;
     let package = context::assemble(&snapshot);
+    let candidates = crate::model_gateway::available_candidates(config, None, authority).await?;
     org.emit_event(
         "wake",
         Some("exec"),
-        serde_json::json!({ "reason": reason, "context_digest": package.digest }),
+        serde_json::json!({
+            "reason": reason,
+            "context_digest": package.digest,
+            "model_candidates": &candidates,
+        }),
     )
     .await?;
 
-    let outcome = acp::with_agent(&container, &auth, "/company", "exec", {
-        let company = config.name.clone();
-        let remaining = (config.spend_ceiling_usd - spend.spent_usd(&config.name)).max(0.0);
-        move |session| {
-            Box::pin(async move { run_turn(session, &package.text, &company, remaining).await })
-        }
-    })
-    .await;
+    let mut failovers = Vec::new();
+    let mut prior_tool_calls = Vec::new();
+    let mut continuity_note: Option<String> = None;
 
-    // The turn itself was already classified inside `run_turn`, once, by the
-    // one function entitled to do it. What can still fail here is everything
-    // *around* a turn — the session never opened, docker refused, the ACP
-    // handshake broke. That is a different fact and reads as one: no turn
-    // ended, so there is no `TurnEnd` to classify and nothing was spent.
-    let (report, usage) = match outcome {
-        Ok((report, usage)) => (report, usage),
-        Err(error) => {
-            let text = format!("{error:#}");
-            let blocked = health::classify_provider_error(&text)
-                .unwrap_or_else(|| health::Blocked::transport(&text));
-            return blocked_wake(org, milestone, config, &blocked.message()).await;
-        }
-    };
-
-    if let Some(usage) = usage {
-        spend.record_turn(
-            &config.name,
-            "exec",
-            &auth.model,
-            usage.used,
-            usage.cost_usd,
-        );
-        // Cost per outcome is the sprint's headline number and was missing
-        // from every run report: emit it where the run can read it back.
+    for (index, model) in candidates.iter().enumerate() {
+        org.add_actor_with_model("exec", "exec", "The Exec", Some(model))
+            .await?;
         org.emit_event(
-            "turn_usage",
+            "model_attempt",
             Some("exec"),
-            serde_json::json!({
-                "model": auth.model,
-                "tokens": usage.used,
-                "context_size": usage.size,
-                "context_used_pct": percent(usage.used, usage.size),
-                "cost_usd": usage.cost_usd,
-            }),
+            serde_json::json!({ "model": model, "attempt": index + 1 }),
         )
         .await?;
+
+        let auth = match agent_auth_for_model(model).await {
+            Ok(auth) => auth,
+            Err(error) => {
+                let text = format!("{error:#}");
+                let blocked = health::classify_provider_error(&text)
+                    .unwrap_or_else(|| health::Blocked::transport(&text));
+                crate::model_gateway::record_cooldown(
+                    authority,
+                    &config.name,
+                    model,
+                    blocked.kind,
+                    &blocked.message(),
+                )
+                .await?;
+                if let Some(next) = candidates.get(index + 1) {
+                    let transition = failover_report(model, next, blocked.kind, &blocked.message());
+                    record_failover(org, &transition).await?;
+                    continuity_note = Some(transition.reason.clone());
+                    failovers.push(transition);
+                    continue;
+                }
+                let report = blocked_report(config, model, &blocked.message(), failovers);
+                record_outcome(org, &report).await?;
+                return Ok(report);
+            }
+        };
+
+        let turn_context = continuity_note.as_ref().map_or_else(
+            || package.text.clone(),
+            |failure| {
+                format!(
+                    "PROVIDER CONTINUITY NOTE\nA previously configured model failed: {failure}\n\
+                     Rehydrate from the durable company files and organisational state below. Before \
+                     repeating any material external effect, reconcile its existing Authority receipt \
+                     and idempotency key.\n\n{}",
+                    package.text
+                )
+            },
+        );
+        let remaining = (config.spend_ceiling_usd - spend.spent_usd(&config.name)).max(0.0);
+        let metered = auth.billing == crate::model_gateway::ModelBilling::MeteredApi;
+        let outcome = acp::with_agent(&container, &auth, "/company", "exec", {
+            let company = config.name.clone();
+            let model = model.clone();
+            move |session| {
+                Box::pin(async move {
+                    run_turn(session, &turn_context, &company, &model, remaining, metered).await
+                })
+            }
+        })
+        .await;
+
+        // The turn itself was already classified inside `run_turn`, once, by
+        // the one function entitled to do it. Failures around session opening
+        // have no `TurnEnd` and no usage, but may still be provider-specific.
+        let (mut report, usage) = match outcome {
+            Ok(result) => result,
+            Err(error) => {
+                let text = format!("{error:#}");
+                let blocked = health::classify_provider_error(&text)
+                    .unwrap_or_else(|| health::Blocked::transport(&text));
+                let report = blocked_report(config, model, &blocked.message(), failovers.clone());
+                (report, None)
+            }
+        };
+
+        let failover_kind = (report.termination == Termination::Blocked)
+            .then(|| health::block_kind_from_message(&report.reason))
+            .flatten()
+            .filter(|kind| health::is_provider_failover_kind(*kind));
+        if let Some(usage) = usage {
+            record_usage(spend, org, config, &auth, usage, failover_kind).await?;
+        }
+        if let Some(kind) = failover_kind {
+            crate::model_gateway::record_cooldown(
+                authority,
+                &config.name,
+                model,
+                kind,
+                &report.reason,
+            )
+            .await?;
+        } else if report.termination != Termination::Blocked {
+            authority.clear_model_cooldown(&config.name, model).await?;
+        }
+        if let (Some(kind), Some(next)) = (failover_kind, candidates.get(index + 1)) {
+            prior_tool_calls.append(&mut report.tool_calls);
+            let transition = failover_report(model, next, kind, &report.reason);
+            record_failover(org, &transition).await?;
+            continuity_note = Some(transition.reason.clone());
+            failovers.push(transition);
+
+            if let Some((spent, ceiling)) = spend.over_ceiling(config) {
+                let reason = format!(
+                    "[budget] {} has spent ${spent:.2} of its ${ceiling:.2} ceiling; the owner must raise it before provider failover continues",
+                    config.name
+                );
+                let mut budget_report = blocked_report(config, model, &reason, failovers);
+                budget_report.tool_calls = prior_tool_calls;
+                record_outcome(org, &budget_report).await?;
+                return Ok(budget_report);
+            }
+            continue;
+        }
+
+        prior_tool_calls.append(&mut report.tool_calls);
+        report.tool_calls = prior_tool_calls;
+        report.failovers = failovers;
+        record_outcome(org, &report).await?;
+        return Ok(report);
     }
-    record_outcome(org, milestone, &report).await?;
-    Ok(report)
+    unreachable!("validated company model policy always has a primary candidate")
 }
 
 /// Context utilisation, rounded. Sprint 01 burned 95% of its dollars on
@@ -182,41 +266,151 @@ fn percent(used: u64, size: u64) -> u64 {
     }
 }
 
-/// The substrate failed, so the company is blocked on something only the
-/// owner can change. One latched milestone, one mail — never a re-wake loop
-/// (F1: 20 identical mails in 3h before the latch existed).
-async fn blocked_wake(
-    org: &OrgIntel,
-    milestone: Uuid,
-    config: &CompanyConfig,
-    reason: &str,
-) -> Result<WakeReport> {
+/// The substrate failed before an actor could run. This is health telemetry,
+/// not a synthetic Work transition or an implicit owner handoff.
+async fn blocked_wake(org: &OrgIntel, config: &CompanyConfig, reason: &str) -> Result<WakeReport> {
     tracing::warn!(company = %config.name, reason, "wake blocked by health gate");
     let report = WakeReport {
         company: config.name.clone(),
+        model: config.model.clone(),
+        failovers: Vec::new(),
         termination: Termination::Blocked,
         reason: reason.to_string(),
-        next_wake_minutes: None,
+        retry_after_seconds: None,
         tool_calls: Vec::new(),
         said: String::new(),
-        spawn_requests: Vec::new(),
     };
-    record_outcome(org, milestone, &report).await?;
+    record_outcome(org, &report).await?;
     Ok(report)
 }
 
-/// Resolve the narrow host-gateway access for this company's model. Provider
-/// credentials were loaded into the host-side broker at daemon boot; the
-/// company process receives only the gateway bearer.
-pub(crate) async fn agent_auth(config: &CompanyConfig) -> Result<acp::AgentAuth> {
-    let access = crate::model_gateway::client()?.auth_for(&config.model)?;
+pub(crate) async fn agent_auth_for_model(model: &str) -> Result<acp::AgentAuth> {
+    let access = crate::model_gateway::client()?.auth_for(model)?;
     Ok(acp::AgentAuth {
-        model: config.model.clone(),
+        model: model.to_string(),
         provider: access.provider,
         gateway_token_env: access.token_env,
         gateway_token: access.token,
         gateway_url: access.runtime_url,
+        billing: access.billing,
     })
+}
+
+fn blocked_report(
+    config: &CompanyConfig,
+    model: &str,
+    reason: &str,
+    failovers: Vec<ModelFailoverReport>,
+) -> WakeReport {
+    WakeReport {
+        company: config.name.clone(),
+        model: model.to_string(),
+        failovers,
+        termination: Termination::Blocked,
+        reason: reason.to_string(),
+        retry_after_seconds: None,
+        tool_calls: Vec::new(),
+        said: String::new(),
+    }
+}
+
+fn failover_report(
+    from: &str,
+    to: &str,
+    kind: health::BlockKind,
+    reason: &str,
+) -> ModelFailoverReport {
+    ModelFailoverReport {
+        from: from.to_string(),
+        to: to.to_string(),
+        kind: kind.as_str().to_string(),
+        reason: reason.chars().take(300).collect(),
+    }
+}
+
+async fn record_failover(org: &OrgIntel, transition: &ModelFailoverReport) -> Result<()> {
+    org.emit_event(
+        "model_failover",
+        Some("exec"),
+        serde_json::json!({
+            "from": transition.from,
+            "to": transition.to,
+            "kind": transition.kind,
+            "reason": transition.reason,
+        }),
+    )
+    .await?;
+    Ok(())
+}
+
+async fn record_usage(
+    spend: &SpendLedger,
+    org: &OrgIntel,
+    config: &CompanyConfig,
+    auth: &acp::AgentAuth,
+    usage: acp::TurnUsage,
+    failure_kind: Option<health::BlockKind>,
+) -> Result<()> {
+    let charged_cost_usd = match auth.billing {
+        crate::model_gateway::ModelBilling::MeteredApi => usage.cost_usd,
+        crate::model_gateway::ModelBilling::Subscription => Some(0.0),
+    };
+    // OMP can report the assembled context tokens even when a provider rejects
+    // before inference, with no price. A classified auth/quota/model refusal is
+    // kept as unpriced telemetry and may fail over. An unpriced, unclassified
+    // mid-stream failure after token use remains fail-closed.
+    if should_record_spend(auth.billing, usage, failure_kind) {
+        spend.record_turn(
+            &config.name,
+            "exec",
+            &auth.model,
+            usage.used,
+            charged_cost_usd,
+        );
+    }
+    org.emit_event(
+        "turn_usage",
+        Some("exec"),
+        serde_json::json!({
+            "model": auth.model,
+            "billing": auth.billing.as_str(),
+            "tokens": usage.used,
+            "context_size": usage.size,
+            "context_used_pct": percent(usage.used, usage.size),
+            "cost_usd": charged_cost_usd,
+            "estimated_list_cost_usd": (auth.billing == crate::model_gateway::ModelBilling::Subscription)
+                .then_some(usage.cost_usd)
+                .flatten(),
+            "unpriced_provider_refusal": (auth.billing == crate::model_gateway::ModelBilling::MeteredApi
+                && usage.cost_usd.is_none()
+                && failure_kind.is_some_and(|kind| matches!(kind,
+                    health::BlockKind::Credential | health::BlockKind::Quota | health::BlockKind::Model | health::BlockKind::NoOp))),
+        }),
+    )
+    .await?;
+    Ok(())
+}
+
+pub(crate) fn should_record_spend(
+    billing: crate::model_gateway::ModelBilling,
+    usage: acp::TurnUsage,
+    failure_kind: Option<health::BlockKind>,
+) -> bool {
+    if billing == crate::model_gateway::ModelBilling::Subscription || usage.cost_usd.is_some() {
+        return true;
+    }
+    if failure_kind.is_some_and(|kind| {
+        matches!(
+            kind,
+            health::BlockKind::Credential
+                | health::BlockKind::Quota
+                | health::BlockKind::Model
+                | health::BlockKind::NoOp
+        )
+    }) {
+        return false;
+    }
+    usage.used > 0
 }
 
 /// The full turn inside one ACP session: work prompt, then the termination
@@ -225,7 +419,9 @@ async fn run_turn(
     session: &AgentSession,
     context: &str,
     company: &str,
+    model: &str,
     remaining_budget_usd: f64,
+    enforce_spend_budget: bool,
 ) -> Result<(WakeReport, Option<acp::TurnUsage>)> {
     // Run for as long as the agent is alive, not for a fixed wall-clock
     // budget. How the turn ends is a deterministic observation — the agent
@@ -233,10 +429,11 @@ async fn run_turn(
     // guess about whether the model is "stuck or just thinking", which is
     // judgement and not the daemon's.
     let end = session
-        .prompt_live(context, |usage| {
-            usage
-                .cost_usd
-                .is_some_and(|cost| cost >= remaining_budget_usd)
+        .prompt_live(context, move |usage| {
+            enforce_spend_budget
+                && usage
+                    .cost_usd
+                    .is_some_and(|cost| cost >= remaining_budget_usd)
         })
         .await;
     // The work turn's usage is what the fuse and the ledger read, whichever
@@ -248,14 +445,15 @@ async fn run_turn(
     // verdict; nothing below re-derives it from the transcript.
     let verdict = health::classify(&end);
     let transcript = end.into_transcript();
-    let report = |termination, reason, next_wake_minutes, spawn_requests| WakeReport {
+    let report = |termination, reason, retry_after_seconds| WakeReport {
         company: company.to_string(),
+        model: model.to_string(),
+        failovers: Vec::new(),
         termination,
         reason,
-        next_wake_minutes,
+        retry_after_seconds,
         tool_calls: transcript.tool_calls.clone(),
         said: transcript.text.chars().take(1_000).collect(),
-        spawn_requests,
     };
 
     match verdict {
@@ -263,19 +461,13 @@ async fn run_turn(
         // rehydrates from it, so this costs the owner nothing.
         health::Verdict::Resume(reason) => {
             tracing::warn!(company, %reason, "turn stopped early; resuming next wake");
-            Ok((
-                report(Termination::Continue, reason, Some(1), Vec::new()),
-                usage,
-            ))
+            Ok((report(Termination::Continue, reason, Some(60)), usage))
         }
         // Only the owner can clear this. `record_outcome` latches the
         // milestone and mails once — never a re-wake loop (F1).
         health::Verdict::Blocked(blocked) => {
             tracing::warn!(company, reason = %blocked.message(), "turn blocked the company");
-            Ok((
-                report(Termination::Blocked, blocked.message(), None, Vec::new()),
-                usage,
-            ))
+            Ok((report(Termination::Blocked, blocked.message(), None), usage))
         }
         // The turn ran. Only now is the agent's own judgement worth asking
         // for — asking a wedged or unpaid session how the work stands gets
@@ -283,29 +475,19 @@ async fn run_turn(
         // used to arrive dressed as an agent decision.
         health::Verdict::Ran => {
             let decision = termination_decision(session).await?;
-            Ok((
-                report(
-                    decision.termination,
-                    decision.reason,
-                    decision.next_wake_minutes,
-                    decision.spawn,
-                ),
-                usage,
-            ))
+            Ok((report(decision.termination, decision.reason, None), usage))
         }
     }
 }
 
 /// The end-of-turn ask, shared by the Exec and staff: the decision itself is
 /// the model's judgement; the envelope is the daemon's deterministic read of
-/// it. The Exec's staff-spawn capability is documented in its wake briefing
-/// (context.rs), not here — staff have no use for it.
+/// it. Work kickoff is absent from this envelope because graph facts own it.
 pub(crate) const TERMINATION_PROMPT: &str =
     "The turn is ending now. Based on everything above, decide how the \
     work stands and answer with JSON only, no prose:\n\
     {\"decision\": \"continue\" | \"blocked\" | \"outcome_met\" | \"abandon\", \
-     \"reason\": \"<one line>\", \
-     \"next_wake_minutes\": <integer, only when continue>}\n\
+     \"reason\": \"<one line>\"}\n\
     - continue: more machine-doable work remains\n\
     - blocked: the company cannot advance the active outcome until a human or external event acts; \
       use this even when this wake's narrower instruction is finished, and say exactly what is needed\n\
@@ -317,9 +499,8 @@ pub(crate) const TERMINATION_PROMPT: &str =
 /// Ask the Exec to end the turn explicitly. One retry on an unparseable
 /// envelope; a second failure is blocked-on-owner (surface, never spin). A
 /// timeout is neither: the work already happened and is on disk, so record
-/// Continue with no schedule and let the periodic tick re-wake — the next
-/// wake is a fresh session, and a machinery stall must not consume owner
-/// attention as a fake blockage.
+/// Continue with no model-selected timer. Substrate recovery may set its own
+/// bounded retry; graph facts and real events drive ordinary continuation.
 async fn termination_decision(session: &AgentSession) -> Result<TerminationDecision> {
     for attempt in 0..2 {
         let prompted =
@@ -336,8 +517,6 @@ async fn termination_decision(session: &AgentSession) -> Result<TerminationDecis
                     "termination decision timed out after {}s",
                     TERMINATION_TIMEOUT.as_secs()
                 ),
-                next_wake_minutes: None,
-                spawn: vec![],
             });
         };
         prompted?;
@@ -362,8 +541,6 @@ async fn termination_decision(session: &AgentSession) -> Result<TerminationDecis
                     return Ok(TerminationDecision {
                         termination: Termination::Blocked,
                         reason: blocked.message(),
-                        next_wake_minutes: None,
-                        spawn: vec![],
                     });
                 }
                 if attempt == 0 {
@@ -379,8 +556,6 @@ async fn termination_decision(session: &AgentSession) -> Result<TerminationDecis
                 return Ok(TerminationDecision {
                     termination: Termination::Blocked,
                     reason: "exec produced no parseable termination decision twice".to_string(),
-                    next_wake_minutes: None,
-                    spawn: vec![],
                 });
             }
         }
@@ -388,10 +563,8 @@ async fn termination_decision(session: &AgentSession) -> Result<TerminationDecis
     unreachable!()
 }
 
-/// Parse the termination envelope. The decision itself was the model's; this
-/// is deterministic envelope handling — find the JSON object, no prose
-/// interpretation (LLM_CURE.md frame 2). Malformed spawn entries are dropped
-/// with a warning, never allowed to sink the decision they rode in with.
+/// Parse the termination envelope. Delegation is absent on purpose: the
+/// actor writes Work graph rows with the CLI while it has full context.
 pub(crate) fn parse_termination(text: &str) -> Option<TerminationDecision> {
     let start = text.find('{')?;
     let end = text.rfind('}')?;
@@ -399,35 +572,14 @@ pub(crate) fn parse_termination(text: &str) -> Option<TerminationDecision> {
     let termination = match output.decision.as_str() {
         "continue" => Termination::Continue,
         "blocked" | "blocked_on_owner" => Termination::Blocked,
+        "changes_requested" => Termination::ChangesRequested,
         "outcome_met" => Termination::OutcomeMet,
         "abandon" => Termination::Abandon,
         _ => return None,
     };
-    let entries = match output.spawn {
-        None => Vec::new(),
-        Some(serde_json::Value::Array(entries)) => entries,
-        Some(other) => {
-            tracing::warn!(spawn = %other, "spawn field is not a list; ignoring it");
-            Vec::new()
-        }
-    };
-    let spawn = entries
-        .into_iter()
-        .filter_map(
-            |entry| match serde_json::from_value::<SpawnRequest>(entry) {
-                Ok(request) => Some(request),
-                Err(error) => {
-                    tracing::warn!(%error, "dropping malformed spawn request");
-                    None
-                }
-            },
-        )
-        .collect();
     Some(TerminationDecision {
         termination,
         reason: output.reason,
-        next_wake_minutes: output.next_wake_minutes,
-        spawn,
     })
 }
 
@@ -444,17 +596,20 @@ async fn gather_snapshot(
 ) -> Result<ContextSnapshot> {
     let current_plan = read_company_file(container, "/company/org/exec/current-plan.md").await?;
     let latest_journal = latest_journal_entry(container).await?;
-    let commitments = org.list_commitments().await?;
-    let open: Vec<_> = commitments
+    let work = org.list_work().await?;
+    let open: Vec<_> = work
         .into_iter()
-        .filter(|c| {
+        .filter(|item| {
             matches!(
-                c.state,
-                CommitmentState::Proposed | CommitmentState::Active | CommitmentState::Blocked
+                item.status,
+                restless_orgintel::WorkStatus::Proposed
+                    | restless_orgintel::WorkStatus::Active
+                    | restless_orgintel::WorkStatus::Blocked
             )
         })
         .collect();
     let inbox = org.inbox(Some("exec")).await?;
+    let owed_judgements = org.handoffs_assigned_to("exec").await?;
     let root = runtime::state_root();
     Ok(ContextSnapshot {
         company: config.name.clone(),
@@ -462,12 +617,12 @@ async fn gather_snapshot(
         mission: config.mission.clone(),
         current_plan,
         latest_journal,
-        open_commitments: open,
+        open_work: open,
         inbox,
+        owed_judgements,
         wake_reason: reason.to_string(),
         budget_remaining_usd: (config.spend_ceiling_usd - spent_usd).max(0.0),
         budget_ceiling_usd: config.spend_ceiling_usd,
-        capabilities: crate::effect::available_capabilities(&root, &config.name),
         effect_ledger: crate::reconcile::effect_ledger(authority, &config.name)
             .await?
             .summary(),
@@ -499,9 +654,9 @@ fn load_operating_rules(root: &std::path::Path) -> String {
     }
 }
 
-/// Record the wake's outcome: always an event; blocked also messages the
-/// owner inbox; done/abandon resolve the milestone commitment.
-async fn record_outcome(org: &OrgIntel, milestone: Uuid, report: &WakeReport) -> Result<()> {
+/// Record the conversation wake. Work status changes only through an Attempt;
+/// this free-form Exec turn cannot secretly complete or block a graph node.
+async fn record_outcome(org: &OrgIntel, report: &WakeReport) -> Result<()> {
     org.emit_event(
         "wake_end",
         Some("exec"),
@@ -509,83 +664,17 @@ async fn record_outcome(org: &OrgIntel, milestone: Uuid, report: &WakeReport) ->
             "termination": report.termination,
             "reason": report.reason,
             "tool_calls": report.tool_calls.len(),
+            "model": report.model,
+            "failovers": report.failovers,
         }),
     )
     .await?;
-    match report.termination {
-        Termination::Blocked => {
-            // Latch the milestone Blocked: the tick skips blocked milestones
-            // ("blocked waits on the owner, not on time"), so without this the
-            // company re-wakes every idle window and re-mails the owner the
-            // identical block — observed live: 20 duplicate mails in 3h (F1).
-            org.set_commitment_state(milestone, CommitmentState::Blocked, &report.reason)
-                .await?;
-            org.send_message("exec", None, &format!("blocked: {}", report.reason))
-                .await?;
-        }
-        Termination::OutcomeMet => {
-            org.set_commitment_state(milestone, CommitmentState::Completed, &report.reason)
-                .await?;
-        }
-        Termination::Abandon => {
-            org.set_commitment_state(milestone, CommitmentState::Abandoned, &report.reason)
-                .await?;
-        }
-        Termination::Continue => {
-            // Unlatch: a blocked milestone the Exec has resumed (e.g. after
-            // the owner's reply woke it) rejoins the tick's drive set.
-            org.set_commitment_state(milestone, CommitmentState::Active, "")
-                .await?;
-            // The Exec's own time-driven trigger (T6): durable in OrgIntel,
-            // so the schedule survives a restlessd restart. A continue with
-            // no minutes leaves nothing; the periodic tick is the net.
-            if let Some(minutes) = report.next_wake_minutes {
-                let fire_at = chrono::Utc::now() + chrono::Duration::minutes(i64::from(minutes));
-                org.emit_event(
-                    "wake_scheduled",
-                    Some("exec"),
-                    serde_json::json!({ "fire_at": fire_at.to_rfc3339(), "minutes": minutes }),
-                )
-                .await?;
-            }
-        }
+    if let Some(seconds) = report.retry_after_seconds {
+        let fire_at = chrono::Utc::now() + chrono::Duration::seconds(i64::from(seconds));
+        org.add_schedule("exec", None, "recover interrupted Exec substrate", fire_at)
+            .await?;
     }
     Ok(())
-}
-
-/// The milestone commitment: one open commitment owned by the Exec, created
-/// on first wake and reused thereafter — a kill never resets it (T4
-/// acceptance).
-async fn ensure_milestone(org: &OrgIntel, config: &CompanyConfig) -> Result<Uuid> {
-    for commitment in org.list_commitments().await? {
-        if commitment.owner_id == "exec"
-            && matches!(
-                commitment.state,
-                CommitmentState::Proposed | CommitmentState::Active | CommitmentState::Blocked
-            )
-        {
-            return Ok(commitment.id);
-        }
-    }
-    let title = config
-        .mission
-        .lines()
-        .find(|line| !line.trim().is_empty())
-        .unwrap_or("milestone")
-        .trim_start_matches('#')
-        .trim()
-        .to_string();
-    let id = org
-        .add_commitment(
-            "exec",
-            &format!("milestone: {title}"),
-            &config.mission,
-            None,
-        )
-        .await?;
-    org.set_commitment_state(id, CommitmentState::Active, "")
-        .await?;
-    Ok(id)
 }
 
 async fn read_company_file(container: &str, path: &str) -> Result<String> {
@@ -622,34 +711,11 @@ async fn exec_output(container: &str, shell: &str) -> Result<String> {
 mod tests {
     use super::*;
 
-    /// The spawn field rides along with the decision; a malformed sibling
-    /// entry is dropped, the valid one survives.
-    #[test]
-    fn spawn_requests_survive_malformed_siblings() {
-        let text = r#"{"decision":"continue","reason":"need hands","next_wake_minutes":10,
-            "spawn":[{"name":"builder","task":"write the parser","repo":"game"},"oops"]}"#;
-        let decision = parse_termination(text).expect("decision parses");
-        assert!(matches!(decision.termination, Termination::Continue));
-        assert_eq!(decision.spawn.len(), 1);
-        assert_eq!(decision.spawn[0].name, "builder");
-        assert_eq!(decision.spawn[0].repo.as_deref(), Some("game"));
-    }
-
-    /// A spawn field of the wrong SHAPE must not sink the decision it came
-    /// with — the exec's outcome decision still lands even if it fumbled the syntax.
-    #[test]
-    fn malformed_spawn_never_kills_the_decision() {
-        let text = r#"{"decision":"outcome_met","reason":"shipped","spawn":{"not":"a list"}}"#;
-        let decision = parse_termination(text).expect("decision parses despite bad spawn");
-        assert!(matches!(decision.termination, Termination::OutcomeMet));
-        assert!(decision.spawn.is_empty());
-    }
-
     /// Observed in Aris wake 0018: the model said the wake directive was
     /// "done" while also naming owner-gated commercial work, and the daemon
     /// completed the whole company milestone. The ambiguous old word is no
     /// longer a valid envelope; only the explicitly milestone-scoped decision
-    /// can close the commitment.
+    /// can close the company outcome.
     #[test]
     fn a_finished_wake_is_not_a_completed_company_outcome() {
         assert!(parse_termination(r#"{"decision":"done","reason":"this wake is done"}"#).is_none());
@@ -659,5 +725,37 @@ mod tests {
         .unwrap();
         assert_eq!(decision.termination, Termination::OutcomeMet);
         assert!(TERMINATION_PROMPT.contains("current wake's checklist"));
+    }
+
+    #[test]
+    fn an_empty_provider_refusal_is_not_unaccounted_spend() {
+        let empty = acp::TurnUsage {
+            used: 0,
+            size: 0,
+            cost_usd: None,
+        };
+        assert!(!should_record_spend(
+            crate::model_gateway::ModelBilling::MeteredApi,
+            empty,
+            Some(health::BlockKind::Quota)
+        ));
+        assert!(should_record_spend(
+            crate::model_gateway::ModelBilling::Subscription,
+            empty,
+            None
+        ));
+        assert!(should_record_spend(
+            crate::model_gateway::ModelBilling::MeteredApi,
+            acp::TurnUsage { used: 1, ..empty },
+            Some(health::BlockKind::Transport)
+        ));
+        assert!(!should_record_spend(
+            crate::model_gateway::ModelBilling::MeteredApi,
+            acp::TurnUsage {
+                used: 15_547,
+                ..empty
+            },
+            Some(health::BlockKind::Quota)
+        ));
     }
 }

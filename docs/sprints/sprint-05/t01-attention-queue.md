@@ -53,8 +53,8 @@ This is not a new mutation algebra. Each action routes to its existing owner:
 
 | Source | Examples in this sprint | Resolution writer |
 |---|---|---|
-| Authority | four exact `email.send` first-contact grants | existing approval/grant operation |
-| OrgIntel | merge recommendation, outcome review or production blocker | decision/directive/commitment operation |
+| Authority | four exact `customer-contact.email` first-contact grants | existing approval/grant operation |
+| OrgIntel | merge recommendation, outcome review or explicit owner handoff | decision/directive/Work operation |
 | Runtime reference | open the prepared browser/desktop | no organisational resolution; attach is inspection |
 
 The SPA never marks a source request resolved because a row was read, dismissed locally, a desktop
@@ -154,7 +154,7 @@ Run first against a `_test` company; no live party is contacted.
 4. A real OrgIntel review item with a Git compare URL and a real production blocker render through the
    common envelope without adding two new page components or command variants.
 5. The four Aris drafts render exactly as persisted and remain unsent. Before T3's explicit live gate,
-   there are zero new `email.send` receipts.
+   there are zero new `customer-contact.email` receipts.
 6. Killing OrgIntel or the Runtime produces distinct stale/unavailable presentations while available
    Authority controls remain usable.
 7. An unauthenticated owner projection request, a cross-company reference and a forged principal are
@@ -173,7 +173,7 @@ client did not delete local queue state.
 The run exposed and removed a source-ownership violation: approvals, effects and receipts still lived
 in OrgIntel's compactable `events` table. They now live in the daemon's narrow private Authority
 schema. A versioned, idempotent import preserved Aris's 154 governance rows and purged legacy config
-grants after transfer. With the `_test` OrgIntel actor/message/commitment tables unavailable, the SPA
+grants after transfer. With the `_test` OrgIntel actor/message/Work tables unavailable, the SPA
 projection reported `orgintel: unavailable` and `authority: available`, retained its Authority item,
 accepted a grant and recorded then replayed one generic self-reported effect. The same-key replay
 returned the original receipt ID and created no second receipt.

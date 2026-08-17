@@ -13,7 +13,7 @@ Empty stub. Grown from the first sprint slice that needs it.
 [dependencies]
 agent-client-protocol = "2.0.0"
 anyhow = "1"
-axum = { version = "0.8", features = ["ws"] }
+axum = { version = "0.8", features = ["ws", "multipart"] }
 chrono = "0.4"
 dotenvy = "0.15"
 restless-model-gateway = { path = "../restless-model-gateway" }

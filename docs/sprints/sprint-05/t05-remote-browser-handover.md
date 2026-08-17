@@ -149,6 +149,12 @@ The existing inbox remains the launch and return surface:
 - **Open live browser** replaces the main queue/detail canvas with the desktop at useful size;
 - a persistent status strip shows Runtime health, page label, requesting actor and exactly who controls;
 - **Take control** and **Return control** operate only the lease;
+- a free-form conversation with the requesting actor stays beside the desktop. It starts with the
+  Attention envelope and prepared browser context already present; the owner does not have to restate
+  why they were summoned;
+- controller status is visible context inside that conversation, not a scripted three-stage dialogue.
+  The requester may be Exec or Staff, and neither taking nor returning control depends on the actor's
+  model being available;
 - the executive rail remains available on demand without covering the desktop;
 - leaving focus mode does not kill the browser, resolve the item or claim success;
 - reconnect and degraded states explain what is known rather than showing a frozen screenshot as live.
@@ -202,7 +208,8 @@ real workload cannot satisfy this boundary.
 6. Add short-lived attach-ticket exchange and authenticated WebSocket proxy to the owner gateway.
 7. Put the owner surface behind Caddy for real HTTPS/WSS remote access; keep owner-gateway, desktop and
    CDP listeners private.
-8. Add the SPA desktop focus mode, controller status, reconnect and degraded states.
+8. Add the SPA desktop focus mode, controller status, contextual free-form requester conversation,
+   reconnect and degraded states.
 9. Carry browser-driven material consequences through the existing generic effect/receipt path.
 10. Exercise the full handover in `_test`, then use it for Aris review with live email sends still held.
 
@@ -237,6 +244,11 @@ making the browser desktop the source of organisational truth.
    completes without the owner sending a “done” message.
 9. Closing the SPA without changing the page leaves the source attention item unresolved. Runtime
    death renders `unavailable`, never a stale still image presented as live.
+9a. The SPA names the actor that requested intervention and opens a free-form conversation already
+    grounded in the source item's recommendation, requested action, evidence and prepared browser
+    state. Owner messages use ordinary OrgIntel messaging rather than a new handover workflow. The
+    owner can still return control if that actor's model provider is unavailable, and return never
+    implies approval or completion.
 
 ### Effect and real-company proof
 
@@ -247,7 +259,7 @@ making the browser desktop the source of organisational truth.
     the appropriate remote or direct browser path, and an independent Git/HTTP probe—not lease release
     or agent prose—decides whether the launch gate cleared.
 12. Through T5 acceptance, all four real tutoring-centre emails remain unsent and no new live
-    `email.send` receipt exists.
+    `customer-contact.email` receipt exists.
 
 ### Quality
 

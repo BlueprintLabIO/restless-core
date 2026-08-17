@@ -18,7 +18,7 @@ carried, what was deliberately left, and why. Read that section before adding an
 
 Four different things, never to be confused:
 
-- **Claim** — something a person, an agent, a provider, or a document asserts.
+- **Claim** — something a person, an agent, a tool/provider, or a document asserts.
 - **Observation** — something recorded through an attributable method, at a time.
 - **Evidence** — the material that supports or challenges a claim.
 - **Fact** — what the company has accepted as true and acts on.
@@ -63,22 +63,34 @@ the surface's defect: one company burned 57 tool calls guessing ~95 capability n
 surface of three, because nothing would tell it what existed. **If an agent has to guess, fix the
 surface, not the agent.**
 
+`restless credential check` proves only that a named secret reference exists. It does not prove the
+tool accepts it or that an external account is usable. Probe that with the installed tool's own
+`help`, `doctor`, `dry-run`, or status command; wrap the probe in `restless effect` only when it is a
+material or credentialed external operation.
+
 ## 5. Three kinds of action
 
 - **Observe** — read or measure, and keep what you saw. Not free: observation can cost money and
   expose information.
 - **Change the record** — update the company's own coordination state.
 - **Affect the world** — anything reaching outside the company. Record the intent, get authority,
-  use the provider, keep the receipt, reconcile what actually happened against what you asked for.
+  run the installed tool through `restless effect`, keep the generic receipt, and reconcile what
+  actually happened against what you asked for.
 
-Provider acceptance is evidence, not outcome. "The API returned 200" is not "the customer was
-emailed"; reconciliation establishes the business result.
+Tool or provider acceptance is evidence, not outcome. "The command exited 0" is not "the customer
+was emailed"; reconciliation against the provider's own state establishes the business result.
 
-## 6. Blocked means blocked on a person
+## 6. The Work graph owns kickoff and handover
 
-`blocked` means a human must act before progress is possible. It does not mean slow, hard,
-uncertain, or waiting on a clock. When blocked: say exactly what you need, from whom, and what you
-already tried. Then stop — do not re-ask on a timer.
+Create Work before Staff starts. `requires` is a hard acyclic dependency; `revises` returns review
+feedback and may cycle. The scheduler claims ready Work and records an Attempt with its exact
+artifact versions and linked feedback. Messages are free-form context, never a second assignment,
+kickoff, or handover path. Do not invent a timer to approximate a dependency.
+
+`blocked` names an explicit condition that prevents the Work from advancing. An **owner handoff** is
+the narrower human boundary: identity, CAPTCHA, MFA, legal attestation, payment confirmation, or
+irreducible owner judgement. Builds, rendering, arithmetic, file edits and ordinary commands are not
+owner handoffs.
 
 Every delegated call reaches a durable terminal report. Acknowledgement, progress, and terminal
 outcome must never be silently lost. Failing is fine; vanishing is not.
@@ -125,7 +137,7 @@ document every agent reads every wake — the highest-leverage possible way to p
 
 **Carried** (product soul, architecture-neutral):
 claim/observation/evidence/fact; model-assisted judgement escalating but never unlocking; the three
-kinds of action; provider acceptance as evidence rather than outcome; terminal reports never
+kinds of action; tool/provider acceptance as evidence rather than outcome; terminal reports never
 silently lost; authority never implicit; the prepared last mile; mature components first.
 
 **Deliberately left** — these are the anti-patterns `CLAUDE.md` names, and they are the *spine* of
@@ -145,8 +157,9 @@ silently lost; authority never implicit; the prepared last mile; mature componen
 **Deferred, not rejected** — right ideas, no evidence yet:
 `helm-port.txt`'s full apparatus (profiles, conformance classes, discovery, marketplace, two
 independent implementations before a capability stabilises). The thin version of its spine —
-capability → invoke → receipt, with idempotent replay — already exists here as the effect surface
-and has run live. The rest is speculative generality until a second real provider exists.
+class + purpose + ordinary argv → generic receipt, with idempotent replay — already exists here as
+the governed-process effect surface and has run live. The rest is speculative generality until
+repeated real tools demonstrate a shared need.
 
 **Vocabulary**: `domain-concepts.txt` is largely sound and mostly survives in ARCHITECTURE.md's own
 language. It is not re-imported wholesale because it carries the ledger and command vocabulary with

@@ -1,5 +1,5 @@
-//! ACP client (sprint 01 T3 canon, grown into the daemon): spawn the agent
-//! binary as an ordinary process inside the company's persistent container
+//! ACP client (sprint 01 T3 canon, grown into the daemon): start the agent
+//! binary as an ordinary supervised process inside the company's persistent container
 //! (`docker exec`, §5), speak JSON-RPC over stdio, stream turn updates,
 //! cancel on demand. The session is disposable; the company is not.
 //!
@@ -42,9 +42,21 @@ pub struct AgentAuth {
     pub gateway_token_env: String,
     pub gateway_token: String,
     pub gateway_url: String,
+    /// Whether the provider reports a charged API cost or only a catalogue
+    /// estimate for subscription access. The Runtime still receives no
+    /// provider credential either way.
+    pub billing: crate::model_gateway::ModelBilling,
 }
 
 pub(crate) const AGENT_CONFIG_DIR: &str = "/company/home/.restless/omp-agent";
+
+/// OMP is the actor runtime, not Restless's organisation layer. Keep its
+/// ordinary file and shell tools, but do not expose OMP's private `task`
+/// subagents: they have no OrgIntel actor, Work, message, or supervised
+/// process, so using one as Staff makes a convincing transcript while making
+/// the company itself blind to who did the work. Restless delegation has one
+/// canon: a claimed Work Attempt.
+const OMP_AGENT_TOOLS: &str = "read,bash,edit,write,grep";
 
 /// Install the provider's credential-free OMP route in a Restless-owned agent
 /// directory. This never touches the company's general-purpose ~/.omp config
@@ -64,7 +76,7 @@ pub(crate) async fn prepare_agent_runtime(container: &str, auth: &AgentAuth) -> 
             container,
             "sh",
             "-c",
-            "set -eu; dir=/company/home/.restless/omp-agent; mkdir -p \"$dir\"; umask 077; tmp=\"$dir/models.yml.tmp\"; trap 'rm -f \"$tmp\"' EXIT; cat > \"$tmp\"; mv \"$tmp\" \"$dir/models.yml\"; trap - EXIT",
+            "set -eu; dir=/company/home/.restless/omp-agent; mkdir -p \"$dir\"; umask 077; tmp=\"$dir/models.yml.$$\"; trap 'rm -f \"$tmp\"' EXIT; cat > \"$tmp\"; mv \"$tmp\" \"$dir/models.yml\"; trap - EXIT",
         ])
         .stdin(Stdio::piped())
         .stdout(Stdio::null())
@@ -99,11 +111,12 @@ pub(crate) async fn prepare_agent_runtime(container: &str, auth: &AgentAuth) -> 
 /// spend spool keeps its ledger, loses its proxy).
 #[derive(Debug, Clone, Copy, Default)]
 pub struct TurnUsage {
-    /// Tokens consumed this turn. Zero is the universal failure tell.
+    /// Tokens currently in the session context. This is a snapshot, not a
+    /// delta and not a cumulative token bill.
     pub used: u64,
     /// Context window size the agent is working against.
     pub size: u64,
-    /// Dollar cost, when the provider priced the turn.
+    /// Cumulative session cost, when the provider priced the session.
     pub cost_usd: Option<f64>,
 }
 
@@ -432,13 +445,19 @@ where
             container,
             "sh",
             "-c",
-            "umask 077; printf '%s\\n' \"$$\" > \"$1\"; shift; exec \"$@\"",
+            // Productive files stay private to the company group, whose only
+            // other member is the isolated governed-effect UID. A 077 umask
+            // made Git metadata unreadable to the exact CLI process that had
+            // been authorised to publish it.
+            "umask 007; printf '%s\\n' \"$$\" > \"$1\"; shift; exec \"$@\"",
             "restless-agent",
             session_marker.as_str(),
             "omp",
             "acp",
             "--model",
             auth.model.as_str(),
+            "--tools",
+            OMP_AGENT_TOOLS,
         ]
         .iter()
         .map(|arg| (*arg).to_string()),
@@ -690,7 +709,17 @@ fn pids_in_session(table: &str, session_id: &str) -> Vec<String> {
 mod tests {
     use agent_client_protocol::schema::v1::ClientCapabilities;
 
-    use super::pids_in_session;
+    use super::{pids_in_session, OMP_AGENT_TOOLS};
+
+    /// OrgIntel owns Staff identity and handoff evidence. OMP's similarly
+    /// named task runtime is deliberately absent so an actor cannot bypass
+    /// the Work graph and then claim that private subagents were Staff.
+    #[test]
+    fn omp_cannot_create_invisible_staff() {
+        let tools: Vec<_> = OMP_AGENT_TOOLS.split(',').collect();
+        assert_eq!(tools, ["read", "bash", "edit", "write", "grep"]);
+        assert!(!tools.contains(&"task"));
+    }
 
     /// Guards the silent failure that cost a probe cycle: if the client ever
     /// advertises filesystem capabilities, the agent stops writing to the

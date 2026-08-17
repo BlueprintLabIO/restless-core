@@ -1,4 +1,6 @@
-import type { AttentionItem } from './view';
+import type { AttentionItem, MessageIntentReceipt } from './view';
+import type { MessageAttachment } from './view';
+import type { WorkGraphSnapshot } from './generated/orgintel';
 
 export interface AttentionView {
 	company: { id: string; name: string; mission: string; model: string };
@@ -8,12 +10,28 @@ export interface AttentionView {
 		runtime: string;
 		browser: string;
 	};
+	workGraph: WorkGraphSnapshot | null;
 	items: AttentionItem[];
 	refreshedAt: string;
 }
 
+export interface ActorConversation {
+	actor: { id: string; display: string; role: string };
+	messages: Array<{
+		id: number;
+		from_actor: string;
+		to_actor: string | null;
+		body: string;
+		attachments: MessageAttachment[];
+		intent?: MessageIntentReceipt | null;
+		context_path?: string | null;
+		created_at: string;
+	}>;
+}
+
 type WireItem = {
 	id: string;
+	work_id?: string;
 	source: AttentionItem['source'];
 	category: string;
 	title: string;
@@ -23,10 +41,16 @@ type WireItem = {
 	requested_action: string;
 	if_no_action: string;
 	evidence: AttentionItem['evidence'];
+	responsible_actor?: {
+		id: string;
+		display: string;
+		role: string;
+	};
 	runtime_attach?: {
 		company: string;
 		generation: string;
 		requesting_actor?: string;
+		requesting_actor_display?: string;
 		kind: 'persistent-browser';
 	};
 	actions: AttentionItem['actions'];
@@ -49,8 +73,10 @@ export async function getAttention(company: string): Promise<AttentionView> {
 			runtime: wire.source_health.runtime,
 			browser: wire.source_health.browser
 		},
+		workGraph: (wire.work_graph as WorkGraphSnapshot | undefined) ?? null,
 		items: (wire.items as WireItem[]).map((item) => ({
 			id: item.id,
+			workId: item.work_id,
 			source: item.source,
 			category: item.category,
 			title: item.title,
@@ -60,11 +86,19 @@ export async function getAttention(company: string): Promise<AttentionView> {
 			requestedAction: item.requested_action,
 			ifNoAction: item.if_no_action,
 			evidence: item.evidence,
+			responsibleActor: item.responsible_actor
+				? {
+						id: item.responsible_actor.id,
+						display: item.responsible_actor.display,
+						role: item.responsible_actor.role
+					}
+				: undefined,
 			runtimeAttach: item.runtime_attach
 				? {
 						company: item.runtime_attach.company,
 						generation: item.runtime_attach.generation,
 						requestingActor: item.runtime_attach.requesting_actor,
+						requestingActorDisplay: item.runtime_attach.requesting_actor_display,
 						kind: item.runtime_attach.kind
 					}
 				: undefined,
@@ -84,6 +118,64 @@ export async function signIn(token: string): Promise<void> {
 		credentials: 'same-origin'
 	});
 	if (!response.ok) throw await ownerError(response);
+}
+
+export async function getActorConversation(
+	company: string,
+	actor: string,
+	workId?: string
+): Promise<ActorConversation> {
+	const query = workId ? `?work_id=${encodeURIComponent(workId)}` : '';
+	const response = await fetch(
+		`/api/companies/${encodeURIComponent(company)}/actors/${encodeURIComponent(actor)}/conversation${query}`,
+		{ credentials: 'same-origin', cache: 'no-store' }
+	);
+	if (!response.ok) throw await ownerError(response);
+	return response.json();
+}
+
+export async function reviewAction(
+	company: string,
+	handoff: string,
+	decision: 'accept' | 'request_changes',
+	feedback = ''
+): Promise<void> {
+	const response = await fetch(
+		`/api/companies/${encodeURIComponent(company)}/handoffs/${encodeURIComponent(handoff)}/review`,
+		{
+			method: 'POST',
+			headers: { 'content-type': 'application/json' },
+			body: JSON.stringify({ decision, feedback }),
+			credentials: 'same-origin'
+		}
+	);
+	if (!response.ok) throw await ownerError(response);
+}
+
+export async function sendActorMessage(
+	company: string,
+	actor: string,
+	body: string,
+	workId?: string,
+	files: File[] = [],
+	contextPath?: string
+): Promise<{ messageId: number }> {
+	const form = new FormData();
+	form.set('body', body);
+	if (workId) form.set('work_id', workId);
+	if (contextPath) form.set('context_path', contextPath);
+	for (const file of files) form.append('attachments', file, file.name);
+	const response = await fetch(
+		`/api/companies/${encodeURIComponent(company)}/actors/${encodeURIComponent(actor)}/conversation`,
+		{
+			method: 'POST',
+			body: form,
+			credentials: 'same-origin'
+		}
+	);
+	if (!response.ok) throw await ownerError(response);
+	const result = (await response.json()) as { message_id: number };
+	return { messageId: result.message_id };
 }
 
 export async function approvalAction(

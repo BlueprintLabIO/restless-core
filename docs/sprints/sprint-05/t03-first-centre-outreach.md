@@ -39,8 +39,9 @@ This ticket starts from those files and receipts. It does not regenerate the off
 5. Exec re-probes the sample PDF, booklet route and health endpoint through ordinary runtime/browser
    tools. If the interactive QR path remains unhealthy, it removes the marked QR paragraph from the
    prepared emails and sends the useful static PDF offer; it does not claim a broken capability.
-6. Each approved email leaves through `email.send`, with a unique stable idempotency key and provider
-   receipt. Direct provider calls remain forbidden.
+6. Each approved email uses the installed Resend CLI through `restless effect --class
+   customer-contact.email`, with the PDF declared as an artifact, a unique stable idempotency key and
+   a generic receipt. The message is sent only after its exact party approval; Restless owns no email API.
 7. Replies enter through the governed inbound path. The company records the first concrete objection
    or buying signal and chooses the next offer change. If none arrive within five business days, it
    records bounded non-response and decides whether to change segment, subject or offer.
@@ -56,10 +57,10 @@ sequence builder, invented lead database, or custom durable workflow engine.
 2. Provider/external observation shows `/for-tutoring-centres` live after the merge; browser-close,
    lease-release, a self-attested receipt or an agent statement alone is insufficient.
 3. Before the owner acts on the four exact approval items, all drafts remain unsent and the receipt
-   query shows zero new live `email.send` effects.
+   query shows zero new live `customer-contact.email` effects.
 4. Every recipient is one of the double-verified canonical parties and has an owner approval grant
    before first contact.
-5. At least four approved first-contact sends produce distinct `email.send` receipts; replaying any
+5. At least four approved first-contact sends produce distinct `customer-contact.email` receipts; replaying any
    key does not send twice.
 6. The actual body sent contains no claim contradicted by the final production probes. A red QR path
    removes the QR paragraph rather than blocking the static-PDF offer.

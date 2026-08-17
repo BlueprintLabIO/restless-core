@@ -2,7 +2,7 @@
 
 **Version:** 0.1  
 **Status:** Working product and engineering contract  
-**Scope:** How Restless proves that OrgIntel improves real company outcomes, how dogfoods are structured, how external reality is simulated or observed, and how evidence feeds exploration, repair, and organisational evolution.
+**Scope:** How Restless proves that OrgIntel improves real company outcomes, how dogfoods are structured, how external reality is tested or observed, and how evidence feeds exploration, repair, and organisational evolution.
 
 ---
 
@@ -355,7 +355,7 @@ Examples:
 - QR menu/order flow works;
 - generated exam questions pass quality checks.
 
-## 5.2 Commitment/process level
+## 5.2 Work/process level
 
 Question:
 
@@ -508,7 +508,7 @@ No persistent Exec-led organisational adaptation beyond what the harness natural
 
 ### C. Restless OrgIntel
 
-One persistent Exec, focused actors, adaptive planning, explicit commitments, artifact-centred handoffs, evidence-based evaluation, repair, and evolution.
+One persistent Exec, focused actors, adaptive planning, explicit Work nodes, artifact-centred handoffs, evidence-based evaluation, repair, and evolution.
 
 ## 7.2 Fairness controls
 
@@ -535,7 +535,7 @@ A team that dilutes the best available answer through consensus is not intellige
 Use repeated trials when:
 
 - model variance is high;
-- the simulator is stochastic;
+- controlled scenario inputs are stochastic;
 - outcomes are sensitive to initial branch choices;
 - a result would influence a major architecture decision.
 
@@ -543,7 +543,7 @@ One real customer sale may still be decisive evidence of feasibility even withou
 
 ## 7.5 Baseline modes in one harness
 
-Prefer the same scenario runner and provider adapters with configurable organisation mode:
+Prefer the same scenario runner, starting files, installed tools and external limits with configurable organisation mode:
 
 ```text
 single_agent
@@ -611,54 +611,54 @@ This is scientific thinking adapted to company operation, not academic perfectio
 
 ---
 
-# 9. External-world simulator
+# 9. Throwaway-company effect and behavioural tests
 
 ## 9.1 Purpose
 
-The simulator allows end-to-end testing of:
+The `_test` company allows end-to-end testing of:
 
 - organisational behaviour;
 - Authority Plane policy and receipts;
-- provider delays and failures;
-- customer/market responses;
+- installed-tool delays and failures;
+- handling of explicitly controlled customer/market input;
 - recovery and reconciliation;
 - owner approvals.
 
-The company should use the same semantic provider interfaces in simulation and reality.
+Restless uses the same generic governed-process envelope and receipt for a fake CLI and an installed
+real CLI. It does not implement matching fake and real provider interfaces.
 
 ## 9.2 Architecture
 
 ```text
 Company Runtime / Exec
         ↓
-Authority Plane + provider interfaces
+Authority Plane generic effect runner
         ↓
-Mock provider or real provider
+fake CLI in `_test` or installed real CLI
         ↓
-World state and events
+tool outcome and external status observation
 ```
 
-OrgIntel should not require separate logic for mock and real providers.
+OrgIntel reasons from labelled receipts and observations; `_test` evidence never enters a live company.
 
-## 9.3 Two simulator types
+## 9.3 Two test-input types
 
-### Deterministic provider simulator
+### Deterministic fake CLI
 
 Used for correctness and recovery:
 
 - success;
 - confirmed failure;
-- timeout before execution;
-- execution succeeds but response is lost;
+- staging or launch failure before execution;
+- daemon interruption after durable intent but before receipt;
 - duplicate request;
 - delayed approval;
 - budget exhaustion;
-- resource provisioning failure;
-- resource expiry/revocation.
+- separate status observation and reconciliation to confirmed success/failure.
 
-Runs are reproducible from a scenario/seed.
+Runs are reproducible from the CLI fixture, argv and idempotency key.
 
-### Behavioural world simulator
+### Controlled behavioural input
 
 Used to test strategy and adaptation:
 
@@ -670,40 +670,36 @@ Used to test strategy and adaptation:
 - changing requirements;
 - vendor/contractor performance.
 
-It may use rules, seeded probabilities, scripted humans, or LLM-driven personas.
+It may use seeded files, messages, scripted humans, or explicitly labelled LLM-generated examples.
 
-Its output is not treated as proof of real market demand.
+Its output is mechanism input, not proof of real market demand.
 
 ## 9.4 World secrecy
 
 Agents should see only the world through the same channels available in real operation.
 
-They should not read hidden simulator rules, future events, conversion probabilities, or expected solution paths.
+They should not read hidden scenario rules, future events, conversion probabilities, or expected solution paths.
 
-## 9.5 Initial provider set
+## 9.5 Initial tool probes
 
-- email send/delivery/reply/bounce;
-- CRM/lead records;
-- landing-page traffic/conversion;
-- calendar bookings;
-- payments/purchases/refunds in test mode;
-- deployment/publication;
-- advertising budget/performance;
-- resource/GPU provisioning;
-- owner approval responses.
+- generic fake CLI success/failure/retry/replay;
+- interrupted unknown outcome plus separate status receipt and reconciliation;
+- installed email CLI help and dry-run with a clearly marked local attachment;
+- installed deployment and Git tool help/status/dry-run where supported;
+- deterministic owner approval and budget denials.
 
-Build only providers required by active dogfoods.
+Do not build a Restless adapter for these tools.
 
 ## 9.6 Simulated versus real progression
 
 ```text
-scripted deterministic scenario
-→ noisy behavioural simulation
+deterministic fake CLI in `_test`
+→ real tool help/dry-run/status probe
 → controlled real dogfood
 → wider real operation
 ```
 
-Do not remain in simulation once real external validation is safe and affordable.
+Do not remain in controlled inputs once real external validation is safe and affordable.
 
 ### 9.6.1 Simulation manufactures beliefs, not just missing evidence
 
@@ -734,10 +730,10 @@ helped: **the failure is epistemic, not cognitive.**
 
 Three rules follow.
 
-1. **Never exercise a simulated capability inside a live company.** Simulation
-   belongs in `_test` companies, whose purpose is therefore not safety but
+1. **Never exercise a fake capability inside a live company.** Fake tools and controlled behavioural
+   input belong in `_test` companies, whose purpose is therefore not safety but
    *keeping fiction out of a live company's evidence base*.
-2. **Simulated outcomes must be distinguishable in the record.** A receipt says
+2. **Test outcomes must be distinguishable in the record.** A receipt says
    which world produced it; reconciliation and any owner-facing summary must
    carry that distinction rather than flattening it.
 3. **Give a company something real to check itself against, early and
@@ -746,7 +742,7 @@ Three rules follow.
    simulated selling produced true belief.
 
 The progression above is still right about *order*. It is wrong if read as
-"simulation is a safe place to accumulate knowledge." It is a safe place to
+"a controlled scenario is a safe place to accumulate knowledge." It is a safe place to
 exercise **mechanism**, and an unsafe place to accumulate **facts**.
 
 ---
@@ -765,8 +761,8 @@ starting files and tools
 initial actors or actor-creation constraints
 authority/resource envelope
 success contract
-external world/provider configuration
-hidden world state where simulated
+external observation setup and installed/fake tool inventory
+hidden controlled-input state where applicable
 possible failure injections
 manual review instructions
 termination conditions
@@ -863,7 +859,7 @@ Not required initially:
 - owner changes one core design constraint mid-run;
 - two workers modify the same system;
 - a GPU request is delayed or denied;
-- the first playable build fails acceptance despite completed commitments.
+- the first playable build fails acceptance despite completed Work nodes.
 
 ## 11.6 External validation progression
 
@@ -932,9 +928,9 @@ Email volume or landing-page creation alone is not success.
 - initial offer generates interest but no payment;
 - budget ceiling prevents further ads.
 
-## 12.7 Simulated world caution
+## 12.7 Controlled-input caution
 
-Simulated sales prove organisational behaviour and effect correctness, not real demand. Progress to controlled real outreach early.
+Controlled sales inputs prove organisational behaviour and effect correctness, not real demand. Progress to controlled real outreach early.
 
 ---
 
@@ -1044,7 +1040,7 @@ A later cross-company or cross-department scenario is useful only after individu
 
 - missed wakeup;
 - duplicate message;
-- stale commitment;
+- stale Work;
 - overloaded actor;
 - duplicated work;
 - review loop without improvement;
@@ -1274,7 +1270,7 @@ Reports should link to real artifacts and provider records rather than embed all
 | Artifacts, tests, builds, raw experiment data | Company Runtime/domain applications |
 | Effects, receipts, resource usage, provider outcomes | Authority Plane/external provider |
 | Owner interactions and attention items | Source-owning service; cockpit projection |
-| Scenario configuration, hidden simulator state, baseline mode | Evaluation harness |
+| Scenario configuration, hidden controlled-input state, baseline mode | Evaluation harness |
 | Final run report | Evaluation harness with references to source-owned evidence |
 
 The evaluation harness must not become a second company database.
@@ -1288,7 +1284,7 @@ The evaluation harness must not become a second company database.
 - load a versioned scenario package;
 - choose `single_agent`, `minimal_team`, or `orgintel` mode;
 - provision the same starting Runtime and Authority envelope;
-- configure mock providers and deterministic fault modes;
+- install the deterministic fake CLI and configure fault modes only in `_test`;
 - record timestamps, cost, owner interactions, and key cross-layer events;
 - collect artifact/evidence references;
 - present a manual acceptance checklist;
@@ -1306,7 +1302,7 @@ Do not replace product judgment with a superficial automatic score.
 Capture enough to explain performance:
 
 - actor/session lifecycle;
-- commitments and blockers;
+- Work nodes and blockers;
 - meaningful messages/handoffs;
 - artifact references;
 - model/external spend;
@@ -1377,11 +1373,11 @@ Run a related second scenario.
 1. Define the success-contract format as readable Markdown plus minimal structured metadata.
 2. Implement scenario package loading and versioning.
 3. Add organisation modes for single agent, minimal team, and OrgIntel.
-4. Add deterministic mock providers behind Authority Plane interfaces.
+4. Add one deterministic fake CLI exercised through the generic Authority Plane effect runner in `_test`.
 5. Capture owner attention and core cost/time metrics.
 6. Implement evidence/artifact reference collection.
 7. Build Cosmon smoke and standard scenarios.
-8. Build Aris simulated then controlled-real scenario.
+8. Build an Aris `_test` mechanism scenario, then a controlled-real scenario.
 9. Build Thymelake pilot scenario.
 10. Add failure injection and restore/reconciliation tests.
 11. Add repeated-learning comparisons.
@@ -1396,7 +1392,7 @@ V0 does not require:
 - a universal benchmark leaderboard;
 - one aggregate intelligence score;
 - automatic grading of every business outcome;
-- production-scale market simulation;
+- production-scale synthetic market;
 - statistically powered trials for every decision;
 - hidden chain-of-thought collection;
 - exhaustive event sourcing;
@@ -1416,7 +1412,7 @@ V0 does not require:
 4. Do not change the scenario after seeing a poor result without versioning it.
 5. Do not add evaluation metrics merely because they are easy to capture.
 6. Do not optimise one proxy while external outcomes deteriorate.
-7. Simulation validates behaviour, not real market demand.
+7. Controlled `_test` inputs validate behaviour, not real market demand.
 8. An eval that never changes product or organisational decisions is ceremony.
 9. A new OrgIntel mechanism must beat a simpler alternative on a real scenario.
 10. Preserve failures and uncertainty honestly; do not reinterpret every run as success.

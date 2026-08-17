@@ -1,5 +1,5 @@
 <script lang="ts">
-	/* The one message composer, shared by the executive rail and the chats page.
+	/* The one message composer for the persistent executive rail.
 	 *
 	 * ONE row: the container is the field, and attach and send are inset in its gutters.
 	 *
@@ -7,14 +7,11 @@
 	 * inset buttons "drift as the textarea expands" — true only when they are vertically
 	 * centred. Anchored to the *bottom* of the field they do not move while text grows
 	 * upward, and the bottom edge is where the eye already is, because that is where you are
-	 * typing. The real blocker was never the drift: the gutters could not hold mode chips
-	 * plus a hint sentence plus a disclosure control. UIR-009 moved all three to settings,
-	 * which is what made this possible — the second row cost ~145px of chrome to send a
-	 * one-line message, in a 400px rail.
+	 * typing. Context sits above the field; intent is interpreted by Exec after send rather
+	 * than chosen through a mode control.
 	 *
 	 * The caller keeps its own <form>, hidden fields, and action; this component owns only
-	 * the input and its controls, so the rail's `use:enhance` and the chats page's plain
-	 * POST both keep working untouched. */
+	 * the input and its controls. */
 
 	import type { Snippet } from 'svelte';
 	import AttachmentPicker from '$lib/primitives/AttachmentPicker.svelte';
@@ -30,9 +27,7 @@
 		ariaLabel = 'Message',
 		disabled = false,
 		minlength = 2,
-		providerDisclosureEnabled = true,
-		controls,
-		disclosure
+		controls
 	}: {
 		value?: string;
 		files?: File[];
@@ -41,20 +36,11 @@
 		ariaLabel?: string;
 		disabled?: boolean;
 		minlength?: number;
-		/** Shapes what the send button says it will do — see `composer-layout.ts`. */
-		providerDisclosureEnabled?: boolean;
-		/** Per-surface controls, rendered above the field. Deliberately NOT disclosure. */
+		/** Per-surface context, rendered above the field. */
 		controls?: Snippet;
-		/**
-		 * The record-only notice, when this company does not send to a provider (UIR-009).
-		 * Absent in the default case: the composer carries no disclosure control, only the
-		 * state, and only when the state is the surprising one.
-		 */
-		disclosure?: Snippet;
 	} = $props();
 
-	/* Matches the cap the chats composer already used: roughly eight rows before
-	 * it stops growing and starts scrolling. */
+	/* Roughly eight rows before the field stops growing and starts scrolling. */
 	const MAX_HEIGHT = 160;
 
 	let inputEl = $state<HTMLTextAreaElement | undefined>();
@@ -69,7 +55,7 @@
 	 * on it, and svelte-check rejects the whole file. */
 	const sendability = $derived(sendState({ disabled, value, minlength }));
 	const sendable = $derived(sendability === 'ready');
-	const sendLabel = $derived(sendButtonLabel({ state: sendability, providerDisclosureEnabled }));
+	const sendLabel = $derived(sendButtonLabel(sendability));
 
 	function autosize() {
 		if (!inputEl) return;
@@ -89,21 +75,19 @@
 		if (composerKeyAction(event, composing) !== 'send') return;
 		event.preventDefault();
 		if (!sendable) return;
-		/* requestSubmit, never submit: submit() skips HTML validation and
-		 * SvelteKit's enhance handler, which would break the rail's clear. */
+		/* requestSubmit, never submit: submit() skips HTML validation. */
 		inputEl?.form?.requestSubmit();
 	}
 </script>
 
 <div class="hc">
-	{#if disclosure}<div class="hc-disclosure">{@render disclosure()}</div>{/if}
-	{#if controls}<div class="hc-slot">{@render controls()}</div>{/if}
 	<!-- The field: one border on the wrapper, the textarea transparent inside it, and the
 	     controls anchored to the bottom edge so they hold still as the text grows.
 	     ONE AttachmentPicker, not two: the file <input> lives inside its button, and a
 	     chips-only instance would have no input to rebuild on remove — the × would silently
 	     do nothing. Its chips take a full-width row inside the field instead. -->
 	<div class="hc-field">
+		{#if controls}<div class="hc-slot">{@render controls()}</div>{/if}
 		<AttachmentPicker bind:files {disabled} />
 		<textarea
 			bind:this={inputEl}

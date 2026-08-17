@@ -1,0 +1,24 @@
+#!/bin/sh
+set -eu
+
+case "${1:-}" in
+  success)
+    printf '{"fake":true,"result":"succeeded","value":"%s"}\n' "${2:-none}"
+    ;;
+  fail)
+    printf '{"fake":true,"result":"failed","value":"%s"}\n' "${2:-none}" >&2
+    exit 7
+    ;;
+  status)
+    printf '{"fake":true,"observation":"not_applied","target":"%s"}\n' "${2:-unknown}"
+    ;;
+  hang)
+    printf '{"fake":true,"result":"started"}\n'
+    sleep "${2:-120}"
+    printf '{"fake":true,"result":"finished"}\n'
+    ;;
+  *)
+    printf '{"fake":true,"error":"unknown command"}\n' >&2
+    exit 64
+    ;;
+esac

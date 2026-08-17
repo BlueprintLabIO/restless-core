@@ -33,8 +33,8 @@ Owner
 │  ┌──────────── COMPANY ENVIRONMENT ──────────────────┐  │
 │  │                                                  │  │
 │  │ 2. ORGINTEL PLANE       3. EXECUTION PLANE       │  │
-│  │ goals · teams ·         files · Git · browser     │  │
-│  │ commitments · memory ⇄ ACP workers · tools       │  │
+│  │ goals · Work graph ·    files · Git · browser     │  │
+│  │ messages · memory   ⇄   ACP workers · tools       │  │
 │  │ Exec · planners         project applications      │  │
 │  └──────────────────────────────────────────────────┘  │
 └────────────────────────────────────────────────────────┘
@@ -141,11 +141,14 @@ Examples include:
 - Changing access control.
 - Executing a contract or legally meaningful representation.
 
-The kernel should execute these through a small effect broker with:
+The kernel should execute these through a small generic governed-process broker. Restless does not
+need an email, Git, deployment or payment command of its own when a mature runtime CLI exists. The
+actor selects an installed executable and ordinary argv; the broker adds only:
 
 - authenticated company identity;
 - explicit capability checks;
-- scoped arguments;
+- an effect class, purpose, exact argv and declared artifact references;
+- named secret bindings injected only into the isolated child process;
 - idempotency keys;
 - approval handling;
 - authoritative receipts;
@@ -279,7 +282,7 @@ A sensible initial topology is:
 
 OrgIntel combines two kinds of machinery:
 
-- **Deterministic substrate:** actors, messages, goals, commitments, schedules, wakeups, process health, artifact references and context retrieval.
+- **Deterministic substrate:** actors, messages, goals, the Work graph, Attempts, schedules, wakeups, process health, artifact references, owner handoffs and context retrieval.
 - **Model-driven judgement:** Exec, planning, staffing, review, recovery, memory curation and process improvement.
 
 The kernel has no autonomous LLM authority. Runtime workers contain task intelligence for coding, design, research and production. One model may power several distinct agents, and one agent may use several models.
@@ -295,19 +298,25 @@ The stable core may own:
 - Human, agent and service identities used for coordination.
 - Roles and lightweight competency profiles.
 - Current availability and active sessions.
-- Requests to spawn, wake, pause or retire ACP agents.
+- Current process observations and requests to wake, pause or retire actors. Staff kickoff comes only from ready Work, not from a parallel spawn instruction.
 
-### Goals and commitments
+### Goals, Work and Attempts
 
 A deliberately small ontology:
 
 - **Goal** — an outcome the company is pursuing.
-- **Commitment** — an actor has agreed to produce or decide something.
+- **Work** — one actor's durable responsibility for an outcome, expected artifact and exact workspace.
+- **Attempt** — one claimed execution of one Work revision with immutable artifact and feedback inputs.
 - **Actor** — the person, agent or service responsible.
 - **Artifact reference** — where the output lives.
 - **Decision** — a consequential internal choice and its rationale.
 
-A commitment should have only a few states, such as proposed, active, blocked, completed and abandoned.
+Work should have only a few states, such as proposed, active, blocked, completed and abandoned. A
+`requires` edge is a hard acyclic dependency. A `revises` edge returns review feedback to a producer
+and may form a deliberate feedback cycle. The scheduler atomically claims ready Work and records the
+Attempt before launching Staff. Messages remain free-form context: they do not own kickoff or
+handover. A reviewer requesting changes invalidates the producer's prior artifacts and hard
+descendants into a new revision; the next Attempt receives the exact feedback and upstream versions.
 
 ### Messaging and inboxes
 
@@ -333,7 +342,7 @@ Messages are organisational communication, not security-sensitive state transiti
 When an actor wakes, OrgIntel should assemble relevant context from:
 
 - mission and current priorities;
-- active goals and commitments;
+- active goals and the relevant Work graph;
 - recent messages;
 - linked files and repositories;
 - relevant decisions;
@@ -346,7 +355,7 @@ When an actor wakes, OrgIntel should assemble relevant context from:
 Examples:
 
 - actor started or stopped;
-- commitment became blocked;
+- Work became blocked;
 - artifact was produced;
 - review was requested;
 - plan changed;
@@ -376,7 +385,7 @@ These modules may be ACP agents, prompt-driven policies, scripts or ordinary ser
 ### Strong conventions
 
 - Every active goal should have an owner or an explicit reason it is paused.
-- Every active commitment should have a next step, expected result or blocker.
+- Every active Work node should have an expected result, artifact or explicit blocker.
 - Important completed work should point to a concrete artifact or decision.
 - Review effort should scale with consequence, uncertainty and reversibility.
 - Repeated failure should trigger a changed approach rather than infinite retry.
@@ -430,7 +439,7 @@ A small schema might cover:
 
 - actors;
 - goals;
-- commitments;
+- Work nodes, dependency edges and Attempts;
 - messages;
 - schedules;
 - reviews;
@@ -610,7 +619,7 @@ OrgIntel may provide:
 
 - actor/session launch and wake requests;
 - inbox and messaging;
-- goal and commitment coordination;
+- goal and Work-graph coordination;
 - scheduling;
 - context packages;
 - artifact and Git references;
@@ -730,7 +739,7 @@ Harden the seams that preserve productive work and prevent irreversible harm. Do
 ## 9.1 Unambiguous state ownership
 
 - **Kernel:** identity, grants, budgets, approvals, effects, receipts and lifecycle.
-- **OrgIntel:** actors, goals, commitments, messages, schedules and coordination health.
+- **OrgIntel:** actors, goals, Work, Attempts, dependency/revision edges, messages, schedules, owner handoffs and coordination health.
 - **Runtime:** files, code, assets, builds, project databases and actual outputs.
 
 Derived views may cross layers, but each fact has one authoritative home. Avoid cross-layer foreign keys and duplicated truth.
@@ -808,7 +817,7 @@ Playtesting becomes valuable once this first playable artifact exists. The prima
 | Layer | Cosmon responsibility |
 |---|---|
 | **Kernel** | Studio budget, licences and purchases, public deployment, external communications, player-data authority, monetisation, receipts and owner approvals |
-| **OrgIntel** | Milestones, teams, commitments, risk ordering, review, playtest cadence, blocker detection, reallocation and owner summaries |
+| **OrgIntel** | Milestones, teams, Work graph, Attempts, risk ordering, review, playtest cadence, blocker detection, reallocation and owner summaries |
 | **Runtime** | Game-engine project, source code, 3D assets, builds, playtest recordings, scripts, repositories, browsers and project tools |
 
 The Exec can operate across all three: it manages the studio through OrgIntel, works directly in the runtime, and invokes kernel capabilities within its granted envelope.
@@ -833,7 +842,7 @@ A passing run looks like this:
 1. Exec interprets the mandate and chooses a bounded risk-reduction milestone.
 2. OrgIntel forms a temporary cross-functional team and assigns clear outcomes.
 3. Workers create the game project, assets, files and Git worktrees directly in Linux.
-4. OrgIntel tracks commitments and blockers without mediating ordinary edits.
+4. OrgIntel claims ready Work and tracks Attempts and blockers without mediating ordinary edits.
 5. A disagreement or requirement change is resolved using design pillars, prototypes and expected economic value.
 6. A stalled or crashed worker is replaced without discarding useful files and commits.
 7. A playable build is tested by an independent critic or playtest function.
@@ -977,32 +986,18 @@ The third proof is **economic value**, such as lower ordering workload, fewer er
 
 Thymelake is the strongest whole-company dogfood of the three because product, sales, onboarding, support and external side effects must operate as one continuous loop.
 
-## 10.8 Simulated external world
+## 10.8 Throwaway-company effect tests
 
-Restless should support external-world simulation behind the same kernel provider interfaces used in production.
+Restless does not maintain simulated provider adapters. Kernel correctness is tested in a `_test`
+company by installing a deterministic fake CLI and invoking it through the same generic governed
+process used for real runtime tools. The fixture can return success, confirmed failure, delay, or an
+interrupted unknown outcome. A separate fake status command supplies evidence for reconciliation.
 
-```text
-company request
-→ kernel capability and budget checks
-→ provider adapter
-   ├── real provider
-   └── simulated provider
-```
-
-Use two simulator types:
-
-- **Deterministic simulators** for kernel correctness: success, denial, exhausted budget, duplicate requests, delayed approval, lost responses and ambiguous outcomes requiring reconciliation.
-- **Behavioural simulators** for OrgIntel: customer personas, replies, conversion behaviour, objections, changing requirements and noisy market feedback.
-
-The company should not need different logic for a simulated provider. Development should progress from scripted simulation, to noisy behavioural simulation, to a small controlled real run. Simulation tests operating behaviour; only the real world validates demand, product quality and customer value.
-
-**Simulation also manufactures belief, and that is the sharper risk.** Because the interface is identical by design, a company cannot tell a simulated fact from a real one — so it records simulated outcomes as evidence and builds durable strategy on them. Observed live: a simulated `web.deploy` 404 chased for three wakes as a real blocker, and six wakes of sound commercial reasoning conducted about the wrong country, exam and business model. Therefore: **simulated capabilities belong only in throwaway companies**, receipts must record which world produced them, and every live company needs something real to check itself against — a repository, a live URL, a provider's own record — early and continuously. See `evaluation-dogfood` §9.6.1.
-
-The simulated world should support the first dogfoods without becoming a second product:
-
-- **Cosmon:** build deployment, asset purchase, collaborator feedback and failure conditions;
-- **Aris:** email, landing-page traffic, payments, replies, objections and follow-ups;
-- **Thymelake:** restaurant prospects, pilot approval, menu data, test orders, outages, refunds and support incidents.
+Behavioural market scenarios may provide controlled input files or messages to a `_test` company,
+but their output is not demand evidence and must never enter a live company's memory or receipts.
+Only a controlled real-world run validates demand, product quality or customer value. Every live
+company should check itself against the provider's own record, a real repository, or a live URL early
+and continuously. See `evaluation-dogfood` §9.6.1.
 
 # 11. Success metrics
 
@@ -1062,7 +1057,7 @@ Restless should not attempt to:
 16. Use department-level dogfoods before attempting a whole autonomous company.
 17. Match each first department to the company’s real bottleneck: Cosmon Game Product, Aris Sales & Marketing, and Thymelake Restaurant Launch.
 18. Use the three companies as a complementary dogfood portfolio for building, selling, and live B2B deployment and operations.
-19. Test kernel effects through interchangeable real and simulated provider adapters.
+19. Test generic governed effects with deterministic fake CLIs in throwaway `_test` companies; use the installed real CLI and its own dry-run/status commands for integration probes.
 20. Use Infisical as the default imported secret and machine-identity backend, while keeping Restless authoritative for capabilities, approvals and consequential effects.
 21. Treat multiplayer and managed hosting as unproven product hypotheses rather than initial requirements.
 22. Focus the first product on one owner, one Exec and agents inside a single isolated company environment.
@@ -1087,7 +1082,7 @@ These require further design rather than immediate implementation:
 10. The exact initial capability and budget envelope for each live Exec, including which effects remain owner-approved.
 11. The exact first acceptance criteria for the Cosmon playable browser build, Aris sales outcome and Thymelake restaurant pilot.
 12. Which company should provide the first walking-skeleton dogfood and which portions begin in simulation.
-13. Which provider interfaces require deterministic simulation before the first live run.
+13. Which consequential runtime tools need a deterministic fake CLI before their first controlled live run.
 
 ---
 
@@ -1097,11 +1092,11 @@ The next architecture should be tested with one end-to-end department rather tha
 
 1. Boot one durable company Linux environment.
 2. Run one human owner, one persistent Exec and multiple ACP workers.
-3. Maintain goals, commitments, messages and scheduled wakeups through a thin OrgIntel core.
+3. Maintain goals, a deterministic Work graph, Attempts, messages and scheduled wakeups through a thin OrgIntel core.
 4. Produce real files and Git commits through ordinary tools.
 5. Recover from an agent crash without losing useful work.
 6. Recover from an OrgIntel restart without invalidating the workspace.
-7. Complete receipt-backed external effects first against deterministic simulated providers, then in a small controlled live run.
+7. Complete receipt-backed external effects first against a fake CLI in a `_test` company, then the real tool's dry-run/status surface, then a small controlled live run.
 8. Require one human judgement or handoff.
 9. Measure the company-specific outcome—playable build, sales revenue or live restaurant usage—alongside elapsed time, cost and owner interventions.
 10. Delete or simplify any mechanism that did not materially help the outcome.
@@ -1339,7 +1334,7 @@ Create the smallest new path containing:
 - one or two worker ACP processes;
 - files as the primary work substrate;
 - Git for meaningful checkpoints;
-- minimal OrgIntel messaging, commitments and wakeups;
+- minimal OrgIntel messaging, Work graph, Attempts and wakeups;
 - model access through the host;
 - one narrow receipt-backed external effect;
 - restart and snapshot recovery.
@@ -1354,7 +1349,7 @@ Improve prompts, filesystem conventions, process patterns and OrgIntel behaviour
 
 ## Step 4: Generalise only repeated friction
 
-After several runs, extract the recurring primitives that have demonstrated value. Likely candidates are actor sessions, messages, goals, commitments, schedules, artifact references and effect receipts.
+After several runs, extract the recurring primitives that have demonstrated value. The first real runs have now justified actor sessions, messages, goals, Work, Attempts, `requires` and `revises` edges, schedules, artifact references, owner handoffs and effect receipts. Do not add another coordination primitive unless repeated friction demonstrates it.
 
 Do not generalise one-off recovery choreography or represent every observed event as a permanent domain concept.
 

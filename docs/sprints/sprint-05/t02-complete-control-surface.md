@@ -85,7 +85,8 @@ Verbs, in one pass, all gated by T10's principal.
    revocation urgent by nature — *"may terminate the affected session if urgent"* — which is exactly
    what a command is for and an editor is not.
 5. **The stragglers.** `orgintel-init` has a dispatch arm at `main.rs:394` and no CLI verb.
-   `commitment` accepts `completed|blocked` while §4.2 names five states — `abandoned` is unreachable.
+   The legacy `commitment` verb accepted only `completed|blocked` while §4.2 named five states. T8
+   subsequently removed that generic state setter in favour of deterministic Work-graph transitions.
    (`down --destroy` is the same class and belongs to S04-T1; not duplicated here.)
 
 ## The check, which is the actual deliverable
@@ -150,8 +151,10 @@ daemon, and no owner knows it is there.
 - `control_surface_test` was created from TOML, shown, changed, started and woken through
   `restless`; no editor or database console was part of the path.
 - The config emitted by `company show` recreated an identical company config.
-- `credential check` returned `present` for Aris `email.send` and `absent` for its unset
-  `repo.push` reference while exact values stayed out of the transcript.
+- `credential check` returned `present` for Aris's Resend binding (now `resend.production`) and
+  `absent` for the deliberately unset Git credential reference used in this control-surface probe,
+  while exact values stayed out of the transcript. Aris now uses the canonical
+  `github.production` binding.
 - Revocation re-armed the next party effect gate, including after an older receipt.
 - The daemon/CLI completeness guard passed; a temporary missing-verb mutation failed it.
 - The final real Aris probe ran `moonshot/kimi-k3` through the host credential boundary after the

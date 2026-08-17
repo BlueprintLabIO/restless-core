@@ -1,4 +1,4 @@
-/* ---------- app frame: glass topbar + content ---------- */
+/* Bridge Light shell: company identity, four owner surfaces, live Exec presence. */
 .bridge-topbar {
 	position: sticky;
 	top: 0;
@@ -6,337 +6,107 @@
 	height: var(--topbar-h);
 	display: flex;
 	align-items: center;
-	gap: 20px;
-	padding: 0 18px;
+	gap: 24px;
+	padding: 0 14px;
+	border-bottom: 1px solid var(--border);
 	background: var(--glass);
 	backdrop-filter: blur(18px) saturate(1.4);
 	-webkit-backdrop-filter: blur(18px) saturate(1.4);
-	border-bottom: 1px solid var(--border);
 }
-/* ---------- brand: the one menu (company + records) ---------- */
-.bridge-topbar .tb-brandwrap {
-	position: relative;
-	flex: 0 0 auto;
-	min-width: 0;
-	display: flex;
-	align-items: center;
-	gap: 2px;
-}
+
 .bridge-topbar .tb-brand {
+	min-width: 0;
 	display: flex;
 	align-items: center;
-	gap: 9px;
-	min-width: 0;
-	padding: 5px 9px;
-	margin: -5px -9px;
-	border: 1px solid var(--border);
-	border-radius: var(--radius-md);
-	background: none;
-	font: inherit;
+	gap: 8px;
+	padding: 5px 0;
 	color: inherit;
-	cursor: pointer;
-	transition:
-		background 0.15s ease,
-		border-color 0.15s ease;
+	text-decoration: none;
 }
-.bridge-topbar .tb-brand:hover {
-	background: var(--surface-alt);
-	border-color: var(--border-strong);
-}
-.bridge-topbar .tb-brand.static {
-	cursor: default;
-	border-color: transparent;
-}
-.bridge-topbar .tb-brand.static:hover {
-	background: none;
-}
+
 .bridge-topbar .tb-mark {
+	flex: 0 0 auto;
 	display: flex;
-	color: var(--ink);
 }
+
+/* The wordmark is set in the same pixel grid the MatrixGlyph marks already
+ * speak in — the one place the product signs its name. It sits outside the type
+ * ramp on purpose: Silkscreen is bitmap-derived and only resolves on integer
+ * multiples of its 8px design size, so --t-mark is 16px and must stay a
+ * multiple of 8 if it ever changes. */
 .bridge-topbar .tb-name {
-	font-weight: 600;
-	font-size: 13px;
-	color: var(--ink);
-	letter-spacing: 0.01em;
+	font-family: var(--font-mark);
+	font-size: var(--t-mark);
+	font-weight: 400;
+	letter-spacing: 0.02em;
 	white-space: nowrap;
 }
+
 .bridge-topbar .tb-co {
-	font-family: 'IBM Plex Mono', monospace;
-	font-size: 11px;
-	color: var(--text-tertiary);
-	white-space: nowrap;
-	overflow: hidden;
-	text-overflow: ellipsis;
 	max-width: 200px;
-}
-.bridge-topbar .tb-caret {
-	font-size: 10px;
-	color: var(--text-tertiary);
-	transition: transform 0.18s ease;
-}
-.bridge-topbar .tb-caret.open {
-	transform: rotate(180deg);
-}
-
-/* ---------- the brand menu ---------- */
-.bridge-topbar .tb-menu {
-	position: absolute;
-	top: calc(100% + 10px);
-	left: 0;
-	min-width: 250px;
-	max-width: 300px;
-	padding: 6px;
-	border-radius: var(--radius-lg);
-	border: 1px solid var(--border-strong);
-	/* solid, not glass — the menu floats over content and must stay readable */
-	background: var(--surface);
-	box-shadow: var(--bevel-subtle), var(--shadow-lift);
-	animation: v3menu 0.16s ease both;
-}
-@keyframes v3menu {
-	from {
-		opacity: 0;
-		transform: translateY(-4px);
-	}
-	to {
-		opacity: 1;
-		transform: translateY(0);
-	}
-}
-@media (prefers-reduced-motion: reduce) {
-	.bridge-topbar .tb-menu {
-		animation: none;
-	}
-}
-.bridge-topbar .tb-menu-label {
-	font-family: 'IBM Plex Mono', monospace;
-	font-size: 10px;
-	font-weight: 500;
-	letter-spacing: 0.12em;
-	text-transform: uppercase;
-	color: var(--text-tertiary);
-	padding: 8px 10px 4px;
-}
-.bridge-topbar .tb-menu-list {
-	max-height: 320px;
-	overflow-y: auto;
-	overscroll-behavior: contain;
-}
-.bridge-topbar .tb-menu-item {
-	display: flex;
-	align-items: center;
-	gap: 10px;
-	padding: 8px 10px;
-	border-radius: var(--radius-md);
-	font-size: 13px;
-	text-decoration: none;
-	color: inherit;
-}
-.bridge-topbar .tb-menu-item:hover {
-	background: var(--surface-alt);
-}
-.bridge-topbar .tb-menu-item.current {
-	font-weight: 600;
-}
-.bridge-topbar .tb-menu-mark {
-	width: 22px;
-	height: 22px;
-	flex: 0 0 auto;
-	border-radius: var(--radius-md);
-	background: var(--surface-alt);
-	border: 1px solid var(--border);
-	color: var(--text-secondary);
-	font-family: 'IBM Plex Mono', monospace;
-	font-weight: 500;
-	font-size: 11px;
-	display: grid;
-	place-items: center;
-}
-.bridge-topbar .tb-menu-item.current .tb-menu-mark {
-	background: var(--accent-soft);
-	border-color: var(--border-strong);
-	color: var(--ink);
-}
-.bridge-topbar .tb-menu-name {
-	flex: 1;
-	min-width: 0;
-	white-space: nowrap;
 	overflow: hidden;
+	font: var(--t-body) var(--font-mono);
 	text-overflow: ellipsis;
-}
-.bridge-topbar .tb-menu-check {
-	flex: 0 0 auto;
-	display: flex;
-	color: var(--ink);
-}
-.bridge-topbar .tb-menu-empty {
-	margin: 0;
-	padding: 6px 10px;
-	font-size: 12px;
-	color: var(--text-secondary);
-}
-/* the bounded list: past six companies, a filter finds the rest */
-.bridge-topbar .tb-menu-filter {
-	padding: 2px 6px 8px;
-}
-.bridge-topbar .tb-filter-input {
-	width: 100%;
-	padding: 7px 10px;
-	border: 1px solid var(--border-strong);
-	border-radius: var(--radius-md);
-	background: var(--surface-alt);
-	color: var(--ink);
-	font: inherit;
-	font-size: 12.5px;
-}
-.bridge-topbar .tb-filter-input:focus {
-	outline: 2px solid color-mix(in srgb, var(--accent) 35%, transparent);
-	border-color: var(--accent-strong);
-}
-/* naming the draft company: the label itself is the field — editing is not a
- * destination, so it never enters the menu. Dotted underline = editable. */
-.bridge-topbar .tb-co-edit {
-	align-self: center;
-	margin-left: 2px;
-	padding: 2px 1px 3px;
-	border: 0;
-	border-bottom: 1px dotted var(--text-tertiary);
-	border-radius: 0;
-	background: transparent;
-	color: var(--ink);
-	font-family: 'IBM Plex Mono', monospace;
-	font-size: 11px;
-}
-.bridge-topbar .tb-co-edit::placeholder {
+	white-space: nowrap;
 	color: var(--text-tertiary);
-}
-.bridge-topbar .tb-co-edit:focus {
-	outline: none;
-	border-bottom-color: var(--ink);
-}
-/* the rename affordance: a ghost until asked for — the label stays clean */
-.bridge-topbar .tb-rename-ghost {
-	align-self: center;
-	padding: 2px 7px;
-	border: 0;
-	border-radius: var(--radius-sm);
-	background: transparent;
-	color: var(--text-tertiary);
-	font-family: 'IBM Plex Mono', monospace;
-	font-size: 10px;
-	letter-spacing: 0.06em;
-	cursor: pointer;
-}
-.bridge-topbar .tb-rename-ghost:hover {
-	background: var(--surface-alt);
-	color: var(--ink);
-}
-@media (max-width: 640px) {
-	/* ultra-narrow: the inline name field yields width to the tabs */
-	.bridge-topbar .tb-co-edit {
-		max-width: 30vw;
-	}
-}
-@media (max-width: 900px) {
-	/* crowded bars (the founding timeline) hide the ghost — the conversation
-	 * names the company too */
-	.bridge-topbar .tb-rename-ghost {
-		display: none;
-	}
-}
-/* the pinned creation row — always visible under the scrolling list */
-.bridge-topbar .tb-menu-new {
-	display: flex;
-	align-items: center;
-	gap: 10px;
-	margin-top: 5px;
-	padding: 9px 10px;
-	border-top: 1px solid var(--border);
-	border-radius: 0 0 var(--radius-md) var(--radius-md);
-	font-size: 13px;
-	font-weight: 500;
-	text-decoration: none;
-	color: var(--ink);
-	background: var(--surface);
-}
-.bridge-topbar .tb-menu-new:hover {
-	background: var(--surface-alt);
-}
-.bridge-topbar .tb-menu-new-mark {
-	width: 22px;
-	height: 22px;
-	flex: 0 0 auto;
-	display: grid;
-	place-items: center;
-	color: var(--ink);
 }
 
-/* ---------- tabs: the instrument strip ---------- */
-/* The group centers; only the strip inside it scrolls. Records rides along as
- * a sibling so its menu is never clipped by the strip's overflow box. */
-.bridge-topbar .tb-navgroup {
-	display: flex;
-	align-items: center;
-	gap: 2px;
-	margin: 0 auto;
-	min-width: 0;
-}
 .bridge-topbar .tb-tabs {
-	display: flex;
-	align-items: center;
-	gap: 2px;
 	min-width: 0;
+	height: 100%;
+	display: flex;
+	align-items: stretch;
+	gap: 2px;
 	overflow-x: auto;
 	scrollbar-width: none;
 }
+
 .bridge-topbar .tb-tab {
 	position: relative;
+	min-width: 76px;
 	display: flex;
 	align-items: center;
+	justify-content: center;
 	gap: 6px;
-	padding: 5px 11px;
+	padding: 0 12px;
 	border: 0;
-	border-radius: var(--radius-md);
 	background: transparent;
-	font: inherit;
-	font-size: 12.5px;
+	color: var(--text-secondary);
+	font-size: var(--t-body);
 	font-weight: 500;
-	color: var(--text-tertiary);
 	text-decoration: none;
 	white-space: nowrap;
-	cursor: pointer;
-	transition:
-		color 0.16s ease,
-		background 0.16s ease,
-		box-shadow 0.16s ease;
 }
-.bridge-topbar .tb-tab:disabled {
-	opacity: 0.45;
-	cursor: default;
-}
-.bridge-topbar .tb-tab:not(.on):hover {
+
+.bridge-topbar .tb-tab:hover {
+	background: rgba(23, 24, 28, 0.025);
 	color: var(--ink);
-	background: var(--surface-alt);
 }
+
 .bridge-topbar .tb-tab.on {
 	color: var(--ink);
-	border-radius: 0;
-	box-shadow: inset 0 -1px 0 var(--ink);
 }
+
+.bridge-topbar .tb-tab.on::after {
+	content: '';
+	position: absolute;
+	inset: auto 12px 0;
+	height: 2px;
+	background: var(--intent-conversation);
+}
+
 .bridge-root .tb-badge {
 	min-width: 17px;
 	height: 17px;
-	padding: 0 5px;
-	border-radius: 999px;
-	background: var(--accent);
-	color: var(--text-inverse);
-	font-family: 'IBM Plex Mono', monospace;
-	font-size: 10px;
-	font-weight: 600;
 	display: grid;
 	place-items: center;
+	padding: 0 5px;
+	border-radius: 999px;
+	background: var(--intent-authority);
+	color: var(--text-inverse);
+	font: 600 var(--t-label) var(--font-mono);
 }
+
 .bridge-topbar .tb-right {
 	margin-left: auto;
 	display: flex;
@@ -344,209 +114,34 @@
 	gap: 14px;
 	flex: 0 0 auto;
 }
-/* the Records caret-tab — a disclosure that dresses as a tab, so it reads as
- * navigation, not as a second identity dropdown */
-.bridge-topbar .tb-recordswrap {
-	position: relative;
-	flex: 0 0 auto;
-}
-.bridge-topbar .tb-records {
-	display: flex;
-	align-items: center;
-	gap: 6px;
-}
-.bridge-topbar .tb-records-menu {
-	left: auto;
-	right: 0;
-	min-width: 180px;
-}
-.bridge-topbar .tb-timeline {
-	flex: 1 1 auto;
-	min-width: 0;
-	display: flex;
-	justify-content: center;
-	overflow: hidden;
-}
-
-/* ---------- the Chief of Staff annunciator ---------- */
-.bridge-topbar .tb-cos {
-	display: flex;
-	align-items: center;
-	gap: 8px;
-	padding: 6px 12px;
-	border-radius: var(--radius-md);
-	border: 1px solid var(--border-strong);
-	background: transparent;
-	font: inherit;
-	font-size: 13px;
-	font-weight: 500;
-	color: var(--ink);
-	cursor: pointer;
-	transition:
-		background 0.18s ease,
-		border-color 0.18s ease;
-}
-.bridge-topbar .tb-cos:hover {
-	background: var(--surface-alt);
-}
-.bridge-topbar .tb-cos.on {
-	background: var(--surface);
-	border-color: rgba(255, 255, 255, 0.25);
-}
-.bridge-topbar .tb-cos-lamp {
-	display: flex;
-	color: var(--status-offline);
-}
-.bridge-topbar .tb-cos-lamp.live {
-	color: var(--ink);
-}
-.bridge-topbar .tb-cos-name {
-	max-width: 180px;
-	white-space: nowrap;
-	overflow: hidden;
-	text-overflow: ellipsis;
-}
-
-/* ---------- the account slot: who you are, one quiet disclosure ---------- */
-.bridge-topbar .tb-accountwrap {
-	position: relative;
-	flex: 0 0 auto;
-}
-.bridge-topbar .tb-account {
-	display: flex;
-	padding: 0;
-	border: 1px solid var(--border-strong);
-	border-radius: var(--radius-md);
-	background: transparent;
-	color: var(--ink);
-	cursor: pointer;
-	transition:
-		background 0.15s ease,
-		border-color 0.15s ease;
-}
-.bridge-topbar .tb-account:hover {
-	background: var(--surface-alt);
-}
-.bridge-topbar .tb-account-mark {
-	width: 26px;
-	height: 26px;
-	display: grid;
-	place-items: center;
-	font-family: 'IBM Plex Mono', monospace;
-	font-size: 11px;
-	font-weight: 500;
-}
-.bridge-topbar .tb-account-menu {
-	right: 0;
-	left: auto;
-	min-width: 200px;
-}
-.bridge-topbar .tb-account-head {
-	display: flex;
-	flex-direction: column;
-	gap: 2px;
-	padding: 8px 10px 10px;
-	margin-bottom: 4px;
-	border-bottom: 1px solid var(--border);
-}
-.bridge-topbar .tb-account-name {
-	font-weight: 600;
-	font-size: 13px;
-	color: var(--ink);
-}
-.bridge-topbar .tb-account-sub {
-	font-size: 10.5px;
-	letter-spacing: 0.08em;
-	color: var(--text-tertiary);
-}
-.bridge-topbar .tb-menu-button {
-	width: 100%;
-	border: 0;
-	background: none;
-	font: inherit;
-	text-align: left;
-	cursor: pointer;
-}
 
 .bridge-body {
+	min-height: 0;
 	display: flex;
 	align-items: stretch;
 	border-top: var(--topbar-seam) solid var(--bg-app);
 }
+
 .bridge-content {
-	flex: 1 1 auto;
 	min-width: 0;
-	min-height: calc(100vh - var(--topbar-total));
+	min-height: 0;
 	display: flex;
+	flex: 1 1 auto;
 }
 
-/* ---------- avatar ---------- */
-.bridge-root .avatar {
-	position: relative;
-	flex: 0 0 auto;
-	width: 36px;
-	height: 36px;
-	border-radius: 50%;
-	display: grid;
-	place-items: center;
-	color: var(--text-inverse);
-	font-family: 'Inter', system-ui, sans-serif;
-	font-weight: 600;
-	font-size: 13px;
-	background: var(--pig-0);
-	user-select: none;
-}
-.bridge-root .avatar.lg {
-	width: 64px;
-	height: 64px;
-	font-size: 22px;
-}
-.bridge-root .avatar.sm {
-	width: 24px;
-	height: 24px;
-	font-size: 10px;
-}
-/* Channels wear the hairline monogram box, not a white tile (§6). */
-.bridge-root .avatar.avatar-chan {
-	background: var(--r3);
-	border: 1px solid var(--border);
-	border-radius: var(--radius-md);
-	color: var(--ink);
-	font-family: 'IBM Plex Mono', monospace;
-	font-weight: 500;
-}
-/* The executive's matrix-glyph avatar — emissive white, no pastel tile (L3). */
-.bridge-root .avatar.avatar-glyph {
-	background: transparent;
-	border: 1px solid var(--border);
-	border-radius: var(--radius-md);
-	color: var(--ink);
-}
-.bridge-root .avatar .dot {
-	position: absolute;
-	right: -1px;
-	bottom: -1px;
-	width: 11px;
-	height: 11px;
-	border-radius: 50%;
-	border: 2px solid var(--surface);
-	background: var(--status-offline);
-}
-.bridge-root .avatar.sm .dot {
-	width: 9px;
-	height: 9px;
-}
-.bridge-root .dot.working {
-	background: var(--status-working);
-	box-shadow: 0 0 6px rgba(255, 255, 255, 0.55);
-}
-.bridge-root .dot.waiting {
-	background: var(--status-waiting);
-}
-.bridge-root .dot.blocked {
-	background: var(--status-blocked);
-}
-.bridge-root .dot.offline {
-	background: var(--status-offline);
-}
+@media (max-width: 760px) {
+	.bridge-topbar {
+		gap: 8px;
+		padding-inline: 10px;
+	}
 
+	.bridge-topbar .tb-tabs {
+		margin-left: auto;
+	}
+
+	.bridge-topbar .tb-tab {
+		min-width: 0;
+		padding-inline: 7px;
+		font-size: var(--t-body);
+	}
+}

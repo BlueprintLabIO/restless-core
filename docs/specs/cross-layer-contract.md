@@ -13,7 +13,7 @@ This document defines how Restless's existing component specifications compose i
 It is intentionally narrower than the component specs:
 
 - **Authority Plane Specification** owns authority, effects, resources, credentials, and runtime lifecycle implementation.
-- **OrgIntel Core Specification** owns organisational cognition, actors, goals, commitments, communication, adaptation, and organisational memory.
+- **OrgIntel Core Specification** owns organisational cognition, actors, goals, Work nodes, communication, adaptation, and organisational memory.
 - **Company Runtime and Runtime Bridge Specification** owns the Linux work environment, agent processes, files, Git, tools, and bridge implementation.
 - **Owner Cockpit Product Specification** owns the operator-facing product experience.
 - This document owns **shared identifiers, cross-layer contracts, company bootstrap, lifecycle transitions, and reconciliation**.
@@ -40,7 +40,7 @@ Owner Cockpit
 Authority Plane    OrgIntel         Company Runtime
 - mandate          - actors         - Linux workspace
 - authority        - goals          - Exec/workers
-- budgets          - commitments    - files and Git
+- budgets          - Work nodes    - files and Git
 - effects          - messages       - browser/tools
 - resources        - adaptation     - actual artifacts
 - lifecycle             │                  ▲
@@ -90,6 +90,9 @@ The following identifiers are shared across layers:
 | `company_id` | Durable company identity | Never reused |
 | `actor_id` | Durable human, agent, or service identity inside a company | Persists across models and sessions |
 | `session_id` | One temporary model/process execution | Ends with the process/session |
+| `work_id` | One durable OrgIntel outcome node | Persists across revisions and Attempts |
+| `attempt_id` | One atomically claimed execution of a Work revision | Immutable after creation |
+| `owner_handoff_id` | One prepared last-mile request to the owner | Stable through resolution |
 | `principal_id` | Authenticated security principal used at an authority boundary | May differ from `actor_id` |
 | `runtime_id` | A provisioned Company Runtime instance | Replaced when the work machine is recreated |
 | `runtime_generation` | Monotonic generation of the runtime's material state | Increments on replacement or restore |
@@ -136,7 +139,10 @@ Do not claim strong per-agent security while agents share one permissive Linux w
 | Actor and role | Persistent organisational identity and responsibility | OrgIntel |
 | Session | Temporary model/process execution | OrgIntel records intent/status; Runtime owns process reality |
 | Goal | Desired outcome at any abstraction level | OrgIntel |
-| Commitment | One actor's responsibility to produce or decide something | OrgIntel |
+| Work | One actor's durable responsibility for an outcome, expected artifact and exact workspace | OrgIntel |
+| Work edge | `requires` hard DAG dependency or `revises` review feedback cycle | OrgIntel |
+| Attempt | One Work-revision execution with immutable artifact and feedback inputs | OrgIntel |
+| Owner handoff | Prepared last mile for a bounded human-only action and observable resume condition | OrgIntel |
 | Message/directive | Organisational communication or durable owner instruction | OrgIntel; mandate changes also update Authority Plane |
 | Observation/hypothesis/decision | Company belief and decision semantics | OrgIntel or referenced source |
 | Artifact | Code, document, build, asset, dataset, or project output | Company Runtime or external application |
@@ -159,7 +165,7 @@ Authority Plane store
 
 OrgIntel store
 - actors, roles, and persistent identity packages
-- goals, commitments, messages, and schedules
+- goals, Work nodes, edges, Attempts and exact inputs, messages, schedules and owner handoffs
 - hypotheses, experiments, decisions, and learning
 - operating phase and organisational health
 - session intent/status and artifact/effect references
@@ -187,18 +193,19 @@ External systems
 
 ## 3.4 Examples
 
-### Commitment and artifact
+### Work, Attempt and artifact
 
 OrgIntel owns:
 
 ```text
-Commitment: Build Cosmon capture loop
+Work: Build Cosmon capture loop
 Owner: gameplay-engineer
 Status: completed
+Accepted Attempt: 7b4...
 Result reference: git:cosmon@abc123
 ```
 
-The Runtime owns the repository and commit contents. The Authority Plane knows nothing about the commitment.
+The Runtime owns the repository and commit contents. The Authority Plane knows nothing about the Work.
 
 ### External email
 
@@ -306,7 +313,7 @@ Each deployed component has a distinct machine identity:
 - OrgIntel service;
 - Runtime Bridge;
 - Infisical Agent Proxy;
-- provider adapters where separately deployed.
+- external tool processes where separately supervised.
 
 Use short-lived or rotatable service credentials. Infisical may store and materialise these, but Restless remains responsible for semantic authority.
 
@@ -499,7 +506,9 @@ cancelled
 lost
 ```
 
-A completed session does not imply that its commitment is completed. A commitment is completed only when its accountable owner/OrgIntel accepts the outcome.
+A completed session does not imply that its Work is completed. The running Attempt reaches
+`produced` only when its expected artifact and deterministic gates are present; review may return a
+`changes_requested` revision instead.
 
 ## 7.4 Operating phase
 
@@ -514,16 +523,16 @@ scale
 
 Operating phase influences defaults and priorities; it is not an infrastructure gate and does not automatically expand budget or authority.
 
-## 7.5 Goal and commitment status
+## 7.5 Goal and Work status
 
 OrgIntel may use simple defaults:
 
 ```text
 Goal stage: framing | exploring | building | validating | operating | reviewing
-Commitment: proposed | active | blocked | completed | abandoned
+Work: proposed | active | blocked | completed | abandoned
 ```
 
-Goal stages are descriptive and may vary by domain. Commitment states remain deliberately small.
+Goal stages are descriptive and may vary by domain. Work states remain deliberately small.
 
 ---
 
@@ -559,7 +568,7 @@ Core operations:
 
 ```text
 register_runtime / heartbeat
-launch_session
+launch_claimed_attempt
 stop_session
 send_session_input
 query_session
@@ -578,8 +587,9 @@ company_id
 runtime_id/runtime_generation
 actor_id
 session_id
-role and current commitment
+role, work_id, revision and attempt_id
 working directory/worktree request
+immutable upstream artifact inputs and feedback cursor
 model/harness selection
 focused context packet
 applicable instructions and skills
@@ -612,19 +622,18 @@ Raw shell output and token streams may be retained operationally but are not org
 Agents use local MCP/CLI/socket tools for:
 
 ```text
-read_inbox
-send_message
-accept_or_reject_commitment
-report_blocker
-link_artifact
-submit_result
-request_review
-record_observation_or_decision
-schedule_follow_up
-request_exec_attention
+inbox
+message [--work <work_id>]
+work graph
+work artifact --work <work_id> --attempt <attempt_id> ...
+work gate --work <work_id> -- <argv...>
+work handoff --work <work_id> --attempt <attempt_id> ...
+schedule --work <work_id> ...
 ```
 
-Agents never write the OrgIntel database directly.
+Agents never write the OrgIntel database directly and never set Work status generically. Claim,
+artifact/gate acceptance, review revision, handoff resolution, dependency release and attempt-limit
+blocking are the only deterministic transitions.
 
 ## 8.6 Exec/Runtime → Authority Plane
 
@@ -723,7 +732,7 @@ superseded
 unknown
 ```
 
-It does not delete the historical commitment or decision merely because a referenced file is missing.
+It does not delete the historical Work or decision merely because a referenced file is missing.
 
 ## 9.5 Accepted output
 
@@ -811,7 +820,7 @@ Canonical flow:
 2. Stop current Runtime
 3. Restore selected snapshot into new generation
 4. Register Runtime Bridge
-5. OrgIntel reconciles sessions, artifacts, commitments, and schedules
+5. OrgIntel reconciles sessions, artifacts, Work nodes, and schedules
 6. Authority Plane reconciles outstanding effects/resources
 7. Exec receives recovery context
 8. Resume internal work
@@ -885,10 +894,11 @@ Example:
 - Mark unavailable references honestly.
 - Recreate or recover only what is still needed.
 
-### Goals and commitments
+### Goals and Work nodes
 
 - OrgIntel retains current organisational truth.
-- Commitments are not rewound because the Runtime was restored.
+- Work history and Attempts are not rewound because the Runtime was restored; missing referenced
+  artifacts are marked honestly and affected Work is revised or blocked forward.
 - The Exec decides whether affected work needs reopening, reassignment, or acceptance from durable evidence.
 
 ### Effects
@@ -913,7 +923,7 @@ The first Exec session after restore receives:
 
 - restore reason and snapshot time;
 - new runtime generation;
-- company goals and commitments that remained current;
+- company goals and Work nodes that remained current;
 - missing/stale artifact references;
 - effects since the snapshot;
 - outstanding owner attention;
@@ -934,7 +944,7 @@ Do not attempt to make OrgIntel or Authority Plane data match an old runtime sna
 | OrgIntel unavailable | Running agents may continue local work; organisational writes/wakeups pause; Authority Plane remains independent |
 | Authority Plane unavailable | Internal work continues; new effects/resources/lifecycle changes pause |
 | Authority DB unavailable | Do not guess permission or effect outcome |
-| OrgIntel DB unavailable | Do not invent commitments/messages; preserve local work and retry |
+| OrgIntel DB unavailable | Do not invent Work nodes/messages; preserve local work and retry |
 | Model gateway unavailable | Agents stop or use an approved alternative; files/services remain |
 | External provider unavailable | Affected action/resource pauses; unrelated company work continues |
 | Cockpit unavailable | Company may continue under existing mandate; owner interactions pause |
@@ -978,7 +988,8 @@ The Work view is primarily OrgIntel state linked to Runtime artifacts and Author
 
 ```text
 Goal
-→ Commitment
+→ Work
+→ Attempt with exact inputs
 → Artifact reference
 → Evidence/receipt
 ```

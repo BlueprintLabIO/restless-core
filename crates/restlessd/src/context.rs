@@ -2,15 +2,15 @@
 //! read-only state snapshot to the Exec's rehydration prompt plus a digest.
 //! The digest makes the Exec's worldview reproducible — two wakes over the
 //! same snapshot must see byte-identical context, and any new state (a
-//! message, a commitment transition) must change it.
+//! message or Work transition) must change it.
 //!
 //! Sources are labelled by trust (ARCHITECTURE.md §9.5): the owner mandate
 //! is read-only and authoritative; the plan is the Exec's own editable
-//! working hypothesis; the journal is historical memory; commitments and
+//! working hypothesis; the journal is historical memory; Work and
 //! internal messages are internal decisions. No untrusted external content
 //! exists this sprint — nothing ingests it yet.
 
-use restless_orgintel::{CommitmentRow, MessageRow};
+use restless_orgintel::{MessageRow, OwnerHandoffRow, WorkRow};
 use sha2::Digest as _;
 
 /// Read-only inputs to one wake's context. Gathering this is the only IO;
@@ -24,8 +24,11 @@ pub struct ContextSnapshot {
     pub current_plan: String,
     /// Filename + content of the most recent journal entry, if any.
     pub latest_journal: Option<String>,
-    pub open_commitments: Vec<CommitmentRow>,
+    pub open_work: Vec<WorkRow>,
     pub inbox: Vec<MessageRow>,
+    /// Ordinary organisational judgement currently owed by the Exec. The
+    /// five irreducible human categories never appear here.
+    pub owed_judgements: Vec<OwnerHandoffRow>,
     pub wake_reason: String,
     /// Remaining budget in USD, and the ceiling. An agent that cannot see its
     /// own budget cannot decide how ambitious to be, and finds out it is broke
@@ -41,10 +44,6 @@ pub struct ContextSnapshot {
     /// Advisory: the Exec is the actor with enough context to tell "stuck"
     /// from "hard", so these are shown, never enforced.
     pub org_signals: Vec<String>,
-    /// Capabilities this company's effect surface actually offers. Small and
-    /// enumerable, so it is carried rather than pointed at — one company burned
-    /// 57 tool calls guessing ~95 names against a surface of three.
-    pub capabilities: Vec<String>,
 }
 
 /// The assembled prompt and its content digest (sha256, hex).
@@ -65,45 +64,51 @@ pub struct ContextPackage {
 /// 1. **Constitution** — standing rules for every agent everywhere. Changes
 ///    rarely, changes the meaning of everything below it.
 /// 2. **Mission** — owner-authored, what this company is for.
-/// 3. **State** — plan, journal, commitments, inbox, wake reason, budget. What
+/// 3. **State** — plan, journal, Work, inbox, wake reason, budget. What
 ///    is true right now and nowhere else discoverable.
 /// 4. **Pointers** — one line each for surfaces the agent can interrogate
 ///    itself. Never inline what a tool call answers better.
 ///
-/// The exception that proves the rule is `capabilities`: it is a payload
-/// rather than a pointer only because it is tiny, enumerable, and its absence
-/// caused an agent to brute-force ~95 guesses. When a surface grows past
-/// enumerable, it becomes a pointer.
 pub fn assemble(snapshot: &ContextSnapshot) -> ContextPackage {
-    let mut commitments = String::new();
-    for c in &snapshot.open_commitments {
-        commitments.push_str(&format!(
-            "- [{}] {} (owner: {}): {}\n",
-            format!("{:?}", c.state).to_lowercase(),
-            c.title,
-            c.owner_id,
-            c.body
+    let mut work = String::new();
+    for item in &snapshot.open_work {
+        work.push_str(&format!(
+            "- {} rev {} [{}] {} (owner: {}): {}\n",
+            item.id,
+            item.revision,
+            format!("{:?}", item.status).to_lowercase(),
+            item.title,
+            item.owner_id,
+            item.outcome
         ));
     }
     let mut inbox = String::new();
     for message in &snapshot.inbox {
-        // Owner messages carry owner authority; anything else is internal.
+        // Owner input is authoritative in source but not pre-classified. The
+        // Exec decides whether it is conversation, Work feedback, durable
+        // direction, or a request for an Authority decision.
         let trust = if message.from_actor == "owner" {
-            "owner directive"
+            "owner input — classify before applying"
         } else {
             "internal decision"
         };
         inbox.push_str(&format!(
-            "- [{trust}] from {}: {}\n",
-            message.from_actor, message.body
+            "- message {} [{trust}] from {}: {}\n",
+            message.id, message.from_actor, message.body
         ));
     }
-
-    let capabilities = if snapshot.capabilities.is_empty() {
-        "(none configured — any external effect will fail until the owner adds one)".to_string()
-    } else {
-        snapshot.capabilities.join(", ")
-    };
+    let mut judgements = String::new();
+    for handoff in &snapshot.owed_judgements {
+        judgements.push_str(&format!(
+            "- handoff {} on Work {} from {}: {}\n  prepared: {}\n  resume when: {}\n",
+            handoff.id,
+            handoff.work_id,
+            handoff.requested_by,
+            handoff.requested_action,
+            handoff.prepared_state,
+            handoff.resume_condition
+        ));
+    }
 
     let signals = if snapshot.org_signals.is_empty() {
         String::new()
@@ -136,33 +141,46 @@ pub fn assemble(snapshot: &ContextSnapshot) -> ContextPackage {
            [historical memory]. Record what you did, learned, and what is next.\n\
          - /company/repos — project repositories; commit meaningful checkpoints with git.\n\
          - /company/outputs — finished artifacts for the owner.\n\n\
-         # Staff [internal decision]\n\
-         `restless spawn --name <name> --role <role> [--model <provider/model>] \
-         [--repo <name under /company/repos>] \"<task>\"` hands one task to one supervised \
-         SPECIALIST. Call it the moment you decide to delegate — it is a tool like any other, \
-         and the reply tells you immediately if it was refused. At most 2 run at once.\n\
-         `--role` is what that actor IS — copywriter, critic, engineer, researcher — and it \
-         becomes their durable identity, so the owner can ask who did what. `--model` gives \
-         them a different mind from yours; omit it and they inherit yours.\n\
-         **Delegate when the job is genuinely a different job, not when it is merely more \
-         work.** Independence can come from a different model, deliberately withheld drafting \
-         context, an adversarial role, or independent evidence. Use only models for which this \
-         company is actually configured; never invent or substitute a provider to make a team \
-         look diverse. A second copy of you on the same context is worth almost nothing, but a \
-         critic who sees the artifact and acceptance criteria without the producer's reasoning \
-         can still find errors you did not. The clearest case is producing and then criticising \
-         the same artifact — the critic must NOT be you, or you will approve your own work.\n\
-         Give a brief detailed enough to work unsupervised: the outcome, the constraints, and how \
-         you will know it is done. A code task with `--repo` gets its own git worktree at \
-         /company/worktrees/<name> on branch staff/<name>, and works only there — so two staff on \
-         disjoint files merge cleanly. Their completion, blockage, or crash wakes you; after a \
-         crash the worktree is intact, and resuming or reassigning is your call. Staff tasks \
-         already open appear in your commitments below.\n\n\
+         # Work and teams [internal decision]\n\
+         Before delegating, inspect `restless people` and `restless teams list`. Actors are durable \
+         company roles, not disposable task labels: reuse an existing specialist across assignments \
+         and revisions. Only when a genuinely different capability is missing, commission it with \
+         `restless people create --id <stable-id> --role <role> --display <name> [--model <model>] \
+         --reason <difference this buys>`. Never encode a revision or retry in an actor id.\n\
+         You commission an outcome by creating a team charter and appointing one accountable lead. \
+         The lead assembles and reshapes the smallest differentiated roster; you do not choose every \
+         member or relay ordinary handoffs. A cross-team staffing need comes back to you rather than \
+         one lead poaching another team's member. Teams coordinate Work and grant no effect, secret, \
+         budget, or approval authority.\n\
+         Delegated machine work has one form: `restless work add`. Give each node a stable outcome, \
+         existing owner role/model, expected artifact and exact workspace. Declare its initial \
+         dependencies in that same command with repeatable `--requires <prerequisite-work-id>` and \
+         `--revises <producer-work-id>` flags; they commit atomically so the scheduler cannot claim a \
+         half-built node. `work edge` is for a later graph repair. For requires, `--from` is the \
+         prerequisite and `--to` is the dependent; revises runs reviewer to producer. Remove a \
+         mistaken edge with `--remove --as <actor> --reason <evidence>`. The \
+         scheduler starts ready nodes itself. Messages and process commands never own work.\n\
+         Producers link exact outputs with restless work artifact; deterministic checks belong \
+         in restless work gate. A review result of changes_requested invalidates its producer \
+         and hard descendants into a new revision. Conversations stay free-form; the graph owns \
+         kickoff, handover and input versions. A failed Attempt or rejected review stays blocked: \
+         the accountable lead changes the smallest failed mechanism and records it with \
+         `restless work resume --work <id> --reason <what changed>` before another Attempt starts.\n\
+         restless work handoff is only for identity, CAPTCHA, MFA, legal attestation, payment \
+         confirmation, or irreducible owner judgement. Preserve the prepared browser state and \
+         name an observable resume condition. Ordinary failure is not an owner browser task.\n\
+         --prepared is the owner's primary reading surface for this decision, and it is rendered \
+         as Markdown. Write it as scannable structure, not one paragraph: lead with the exact \
+         thing to look at and its link, then short bullets for evidence, gates and known gaps. \
+         A wall of prose is how a decision gets deferred rather than made.\n\n\
          # Affecting the world [internal decision]\n\
-         `restless effect --key <idempotency-key> --args '<json>' <capability>` is the ONLY way to \
-         reach outside this company. Capabilities available to you: {capabilities}. Asking for one \
-         that does not exist tells you what does — you never have to guess. Every effect returns a \
-         receipt; a repeated key returns the stored receipt instead of acting twice.\n\n\
+         Use installed Linux tools directly for reversible work. Wrap material external argv with \
+         restless effect --class <class> --purpose <why> [--party <party>] \
+         [--artifact <path-or-url>] [--secret ENV=<binding>] --key <key> -- \
+         <program> <args...>. Restless does not own an email or Git API: it gates \
+         the ordinary process, injects named secrets only into that child, and records generic JSON. \
+         Probe tools with their own help, commands, doctor, or dry-run support. A _test company \
+         must use a fake CLI and cannot receive live secret bindings.\n\n\
          # What your receipts actually record [observation — stronger than your own notes]\n\
          {ledger}\n\
          These are counted from kernel receipts, not from your journal. If your plan or \
@@ -175,14 +193,27 @@ pub fn assemble(snapshot: &ContextSnapshot) -> ContextPackage {
          something, and say so plainly if the remaining budget cannot finish the job.\n\n\
          # Current plan [working hypothesis]\n{plan}\n\n\
          # Latest journal entry [historical memory]\n{journal}\n\n\
-         # Open commitments [internal decision]\n{commitments}\
-         # Inbox\n{inbox}\
+         # Open Work graph [internal decision]\n{work}\
+         # Inbox\n{inbox}\n\
+         # Organisational judgement you owe\n{judgements}\n\
+         Resolve what company-wide context can settle with `restless work resolve-handoff --handoff <id> --as exec --state resolved --resolution <answer>`. Only if real owner judgement remains, use `restless work escalate-handoff --handoff <id> --as exec --reason <what you tried and the bounded owner decision>`. Team uncertainty must not jump directly to the owner.\n\n\
+         # Replying to owner input [working protocol]\n\
+         The owner writes once; never ask them to choose a message mode. Use judgement to interpret \
+         each owner input as exactly one of: conversation, work_feedback, direction, or authority. \
+         Conversation changes no durable state. Work feedback belongs to exact Work context. Direction \
+         changes the durable company plan or priorities. Authority is only a request: your interpretation \
+         can never approve, revoke, raise a budget, or unlock an effect. Bring that back as a bounded \
+         explicit owner action.\n\
+         Reply to the owner with `restless message --from exec '<your reply>'`. Confirm the interpretation \
+         in plain language, then end the message with exactly one machine-readable line:\n\
+         <!--restless-intent:{{\"kind\":\"conversation|work_feedback|direction|authority\",\"summary\":\"one short plain-language interpretation\"}}-->\n\
+         Choose one real kind, not the pipe-separated example. If direction changed the plan, update \
+         `/company/org/exec/current-plan.md` before claiming that it did.\n\
          # This wake [owner directive]\n{reason}\n\n\
          Work this turn. Use the tools. Write files. Stop when the turn's work is done.",
         constitution = snapshot.constitution.trim(),
         name = snapshot.company,
         mission = snapshot.mission,
-        capabilities = capabilities,
         ledger = snapshot.effect_ledger.trim(),
         signals = signals,
         remaining = snapshot.budget_remaining_usd,
@@ -201,15 +232,20 @@ pub fn assemble(snapshot: &ContextSnapshot) -> ContextPackage {
             .latest_journal
             .as_deref()
             .unwrap_or("(none yet — first wake)"),
-        commitments = if commitments.is_empty() {
+        work = if work.is_empty() {
             "(none)\n".to_string()
         } else {
-            commitments
+            work
         },
         inbox = if inbox.is_empty() {
             "(empty)\n".to_string()
         } else {
             inbox
+        },
+        judgements = if judgements.is_empty() {
+            "(none)\n".to_string()
+        } else {
+            judgements
         },
         reason = snapshot.wake_reason,
     );
@@ -220,7 +256,7 @@ pub fn assemble(snapshot: &ContextSnapshot) -> ContextPackage {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use restless_orgintel::CommitmentState;
+    use restless_orgintel::WorkStatus;
 
     fn snapshot() -> ContextSnapshot {
         ContextSnapshot {
@@ -229,23 +265,31 @@ mod tests {
             mission: "make the thing".into(),
             current_plan: "# plan\nstep 1".into(),
             latest_journal: Some("== 0001.md ==\ndid step 0".into()),
-            open_commitments: vec![CommitmentRow {
+            open_work: vec![WorkRow {
                 id: uuid::Uuid::nil(),
                 goal_id: None,
                 owner_id: "exec".into(),
                 title: "milestone: probe".into(),
-                body: "make the thing".into(),
-                state: CommitmentState::Active,
+                outcome: "make the thing".into(),
+                status: WorkStatus::Active,
                 resolution: String::new(),
+                priority: 0,
+                expected_artifact: String::new(),
+                repo: None,
+                base_ref: None,
+                integration_branch: None,
+                worktree: None,
+                revision: 1,
+                attempt_limit: None,
                 created_at: chrono::Utc::now(),
                 updated_at: chrono::Utc::now(),
             }],
             inbox: vec![],
+            owed_judgements: vec![],
             wake_reason: "owner-requested wake".into(),
             budget_remaining_usd: 7.5,
             budget_ceiling_usd: 10.0,
-            capabilities: vec!["email.send".into(), "web.deploy".into()],
-            effect_ledger: "email.send 3 · GBP 27.00 moved".into(),
+            effect_ledger: "customer-contact.email 3 · GBP 27.00 moved".into(),
             org_signals: vec!["\"ship the thing\" is blocked and waiting on someone".into()],
         }
     }
@@ -275,6 +319,8 @@ mod tests {
             "new state must change the digest"
         );
         assert!(third.text.contains("prioritise the red one"));
-        assert!(third.text.contains("[owner directive] from owner"));
+        assert!(third
+            .text
+            .contains("[owner input — classify before applying] from owner"));
     }
 }

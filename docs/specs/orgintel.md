@@ -46,7 +46,7 @@ Its actual intelligence is:
 3. **Repair** — detect and correct local bottlenecks without losing useful work.
 4. **Evolution** — improve actors, tools, processes, delegation, and organisational structure from real outcomes.
 
-Goals, commitments, messages, schedules, and context management are supporting mechanisms.
+Goals, Work nodes, messages, schedules, and context management are supporting mechanisms.
 
 ## 1.2 Success and falsification
 
@@ -99,7 +99,7 @@ Owner
 │ external effects · receipts · stop/recovery           │
 │                                                       │
 │ OrgIntel service + OrgIntel database                  │
-│ actors · goals · commitments · inboxes · schedules    │
+│ actors · goals · Work nodes · inboxes · schedules    │
 │ decisions · learning · context assembly · continuity  │
 │                         │                             │
 │                         │ authenticated coordination  │
@@ -118,7 +118,7 @@ The separation exists to preserve organisational continuity when the work machin
 OrgIntel owns the current coordination picture:
 
 - durable actors, roles, profiles, and sessions;
-- goals and commitments;
+- goals and Work nodes;
 - messages, schedules, decisions, hypotheses, and learning;
 - references to artifacts and external effects;
 - context packages, memory indexes, health signals, and process defaults.
@@ -230,7 +230,7 @@ The four modes are:
 
 ### Sense
 
-Gather the smallest useful picture of reality: external outcomes, artifact and test results, customer behaviour, current commitments, blockers, resource use, and relevant environmental changes.
+Gather the smallest useful picture of reality: external outcomes, artifact and test results, customer behaviour, current Work nodes, blockers, resource use, and relevant environmental changes.
 
 Agent narration is weak evidence unless supported by artifacts or observations.
 
@@ -319,7 +319,7 @@ Useful signals include:
 
 - no useful artifact appears within an expected window;
 - an actor repeats the same failed approach;
-- one dependency blocks several commitments;
+- one dependency blocks several Work nodes;
 - review loops without material improvement;
 - overload, unresponsiveness, or duplicated work;
 - rising cost with weak progress;
@@ -537,7 +537,7 @@ Shared spine:
 Local depth:
 
 - role and decision rights;
-- active commitments and relevant messages;
+- active Work nodes and relevant messages;
 - deep task files and history;
 - linked hypotheses, evidence, and standards;
 - expected output, receiver, blockers, and deadlines.
@@ -566,7 +566,7 @@ Assembly rules:
 Memory exists to improve future decisions, not archive everything.
 
 1. **Working state:** current task notes and scratch files.
-2. **Operational memory:** commitments, recent decisions, blockers, and handoffs.
+2. **Operational memory:** Work nodes, recent decisions, blockers, and handoffs.
 3. **Actor memory:** durable lessons, style, relationships, and competence evidence.
 4. **Institutional memory:** doctrine, major decisions, playbooks, and accepted knowledge.
 
@@ -584,29 +584,37 @@ The stable coordination substrate should stay small:
 
 - **Actor** — durable organisational identity.
 - **Goal** — desired outcome.
-- **Commitment** — one actor’s responsibility to produce or decide something.
+- **Work** — one actor’s durable responsibility for one outcome and workspace.
+- **Attempt** — one execution of one Work revision with immutable inputs.
+- **Work edge** — `requires` for hard acyclic dependency; `revises` for review feedback that may cycle.
 - **Message** — targeted communication.
 - **Decision** — named choice with owner and rationale.
-- **Schedule** — durable future wakeup or review.
+- **Schedule** — durable future time fact that can release its exact blocker.
+- **Owner handoff** — a prepared last mile for identity, CAPTCHA, MFA, legal attestation, payment confirmation, or irreducible owner judgement.
 - **Artifact reference** — pointer to real work in files, Git, or external tools.
 - **Event** — lightweight operational observation.
 
 Hypotheses, experiments, process templates, actor profiles, and knowledge claims may begin as files with indexes and references.
 
-A commitment initially needs only:
+A Work initially needs only:
 
 ```text
 outcome
 owner
 status: proposed | active | blocked | completed | abandoned
 priority
-dependencies
+workspace: repo / base ref / integration branch / worktree
+revision and optional attempt limit
+requires and revises edges
 expected artifact or decision
 relevant links
-next review or wakeup
 ```
 
-Do not add leases, custody protocols, canonical review states, or universal commands without repeated dogfood evidence.
+The scheduler atomically claims only ready Work and creates the Attempt before Staff starts. The
+Attempt records the exact upstream artifact versions, input fingerprint, and Work-linked feedback it
+received. Review `changes_requested` invalidates the producer artifact and hard descendants into a
+new revision. Do not add leases, custody protocols, a scripted conversation lifecycle, or universal
+commands.
 
 ## 6.2 Communication
 
@@ -634,15 +642,21 @@ Defaults:
 - broadcasts are reserved for broad changes;
 - OrgIntel synthesises state so actors need not reread all messages.
 
-Important handoff:
+Deterministic work handoff:
 
 ```text
-requested outcome and context
-→ acknowledge or renegotiate
-→ produce artifact/result
-→ report completion or blocker
-→ accept, revise, or redirect
+Exec creates Work and edges
+→ scheduler claims a ready node and records Attempt inputs
+→ producer links the exact artifact and passes deterministic gates
+→ requires releases the dependent reviewer
+→ reviewer accepts, or revises returns feedback and increments producer revision
 ```
+
+Messages remain free-form and may be linked to Work as input context. They never become a second
+kickoff, assignment, handover protocol, or implicit review decision. An `owner_judgement` handoff
+resumes only when the owner explicitly accepts the outcome or requests changes; ordinary Work-linked
+chat stays open for questions and feedback. Other handoff categories resume only when their external
+condition is observed.
 
 ## 6.3 Teamwork patterns
 
@@ -673,7 +687,7 @@ delegating meant handing work to a copy of yourself with **less** context. That
 buys parallelism and nothing else, and an Exec that declines is reasoning
 correctly.
 
-Therefore a spawned actor must be able to differ in:
+Therefore an actor assigned ready Work must be able to differ in:
 
 - **Role** — its durable identity, recorded on the actor, so the owner can ask
   who did what. Never a generic label; the literal `"staff"` on every actor is
@@ -690,7 +704,7 @@ Exec had judged finished — including that it pattern-matched to spam and
 contained two competing asks. The producing actor had not seen any of them.
 
 **Two failure modes arrive with heterogeneity**, both observed on the first
-spawn and neither reachable with one model:
+specialist launch and neither reachable with one model:
 
 1. A provider error that arrives as message *content* rather than transport is
    reported as the specialist's failure. Every path that reads an agent's final
@@ -755,7 +769,7 @@ The Exec should not globally replan after every message or filesystem event.
 
 The observer combines deterministic signals with model judgment where interpretation is required.
 
-It may surface dormancy, stale commitments, repeated retries, cost anomalies, conflicting ownership, missing artifacts, duplication, review loops, expired assumptions, and high activity without useful output.
+It may surface dormancy, stale Work nodes, repeated retries, cost anomalies, conflicting ownership, missing artifacts, duplication, review loops, expired assumptions, and high activity without useful output.
 
 It should trigger awareness or a wakeup, not become a universal blocker.
 
@@ -804,13 +818,14 @@ A thin runtime bridge inside the sandbox:
 - establishes an authenticated connection to OrgIntel;
 - launches, stops, and observes ACP processes;
 - associates processes with durable `actor_id` and temporary `session_id` values;
+- launches Staff only after OrgIntel has atomically created a ready Work Attempt;
 - passes context packets and wakeups;
 - streams meaningful session events and results;
 - exposes the local OrgIntel tools used by agents.
 
 The bridge contains no planning policy, company ontology, or external authority. It is process and transport plumbing.
 
-The bridge launches Codex, Claude, or another compatible agent locally and communicates through ACP over stdio. Agents use a small local interface—MCP tools, CLI, or a Unix socket—to read inboxes, manage commitments, send messages, link artifacts, report blockers, request review, record decisions, and schedule follow-up.
+The bridge launches Codex, Claude, or another compatible agent locally and communicates through ACP over stdio. Agents use a small local interface—MCP tools, CLI, or a Unix socket—to read inboxes, manage Work nodes, send messages, link artifacts, report blockers, request review, record decisions, and schedule follow-up.
 
 Agents use Linux, files, Git, browsers, and project tools directly for productive work. OrgIntel does not proxy ordinary filesystem, shell, build, or browser activity.
 
@@ -825,7 +840,7 @@ OrgIntel and “the database” are not separate sources of truth. OrgIntel is t
 | State | Authoritative source |
 |---|---|
 | Owner mandate, company capabilities, budgets, approvals, external-effect intents and receipts, lifecycle | **Authority Kernel store** |
-| Actor identities and profiles, roles, goals, commitments, messages, schedules, decisions, hypotheses, experiments, organisational learning, session status, artifact references | **OrgIntel service and its store** |
+| Actor identities and profiles, roles, goals, Work nodes, dependency/revision edges, Attempts and their exact inputs, messages, schedules, owner handoffs, decisions, hypotheses, experiments, organisational learning, session status, artifact references | **OrgIntel service and its store** |
 | Code, documents, assets, builds, browser state, project databases, working files, installed tools, active experiments | **Company Runtime filesystem, Git, and domain applications** |
 | Email delivery, payments, deployments, CRM records, and other real-world outcomes | **External provider**, referenced by kernel receipts and OrgIntel records |
 
@@ -840,7 +855,7 @@ Authority Kernel database
 
 OrgIntel Postgres / managed documents
 - durable actors and identity packages
-- goals and commitments
+- goals, Work nodes, edges, Attempts, gates and owner handoffs
 - messages and schedules
 - decisions, hypotheses, experiments, and learning
 - session and health state
@@ -857,12 +872,12 @@ Company Runtime persistent storage
 Rules:
 
 - One concept has one authoritative owner. Derived views and caches are allowed; duplicate ownership is not.
-- OrgIntel owns a commitment and its status; the runtime owns the resulting artifact; the kernel knows nothing about the commitment unless an external effect is requested.
+- OrgIntel owns a Work and its status; the runtime owns the resulting artifact; the kernel knows nothing about the Work unless an external effect is requested.
 - OrgIntel may reference a Git commit, file, build URL, provider record, or kernel receipt, but does not copy that object into a universal artifact store.
 - Agents mutate OrgIntel-owned state only through authenticated APIs, not direct database access.
 - There are no cross-layer foreign keys. References are stable identifiers plus reconciliation logic.
 - Ordinary optimistic concurrency is sufficient. Do not introduce distributed leases or exactly-once semantics for routine internal work.
-- After restart or restore, reconcile expected sessions with processes, commitments with files and Git, schedules with current time, and pending effects with Authority Kernel receipts.
+- After restart or restore, reconcile expected sessions with processes, Work nodes with files and Git, schedules with current time, and pending effects with Authority Kernel receipts.
 - Stale coordination state must never invalidate useful productive artifacts.
 
 ## 8.3 Failure posture
@@ -874,7 +889,7 @@ Rules:
 - **Agent/model failure:** preserve artifacts; retry only when likely to help; reassign or change strategy when repeated.
 - **Stale coordination state:** warn, reconcile, or repair; do not invalidate completed work.
 - **Kernel unavailable:** internal work continues; consequential external effects pause.
-- **Runtime snapshot restore:** OrgIntel and kernel history do not roll back with the work machine; reconcile files, commitments, and effects before repeating consequential actions.
+- **Runtime snapshot restore:** OrgIntel and kernel history do not roll back with the work machine; reconcile files, Work nodes, and effects before repeating consequential actions.
 - **Broken extension:** boot the stable OrgIntel service and runtime bridge with experimental extensions disabled while preserving company work.
 
 ---
@@ -938,18 +953,21 @@ Outcome:
 
 Tests cross-functional handoffs, live exceptions, product repair, external delegation, customer retention, and business value.
 
-### Simulated external world
+### Throwaway-company effect scenarios
 
-Use production-shaped adapters with deterministic simulation for success, denial, budget exhaustion, delayed replies, timeouts before/after execution, duplicates, ambiguous outcomes, approval delay, and seeded customer behaviour.
+Use a deterministic fake CLI through the generic governed-process path in a `_test` company for
+success, denial, budget exhaustion, delay, confirmed failure, duplicate keys, ambiguous outcomes and
+reconciliation. Behavioural inputs may be seeded files or messages, but never a provider-shaped
+capability whose output can be mistaken for a live company fact.
 
 ```text
-scripted simulation
-→ noisy behavioural simulation
+deterministic fake CLI and controlled input
+→ real tool dry-run/status probe
 → small controlled real operation
 → larger real dogfood
 ```
 
-Simulation proves system behaviour, not real market demand.
+The `_test` run proves system behaviour, not real market demand.
 
 ## 9.4 Evaluation method
 
@@ -983,7 +1001,7 @@ V0 includes:
 4. One durable Exec identity and durable actor records owned by OrgIntel.
 5. Temporary ACP sessions launched by the bridge over local stdio.
 6. A small local actor interface through MCP, CLI, or Unix socket.
-7. OrgIntel records for actors, sessions, goals, commitments, messages, schedules, decisions, hypotheses, learning, artifact references, and lightweight events.
+7. OrgIntel records for actors, sessions, goals, Work nodes, dependency/revision edges, Attempts and inputs, messages, schedules, owner handoffs, gates, decisions, hypotheses, learning, artifact references, and lightweight events.
 8. Runtime files and Git for actual work, project doctrine, active experiments, builds, and project-specific state.
 9. Shared-spine/local-depth context assembly.
 10. Durable scheduled and event-driven wakeups.
@@ -1013,11 +1031,11 @@ Do not build in V0:
 1. Boot the OrgIntel service, OrgIntel Postgres, and a separate persistent Company Runtime sandbox.
 2. Connect a thin runtime bridge and prove launch, health, disconnect, and reconnect.
 3. Launch a durable Exec through ACP and accept an owner directive.
-4. Add commitments, messaging, worker spawn, and artifact linking.
+4. Add Work nodes and edges, atomic ready-Work claim, Attempt input capture, messaging, and artifact linking.
 5. Assemble shared-spine and actor-specific context from OrgIntel state plus runtime artifacts.
 6. Add durable wakeups and missed-wakeup recovery outside the sandbox.
 7. Run one bounded hypothesis branch and let the Exec choose, repair, or stop.
-8. Request and reconcile one simulated external effect.
+8. Invoke a deterministic fake CLI through the generic effect runner in a `_test` company; interrupt it and reconcile from a separate status-check receipt.
 9. Kill a worker, the runtime, and OrgIntel independently; recover without losing the wrong layer's truth.
 10. Restore an older runtime snapshot and reconcile against current OrgIntel and kernel state.
 11. Complete one dogfood outcome and compare it with a baseline.

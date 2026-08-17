@@ -5,7 +5,7 @@
 //! not guessed). The CLI is a dumb client: the trust boundary is the
 //! daemon's listeners, not this binary (§6.1).
 //!
-//! Environment defaults (so agents can just type `restless commitments`):
+//! Environment defaults (so agents can just type `restless work list`):
 //!   RESTLESS_COMPANY      — whose coordination state to touch
 //!   RESTLESS_ACTOR        — who "message send" is from
 //!   RESTLESS_COORDINATOR  — host:port; when set, TCP instead of unix socket
@@ -51,7 +51,7 @@ enum Command {
         /// Clone a live company's mission and config into this one as a
         /// throwaway (S04-T1). Target name must end in `_test`; every real
         /// provider, credential, standing approval and the sender address are
-        /// stripped, so the worst outcome of a mistake is a simulated send.
+        /// stripped. Install a deterministic fake CLI to exercise effects.
         #[arg(long)]
         from: Option<String>,
         /// Rebuild the company image from this Restless source tree and
@@ -123,19 +123,39 @@ enum Command {
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         command: Vec<String>,
     },
-    /// Who is in this company: role, model, and what each has cost (S04-T9).
+    /// Inspect, commission, or explicitly retire durable company actors.
     People {
+        #[arg(long, short = 'c', env = "RESTLESS_COMPANY", global = true)]
+        company: Option<String>,
+        /// Include explicitly retired actors in the list.
+        #[arg(long)]
+        include_retired: bool,
+        #[command(subcommand)]
+        command: Option<PeopleCommand>,
+    },
+    /// Teams and the leads accountable for them. A lead absorbs coordination and
+    /// judgement below the Exec so they stop reaching the owner (S06-T4).
+    Teams {
+        #[command(subcommand)]
+        command: TeamCommand,
+    },
+    /// Judgement an actor owes — a team lead's queue, the same shape as the
+    /// owner's `attention` (S06-T5).
+    Judgement {
         #[arg(long, short = 'c', env = "RESTLESS_COMPANY")]
         company: Option<String>,
+        /// The actor whose queue to read.
+        #[arg(long = "as")]
+        as_actor: String,
     },
     /// What the company's receipts actually record — the strongest evidence
     /// the system holds about what it did to the world.
     Receipts {
         #[arg(long, short = 'c', env = "RESTLESS_COMPANY")]
         company: Option<String>,
-        /// Only this capability, e.g. `email.send`.
-        #[arg(long)]
-        capability: Option<String>,
+        /// Only this governance class, e.g. `customer-contact.email`.
+        #[arg(long = "class")]
+        effect_class: Option<String>,
         #[arg(long, default_value = "50")]
         limit: i64,
     },
@@ -144,15 +164,39 @@ enum Command {
         #[arg(long, short = 'c', env = "RESTLESS_COMPANY")]
         company: Option<String>,
     },
-    /// List goals.
-    Goals {
+    /// Preview or apply an audited correction to exact duplicate spend records.
+    /// Preview is the default; mutation requires both owner authority and --apply.
+    SpendCorrect {
         #[arg(long, short = 'c', env = "RESTLESS_COMPANY")]
         company: Option<String>,
+        /// Stable idempotency/audit UUID chosen before the correction is attempted.
+        #[arg(long = "correction-id")]
+        correction_id: String,
+        /// Exact duplicated request UUID. Repeat for every record being removed.
+        #[arg(long = "request", required = true)]
+        request_ids: Vec<String>,
+        /// Exact negative cost of the referenced records, in micro-USD.
+        #[arg(long, allow_hyphen_values = true)]
+        delta_micro_usd: i64,
+        /// Why these exact records are duplicates.
+        #[arg(long)]
+        reason: String,
+        /// Append the correction. Omit this flag for a read-only preview.
+        #[arg(long)]
+        apply: bool,
     },
-    /// List commitments (all states).
-    Commitments {
-        #[arg(long, short = 'c', env = "RESTLESS_COMPANY")]
+    /// Inspect and create Goals, or attach existing Work to one.
+    #[command(alias = "goals")]
+    Goal {
+        #[arg(long, short = 'c', env = "RESTLESS_COMPANY", global = true)]
         company: Option<String>,
+        #[command(subcommand)]
+        command: Option<GoalCommand>,
+    },
+    /// Inspect and change the one canonical Work graph.
+    Work {
+        #[command(subcommand)]
+        command: WorkCommand,
     },
     /// Recent events from the operational stream (newest first).
     Events {
@@ -176,44 +220,11 @@ enum Command {
         from: Option<String>,
         #[arg(long)]
         to: Option<String>,
+        /// Link this message to exact Work. With --to, owner → Work lead;
+        /// without --to, the accountable lead → owner.
+        #[arg(long)]
+        work: Option<String>,
         body: String,
-    },
-    /// Report a commitment completed or blocked (the agents' report path).
-    Commitment {
-        #[arg(long, short = 'c', env = "RESTLESS_COMPANY")]
-        company: Option<String>,
-        state: String,
-        id: String,
-        #[arg(long, default_value = "")]
-        resolution: String,
-    },
-    /// Hand a task to a staff member (S02-T2). Delegation is a tool the Exec
-    /// reaches for mid-turn, like every other capability — not a field in the
-    /// end-of-turn envelope, which is why three sprint-01 runs decomposed work
-    /// correctly and dispatched none of it.
-    Spawn {
-        #[arg(long, short = 'c', env = "RESTLESS_COMPANY")]
-        company: Option<String>,
-        /// Staff name: lowercase, digits and dashes. Becomes the actor id,
-        /// the worktree path, and the branch name.
-        #[arg(long)]
-        name: String,
-        /// Repository under /company/repos to give this staff a worktree of.
-        /// Omit for non-code work.
-        #[arg(long)]
-        repo: Option<String>,
-        /// What this actor IS — `copywriter`, `critic`, `engineer`. Becomes its
-        /// durable role, so the owner can ask who did what. Absent means a
-        /// generalist, which is honest but is not a team.
-        #[arg(long)]
-        role: Option<String>,
-        /// Provider-qualified model for this role. Absent inherits the
-        /// company's. A critic running the producer's own model on the
-        /// producer's own context is an echo chamber with a second invoice.
-        #[arg(long)]
-        model: Option<String>,
-        /// What to do and why, in enough detail to work unsupervised.
-        task: String,
     },
     /// Clear a fail-closed spend poison after inspecting why it happened.
     /// A poison stops a company dead; without this it stops it forever.
@@ -238,16 +249,362 @@ enum Command {
         #[arg(long, conflicts_with = "revoke")]
         decline: bool,
     },
-    /// Request an external effect (T8). Args are JSON.
+    /// Run an ordinary command as a governed external effect.
     Effect {
         #[arg(long, short = 'c', env = "RESTLESS_COMPANY")]
         company: Option<String>,
-        capability: String,
-        #[arg(long, default_value = "{}")]
-        args: String,
+        #[arg(long = "class")]
+        effect_class: String,
+        #[arg(long)]
+        party: Option<String>,
+        /// Human-readable reason for this material consequence.
+        #[arg(long)]
+        purpose: String,
+        /// Runtime artifact or attachment URI carried by the effect.
+        #[arg(long = "artifact")]
+        artifacts: Vec<String>,
+        /// Map one child-process env name to a configured secret binding,
+        /// e.g. RESEND_API_KEY=resend.production.
+        #[arg(long = "secret")]
+        secrets: Vec<String>,
+        #[arg(long, default_value = "/company")]
+        cwd: String,
         /// Idempotency key: a retry with the same key replays the receipt.
         #[arg(long)]
         key: String,
+        #[arg(required = true, trailing_var_arg = true, allow_hyphen_values = true)]
+        command: Vec<String>,
+    },
+    /// Resolve an interrupted effect only after a separate status-check
+    /// receipt establishes what the external tool observed.
+    EffectReconcile {
+        #[arg(long, short = 'c', env = "RESTLESS_COMPANY")]
+        company: Option<String>,
+        #[arg(long)]
+        key: String,
+        #[arg(long)]
+        execution: i32,
+        /// succeeded or failed.
+        #[arg(long)]
+        result: String,
+        #[arg(long)]
+        evidence_receipt: String,
+    },
+    /// Internal stdin bridge used by the trusted host daemon. It receives
+    /// one process envelope and never resolves credentials itself.
+    #[command(hide = true)]
+    EffectChild,
+}
+
+#[derive(serde::Deserialize)]
+struct EffectChildEnvelope {
+    argv: Vec<String>,
+    env: std::collections::BTreeMap<String, String>,
+}
+
+#[derive(Subcommand)]
+enum PeopleCommand {
+    /// Commission one stable specialist after inspecting the current People list.
+    Create {
+        /// Stable organisational id; do not encode a Work revision in it.
+        #[arg(long)]
+        id: String,
+        #[arg(long)]
+        role: String,
+        #[arg(long)]
+        display: String,
+        #[arg(long)]
+        model: Option<String>,
+        /// What difference this specialist buys over the actors already listed.
+        #[arg(long)]
+        reason: String,
+    },
+    /// Retire an unused actor without deleting its Work or attribution.
+    Retire {
+        #[arg(long)]
+        actor: String,
+        #[arg(long)]
+        reason: String,
+    },
+}
+
+#[derive(Subcommand)]
+enum TeamCommand {
+    /// Live teams with their leads and members.
+    List {
+        #[arg(long, short = 'c', env = "RESTLESS_COMPANY")]
+        company: Option<String>,
+    },
+    /// Form a team around an accountable lead. The lead joins its own team.
+    Create {
+        #[arg(long, short = 'c', env = "RESTLESS_COMPANY")]
+        company: Option<String>,
+        #[arg(long)]
+        name: String,
+        /// The actor accountable for this team.
+        #[arg(long)]
+        lead: String,
+        /// Why this team exists and what it is accountable for.
+        #[arg(long)]
+        brief: String,
+    },
+    /// Rename a team or revise its outcome charter. Owner/Exec only.
+    Update {
+        #[arg(long, short = 'c', env = "RESTLESS_COMPANY")]
+        company: Option<String>,
+        /// Team name or id.
+        #[arg(long)]
+        team: String,
+        #[arg(long)]
+        name: Option<String>,
+        #[arg(long)]
+        brief: Option<String>,
+        #[arg(long)]
+        reason: String,
+    },
+    /// Move an actor into a team, or out of every team with `--team none`.
+    Assign {
+        #[arg(long, short = 'c', env = "RESTLESS_COMPANY")]
+        company: Option<String>,
+        #[arg(long)]
+        actor: String,
+        /// Team name or id, or `none` to unassign.
+        #[arg(long)]
+        team: String,
+        /// What capability, capacity, or repair this roster change buys.
+        #[arg(long)]
+        reason: String,
+    },
+    /// Replace a team's accountable lead.
+    Lead {
+        #[arg(long, short = 'c', env = "RESTLESS_COMPANY")]
+        company: Option<String>,
+        /// Team name or id.
+        #[arg(long)]
+        team: String,
+        #[arg(long)]
+        actor: String,
+        #[arg(long)]
+        reason: String,
+    },
+    /// Disband a team. Members become unassigned and any judgement the team
+    /// still owed falls through to the Exec, recorded rather than dropped.
+    Disband {
+        #[arg(long, short = 'c', env = "RESTLESS_COMPANY")]
+        company: Option<String>,
+        /// Team name or id.
+        #[arg(long)]
+        team: String,
+        #[arg(long)]
+        reason: String,
+    },
+}
+
+#[derive(Subcommand)]
+enum WorkCommand {
+    List {
+        #[arg(long, short = 'c', env = "RESTLESS_COMPANY")]
+        company: Option<String>,
+    },
+    /// Read the complete graph projection, including Attempts and evidence.
+    Graph {
+        #[arg(long, short = 'c', env = "RESTLESS_COMPANY")]
+        company: Option<String>,
+    },
+    Attempts {
+        #[arg(long, short = 'c', env = "RESTLESS_COMPANY")]
+        company: Option<String>,
+        #[arg(long)]
+        work: Option<String>,
+    },
+    Add {
+        #[arg(long, short = 'c', env = "RESTLESS_COMPANY")]
+        company: Option<String>,
+        #[arg(long)]
+        owner: String,
+        #[arg(long)]
+        role: String,
+        #[arg(long)]
+        model: Option<String>,
+        #[arg(long)]
+        title: String,
+        #[arg(long)]
+        outcome: String,
+        #[arg(long, default_value_t = 0)]
+        priority: i16,
+        #[arg(long, default_value = "")]
+        expected_artifact: String,
+        #[arg(long)]
+        repo: Option<String>,
+        #[arg(long)]
+        base_ref: Option<String>,
+        #[arg(long)]
+        integration_branch: Option<String>,
+        #[arg(long)]
+        worktree: Option<String>,
+        #[arg(long)]
+        attempt_limit: Option<i32>,
+        /// Existing Goal this Work serves.
+        #[arg(long)]
+        goal: Option<String>,
+        /// Existing Work this node requires. Repeat for more than one. These
+        /// edges are committed atomically with the node so it cannot start
+        /// against a half-built graph.
+        #[arg(long)]
+        requires: Vec<String>,
+        /// Existing producer Work this reviewer may revise. Repeat for more
+        /// than one; committed atomically with the node.
+        #[arg(long)]
+        revises: Vec<String>,
+    },
+    Edge {
+        #[arg(long, short = 'c', env = "RESTLESS_COMPANY")]
+        company: Option<String>,
+        #[arg(long)]
+        from: String,
+        #[arg(long)]
+        to: String,
+        #[arg(long)]
+        kind: String,
+        /// Remove this edge instead of adding it.
+        #[arg(long)]
+        remove: bool,
+        /// Why the dependency is wrong. Required with --remove.
+        #[arg(long)]
+        reason: Option<String>,
+        /// Owner, Exec, or the accountable lead making the repair.
+        #[arg(long = "as", env = "RESTLESS_ACTOR")]
+        as_actor: Option<String>,
+    },
+    Artifact {
+        #[arg(long, short = 'c', env = "RESTLESS_COMPANY")]
+        company: Option<String>,
+        #[arg(long)]
+        work: String,
+        #[arg(long)]
+        attempt: String,
+        #[arg(long)]
+        kind: String,
+        #[arg(long)]
+        uri: String,
+        #[arg(long)]
+        digest: Option<String>,
+        #[arg(long)]
+        source_commit: Option<String>,
+        #[arg(long, default_value = "output")]
+        label: String,
+        #[arg(long, default_value = "")]
+        note: String,
+    },
+    Gate {
+        #[arg(long, short = 'c', env = "RESTLESS_COMPANY")]
+        company: Option<String>,
+        #[arg(long)]
+        work: String,
+        #[arg(long)]
+        name: String,
+        #[arg(long)]
+        cwd: String,
+        #[arg(required = true, trailing_var_arg = true, allow_hyphen_values = true)]
+        command: Vec<String>,
+    },
+    Handoff {
+        #[arg(long, short = 'c', env = "RESTLESS_COMPANY")]
+        company: Option<String>,
+        #[arg(long)]
+        work: String,
+        #[arg(long)]
+        attempt: Option<String>,
+        #[arg(long)]
+        category: String,
+        #[arg(long)]
+        action: String,
+        #[arg(long)]
+        prepared: String,
+        #[arg(long)]
+        resume_when: String,
+    },
+    /// Record the observed outcome of one prepared owner handoff.
+    ResolveHandoff {
+        #[arg(long, short = 'c', env = "RESTLESS_COMPANY")]
+        company: Option<String>,
+        #[arg(long)]
+        handoff: String,
+        /// resolved, declined, or withdrawn.
+        #[arg(long)]
+        state: String,
+        #[arg(long)]
+        resolution: String,
+        #[arg(long = "as", env = "RESTLESS_ACTOR")]
+        as_actor: Option<String>,
+    },
+    /// Pass a judgement up because it is outside this actor's remit. The chain
+    /// is recorded: the owner sees who tried first and why they stopped.
+    EscalateHandoff {
+        #[arg(long, short = 'c', env = "RESTLESS_COMPANY")]
+        company: Option<String>,
+        #[arg(long)]
+        handoff: String,
+        /// The actor passing it up. Must be the actor it is assigned to.
+        #[arg(long = "as")]
+        as_actor: String,
+        #[arg(long)]
+        reason: String,
+    },
+    /// Resume a blocked node after changing the failed mechanism.
+    Resume {
+        #[arg(long, short = 'c', env = "RESTLESS_COMPANY")]
+        company: Option<String>,
+        #[arg(long)]
+        work: String,
+        #[arg(long)]
+        reason: String,
+        #[arg(long = "as", env = "RESTLESS_ACTOR")]
+        as_actor: Option<String>,
+    },
+    /// Retire superseded or no-longer-needed Work without deleting its history.
+    Abandon {
+        #[arg(long, short = 'c', env = "RESTLESS_COMPANY")]
+        company: Option<String>,
+        #[arg(long)]
+        work: String,
+        #[arg(long)]
+        reason: String,
+        #[arg(long = "as", env = "RESTLESS_ACTOR")]
+        as_actor: Option<String>,
+    },
+    /// Record the owner's explicit judgement on a prepared outcome.
+    Review {
+        #[arg(long, short = 'c', env = "RESTLESS_COMPANY")]
+        company: Option<String>,
+        #[arg(long)]
+        handoff: String,
+        /// accept or request_changes.
+        #[arg(long)]
+        decision: String,
+        /// Exact revision guidance. Required for request_changes.
+        #[arg(long, default_value = "")]
+        feedback: String,
+    },
+}
+
+#[derive(Subcommand)]
+enum GoalCommand {
+    /// List the company's Goals.
+    List,
+    /// Create one durable desired outcome.
+    Add {
+        #[arg(long)]
+        title: String,
+        #[arg(long, default_value = "")]
+        body: String,
+    },
+    /// Attach or reassign existing Work to an existing Goal.
+    Attach {
+        #[arg(long)]
+        work: String,
+        #[arg(long)]
+        goal: String,
     },
 }
 
@@ -263,14 +620,22 @@ enum CompanyCommand {
         #[arg(long, short = 'c', env = "RESTLESS_COMPANY")]
         company: Option<String>,
     },
-    /// Set one deterministic configuration key: mission, model,
-    /// spend_ceiling_usd, from_address, providers.<capability>, or
-    /// credentials.<capability>. Name is immutable; create a new company.
+    /// Set one deterministic configuration key: mission, model, model_failover
+    /// (a comma-separated ordered list),
+    /// spend_ceiling_usd, or credentials.<binding>. Name is immutable.
     Set {
         #[arg(long, short = 'c', env = "RESTLESS_COMPANY")]
         company: Option<String>,
         key: String,
         value: String,
+    },
+    /// Remove one named credential binding from company config. This removes
+    /// only the reference; deleting backend secret material is a separate
+    /// owner operation at that backend.
+    Unset {
+        #[arg(long, short = 'c', env = "RESTLESS_COMPANY")]
+        company: Option<String>,
+        key: String,
     },
     /// List configured companies.
     List,
@@ -278,11 +643,11 @@ enum CompanyCommand {
 
 #[derive(Subcommand)]
 enum CredentialCommand {
-    /// Store a capability's scheme:locator reference, never its value.
+    /// Store a named binding's scheme:locator reference, never its value.
     Set {
         #[arg(long, short = 'c', env = "RESTLESS_COMPANY")]
         company: Option<String>,
-        capability: String,
+        binding: String,
         reference: String,
         /// Forward a value from @<file> or `-` (stdin) to a supporting backend.
         /// Secret material is never accepted as an argv value.
@@ -335,6 +700,20 @@ fn principal() -> &'static str {
     }
 }
 
+/// OrgIntel attribution is not kernel authority, but it must still name the
+/// actor that made a coordination change. A missing actor inside the company
+/// is the Exec, never the owner; otherwise an unset environment variable would
+/// turn an ordinary runtime command into a forged owner override.
+fn acting_actor() -> String {
+    std::env::var("RESTLESS_ACTOR").unwrap_or_else(|_| {
+        if principal() == "company/exec" {
+            "exec".to_string()
+        } else {
+            "owner".to_string()
+        }
+    })
+}
+
 fn state_root() -> PathBuf {
     if let Ok(root) = std::env::var("RESTLESS_HOME") {
         return PathBuf::from(root);
@@ -346,6 +725,17 @@ fn state_root() -> PathBuf {
 fn main() -> Result<()> {
     let cli = Cli::parse();
     match cli.command {
+        Command::EffectChild => {
+            let envelope: EffectChildEnvelope = serde_json::from_reader(std::io::stdin())
+                .context("read governed child envelope")?;
+            let (program, args) = envelope.argv.split_first().context("empty child argv")?;
+            let status = std::process::Command::new(program)
+                .args(args)
+                .envs(envelope.env)
+                .status()
+                .with_context(|| format!("run governed child {program:?}"))?;
+            std::process::exit(status.code().unwrap_or(1));
+        }
         Command::Attach {
             company: name,
             command,
@@ -435,12 +825,15 @@ fn request_json(command: Command) -> Result<serde_json::Value> {
             } => serde_json::json!({
                 "cmd": "company-set", "company": company, "state": key, "body": value,
             }),
+            CompanyCommand::Unset { company, key } => serde_json::json!({
+                "cmd": "company-unset", "company": company, "state": key,
+            }),
             CompanyCommand::List => serde_json::json!({ "cmd": "company-list" }),
         },
         Command::Credential { command } => match command {
             CredentialCommand::Set {
                 company,
-                capability,
+                binding,
                 reference,
                 value,
             } => {
@@ -449,7 +842,7 @@ fn request_json(command: Command) -> Result<serde_json::Value> {
                     .transpose()?;
                 serde_json::json!({
                     "cmd": "credential-set", "company": company,
-                    "capability": capability, "body": reference,
+                    "capability": binding, "body": reference,
                     "secret_value": secret_value,
                 })
             }
@@ -511,21 +904,261 @@ fn request_json(command: Command) -> Result<serde_json::Value> {
         Command::Tell { company: c, body } => {
             serde_json::json!({ "cmd": "tell", "company": c, "body": body })
         }
-        Command::People { company: c } => serde_json::json!({ "cmd": "people", "company": c }),
+        Command::People {
+            company: c,
+            include_retired,
+            command,
+        } => match command {
+            None => serde_json::json!({
+                "cmd": "people", "company": c, "include_retired": include_retired,
+            }),
+            Some(PeopleCommand::Create {
+                id,
+                role,
+                display,
+                model,
+                reason,
+            }) => serde_json::json!({
+                "cmd": "actor-create", "company": c, "as_actor": id, "role": role,
+                "name": display, "model": model, "reason": reason,
+                "actor": acting_actor(),
+            }),
+            Some(PeopleCommand::Retire { actor, reason }) => serde_json::json!({
+                "cmd": "actor-retire", "company": c, "as_actor": actor, "reason": reason,
+                "actor": acting_actor(),
+            }),
+        },
+        Command::Judgement {
+            company: c,
+            as_actor,
+        } => serde_json::json!({ "cmd": "judgement", "company": c, "as_actor": as_actor }),
+        Command::Teams { command } => match command {
+            TeamCommand::List { company } => {
+                serde_json::json!({ "cmd": "teams", "company": company })
+            }
+            TeamCommand::Create {
+                company,
+                name,
+                lead,
+                brief,
+            } => serde_json::json!({
+                "cmd": "team-create", "company": company, "name": name, "to": lead,
+                "body": brief,
+                "actor": acting_actor(),
+            }),
+            TeamCommand::Update {
+                company,
+                team,
+                name,
+                brief,
+                reason,
+            } => serde_json::json!({
+                "cmd": "team-update", "company": company, "name": team,
+                "new_name": name, "body": brief, "reason": reason,
+                "actor": acting_actor(),
+            }),
+            TeamCommand::Assign {
+                company,
+                actor,
+                team,
+                reason,
+            } => serde_json::json!({
+                "cmd": "team-assign", "company": company, "as_actor": actor, "name": team,
+                "reason": reason,
+                "actor": acting_actor(),
+            }),
+            TeamCommand::Lead {
+                company,
+                team,
+                actor,
+                reason,
+            } => serde_json::json!({
+                "cmd": "team-lead", "company": company, "name": team, "to": actor,
+                "reason": reason,
+                "actor": acting_actor(),
+            }),
+            TeamCommand::Disband {
+                company,
+                team,
+                reason,
+            } => serde_json::json!({
+                "cmd": "team-disband", "company": company, "name": team, "reason": reason,
+                "actor": acting_actor(),
+            }),
+        },
         Command::Spend { company: c } => serde_json::json!({ "cmd": "spend", "company": c }),
+        Command::SpendCorrect {
+            company,
+            correction_id,
+            request_ids,
+            delta_micro_usd,
+            reason,
+            apply,
+        } => serde_json::json!({
+            "cmd": "spend-correct", "company": company, "correction_id": correction_id,
+            "request_ids": request_ids, "delta_micro_usd": delta_micro_usd,
+            "reason": reason, "apply": apply,
+        }),
         Command::Receipts {
             company: c,
-            capability,
+            effect_class,
             limit,
         } => serde_json::json!({
-            "cmd": "receipts", "company": c, "capability": capability, "limit": limit,
+            "cmd": "receipts", "company": c, "capability": effect_class, "limit": limit,
         }),
-        Command::Goals { company: c } => {
-            serde_json::json!({ "cmd": "goals", "company": c })
-        }
-        Command::Commitments { company: c } => {
-            serde_json::json!({ "cmd": "commitments", "company": c })
-        }
+        Command::Goal { company, command } => match command {
+            None | Some(GoalCommand::List) => {
+                serde_json::json!({ "cmd": "goals", "company": company })
+            }
+            Some(GoalCommand::Add { title, body }) => serde_json::json!({
+                "cmd": "goal-add", "company": company, "title": title, "body": body,
+                "actor": acting_actor(),
+            }),
+            Some(GoalCommand::Attach { work, goal }) => serde_json::json!({
+                "cmd": "work-goal", "company": company, "id": work, "goal": goal,
+                "actor": acting_actor(),
+            }),
+        },
+        Command::Work { command } => match command {
+            WorkCommand::List { company } => {
+                serde_json::json!({ "cmd": "work", "company": company })
+            }
+            WorkCommand::Graph { company } => {
+                serde_json::json!({ "cmd": "work-graph", "company": company })
+            }
+            WorkCommand::Attempts { company, work } => serde_json::json!({
+                "cmd": "work-attempts", "company": company, "id": work,
+            }),
+            WorkCommand::Add {
+                company,
+                owner,
+                role,
+                model,
+                title,
+                outcome,
+                priority,
+                expected_artifact,
+                repo,
+                base_ref,
+                integration_branch,
+                worktree,
+                attempt_limit,
+                goal,
+                requires,
+                revises,
+            } => serde_json::json!({
+                "cmd": "work-add", "company": company, "actor": owner, "role": role,
+                "model": model, "title": title, "body": outcome, "priority": priority,
+                "expected_artifact": expected_artifact, "repo": repo, "base_ref": base_ref,
+                "integration_branch": integration_branch, "worktree": worktree,
+                "attempt_limit": attempt_limit, "goal": goal,
+                "requires": requires, "revises": revises,
+            }),
+            WorkCommand::Edge {
+                company,
+                from,
+                to,
+                kind,
+                remove,
+                reason,
+                as_actor,
+            } => serde_json::json!({
+                "cmd": "work-edge", "company": company, "from": from, "to": to, "kind": kind,
+                "action": if remove { "remove" } else { "add" },
+                "reason": reason, "as_actor": as_actor,
+            }),
+            WorkCommand::Artifact {
+                company,
+                work,
+                attempt,
+                kind,
+                uri,
+                digest,
+                source_commit,
+                label,
+                note,
+            } => serde_json::json!({
+                "cmd": "work-artifact", "company": company, "id": work, "attempt": attempt,
+                "kind": kind, "uri": uri, "digest": digest, "source_commit": source_commit,
+                "label": label, "body": note,
+                "actor": std::env::var("RESTLESS_ACTOR").unwrap_or_else(|_| "owner".to_string()),
+            }),
+            WorkCommand::Gate {
+                company,
+                work,
+                name,
+                cwd,
+                command,
+            } => serde_json::json!({
+                "cmd": "work-gate", "company": company, "id": work, "name": name,
+                "cwd": cwd, "argv": command,
+                "actor": std::env::var("RESTLESS_ACTOR").unwrap_or_else(|_| "owner".to_string()),
+            }),
+            WorkCommand::Handoff {
+                company,
+                work,
+                attempt,
+                category,
+                action,
+                prepared,
+                resume_when,
+            } => serde_json::json!({
+                "cmd": "work-handoff", "company": company, "id": work, "attempt": attempt,
+                "category": category, "action": action, "prepared": prepared,
+                "resume_when": resume_when,
+                "actor": std::env::var("RESTLESS_ACTOR").unwrap_or_else(|_| "owner".to_string()),
+            }),
+            WorkCommand::EscalateHandoff {
+                company,
+                handoff,
+                as_actor,
+                reason,
+            } => serde_json::json!({
+                "cmd": "work-handoff-escalate", "company": company, "id": handoff,
+                "as_actor": as_actor, "reason": reason,
+            }),
+            WorkCommand::ResolveHandoff {
+                company,
+                handoff,
+                state,
+                resolution,
+                as_actor,
+            } => serde_json::json!({
+                "cmd": "work-handoff-resolve", "company": company, "id": handoff, "state": state,
+                "resolution": resolution,
+                "as_actor": as_actor.or_else(|| std::env::var("RESTLESS_ACTOR").ok())
+                    .unwrap_or_else(|| "owner".to_string()),
+            }),
+            WorkCommand::Resume {
+                company,
+                work,
+                reason,
+                as_actor,
+            } => serde_json::json!({
+                "cmd": "work-resume", "company": company, "id": work, "reason": reason,
+                "as_actor": as_actor.or_else(|| std::env::var("RESTLESS_ACTOR").ok())
+                    .unwrap_or_else(|| "owner".to_string()),
+            }),
+            WorkCommand::Abandon {
+                company,
+                work,
+                reason,
+                as_actor,
+            } => serde_json::json!({
+                "cmd": "work-abandon", "company": company, "id": work, "reason": reason,
+                "as_actor": as_actor.or_else(|| std::env::var("RESTLESS_ACTOR").ok())
+                    .unwrap_or_else(|| "owner".to_string()),
+            }),
+            WorkCommand::Review {
+                company,
+                handoff,
+                decision,
+                feedback,
+            } => serde_json::json!({
+                "cmd": "work-review", "company": company, "id": handoff, "state": decision,
+                "resolution": feedback,
+            }),
+        },
         Command::Events { company: c, limit } => {
             serde_json::json!({ "cmd": "events", "company": c, "limit": limit })
         }
@@ -549,27 +1182,11 @@ fn request_json(command: Command) -> Result<serde_json::Value> {
             "company": c,
             "party": party,
         }),
-        Command::Spawn {
-            company: c,
-            name,
-            repo,
-            role,
-            model,
-            task,
-        } => serde_json::json!({
-            "cmd": "spawn",
-            "company": c,
-            "name": name,
-            "repo": repo,
-            "role": role,
-            "model": model,
-            "body": task,
-            "from": std::env::var("RESTLESS_ACTOR").ok(),
-        }),
         Command::Message {
             company: c,
             from,
             to,
+            work,
             body,
         } => serde_json::json!({
             "cmd": "message",
@@ -577,38 +1194,66 @@ fn request_json(command: Command) -> Result<serde_json::Value> {
             "from": from.or_else(|| std::env::var("RESTLESS_ACTOR").ok())
                 .unwrap_or_else(|| "owner".to_string()),
             "to": to,
+            "id": work,
             "body": body,
-        }),
-        Command::Commitment {
-            company: c,
-            state,
-            id,
-            resolution,
-        } => serde_json::json!({
-            "cmd": "commitment-state",
-            "company": c,
-            "id": id,
-            "state": state,
-            "resolution": resolution,
         }),
         Command::Effect {
             company: c,
-            capability,
-            args,
+            effect_class,
+            party,
+            purpose,
+            artifacts,
+            secrets,
+            cwd,
             key,
+            command,
         } => {
-            let args: serde_json::Value =
-                serde_json::from_str(&args).context("--args must be JSON")?;
+            let secret_bindings = secrets
+                .into_iter()
+                .map(|binding| {
+                    binding
+                        .split_once('=')
+                        .map(|(name, reference)| {
+                            (
+                                name.to_string(),
+                                serde_json::Value::String(reference.to_string()),
+                            )
+                        })
+                        .context("--secret must be ENV_NAME=binding")
+                })
+                .collect::<Result<serde_json::Map<String, serde_json::Value>>>()?;
             serde_json::json!({
                 "cmd": "effect",
                 "company": c,
-                "capability": capability,
-                "args": args,
+                "effect_class": effect_class,
+                "party": party,
+                "purpose": purpose,
+                "artifacts": artifacts,
+                "secret_bindings": secret_bindings,
+                "cwd": cwd,
+                "argv": command,
                 "key": key,
                 "actor": std::env::var("RESTLESS_ACTOR").unwrap_or_else(|_| "owner".to_string()),
             })
         }
-        Command::Watch { .. } | Command::Attach { .. } => unreachable!("handled above"),
+        Command::EffectReconcile {
+            company,
+            key,
+            execution,
+            result,
+            evidence_receipt,
+        } => serde_json::json!({
+            "cmd": "effect-reconcile",
+            "company": company,
+            "key": key,
+            "execution_no": execution,
+            "state": result,
+            "id": evidence_receipt,
+            "actor": std::env::var("RESTLESS_ACTOR").unwrap_or_else(|_| "owner".to_string()),
+        }),
+        Command::Watch { .. } | Command::Attach { .. } | Command::EffectChild => {
+            unreachable!("handled above")
+        }
     })
 }
 

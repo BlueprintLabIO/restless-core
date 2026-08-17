@@ -1,48 +1,58 @@
 <script lang="ts">
-	/* The company shell: one instrument strip of a topbar, the tabs, and the
-	 * executive rail as a flex sibling that takes real space rather than floating.
-	 *
-	 * Tab placement follows design-language L14 — surfaces are placed by cadence,
-	 * not by habit. Inbox is the landing surface because it holds what needs your
-	 * word. Library, Tape and Market live under the brand mark: consulted, not
-	 * lived in. There is no Settings tab; configuration reached daily would be a
-	 * tab, and configuration reached once lives in the account menu. */
-
 	import { page } from '$app/state';
+	import { goto } from '$app/navigation';
 	import { onMount } from 'svelte';
 	import AppShell, { type ShellTab } from '$lib/components/AppShell.svelte';
 	import ExecutiveRail from '$lib/components/ExecutiveRail.svelte';
-	import CommandPalette from '$lib/components/CommandPalette.svelte';
-	import { rail as railState } from '$lib/model/rail.svelte';
-	import { getAttention } from '$lib/model/attention';
-	import type { AttentionItem } from '$lib/model/view';
+	import { getActorConversation, sendActorMessage } from '$lib/model/attention';
+	import { attentionSource } from '$lib/model/attentionSource.svelte';
+	import {
+		execCanReceive,
+		getCockpit,
+		getCompanies,
+		type CockpitView,
+		type CompanyCatalogEntry
+	} from '$lib/model/cockpit';
+	import type { ThreadMessage } from '$lib/model/view';
 
 	let { children } = $props();
 
 	const companyId = $derived(page.params.companyId ?? 'aris');
-	let companyName = $state('');
-	let companyMission = $state('');
-	let liveNeedsYou = $state<AttentionItem[]>([]);
-	let projectionLoaded = $state(false);
-	const companies = $derived([
-		{
-			id: companyId,
-			name: companyName || companyId.charAt(0).toUpperCase() + companyId.slice(1),
-			mission: companyMission
-		}
-	]);
+	let cockpit = $state<CockpitView | null>(null);
+	let executiveMessages = $state<ThreadMessage[]>([]);
+	let companies = $state<CompanyCatalogEntry[]>([]);
+	let execRailOpen = $state(true);
+
+	/* The shell and the Attention surface read one source rather than polling the
+	 * same endpoint on two clocks. The badge can no longer disagree with the
+	 * queue it is counting. */
+	const attention = $derived(attentionSource(companyId));
+	$effect(() => attention.attach());
+
+	const companyName = $derived(attention.view?.company.name ?? '');
+	const liveNeedsYou = $derived(attention.view?.items ?? []);
+
+	/* An unanswered session is the shell's business — the surfaces below it
+	 * cannot render anything truthful without one. */
+	$effect(() => {
+		if (attention.failure?.status !== 401) return;
+		const next = `${page.url.pathname}${page.url.search}`;
+		void goto(`/?next=${encodeURIComponent(next)}`, { replaceState: true });
+	});
 
 	onMount(() => {
 		async function refreshShell() {
 			try {
-				const attention = await getAttention(companyId);
-				companyName = attention.company.name;
-				companyMission = attention.company.mission;
-				liveNeedsYou = attention.items;
-				projectionLoaded = true;
+				const [nextCockpit, nextCompanies] = await Promise.all([
+					getCockpit(companyId),
+					getCompanies()
+				]);
+				cockpit = nextCockpit;
+				companies = nextCompanies;
+				if (execCanReceive(nextCockpit)) await refreshConversation();
 			} catch {
-				// The page owns sign-in and source error presentation. The shell
-				// stays neutral rather than substituting fixture company data.
+				/* The active page owns authentication and source errors. The shell
+				 * stays truthful instead of substituting fixture company data. */
 			}
 		}
 		void refreshShell();
@@ -50,47 +60,115 @@
 		return () => window.clearInterval(interval);
 	});
 
+	async function refreshConversation() {
+		try {
+			const conversation = await getActorConversation(companyId, 'exec');
+			executiveMessages = conversation.messages.map((message) => ({
+				id: String(message.id),
+				from: message.from_actor === 'owner' ? 'you' : 'agent',
+				author: message.from_actor === 'owner' ? 'You' : conversation.actor.display,
+				text: message.body,
+				createdAt: message.created_at,
+				replyToMessageId: null,
+				assetId: null,
+				runId: null,
+				attachments: message.attachments ?? [],
+				intent: message.intent ?? null,
+				contextPath: message.context_path ?? null
+			}));
+		} catch {
+			/* Preserve the last observed transcript when the live source drops. */
+		}
+	}
+
+	async function askExec(
+		text: string,
+		files: File[],
+		includeContext: boolean
+	): Promise<string | null> {
+		try {
+			await sendActorMessage(
+				companyId,
+				'exec',
+				text,
+				undefined,
+				files,
+				includeContext ? page.url.pathname : undefined
+			);
+			await refreshConversation();
+			return null;
+		} catch (cause) {
+			return cause instanceof Error ? cause.message : 'Your message was not delivered.';
+		}
+	}
+
+	/* People holds its own conversation with the selected person, so a permanent
+	 * rail there would render a second conversation with a different actor beside
+	 * it — and duplicate itself outright when the Exec is the selection (S06-T2). */
+	const railVisible = $derived.by(() => {
+		const path = page.url.pathname;
+		const people = `/${companyId}/people`;
+		return !(path === people || path.startsWith(`${people}/`));
+	});
+
+	const currentContext = $derived.by(() => {
+		const path = page.url.pathname;
+		const root = `/${companyId}`;
+		if (path === `${root}/work` || path.startsWith(`${root}/work/`)) return 'Linked · Work';
+		if (path === `${root}/people` || path.startsWith(`${root}/people/`)) return 'Linked · People';
+		if (path === `${root}/authority` || path.startsWith(`${root}/authority/`))
+			return 'Linked · Authority';
+		return 'Linked · Attention';
+	});
+
 	const tabs = $derived.by((): ShellTab[] => {
 		const path = page.url.pathname;
-		const inbox = `/${companyId}`;
+		const root = `/${companyId}`;
 		return [
 			{
-				key: 'inbox',
-				label: 'Inbox',
-				href: inbox,
-				on: path === inbox,
-				badge: projectionLoaded ? liveNeedsYou.length || undefined : undefined
+				key: 'attention',
+				label: 'Attention',
+				href: root,
+				on: path === root,
+				/* No badge until the source has answered once: a badge that is
+				 * absent because nothing is waiting must not be confusable with a
+				 * badge that is absent because nobody has asked yet. */
+				badge: attention.status === 'unknown' ? undefined : liveNeedsYou.length || undefined
 			},
-			{ key: 'chats', label: 'Chats', href: `${inbox}/chats`, on: path.startsWith(`${inbox}/chats`) },
-			{ key: 'ops', label: 'Ops', href: `${inbox}/ops`, on: path.startsWith(`${inbox}/ops`) },
+			{
+				key: 'work',
+				label: 'Work',
+				href: `${root}/work`,
+				on: path === `${root}/work` || path.startsWith(`${root}/work/`)
+			},
 			{
 				key: 'people',
 				label: 'People',
-				href: `${inbox}/people`,
-				/* A staff profile belongs to People, not Chats — it is where that person's
-				 * settings, permissions, and task trail live. */
-				on: path.startsWith(`${inbox}/people`) || path.startsWith(`${inbox}/staff`)
+				href: `${root}/people`,
+				on: path === `${root}/people` || path.startsWith(`${root}/people/`)
 			},
 			{
-				key: 'mission',
-				label: 'Mission',
-				href: `${inbox}/mission`,
-				on: path.startsWith(`${inbox}/mission`)
+				key: 'authority',
+				label: 'Authority',
+				href: `${root}/authority`,
+				on: path === `${root}/authority` || path.startsWith(`${root}/authority/`)
 			}
 		];
 	});
-
-	let paletteOpen = $state(false);
-
-	function onPaletteKeydown(event: KeyboardEvent) {
-		if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
-			event.preventDefault();
-			paletteOpen = !paletteOpen;
-		}
-	}
 </script>
 
-<svelte:window onkeydown={onPaletteKeydown} />
+{#snippet executiveRail()}
+	<ExecutiveRail
+		messages={executiveMessages}
+		execName="Exec"
+		{companyId}
+		membershipRole="owner"
+		executiveConnected={execCanReceive(cockpit)}
+		contextLabel={currentContext}
+		open={execRailOpen}
+		onask={askExec}
+	/>
+{/snippet}
 
 <AppShell
 	{companyId}
@@ -98,39 +176,10 @@
 	{companies}
 	{tabs}
 	execName="Exec"
-	execLive={false}
-	railOpen={railState.open}
-	onconversation={() => railState.toggle()}
-	accountName="Owner"
-	accountRole="owner"
-	accountDemo={false}
+	execLive={execCanReceive(cockpit)}
+	railOpen={execRailOpen}
+	onexectoggle={() => (execRailOpen = !execRailOpen)}
+	rail={railVisible ? executiveRail : null}
 >
-	<!-- the palette lives inside .bridge-root so the Bridge tokens reach it -->
-	<CommandPalette
-		threads={[]}
-		team={[]}
-		execName="Exec"
-		{companyId}
-		open={paletteOpen}
-		onclose={() => (paletteOpen = false)}
-		onconversation={() => {
-			paletteOpen = false;
-			railState.open = true;
-		}}
-	/>
 	{@render children()}
-	{#snippet rail()}
-		<ExecutiveRail
-			thread={null}
-			messages={[]}
-			needsYou={liveNeedsYou}
-			execName="Exec"
-			{companyId}
-			membershipRole="owner"
-			providerDisclosureEnabled={false}
-			executiveConnected={false}
-			open={railState.open}
-			onclose={() => (railState.open = false)}
-		/>
-	{/snippet}
 </AppShell>

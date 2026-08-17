@@ -1,21 +1,10 @@
 <!doctype html>
-<html lang="en" style="background: #0a0b0d">
+<html lang="en" data-theme="light" style="background: #eef1f5; color-scheme: light">
 	<head>
 		<meta charset="utf-8" />
 		<meta name="viewport" content="width=device-width, initial-scale=1" />
-		<meta name="theme-color" content="#0a0b0d" />
+		<meta name="theme-color" content="#eef1f5" />
 		<link rel="icon" href="%sveltekit.assets%/favicon.svg" type="image/svg+xml" />
-		<script>
-			/* The light sibling, applied pre-paint so nothing flashes.
-			 * design-language.md D2: the ramp is authored dark; light inverts it coherently. */
-			try {
-				const theme = localStorage.getItem('bridge-theme');
-				if (theme === 'light' || theme === 'dark') {
-					document.documentElement.dataset.theme = theme;
-					document.documentElement.style.background = theme === 'light' ? '#f3f4f6' : '#0a0b0d';
-				}
-			} catch {}
-		</script>
 		%sveltekit.head%
 	</head>
 	<body data-sveltekit-preload-data="hover">

@@ -1,0 +1,4189 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Bridge Light — Owner Cockpit</title>
+    <link rel="stylesheet" href="../web/src/lib/design/index.css" />
+    <style>
+      :root {
+        color-scheme: light;
+        background: #eef1f5;
+      }
+
+      html,
+      body {
+        width: 100%;
+        min-width: 320px;
+        height: 100%;
+        overflow: hidden;
+        background: #eef1f5;
+        color: #17181c;
+      }
+
+      button,
+      input,
+      textarea {
+        font: inherit;
+      }
+
+      button {
+        color: inherit;
+      }
+
+      .bridge-root.prototype {
+        --intent-conversation: #2f6ca8;
+        --intent-conversation-soft: rgba(63, 120, 182, 0.09);
+        --intent-feedback: #237563;
+        --intent-feedback-soft: rgba(45, 138, 120, 0.09);
+        --intent-direction: #6447a6;
+        --intent-direction-soft: rgba(115, 89, 182, 0.09);
+        --intent-authority: #8f5c16;
+        --intent-authority-soft: rgba(184, 118, 32, 0.1);
+        --state-success: #2f7752;
+        --state-success-soft: rgba(60, 138, 98, 0.09);
+        --state-danger: #ad4944;
+        --state-danger-soft: rgba(193, 91, 85, 0.09);
+        --glass-pane: rgba(255, 255, 255, 0.78);
+        --glass-pane-strong: rgba(255, 255, 255, 0.9);
+        width: 100vw;
+        height: 100vh;
+        min-height: 0;
+        overflow: hidden;
+        display: grid;
+        grid-template-rows: var(--topbar-h) minmax(0, 1fr);
+        isolation: isolate;
+        background-color: #eef1f5;
+        background-image:
+          radial-gradient(
+            circle at 78% 12%,
+            rgba(90, 111, 203, 0.11),
+            transparent 30%
+          ),
+          radial-gradient(
+            circle at 16% 90%,
+            rgba(57, 151, 126, 0.08),
+            transparent 28%
+          ),
+          radial-gradient(
+            circle at 48% 58%,
+            rgba(216, 156, 70, 0.045),
+            transparent 24%
+          ),
+          radial-gradient(var(--dot) 1px, transparent 1.3px);
+        background-size:
+          auto,
+          auto,
+          auto,
+          14px 14px;
+      }
+
+      .prototype .bridge-topbar {
+        position: relative;
+        top: auto;
+        padding-inline: 14px 12px;
+        gap: 24px;
+        background: rgba(250, 251, 253, 0.72);
+        border-bottom-color: rgba(57, 66, 84, 0.12);
+        box-shadow:
+          inset 0 1px 0 rgba(255, 255, 255, 0.96),
+          0 8px 28px rgba(57, 66, 84, 0.06);
+      }
+
+      .prototype .tb-brand.static {
+        margin-left: 0;
+        padding-left: 0;
+      }
+
+      .prototype .tb-company-slash {
+        color: var(--border-strong);
+      }
+
+      .prototype .tb-tabs {
+        height: 100%;
+        display: flex;
+        align-items: stretch;
+        gap: 2px;
+      }
+
+      .prototype .tb-tab {
+        position: relative;
+        min-width: 76px;
+        padding: 0 12px;
+        border: 0;
+        background: transparent;
+        color: var(--text-secondary);
+        font-size: 12px;
+        font-weight: 500;
+        cursor: pointer;
+      }
+
+      .prototype .tb-tab:hover {
+        color: var(--ink);
+        background: rgba(23, 24, 28, 0.025);
+      }
+
+      .prototype .tb-tab[aria-selected="true"] {
+        color: var(--ink);
+      }
+
+      .prototype .tb-tab[aria-selected="true"]::after {
+        content: "";
+        position: absolute;
+        right: 12px;
+        bottom: 0;
+        left: 12px;
+        height: 2px;
+        background: var(--intent-conversation);
+        box-shadow: 0 0 12px rgba(63, 120, 182, 0.25);
+      }
+
+      .prototype .tb-right {
+        margin-left: auto;
+        display: flex;
+        align-items: center;
+        gap: 14px;
+      }
+
+      .machine-presence {
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        font-family: "IBM Plex Mono", monospace;
+        font-size: 10px;
+        font-weight: 500;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+        color: var(--text-secondary);
+      }
+
+      .account-mark {
+        width: 25px;
+        height: 25px;
+        display: grid;
+        place-items: center;
+        border: 1px solid var(--border-strong);
+        border-radius: 4px;
+        background: var(--ink);
+        color: var(--text-inverse);
+        font-family: "IBM Plex Mono", monospace;
+        font-size: 10px;
+        font-weight: 600;
+      }
+
+      .matrix {
+        --matrix-dot: 2.1px;
+        display: inline-grid;
+        grid-template-columns: repeat(5, var(--matrix-dot));
+        grid-template-rows: repeat(7, var(--matrix-dot));
+        gap: 1.3px;
+        width: max-content;
+        height: max-content;
+        flex: 0 0 auto;
+        color: currentColor;
+      }
+
+      .matrix.large {
+        --matrix-dot: 3px;
+        gap: 1.8px;
+      }
+
+      .matrix > i {
+        display: block;
+        width: var(--matrix-dot);
+        height: var(--matrix-dot);
+        border-radius: 50%;
+        background: currentColor;
+        opacity: 0.09;
+      }
+
+      .matrix > i.on {
+        opacity: 0.94;
+      }
+
+      .prototype .matrix[data-glyph="p"] {
+        color: var(--intent-direction);
+      }
+
+      .prototype .matrix[data-glyph="dots"] {
+        color: var(--intent-conversation);
+      }
+
+      .prototype .matrix[data-glyph="check"] {
+        color: var(--state-success);
+      }
+
+      .prototype .matrix[data-glyph="ring"] {
+        color: var(--intent-authority);
+      }
+
+      .prototype .matrix[data-glyph="cross"] {
+        color: var(--state-danger);
+      }
+
+      .prototype .matrix[data-glyph="work"] {
+        color: var(--intent-feedback);
+      }
+
+      .prototype .matrix[data-glyph="rules"],
+      .prototype .matrix[data-glyph="money"] {
+        color: var(--intent-authority);
+      }
+
+      .prototype .matrix[data-glyph="up"] {
+        color: var(--intent-conversation);
+      }
+
+      .app-shell {
+        min-height: 0;
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 382px;
+        gap: var(--pane-gap);
+        overflow: hidden;
+      }
+
+      .workspace {
+        min-width: 0;
+        min-height: 0;
+        overflow: hidden;
+        display: grid;
+        grid-template-rows: 54px minmax(0, 1fr);
+        gap: var(--pane-gap);
+      }
+
+      .situation-strip {
+        min-width: 0;
+        display: grid;
+        grid-template-columns: minmax(260px, 2.2fr) repeat(
+            4,
+            minmax(104px, 0.62fr)
+          );
+        background: var(--glass-pane-strong);
+        border: 1px solid var(--border-strong);
+        box-shadow:
+          inset 0 1px 0 rgba(255, 255, 255, 0.96),
+          0 8px 24px rgba(57, 66, 84, 0.055);
+        backdrop-filter: blur(24px) saturate(1.18);
+        overflow: hidden;
+      }
+
+      .situation-primary,
+      .situation-cell {
+        min-width: 0;
+        padding: 9px 14px;
+      }
+
+      .situation-cell {
+        border-left: 1px solid var(--border);
+      }
+
+      .situation-primary {
+        display: flex;
+        align-items: center;
+        gap: 11px;
+      }
+
+      .situation-primary strong,
+      .situation-cell strong {
+        display: block;
+        overflow: hidden;
+        color: var(--ink);
+        font-size: 12px;
+        font-weight: 600;
+        line-height: 1.25;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .situation-primary span,
+      .situation-cell span {
+        display: block;
+        margin-bottom: 3px;
+        color: var(--text-tertiary);
+        font-family: "IBM Plex Mono", monospace;
+        font-size: 9px;
+        line-height: 1;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+      }
+
+      .screen-stack {
+        position: relative;
+        min-width: 0;
+        min-height: 0;
+        overflow: hidden;
+      }
+
+      .screen {
+        position: absolute;
+        inset: 0;
+        min-width: 0;
+        min-height: 0;
+        display: none;
+        overflow: hidden;
+      }
+
+      .screen.active {
+        display: grid;
+      }
+
+      .page-pane {
+        min-width: 0;
+        min-height: 0;
+        overflow: hidden;
+        background: var(--glass-pane);
+        border: 1px solid var(--border-strong);
+        box-shadow:
+          inset 0 1px 0 rgba(255, 255, 255, 0.96),
+          0 10px 30px rgba(57, 66, 84, 0.055);
+        backdrop-filter: blur(22px) saturate(1.16);
+      }
+
+      .page-pane.scroll {
+        overflow: auto;
+      }
+
+      .pane-title {
+        min-height: 43px;
+        display: flex;
+        align-items: center;
+        gap: 9px;
+        padding: 0 14px;
+        border-bottom: 1px solid var(--border);
+      }
+
+      .pane-title .over-label {
+        margin: 0;
+        color: var(--text-secondary);
+      }
+
+      .pane-title .count {
+        margin-left: auto;
+        color: var(--text-tertiary);
+        font-family: "IBM Plex Mono", monospace;
+        font-size: 10px;
+      }
+
+      .section-rule {
+        padding: 8px 14px;
+        border-top: 1px solid var(--border);
+        border-bottom: 1px solid var(--border);
+        background: var(--surface-alt);
+        color: var(--text-tertiary);
+        font-family: "IBM Plex Mono", monospace;
+        font-size: 9px;
+        font-weight: 500;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+      }
+
+      .attention-screen {
+        grid-template-columns:
+          minmax(238px, 0.66fr) minmax(470px, 1.55fr)
+          minmax(248px, 0.72fr);
+        gap: var(--pane-gap);
+      }
+
+      .attention-list,
+      .people-list {
+        margin: 0;
+        padding: 0;
+        list-style: none;
+      }
+
+      .attention-item,
+      .person-row {
+        position: relative;
+        width: 100%;
+        display: grid;
+        grid-template-columns: 18px minmax(0, 1fr) auto;
+        gap: 10px;
+        align-items: start;
+        padding: 13px 14px;
+        border: 0;
+        border-bottom: 1px solid var(--border);
+        background: transparent;
+        text-align: left;
+        cursor: pointer;
+      }
+
+      .attention-item:hover,
+      .person-row:hover {
+        background: var(--surface-alt);
+      }
+
+      .attention-item.active {
+        background: var(--intent-authority-soft);
+      }
+
+      .person-row.active {
+        background: var(--intent-direction-soft);
+      }
+
+      .attention-item.active::before,
+      .person-row.active::before {
+        content: "";
+        position: absolute;
+        top: -1px;
+        bottom: -1px;
+        left: 0;
+        width: 2px;
+        background: var(--intent-authority);
+      }
+
+      .person-row.active::before {
+        background: var(--intent-direction);
+      }
+
+      .row-copy {
+        min-width: 0;
+      }
+
+      .row-copy strong {
+        display: block;
+        color: var(--ink);
+        font-size: 12px;
+        font-weight: 600;
+        line-height: 1.35;
+      }
+
+      .row-copy span {
+        display: block;
+        margin-top: 4px;
+        overflow: hidden;
+        color: var(--text-secondary);
+        font-size: 11px;
+        line-height: 1.35;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .row-time,
+      .mono-data {
+        color: var(--text-tertiary);
+        font-family: "IBM Plex Mono", monospace;
+        font-size: 9px;
+        white-space: nowrap;
+      }
+
+      .focus-pane {
+        display: grid;
+        grid-template-rows: auto minmax(0, 1fr) auto;
+        background:
+          radial-gradient(
+            circle at 85% 4%,
+            rgba(184, 118, 32, 0.075),
+            transparent 32%
+          ),
+          var(--glass-pane);
+      }
+
+      .focus-header {
+        padding: 22px 24px 18px;
+        border-bottom: 1px solid var(--border);
+      }
+
+      .eyebrow-line {
+        display: flex;
+        align-items: center;
+        gap: 9px;
+        margin-bottom: 15px;
+        color: var(--text-secondary);
+        font-family: "IBM Plex Mono", monospace;
+        font-size: 9px;
+        font-weight: 500;
+        letter-spacing: 0.11em;
+        text-transform: uppercase;
+      }
+
+      .eyebrow-line .index {
+        margin-left: auto;
+      }
+
+      .focus-header h1 {
+        max-width: 720px;
+        margin: 0;
+        color: var(--ink);
+        font-size: clamp(23px, 2.15vw, 34px);
+        font-weight: 550;
+        line-height: 1.08;
+        letter-spacing: -0.035em;
+      }
+
+      .focus-header p {
+        max-width: 680px;
+        margin: 11px 0 0;
+        color: var(--text-secondary);
+        font-size: 13px;
+        line-height: 1.55;
+      }
+
+      .decision-body {
+        min-height: 0;
+        overflow: auto;
+      }
+
+      .recommendation {
+        display: grid;
+        grid-template-columns: minmax(0, 1.6fr) minmax(170px, 0.56fr);
+        border-bottom: 1px solid var(--border);
+      }
+
+      .recommendation-copy {
+        padding: 20px 24px;
+      }
+
+      .recommendation-copy h2 {
+        margin: 6px 0 8px;
+        font-size: 17px;
+        font-weight: 600;
+        letter-spacing: -0.015em;
+      }
+
+      .recommendation-copy p {
+        margin: 0;
+        color: var(--text-secondary);
+        font-size: 12px;
+        line-height: 1.55;
+      }
+
+      .confidence {
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        padding: 18px;
+        border-left: 1px solid var(--border);
+        background: var(--surface-alt);
+      }
+
+      .confidence strong {
+        font-family: "IBM Plex Mono", monospace;
+        font-size: 25px;
+        font-weight: 500;
+        letter-spacing: -0.05em;
+      }
+
+      .confidence span {
+        margin-top: 2px;
+        color: var(--text-tertiary);
+        font-family: "IBM Plex Mono", monospace;
+        font-size: 9px;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+      }
+
+      .evidence-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .evidence-column {
+        min-width: 0;
+        padding: 18px 24px 22px;
+      }
+
+      .evidence-column + .evidence-column {
+        border-left: 1px solid var(--border);
+      }
+
+      .evidence-column h3 {
+        margin: 0 0 12px;
+        color: var(--text-tertiary);
+        font-family: "IBM Plex Mono", monospace;
+        font-size: 9px;
+        font-weight: 500;
+        letter-spacing: 0.11em;
+        text-transform: uppercase;
+      }
+
+      .fact-row {
+        display: grid;
+        grid-template-columns: 18px minmax(0, 1fr);
+        gap: 9px;
+        padding: 8px 0;
+        border-top: 1px solid var(--border);
+      }
+
+      .fact-row:first-of-type {
+        border-top: 0;
+      }
+
+      .fact-row p {
+        margin: 0;
+        color: var(--text-secondary);
+        font-size: 11.5px;
+        line-height: 1.5;
+      }
+
+      .fact-row strong {
+        color: var(--ink);
+        font-weight: 600;
+      }
+
+      .decision-actions {
+        min-height: 63px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 10px 14px 10px 24px;
+        border-top: 1px solid var(--border);
+        background: rgba(255, 255, 255, 0.86);
+        backdrop-filter: blur(14px);
+      }
+
+      .decision-actions .explain {
+        max-width: 280px;
+        margin-right: auto;
+        color: var(--text-tertiary);
+        font-size: 10px;
+        line-height: 1.35;
+      }
+
+      .prototype .flat-btn {
+        min-height: 31px;
+        padding: 0 12px;
+        border: 1px solid var(--border-strong);
+        border-radius: 4px;
+        background: var(--surface);
+        color: var(--ink);
+        font-size: 11px;
+        font-weight: 550;
+        cursor: pointer;
+      }
+
+      .prototype .flat-btn:hover {
+        background: var(--surface-alt);
+      }
+
+      .prototype .flat-btn.primary {
+        border-color: #26354f;
+        background: linear-gradient(180deg, #344b70, #263a5a);
+        color: var(--text-inverse);
+        box-shadow:
+          inset 0 1px 0 rgba(255, 255, 255, 0.2),
+          0 4px 12px rgba(38, 58, 90, 0.17);
+      }
+
+      .prototype .flat-btn.text {
+        border-color: transparent;
+        background: transparent;
+        color: var(--text-secondary);
+      }
+
+      .brief-pane {
+        display: grid;
+        grid-template-rows: auto minmax(0, 1fr);
+      }
+
+      .brief-scroll {
+        min-height: 0;
+        overflow: auto;
+      }
+
+      .brief-section {
+        padding: 16px 16px 18px;
+        border-bottom: 1px solid var(--border);
+      }
+
+      .brief-section h3 {
+        margin: 0 0 8px;
+        color: var(--ink);
+        font-size: 12px;
+        font-weight: 600;
+      }
+
+      .brief-section p {
+        margin: 0;
+        color: var(--text-secondary);
+        font-size: 11px;
+        line-height: 1.55;
+      }
+
+      .sequence {
+        margin: 0;
+        padding: 0;
+        list-style: none;
+      }
+
+      .sequence li {
+        position: relative;
+        display: grid;
+        grid-template-columns: 20px minmax(0, 1fr);
+        gap: 9px;
+        padding: 8px 0;
+        color: var(--text-secondary);
+        font-size: 11px;
+        line-height: 1.4;
+      }
+
+      .sequence li::before {
+        content: attr(data-step);
+        width: 18px;
+        height: 18px;
+        display: grid;
+        place-items: center;
+        border: 1px solid var(--border-strong);
+        color: var(--text-tertiary);
+        font-family: "IBM Plex Mono", monospace;
+        font-size: 8px;
+      }
+
+      .source-link {
+        width: 100%;
+        display: grid;
+        grid-template-columns: 18px minmax(0, 1fr) auto;
+        gap: 8px;
+        align-items: center;
+        padding: 9px 0;
+        border: 0;
+        border-top: 1px solid var(--border);
+        background: transparent;
+        color: var(--text-secondary);
+        text-align: left;
+        cursor: pointer;
+      }
+
+      .source-link strong {
+        display: block;
+        overflow: hidden;
+        color: var(--ink);
+        font-size: 10px;
+        font-weight: 550;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .source-link span {
+        display: block;
+        margin-top: 2px;
+        color: var(--text-tertiary);
+        font-size: 9px;
+      }
+
+      .work-screen {
+        grid-template-columns: 248px minmax(560px, 1fr) 286px;
+        gap: var(--pane-gap);
+      }
+
+      .goal-cell {
+        padding: 17px 15px;
+        border-bottom: 1px solid var(--border);
+      }
+
+      .goal-cell.current {
+        background: var(--intent-conversation-soft);
+        box-shadow: inset 2px 0 0 var(--intent-conversation);
+      }
+
+      .goal-cell .goal-index {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 8px;
+        color: var(--text-tertiary);
+        font-family: "IBM Plex Mono", monospace;
+        font-size: 9px;
+      }
+
+      .goal-cell h3 {
+        margin: 0;
+        font-size: 12px;
+        font-weight: 600;
+        line-height: 1.4;
+      }
+
+      .goal-cell p {
+        margin: 7px 0 0;
+        color: var(--text-secondary);
+        font-size: 10.5px;
+        line-height: 1.45;
+      }
+
+      .progress-line {
+        height: 2px;
+        margin-top: 13px;
+        background: var(--r4);
+      }
+
+      .progress-line > span {
+        display: block;
+        width: var(--progress, 50%);
+        height: 100%;
+        background: var(--ink);
+      }
+
+      .work-map {
+        position: relative;
+        min-height: 0;
+        display: grid;
+        grid-template-rows: auto minmax(0, 1fr);
+        overflow: hidden;
+      }
+
+      .map-toolbar {
+        min-height: 43px;
+        display: flex;
+        align-items: center;
+        gap: 14px;
+        padding: 0 14px;
+        border-bottom: 1px solid var(--border);
+      }
+
+      .map-toolbar .over-label {
+        margin-right: auto;
+      }
+
+      .work-lens-switch {
+        display: flex;
+        align-items: center;
+        padding: 2px;
+        border: 1px solid var(--border-strong);
+        border-radius: 4px;
+        background: var(--surface-alt);
+      }
+
+      .work-lens-switch button {
+        min-width: 68px;
+        height: 25px;
+        padding: 0 9px;
+        border: 0;
+        border-radius: 2px;
+        background: transparent;
+        color: var(--text-secondary);
+        font-size: 9px;
+        font-weight: 550;
+        cursor: pointer;
+      }
+
+      .work-lens-switch button:hover {
+        color: var(--ink);
+      }
+
+      .work-lens-switch button[aria-selected="true"] {
+        background: var(--ink);
+        color: var(--text-inverse);
+      }
+
+      .work-lens-note {
+        color: var(--text-tertiary);
+        font-family: "IBM Plex Mono", monospace;
+        font-size: 8px;
+        white-space: nowrap;
+      }
+
+      .map-key {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        color: var(--text-tertiary);
+        font-family: "IBM Plex Mono", monospace;
+        font-size: 8px;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+      }
+
+      .map-key[hidden] {
+        display: none;
+      }
+
+      .map-key span {
+        display: flex;
+        align-items: center;
+        gap: 5px;
+      }
+
+      .map-key i {
+        width: 14px;
+        height: 1px;
+        display: block;
+        background: var(--intent-conversation);
+      }
+
+      .map-key .dashed {
+        background: repeating-linear-gradient(
+          90deg,
+          var(--intent-feedback) 0 3px,
+          transparent 3px 6px
+        );
+      }
+
+      .work-lens {
+        min-width: 0;
+        min-height: 0;
+        display: none;
+      }
+
+      .work-lens.active {
+        display: block;
+      }
+
+      .map-canvas {
+        position: relative;
+        overflow: auto;
+        background-color: rgba(255, 255, 255, 0.54);
+        background-image:
+          linear-gradient(var(--border) 1px, transparent 1px),
+          linear-gradient(90deg, var(--border) 1px, transparent 1px);
+        background-size: 36px 36px;
+      }
+
+      .board-view.active {
+        display: grid;
+      }
+
+      .board-view {
+        grid-template-columns: repeat(4, minmax(174px, 1fr));
+        overflow: auto;
+        background: rgba(255, 255, 255, 0.54);
+      }
+
+      .board-column {
+        min-width: 174px;
+        border-right: 1px solid var(--border);
+      }
+
+      .board-column:last-child {
+        border-right: 0;
+      }
+
+      .board-column-head {
+        position: sticky;
+        top: 0;
+        z-index: 1;
+        height: 42px;
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        padding: 0 11px;
+        border-bottom: 1px solid var(--border-strong);
+        background: rgba(246, 248, 251, 0.8);
+        backdrop-filter: blur(12px);
+        color: var(--text-secondary);
+        font-family: "IBM Plex Mono", monospace;
+        font-size: 8.5px;
+        font-weight: 500;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+
+      .board-column-head span:last-child {
+        margin-left: auto;
+        color: var(--text-tertiary);
+      }
+
+      .board-item {
+        position: relative;
+        width: 100%;
+        display: block;
+        padding: 13px 12px;
+        border: 0;
+        border-bottom: 1px solid var(--border);
+        background: transparent;
+        color: var(--ink);
+        text-align: left;
+        cursor: pointer;
+      }
+
+      .board-item:hover {
+        background: var(--surface-alt);
+      }
+
+      .board-item.selected {
+        background: var(--intent-feedback-soft);
+        box-shadow: inset 2px 0 0 var(--intent-feedback);
+      }
+
+      .board-item-state {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        margin-bottom: 9px;
+        color: var(--text-tertiary);
+        font-family: "IBM Plex Mono", monospace;
+        font-size: 8px;
+      }
+
+      .board-item-state span:last-child {
+        margin-left: auto;
+      }
+
+      .board-item h3 {
+        margin: 0;
+        font-size: 11px;
+        font-weight: 600;
+        line-height: 1.4;
+      }
+
+      .board-item p {
+        margin: 5px 0 0;
+        color: var(--text-secondary);
+        font-size: 9.5px;
+        line-height: 1.45;
+      }
+
+      .board-item footer {
+        display: flex;
+        align-items: center;
+        margin-top: 11px;
+        padding-top: 8px;
+        border-top: 1px solid var(--border);
+        color: var(--text-tertiary);
+        font-family: "IBM Plex Mono", monospace;
+        font-size: 8px;
+      }
+
+      .board-item footer span:last-child {
+        margin-left: auto;
+      }
+
+      .map-inner {
+        position: relative;
+        width: 760px;
+        min-width: 100%;
+        height: 570px;
+        min-height: 100%;
+      }
+
+      .connector {
+        position: absolute;
+        height: 1px;
+        transform-origin: left center;
+        background: var(--border-strong);
+        color: var(--intent-feedback);
+      }
+
+      .connector.strong {
+        background: var(--intent-conversation);
+        color: var(--intent-conversation);
+      }
+
+      .connector::after {
+        content: "";
+        position: absolute;
+        top: -3px;
+        right: -1px;
+        width: 6px;
+        height: 6px;
+        transform: rotate(45deg);
+        border-top: 1px solid currentColor;
+        border-right: 1px solid currentColor;
+        color: inherit;
+      }
+
+      .work-node {
+        position: absolute;
+        width: 188px;
+        padding: 12px;
+        border: 1px solid var(--border-strong);
+        border-radius: 4px;
+        background: rgba(255, 255, 255, 0.78);
+        box-shadow:
+          inset 0 1px 0 rgba(255, 255, 255, 0.98),
+          0 7px 20px rgba(57, 66, 84, 0.075);
+        backdrop-filter: blur(16px) saturate(1.16);
+        cursor: pointer;
+      }
+
+      .work-node:hover,
+      .work-node.selected {
+        border-color: var(--ink);
+      }
+
+      .work-node.selected {
+        box-shadow:
+          inset 2px 0 0 var(--intent-feedback),
+          0 8px 24px rgba(45, 138, 120, 0.12);
+      }
+
+      .node-state {
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        margin-bottom: 10px;
+        color: var(--text-tertiary);
+        font-family: "IBM Plex Mono", monospace;
+        font-size: 8px;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+      }
+
+      .node-state time {
+        margin-left: auto;
+      }
+
+      .work-node h3 {
+        margin: 0;
+        font-size: 11.5px;
+        font-weight: 600;
+        line-height: 1.4;
+      }
+
+      .work-node p {
+        margin: 6px 0 0;
+        color: var(--text-secondary);
+        font-size: 10px;
+        line-height: 1.4;
+      }
+
+      .node-footer {
+        display: flex;
+        align-items: center;
+        margin-top: 11px;
+        padding-top: 8px;
+        border-top: 1px solid var(--border);
+        color: var(--text-tertiary);
+        font-family: "IBM Plex Mono", monospace;
+        font-size: 8px;
+      }
+
+      .node-footer span:last-child {
+        margin-left: auto;
+      }
+
+      .attempt-inspector {
+        display: grid;
+        grid-template-rows: auto auto minmax(0, 1fr) auto;
+      }
+
+      .inspector-lead {
+        padding: 17px 16px;
+        border-bottom: 1px solid var(--border);
+      }
+
+      .inspector-lead h2 {
+        margin: 0;
+        font-size: 15px;
+        font-weight: 600;
+        line-height: 1.3;
+      }
+
+      .inspector-lead p {
+        margin: 7px 0 0;
+        color: var(--text-secondary);
+        font-size: 10.5px;
+        line-height: 1.45;
+      }
+
+      .attempt-meta {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        border-bottom: 1px solid var(--border);
+      }
+
+      .attempt-meta div {
+        padding: 11px 13px;
+      }
+
+      .attempt-meta div + div {
+        border-left: 1px solid var(--border);
+      }
+
+      .attempt-meta span {
+        display: block;
+        margin-bottom: 4px;
+        color: var(--text-tertiary);
+        font-family: "IBM Plex Mono", monospace;
+        font-size: 8px;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+
+      .attempt-meta strong {
+        font-family: "IBM Plex Mono", monospace;
+        font-size: 10px;
+        font-weight: 500;
+      }
+
+      .attempt-log {
+        min-height: 0;
+        overflow: auto;
+        padding: 4px 14px 12px;
+      }
+
+      .log-row {
+        display: grid;
+        grid-template-columns: 38px minmax(0, 1fr);
+        gap: 8px;
+        padding: 9px 0;
+        border-bottom: 1px solid var(--border);
+        color: var(--text-secondary);
+        font-size: 10px;
+        line-height: 1.45;
+      }
+
+      .log-row time {
+        color: var(--text-tertiary);
+        font-family: "IBM Plex Mono", monospace;
+        font-size: 8px;
+      }
+
+      .artifact-link {
+        margin: 0 14px 14px;
+        padding: 10px;
+        border: 1px solid var(--border-strong);
+        background: var(--surface-alt);
+      }
+
+      .artifact-link strong {
+        display: block;
+        font-size: 10px;
+        font-weight: 600;
+      }
+
+      .artifact-link span {
+        display: block;
+        margin-top: 3px;
+        overflow: hidden;
+        color: var(--text-tertiary);
+        font-family: "IBM Plex Mono", monospace;
+        font-size: 8px;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .people-screen {
+        grid-template-columns: 270px minmax(500px, 1.35fr) minmax(
+            260px,
+            0.72fr
+          );
+        gap: var(--pane-gap);
+      }
+
+      .person-row {
+        grid-template-columns: 24px minmax(0, 1fr) auto;
+        padding-block: 11px;
+      }
+
+      .person-avatar {
+        width: 23px;
+        height: 23px;
+        display: grid;
+        place-items: center;
+        border: 1px solid var(--border-strong);
+        background: var(--surface-alt);
+        font-family: "IBM Plex Mono", monospace;
+        font-size: 8px;
+        font-weight: 600;
+      }
+
+      .person-row.active .person-avatar {
+        border-color: var(--intent-direction);
+        background: linear-gradient(180deg, #826ac0, #654a9f);
+        color: var(--text-inverse);
+      }
+
+      .profile-pane {
+        display: grid;
+        grid-template-rows: auto auto minmax(0, 1fr);
+      }
+
+      .profile-head {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        padding: 22px 24px;
+        border-bottom: 1px solid var(--border);
+      }
+
+      .profile-head h1 {
+        margin: 5px 0 7px;
+        font-size: clamp(23px, 2vw, 32px);
+        font-weight: 550;
+        letter-spacing: -0.035em;
+      }
+
+      .profile-head p {
+        max-width: 570px;
+        margin: 0;
+        color: var(--text-secondary);
+        font-size: 12px;
+        line-height: 1.5;
+      }
+
+      .profile-status {
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        align-self: start;
+        color: var(--text-secondary);
+        font-family: "IBM Plex Mono", monospace;
+        font-size: 9px;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+      }
+
+      .profile-metrics {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        border-bottom: 1px solid var(--border);
+      }
+
+      .profile-metrics div {
+        padding: 13px 16px;
+      }
+
+      .profile-metrics div + div {
+        border-left: 1px solid var(--border);
+      }
+
+      .profile-metrics span {
+        display: block;
+        margin-bottom: 5px;
+        color: var(--text-tertiary);
+        font-family: "IBM Plex Mono", monospace;
+        font-size: 8px;
+        letter-spacing: 0.09em;
+        text-transform: uppercase;
+      }
+
+      .profile-metrics strong {
+        font-family: "IBM Plex Mono", monospace;
+        font-size: 12px;
+        font-weight: 500;
+      }
+
+      .profile-body {
+        min-height: 0;
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 0.82fr;
+        overflow: hidden;
+      }
+
+      .profile-column {
+        min-width: 0;
+        overflow: auto;
+      }
+
+      .profile-column + .profile-column {
+        border-left: 1px solid var(--border);
+      }
+
+      .output-row {
+        display: grid;
+        grid-template-columns: 18px minmax(0, 1fr) auto;
+        gap: 10px;
+        padding: 13px 16px;
+        border-bottom: 1px solid var(--border);
+      }
+
+      .output-row h3 {
+        margin: 0;
+        font-size: 11px;
+        font-weight: 600;
+      }
+
+      .output-row p {
+        margin: 4px 0 0;
+        color: var(--text-secondary);
+        font-size: 10px;
+        line-height: 1.4;
+      }
+
+      .mandate-copy {
+        padding: 17px 16px;
+        border-bottom: 1px solid var(--border);
+      }
+
+      .mandate-copy p {
+        margin: 0;
+        color: var(--text-secondary);
+        font-size: 11px;
+        line-height: 1.58;
+      }
+
+      .continuity-pane {
+        display: grid;
+        grid-template-rows: auto auto minmax(0, 1fr);
+      }
+
+      .coverage-map {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        border-bottom: 1px solid var(--border);
+      }
+
+      .coverage-map div {
+        min-height: 92px;
+        padding: 15px;
+      }
+
+      .coverage-map div:nth-child(even) {
+        border-left: 1px solid var(--border);
+      }
+
+      .coverage-map div:nth-child(n + 3) {
+        border-top: 1px solid var(--border);
+      }
+
+      .coverage-map span {
+        color: var(--text-tertiary);
+        font-family: "IBM Plex Mono", monospace;
+        font-size: 8px;
+        letter-spacing: 0.09em;
+        text-transform: uppercase;
+      }
+
+      .coverage-map strong {
+        display: block;
+        margin-top: 10px;
+        font-size: 12px;
+        font-weight: 600;
+      }
+
+      .coverage-map small {
+        display: block;
+        margin-top: 3px;
+        color: var(--text-secondary);
+        font-size: 9px;
+      }
+
+      .authority-screen {
+        grid-template-columns: 316px minmax(520px, 1.35fr) 300px;
+        gap: var(--pane-gap);
+      }
+
+      .authority-row {
+        display: grid;
+        grid-template-columns: 18px minmax(0, 1fr) auto;
+        gap: 10px;
+        align-items: start;
+        padding: 13px 14px;
+        border-bottom: 1px solid var(--border);
+      }
+
+      .authority-row h3 {
+        margin: 0;
+        font-size: 11px;
+        font-weight: 600;
+      }
+
+      .authority-row p {
+        margin: 4px 0 0;
+        color: var(--text-secondary);
+        font-size: 9.5px;
+        line-height: 1.4;
+      }
+
+      .authority-value {
+        color: var(--ink);
+        font-family: "IBM Plex Mono", monospace;
+        font-size: 9px;
+        white-space: nowrap;
+      }
+
+      .receipt-pane {
+        display: grid;
+        grid-template-rows: auto auto minmax(0, 1fr);
+      }
+
+      .receipt-summary {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        border-bottom: 1px solid var(--border);
+      }
+
+      .receipt-summary div {
+        padding: 15px 16px;
+      }
+
+      .receipt-summary div + div {
+        border-left: 1px solid var(--border);
+      }
+
+      .receipt-summary span {
+        display: block;
+        color: var(--text-tertiary);
+        font-family: "IBM Plex Mono", monospace;
+        font-size: 8px;
+        letter-spacing: 0.09em;
+        text-transform: uppercase;
+      }
+
+      .receipt-summary strong {
+        display: block;
+        margin-top: 7px;
+        font-family: "IBM Plex Mono", monospace;
+        font-size: 16px;
+        font-weight: 500;
+      }
+
+      .receipt-table-wrap {
+        min-height: 0;
+        overflow: auto;
+      }
+
+      .receipt-table {
+        width: 100%;
+        border-collapse: collapse;
+        table-layout: fixed;
+      }
+
+      .receipt-table th,
+      .receipt-table td {
+        padding: 10px 12px;
+        border-bottom: 1px solid var(--border);
+        text-align: left;
+        vertical-align: top;
+      }
+
+      .receipt-table th {
+        position: sticky;
+        top: 0;
+        z-index: 1;
+        background: var(--surface-alt);
+        color: var(--text-tertiary);
+        font-family: "IBM Plex Mono", monospace;
+        font-size: 8px;
+        font-weight: 500;
+        letter-spacing: 0.09em;
+        text-transform: uppercase;
+      }
+
+      .receipt-table td {
+        color: var(--text-secondary);
+        font-size: 9.5px;
+        line-height: 1.35;
+      }
+
+      .receipt-table td strong {
+        display: block;
+        color: var(--ink);
+        font-size: 10px;
+        font-weight: 600;
+      }
+
+      .receipt-table td span {
+        display: block;
+        margin-top: 2px;
+      }
+
+      .receipt-table .mono-cell {
+        font-family: "IBM Plex Mono", monospace;
+        font-size: 8.5px;
+      }
+
+      .control-block {
+        padding: 15px;
+        border-bottom: 1px solid var(--border);
+      }
+
+      .control-block h3 {
+        margin: 0;
+        font-size: 11px;
+        font-weight: 600;
+      }
+
+      .control-block p {
+        margin: 5px 0 11px;
+        color: var(--text-secondary);
+        font-size: 9.5px;
+        line-height: 1.45;
+      }
+
+      .control-block .flat-btn {
+        width: 100%;
+      }
+
+      .danger-line {
+        border-style: dashed;
+      }
+
+      .exec-rail {
+        min-width: 0;
+        min-height: 0;
+        display: grid;
+        grid-template-rows: 54px minmax(0, 1fr) auto;
+        background: rgba(255, 255, 255, 0.72);
+        border: 1px solid var(--border-strong);
+        box-shadow:
+          inset 0 1px 0 rgba(255, 255, 255, 0.96),
+          -10px 0 34px rgba(57, 66, 84, 0.075);
+        backdrop-filter: blur(26px) saturate(1.2);
+        overflow: hidden;
+      }
+
+      .exec-head {
+        min-width: 0;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 0 14px;
+        border-bottom: 1px solid var(--border);
+        background: rgba(255, 255, 255, 0.58);
+      }
+
+      .exec-head-copy {
+        min-width: 0;
+      }
+
+      .exec-head strong {
+        display: block;
+        color: var(--ink);
+        font-size: 11px;
+        font-weight: 600;
+      }
+
+      .exec-head span {
+        display: block;
+        overflow: hidden;
+        color: var(--text-tertiary);
+        font-family: "IBM Plex Mono", monospace;
+        font-size: 8px;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .rail-view {
+        min-height: 0;
+        display: none;
+        overflow: auto;
+      }
+
+      .rail-view.active {
+        display: block;
+      }
+
+      .rail-context {
+        padding: 13px 15px;
+        border-bottom: 1px solid var(--border);
+        background:
+          linear-gradient(
+            105deg,
+            rgba(115, 89, 182, 0.08),
+            rgba(63, 120, 182, 0.045) 58%,
+            transparent
+          ),
+          rgba(244, 245, 247, 0.68);
+      }
+
+      .rail-context span {
+        display: block;
+        margin-bottom: 5px;
+        color: var(--text-tertiary);
+        font-family: "IBM Plex Mono", monospace;
+        font-size: 8px;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+      }
+
+      .rail-context strong {
+        display: block;
+        font-size: 11px;
+        font-weight: 600;
+        line-height: 1.4;
+      }
+
+      .transcript-row {
+        position: relative;
+        padding: 15px;
+        border-bottom: 1px solid var(--border);
+      }
+
+      .transcript-row.owner {
+        padding-left: 34px;
+        background: rgba(247, 249, 252, 0.62);
+      }
+
+      .transcript-meta {
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        margin-bottom: 7px;
+        color: var(--text-tertiary);
+        font-family: "IBM Plex Mono", monospace;
+        font-size: 8px;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+
+      .transcript-meta time {
+        margin-left: auto;
+        letter-spacing: 0;
+      }
+
+      .transcript-row p {
+        margin: 0;
+        color: var(--text-secondary);
+        font-size: 11px;
+        line-height: 1.55;
+      }
+
+      .transcript-row p + p {
+        margin-top: 8px;
+      }
+
+      .transcript-row p strong {
+        color: var(--ink);
+        font-weight: 600;
+      }
+
+      .rail-action {
+        margin-top: 11px;
+        padding-top: 10px;
+        border-top: 1px solid var(--border);
+        color: var(--text-tertiary);
+        font-family: "IBM Plex Mono", monospace;
+        font-size: 8.5px;
+        line-height: 1.5;
+      }
+
+      .intent-receipt {
+        margin-top: 11px;
+        padding: 10px 11px;
+        border: 1px solid currentColor;
+        border-left-width: 2px;
+        border-radius: 4px;
+        font-size: 9px;
+        line-height: 1.45;
+        box-shadow:
+          inset 0 1px 0 rgba(255, 255, 255, 0.82),
+          0 6px 18px rgba(57, 66, 84, 0.055);
+      }
+
+      .intent-receipt.conversation {
+        border-color: rgba(63, 120, 182, 0.28);
+        border-left-color: var(--intent-conversation);
+        background: var(--intent-conversation-soft);
+        color: var(--intent-conversation);
+      }
+
+      .intent-receipt.feedback {
+        border-color: rgba(45, 138, 120, 0.3);
+        border-left-color: var(--intent-feedback);
+        background: var(--intent-feedback-soft);
+        color: var(--intent-feedback);
+      }
+
+      .intent-receipt.direction {
+        border-color: rgba(115, 89, 182, 0.3);
+        border-left-color: var(--intent-direction);
+        background: var(--intent-direction-soft);
+        color: var(--intent-direction);
+      }
+
+      .intent-receipt.authority {
+        border-color: rgba(184, 118, 32, 0.32);
+        border-left-color: var(--intent-authority);
+        background: var(--intent-authority-soft);
+        color: var(--intent-authority);
+      }
+
+      .intent-receipt .matrix {
+        color: currentColor !important;
+      }
+
+      .intent-receipt-head {
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        font-family: "IBM Plex Mono", monospace;
+        font-size: 8px;
+        font-weight: 600;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+
+      .intent-receipt-head span:last-child {
+        margin-left: auto;
+        font-weight: 500;
+        opacity: 0.75;
+      }
+
+      .intent-receipt p {
+        margin-top: 6px;
+        color: var(--text-secondary);
+        font-size: 9px;
+        line-height: 1.45;
+      }
+
+      .intent-actions {
+        display: flex;
+        gap: 6px;
+        margin-top: 9px;
+        padding-top: 8px;
+        border-top: 1px solid rgba(184, 118, 32, 0.2);
+      }
+
+      .intent-actions .flat-btn {
+        min-height: 27px;
+        flex: 1;
+        background: rgba(255, 255, 255, 0.72);
+      }
+
+      .intent-actions .flat-btn.primary {
+        border-color: var(--intent-authority);
+        background: linear-gradient(180deg, #9e6a24, #7e5012);
+      }
+
+      .composer {
+        padding: 10px;
+        border-top: 1px solid var(--border);
+        background: rgba(249, 251, 253, 0.66);
+        backdrop-filter: blur(24px) saturate(1.18);
+      }
+
+      .composer-box {
+        display: grid;
+        grid-template-columns: auto minmax(0, 1fr) auto;
+        grid-template-areas:
+          "controls controls controls"
+          "files files files"
+          "attach input send";
+        align-items: end;
+        column-gap: 7px;
+        padding: 0 7px 7px;
+        border: 1px solid var(--border-strong);
+        border-radius: 4px;
+        background: rgba(255, 255, 255, 0.76);
+        box-shadow:
+          inset 0 1px 0 rgba(255, 255, 255, 0.98),
+          0 8px 26px rgba(57, 66, 84, 0.09),
+          0 0 0 1px rgba(255, 255, 255, 0.4);
+        backdrop-filter: blur(22px) saturate(1.2);
+      }
+
+      .composer-controls {
+        grid-area: controls;
+        min-width: 0;
+        min-height: 31px;
+        display: flex;
+        align-items: center;
+        gap: 2px;
+        margin-inline: -7px;
+        padding: 3px 7px;
+        border-bottom: 1px solid var(--border);
+        background: linear-gradient(
+          90deg,
+          rgba(45, 138, 120, 0.065),
+          rgba(244, 245, 247, 0.5)
+        );
+      }
+
+      .composer-control {
+        min-width: 0;
+        height: 24px;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        padding: 0 7px;
+        border: 1px solid transparent;
+        border-radius: 3px;
+        background: transparent;
+        color: var(--text-secondary);
+        font-size: 9px;
+        cursor: pointer;
+      }
+
+      .composer-control:hover {
+        border-color: var(--border-strong);
+        background: var(--surface);
+        color: var(--ink);
+      }
+
+      .composer-control.context {
+        overflow: hidden;
+      }
+
+      .composer-control.context span:last-child {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .composer-control.context[aria-pressed="false"] {
+        color: var(--text-tertiary);
+      }
+
+      .composer-control.context[aria-pressed="true"] {
+        color: var(--intent-feedback);
+      }
+
+      .attachment-list {
+        grid-area: files;
+        display: none;
+        min-width: 0;
+        padding: 7px 0 0;
+      }
+
+      .attachment-list.has-files {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 5px;
+      }
+
+      .attachment-chip {
+        max-width: 100%;
+        height: 24px;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        padding: 0 5px 0 8px;
+        border: 1px solid var(--border-strong);
+        border-radius: 3px;
+        background: var(--surface-alt);
+        color: var(--text-secondary);
+        font-family: "IBM Plex Mono", monospace;
+        font-size: 8px;
+      }
+
+      .attachment-chip span {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .attachment-chip button {
+        width: 17px;
+        height: 17px;
+        display: grid;
+        place-items: center;
+        padding: 0;
+        border: 0;
+        border-radius: 2px;
+        background: transparent;
+        color: var(--text-tertiary);
+        cursor: pointer;
+      }
+
+      .attachment-chip button:hover {
+        background: var(--r4);
+        color: var(--ink);
+      }
+
+      .composer textarea {
+        grid-area: input;
+        width: 100%;
+        min-height: 36px;
+        max-height: 110px;
+        padding: 9px 2px 0;
+        resize: none;
+        border: 0;
+        outline: 0;
+        background: transparent;
+        color: var(--ink);
+        font-size: 11px;
+        line-height: 1.45;
+      }
+
+      .composer textarea::placeholder {
+        color: var(--text-tertiary);
+      }
+
+      .send-btn {
+        grid-area: send;
+        width: 29px;
+        height: 29px;
+        display: grid;
+        place-items: center;
+        border: 1px solid #2d4569;
+        border-radius: 3px;
+        background: linear-gradient(180deg, #42628f, #2c4569);
+        color: var(--text-inverse);
+        cursor: pointer;
+        box-shadow:
+          inset 0 1px 0 rgba(255, 255, 255, 0.22),
+          0 4px 12px rgba(44, 69, 105, 0.2);
+      }
+
+      .attach-btn {
+        grid-area: attach;
+        position: relative;
+        width: 29px;
+        height: 29px;
+        display: grid;
+        place-items: center;
+        border: 1px solid transparent;
+        border-radius: 3px;
+        background: transparent;
+        color: var(--text-secondary);
+        cursor: pointer;
+      }
+
+      .attach-btn:hover {
+        border-color: var(--border-strong);
+        background: var(--surface-alt);
+        color: var(--ink);
+      }
+
+      .composer-foot {
+        display: flex;
+        align-items: center;
+        margin-top: 7px;
+        color: var(--text-tertiary);
+        font-family: "IBM Plex Mono", monospace;
+        font-size: 8px;
+      }
+
+      .composer-foot span:last-child {
+        margin-left: auto;
+      }
+
+      .toast {
+        position: fixed;
+        right: 396px;
+        bottom: 14px;
+        z-index: 100;
+        max-width: 330px;
+        padding: 10px 13px;
+        transform: translateY(10px);
+        border: 1px solid var(--border-strong);
+        border-radius: 4px;
+        background: var(--ink);
+        box-shadow: var(--shadow-lift);
+        color: var(--text-inverse);
+        font-size: 10px;
+        opacity: 0;
+        pointer-events: none;
+        transition: 160ms ease;
+      }
+
+      .toast.show {
+        transform: translateY(0);
+        opacity: 1;
+      }
+
+      @media (max-width: 1240px) {
+        .app-shell {
+          grid-template-columns: minmax(0, 1fr) 340px;
+        }
+
+        .attention-screen {
+          grid-template-columns: 224px minmax(460px, 1fr);
+        }
+
+        .attention-screen > .brief-pane {
+          display: none;
+        }
+
+        .work-screen {
+          grid-template-columns: 220px minmax(520px, 1fr);
+        }
+
+        .work-screen > .attempt-inspector {
+          display: none;
+        }
+
+        .people-screen {
+          grid-template-columns: 240px minmax(500px, 1fr);
+        }
+
+        .people-screen > .continuity-pane {
+          display: none;
+        }
+
+        .authority-screen {
+          grid-template-columns: 280px minmax(500px, 1fr);
+        }
+
+        .authority-screen > :last-child {
+          display: none;
+        }
+
+        .toast {
+          right: 354px;
+        }
+      }
+
+      @media (max-width: 960px) {
+        .app-shell {
+          grid-template-columns: minmax(0, 1fr);
+        }
+
+        .exec-rail {
+          display: none;
+        }
+
+        .situation-strip {
+          grid-template-columns: minmax(220px, 2fr) repeat(
+              2,
+              minmax(100px, 0.7fr)
+            );
+        }
+
+        .situation-cell:nth-last-child(-n + 2) {
+          display: none;
+        }
+
+        .toast {
+          right: 14px;
+        }
+      }
+
+      @media (max-width: 700px) {
+        .prototype .bridge-topbar {
+          gap: 8px;
+        }
+
+        .prototype .tb-co,
+        .machine-presence,
+        .situation-cell {
+          display: none;
+        }
+
+        .prototype .tb-tabs {
+          margin-left: auto;
+        }
+
+        .prototype .tb-tab {
+          min-width: 0;
+          padding-inline: 7px;
+          font-size: 10px;
+        }
+
+        .situation-strip {
+          grid-template-columns: 1fr;
+        }
+
+        .attention-screen,
+        .work-screen,
+        .people-screen,
+        .authority-screen {
+          grid-template-columns: minmax(0, 1fr);
+        }
+
+        .attention-screen > :first-child,
+        .work-screen > :first-child,
+        .people-screen > :first-child,
+        .authority-screen > :first-child {
+          display: none;
+        }
+
+        .recommendation,
+        .evidence-grid,
+        .profile-body {
+          grid-template-columns: 1fr;
+        }
+
+        .confidence,
+        .evidence-column + .evidence-column,
+        .profile-column + .profile-column {
+          border-top: 1px solid var(--border);
+          border-left: 0;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="bridge-root prototype">
+      <header class="bridge-topbar" aria-label="Global navigation">
+        <div class="tb-brandwrap">
+          <button
+            class="tb-brand static"
+            type="button"
+            aria-label="Aris Learning company menu"
+          >
+            <span class="tb-mark"
+              ><span
+                class="matrix large"
+                data-glyph="p"
+                aria-hidden="true"
+              ></span
+            ></span>
+            <span class="tb-name">Restless</span>
+            <span class="tb-company-slash">/</span>
+            <span class="tb-co">Aris Learning</span>
+          </button>
+        </div>
+
+        <nav class="tb-tabs" aria-label="Owner surfaces" role="tablist">
+          <button
+            class="tb-tab"
+            type="button"
+            role="tab"
+            aria-selected="true"
+            data-screen-target="attention"
+          >
+            Attention
+          </button>
+          <button
+            class="tb-tab"
+            type="button"
+            role="tab"
+            aria-selected="false"
+            data-screen-target="work"
+          >
+            Work
+          </button>
+          <button
+            class="tb-tab"
+            type="button"
+            role="tab"
+            aria-selected="false"
+            data-screen-target="people"
+          >
+            People
+          </button>
+          <button
+            class="tb-tab"
+            type="button"
+            role="tab"
+            aria-selected="false"
+            data-screen-target="authority"
+          >
+            Authority
+          </button>
+        </nav>
+
+        <div class="tb-right">
+          <div class="machine-presence">
+            <span class="matrix" data-glyph="dots" aria-hidden="true"></span>
+            Exec present
+          </div>
+          <div class="account-mark" aria-label="Signed in as YY">YY</div>
+        </div>
+      </header>
+
+      <div class="app-shell">
+        <main class="workspace">
+          <section class="situation-strip" aria-label="Company situation">
+            <div class="situation-primary">
+              <span
+                class="matrix large"
+                data-glyph="up"
+                aria-hidden="true"
+              ></span>
+              <div>
+                <span>Company objective</span>
+                <strong
+                  >Reach 40 paid weekly students without founder-led
+                  delivery</strong
+                >
+              </div>
+            </div>
+            <div class="situation-cell">
+              <span>Phase</span>
+              <strong>Proving acquisition</strong>
+            </div>
+            <div class="situation-cell">
+              <span>Company</span>
+              <strong>On course</strong>
+            </div>
+            <div class="situation-cell">
+              <span>Spend / month</span>
+              <strong>$812 / $1,200</strong>
+            </div>
+            <div class="situation-cell">
+              <span>Runtime</span>
+              <strong>Live · 6 staff</strong>
+            </div>
+          </section>
+
+          <div class="screen-stack">
+            <section
+              class="screen attention-screen active"
+              data-screen="attention"
+              aria-label="Attention"
+            >
+              <aside class="page-pane scroll">
+                <div class="pane-title">
+                  <span
+                    class="matrix"
+                    data-glyph="ring"
+                    aria-hidden="true"
+                  ></span>
+                  <span class="over-label">Needs your judgement</span>
+                  <span class="count">3</span>
+                </div>
+                <ul class="attention-list">
+                  <li>
+                    <button class="attention-item active" type="button">
+                      <span
+                        class="matrix"
+                        data-glyph="square"
+                        aria-hidden="true"
+                      ></span>
+                      <span class="row-copy">
+                        <strong>Approve tutor outreach</strong>
+                        <span>12 prepared introductions</span>
+                      </span>
+                      <span class="row-time">now</span>
+                    </button>
+                  </li>
+                  <li>
+                    <button
+                      class="attention-item"
+                      type="button"
+                      data-demo-action="The pricing decision would open here."
+                    >
+                      <span
+                        class="matrix"
+                        data-glyph="money"
+                        aria-hidden="true"
+                      ></span>
+                      <span class="row-copy">
+                        <strong>Choose pilot price</strong>
+                        <span>Three tested positions</span>
+                      </span>
+                      <span class="row-time">2h</span>
+                    </button>
+                  </li>
+                  <li>
+                    <button
+                      class="attention-item"
+                      type="button"
+                      data-demo-action="The parent interview handoff would open here."
+                    >
+                      <span
+                        class="matrix"
+                        data-glyph="people"
+                        aria-hidden="true"
+                      ></span>
+                      <span class="row-copy">
+                        <strong>Join parent interview</strong>
+                        <span>Identity-sensitive handoff ready</span>
+                      </span>
+                      <span class="row-time">Tue</span>
+                    </button>
+                  </li>
+                </ul>
+
+                <div class="section-rule">Exec is handling</div>
+                <ul class="attention-list">
+                  <li>
+                    <div class="attention-item" role="status">
+                      <span
+                        class="matrix"
+                        data-glyph="dots"
+                        aria-hidden="true"
+                      ></span>
+                      <span class="row-copy">
+                        <strong>Qualify NSW tutor list</strong>
+                        <span>Research · 43 of 60 checked</span>
+                      </span>
+                      <span class="row-time">live</span>
+                    </div>
+                  </li>
+                  <li>
+                    <div class="attention-item" role="status">
+                      <span
+                        class="matrix"
+                        data-glyph="dots"
+                        aria-hidden="true"
+                      ></span>
+                      <span class="row-copy">
+                        <strong>Revise parent landing page</strong>
+                        <span>Growth · final proof</span>
+                      </span>
+                      <span class="row-time">18m</span>
+                    </div>
+                  </li>
+                  <li>
+                    <div class="attention-item" role="status">
+                      <span
+                        class="matrix"
+                        data-glyph="check"
+                        aria-hidden="true"
+                      ></span>
+                      <span class="row-copy">
+                        <strong>Reconcile August spend</strong>
+                        <span>Operations · receipt filed</span>
+                      </span>
+                      <span class="row-time">done</span>
+                    </div>
+                  </li>
+                </ul>
+              </aside>
+
+              <article class="page-pane focus-pane">
+                <header class="focus-header">
+                  <div class="eyebrow-line">
+                    <span
+                      class="matrix"
+                      data-glyph="square"
+                      aria-hidden="true"
+                    ></span>
+                    Decision · External outreach
+                    <span class="index">ATTN–014</span>
+                  </div>
+                  <h1>
+                    Approve twelve prepared introductions to independent maths
+                    tutors?
+                  </h1>
+                  <p>
+                    Exec has narrowed 60 candidates to 12 with current
+                    availability, aligned teaching style, and direct contact
+                    details. Nothing will be sent until you approve the
+                    positioning.
+                  </p>
+                </header>
+
+                <div class="decision-body">
+                  <section class="recommendation">
+                    <div class="recommendation-copy">
+                      <span class="over-label">Exec recommendation</span>
+                      <h2>
+                        Send the direct version to the first six, then adapt
+                        from observed replies.
+                      </h2>
+                      <p>
+                        It makes the value exchange concrete, asks for a bounded
+                        20-minute call, and avoids presenting a partnership
+                        before there is evidence of one. The remaining six stay
+                        prepared, not sent.
+                      </p>
+                    </div>
+                    <div class="confidence">
+                      <strong>0.78</strong>
+                      <span>Confidence · grounded</span>
+                    </div>
+                  </section>
+
+                  <div class="evidence-grid">
+                    <section class="evidence-column">
+                      <h3>Why this is ready</h3>
+                      <div class="fact-row">
+                        <span
+                          class="matrix"
+                          data-glyph="check"
+                          aria-hidden="true"
+                        ></span>
+                        <p>
+                          <strong>12 live candidates.</strong> Availability and
+                          business details were checked against primary sources
+                          today.
+                        </p>
+                      </div>
+                      <div class="fact-row">
+                        <span
+                          class="matrix"
+                          data-glyph="check"
+                          aria-hidden="true"
+                        ></span>
+                        <p>
+                          <strong>One ask.</strong> Each note asks only for a
+                          short discovery call; no implied commitment or
+                          discount.
+                        </p>
+                      </div>
+                      <div class="fact-row">
+                        <span
+                          class="matrix"
+                          data-glyph="check"
+                          aria-hidden="true"
+                        ></span>
+                        <p>
+                          <strong>Prepared last mile.</strong> The six messages
+                          are personalised and queued in the connected company
+                          inbox.
+                        </p>
+                      </div>
+                    </section>
+
+                    <section class="evidence-column">
+                      <h3>What remains uncertain</h3>
+                      <div class="fact-row">
+                        <span
+                          class="matrix"
+                          data-glyph="ring"
+                          aria-hidden="true"
+                        ></span>
+                        <p>
+                          <strong>Positioning language.</strong> “Referral
+                          partner” may feel premature before tutors have seen
+                          the programme.
+                        </p>
+                      </div>
+                      <div class="fact-row">
+                        <span
+                          class="matrix"
+                          data-glyph="ring"
+                          aria-hidden="true"
+                        ></span>
+                        <p>
+                          <strong>Sample size.</strong> Two previous
+                          conversations support the approach, but do not yet
+                          establish a pattern.
+                        </p>
+                      </div>
+                      <div class="fact-row">
+                        <span
+                          class="matrix"
+                          data-glyph="right"
+                          aria-hidden="true"
+                        ></span>
+                        <p>
+                          <strong>Reversible.</strong> The second batch will not
+                          send until replies from the first six have been
+                          reviewed.
+                        </p>
+                      </div>
+                    </section>
+                  </div>
+                </div>
+
+                <footer class="decision-actions">
+                  <span class="explain"
+                    >Approval authorises six external messages. It does not
+                    authorise follow-up commitments.</span
+                  >
+                  <button
+                    class="flat-btn text"
+                    type="button"
+                    data-demo-action="The draft comparison would open beside the evidence."
+                  >
+                    Compare drafts
+                  </button>
+                  <button
+                    class="flat-btn"
+                    type="button"
+                    data-demo-action="Sent back to Exec with your note preserved in context."
+                  >
+                    Request change
+                  </button>
+                  <button
+                    class="flat-btn primary"
+                    type="button"
+                    data-demo-action="Approved for the first six introductions. Exec will observe replies before continuing."
+                  >
+                    Approve first six
+                  </button>
+                </footer>
+              </article>
+
+              <aside class="page-pane brief-pane">
+                <div class="pane-title">
+                  <span
+                    class="matrix"
+                    data-glyph="quote"
+                    aria-hidden="true"
+                  ></span>
+                  <span class="over-label">Decision brief</span>
+                </div>
+                <div class="brief-scroll">
+                  <section class="brief-section">
+                    <h3>If you approve</h3>
+                    <ol class="sequence">
+                      <li data-step="1">
+                        Exec releases six prepared emails through the company
+                        inbox.
+                      </li>
+                      <li data-step="2">
+                        Growth monitors delivery, replies, and objections for 72
+                        hours.
+                      </li>
+                      <li data-step="3">
+                        Exec returns only if the evidence changes the offer or
+                        authority needed.
+                      </li>
+                    </ol>
+                  </section>
+                  <section class="brief-section">
+                    <h3>If you do nothing</h3>
+                    <p>
+                      The messages remain prepared. The company continues the
+                      landing-page test, but partner acquisition stays paused.
+                    </p>
+                  </section>
+                  <section class="brief-section">
+                    <h3>Evidence</h3>
+                    <button
+                      class="source-link"
+                      type="button"
+                      data-demo-action="Opening the prepared outreach set."
+                    >
+                      <span
+                        class="matrix"
+                        data-glyph="work"
+                        aria-hidden="true"
+                      ></span>
+                      <span
+                        ><strong>outreach/tutors/batch-01</strong
+                        ><span>6 prepared messages · current</span></span
+                      >
+                      <span aria-hidden="true">↗</span>
+                    </button>
+                    <button
+                      class="source-link"
+                      type="button"
+                      data-demo-action="Opening the candidate research artifact."
+                    >
+                      <span
+                        class="matrix"
+                        data-glyph="work"
+                        aria-hidden="true"
+                      ></span>
+                      <span
+                        ><strong>research/nsw-tutors.csv</strong
+                        ><span>60 reviewed · 12 qualified</span></span
+                      >
+                      <span aria-hidden="true">↗</span>
+                    </button>
+                    <button
+                      class="source-link"
+                      type="button"
+                      data-demo-action="Opening the prior interview notes."
+                    >
+                      <span
+                        class="matrix"
+                        data-glyph="quote"
+                        aria-hidden="true"
+                      ></span>
+                      <span
+                        ><strong>interviews/tutor-notes.md</strong
+                        ><span>2 conversations · source notes</span></span
+                      >
+                      <span aria-hidden="true">↗</span>
+                    </button>
+                  </section>
+                </div>
+              </aside>
+            </section>
+
+            <section
+              class="screen work-screen"
+              data-screen="work"
+              aria-label="Work"
+            >
+              <aside class="page-pane scroll">
+                <div class="pane-title">
+                  <span
+                    class="matrix"
+                    data-glyph="up"
+                    aria-hidden="true"
+                  ></span>
+                  <span class="over-label">Goals</span>
+                  <span class="count">3</span>
+                </div>
+                <div class="goal-cell current">
+                  <div class="goal-index">
+                    <span>G–01 · current</span><span>62%</span>
+                  </div>
+                  <h3>Prove a repeatable tutor acquisition path</h3>
+                  <p>
+                    One channel producing qualified conversations without
+                    founder preparation.
+                  </p>
+                  <div class="progress-line" style="--progress: 62%">
+                    <span></span>
+                  </div>
+                </div>
+                <div class="goal-cell">
+                  <div class="goal-index">
+                    <span>G–02</span><span>34%</span>
+                  </div>
+                  <h3>Convert five families into the weekly programme</h3>
+                  <p>
+                    Clear offer, working payment path, and observed parent
+                    objections.
+                  </p>
+                  <div class="progress-line" style="--progress: 34%">
+                    <span></span>
+                  </div>
+                </div>
+                <div class="goal-cell">
+                  <div class="goal-index">
+                    <span>G–03</span><span>18%</span>
+                  </div>
+                  <h3>Deliver the programme without founder coordination</h3>
+                  <p>
+                    Staff can schedule, teach, report, and recover a missed
+                    session.
+                  </p>
+                  <div class="progress-line" style="--progress: 18%">
+                    <span></span>
+                  </div>
+                </div>
+                <div class="section-rule">Observed outcome</div>
+                <div class="mandate-copy">
+                  <p>
+                    Seven qualified tutor conversations by 28 August, with one
+                    repeatable message and objections recorded from real
+                    replies.
+                  </p>
+                </div>
+              </aside>
+
+              <section class="page-pane work-map">
+                <header class="map-toolbar">
+                  <span class="over-label">Work · Tutor acquisition</span>
+                  <span class="work-lens-note" id="work-lens-note"
+                    >Requires + revises</span
+                  >
+                  <div class="map-key" id="map-key" aria-label="Map legend">
+                    <span><i></i> Requires</span>
+                    <span><i class="dashed"></i> Revises</span>
+                  </div>
+                  <div
+                    class="work-lens-switch"
+                    role="tablist"
+                    aria-label="Work view"
+                  >
+                    <button
+                      type="button"
+                      role="tab"
+                      aria-selected="true"
+                      data-work-lens-target="map"
+                    >
+                      Map
+                    </button>
+                    <button
+                      type="button"
+                      role="tab"
+                      aria-selected="false"
+                      data-work-lens-target="board"
+                    >
+                      Board
+                    </button>
+                  </div>
+                </header>
+                <div class="work-lens map-canvas active" data-work-lens="map">
+                  <div class="map-inner">
+                    <span
+                      class="connector strong"
+                      style="left: 210px; top: 132px; width: 111px"
+                    ></span>
+                    <span
+                      class="connector strong"
+                      style="
+                        left: 510px;
+                        top: 132px;
+                        width: 86px;
+                        transform: rotate(43deg);
+                      "
+                    ></span>
+                    <span
+                      class="connector"
+                      style="
+                        left: 510px;
+                        top: 132px;
+                        width: 105px;
+                        transform: rotate(-49deg);
+                      "
+                    ></span>
+                    <span
+                      class="connector strong"
+                      style="
+                        left: 210px;
+                        top: 370px;
+                        width: 111px;
+                        transform: rotate(-45deg);
+                      "
+                    ></span>
+
+                    <button
+                      class="work-node selected"
+                      type="button"
+                      style="left: 22px; top: 77px"
+                      data-node="Research live tutor market"
+                    >
+                      <span class="node-state"
+                        ><span
+                          class="matrix"
+                          data-glyph="check"
+                          aria-hidden="true"
+                        ></span>
+                        Complete <time>14 Aug</time></span
+                      >
+                      <h3>Research live tutor market</h3>
+                      <p>
+                        60 candidates verified against current public sources.
+                      </p>
+                      <span class="node-footer"
+                        ><span>Research</span><span>1 artifact</span></span
+                      >
+                    </button>
+
+                    <button
+                      class="work-node"
+                      type="button"
+                      style="left: 322px; top: 77px"
+                      data-node="Prepare first outreach batch"
+                    >
+                      <span class="node-state"
+                        ><span
+                          class="matrix"
+                          data-glyph="ring"
+                          aria-hidden="true"
+                        ></span>
+                        Waiting <time>owner</time></span
+                      >
+                      <h3>Prepare first outreach batch</h3>
+                      <p>
+                        Six direct introductions ready in the company inbox.
+                      </p>
+                      <span class="node-footer"
+                        ><span>Growth</span><span>approval gate</span></span
+                      >
+                    </button>
+
+                    <button
+                      class="work-node"
+                      type="button"
+                      style="left: 610px; top: 27px"
+                      data-node="Run tutor interviews"
+                    >
+                      <span class="node-state"
+                        ><span
+                          class="matrix"
+                          data-glyph="dots"
+                          aria-hidden="true"
+                        ></span>
+                        Working <time>today</time></span
+                      >
+                      <h3>Run tutor interviews</h3>
+                      <p>
+                        Capture language, objections, and the actual decision
+                        path.
+                      </p>
+                      <span class="node-footer"
+                        ><span>Exec</span><span>0 / 7</span></span
+                      >
+                    </button>
+
+                    <button
+                      class="work-node"
+                      type="button"
+                      style="left: 610px; top: 253px"
+                      data-node="Synthesize acquisition playbook"
+                    >
+                      <span class="node-state"
+                        ><span
+                          class="matrix"
+                          data-glyph="right"
+                          aria-hidden="true"
+                        ></span>
+                        Queued <time>after</time></span
+                      >
+                      <h3>Synthesize acquisition playbook</h3>
+                      <p>
+                        One usable path based on replies, not a speculative
+                        funnel.
+                      </p>
+                      <span class="node-footer"
+                        ><span>Exec</span><span>blocked by evidence</span></span
+                      >
+                    </button>
+
+                    <button
+                      class="work-node"
+                      type="button"
+                      style="left: 22px; top: 315px"
+                      data-node="Test parent promise"
+                    >
+                      <span class="node-state"
+                        ><span
+                          class="matrix"
+                          data-glyph="dots"
+                          aria-hidden="true"
+                        ></span>
+                        Working <time>18m</time></span
+                      >
+                      <h3>Test parent promise</h3>
+                      <p>
+                        Landing page revised around visible weekly progress.
+                      </p>
+                      <span class="node-footer"
+                        ><span>Growth</span><span>live preview</span></span
+                      >
+                    </button>
+                  </div>
+                </div>
+
+                <div class="work-lens board-view" data-work-lens="board">
+                  <section class="board-column">
+                    <header class="board-column-head">
+                      <span
+                        class="matrix"
+                        data-glyph="dots"
+                        aria-hidden="true"
+                      ></span>
+                      In progress <span>2</span>
+                    </header>
+                    <button
+                      class="board-item"
+                      type="button"
+                      data-node="Test parent promise"
+                    >
+                      <span class="board-item-state"
+                        ><span>REV 03 · ATTEMPT 02</span><span>18m</span></span
+                      >
+                      <h3>Test parent promise</h3>
+                      <p>
+                        Landing page revised around visible weekly progress.
+                      </p>
+                      <footer>
+                        <span>Growth</span><span>live preview</span>
+                      </footer>
+                    </button>
+                    <button
+                      class="board-item"
+                      type="button"
+                      data-node="Qualify second tutor batch"
+                    >
+                      <span class="board-item-state"
+                        ><span>REV 01 · ATTEMPT 01</span
+                        ><span>43 / 60</span></span
+                      >
+                      <h3>Qualify second tutor batch</h3>
+                      <p>
+                        Verify availability and teaching fit from primary
+                        sources.
+                      </p>
+                      <footer>
+                        <span>Research</span><span>0 artifacts</span>
+                      </footer>
+                    </button>
+                  </section>
+
+                  <section class="board-column">
+                    <header class="board-column-head">
+                      <span
+                        class="matrix"
+                        data-glyph="ring"
+                        aria-hidden="true"
+                      ></span>
+                      Waiting <span>2</span>
+                    </header>
+                    <button
+                      class="board-item"
+                      type="button"
+                      data-node="Prepare first outreach batch"
+                    >
+                      <span class="board-item-state"
+                        ><span>OWNER GATE</span><span>now</span></span
+                      >
+                      <h3>Prepare first outreach batch</h3>
+                      <p>
+                        Six introductions are prepared; first external send
+                        needs approval.
+                      </p>
+                      <footer><span>Growth</span><span>6 drafts</span></footer>
+                    </button>
+                    <button
+                      class="board-item"
+                      type="button"
+                      data-node="Synthesize acquisition playbook"
+                    >
+                      <span class="board-item-state"
+                        ><span>NEEDS REPLIES</span><span>after</span></span
+                      >
+                      <h3>Synthesize acquisition playbook</h3>
+                      <p>
+                        Intentionally blocked until real tutor conversations
+                        produce evidence.
+                      </p>
+                      <footer>
+                        <span>Exec</span><span>hard prerequisite</span>
+                      </footer>
+                    </button>
+                  </section>
+
+                  <section class="board-column">
+                    <header class="board-column-head">
+                      <span
+                        class="matrix"
+                        data-glyph="square"
+                        aria-hidden="true"
+                      ></span>
+                      Ready to review <span>1</span>
+                    </header>
+                    <button
+                      class="board-item"
+                      type="button"
+                      data-node="Tutor outreach positioning"
+                    >
+                      <span class="board-item-state"
+                        ><span>GATE PASSED</span><span>today</span></span
+                      >
+                      <h3>Tutor outreach positioning</h3>
+                      <p>
+                        Direct and partnership variants compared against two
+                        interviews.
+                      </p>
+                      <footer><span>Exec</span><span>3 artifacts</span></footer>
+                    </button>
+                  </section>
+
+                  <section class="board-column">
+                    <header class="board-column-head">
+                      <span
+                        class="matrix"
+                        data-glyph="check"
+                        aria-hidden="true"
+                      ></span>
+                      Landed <span>2</span>
+                    </header>
+                    <button
+                      class="board-item selected"
+                      type="button"
+                      data-node="Research live tutor market"
+                    >
+                      <span class="board-item-state"
+                        ><span>ACCEPTED</span><span>14 Aug</span></span
+                      >
+                      <h3>Research live tutor market</h3>
+                      <p>
+                        60 current candidates verified; 12 met the qualification
+                        criteria.
+                      </p>
+                      <footer>
+                        <span>Research</span><span>1 artifact</span>
+                      </footer>
+                    </button>
+                    <button
+                      class="board-item"
+                      type="button"
+                      data-node="Define tutor qualification criteria"
+                    >
+                      <span class="board-item-state"
+                        ><span>ACCEPTED</span><span>12 Aug</span></span
+                      >
+                      <h3>Define tutor qualification criteria</h3>
+                      <p>
+                        Teaching style, region, availability, and direct contact
+                        defined.
+                      </p>
+                      <footer>
+                        <span>Programme</span><span>1 artifact</span>
+                      </footer>
+                    </button>
+                  </section>
+                </div>
+              </section>
+
+              <aside class="page-pane attempt-inspector">
+                <div class="pane-title">
+                  <span
+                    class="matrix"
+                    data-glyph="work"
+                    aria-hidden="true"
+                  ></span>
+                  <span class="over-label">Selected work</span>
+                </div>
+                <div class="inspector-lead">
+                  <h2 id="selected-work-title">Research live tutor market</h2>
+                  <p>
+                    Find current, independently verifiable candidates before
+                    creating any outreach machinery.
+                  </p>
+                </div>
+                <div class="attempt-meta">
+                  <div><span>Outcome</span><strong>60 checked</strong></div>
+                  <div><span>Attempts</span><strong>2 · 1 kept</strong></div>
+                </div>
+                <div class="attempt-log">
+                  <div class="log-row">
+                    <time>09:12</time
+                    ><span
+                      >Probed three directories; one source was stale and
+                      discarded.</span
+                    >
+                  </div>
+                  <div class="log-row">
+                    <time>09:41</time
+                    ><span
+                      >Verified websites, subject focus, region, and current
+                      contact route.</span
+                    >
+                  </div>
+                  <div class="log-row">
+                    <time>10:18</time
+                    ><span
+                      >Qualified 12 against the agreed teaching and availability
+                      criteria.</span
+                    >
+                  </div>
+                  <div class="log-row">
+                    <time>10:24</time
+                    ><span
+                      >Committed the research artifact and prepared a decision
+                      brief.</span
+                    >
+                  </div>
+                </div>
+                <div class="artifact-link">
+                  <strong>Qualified tutor research</strong>
+                  <span>company/research/nsw-tutors.csv</span>
+                </div>
+              </aside>
+            </section>
+
+            <section
+              class="screen people-screen"
+              data-screen="people"
+              aria-label="People"
+            >
+              <aside class="page-pane scroll">
+                <div class="pane-title">
+                  <span
+                    class="matrix"
+                    data-glyph="people"
+                    aria-hidden="true"
+                  ></span>
+                  <span class="over-label">Company</span>
+                  <span class="count">6</span>
+                </div>
+                <ul class="people-list">
+                  <li>
+                    <button class="person-row active" type="button">
+                      <span class="person-avatar">EX</span
+                      ><span class="row-copy"
+                        ><strong>Executive</strong
+                        ><span>Company direction and synthesis</span></span
+                      ><span
+                        class="matrix"
+                        data-glyph="dots"
+                        aria-label="Working"
+                      ></span>
+                    </button>
+                  </li>
+                  <li>
+                    <button
+                      class="person-row"
+                      type="button"
+                      data-demo-action="Growth profile would load here."
+                    >
+                      <span class="person-avatar">GR</span
+                      ><span class="row-copy"
+                        ><strong>Growth</strong
+                        ><span>Acquisition and market evidence</span></span
+                      ><span
+                        class="matrix"
+                        data-glyph="dots"
+                        aria-label="Working"
+                      ></span>
+                    </button>
+                  </li>
+                  <li>
+                    <button
+                      class="person-row"
+                      type="button"
+                      data-demo-action="Programme profile would load here."
+                    >
+                      <span class="person-avatar">PR</span
+                      ><span class="row-copy"
+                        ><strong>Programme</strong
+                        ><span>Curriculum and learning outcomes</span></span
+                      ><span
+                        class="matrix"
+                        data-glyph="ring"
+                        aria-label="Waiting"
+                      ></span>
+                    </button>
+                  </li>
+                  <li>
+                    <button
+                      class="person-row"
+                      type="button"
+                      data-demo-action="Operations profile would load here."
+                    >
+                      <span class="person-avatar">OP</span
+                      ><span class="row-copy"
+                        ><strong>Operations</strong
+                        ><span>Scheduling, billing, continuity</span></span
+                      ><span
+                        class="matrix"
+                        data-glyph="check"
+                        aria-label="Complete"
+                      ></span>
+                    </button>
+                  </li>
+                  <li>
+                    <button
+                      class="person-row"
+                      type="button"
+                      data-demo-action="Research profile would load here."
+                    >
+                      <span class="person-avatar">RE</span
+                      ><span class="row-copy"
+                        ><strong>Research</strong
+                        ><span>Primary-source investigation</span></span
+                      ><span
+                        class="matrix"
+                        data-glyph="dots"
+                        aria-label="Working"
+                      ></span>
+                    </button>
+                  </li>
+                  <li>
+                    <button
+                      class="person-row"
+                      type="button"
+                      data-demo-action="Tutor Success profile would load here."
+                    >
+                      <span class="person-avatar">TS</span
+                      ><span class="row-copy"
+                        ><strong>Tutor Success</strong
+                        ><span>Onboarding and teaching support</span></span
+                      ><span
+                        class="matrix"
+                        data-glyph="right"
+                        aria-label="Queued"
+                      ></span>
+                    </button>
+                  </li>
+                </ul>
+                <div class="section-rule">Org health</div>
+                <div class="mandate-copy">
+                  <p>
+                    No uncovered commitment. Growth is carrying the only
+                    near-term bottleneck; Exec is pairing until tutor replies
+                    establish a pattern.
+                  </p>
+                </div>
+              </aside>
+
+              <article class="page-pane profile-pane">
+                <header class="profile-head">
+                  <div>
+                    <span class="over-label">Singleton company executive</span>
+                    <h1>Executive</h1>
+                    <p>
+                      Holds the company objective, commissions staff work,
+                      resolves trade-offs, and returns only decisions that need
+                      owner judgement or authority.
+                    </p>
+                  </div>
+                  <div class="profile-status">
+                    <span
+                      class="matrix"
+                      data-glyph="dots"
+                      aria-hidden="true"
+                    ></span>
+                    Working now
+                  </div>
+                </header>
+                <div class="profile-metrics">
+                  <div><span>Active commitments</span><strong>4</strong></div>
+                  <div><span>Delivered · 30d</span><strong>19</strong></div>
+                  <div>
+                    <span>Returned for judgement</span><strong>6</strong>
+                  </div>
+                  <div><span>Unrecovered failures</span><strong>0</strong></div>
+                </div>
+                <div class="profile-body">
+                  <section class="profile-column">
+                    <div class="section-rule">Recent outcomes</div>
+                    <div class="output-row">
+                      <span
+                        class="matrix"
+                        data-glyph="check"
+                        aria-hidden="true"
+                      ></span>
+                      <div>
+                        <h3>Narrowed live tutor market to 12 candidates</h3>
+                        <p>
+                          Research was verified, weak sources discarded, and the
+                          next six messages prepared.
+                        </p>
+                      </div>
+                      <span class="row-time">today</span>
+                    </div>
+                    <div class="output-row">
+                      <span
+                        class="matrix"
+                        data-glyph="check"
+                        aria-hidden="true"
+                      ></span>
+                      <div>
+                        <h3>Stopped a speculative referral workflow</h3>
+                        <p>
+                          The process was not repeated enough to deserve
+                          machinery; work remains ordinary files and messages.
+                        </p>
+                      </div>
+                      <span class="row-time">Fri</span>
+                    </div>
+                    <div class="output-row">
+                      <span
+                        class="matrix"
+                        data-glyph="check"
+                        aria-hidden="true"
+                      ></span>
+                      <div>
+                        <h3>Recovered a missed parent follow-up</h3>
+                        <p>
+                          Operations detected the gap, sent the prepared note,
+                          and recorded the reply without owner intervention.
+                        </p>
+                      </div>
+                      <span class="row-time">Thu</span>
+                    </div>
+                    <div class="output-row">
+                      <span
+                        class="matrix"
+                        data-glyph="right"
+                        aria-hidden="true"
+                      ></span>
+                      <div>
+                        <h3>Current: prove tutor acquisition</h3>
+                        <p>
+                          Waiting on one bounded owner decision while continuing
+                          the landing-page test.
+                        </p>
+                      </div>
+                      <span class="row-time">live</span>
+                    </div>
+                  </section>
+                  <section class="profile-column">
+                    <div class="section-rule">Mandate</div>
+                    <div class="mandate-copy">
+                      <p>
+                        Run Aris Learning toward the current company objective.
+                        Prefer real-world evidence to internal machinery.
+                        Commission specialists when their judgement matters, and
+                        keep the owner out of machine-doable coordination.
+                      </p>
+                    </div>
+                    <div class="section-rule">Current reasoning horizon</div>
+                    <div class="mandate-copy">
+                      <p>
+                        The next durable fact is whether independent tutors
+                        reply to a direct, bounded proposition. Until then,
+                        elaborate partnership systems and referral tracking are
+                        premature.
+                      </p>
+                    </div>
+                    <div class="section-rule">Escalates when</div>
+                    <div class="mandate-copy">
+                      <p>
+                        External authority is needed, the objective must change,
+                        commitments conflict, evidence is materially ambiguous,
+                        or an irreversible business choice remains.
+                      </p>
+                    </div>
+                  </section>
+                </div>
+              </article>
+
+              <aside class="page-pane continuity-pane">
+                <div class="pane-title">
+                  <span
+                    class="matrix"
+                    data-glyph="rules"
+                    aria-hidden="true"
+                  ></span>
+                  <span class="over-label">Coverage</span>
+                </div>
+                <div class="coverage-map">
+                  <div>
+                    <span>Acquisition</span><strong>Growth</strong
+                    ><small>Exec pairing · temporary</small>
+                  </div>
+                  <div>
+                    <span>Delivery</span><strong>Programme</strong
+                    ><small>Tutor Success follows</small>
+                  </div>
+                  <div>
+                    <span>Operations</span><strong>Operations</strong
+                    ><small>No uncovered work</small>
+                  </div>
+                  <div>
+                    <span>Evidence</span><strong>Research</strong
+                    ><small>Primary sources only</small>
+                  </div>
+                </div>
+                <div class="brief-scroll">
+                  <div class="section-rule">Operating notes</div>
+                  <div class="brief-section">
+                    <h3>One temporary load concentration</h3>
+                    <p>
+                      Growth owns both the parent promise and tutor acquisition.
+                      Exec is absorbing synthesis until the current experiment
+                      resolves.
+                    </p>
+                  </div>
+                  <div class="brief-section">
+                    <h3>No hiring recommendation</h3>
+                    <p>
+                      The workload is not yet repeated or stable enough to
+                      justify a new permanent role.
+                    </p>
+                  </div>
+                </div>
+              </aside>
+            </section>
+
+            <section
+              class="screen authority-screen"
+              data-screen="authority"
+              aria-label="Authority"
+            >
+              <aside class="page-pane scroll">
+                <div class="pane-title">
+                  <span
+                    class="matrix"
+                    data-glyph="rules"
+                    aria-hidden="true"
+                  ></span>
+                  <span class="over-label">Current authority</span>
+                </div>
+                <div class="section-rule">Standing mandate</div>
+                <div class="authority-row">
+                  <span
+                    class="matrix"
+                    data-glyph="check"
+                    aria-hidden="true"
+                  ></span>
+                  <div>
+                    <h3>Prepare external communication</h3>
+                    <p>
+                      Research, draft, personalise, and queue. Sending remains
+                      gated where stated.
+                    </p>
+                  </div>
+                  <span class="authority-value">allowed</span>
+                </div>
+                <div class="authority-row">
+                  <span
+                    class="matrix"
+                    data-glyph="check"
+                    aria-hidden="true"
+                  ></span>
+                  <div>
+                    <h3>Operate company tools</h3>
+                    <p>
+                      Use connected accounts within active goals and approved
+                      budgets.
+                    </p>
+                  </div>
+                  <span class="authority-value">allowed</span>
+                </div>
+                <div class="authority-row">
+                  <span
+                    class="matrix"
+                    data-glyph="ring"
+                    aria-hidden="true"
+                  ></span>
+                  <div>
+                    <h3>Send new outbound campaign</h3>
+                    <p>
+                      First batch or material positioning change requires owner
+                      approval.
+                    </p>
+                  </div>
+                  <span class="authority-value">gated</span>
+                </div>
+                <div class="authority-row">
+                  <span
+                    class="matrix"
+                    data-glyph="ring"
+                    aria-hidden="true"
+                  ></span>
+                  <div>
+                    <h3>Commit recurring spend</h3>
+                    <p>
+                      New commitments above $100 per month require owner
+                      approval.
+                    </p>
+                  </div>
+                  <span class="authority-value">gated</span>
+                </div>
+                <div class="authority-row">
+                  <span
+                    class="matrix"
+                    data-glyph="cross"
+                    aria-hidden="true"
+                  ></span>
+                  <div>
+                    <h3>Legal attestation</h3>
+                    <p>
+                      Always requires the owner in the prepared browser session.
+                    </p>
+                  </div>
+                  <span class="authority-value">owner only</span>
+                </div>
+                <div class="section-rule">Budgets</div>
+                <div class="authority-row">
+                  <span
+                    class="matrix"
+                    data-glyph="money"
+                    aria-hidden="true"
+                  ></span>
+                  <div>
+                    <h3>Monthly operating budget</h3>
+                    <p>Resets 1 September. Current projected close is $973.</p>
+                  </div>
+                  <span class="authority-value">$812 / $1.2k</span>
+                </div>
+              </aside>
+
+              <section class="page-pane receipt-pane">
+                <div class="pane-title">
+                  <span
+                    class="matrix"
+                    data-glyph="work"
+                    aria-hidden="true"
+                  ></span>
+                  <span class="over-label">Material effects</span>
+                  <span class="count">August 2026</span>
+                </div>
+                <div class="receipt-summary">
+                  <div><span>External effects</span><strong>28</strong></div>
+                  <div><span>Approval-backed</span><strong>6</strong></div>
+                  <div><span>Failed / uncertain</span><strong>0</strong></div>
+                </div>
+                <div class="receipt-table-wrap">
+                  <table class="receipt-table">
+                    <thead>
+                      <tr>
+                        <th style="width: 17%">When</th>
+                        <th style="width: 35%">Effect</th>
+                        <th style="width: 22%">Authority</th>
+                        <th style="width: 26%">Receipt</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr>
+                        <td class="mono-cell">17 Aug<br />10:24</td>
+                        <td>
+                          <strong>Created outreach drafts</strong
+                          ><span>6 messages · company inbox</span>
+                        </td>
+                        <td>Standing mandate<br /><span>prepare only</span></td>
+                        <td class="mono-cell">rcpt_8m2a<br />confirmed</td>
+                      </tr>
+                      <tr>
+                        <td class="mono-cell">16 Aug<br />15:08</td>
+                        <td>
+                          <strong>Published landing revision</strong
+                          ><span>arislearning.com.au</span>
+                        </td>
+                        <td>Goal G–02<br /><span>approved scope</span></td>
+                        <td class="mono-cell">rcpt_7yk1<br />observed live</td>
+                      </tr>
+                      <tr>
+                        <td class="mono-cell">16 Aug<br />11:42</td>
+                        <td>
+                          <strong>Paid scheduling service</strong
+                          ><span>Monthly renewal · $24</span>
+                        </td>
+                        <td>
+                          Operating budget<br /><span>existing commitment</span>
+                        </td>
+                        <td class="mono-cell">rcpt_7pa4<br />settled</td>
+                      </tr>
+                      <tr>
+                        <td class="mono-cell">15 Aug<br />17:31</td>
+                        <td>
+                          <strong>Sent parent follow-up</strong
+                          ><span>Existing conversation · 1 message</span>
+                        </td>
+                        <td>Owner approval<br /><span>appr_29af</span></td>
+                        <td class="mono-cell">rcpt_6rq8<br />delivered</td>
+                      </tr>
+                      <tr>
+                        <td class="mono-cell">14 Aug<br />09:16</td>
+                        <td>
+                          <strong>Revoked directory access</strong
+                          ><span>Unused research credential</span>
+                        </td>
+                        <td>
+                          Credential hygiene<br /><span>standing mandate</span>
+                        </td>
+                        <td class="mono-cell">rcpt_5gb2<br />confirmed</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </section>
+
+              <aside class="page-pane scroll">
+                <div class="pane-title">
+                  <span
+                    class="matrix"
+                    data-glyph="square"
+                    aria-hidden="true"
+                  ></span>
+                  <span class="over-label">Owner controls</span>
+                </div>
+                <div class="control-block">
+                  <h3>Pause external effects</h3>
+                  <p>
+                    Staff may continue research and preparation, but cannot
+                    send, publish, purchase, or change live systems.
+                  </p>
+                  <button
+                    class="flat-btn"
+                    type="button"
+                    data-demo-action="This control would require a bounded confirmation before pausing effects."
+                  >
+                    Pause effects
+                  </button>
+                </div>
+                <div class="control-block">
+                  <h3>Review active credentials</h3>
+                  <p>
+                    See live checks, scope, last use, and revoke access from one
+                    place.
+                  </p>
+                  <button
+                    class="flat-btn"
+                    type="button"
+                    data-demo-action="Credential inventory opened."
+                  >
+                    Open credentials
+                  </button>
+                </div>
+                <div class="control-block">
+                  <h3>Recovery state</h3>
+                  <p>
+                    Runtime healthy. Last restorable checkpoint observed 12
+                    minutes ago.
+                  </p>
+                  <button
+                    class="flat-btn"
+                    type="button"
+                    data-demo-action="Recovery evidence opened."
+                  >
+                    Inspect recovery
+                  </button>
+                </div>
+                <div class="control-block">
+                  <h3>Stop company runtime</h3>
+                  <p>
+                    Preserves company files and durable coordination state.
+                    Active processes will stop.
+                  </p>
+                  <button
+                    class="flat-btn danger-line"
+                    type="button"
+                    data-demo-action="This control would require hold-to-confirm. Nothing was stopped in the prototype."
+                  >
+                    Hold to stop runtime
+                  </button>
+                </div>
+              </aside>
+            </section>
+          </div>
+        </main>
+
+        <aside class="exec-rail" aria-label="Executive conversation">
+          <header class="exec-head">
+            <span class="matrix large" data-glyph="p" aria-hidden="true"></span>
+            <div class="exec-head-copy">
+              <strong>Executive</strong
+              ><span>Context follows the focused work</span>
+            </div>
+            <span
+              class="matrix"
+              data-glyph="dots"
+              aria-label="Executive is working"
+            ></span>
+          </header>
+
+          <section class="rail-view active" data-rail="attention">
+            <div class="rail-context">
+              <span>Focused decision</span
+              ><strong
+                >Tutor outreach · approval before first external send</strong
+              >
+            </div>
+            <article class="transcript-row">
+              <div class="transcript-meta">
+                <span class="matrix" data-glyph="p" aria-hidden="true"></span>
+                Exec <time>10:26</time>
+              </div>
+              <p>
+                I prepared the first six introductions and kept the second six
+                out of the queue.
+              </p>
+              <p>
+                <strong>My recommendation:</strong> approve the direct version.
+                It asks for a conversation, not a partnership, and gives us
+                useful evidence fastest.
+              </p>
+              <div class="rail-action">
+                Ready action · release 6 prepared messages · observe for 72h
+              </div>
+            </article>
+            <article class="transcript-row owner">
+              <div class="transcript-meta">You <time>10:28</time></div>
+              <p>What would make you stop after the first two replies?</p>
+            </article>
+            <article class="transcript-row">
+              <div class="transcript-meta">
+                <span class="matrix" data-glyph="p" aria-hidden="true"></span>
+                Exec <time>10:28</time>
+              </div>
+              <p>
+                If either reply shows the proposition creates a trust
+                problem—not merely a wording objection—I’ll pause the remaining
+                sends and bring you the exact exchange.
+              </p>
+              <div class="intent-receipt conversation">
+                <div class="intent-receipt-head">
+                  <span
+                    class="matrix"
+                    data-glyph="quote"
+                    aria-hidden="true"
+                  ></span>
+                  Understood as conversation
+                  <span>No state changed</span>
+                </div>
+                <p>
+                  You asked for clarification. I answered without changing the
+                  Work, mandate, or pending approval.
+                </p>
+              </div>
+            </article>
+          </section>
+
+          <section class="rail-view" data-rail="work">
+            <div class="rail-context">
+              <span>Focused goal</span
+              ><strong>Prove a repeatable tutor acquisition path</strong>
+            </div>
+            <article class="transcript-row">
+              <div class="transcript-meta">
+                <span class="matrix" data-glyph="p" aria-hidden="true"></span>
+                Exec <time>now</time>
+              </div>
+              <p>
+                The work map shows the actual dependency: we need replies before
+                a playbook. The queued synthesis is intentionally blocked by
+                evidence, not by an internal workflow state.
+              </p>
+            </article>
+            <article class="transcript-row owner">
+              <div class="transcript-meta">You <time>09:54</time></div>
+              <p>
+                Don’t build the acquisition playbook until we have real tutor
+                replies.
+              </p>
+            </article>
+            <article class="transcript-row">
+              <div class="transcript-meta">
+                <span class="matrix" data-glyph="p" aria-hidden="true"></span>
+                Exec <time>09:55</time>
+              </div>
+              <p>
+                Understood. I linked that constraint to the tutor-acquisition
+                goal. The synthesis Work remains waiting until reply evidence
+                exists; the parent-promise test continues because it produces
+                separate evidence.
+              </p>
+              <div class="intent-receipt feedback">
+                <div class="intent-receipt-head">
+                  <span
+                    class="matrix"
+                    data-glyph="work"
+                    aria-hidden="true"
+                  ></span>
+                  Understood as Work feedback
+                  <span>Linked · G–01</span>
+                </div>
+                <p>
+                  Preserved as exact input to the next acquisition-playbook
+                  Attempt. No review was resolved.
+                </p>
+              </div>
+            </article>
+          </section>
+
+          <section class="rail-view" data-rail="people">
+            <div class="rail-context">
+              <span>Focused person</span
+              ><strong
+                >Executive · current mandate and observed outcomes</strong
+              >
+            </div>
+            <article class="transcript-row">
+              <div class="transcript-meta">
+                <span class="matrix" data-glyph="p" aria-hidden="true"></span>
+                Exec <time>now</time>
+              </div>
+              <p>
+                Growth is the only concentrated load. I’m pairing on synthesis
+                for this experiment, but I don’t recommend creating another role
+                yet—the pattern has not repeated.
+              </p>
+            </article>
+            <article class="transcript-row owner">
+              <div class="transcript-meta">You <time>Fri</time></div>
+              <p>Tell me when the company is relying on invisible heroics.</p>
+            </article>
+            <article class="transcript-row">
+              <div class="transcript-meta">
+                <span class="matrix" data-glyph="p" aria-hidden="true"></span>
+                Exec <time>Fri</time>
+              </div>
+              <p>
+                I will surface uncovered commitments, repeated recovery work,
+                and load that is hidden behind apparently green outcomes.
+              </p>
+              <div class="intent-receipt direction">
+                <div class="intent-receipt-head">
+                  <span
+                    class="matrix"
+                    data-glyph="up"
+                    aria-hidden="true"
+                  ></span>
+                  Recorded as company direction
+                  <span>Visible to Exec</span>
+                </div>
+                <p>
+                  Monitor for hidden heroics and bring the evidence to you when
+                  repeated recovery or uncovered commitments appear.
+                </p>
+              </div>
+            </article>
+          </section>
+
+          <section class="rail-view" data-rail="authority">
+            <div class="rail-context">
+              <span>Focused boundary</span
+              ><strong
+                >What the company may do, what it did, and how to stop
+                it</strong
+              >
+            </div>
+            <article class="transcript-row">
+              <div class="transcript-meta">
+                <span class="matrix" data-glyph="p" aria-hidden="true"></span>
+                Exec <time>now</time>
+              </div>
+              <p>
+                No authority exceptions are active. The outreach drafts were
+                prepared under standing mandate; sending remains gated by
+                ATTN–014.
+              </p>
+            </article>
+            <article class="transcript-row">
+              <div class="transcript-meta">
+                <span
+                  class="matrix"
+                  data-glyph="check"
+                  aria-hidden="true"
+                ></span>
+                Live probe <time>10:31</time>
+              </div>
+              <p>
+                Company inbox, publishing target, and payment account are
+                reachable within their recorded scopes.
+              </p>
+              <div class="rail-action">
+                Probe result · observed now · not inferred from configuration
+              </div>
+            </article>
+            <article class="transcript-row owner">
+              <div class="transcript-meta">You <time>10:34</time></div>
+              <p>Pause every external effect until I say otherwise.</p>
+            </article>
+            <article class="transcript-row">
+              <div class="transcript-meta">
+                <span class="matrix" data-glyph="p" aria-hidden="true"></span>
+                Exec <time>10:34</time>
+              </div>
+              <p>
+                I read that as an authority decision, not conversational advice.
+                It would stop sends, publishes, purchases, and changes to live
+                systems while allowing research and preparation to continue.
+              </p>
+              <div class="intent-receipt authority">
+                <div class="intent-receipt-head">
+                  <span
+                    class="matrix"
+                    data-glyph="rules"
+                    aria-hidden="true"
+                  ></span>
+                  Authority confirmation required
+                  <span>Not applied</span>
+                </div>
+                <p>
+                  Confirm the bounded effect below. Your message alone has not
+                  changed company authority.
+                </p>
+                <div class="intent-actions">
+                  <button
+                    class="flat-btn"
+                    type="button"
+                    data-demo-action="The authority change was cancelled."
+                  >
+                    No, keep running
+                  </button>
+                  <button
+                    class="flat-btn primary"
+                    type="button"
+                    data-demo-action="External effects paused. Research and preparation may continue."
+                  >
+                    Confirm pause
+                  </button>
+                </div>
+              </div>
+            </article>
+          </section>
+
+          <form class="composer" id="exec-composer">
+            <div class="composer-box">
+              <div class="composer-controls">
+                <button
+                  class="composer-control context"
+                  id="context-control"
+                  type="button"
+                  aria-pressed="true"
+                  title="Link this message to the focused work"
+                >
+                  <span
+                    class="matrix"
+                    data-glyph="work"
+                    aria-hidden="true"
+                  ></span>
+                  <span id="composer-context">Linked · ATTN–014</span>
+                </button>
+              </div>
+              <div
+                class="attachment-list"
+                id="attachment-list"
+                aria-live="polite"
+              ></div>
+              <button
+                class="attach-btn"
+                id="attach-btn"
+                type="button"
+                aria-label="Attach images or files"
+                title="Attach images or files"
+              >
+                <svg
+                  viewBox="0 0 16 16"
+                  width="16"
+                  height="16"
+                  fill="none"
+                  aria-hidden="true"
+                >
+                  <path
+                    d="M13.5 7.6 8.9 12.2a3.54 3.54 0 0 1-5-5l5.3-5.3a2.36 2.36 0 0 1 3.34 3.34l-5.3 5.3a1.18 1.18 0 0 1-1.67-1.67l4.6-4.6"
+                    stroke="currentColor"
+                    stroke-width="1.3"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  />
+                </svg>
+              </button>
+              <input id="attachment-input" type="file" multiple hidden />
+              <textarea
+                id="exec-input"
+                rows="2"
+                aria-label="Message Executive"
+                placeholder="Ask, redirect, or make a judgement…"
+              ></textarea>
+              <button class="send-btn" type="submit" aria-label="Send message">
+                ↑
+              </button>
+            </div>
+            <div class="composer-foot">
+              <span id="composer-semantics"
+                >Exec interprets intent and confirms consequential changes</span
+              ><span>⌘ ↵ send</span>
+            </div>
+          </form>
+        </aside>
+      </div>
+    </div>
+
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+    <script>
+      const glyphs = {
+        p: ["11110", "10001", "10001", "11110", "10000", "10000", "10000"],
+        check: ["00000", "00001", "00010", "10100", "01000", "00000", "00000"],
+        ring: ["01110", "10001", "10001", "10001", "10001", "10001", "01110"],
+        cross: ["10001", "01010", "00100", "00100", "01010", "10001", "00000"],
+        dots: ["00000", "00000", "00000", "10101", "00000", "00000", "00000"],
+        up: ["00100", "01110", "10101", "00100", "00100", "00100", "00100"],
+        square: ["11111", "10001", "10001", "10001", "10001", "10001", "11111"],
+        money: ["01110", "10100", "10100", "01110", "00101", "00101", "01110"],
+        work: ["01110", "01010", "11111", "10001", "10001", "10001", "11111"],
+        rules: ["10001", "11011", "10101", "10101", "10001", "10001", "10001"],
+        people: ["01010", "10101", "01010", "00000", "10101", "11111", "10101"],
+        quote: ["01010", "01010", "10101", "00000", "00000", "00000", "00000"],
+        right: ["00000", "00100", "00010", "11111", "00010", "00100", "00000"],
+      };
+
+      document.querySelectorAll(".matrix").forEach((matrix) => {
+        const pattern = glyphs[matrix.dataset.glyph] || glyphs.square;
+        matrix.replaceChildren(
+          ...pattern.flatMap((row) =>
+            [...row].map((cell) =>
+              Object.assign(document.createElement("i"), {
+                className: cell === "1" ? "on" : "",
+              }),
+            ),
+          ),
+        );
+      });
+
+      const tabs = [...document.querySelectorAll("[data-screen-target]")];
+      const screens = [...document.querySelectorAll("[data-screen]")];
+      const rails = [...document.querySelectorAll("[data-rail]")];
+      const contextControl = document.querySelector("#context-control");
+      const composerContext = document.querySelector("#composer-context");
+      const contextLabels = {
+        attention: "ATTN–014",
+        work: "G–01 · Tutor acquisition",
+        people: "Executive profile",
+        authority: "Current authority",
+      };
+      let currentScreen = "attention";
+
+      function updateComposerContext() {
+        const linked = contextControl.getAttribute("aria-pressed") === "true";
+        composerContext.textContent = linked
+          ? `Linked · ${contextLabels[currentScreen]}`
+          : "Link focused work";
+      }
+
+      function showScreen(name) {
+        currentScreen = name;
+        tabs.forEach((tab) =>
+          tab.setAttribute(
+            "aria-selected",
+            String(tab.dataset.screenTarget === name),
+          ),
+        );
+        screens.forEach((screen) =>
+          screen.classList.toggle("active", screen.dataset.screen === name),
+        );
+        rails.forEach((rail) =>
+          rail.classList.toggle("active", rail.dataset.rail === name),
+        );
+        updateComposerContext();
+      }
+
+      tabs.forEach((tab) =>
+        tab.addEventListener("click", () =>
+          showScreen(tab.dataset.screenTarget),
+        ),
+      );
+
+      let toastTimer;
+      function notify(message) {
+        const toast = document.querySelector("#toast");
+        toast.textContent = message;
+        toast.classList.add("show");
+        clearTimeout(toastTimer);
+        toastTimer = setTimeout(() => toast.classList.remove("show"), 2600);
+      }
+
+      document.querySelectorAll("[data-demo-action]").forEach((control) => {
+        control.addEventListener("click", () =>
+          notify(control.dataset.demoAction),
+        );
+      });
+
+      const workLensButtons = [
+        ...document.querySelectorAll("[data-work-lens-target]"),
+      ];
+      const workLenses = [...document.querySelectorAll("[data-work-lens]")];
+      const mapKey = document.querySelector("#map-key");
+      const workLensNote = document.querySelector("#work-lens-note");
+
+      function showWorkLens(name) {
+        workLensButtons.forEach((button) =>
+          button.setAttribute(
+            "aria-selected",
+            String(button.dataset.workLensTarget === name),
+          ),
+        );
+        workLenses.forEach((lens) =>
+          lens.classList.toggle("active", lens.dataset.workLens === name),
+        );
+        mapKey.hidden = name !== "map";
+        workLensNote.textContent =
+          name === "map"
+            ? "Requires + revises"
+            : "State follows evidence + gates";
+      }
+
+      workLensButtons.forEach((button) =>
+        button.addEventListener("click", () =>
+          showWorkLens(button.dataset.workLensTarget),
+        ),
+      );
+
+      document.querySelectorAll(".work-node, .board-item").forEach((node) => {
+        node.addEventListener("click", () => {
+          document
+            .querySelectorAll(".work-node, .board-item")
+            .forEach((item) => item.classList.remove("selected"));
+          node.classList.add("selected");
+          document.querySelector("#selected-work-title").textContent =
+            node.dataset.node;
+        });
+      });
+
+      const composer = document.querySelector("#exec-composer");
+      const input = document.querySelector("#exec-input");
+      const attachButton = document.querySelector("#attach-btn");
+      const attachmentInput = document.querySelector("#attachment-input");
+      const attachmentList = document.querySelector("#attachment-list");
+      let attachedFiles = [];
+
+      contextControl.addEventListener("click", () => {
+        const linked = contextControl.getAttribute("aria-pressed") === "true";
+        contextControl.setAttribute("aria-pressed", String(!linked));
+        updateComposerContext();
+      });
+
+      function formatFileSize(bytes) {
+        if (bytes >= 1024 * 1024)
+          return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+        return `${Math.max(1, Math.ceil(bytes / 1024))} KB`;
+      }
+
+      function renderAttachments() {
+        attachmentList.replaceChildren();
+        attachmentList.classList.toggle("has-files", attachedFiles.length > 0);
+        attachedFiles.forEach((file, index) => {
+          const chip = document.createElement("span");
+          chip.className = "attachment-chip";
+          const label = document.createElement("span");
+          label.textContent = `${file.name} · ${formatFileSize(file.size)}`;
+          const remove = document.createElement("button");
+          remove.type = "button";
+          remove.setAttribute("aria-label", `Remove ${file.name}`);
+          remove.textContent = "×";
+          remove.addEventListener("click", () => {
+            attachedFiles.splice(index, 1);
+            renderAttachments();
+          });
+          chip.append(label, remove);
+          attachmentList.append(chip);
+        });
+      }
+
+      attachButton.addEventListener("click", (event) => {
+        if (event.target === attachmentInput) return;
+        attachmentInput.click();
+      });
+      attachmentInput.addEventListener("change", () => {
+        attachedFiles = [...attachmentInput.files].slice(0, 6);
+        renderAttachments();
+      });
+
+      composer.addEventListener("submit", (event) => {
+        event.preventDefault();
+        const message = input.value.trim();
+        if (!message && attachedFiles.length === 0) return;
+        const activeRail = document.querySelector(".rail-view.active");
+        const row = document.createElement("article");
+        row.className = "transcript-row owner";
+        row.innerHTML = `<div class="transcript-meta">You <time>now</time></div>`;
+        if (message) {
+          const paragraph = document.createElement("p");
+          paragraph.textContent = message;
+          row.append(paragraph);
+        }
+        if (attachedFiles.length > 0) {
+          const attachmentSummary = document.createElement("div");
+          attachmentSummary.className = "rail-action";
+          attachmentSummary.textContent = `Attached · ${attachedFiles.map((file) => file.name).join(", ")}`;
+          row.append(attachmentSummary);
+        }
+        activeRail.append(row);
+        row.scrollIntoView({ behavior: "smooth", block: "end" });
+        input.value = "";
+        attachedFiles = [];
+        attachmentInput.value = "";
+        renderAttachments();
+        notify(
+          "Sent. Exec will confirm any Work, direction, or authority interpretation.",
+        );
+      });
+
+      input.addEventListener("keydown", (event) => {
+        if ((event.metaKey || event.ctrlKey) && event.key === "Enter")
+          composer.requestSubmit();
+      });
+    </script>
+  </body>
+</html>

@@ -68,7 +68,7 @@ It does not own:
 
 - owner mandate or root authority;
 - capabilities, budgets, approvals, or authoritative effect receipts;
-- durable actor identity, company commitments, schedules, or organisational learning;
+- durable actor identity, company Work nodes, schedules, or organisational learning;
 - a universal model of all company work.
 
 The Runtime may be messy, stale, partially broken, or internally inconsistent. Useful work should remain observable and recoverable rather than invalidated by coordination errors.
@@ -117,7 +117,7 @@ The intelligent OrgIntel actors—Exec, planner, critic, recovery actor—still 
 ```text
 OrgIntel service outside
 - actors
-- goals and commitments
+- goals and Work nodes
 - inboxes and schedules
 - hypotheses, decisions, learning
 - session state and context inputs
@@ -149,11 +149,13 @@ Consequences:
 | State | Authoritative source |
 |---|---|
 | Mandate, capabilities, budgets, approvals, external effects, receipts, lifecycle | **Authority Plane store** |
-| Actors, goals, commitments, messages, schedules, decisions, hypotheses, experiments, organisational learning, session state, artifact references | **OrgIntel service and store** |
+| Actors, goals, Work nodes, dependency/revision edges, Attempts and exact inputs, messages, schedules, owner handoffs, decisions, hypotheses, experiments, organisational learning, session state, artifact references | **OrgIntel service and store** |
 | Code, documents, assets, builds, browser state, project databases, installed tools, working files, active experiments | **Company Runtime filesystem, Git, and project applications** |
 | Actual email, payment, deployment, CRM, cloud, or other provider state | **External provider**, referenced by Authority Plane receipts and OrgIntel records |
 
-OrgIntel owns the commitment. The Runtime owns the result. The Authority Plane owns the right to cause consequential external effects and the receipt that they occurred.
+OrgIntel owns Work, its graph and Attempts. The Runtime owns files, Git and process results. The
+Authority Plane owns the right to cause consequential external effects and the receipt that they
+occurred.
 
 There are no cross-layer database foreign keys. Stable references and reconciliation are sufficient.
 
@@ -260,12 +262,12 @@ The Runtime Bridge may:
 
 - register the runtime instance with OrgIntel;
 - maintain an outbound authenticated connection;
-- receive actor wake and session-launch requests;
+- receive Exec wakes and already-claimed Staff Attempt launch requests;
 - create or select a working directory or worktree;
 - materialise the session context packet;
 - expose applicable instructions, skills, and tools;
 - launch the ACP process and communicate over stdio;
-- associate process trees with `actor_id`, `session_id`, and commitment references;
+- associate process trees with `actor_id`, `session_id`, `work_id`, `revision`, and `attempt_id`;
 - stream meaningful session events;
 - report health, exit status, and resource use;
 - terminate or replace a session;
@@ -301,22 +303,20 @@ The exact transport may begin as authenticated WebSocket, streaming HTTP, or gRP
 
 Agents receive a small local MCP, CLI, or Unix-socket interface backed by the Bridge.
 
-Initial operations may include:
+Initial generic coordination commands may include:
 
 ```text
-orgintel.read_inbox
-orgintel.send_message
-orgintel.accept_commitment
-orgintel.update_commitment
-orgintel.report_blocker
-orgintel.submit_result
-orgintel.request_review
-orgintel.record_decision
-orgintel.record_hypothesis
-orgintel.schedule_followup
+work graph
+message send [--work <work_id>]
+work artifact --work <work_id> --attempt <attempt_id> ...
+work gate --work <work_id> -- <argv...>
+work handoff --work <work_id> --attempt <attempt_id> ...
+schedule add --work <work_id> ...
 ```
 
-The Bridge attaches the current session identity and forwards the request to OrgIntel.
+The Bridge attaches the current actor identity. It does not expose a generic Work-state setter:
+ready claim, artifact/gate acceptance, review feedback, handoff resolution, attempt limit and
+dependency release are the deterministic graph transitions.
 
 This interface records meaningful coordination changes. It is not required for ordinary productive work.
 
@@ -524,7 +524,7 @@ A project may begin with:
 └── repo/
 ```
 
-`README.md` explains purpose and how to orient. `STATUS.md` is a human- and agent-readable current summary, not an authoritative replacement for OrgIntel commitments.
+`README.md` explains purpose and how to orient. `STATUS.md` is a human- and agent-readable current summary, not an authoritative replacement for OrgIntel Work nodes.
 
 ## 7.3 Session materialisation
 
@@ -624,7 +624,7 @@ OrgIntel maintains durable identity material such as:
 - working style and design taste;
 - competence evidence;
 - accepted examples and important decisions;
-- relationships and current commitments.
+- relationships and current Work nodes.
 
 A session receives only the relevant subset.
 
@@ -677,7 +677,7 @@ The Bridge exposes a catalogue of applicable skills and loads full skill content
 Skills may be:
 
 - assigned by role;
-- recommended for a commitment;
+- recommended for a Work;
 - discovered by the actor;
 - created or improved by the company;
 - retired when evidence shows they are ineffective.
@@ -826,7 +826,7 @@ Use this distinction:
 | Public browsing and package download | Direct |
 | Productive bounded resource: GPU, database, storage, development service | Direct after bounded grant |
 | Low-risk authenticated API | Direct through scoped credential or Infisical Agent Proxy |
-| Consequential discrete effect: refund, payout, mass email, production deletion | Authority Plane effect request and provider adapter |
+| Consequential discrete effect: refund, payout, mass email, production deletion | Generic Authority Plane governed process around the installed runtime tool |
 | Deployed product’s routine service access | Dedicated restricted service identity |
 
 The principle is:
@@ -904,7 +904,7 @@ Runtime snapshots may contain:
 
 They do not roll back:
 
-- OrgIntel actor identity, commitments, schedules, or organisational learning;
+- OrgIntel actor identity, Work nodes, schedules, or organisational learning;
 - Authority Plane capabilities, budgets, external effects, or receipts;
 - the external world.
 
@@ -1012,7 +1012,7 @@ Docker Compose
 3. Launch one ACP Exec session over stdio.
 4. Materialise context, project instructions, and tools.
 5. Let the Exec create files and use Git directly.
-6. Launch one worker and complete an artifact-centred handoff.
+6. Claim one ready Work Attempt, launch its worker, and complete an artifact-centred graph handoff.
 7. Add process/resource attribution and failure recovery.
 8. Add browser persistence and owner attachment.
 9. Add one brokered external effect and one resource grant.
@@ -1026,7 +1026,7 @@ Docker Compose
 
 - Exec and worker produce useful files and commits.
 - Runtime is restarted.
-- OrgIntel preserves actors, commitments, and messages.
+- OrgIntel preserves actors, Work graph, Attempts, messages, and owner handoffs.
 - Runtime work persists.
 - Exec resumes with focused recovery context.
 

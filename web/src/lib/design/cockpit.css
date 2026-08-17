@@ -1,0 +1,2978 @@
+/* Production Bridge Light. Flat, full-bleed work regions; depth comes from
+ * fogged glass, pane seams and one top-left light source—not card inflation. */
+
+.bridge-root {
+	display: grid;
+	grid-template-rows: var(--topbar-h) minmax(0, 1fr);
+	gap: 6px;
+	padding: var(--app-gutter);
+	isolation: isolate;
+}
+
+.bridge-root .bridge-topbar {
+	position: relative;
+	top: auto;
+	background: rgba(250, 251, 253, 0.74);
+	border: 1px solid rgba(57, 66, 84, 0.14);
+	border-radius: var(--radius-pane);
+	box-shadow:
+		var(--bevel),
+		0 1px 2px rgba(57, 66, 84, 0.07),
+		0 7px 22px rgba(57, 66, 84, 0.05);
+}
+
+.bridge-root .tb-mark {
+	color: var(--intent-direction);
+}
+
+.bridge-root .tb-tab {
+	--tab-tone: var(--surface-attention);
+	height: 31px;
+	align-self: center;
+	margin: 0 2px;
+	border: 1px solid color-mix(in srgb, var(--tab-tone) 15%, var(--control-edge));
+	border-radius: var(--radius-control);
+	background: color-mix(in srgb, var(--tab-tone) 3%, rgba(255, 255, 255, 0.84));
+	box-shadow: var(--control-depth);
+	transition:
+		transform 120ms ease,
+		box-shadow 120ms ease,
+		border-color 120ms ease;
+}
+
+.bridge-root .tb-tab[data-surface='work'] {
+	--tab-tone: var(--surface-work);
+}
+.bridge-root .tb-tab[data-surface='people'] {
+	--tab-tone: var(--surface-people);
+}
+.bridge-root .tb-tab[data-surface='authority'] {
+	--tab-tone: var(--surface-authority);
+}
+
+.bridge-root .tb-tab-mark {
+	width: 6px;
+	height: 6px;
+	border: 1px solid currentColor;
+	border-radius: 2px;
+	color: var(--tab-tone);
+}
+
+.bridge-root .tb-tab:hover {
+	border-color: color-mix(in srgb, var(--tab-tone) 32%, var(--control-edge));
+	background: color-mix(in srgb, var(--tab-tone) 6%, rgba(255, 255, 255, 0.9));
+}
+
+.bridge-root .tb-tab.on {
+	border-color: color-mix(in srgb, var(--tab-tone) 42%, var(--control-edge));
+	background: color-mix(in srgb, var(--tab-tone) 10%, rgba(255, 255, 255, 0.92));
+	box-shadow:
+		var(--bevel),
+		0 1px 2px color-mix(in srgb, var(--tab-tone) 18%, transparent),
+		0 4px 10px color-mix(in srgb, var(--tab-tone) 9%, transparent),
+		inset 0 -2px 0 color-mix(in srgb, var(--tab-tone) 72%, transparent);
+	color: color-mix(in srgb, var(--tab-tone) 80%, var(--ink));
+}
+
+.bridge-root .tb-tab.on::after {
+	display: none;
+}
+
+.bridge-root .tb-tab:active {
+	transform: translateY(0.5px);
+	box-shadow: var(--bevel-subtle), var(--control-depth-pressed);
+}
+
+.bridge-root .tb-badge {
+	background: var(--intent-authority);
+}
+
+.bridge-root .tb-brand-home {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	color: inherit;
+	text-decoration: none;
+}
+
+.bridge-root .tb-company-slash {
+	color: var(--border-strong);
+}
+
+.bridge-root .company-switcher {
+	position: relative;
+	min-width: 0;
+}
+
+.bridge-root .company-switcher summary {
+	display: flex;
+	align-items: center;
+	gap: 7px;
+	min-width: 0;
+	padding: 4px 6px;
+	border-radius: var(--radius-control);
+	color: var(--text-tertiary);
+	cursor: pointer;
+	list-style: none;
+}
+
+.bridge-root .company-switcher summary::-webkit-details-marker {
+	display: none;
+}
+
+.bridge-root .company-switcher summary:hover,
+.bridge-root .company-switcher[open] summary {
+	background: rgba(255, 255, 255, 0.62);
+	color: var(--ink);
+}
+
+.bridge-root .company-switcher summary:focus-visible {
+	outline: 3px solid color-mix(in srgb, var(--intent-conversation) 28%, transparent);
+	outline-offset: 1px;
+}
+
+.bridge-root .company-chevron {
+	font-size: var(--t-body);
+	line-height: 1;
+	transition: transform 120ms ease;
+}
+
+.bridge-root .company-switcher[open] .company-chevron {
+	transform: rotate(180deg);
+}
+
+.bridge-root .company-switcher-menu {
+	position: absolute;
+	z-index: var(--z-rail);
+	top: calc(100% + 9px);
+	left: 0;
+	width: 264px;
+	padding: 6px;
+	border: 1px solid var(--border-strong);
+	border-radius: var(--radius-pane);
+	background: rgba(251, 252, 254, 0.94);
+	box-shadow: var(--bevel), var(--shadow-lift);
+	backdrop-filter: blur(24px) saturate(1.18);
+	-webkit-backdrop-filter: blur(24px) saturate(1.18);
+}
+
+.bridge-root .company-switcher-menu a {
+	display: grid;
+	grid-template-columns: 16px minmax(0, 1fr) auto;
+	align-items: center;
+	gap: 9px;
+	padding: 8px 9px;
+	border-radius: var(--radius-control);
+	text-decoration: none;
+	color: var(--ink);
+}
+
+.bridge-root .company-switcher-menu a:hover,
+.bridge-root .company-switcher-menu a.current {
+	background: var(--intent-feedback-soft);
+}
+
+.bridge-root .company-switcher-menu a:focus-visible {
+	outline: 3px solid color-mix(in srgb, var(--intent-conversation) 28%, transparent);
+	outline-offset: -1px;
+}
+
+.bridge-root .company-switcher-menu a > i {
+	width: 7px;
+	height: 7px;
+	border: 1px solid var(--text-tertiary);
+	font-style: normal;
+}
+
+.bridge-root .company-switcher-menu a > i.runtime-running {
+	border-color: var(--state-success);
+	background: var(--state-success);
+}
+
+.bridge-root .company-switcher-menu a > i.runtime-stopped,
+.bridge-root .company-switcher-menu a > i.runtime-absent,
+.bridge-root .company-switcher-menu a > i.runtime-unavailable {
+	color: var(--intent-authority);
+}
+
+.bridge-root .company-switcher-menu a strong,
+.bridge-root .company-switcher-menu a small {
+	display: block;
+}
+
+.bridge-root .company-switcher-menu a strong {
+	font-size: var(--t-body);
+}
+
+.bridge-root .company-switcher-menu a small,
+.bridge-root .switcher-current {
+	font: var(--t-label) var(--font-mono);
+	text-transform: uppercase;
+	color: var(--text-tertiary);
+}
+
+.bridge-root .switcher-current {
+	color: var(--intent-feedback);
+}
+
+.bridge-root .company-switcher-rule {
+	height: 1px;
+	margin: 5px 4px;
+	background: var(--border);
+}
+
+.bridge-root .company-overview-link {
+	color: var(--intent-direction);
+}
+
+/* The owner portfolio is the parent of every company cockpit. */
+.bridge-root.portfolio-root {
+	min-height: 100vh;
+}
+
+.bridge-root .portfolio-brand {
+	text-decoration: none;
+}
+
+.bridge-root .portfolio-location {
+	padding-left: 12px;
+	border-left: 1px solid var(--border-strong);
+	font: 500 var(--t-body) var(--font-mono);
+	color: var(--text-tertiary);
+}
+
+.bridge-root .portfolio-main {
+	min-height: 0;
+	overflow: auto;
+	padding: clamp(28px, 5vw, 68px) clamp(18px, 6vw, 86px) 56px;
+}
+
+.bridge-root .portfolio-head,
+.bridge-root .portfolio-table {
+	width: min(1320px, 100%);
+	margin-inline: auto;
+}
+
+.bridge-root .portfolio-head {
+	padding-bottom: 20px;
+	border-bottom: 1px solid var(--border-strong);
+}
+
+.bridge-root .portfolio-head h1 {
+	margin: 0;
+	font-size: var(--t-hero);
+	line-height: 1;
+	letter-spacing: -0.04em;
+}
+
+.bridge-root .portfolio-table {
+	margin-top: 18px;
+	overflow: hidden;
+	border: 1px solid var(--border-strong);
+	border-radius: var(--radius-pane);
+	background: var(--surface-pane);
+	box-shadow: var(--bevel), var(--shadow-soft);
+}
+
+.bridge-root .portfolio-table-head {
+	min-height: 54px;
+	display: flex;
+	align-items: center;
+	gap: 18px;
+	padding: 0 18px;
+	border-bottom: 1px solid var(--border);
+	background: rgba(255, 255, 255, 0.36);
+}
+
+.bridge-root .portfolio-table-head h2 {
+	margin: 0;
+	font-size: var(--t-head);
+	letter-spacing: -0.025em;
+}
+
+.bridge-root .portfolio-totals {
+	display: flex;
+	align-items: center;
+	gap: 24px;
+	margin-left: auto;
+}
+
+.bridge-root .portfolio-totals > span {
+	display: flex;
+	align-items: baseline;
+	gap: 7px;
+}
+
+.bridge-root .portfolio-totals small,
+.bridge-root .portfolio-totals strong {
+	display: block;
+}
+
+.bridge-root .portfolio-totals small {
+	font-size: var(--t-label);
+	color: var(--text-tertiary);
+}
+
+.bridge-root .portfolio-totals strong {
+	font-size: var(--t-head);
+	color: var(--text-tertiary);
+}
+
+.bridge-root .portfolio-table-scroll {
+	overflow-x: auto;
+}
+
+.bridge-root .portfolio-grid {
+	min-width: 900px;
+}
+
+.bridge-root .portfolio-grid-head,
+.bridge-root .portfolio-company-row {
+	display: grid;
+	grid-template-columns: 28% 13% 13% 27% 19%;
+}
+
+.bridge-root .portfolio-grid-head > span {
+	display: flex;
+	min-height: 48px;
+	align-items: center;
+	padding: 0 15px;
+	border-right: 1px solid var(--border);
+	border-bottom: 1px solid var(--border);
+	background: rgba(244, 247, 251, 0.48);
+	font: 600 var(--t-label) var(--font-mono);
+	letter-spacing: 0.07em;
+	text-transform: uppercase;
+	color: var(--text-tertiary);
+}
+
+.bridge-root .portfolio-grid-head > span:last-child,
+.bridge-root .portfolio-company-row > span:last-child {
+	border-right: 0;
+}
+
+.bridge-root .portfolio-company-row {
+	position: relative;
+	text-decoration: none;
+	color: var(--ink);
+	transition:
+		background 140ms ease,
+		box-shadow 140ms ease;
+}
+
+.bridge-root .portfolio-company-row::before {
+	content: '';
+	position: absolute;
+	z-index: 1;
+	inset: 0 auto 0 0;
+	width: 3px;
+	background: var(--intent-authority);
+}
+
+.bridge-root .portfolio-company-row.runtime-running::before {
+	background: var(--state-success);
+}
+
+.bridge-root .portfolio-company-row:hover {
+	background: rgba(63, 120, 182, 0.045);
+	box-shadow: var(--bevel-subtle);
+}
+
+.bridge-root .portfolio-company-row:focus-visible {
+	z-index: 2;
+	outline: 3px solid color-mix(in srgb, var(--intent-conversation) 28%, transparent);
+	outline-offset: -2px;
+}
+
+.bridge-root .portfolio-company-cell,
+.bridge-root .portfolio-metric {
+	min-width: 0;
+	min-height: 88px;
+	border-right: 1px solid var(--border);
+	border-bottom: 1px solid var(--border);
+}
+
+.bridge-root .portfolio-company-cell {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	padding: 13px 15px;
+	background: rgba(247, 249, 251, 0.36);
+}
+
+.bridge-root .portfolio-company-copy {
+	min-width: 0;
+	flex: 1;
+}
+
+.bridge-root .portfolio-company-copy strong,
+.bridge-root .portfolio-company-copy small {
+	display: block;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.bridge-root .portfolio-company-copy strong {
+	font-size: var(--t-head);
+	letter-spacing: -0.02em;
+}
+
+.bridge-root .portfolio-company-copy small {
+	margin-top: 2px;
+	font-size: var(--t-label);
+	text-transform: capitalize;
+	color: var(--text-tertiary);
+}
+
+.bridge-root .portfolio-company-open {
+	position: relative;
+	width: 29px;
+	height: 29px;
+	flex: 0 0 auto;
+	display: grid;
+	place-items: center;
+	border: 1px solid var(--control-edge);
+	border-radius: var(--radius-control);
+	background: linear-gradient(#fff, #eef2f6);
+	box-shadow: var(--control-depth);
+	font-size: var(--t-head);
+	color: var(--intent-conversation);
+}
+
+.bridge-root .portfolio-company-open > i {
+	position: absolute;
+	top: -8px;
+	right: -8px;
+	min-width: 17px;
+	height: 17px;
+	display: grid;
+	place-items: center;
+	padding: 0 4px;
+	border: 2px solid white;
+	border-radius: 9px;
+	background: var(--surface-attention);
+	box-shadow: 0 2px 5px rgba(71, 55, 126, 0.2);
+	font: 700 var(--t-label) var(--font-mono);
+	font-style: normal;
+	color: white;
+}
+
+.bridge-root .portfolio-metric {
+	display: flex;
+	flex-direction: column;
+	justify-content: center;
+	padding: 11px 15px;
+	line-height: 1.4;
+}
+
+.bridge-root .portfolio-metric small,
+.bridge-root .portfolio-metric strong {
+	display: block;
+}
+
+.bridge-root .portfolio-metric strong {
+	font-size: var(--t-body);
+	color: var(--ink);
+}
+
+.bridge-root .portfolio-metric small {
+	margin-top: 2px;
+	font-size: var(--t-label);
+	color: var(--text-tertiary);
+}
+
+.bridge-root .portfolio-metric.financial-unavailable strong {
+	font-size: var(--t-head);
+	font-weight: 500;
+	color: var(--text-tertiary);
+}
+
+.bridge-root .portfolio-proof small {
+	display: -webkit-box;
+	overflow: hidden;
+	-webkit-box-orient: vertical;
+	-webkit-line-clamp: 2;
+}
+
+.bridge-root .portfolio-spend-track {
+	width: 100%;
+	height: 4px;
+	display: block;
+	margin-top: 7px;
+	overflow: hidden;
+	border-radius: 2px;
+	background: rgba(73, 84, 100, 0.1);
+}
+
+.bridge-root .portfolio-spend-track b {
+	height: 100%;
+	display: block;
+	border-radius: inherit;
+	background: var(--intent-conversation);
+}
+
+.bridge-root .portfolio-table-foot {
+	min-height: 39px;
+	display: flex;
+	align-items: center;
+	gap: 16px;
+	padding: 0 16px;
+	background: rgba(247, 249, 251, 0.48);
+	font-size: var(--t-label);
+	color: var(--text-tertiary);
+}
+
+.bridge-root .portfolio-table-foot span:last-child {
+	margin-left: auto;
+	white-space: nowrap;
+}
+
+.bridge-root .portfolio-auth,
+.bridge-root .portfolio-loading {
+	min-height: 0;
+	display: grid;
+	place-items: center;
+	padding: 24px;
+}
+
+.bridge-root .portfolio-auth-card {
+	width: min(430px, 100%);
+	display: grid;
+	gap: 13px;
+	padding: 28px;
+	border: 1px solid var(--border-strong);
+	border-radius: var(--radius-pane);
+	background: var(--glass-pane-strong);
+	box-shadow: var(--bevel), var(--shadow-soft);
+}
+
+.bridge-root .portfolio-auth-mark {
+	width: 42px;
+	height: 42px;
+	display: grid;
+	place-items: center;
+	margin-bottom: 3px;
+	border: 1px solid color-mix(in srgb, var(--intent-direction) 24%, var(--border));
+	border-radius: var(--radius-control);
+	background: var(--intent-direction-soft);
+	color: var(--intent-direction);
+}
+
+.bridge-root .portfolio-auth-card h1 {
+	margin: 0;
+	font-size: var(--t-title);
+}
+
+.bridge-root .portfolio-auth-card > p {
+	margin: 0 0 3px;
+	font-size: var(--t-body);
+	line-height: 1.6;
+	color: var(--text-secondary);
+}
+
+.bridge-root .portfolio-auth-card .btn {
+	width: 100%;
+}
+
+.bridge-root .owner-error,
+.bridge-root .portfolio-error {
+	color: var(--state-danger);
+	font-size: var(--t-body);
+}
+
+.bridge-root .portfolio-empty {
+	padding: 50px 18px;
+	text-align: center;
+	color: var(--text-tertiary);
+}
+
+.bridge-root .portfolio-empty h2 {
+	margin: 12px 0 5px;
+	font-size: var(--t-head);
+	color: var(--ink);
+}
+
+.bridge-root .portfolio-empty p {
+	margin: 0;
+	font-size: var(--t-body);
+}
+
+/* One control for the executive: the lamp reads presence, the button opens and
+ * closes the rail. Its box never changes size, so the topbar stays still. */
+.bridge-root .tb-exec {
+	display: inline-flex;
+	align-items: center;
+	gap: 7px;
+	padding: 5px 9px;
+	border: 1px solid var(--control-edge);
+	border-radius: var(--radius-control);
+	background: rgba(255, 255, 255, 0.48);
+	box-shadow: var(--bevel-subtle), var(--control-depth);
+	font: 600 var(--t-label) var(--font-mono);
+	letter-spacing: var(--track-label);
+	text-transform: uppercase;
+	white-space: nowrap;
+	color: var(--text-tertiary);
+	cursor: pointer;
+}
+
+.bridge-root .tb-exec.live {
+	color: var(--intent-conversation);
+	border-color: color-mix(in srgb, var(--intent-conversation) 22%, var(--control-edge));
+}
+
+.bridge-root .tb-exec.on {
+	background: var(--intent-conversation-soft);
+	border-color: color-mix(in srgb, var(--intent-conversation) 32%, var(--control-edge));
+}
+
+.bridge-root .tb-exec:hover {
+	border-color: color-mix(in srgb, var(--intent-conversation) 40%, var(--control-edge));
+	background: color-mix(in srgb, var(--intent-conversation-soft) 72%, white);
+}
+
+.bridge-root .tb-exec:focus-visible {
+	outline: 3px solid color-mix(in srgb, var(--intent-conversation) 28%, transparent);
+	outline-offset: 2px;
+}
+
+.bridge-root .bridge-body {
+	min-height: 0;
+	height: 100%;
+	gap: var(--pane-gap);
+	border-top: 0;
+	overflow: hidden;
+}
+
+/* The workspace is one region. There is no company strip above it: every value
+ * it carried has an owning surface that shows it unabbreviated (S06-T1). */
+.bridge-root .bridge-workspace {
+	min-width: 0;
+	min-height: 0;
+	flex: 1 1 auto;
+	display: grid;
+	grid-template-rows: minmax(0, 1fr);
+}
+
+.bridge-root .bridge-content {
+	min-width: 0;
+	min-height: 0;
+	height: auto;
+	gap: var(--pane-gap);
+	overflow: hidden;
+}
+
+/* Shared cockpit regions */
+.bridge-root .cockpit-screen {
+	position: relative;
+	width: 100%;
+	height: 100%;
+	min-width: 0;
+	min-height: 0;
+	overflow: hidden;
+}
+
+/* Opaque, not glass. Text composited through a backdrop-filter goes into its own
+ * non-opaque layer and loses crispness — a real cost on a 1x display, and this
+ * is the pane that carries every paragraph in the product. The glass stays where
+ * it is honest: chrome that floats over scrolling content (the topbar, the
+ * company menu, the runtime gate), never under prose. */
+.bridge-root .cockpit-pane {
+	min-width: 0;
+	min-height: 0;
+	background: var(--surface-pane);
+	border: 1px solid var(--border-strong);
+	border-radius: var(--radius-pane);
+	box-shadow: var(--bevel), var(--shadow-soft);
+}
+
+.bridge-root .cockpit-pane-head {
+	min-height: var(--pane-head-h);
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 12px;
+	padding: 10px 14px;
+	border-bottom: 1px solid var(--border);
+}
+
+.bridge-root .cockpit-pane-head.compact {
+	min-height: var(--pane-head-h);
+}
+
+.bridge-root .cockpit-pane-head h1,
+.bridge-root .cockpit-pane-head h2 {
+	margin: 2px 0 0;
+	font-size: var(--t-head);
+	font-weight: 650;
+	line-height: 1.25;
+}
+
+.bridge-root .over-label {
+	font: 500 var(--t-label)/1.2 var(--font-mono);
+	letter-spacing: 0.1em;
+	text-transform: uppercase;
+	color: var(--text-tertiary);
+}
+
+.bridge-root .pane-count {
+	min-width: 24px;
+	height: 24px;
+	display: grid;
+	place-items: center;
+	border: 1px solid var(--border);
+	font: 600 var(--t-body) var(--font-mono);
+	color: var(--text-secondary);
+}
+
+.bridge-root .cockpit-error {
+	position: absolute;
+	z-index: 4;
+	top: 8px;
+	left: 50%;
+	translate: -50% 0;
+	max-width: min(560px, calc(100% - 24px));
+	padding: 8px 12px;
+	border: 1px solid color-mix(in srgb, var(--state-danger) 35%, var(--border));
+	background: color-mix(in srgb, var(--state-danger-soft) 65%, white);
+	box-shadow: var(--shadow-lift);
+	color: var(--state-danger);
+	font-size: var(--t-body);
+}
+
+.bridge-root .empty-state {
+	margin: 0;
+	padding: 18px;
+	font-size: var(--t-body);
+	line-height: 1.55;
+	color: var(--text-tertiary);
+}
+
+.bridge-root .empty-state.inset {
+	padding: 12px 0;
+}
+
+/* Attention is only the bounded owner queue and its focused decision. Routine
+ * Work and duplicated source health stay on their owning surfaces. */
+.bridge-root .attention-screen {
+	display: grid;
+	grid-template-columns: minmax(244px, 0.62fr) minmax(480px, 1.75fr);
+	gap: var(--pane-gap);
+}
+
+.bridge-root .attention-index,
+.bridge-root .attention-focus {
+	overflow: hidden;
+}
+
+.bridge-root .attention-pane-title {
+	min-height: 43px;
+	display: flex;
+	align-items: center;
+	gap: 9px;
+	padding: 0 14px;
+	border-bottom: 1px solid var(--border);
+}
+
+.bridge-root .attention-pane-title > .over-label {
+	margin: 0;
+	color: var(--text-secondary);
+}
+
+.bridge-root .attention-index-scroll {
+	min-height: 0;
+	overflow: auto;
+}
+
+.bridge-root .attention-index {
+	display: grid;
+	grid-template-rows: 43px minmax(0, 1fr);
+}
+
+.bridge-root .attention-list {
+	display: grid;
+}
+
+.bridge-root .attention-item {
+	--item-tone: var(--surface-attention);
+	position: relative;
+	width: 100%;
+	min-width: 0;
+	display: grid;
+	grid-template-columns: 18px minmax(0, 1fr) auto;
+	align-items: start;
+	gap: 10px;
+	padding: 13px 14px;
+	border-bottom: 1px solid var(--border);
+	background: transparent;
+	color: var(--ink);
+	text-decoration: none;
+}
+
+.bridge-root .attention-item.category-approval {
+	--item-tone: var(--intent-authority);
+}
+.bridge-root .attention-item.category-review {
+	--item-tone: var(--intent-feedback);
+}
+.bridge-root .attention-item.category-blocker {
+	--item-tone: var(--state-danger);
+}
+
+.bridge-root .attention-item > .matrix-glyph {
+	color: var(--item-tone);
+}
+
+.bridge-root .attention-item:hover {
+	background: var(--surface-alt);
+}
+
+.bridge-root .attention-item.selected {
+	background: color-mix(in srgb, var(--item-tone) 9%, rgba(255, 255, 255, 0.7));
+	box-shadow:
+		inset 3px 0 0 var(--item-tone),
+		inset 0 1px 0 rgba(255, 255, 255, 0.8);
+}
+
+.bridge-root .attention-item-copy {
+	min-width: 0;
+}
+
+.bridge-root .attention-item-copy strong,
+.bridge-root .attention-item-copy small {
+	display: block;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.bridge-root .attention-item-copy strong {
+	font-size: var(--t-body);
+	font-weight: 600;
+	line-height: 1.35;
+}
+
+.bridge-root .attention-item-copy small {
+	margin-top: 4px;
+	font-size: var(--t-body);
+	color: var(--text-secondary);
+}
+
+.bridge-root .attention-item time {
+	font: var(--t-label) var(--font-mono);
+	color: var(--text-tertiary);
+	white-space: nowrap;
+}
+
+/* The shape of the queue while the source has not answered. Deliberately mute
+ * and unlabelled: it says "not yet", where the states either side of it say
+ * "clear" and "here is your queue". It must never be mistaken for either. */
+.bridge-root .attention-list-waiting {
+	display: grid;
+	gap: 8px;
+	padding: 12px;
+}
+
+.bridge-root .attention-list-waiting i {
+	height: 38px;
+	border-radius: var(--radius-control);
+	background: linear-gradient(
+		100deg,
+		rgba(48, 57, 74, 0.05),
+		rgba(48, 57, 74, 0.028) 42%,
+		rgba(48, 57, 74, 0.05)
+	);
+	animation: attention-waiting 1.6s ease-in-out infinite;
+}
+
+.bridge-root .attention-list-waiting i:nth-child(2) {
+	animation-delay: 0.18s;
+}
+
+.bridge-root .attention-list-waiting i:nth-child(3) {
+	animation-delay: 0.36s;
+}
+
+@keyframes attention-waiting {
+	50% {
+		opacity: 0.45;
+	}
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.bridge-root .attention-list-waiting i {
+		animation: none;
+	}
+}
+
+.bridge-root .attention-list-clear {
+	display: flex;
+	align-items: flex-start;
+	gap: 10px;
+	margin: 12px;
+	padding: 12px;
+	border: 1px solid color-mix(in srgb, var(--state-success) 18%, var(--border));
+	border-radius: var(--radius-control);
+	background: var(--state-success-soft);
+	color: var(--state-success);
+}
+
+.bridge-root .attention-list-clear > span {
+	display: grid;
+	gap: 3px;
+}
+
+.bridge-root .attention-list-clear strong,
+.bridge-root .attention-list-clear small {
+	font-size: var(--t-body);
+}
+
+.bridge-root .attention-list-clear small {
+	line-height: 1.4;
+	color: var(--text-secondary);
+}
+
+.bridge-root .attention-focus {
+	overflow: auto;
+	background:
+		radial-gradient(circle at 88% 2%, var(--surface-attention-soft), transparent 34%),
+		radial-gradient(circle at 6% 96%, var(--intent-feedback-soft), transparent 32%),
+		var(--glass-pane);
+}
+
+.bridge-root .attention-focus .inbox-pane,
+.bridge-root .attention-focus .needs-card {
+	width: 100%;
+	min-height: 100%;
+}
+
+.bridge-root .attention-focus .needs-card {
+	padding: 22px 24px;
+	border: 0;
+	border-radius: 0;
+	background: transparent;
+	box-shadow: none;
+}
+
+.bridge-root .attention-focus .nc-kicker {
+	color: var(--attention-tone, var(--surface-attention));
+}
+
+.bridge-root .attention-focus .needs-card.category-approval {
+	--attention-tone: var(--intent-authority);
+}
+.bridge-root .attention-focus .needs-card.category-review {
+	--attention-tone: var(--intent-feedback);
+}
+.bridge-root .attention-focus .needs-card.category-blocker {
+	--attention-tone: var(--state-danger);
+}
+
+.bridge-root .attention-focus .nc-title {
+	max-width: 760px;
+	margin-top: 12px;
+	font-size: var(--t-title);
+	font-weight: 600;
+	line-height: 1.08;
+	letter-spacing: -0.035em;
+}
+
+.bridge-root .attention-focus .nc-detail {
+	max-width: 680px;
+	font-size: var(--t-body);
+	line-height: 1.55;
+}
+
+.bridge-root .attention-focus .nc-actions {
+	position: sticky;
+	bottom: 0;
+	margin: 18px -24px -22px;
+	padding: 12px 24px;
+	border-top: 1px solid var(--border);
+	background: color-mix(in srgb, var(--glass-pane-strong) 92%, transparent);
+	backdrop-filter: blur(var(--glass-blur));
+}
+
+.bridge-root .attention-zero {
+	width: min(820px, 100%);
+	height: 100%;
+	display: flex;
+	flex-direction: column;
+	justify-content: center;
+	gap: clamp(22px, 3vh, 32px);
+	margin: auto;
+	padding: clamp(24px, 4vw, 56px);
+}
+
+.bridge-root .attention-zero-hero {
+	display: flex;
+	align-items: flex-start;
+	gap: 17px;
+}
+
+.bridge-root .attention-zero h1,
+.bridge-root .attention-zero p,
+.bridge-root .attention-zero strong {
+	margin: 0;
+	color: var(--ink);
+}
+
+.bridge-root .attention-zero-hero h1 {
+	font-size: var(--t-hero);
+	line-height: 1.05;
+	letter-spacing: -0.035em;
+}
+
+.bridge-root .attention-zero-hero p {
+	margin-top: 8px;
+	color: var(--text-secondary);
+}
+
+.bridge-root .attention-zero-grid {
+	display: grid;
+	grid-template-columns: repeat(2, minmax(0, 1fr));
+	border: 1px solid var(--border-strong);
+	border-radius: var(--radius-pane);
+	background: rgba(255, 255, 255, 0.52);
+	box-shadow:
+		var(--bevel-subtle),
+		0 12px 32px rgba(43, 51, 66, 0.055);
+	overflow: hidden;
+}
+
+.bridge-root .attention-zero-grid section {
+	min-width: 0;
+	min-height: 112px;
+	padding: 18px;
+	border-right: 1px solid var(--border);
+	border-bottom: 1px solid var(--border);
+}
+
+.bridge-root .attention-zero-grid section:nth-child(2n) {
+	border-right: 0;
+}
+
+.bridge-root .attention-zero-grid section:nth-last-child(-n + 2) {
+	border-bottom: 0;
+}
+
+.bridge-root .zero-label {
+	display: block;
+	margin-bottom: 10px;
+	font: 600 var(--t-label) var(--font-mono);
+	letter-spacing: 0.09em;
+	text-transform: uppercase;
+	color: var(--surface-attention);
+}
+
+.bridge-root .zero-label.work {
+	color: var(--intent-conversation);
+}
+.bridge-root .zero-label.success {
+	color: var(--state-success);
+}
+.bridge-root .zero-label.direction {
+	color: var(--intent-direction);
+}
+.bridge-root .zero-label.authority {
+	color: var(--intent-authority);
+}
+
+.bridge-root .attention-zero-grid strong {
+	display: -webkit-box;
+	overflow: hidden;
+	-webkit-box-orient: vertical;
+	-webkit-line-clamp: 2;
+	font-size: var(--t-body);
+	line-height: 1.4;
+}
+
+.bridge-root .attention-zero-grid p {
+	display: -webkit-box;
+	overflow: hidden;
+	-webkit-box-orient: vertical;
+	-webkit-line-clamp: 2;
+	margin-top: 7px;
+	font-size: var(--t-body);
+	line-height: 1.5;
+	color: var(--text-secondary);
+}
+
+/* Work: one source, relational Map and operational Board. */
+.bridge-root .work-screen {
+	display: grid;
+	grid-template-columns: 228px minmax(0, 1fr);
+	gap: var(--pane-gap);
+}
+
+.bridge-root .goal-spine {
+	display: block;
+	min-width: 0;
+	overflow: auto;
+	background: var(--glass-pane-strong);
+	backdrop-filter: blur(var(--glass-blur));
+}
+
+.bridge-root .goal-spine button {
+	position: relative;
+	width: 100%;
+	min-width: 0;
+	padding: 16px 14px;
+	border: 0;
+	border-bottom: 1px solid var(--border);
+	background: transparent;
+	color: var(--text-secondary);
+	text-align: left;
+	cursor: pointer;
+}
+
+.bridge-root .goal-spine button:hover,
+.bridge-root .goal-spine button.current {
+	background: rgba(255, 255, 255, 0.54);
+	color: var(--ink);
+}
+
+.bridge-root .goal-spine button.current {
+	box-shadow: inset 2px 0 0 var(--intent-direction);
+	background: var(--intent-direction-soft);
+}
+
+.bridge-root .goal-index {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	margin-bottom: 8px;
+	font: 500 var(--t-label) var(--font-mono);
+	color: var(--text-tertiary);
+}
+
+.bridge-root .goal-index em {
+	font-style: normal;
+	color: var(--intent-direction);
+}
+
+.bridge-root .goal-index b {
+	font-weight: 500;
+}
+
+.bridge-root .goal-spine strong,
+.bridge-root .goal-spine small {
+	display: block;
+	overflow: hidden;
+	white-space: nowrap;
+	text-overflow: ellipsis;
+}
+
+.bridge-root .goal-spine strong {
+	font-size: var(--t-body);
+	font-weight: 600;
+	white-space: normal;
+	line-height: 1.4;
+}
+
+.bridge-root .goal-spine small {
+	margin-top: 7px;
+	font: var(--t-body)/1.45 var(--font-ui);
+	color: var(--text-tertiary);
+	white-space: normal;
+	display: -webkit-box;
+	-webkit-line-clamp: 3;
+	-webkit-box-orient: vertical;
+}
+
+.bridge-root .goal-progress {
+	display: block;
+	height: 2px;
+	margin-top: 12px;
+	background: var(--r4);
+}
+
+.bridge-root .goal-progress b {
+	display: block;
+	height: 100%;
+	background: var(--intent-direction);
+}
+
+.bridge-root .work-stage {
+	position: relative;
+	display: grid;
+	grid-template-rows: var(--pane-head-h) minmax(0, 1fr);
+	overflow: hidden;
+}
+
+.bridge-root .lens-switch {
+	display: flex;
+	padding: 2px;
+	border: 1px solid var(--border);
+	background: rgba(229, 233, 239, 0.8);
+	border-radius: var(--radius-control);
+	box-shadow: inset 0 1px 3px rgba(43, 51, 66, 0.09);
+}
+
+.bridge-root .history-control,
+.bridge-root .board-history-toggle,
+.bridge-root .flat-control {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	gap: 6px;
+	padding: 5px 9px;
+	border: 1px solid var(--control-edge);
+	border-radius: var(--radius-control);
+	background: linear-gradient(180deg, #fff, #edf0f4);
+	box-shadow: var(--bevel-subtle), var(--control-depth);
+	font: 500 var(--t-label) var(--font-mono);
+	color: var(--text-secondary);
+	cursor: pointer;
+}
+
+.bridge-root .history-control.on {
+	border-color: color-mix(in srgb, var(--state-success) 35%, var(--control-edge));
+	background: linear-gradient(
+		180deg,
+		#fff,
+		color-mix(in srgb, var(--state-success-soft) 75%, #edf0f4)
+	);
+	color: var(--state-success);
+}
+
+.bridge-root :is(.history-control, .board-history-toggle, .flat-control):active {
+	transform: translateY(1px);
+	box-shadow: var(--bevel-subtle), var(--control-depth-pressed);
+}
+
+.bridge-root .map-key {
+	display: flex;
+	align-items: center;
+	gap: 12px;
+	margin-left: auto;
+	font: 500 var(--t-label) var(--font-mono);
+	letter-spacing: 0.06em;
+	text-transform: uppercase;
+	color: var(--text-tertiary);
+}
+
+.bridge-root .map-key span {
+	display: flex;
+	align-items: center;
+	gap: 5px;
+}
+
+.bridge-root .map-key i {
+	width: 14px;
+	height: 1px;
+	background: var(--intent-conversation);
+}
+
+.bridge-root .map-key i.revision {
+	background: repeating-linear-gradient(90deg, var(--intent-feedback) 0 3px, transparent 3px 6px);
+}
+
+.bridge-root .lens-switch button {
+	min-width: 66px;
+	padding: 5px 10px;
+	border: 0;
+	border-radius: calc(var(--radius-control) - 1px);
+	background: transparent;
+	font-size: var(--t-body);
+	color: var(--text-secondary);
+	cursor: pointer;
+}
+
+.bridge-root .lens-switch button[aria-selected='true'] {
+	border: 1px solid color-mix(in srgb, var(--intent-feedback) 24%, var(--control-edge));
+	background: linear-gradient(
+		180deg,
+		#fff,
+		color-mix(in srgb, var(--intent-feedback-soft) 64%, #edf0f4)
+	);
+	border-radius: calc(var(--radius-control) - 1px);
+	box-shadow:
+		var(--bevel),
+		0 1px 2px rgba(35, 117, 99, 0.12),
+		0 3px 7px rgba(35, 117, 99, 0.06);
+	color: var(--intent-feedback);
+	font-weight: 600;
+}
+
+.bridge-root .work-map {
+	min-width: 0;
+	min-height: 0;
+	position: relative;
+	overflow: auto;
+	background-color: rgba(255, 255, 255, 0.54);
+	background-image:
+		linear-gradient(90deg, rgba(55, 66, 84, 0.045) 1px, transparent 1px),
+		linear-gradient(rgba(55, 66, 84, 0.045) 1px, transparent 1px);
+	background-size: 36px 36px;
+}
+
+.bridge-root .work-map-inner {
+	position: relative;
+	min-width: 100%;
+	min-height: 100%;
+}
+
+.bridge-root .map-depth-label {
+	position: absolute;
+	top: 20px;
+	font: 500 var(--t-label) var(--font-mono);
+	letter-spacing: 0.1em;
+	text-transform: uppercase;
+	color: var(--text-tertiary);
+}
+
+.bridge-root .map-connector {
+	position: absolute;
+	z-index: 0;
+	height: 1px;
+	transform-origin: left center;
+	background: var(--intent-conversation);
+	color: var(--intent-conversation);
+}
+
+.bridge-root .map-connector.revises {
+	background: repeating-linear-gradient(90deg, var(--intent-feedback) 0 4px, transparent 4px 8px);
+	color: var(--intent-feedback);
+}
+
+.bridge-root .map-connector::after {
+	content: '';
+	position: absolute;
+	top: -3px;
+	right: -1px;
+	width: 6px;
+	height: 6px;
+	transform: rotate(45deg);
+	border-top: 1px solid currentColor;
+	border-right: 1px solid currentColor;
+}
+
+.bridge-root .work-map-node,
+.bridge-root .board-item {
+	position: relative;
+	display: block;
+	width: 100%;
+	padding: 12px 13px;
+	border: 1px solid var(--border-strong);
+	border-radius: var(--radius-control);
+	background: rgba(255, 255, 255, 0.82);
+	box-shadow:
+		var(--bevel-subtle),
+		0 1px 2px rgba(43, 51, 66, 0.07),
+		0 5px 14px rgba(43, 51, 66, 0.045);
+	color: var(--ink);
+	text-align: left;
+	text-decoration: none;
+	cursor: pointer;
+}
+
+.bridge-root .work-map-node {
+	position: absolute;
+	z-index: 1;
+	width: 208px;
+	height: 132px;
+	overflow: hidden;
+	backdrop-filter: blur(16px) saturate(1.16);
+	-webkit-backdrop-filter: blur(16px) saturate(1.16);
+}
+
+.bridge-root .work-map-node:hover,
+.bridge-root .board-item:hover {
+	border-color: color-mix(in srgb, var(--intent-feedback) 46%, var(--border));
+	box-shadow:
+		var(--bevel),
+		0 10px 26px rgba(43, 51, 66, 0.09);
+}
+
+.bridge-root .work-map-node:focus-visible,
+.bridge-root .board-item:focus-visible,
+.bridge-root .work-back:focus-visible,
+.bridge-root .relation-groups a:focus-visible {
+	outline: 3px solid color-mix(in srgb, var(--intent-conversation) 30%, transparent);
+	outline-offset: 2px;
+}
+
+.bridge-root .node-state,
+.bridge-root .board-item > span {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	font: 500 var(--t-label) var(--font-mono);
+	letter-spacing: 0.06em;
+	text-transform: uppercase;
+	color: var(--text-tertiary);
+}
+
+.bridge-root .node-state i,
+.bridge-root .board-item > span i {
+	width: 6px;
+	height: 6px;
+	border: 1px solid currentColor;
+}
+
+.bridge-root .status-active .node-state i,
+.bridge-root .status-active > span i {
+	background: var(--intent-conversation);
+	border-color: var(--intent-conversation);
+}
+
+.bridge-root .status-active .node-state,
+.bridge-root .status-active > span {
+	color: var(--intent-conversation);
+}
+
+.bridge-root .status-proposed .node-state,
+.bridge-root .status-proposed > span {
+	color: var(--intent-direction);
+}
+
+.bridge-root .status-completed .node-state i,
+.bridge-root .status-completed > span i {
+	background: var(--state-success);
+	border-color: var(--state-success);
+}
+
+.bridge-root .status-completed .node-state,
+.bridge-root .status-completed > span {
+	color: var(--state-success);
+}
+
+.bridge-root .status-blocked .node-state i,
+.bridge-root .status-blocked > span i {
+	background: var(--intent-authority);
+	border-color: var(--intent-authority);
+}
+
+.bridge-root .status-blocked .node-state,
+.bridge-root .status-blocked > span {
+	color: var(--intent-authority);
+}
+
+.bridge-root .work-map-node strong,
+.bridge-root .board-item strong {
+	display: block;
+	margin-top: 7px;
+	font-size: var(--t-body);
+	line-height: 1.35;
+}
+
+.bridge-root .work-map-node small {
+	display: block;
+	margin-top: 5px;
+	font-size: var(--t-label);
+	color: var(--text-secondary);
+}
+
+.bridge-root .work-map-node p {
+	display: -webkit-box;
+	-webkit-line-clamp: 2;
+	-webkit-box-orient: vertical;
+	overflow: hidden;
+	margin: 5px 0 0;
+	font-size: var(--t-label);
+	line-height: 1.4;
+	color: var(--text-secondary);
+}
+
+.bridge-root .work-board {
+	min-width: 0;
+	min-height: 0;
+	display: grid;
+	grid-template-columns: repeat(4, minmax(190px, 1fr));
+	overflow: auto;
+}
+
+.bridge-root .board-column {
+	--column-tone: var(--intent-direction);
+	min-width: 0;
+	padding: 12px;
+	border-right: 1px solid var(--border);
+	background: rgba(247, 249, 252, 0.46);
+}
+
+.bridge-root .board-column:nth-child(2) {
+	--column-tone: var(--intent-conversation);
+}
+.bridge-root .board-column:nth-child(3) {
+	--column-tone: var(--intent-authority);
+}
+.bridge-root .board-column:nth-child(4) {
+	--column-tone: var(--state-success);
+}
+
+.bridge-root .board-column::before {
+	content: '';
+	display: block;
+	height: 2px;
+	margin: -12px -12px 11px;
+	background: color-mix(in srgb, var(--column-tone) 62%, transparent);
+}
+
+.bridge-root .board-column > header {
+	display: flex;
+	justify-content: space-between;
+	margin-bottom: 10px;
+	font: 600 var(--t-label) var(--font-mono);
+	letter-spacing: 0.08em;
+	text-transform: uppercase;
+	color: var(--text-secondary);
+}
+
+.bridge-root .board-column > header b {
+	color: var(--text-tertiary);
+}
+
+.bridge-root .board-item {
+	margin-bottom: 9px;
+}
+
+.bridge-root .board-item p {
+	display: -webkit-box;
+	-webkit-line-clamp: 3;
+	-webkit-box-orient: vertical;
+	overflow: hidden;
+	margin: 6px 0 9px;
+	font-size: var(--t-body);
+	line-height: 1.45;
+	color: var(--text-secondary);
+}
+
+.bridge-root .board-item footer {
+	display: flex;
+	justify-content: space-between;
+	gap: 8px;
+	padding-top: 7px;
+	border-top: 1px solid var(--border);
+	font: var(--t-label) var(--font-mono);
+	color: var(--text-tertiary);
+}
+
+.bridge-root .column-empty {
+	padding: 8px 2px;
+	font: var(--t-label) var(--font-mono);
+	color: var(--text-tertiary);
+}
+
+.bridge-root .board-history-toggle {
+	width: 100%;
+	margin-top: 4px;
+	white-space: normal;
+	line-height: 1.35;
+	color: var(--state-success);
+}
+
+.bridge-root .work-detail-screen {
+	width: 100%;
+	height: 100%;
+	display: grid;
+	grid-template-rows: auto minmax(0, 1fr);
+	overflow: hidden;
+	background:
+		radial-gradient(circle at 100% 0, var(--intent-feedback-soft), transparent 32%),
+		var(--glass-pane);
+}
+
+.bridge-root .work-detail-head {
+	display: flex;
+	align-items: flex-end;
+	justify-content: space-between;
+	gap: 24px;
+	padding: 15px 20px 17px;
+	border-bottom: 1px solid var(--border-strong);
+	background: rgba(255, 255, 255, 0.48);
+	box-shadow: var(--bevel-subtle);
+}
+
+.bridge-root .work-detail-heading {
+	min-width: 0;
+}
+
+.bridge-root .work-back {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	font: 600 var(--t-label) var(--font-mono);
+	letter-spacing: 0.07em;
+	text-decoration: none;
+	text-transform: uppercase;
+	color: var(--intent-feedback);
+}
+
+.bridge-root .work-back:hover {
+	color: var(--ink);
+}
+
+.bridge-root .work-breadcrumb {
+	display: flex;
+	align-items: center;
+	gap: 7px;
+	margin-top: 9px;
+	font: 500 var(--t-label) var(--font-mono);
+	letter-spacing: 0.06em;
+	text-transform: uppercase;
+	color: var(--text-tertiary);
+}
+
+.bridge-root .work-breadcrumb span {
+	max-width: 44ch;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.bridge-root .work-breadcrumb i {
+	font-style: normal;
+	color: var(--border-strong);
+}
+
+.bridge-root .work-breadcrumb b {
+	color: var(--text-secondary);
+}
+
+.bridge-root .work-detail-head h1 {
+	margin: 5px 0 0;
+	font-size: var(--t-title);
+	line-height: 1.14;
+	letter-spacing: -0.025em;
+}
+
+.bridge-root .work-detail-status {
+	flex: 0 0 auto;
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	padding: 8px 10px;
+	border: 1px solid color-mix(in srgb, currentColor 18%, var(--border));
+	border-radius: var(--radius-control);
+	background: var(--intent-conversation-soft);
+	font: 600 var(--t-label) var(--font-mono);
+	letter-spacing: 0.055em;
+	text-transform: uppercase;
+	color: var(--intent-conversation);
+}
+
+.bridge-root .work-detail-status.status-completed {
+	background: var(--state-success-soft);
+	color: var(--state-success);
+}
+
+.bridge-root .work-detail-status.status-blocked,
+.bridge-root .work-detail-status.unverified {
+	background: var(--intent-authority-soft);
+	color: var(--intent-authority);
+}
+
+.bridge-root .work-detail-scroll {
+	min-height: 0;
+	overflow: auto;
+	padding: 18px 20px 28px;
+}
+
+.bridge-root .work-detail-layout {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) 210px;
+	gap: 24px;
+}
+
+.bridge-root .work-detail-main {
+	min-width: 0;
+}
+
+.bridge-root .work-detail-section {
+	padding: 0 0 18px;
+	margin-bottom: 18px;
+	border-bottom: 1px solid var(--border);
+}
+
+.bridge-root .work-detail-section:last-child {
+	margin-bottom: 0;
+}
+
+.bridge-root .detail-label,
+.bridge-root .detail-sublabel {
+	display: block;
+	font: 600 var(--t-label) var(--font-mono);
+	letter-spacing: 0.09em;
+	text-transform: uppercase;
+	color: var(--text-tertiary);
+}
+
+.bridge-root .detail-sublabel {
+	margin-bottom: 9px;
+	font-size: var(--t-label);
+}
+
+.bridge-root .work-detail-section .md,
+.bridge-root .work-detail-section > p {
+	margin-top: 8px;
+	max-width: 76ch;
+	font-size: var(--t-body);
+	line-height: 1.62;
+	overflow-wrap: anywhere;
+	color: var(--text-secondary);
+}
+
+.bridge-root .outcome-contract .md {
+	font-size: var(--t-body);
+	line-height: 1.56;
+	color: var(--ink);
+}
+
+.bridge-root .detail-section-head {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 12px;
+}
+
+.bridge-root .detail-section-head small,
+.bridge-root .attempt-meta {
+	font: var(--t-label) var(--font-mono);
+	color: var(--text-tertiary);
+}
+
+.bridge-root .attempt-state {
+	display: inline-block;
+	margin-top: 9px;
+	font: 600 var(--t-label) var(--font-mono);
+	letter-spacing: 0.06em;
+	text-transform: uppercase;
+	color: var(--intent-conversation);
+}
+
+.bridge-root .attempt-state.state-blocked,
+.bridge-root .attempt-state.state-failed,
+.bridge-root .attempt-state.state-changes_requested {
+	color: var(--intent-authority);
+}
+
+.bridge-root .attempt-state.state-produced {
+	color: var(--state-success);
+}
+
+.bridge-root .attempt-meta {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 6px 16px;
+	margin-top: 10px;
+}
+
+.bridge-root .work-detail-aside {
+	border-left: 1px solid var(--border);
+}
+
+.bridge-root .work-detail-aside section {
+	padding: 0 0 15px 18px;
+	margin-bottom: 15px;
+	border-bottom: 1px solid var(--border);
+}
+
+.bridge-root .work-detail-aside strong,
+.bridge-root .work-detail-aside small {
+	display: block;
+	overflow-wrap: anywhere;
+}
+
+.bridge-root .work-detail-aside strong {
+	margin-top: 7px;
+	font-size: var(--t-body);
+	line-height: 1.45;
+}
+
+.bridge-root .work-detail-aside small {
+	margin-top: 4px;
+	font-size: var(--t-label);
+	line-height: 1.45;
+	color: var(--text-tertiary);
+}
+
+.bridge-root .work-evidence-section,
+.bridge-root .work-relations-section {
+	padding-top: 18px;
+	border-top: 1px solid var(--border-strong);
+}
+
+.bridge-root .work-evidence-section > header,
+.bridge-root .work-relations-section > header {
+	display: flex;
+	align-items: flex-end;
+	justify-content: space-between;
+	gap: 16px;
+}
+
+.bridge-root .work-evidence-section h2,
+.bridge-root .work-relations-section h2 {
+	margin: 5px 0 0;
+	font-size: var(--t-head);
+	line-height: 1.3;
+}
+
+.bridge-root .evidence-score {
+	font: 500 var(--t-label) var(--font-mono);
+	color: var(--text-tertiary);
+}
+
+.bridge-root .expected-artifact {
+	margin: 13px 0 0;
+	padding: 9px 11px;
+	border-left: 2px solid var(--intent-feedback);
+	background: var(--intent-feedback-soft);
+	font-size: var(--t-body);
+	line-height: 1.5;
+	overflow-wrap: anywhere;
+	color: var(--text-secondary);
+}
+
+.bridge-root .expected-artifact span {
+	margin-right: 8px;
+	font: 600 var(--t-label) var(--font-mono);
+	letter-spacing: 0.06em;
+	text-transform: uppercase;
+	color: var(--intent-feedback);
+}
+
+.bridge-root .evidence-columns {
+	display: grid;
+	grid-template-columns: minmax(0, 1.45fr) minmax(180px, 0.55fr);
+	gap: 18px;
+	margin-top: 16px;
+}
+
+.bridge-root .detail-artifact,
+.bridge-root .detail-gate {
+	display: grid;
+	align-items: center;
+	gap: 9px;
+	margin-bottom: 7px;
+	padding: 9px 10px;
+	border: 1px solid color-mix(in srgb, var(--intent-feedback) 17%, var(--border));
+	border-radius: var(--radius-control);
+	background: color-mix(in srgb, var(--intent-feedback-soft) 55%, rgba(255, 255, 255, 0.6));
+	color: var(--intent-feedback);
+}
+
+.bridge-root .detail-artifact {
+	grid-template-columns: 14px minmax(0, 1fr) auto;
+}
+
+.bridge-root .detail-gate {
+	grid-template-columns: 14px minmax(0, 1fr);
+	border-color: var(--border);
+	background: rgba(255, 255, 255, 0.48);
+	color: var(--text-tertiary);
+}
+
+.bridge-root .detail-gate.passed {
+	border-color: color-mix(in srgb, var(--state-success) 20%, var(--border));
+	background: var(--state-success-soft);
+	color: var(--state-success);
+}
+
+.bridge-root .detail-artifact > span,
+.bridge-root .detail-gate > span {
+	min-width: 0;
+}
+
+.bridge-root .detail-artifact strong,
+.bridge-root .detail-artifact small,
+.bridge-root .detail-gate strong,
+.bridge-root .detail-gate small {
+	display: block;
+}
+
+.bridge-root .detail-artifact strong,
+.bridge-root .detail-gate strong {
+	font-size: var(--t-body);
+	color: var(--ink);
+}
+
+.bridge-root .detail-artifact small {
+	margin-top: 3px;
+	overflow: hidden;
+	font: var(--t-label) var(--font-mono);
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	color: var(--text-tertiary);
+}
+
+.bridge-root .detail-artifact em {
+	font: 600 var(--t-label) var(--font-mono);
+	font-style: normal;
+	text-transform: uppercase;
+	color: var(--text-tertiary);
+}
+
+.bridge-root .detail-artifact em.available {
+	color: var(--state-success);
+}
+
+.bridge-root .detail-gate small {
+	margin-top: 2px;
+	font-size: var(--t-label);
+	color: var(--text-tertiary);
+}
+
+.bridge-root .detail-empty {
+	margin: 0;
+	font-size: var(--t-body);
+	line-height: 1.5;
+	color: var(--text-tertiary);
+}
+
+.bridge-root .work-relations-section {
+	margin-top: 22px;
+}
+
+.bridge-root .relation-groups {
+	display: grid;
+	grid-template-columns: repeat(3, minmax(0, 1fr));
+	gap: 18px;
+	margin-top: 15px;
+}
+
+.bridge-root .relation-groups a {
+	display: block;
+	margin-bottom: 7px;
+	padding: 9px 10px;
+	border-left: 2px solid var(--intent-conversation);
+	background: var(--intent-conversation-soft);
+	font-size: var(--t-body);
+	line-height: 1.4;
+	text-decoration: none;
+	color: var(--ink);
+}
+
+.bridge-root .relation-groups a.revision {
+	border-left-color: var(--intent-feedback);
+	background: var(--intent-feedback-soft);
+}
+
+.bridge-root .relation-groups a:hover {
+	background: rgba(255, 255, 255, 0.78);
+}
+
+.bridge-root .relation-groups a small {
+	display: block;
+	margin-top: 3px;
+	font: var(--t-label) var(--font-mono);
+	text-transform: uppercase;
+	color: var(--text-tertiary);
+}
+
+.bridge-root .work-detail-missing,
+.bridge-root .work-detail-loading {
+	align-self: center;
+	justify-self: center;
+	max-width: 420px;
+	padding: 32px;
+	text-align: center;
+	color: var(--text-secondary);
+}
+
+.bridge-root .work-detail-missing h1 {
+	margin: 13px 0 7px;
+	font-size: var(--t-title);
+}
+
+.bridge-root .work-detail-missing p {
+	margin: 0 0 18px;
+	font-size: var(--t-body);
+	line-height: 1.55;
+}
+
+/* People: a conversation with one person, their operating evidence beside it,
+ * and the directory to choose from. Not an agent admin table. */
+.bridge-root .people-screen {
+	display: grid;
+	grid-template-columns: 240px minmax(0, 1fr);
+	gap: var(--pane-gap);
+}
+
+.bridge-root .people-index {
+	min-height: 0;
+	display: flex;
+	flex-direction: column;
+	overflow: hidden;
+}
+
+.bridge-root .people-list {
+	min-height: 0;
+	flex: 1;
+	overflow: auto;
+}
+
+.bridge-root .people-focus-summary {
+	margin: 12px;
+	padding: 13px 14px;
+	border: 1px solid color-mix(in srgb, var(--intent-feedback) 18%, var(--border));
+	border-radius: var(--radius-pane);
+	background: color-mix(in srgb, var(--intent-feedback-soft) 58%, rgba(255, 255, 255, 0.7));
+	box-shadow: var(--bevel-subtle);
+}
+
+.bridge-root .people-focus-summary strong {
+	display: block;
+	font-size: var(--t-body);
+}
+
+.bridge-root .people-focus-summary p {
+	display: -webkit-box;
+	margin: 7px 0 10px;
+	overflow: hidden;
+	-webkit-box-orient: vertical;
+	-webkit-line-clamp: 4;
+	font-size: var(--t-label);
+	line-height: 1.45;
+	color: var(--text-secondary);
+}
+
+.bridge-root .people-focus-summary a {
+	font-size: var(--t-label);
+	font-weight: 650;
+	text-decoration: none;
+	color: var(--intent-feedback);
+}
+
+/* The transcript scrolls inside the pane; the head and composer stay put. */
+.bridge-root .people-talk {
+	min-height: 0;
+	display: grid;
+	grid-template-rows: auto minmax(0, 1fr) auto;
+	overflow: hidden;
+}
+
+.bridge-root .talk-head {
+	display: flex;
+	align-items: center;
+	gap: 11px;
+	padding: 12px 16px;
+	border-bottom: 1px solid var(--border);
+	background: rgba(255, 255, 255, 0.42);
+	box-shadow: var(--bevel-subtle);
+}
+
+.bridge-root .talk-who {
+	min-width: 0;
+	flex: 1;
+}
+
+.bridge-root .talk-who strong,
+.bridge-root .talk-who small {
+	display: block;
+	overflow: hidden;
+	white-space: nowrap;
+	text-overflow: ellipsis;
+}
+
+.bridge-root .talk-who strong {
+	font-size: var(--t-head);
+	font-weight: 650;
+	letter-spacing: -0.01em;
+}
+
+.bridge-root .talk-who small {
+	margin-top: 2px;
+	font-size: var(--t-body);
+	color: var(--text-secondary);
+}
+
+.bridge-root .talk-msgs {
+	min-height: 0;
+	overflow: auto;
+}
+
+.bridge-root .talk-composer {
+	padding: 10px 24px 14px;
+	background: rgba(255, 255, 255, 0.58);
+	box-shadow: 0 -10px 30px rgba(43, 51, 66, 0.035);
+}
+
+.bridge-root .people-composer-context {
+	min-width: 0;
+	display: flex;
+	align-items: center;
+	gap: 7px;
+	color: var(--intent-feedback);
+}
+
+.bridge-root .people-composer-context strong,
+.bridge-root .people-composer-context span {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.bridge-root .people-composer-context strong {
+	font-size: var(--t-label);
+}
+
+.bridge-root .people-composer-context span {
+	font: 500 var(--t-label) var(--font-mono);
+	color: var(--text-tertiary);
+}
+
+.bridge-root .people-message {
+	display: grid;
+	grid-template-columns: 132px minmax(0, 1fr);
+	gap: 16px;
+	padding: 16px 24px;
+	border-bottom: 1px solid var(--border);
+	border-left: 3px solid var(--intent-feedback);
+	background: rgba(255, 255, 255, 0.38);
+}
+
+.bridge-root .people-message.you {
+	border-left-color: var(--intent-conversation);
+	background: var(--intent-conversation-soft);
+}
+
+.bridge-root .people-message-author {
+	min-width: 0;
+	display: flex;
+	align-items: flex-start;
+	gap: 8px;
+	font: 600 var(--t-label) var(--font-mono);
+	letter-spacing: 0.06em;
+	text-transform: uppercase;
+	color: var(--text-tertiary);
+}
+
+.bridge-root .people-message-author > span {
+	min-width: 0;
+	flex: 1;
+}
+
+.bridge-root .people-message-author strong,
+.bridge-root .people-message-author small {
+	display: block;
+}
+
+.bridge-root .people-message-author strong {
+	color: var(--intent-feedback);
+}
+
+.bridge-root .people-message.you .people-message-author strong {
+	color: var(--intent-conversation);
+}
+
+.bridge-root .people-message-author small {
+	margin-top: 3px;
+	font-size: var(--t-label);
+	line-height: 1.35;
+	color: var(--text-tertiary);
+}
+
+.bridge-root .people-message-author time {
+	white-space: nowrap;
+	font-weight: 500;
+	letter-spacing: 0;
+	text-transform: none;
+}
+
+.bridge-root .people-message-body {
+	min-width: 0;
+	font-size: var(--t-body);
+	line-height: 1.6;
+	color: var(--text-secondary);
+}
+
+.bridge-root .people-message-body > :first-child {
+	margin-top: 0;
+}
+
+.bridge-root .people-message-body > :last-child {
+	margin-bottom: 0;
+}
+
+.bridge-root .people-message-body :is(strong, h1, h2, h3, h4, h5, h6) {
+	color: var(--ink);
+}
+
+/* Not a disabled composer. A composer the owner can type into implies delivery;
+ * this says what actually happens instead (S06-T2). */
+.bridge-root .talk-closed {
+	display: flex;
+	align-items: flex-start;
+	gap: 11px;
+	padding: 14px 16px;
+	border-top: 1px solid var(--border);
+	background: var(--surface-alt);
+}
+
+.bridge-root .talk-closed strong {
+	display: block;
+	font-size: var(--t-body);
+	color: var(--ink);
+}
+
+.bridge-root .talk-closed p {
+	margin: 5px 0 0;
+	font-size: var(--t-body);
+	line-height: 1.55;
+	color: var(--text-secondary);
+}
+
+.bridge-root .talk-closed a {
+	display: inline-block;
+	margin-top: 7px;
+	font: 500 var(--t-label) var(--font-mono);
+	letter-spacing: 0.06em;
+	text-transform: uppercase;
+	color: var(--intent-conversation);
+}
+
+.bridge-root .people-list > button {
+	width: 100%;
+	display: grid;
+	grid-template-columns: 34px minmax(0, 1fr) auto;
+	align-items: center;
+	gap: 10px;
+	padding: 11px 14px;
+	border: 0;
+	border-bottom: 1px solid var(--border);
+	background: transparent;
+	color: var(--ink);
+	text-align: left;
+	cursor: pointer;
+}
+
+.bridge-root .people-list > button:hover,
+.bridge-root .people-list > button.selected {
+	background: rgba(255, 255, 255, 0.56);
+}
+
+.bridge-root .people-list > button.selected {
+	box-shadow: inset 2px 0 0 var(--intent-conversation);
+}
+
+.bridge-root .person-avatar {
+	width: 32px;
+	height: 32px;
+	display: grid;
+	place-items: center;
+	border: 1px solid var(--border-strong);
+	background: #e7ebf1;
+	font: 600 var(--t-body) var(--font-mono);
+	color: var(--ink);
+}
+
+.bridge-root .person-avatar.large {
+	width: 58px;
+	height: 58px;
+	font-size: var(--t-head);
+}
+
+.bridge-root .person-avatar.tone-0 {
+	background: #e7edf5;
+	color: #2f5f8e;
+}
+.bridge-root .person-avatar.tone-1 {
+	background: #e7f1ee;
+	color: #286a5b;
+}
+.bridge-root .person-avatar.tone-2 {
+	background: #efeaf7;
+	color: #624996;
+}
+.bridge-root .person-avatar.tone-3 {
+	background: #f5eee3;
+	color: #87591c;
+}
+.bridge-root .person-avatar.tone-4 {
+	background: #f3e9e8;
+	color: #944a46;
+}
+
+.bridge-root .person-copy strong,
+.bridge-root .person-copy small {
+	display: block;
+	overflow: hidden;
+	white-space: nowrap;
+	text-overflow: ellipsis;
+}
+
+.bridge-root .person-copy strong {
+	font-size: var(--t-body);
+}
+.bridge-root .person-copy small {
+	margin-top: 2px;
+	font-size: var(--t-label);
+	color: var(--text-tertiary);
+}
+
+.bridge-root .person-state,
+.bridge-root .profile-presence,
+.bridge-root .authority-source {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	font: 500 var(--t-label) var(--font-mono);
+	letter-spacing: 0.06em;
+	text-transform: uppercase;
+	color: var(--text-tertiary);
+}
+
+.bridge-root .person-state i,
+.bridge-root .authority-source i {
+	width: 6px;
+	height: 6px;
+	border: 1px solid currentColor;
+}
+
+.bridge-root .person-state.working,
+.bridge-root .profile-presence.working,
+.bridge-root .authority-source.live {
+	color: var(--intent-conversation);
+}
+
+.bridge-root .person-state.working i,
+.bridge-root .authority-source.live i {
+	background: currentColor;
+}
+
+/* Authority: source-owned inventory and receipts, with bounded confirmation. */
+.bridge-root .authority-screen {
+	display: grid;
+	grid-template-columns: 320px minmax(420px, 1fr);
+	gap: var(--pane-gap);
+}
+
+.bridge-root .authority-inventory,
+.bridge-root .receipt-pane {
+	overflow: auto;
+}
+
+.bridge-root .authority-section,
+.bridge-root .authority-row {
+	display: grid;
+	grid-template-columns: 30px minmax(0, 1fr) auto;
+	align-items: center;
+	gap: 11px;
+	padding: 12px 14px;
+	border-bottom: 1px solid var(--border);
+}
+
+.bridge-root .authority-section.mandate {
+	grid-template-columns: 30px minmax(0, 1fr);
+}
+
+.bridge-root .row-glyph {
+	width: 26px;
+	height: 26px;
+	display: grid;
+	place-items: center;
+	border: 1px solid var(--border);
+}
+
+.bridge-root .row-glyph.authority {
+	color: var(--intent-authority);
+	background: var(--intent-authority-soft);
+}
+.bridge-root .row-glyph.success {
+	color: var(--state-success);
+	background: var(--state-success-soft);
+}
+.bridge-root .row-glyph.feedback {
+	color: var(--intent-feedback);
+	background: var(--intent-feedback-soft);
+}
+
+.bridge-root .authority-section strong,
+.bridge-root .authority-row strong {
+	display: block;
+	font-size: var(--t-body);
+}
+.bridge-root .authority-section p,
+.bridge-root .authority-row p {
+	margin: 3px 0 0;
+	font-size: var(--t-label);
+	line-height: 1.45;
+	color: var(--text-tertiary);
+}
+.bridge-root .authority-value {
+	font: 500 var(--t-label) var(--font-mono);
+	color: var(--text-secondary);
+	white-space: nowrap;
+}
+
+.bridge-root .authority-meter {
+	height: 3px;
+	margin-top: 7px;
+	background: var(--r4);
+}
+.bridge-root .authority-meter i {
+	display: block;
+	height: 100%;
+	background: var(--intent-authority);
+}
+
+.bridge-root .authority-group-head {
+	display: flex;
+	justify-content: space-between;
+	padding: 15px 14px 7px;
+	font: 600 var(--t-label) var(--font-mono);
+	letter-spacing: 0.08em;
+	text-transform: uppercase;
+	color: var(--text-secondary);
+}
+.bridge-root .authority-group-head b {
+	color: var(--text-tertiary);
+}
+
+.bridge-root .authority-group-action {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+}
+.bridge-root .authority-group-action button {
+	padding: 3px 6px;
+	border: 1px solid var(--border);
+	background: rgba(255, 255, 255, 0.55);
+	font: 500 var(--t-label) var(--font-mono);
+	text-transform: uppercase;
+	color: var(--intent-authority);
+	cursor: pointer;
+}
+
+.bridge-root .flat-control,
+.bridge-root .bounded-confirm button {
+	padding: 5px 8px;
+	border: 1px solid var(--border-strong);
+	background: rgba(255, 255, 255, 0.65);
+	font-size: var(--t-label);
+	cursor: pointer;
+}
+
+.bridge-root .bounded-confirm {
+	max-width: 260px;
+	display: grid;
+	grid-template-columns: 1fr auto auto;
+	align-items: center;
+	gap: 5px;
+	padding: 6px;
+	border: 1px solid color-mix(in srgb, var(--state-danger) 25%, var(--border));
+	background: var(--state-danger-soft);
+}
+.bridge-root .bounded-confirm span {
+	grid-column: 1 / -1;
+	font-size: var(--t-label);
+	color: var(--text-secondary);
+}
+.bridge-root .bounded-confirm .danger {
+	color: var(--state-danger);
+	border-color: color-mix(in srgb, var(--state-danger) 30%, var(--border));
+}
+
+.bridge-root .receipt-list article {
+	padding: 13px 14px;
+	border-bottom: 1px solid var(--border);
+}
+.bridge-root .receipt-line {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	font: 500 var(--t-label) var(--font-mono);
+	text-transform: uppercase;
+	color: var(--state-success);
+}
+.bridge-root .receipt-line i {
+	width: 6px;
+	height: 6px;
+	background: currentColor;
+}
+.bridge-root .receipt-line time {
+	margin-left: auto;
+	color: var(--text-tertiary);
+	font-weight: 400;
+}
+.bridge-root .receipt-list article.failed .receipt-line {
+	color: var(--state-danger);
+}
+.bridge-root .receipt-list h3 {
+	margin: 7px 0 0;
+	font-size: var(--t-body);
+}
+.bridge-root .receipt-list p {
+	margin: 4px 0 8px;
+	font-size: var(--t-label);
+	line-height: 1.45;
+	color: var(--text-secondary);
+	overflow-wrap: anywhere;
+}
+.bridge-root .receipt-list footer {
+	display: flex;
+	justify-content: space-between;
+	gap: 8px;
+	font: var(--t-label) var(--font-mono);
+	color: var(--text-tertiary);
+}
+
+/* Exec: transcript, not speech bubbles. Semantic colour belongs to receipts
+ * and state marks; conversation text stays quiet and readable. */
+.bridge-root .bridge-exrail {
+	top: 0;
+	height: 100%;
+	background: var(--surface-rail);
+	border: 1px solid var(--border-strong);
+	border-radius: var(--radius-pane);
+	overflow: hidden;
+}
+
+.bridge-root .bridge-exrail.open {
+	width: var(--exec-rail-w);
+	box-shadow:
+		var(--bevel),
+		-8px 6px 24px rgba(43, 51, 66, 0.055);
+}
+
+.bridge-root .exr-inner,
+.bridge-root .exr-lock {
+	width: var(--exec-rail-w);
+}
+
+.bridge-root .exr-head {
+	justify-content: space-between;
+	background: rgba(255, 255, 255, 0.42);
+	box-shadow: var(--bevel-subtle);
+}
+
+.bridge-root .exr-who {
+	flex-direction: row;
+	align-items: center;
+	gap: 10px;
+}
+
+.bridge-root .exr-who > span:last-child {
+	min-width: 0;
+	display: grid;
+	gap: 2px;
+}
+
+.bridge-root .exr-name {
+	display: block;
+}
+
+.bridge-root .exr-sub {
+	display: block;
+}
+
+.bridge-root .exr-msgs {
+	padding: 0;
+	gap: 0;
+}
+
+.bridge-root .exr-row {
+	position: relative;
+	padding: 15px;
+	border-bottom: 1px solid var(--border);
+}
+
+.bridge-root .exr-row.you {
+	justify-content: stretch;
+	padding-left: 34px;
+	background: rgba(247, 249, 252, 0.62);
+	box-shadow: none;
+}
+
+.bridge-root .exr-row.agent {
+	background: transparent;
+}
+
+.bridge-root .exr-b,
+.bridge-root .exr-row.you .exr-b,
+.bridge-root .exr-row.agent .exr-b {
+	width: 100%;
+	max-width: none;
+	padding: 0;
+	border: 0;
+	border-radius: 0;
+	background: transparent;
+	box-shadow: none;
+	color: var(--text-secondary);
+	font-size: var(--t-body);
+	line-height: 1.55;
+}
+
+.bridge-root .exr-b :is(strong, h1, h2, h3, h4, h5, h6) {
+	color: var(--ink);
+}
+
+.bridge-root .exr-b p,
+.bridge-root .exr-row.you .exr-b p,
+.bridge-root .exr-row.agent .exr-b p {
+	color: inherit;
+}
+
+.bridge-root .transcript-meta {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	margin-bottom: 7px;
+	font: 500 var(--t-label) var(--font-mono);
+	letter-spacing: 0.06em;
+	text-transform: uppercase;
+	color: var(--text-tertiary);
+}
+
+.bridge-root .transcript-meta .matrix-glyph {
+	color: var(--intent-conversation);
+}
+
+.bridge-root .transcript-meta time {
+	margin-left: auto;
+	letter-spacing: 0;
+	text-transform: none;
+}
+
+.bridge-root .exr-empty {
+	padding: 24px 18px;
+}
+.bridge-root .exr-empty-h {
+	color: var(--intent-conversation);
+}
+
+.bridge-root .intent-receipt {
+	margin-top: 11px;
+	padding: 10px 11px;
+	border: 1px solid color-mix(in srgb, currentColor 22%, var(--border));
+	border-left-width: 2px;
+	border-radius: var(--radius-control);
+	background: color-mix(in srgb, currentColor 7%, rgba(255, 255, 255, 0.72));
+	box-shadow:
+		var(--bevel-subtle),
+		0 5px 15px rgba(57, 66, 84, 0.045);
+	color: var(--intent-conversation);
+}
+
+.bridge-root .intent-receipt.work_feedback {
+	color: var(--intent-feedback);
+}
+.bridge-root .intent-receipt.direction {
+	color: var(--intent-direction);
+}
+.bridge-root .intent-receipt.authority {
+	color: var(--intent-authority);
+}
+
+.bridge-root .intent-receipt-head {
+	display: flex;
+	align-items: center;
+	gap: 7px;
+	font: 600 var(--t-label) var(--font-mono);
+	letter-spacing: 0.06em;
+	text-transform: uppercase;
+}
+
+.bridge-root .intent-receipt-head > span:last-child {
+	margin-left: auto;
+	font-weight: 500;
+	color: currentColor;
+	opacity: 0.72;
+}
+
+.bridge-root .intent-receipt p,
+.bridge-root .intent-receipt small {
+	display: block;
+	margin: 5px 0 0;
+	font-size: var(--t-label);
+	line-height: 1.45;
+	color: var(--text-secondary);
+}
+
+.bridge-root .message-context-ref {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	margin-top: 8px;
+	color: var(--intent-feedback);
+	font: 500 var(--t-label) var(--font-mono);
+}
+
+.bridge-root .exr-composer {
+	padding: 10px;
+	background: rgba(255, 255, 255, 0.58);
+	box-shadow: 0 -10px 30px rgba(43, 51, 66, 0.035);
+}
+
+.bridge-root .exec-context-line {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 8px;
+}
+
+.bridge-root .exec-context-chip {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	padding: 4px 7px;
+	border: 1px solid transparent;
+	border-radius: var(--radius-control);
+	background: transparent;
+	box-shadow: none;
+	color: var(--intent-feedback);
+	font: 500 var(--t-label) var(--font-mono);
+	cursor: pointer;
+}
+
+.bridge-root .exec-context-chip:hover {
+	border-color: var(--border-strong);
+	background: rgba(255, 255, 255, 0.62);
+}
+
+.bridge-root .exec-context-chip.off {
+	border-color: var(--border);
+	background: transparent;
+	color: var(--text-tertiary);
+}
+
+.bridge-root .composer-foot {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	margin-top: 7px;
+	font-size: var(--t-label);
+	line-height: 1.3;
+	color: var(--text-tertiary);
+}
+
+.bridge-root .composer-foot span:last-child {
+	margin-left: auto;
+	white-space: nowrap;
+}
+
+.bridge-root .hc-field {
+	background: rgba(255, 255, 255, 0.76);
+	box-shadow:
+		var(--bevel),
+		0 7px 22px rgba(43, 51, 66, 0.07),
+		0 0 0 1px rgba(255, 255, 255, 0.32);
+}
+
+.bridge-root .hc-send {
+	border-color: #2d4569;
+	background: linear-gradient(180deg, #42628f, #2c4569);
+	box-shadow:
+		inset 0 1px 0 rgba(255, 255, 255, 0.22),
+		0 4px 12px rgba(44, 69, 105, 0.16);
+	color: var(--text-inverse);
+}
+
+.bridge-root .hc-send:active:not(:disabled) {
+	transform: translateY(1px);
+	box-shadow:
+		inset 0 1px 0 rgba(255, 255, 255, 0.24),
+		0 1px 0 #204e7d;
+}
+
+.bridge-root .attach-btn {
+	border-radius: var(--radius-control);
+	background: transparent;
+	box-shadow: none;
+	color: var(--text-secondary);
+}
+
+.bridge-root .hc-field .attach-btn:hover {
+	border-color: var(--border-strong);
+	background: var(--surface-alt);
+	color: var(--ink);
+}
+
+@media (max-width: 1180px) {
+	.bridge-root .work-screen {
+		grid-template-columns: 220px minmax(0, 1fr);
+	}
+	.bridge-root .attention-screen {
+		grid-template-columns: 216px minmax(380px, 1fr);
+	}
+	.bridge-root .people-screen {
+		grid-template-columns: 208px minmax(0, 1fr);
+	}
+	.bridge-root .authority-screen {
+		grid-template-columns: 260px minmax(340px, 1fr);
+	}
+	.bridge-root .bridge-exrail.open {
+		width: 340px;
+	}
+	.bridge-root .exr-inner,
+	.bridge-root .exr-lock {
+		width: 340px;
+	}
+}
+
+@media (max-width: 1360px) {
+	.bridge-root .map-key {
+		display: none;
+	}
+}
+
+@media (max-width: 980px) {
+	.bridge-root .people-screen {
+		grid-template-columns: 208px minmax(0, 1fr);
+	}
+	.bridge-root .bridge-exrail.open {
+		display: none;
+	}
+}
+
+@media (max-width: 760px) {
+	.bridge-root {
+		--app-gutter: 4px;
+		gap: 4px;
+	}
+	.bridge-root .tb-co,
+	.bridge-root .tb-company-slash {
+		display: none;
+	}
+	.bridge-root .company-switcher .tb-co {
+		display: block;
+		max-width: 72px;
+	}
+	.bridge-root .company-switcher-menu {
+		left: auto;
+		right: -12px;
+		width: min(264px, calc(100vw - 20px));
+	}
+	.bridge-root .portfolio-main {
+		padding: 30px 14px 42px;
+	}
+	.bridge-root .portfolio-head {
+		padding-bottom: 18px;
+	}
+	.bridge-root .portfolio-table-head {
+		align-items: flex-start;
+		flex-direction: column;
+		gap: 8px;
+		padding-block: 12px;
+	}
+	.bridge-root .portfolio-totals {
+		width: 100%;
+		justify-content: space-between;
+		margin-left: 0;
+	}
+	.bridge-root .portfolio-table-foot {
+		align-items: flex-start;
+		flex-direction: column;
+		gap: 3px;
+		padding-block: 9px;
+	}
+	.bridge-root .portfolio-table-foot span:last-child {
+		margin-left: 0;
+	}
+	.bridge-root .attention-screen {
+		grid-template-columns: 1fr;
+		grid-template-rows: minmax(150px, 31vh) minmax(0, 1fr);
+	}
+	.bridge-root .attention-index {
+		display: grid;
+	}
+	.bridge-root .attention-zero {
+		justify-content: flex-start;
+		padding: 24px 18px;
+		overflow: auto;
+	}
+	.bridge-root .attention-zero-grid {
+		grid-template-columns: 1fr;
+	}
+	.bridge-root .attention-zero-grid section,
+	.bridge-root .attention-zero-grid section:nth-child(2n),
+	.bridge-root .attention-zero-grid section:nth-last-child(-n + 2) {
+		border-right: 0;
+		border-bottom: 1px solid var(--border);
+	}
+	.bridge-root .attention-zero-grid section:last-child {
+		border-bottom: 0;
+	}
+	.bridge-root .work-screen {
+		display: grid;
+		grid-template-columns: 1fr;
+		overflow: hidden;
+	}
+	.bridge-root .goal-spine {
+		display: none;
+	}
+	.bridge-root .work-stage {
+		min-height: 0;
+		margin: 0;
+	}
+	.bridge-root .work-detail-head {
+		align-items: flex-start;
+		flex-direction: column;
+		gap: 12px;
+		padding: 14px 15px;
+	}
+	.bridge-root .work-detail-scroll {
+		padding: 16px 15px 24px;
+	}
+	.bridge-root .work-detail-layout,
+	.bridge-root .evidence-columns,
+	.bridge-root .relation-groups {
+		grid-template-columns: 1fr;
+	}
+	.bridge-root .work-detail-layout {
+		gap: 18px;
+	}
+	.bridge-root .work-detail-aside {
+		display: grid;
+		grid-template-columns: repeat(2, minmax(0, 1fr));
+		border-top: 1px solid var(--border);
+		border-left: 0;
+	}
+	.bridge-root .work-detail-aside section {
+		padding: 13px 13px 13px 0;
+		margin: 0;
+	}
+	.bridge-root .work-evidence-section > header,
+	.bridge-root .work-relations-section > header {
+		align-items: flex-start;
+		flex-direction: column;
+		gap: 7px;
+	}
+	.bridge-root .people-screen {
+		grid-template-columns: 1fr;
+		grid-template-rows: minmax(0, 1fr);
+		overflow: hidden;
+	}
+	.bridge-root .people-index {
+		display: none;
+	}
+	.bridge-root .people-message {
+		grid-template-columns: 1fr;
+		gap: 8px;
+		padding: 14px 14px;
+	}
+	.bridge-root .people-message-author {
+		align-items: center;
+	}
+	.bridge-root .people-message-author > span {
+		display: flex;
+		align-items: center;
+		gap: 7px;
+	}
+	.bridge-root .people-message-author small {
+		margin-top: 0;
+	}
+	.bridge-root .people-message-author time {
+		margin-left: auto;
+	}
+	.bridge-root .talk-composer {
+		padding: 9px 10px 11px;
+	}
+	.bridge-root .work-board {
+		grid-template-columns: repeat(4, 220px);
+	}
+	.bridge-root .bounded-confirm {
+		grid-column: 2;
+	}
+	.bridge-root .authority-screen {
+		grid-template-columns: 1fr;
+	}
+	.bridge-root .authority-inventory {
+		display: none;
+	}
+	.bridge-root .receipt-pane {
+		overflow: auto;
+	}
+}

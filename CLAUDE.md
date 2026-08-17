@@ -52,10 +52,40 @@ These are product soul, not legacy mechanics. They survive the rebuild.
   explain, and act on the main surface. Never a sidebar-heavy agent/task administration dashboard.
   Show outcomes, decisions, risk, and next actions first; reveal roles, prompts, skills, permissions,
   spend detail, workflow IDs, and logs only on request.
+- **Do not use eyebrow labels as habitual decoration.** Small uppercase or kicker text above a title
+  is not the default way to create hierarchy. Use it only when it communicates information the title
+  and surrounding context do not already provide, such as a consequential status or data category.
+  Never repeat the page, section, or navigation context merely to fill space above a heading.
 - **Prefer mature open-source components** (Linux, OCI, Git, Postgres, established process
   supervision, browser infrastructure). Do not build a custom database, container runtime,
   content-addressed custody protocol, or durable workflow engine unless a demonstrated workload requires it.
 - Brand-neutral code and protocols; display names come only from a brand config applied in one place.
+
+### Outcome-native review
+
+**Bring the outcome to the reviewer, not its implementation by default.** Whenever Work is about to
+enter independent or owner review, the accountable Staff member or Exec has an explicit final
+preparation step:
+
+1. Use judgement to choose the best **ReviewTarget** for this outcome. Prefer the native experience:
+   a live site in the shared browser, playable game build, rendered document/PDF/image, audio or video
+   player, interactive scene, or an executable product scenario. Do not force this choice through a
+   fixed enum, provider catalogue, or canned decision tree.
+2. Materialise and live-probe the exact candidate produced by the current Attempt. Pre-position the
+   useful page, state, file, player, or controls so the reviewer receives the prepared last mile rather
+   than setup instructions.
+3. Link that target through the existing Work/Attempt artifact references. For owner review, prepare
+   the corresponding `owner_judgement` handoff with the exact judgement sought and an observable resume
+   condition.
+4. Treat commits, diffs, tests, logs, receipts, and implementation notes as supporting evidence. Make
+   them the primary review surface only when the outcome cannot reasonably be run, rendered, or opened,
+   and say why.
+
+`ReviewTarget` is a working convention, not a new custody lifecycle, universal renderer, kernel
+command, or second source of truth. It may be an ordinary path, URL, repo+commit, project-native
+locator, or prepared Runtime/browser session chosen by Staff. Building and previewing internally is
+ordinary Runtime work; publishing or deploying externally remains a separately governed generic
+effect where consequential.
 
 ## What we deliberately leave behind
 
@@ -95,33 +125,33 @@ wrong, and §16.10 applies: a real run beats both documents.
 
 **Do not read them all.** They total ~240KB. Read the one your work touches.
 
-| Working on | Read |
-|---|---|
-| Actors, goals, commitments, messages, wakes, context assembly, staff, org health | `docs/specs/orgintel.md` |
-| Effects, receipts, budgets, credentials, approvals, runtime lifecycle authority | `docs/specs/authority-plane.md` |
-| The company computer, container, image, Runtime Bridge, process lifecycle | `docs/specs/company-runtime.md` |
-| Anything the owner sees: attention, approvals, work and people surfaces | `docs/specs/owner-cockpit.md` |
-| Anything crossing two planes: identifiers, statuses, who owns which concept | `docs/specs/cross-layer-contract.md` |
-| Proving it works: baselines, success contracts, dogfood scenarios, evidence | `docs/specs/evaluation-dogfood.md` |
+| Working on                                                                       | Read                                 |
+| -------------------------------------------------------------------------------- | ------------------------------------ |
+| Actors, goals, commitments, messages, wakes, context assembly, staff, org health | `docs/specs/orgintel.md`             |
+| Effects, receipts, budgets, credentials, approvals, runtime lifecycle authority  | `docs/specs/authority-plane.md`      |
+| The company computer, container, image, Runtime Bridge, process lifecycle        | `docs/specs/company-runtime.md`      |
+| Anything the owner sees: attention, approvals, work and people surfaces          | `docs/specs/owner-cockpit.md`        |
+| Anything crossing two planes: identifiers, statuses, who owns which concept      | `docs/specs/cross-layer-contract.md` |
+| Proving it works: baselines, success contracts, dogfood scenarios, evidence      | `docs/specs/evaluation-dogfood.md`   |
 
 **One concept, one authoritative owner.** When two specs seem to cover the same thing, the
 cross-layer contract's §3.1 table is the tiebreaker. A layer may hold identifiers, summaries and
 projections of another layer's concept; it may never become a second writer of it.
 
-**Respect the labels.** Every spec marks its content: *Core contract* (implementation must preserve
-this), *Product hypothesis* (dogfood must test this; it may be wrong), *Default pattern*
-(recommended, overridable), *Example* (illustrative, not scope). Building a **Product hypothesis** as
+**Respect the labels.** Every spec marks its content: _Core contract_ (implementation must preserve
+this), _Product hypothesis_ (dogfood must test this; it may be wrong), _Default pattern_
+(recommended, overridable), _Example_ (illustrative, not scope). Building a **Product hypothesis** as
 though it were a **Core contract** is how a spec turns into speculative machinery — it is the same
 failure as building before evidence, wearing a citation.
 
-Both defects previously listed here — the old *"Helm Architecture Source of Truth v0.9"* parent name
+Both defects previously listed here — the old _"Helm Architecture Source of Truth v0.9"_ parent name
 and versions in filenames — are **fixed**. Neither appears in the set any more.
 
 The live risk is now the opposite one: **the specs are ahead of the code, and silently.** `orgintel`
-§6.3 (teamwork patterns) was labelled *Core contract*, sat in the §10.1 V0 acceptance list, and went
+§6.3 (teamwork patterns) was labelled _Core contract_, sat in the §10.1 V0 acceptance list, and went
 unimplemented for two sprints while a comparison harness was built and run four times to measure its
 absence. Nothing in this repo checks Core-contract coverage. Until something does, a spec section
-labelled *Core contract* is a claim about intent, not about the build — check the code before
+labelled _Core contract_ is a claim about intent, not about the build — check the code before
 believing it.
 
 ## How we decide

@@ -22,9 +22,7 @@
 {/if}
 
 {#if !online}
-	<div class="app-banner app-banner-offline" role="status" aria-live="polite">
-		You're offline.
-	</div>
+	<div class="app-banner app-banner-offline" role="status" aria-live="polite">You're offline.</div>
 {/if}
 
 {@render children()}
@@ -35,12 +33,12 @@
 		inset: 0 0 auto;
 		height: 2px;
 		z-index: var(--z-app);
-		background: rgba(255, 255, 255, 0.06);
+		background: rgba(47, 108, 168, 0.12);
 	}
 	.app-loading-bar-fill {
 		height: 100%;
 		width: 40%;
-		background: #f4f5f6;
+		background: #2f6ca8;
 		animation: slide 1.1s ease-in-out infinite;
 	}
 	@keyframes slide {
@@ -66,10 +64,10 @@
 		z-index: var(--z-app);
 		padding: 8px 14px;
 		border-radius: 6px;
-		font-size: 12.5px;
-		background: #1e2227;
-		color: #f4f5f6;
-		border: 1px solid rgba(255, 255, 255, 0.12);
-		box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+		font-size: var(--t-body);
+		background: rgba(255, 255, 255, 0.94);
+		color: #171b24;
+		border: 1px solid rgba(48, 57, 74, 0.16);
+		box-shadow: 0 12px 32px rgba(43, 51, 66, 0.14);
 	}
 </style>

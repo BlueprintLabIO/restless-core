@@ -31,10 +31,10 @@ compatibility window because the release's compiled cutoff predates its own
 no-expiry bootstrap token. The provisioner removes that setting and recreates
 the backend immediately after the scoped identity exists.
 
-Provider values are imported separately through the Restless CLI, for example:
+Tool credentials are imported separately through the Restless CLI under generic binding names, for example:
 
 ```sh
-restless credential set -c aris email.send \
+restless credential set -c aris resend.production \
   infisical:/companies/aris/RESEND_API_KEY --value @/secure/input
 ```
 

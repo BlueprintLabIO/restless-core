@@ -23,7 +23,7 @@ use std::path::Path;
 
 use anyhow::{Context, Result};
 use chrono::Utc;
-use restless_model_gateway::{SpendRecord, SpendStore};
+use restless_model_gateway::{SpendCorrection, SpendCorrectionPreview, SpendRecord, SpendStore};
 use uuid::Uuid;
 
 use crate::runtime::CompanyConfig;
@@ -158,6 +158,52 @@ impl SpendLedger {
             .into_iter()
             .map(|(actor, model, micro)| (actor, model, micro as f64 / 1_000_000.0))
             .collect()
+    }
+
+    /// Owner recovery preview: validate exact duplicate request ids and show
+    /// the post-correction total without appending anything.
+    pub fn preview_correction(
+        &self,
+        correction_id: Uuid,
+        company: &str,
+        request_ids: &[Uuid],
+        delta_micro_usd: i64,
+        reason: &str,
+        corrected_by: &str,
+    ) -> Result<SpendCorrectionPreview> {
+        self.store
+            .preview_correction(
+                correction_id,
+                company,
+                request_ids,
+                delta_micro_usd,
+                reason,
+                corrected_by,
+            )
+            .map_err(|error| anyhow::anyhow!("preview spend correction: {error}"))
+    }
+
+    /// Append a subtractive, owner-attributed correction. This does not alter
+    /// the configured ceiling or create any new authority.
+    pub fn correct(
+        &self,
+        correction_id: Uuid,
+        company: &str,
+        request_ids: &[Uuid],
+        delta_micro_usd: i64,
+        reason: &str,
+        corrected_by: &str,
+    ) -> Result<(SpendCorrection, SpendCorrectionPreview)> {
+        self.store
+            .correct(
+                correction_id,
+                company,
+                request_ids,
+                delta_micro_usd,
+                reason,
+                corrected_by,
+            )
+            .map_err(|error| anyhow::anyhow!("apply spend correction: {error}"))
     }
 
     /// S04-T1. Drop a destroyed company's accounted spend.

@@ -13,6 +13,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt, ReadBuf};
 use tokio::process::{Child, ChildStdin, ChildStdout};
+use uuid::Uuid;
 
 pub const COMPANY_IMAGE: &str = "restless-company-image:latest";
 const SOURCE_DIGEST_LABEL: &str = "io.restless.source-digest";
@@ -34,19 +35,14 @@ pub struct CompanyConfig {
     /// indirection this replaced (`company-general-v1` → a gateway route)
     /// was vestigial once agents named providers directly.
     pub model: String,
-    /// S03-T1 dispatch: capability → provider name. **Absent means simulated.**
-    /// A `_test` company is safe because this map has no real entry for it to
-    /// find, not because anyone remembered a rule.
+    /// Ordered provider-qualified fallbacks for the singleton Exec. Empty is
+    /// an explicit no-fallback policy; providers are never inferred from
+    /// ambient credentials or broker history.
     #[serde(default)]
-    pub providers: std::collections::BTreeMap<String, String>,
-    /// The address real email is sent from. Owner configuration, never the
-    /// agent's choice — the owner is the sender of record and carries the
-    /// reputational and legal weight of what an autonomous agent writes.
-    #[serde(default)]
-    pub from_address: Option<String>,
-    /// S03-T4: capability → `credential_reference` (`authority-plane §8.2`),
-    /// e.g. `email.send = "env:RESEND_API_KEY"`. Resolved host-side at the
-    /// point of use; the secret itself never appears here.
+    pub model_failover: Vec<String>,
+    /// Named binding → `credential_reference`, e.g.
+    /// `resend.production = "infisical:/companies/aris/RESEND_API_KEY"`.
+    /// Only a governed child process that names the binding receives it.
     #[serde(default)]
     pub credentials: std::collections::BTreeMap<String, String>,
     /// Legacy S03 approval input. At daemon boot these values migrate into the
@@ -62,14 +58,20 @@ fn default_ceiling() -> f64 {
 
 impl CompanyConfig {
     pub fn load(root: &Path, name: &str) -> Result<Self> {
+        Self::load_from(root.join("companies").join(format!("{name}.toml")), name)
+    }
+
+    pub fn load_archived(root: &Path, name: &str) -> Result<Self> {
+        Self::load_from(
+            root.join("archived-companies").join(format!("{name}.toml")),
+            name,
+        )
+    }
+
+    fn load_from(path: PathBuf, name: &str) -> Result<Self> {
         validate_company_name(name)?;
-        let path = root.join("companies").join(format!("{name}.toml"));
-        let raw = std::fs::read_to_string(&path).with_context(|| {
-            format!(
-                "no company config at {} — create one (see companies/ in the repo)",
-                path.display()
-            )
-        })?;
+        let raw = std::fs::read_to_string(&path)
+            .with_context(|| format!("no company config at {}", path.display()))?;
         let config: Self =
             toml::from_str(&raw).with_context(|| format!("parse {}", path.display()))?;
         if config.name != name {
@@ -78,6 +80,7 @@ impl CompanyConfig {
                 config.name
             );
         }
+        config.model_candidates()?;
         Ok(config)
     }
 
@@ -91,8 +94,18 @@ impl CompanyConfig {
     /// on.
     pub fn save(root: &Path, config: &Self) -> Result<()> {
         validate_company_name(&config.name)?;
+        config.model_candidates()?;
         let dir = root.join("companies");
         let path = dir.join(format!("{}.toml", config.name));
+        let archived = root
+            .join("archived-companies")
+            .join(format!("{}.toml", config.name));
+        if archived.exists() && !path.exists() {
+            bail!(
+                "company {} is archived; restore it instead of creating a second company with the same identity",
+                config.name
+            );
+        }
         let temporary = dir.join(format!(".{}.toml.tmp", config.name));
         let rendered = toml::to_string_pretty(config).context("render company config")?;
         std::fs::write(&temporary, rendered)
@@ -101,6 +114,117 @@ impl CompanyConfig {
             .with_context(|| format!("replace {}", path.display()))?;
         Ok(())
     }
+
+    /// Primary followed by the exact owner-configured fallback order. The
+    /// closed validation here protects both TOML and CLI writes.
+    pub fn model_candidates(&self) -> Result<Vec<&str>> {
+        let mut seen = std::collections::BTreeSet::new();
+        let mut candidates = Vec::with_capacity(1 + self.model_failover.len());
+        for model in std::iter::once(self.model.as_str())
+            .chain(self.model_failover.iter().map(String::as_str))
+        {
+            let Some((provider, id)) = model.split_once('/') else {
+                bail!("model {model:?} must be provider-qualified, e.g. moonshot/kimi-k3");
+            };
+            if provider.is_empty()
+                || id.is_empty()
+                || !provider
+                    .bytes()
+                    .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-')
+            {
+                bail!("invalid provider-qualified model {model:?}");
+            }
+            if !seen.insert(model) {
+                bail!("duplicate model candidate {model:?}");
+            }
+            candidates.push(model);
+        }
+        Ok(candidates)
+    }
+}
+
+/// Names preserved outside the active config directory. Archived companies
+/// remain inspectable and recoverable, but normal daemon scans cannot wake
+/// them merely because their config still exists.
+pub fn archived_company_names(root: &Path) -> Result<Vec<String>> {
+    let directory = root.join("archived-companies");
+    if !directory.exists() {
+        return Ok(Vec::new());
+    }
+    let mut companies = Vec::new();
+    for entry in
+        std::fs::read_dir(&directory).with_context(|| format!("read {}", directory.display()))?
+    {
+        let path = entry?.path();
+        if path.extension().and_then(|value| value.to_str()) == Some("toml") {
+            if let Some(name) = path.file_stem().and_then(|value| value.to_str()) {
+                validate_company_name(name)?;
+                companies.push(name.to_string());
+            }
+        }
+    }
+    companies.sort();
+    Ok(companies)
+}
+
+/// Archive is the owner-facing removal path. Stop execution, then atomically
+/// move only the authority-owned identity/config marker. Runtime files,
+/// OrgIntel, Authority records and spend remain in place for recovery.
+pub async fn archive(root: &Path, company: &str) -> Result<String> {
+    CompanyConfig::load(root, company)?;
+    down(company).await?;
+    move_active_config_to_archive(root, company)?;
+    Ok(format!(
+        "{company}: archived (runtime stopped; files and history preserved)"
+    ))
+}
+
+fn move_active_config_to_archive(root: &Path, company: &str) -> Result<()> {
+    CompanyConfig::load(root, company)?;
+    let source = root.join("companies").join(format!("{company}.toml"));
+    let directory = root.join("archived-companies");
+    let destination = directory.join(format!("{company}.toml"));
+    if destination.exists() {
+        bail!("company {company} already has an archived config");
+    }
+    std::fs::create_dir_all(&directory)
+        .with_context(|| format!("create archive directory {}", directory.display()))?;
+    std::fs::rename(&source, &destination).with_context(|| {
+        format!(
+            "archive company config {} as {}",
+            source.display(),
+            destination.display()
+        )
+    })?;
+    Ok(())
+}
+
+/// Return an archived identity to the active portfolio. Restoring does not
+/// start the runtime: the owner can inspect it first and resume deliberately.
+pub fn restore(root: &Path, company: &str) -> Result<String> {
+    move_archived_config_to_active(root, company)?;
+    Ok(format!(
+        "{company}: restored to the portfolio (runtime remains stopped)"
+    ))
+}
+
+fn move_archived_config_to_active(root: &Path, company: &str) -> Result<()> {
+    CompanyConfig::load_archived(root, company)?;
+    let source = root
+        .join("archived-companies")
+        .join(format!("{company}.toml"));
+    let destination = root.join("companies").join(format!("{company}.toml"));
+    if destination.exists() {
+        bail!("company {company} already has an active config");
+    }
+    std::fs::rename(&source, &destination).with_context(|| {
+        format!(
+            "restore company config {} as {}",
+            source.display(),
+            destination.display()
+        )
+    })?;
+    Ok(())
 }
 
 fn validate_company_name(name: &str) -> Result<()> {
@@ -800,15 +924,6 @@ pub async fn destroy(
         .context("clearing the destroyed company's spend")?;
     removed.push("spend");
 
-    // The cloned personas go too, so a recreated company under the same name
-    // starts from the live company's world rather than a previous run's edits.
-    let personas = root.join("simulators").join(company);
-    if personas.is_dir() {
-        std::fs::remove_dir_all(&personas)
-            .with_context(|| format!("remove personas {}", personas.display()))?;
-        removed.push("personas");
-    }
-
     // The config last: while it exists, the company is nameable and the earlier
     // steps are re-runnable if one of them failed.
     let config = root.join("companies").join(format!("{company}.toml"));
@@ -830,11 +945,11 @@ pub fn is_test_company(company: &str) -> bool {
 }
 
 /// S04-T1. Clone a live company's mission and configuration under a new name,
-/// with every real provider and credential stripped.
+/// with every live credential, approval and external-effect identity stripped.
 ///
 /// The guarantee is structural, not a rule someone remembers: a `_test`
-/// company's dispatch table has no real entry to find, so the worst outcome of
-/// a mistake is a simulated send. We contaminated a live company's beliefs with
+/// company receives no live secret bindings, so a scenario must install fake
+/// CLIs. We contaminated a live company's beliefs with
 /// a synthetic webhook once already — "the strongest single demand signal so
 /// far" turned out to be us — and that happened because the live company was
 /// the only one available to try things on.
@@ -849,41 +964,15 @@ pub fn clone_config(root: &Path, from: &str, to: &str) -> Result<CompanyConfig> 
         CompanyConfig::load(root, from).with_context(|| format!("load source company {from}"))?;
     let config = CompanyConfig {
         name: to.to_string(),
-        // Providers and credentials are dropped, not rewritten to "simulated":
-        // an absent entry is what `provider::resolve` already treats as
-        // simulated, so this adds no second way to say the same thing.
-        providers: std::collections::BTreeMap::new(),
+        // A scenario gets no live secret bindings.
         credentials: std::collections::BTreeMap::new(),
+        model_failover: Vec::new(),
         // Standing approvals are the owner's blessing of a *live* company's
         // counterparties. They do not travel to a throwaway.
         approved_parties: Vec::new(),
-        // Nor does the sender of record: a test company must not be able to
-        // claim the owner's address even in a simulated outcome.
-        from_address: None,
         ..source
     };
     CompanyConfig::save(root, &config)?;
-
-    // The personas travel with the config. A throwaway whose providers are all
-    // simulated but which has no simulator to run is a company that cannot do
-    // anything — `effect.rs:194` refuses an effect with no persona file, which
-    // would make `_test` companies useless for the exact rehearsal they exist
-    // for. Copied, not shared, so editing a test world cannot change a live one.
-    let from_personas = root.join("simulators").join(from);
-    let to_personas = root.join("simulators").join(to);
-    if from_personas.is_dir() {
-        std::fs::create_dir_all(&to_personas)
-            .with_context(|| format!("create {}", to_personas.display()))?;
-        for entry in std::fs::read_dir(&from_personas)
-            .with_context(|| format!("read {}", from_personas.display()))?
-        {
-            let entry = entry?;
-            if entry.file_type()?.is_file() {
-                std::fs::copy(entry.path(), to_personas.join(entry.file_name()))
-                    .with_context(|| format!("copy persona {:?}", entry.file_name()))?;
-            }
-        }
-    }
     Ok(config)
 }
 
@@ -914,6 +1003,93 @@ async fn seed_mission(config: &CompanyConfig) -> Result<()> {
     Ok(())
 }
 
+/// Put an owner-supplied attachment on the persistent company computer as an
+/// ordinary file. The UUID is generated by the daemon; user filenames never
+/// become path components. Metadata is a sidecar so the authenticated owner
+/// download can return the original name and media type without inventing an
+/// asset-custody service.
+pub async fn store_owner_attachment(
+    company: &str,
+    attachment_id: Uuid,
+    bytes: &[u8],
+    metadata: &[u8],
+) -> Result<String> {
+    validate_company_name(company)?;
+    if status(company).await? != ContainerStatus::Running {
+        bail!("the company computer is not running; attachments need its persistent filesystem");
+    }
+    let name = container_name(company);
+    let directory = format!("/company/inbox/owner-attachments/{attachment_id}");
+    let content_path = format!("{directory}/content");
+    let metadata_path = format!("{directory}/metadata.json");
+    write_container_file(&name, &directory, &content_path, bytes).await?;
+    if let Err(error) = write_container_file(&name, &directory, &metadata_path, metadata).await {
+        let _ = remove_owner_attachment(company, attachment_id).await;
+        return Err(error);
+    }
+    Ok(content_path)
+}
+
+async fn write_container_file(
+    container: &str,
+    directory: &str,
+    path: &str,
+    bytes: &[u8],
+) -> Result<()> {
+    let command = format!(
+        "umask 077; mkdir -p {directory}; cat > {path}; chown -R company:company {directory}"
+    );
+    let mut child = tokio::process::Command::new("docker")
+        .args(["exec", "-i", container, "sh", "-c", &command])
+        .stdin(Stdio::piped())
+        .spawn()
+        .context("spawn docker exec for owner attachment")?;
+    let mut stdin = child.stdin.take().expect("piped");
+    stdin.write_all(bytes).await?;
+    drop(stdin);
+    let output = child.wait_with_output().await?;
+    if !output.status.success() {
+        bail!(
+            "store owner attachment failed: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        );
+    }
+    Ok(())
+}
+
+/// Read one attachment and its small sidecar. Only a parsed UUID reaches the
+/// fixed path template, so this cannot become an arbitrary company-file read.
+pub async fn read_owner_attachment(
+    company: &str,
+    attachment_id: Uuid,
+) -> Result<(Vec<u8>, Vec<u8>)> {
+    validate_company_name(company)?;
+    let name = container_name(company);
+    let directory = format!("/company/inbox/owner-attachments/{attachment_id}");
+    let content = docker(&["exec", &name, "cat", &format!("{directory}/content")]).await?;
+    if !content.status.success() {
+        bail!("attachment is absent from the company computer");
+    }
+    let metadata = docker(&["exec", &name, "cat", &format!("{directory}/metadata.json")]).await?;
+    if !metadata.status.success() {
+        bail!("attachment metadata is absent from the company computer");
+    }
+    Ok((content.stdout, metadata.stdout))
+}
+
+/// Roll back files whose message could not be recorded. The target is one
+/// daemon-generated UUID directory beneath the fixed attachment root.
+pub async fn remove_owner_attachment(company: &str, attachment_id: Uuid) -> Result<()> {
+    validate_company_name(company)?;
+    let name = container_name(company);
+    let path = format!("/company/inbox/owner-attachments/{attachment_id}");
+    let output = docker(&["exec", &name, "rm", "-r", "--", &path]).await?;
+    if !output.status.success() {
+        bail!("roll back owner attachment failed");
+    }
+    Ok(())
+}
+
 async fn run_ok(args: &[&str]) -> Result<()> {
     let out = docker(args).await?;
     if !out.status.success() {
@@ -937,7 +1113,10 @@ pub fn state_root() -> PathBuf {
 
 #[cfg(test)]
 mod tests {
-    use super::normalize_expired_browser_control;
+    use super::{
+        move_active_config_to_archive, move_archived_config_to_active,
+        normalize_expired_browser_control, CompanyConfig,
+    };
 
     #[test]
     fn an_expired_owner_lease_returns_to_its_requester() {
@@ -962,5 +1141,61 @@ mod tests {
             "expires_at": "2999-01-01T00:00:00Z",
         });
         assert_eq!(normalize_expired_browser_control(state.clone()), state);
+    }
+
+    #[test]
+    fn model_policy_preserves_order_and_rejects_duplicates() {
+        let mut config: CompanyConfig = toml::from_str(
+            r#"name = "policy_test"
+mission = "test"
+model = "moonshot/kimi-k3"
+model_failover = ["anthropic/claude-haiku-4-5", "zai/glm-5"]
+"#,
+        )
+        .unwrap();
+        assert_eq!(
+            config.model_candidates().unwrap(),
+            vec![
+                "moonshot/kimi-k3",
+                "anthropic/claude-haiku-4-5",
+                "zai/glm-5"
+            ]
+        );
+        config.model_failover.push("moonshot/kimi-k3".into());
+        assert!(config.model_candidates().is_err());
+    }
+
+    #[test]
+    fn archived_identity_moves_out_of_active_scans_and_restores_without_data_rewrite() {
+        let root = std::env::temp_dir().join(format!(
+            "restless-archive-contract-{}",
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(root.join("companies")).unwrap();
+        let config = CompanyConfig {
+            name: "archive_contract_test".into(),
+            mission: "Preserve me".into(),
+            spend_ceiling_usd: 5.0,
+            model: "moonshot/kimi-k3".into(),
+            model_failover: Vec::new(),
+            credentials: std::collections::BTreeMap::new(),
+            approved_parties: Vec::new(),
+        };
+        CompanyConfig::save(&root, &config).unwrap();
+
+        move_active_config_to_archive(&root, &config.name).unwrap();
+        assert!(CompanyConfig::load(&root, &config.name).is_err());
+        let archived = CompanyConfig::load_archived(&root, &config.name).unwrap();
+        assert_eq!(archived.mission, "Preserve me");
+        assert!(CompanyConfig::save(&root, &config).is_err());
+
+        move_archived_config_to_active(&root, &config.name).unwrap();
+        assert!(CompanyConfig::load_archived(&root, &config.name).is_err());
+        assert_eq!(
+            CompanyConfig::load(&root, &config.name).unwrap().mission,
+            "Preserve me"
+        );
+
+        std::fs::remove_dir_all(&root).unwrap();
     }
 }

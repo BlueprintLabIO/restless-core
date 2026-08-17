@@ -1,45 +1,85 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { page } from '$app/state';
-	import Hint from '$lib/primitives/Hint.svelte';
-	import PaneHeader from '$lib/primitives/PaneHeader.svelte';
 	import HoldApprove from '$lib/primitives/HoldApprove.svelte';
+	import Markdown from '$lib/primitives/Markdown.svelte';
 	import MatrixGlyph, { GLYPHS } from '$lib/primitives/MatrixGlyph.svelte';
+	import SemanticMark from '$lib/primitives/SemanticMark.svelte';
 	import type { AttentionItem } from '$lib/model/view';
-	import type { AttentionView } from '$lib/model/attention';
+	import { attentionSource } from '$lib/model/attentionSource.svelte';
 	import {
 		approvalAction,
 		browserControl,
-		getAttention,
+		getActorConversation,
 		issueDesktopTicket,
-		signIn
+		reviewAction,
+		sendActorMessage
 	} from '$lib/model/attention';
+	import type { ActorConversation } from '$lib/model/attention';
 
 	const companyId = $derived(page.params.companyId ?? 'aris');
-	let view = $state<AttentionView | null>(null);
-	let loading = $state(true);
+
+	/* The shared source, not a second poller. `loaded` is the distinction this
+	 * surface was missing: before it existed, `items` was `[]` both when the
+	 * queue was genuinely clear and when nobody had asked yet, so first paint
+	 * asserted "Nothing needs your judgement" and took it back a moment later. */
+	const source = $derived(attentionSource(companyId));
+	$effect(() => source.attach());
+	const view = $derived(source.view);
+	const loaded = $derived(source.status !== 'unknown');
+
 	let error = $state('');
-	let authRequired = $state(false);
-	let ownerToken = $state('');
-	let signingIn = $state(false);
 	let acting = $state(false);
 	let focusItem = $state<AttentionItem | null>(null);
 	let desktopUrl = $state('');
 	let controller = $state<'observer' | 'owner'>('observer');
+	let conversation = $state<ActorConversation | null>(null);
+	let conversationError = $state('');
+	let messageStatus = $state('');
+	let messageDraft = $state('');
+	let sendingMessage = $state(false);
 	let clientId = $state('');
 
 	const items = $derived(view?.items ?? []);
+	const graph = $derived(view?.workGraph ?? null);
+	const activeWork = $derived(graph?.work.filter((work) => work.status === 'active') ?? []);
+	const blockedWork = $derived(graph?.work.filter((work) => work.status === 'blocked') ?? []);
+	const recentAcceptedWork = $derived(
+		(graph?.work ?? [])
+			.filter(
+				(work) =>
+					work.status === 'completed' &&
+					(graph?.artifacts.some((artifact) => artifact.work_id === work.id) ?? false)
+			)
+			.toSorted((a, b) => Date.parse(b.updated_at) - Date.parse(a.updated_at))[0] ?? null
+	);
+	const degradedSources = $derived(
+		Object.entries(view?.sourceHealth ?? {}).filter(([, status]) => status !== 'available')
+	);
 	const selectedItemId = $derived(page.url.searchParams.get('item'));
 	const selectedItem = $derived(
-		items.find((item) => item.id === selectedItemId) ??
-			(selectedItemId ? null : (items[0] ?? null))
+		items.find((item) => item.id === selectedItemId) ?? (selectedItemId ? null : (items[0] ?? null))
 	);
 	const baseHref = $derived(`/${companyId}`);
+	const requestingActor = $derived(
+		focusItem?.responsibleActor?.id ?? focusItem?.runtimeAttach?.requestingActor ?? ''
+	);
+	const requestingActorName = $derived(
+		conversation?.actor.display ||
+			focusItem?.responsibleActor?.display ||
+			focusItem?.runtimeAttach?.requestingActorDisplay ||
+			(requestingActor === 'exec' ? 'Exec' : requestingActor || 'Company context')
+	);
+	const reviewItem = $derived(focusItem?.category === 'review');
+	const lastConversationMessage = $derived(conversation?.messages.at(-1) ?? null);
+	const latestOwnerMessage = $derived(
+		conversation?.messages.findLast((message) => message.from_actor === 'owner') ?? null
+	);
+	const awaitingLeadReply = $derived(lastConversationMessage?.from_actor === 'owner');
+	const reviewFeedback = $derived(messageDraft.trim() || latestOwnerMessage?.body.trim() || '');
 
 	onMount(() => {
 		clientId = crypto.randomUUID();
-		void refresh();
-		const refreshTimer = window.setInterval(() => void refresh(false), 8_000);
 		const heartbeat = window.setInterval(() => {
 			if (controller === 'owner') {
 				void browserControl(companyId, 'heartbeat', clientId).catch((cause) => {
@@ -48,41 +88,21 @@
 				});
 			}
 		}, 12_000);
+		const conversationRefresh = window.setInterval(() => {
+			if (focusItem && requestingActor) void refreshConversation(false);
+		}, 4_000);
 		return () => {
-			window.clearInterval(refreshTimer);
 			window.clearInterval(heartbeat);
+			window.clearInterval(conversationRefresh);
 		};
 	});
 
-	async function refresh(showLoading = true) {
-		if (showLoading) loading = true;
-		try {
-			view = await getAttention(companyId);
-			authRequired = false;
-			error = '';
-		} catch (cause) {
-			const typed = cause as Error & { status?: number };
-			authRequired = typed.status === 401;
-			error = authRequired ? '' : typed.message;
-		} finally {
-			loading = false;
-		}
-	}
-
-	async function submitSignIn(event: SubmitEvent) {
-		event.preventDefault();
-		if (!ownerToken || signingIn) return;
-		signingIn = true;
-		error = '';
-		try {
-			await signIn(ownerToken);
-			ownerToken = '';
-			await refresh();
-		} catch (cause) {
-			error = cause instanceof Error ? cause.message : 'Sign-in failed.';
-		} finally {
-			signingIn = false;
-		}
+	/* Actions still refresh immediately after a write — the poll is a floor, not
+	 * the only path. The source coalesces this with any poll already running. */
+	async function refresh() {
+		await source.refresh();
+		error =
+			source.status === 'stale' ? (source.failure?.message ?? 'Attention is unavailable.') : '';
 	}
 
 	function itemHref(id: string): string {
@@ -100,9 +120,7 @@
 	}
 
 	function partyOf(item: AttentionItem): string {
-		return item.id.startsWith('authority:approval:')
-			? item.id.split(':').slice(3).join(':')
-			: '';
+		return item.id.startsWith('authority:approval:') ? item.id.split(':').slice(3).join(':') : '';
 	}
 
 	async function decide(item: AttentionItem, action: 'grant' | 'decline') {
@@ -112,7 +130,7 @@
 		error = '';
 		try {
 			await approvalAction(companyId, action, party);
-			await refresh(false);
+			await refresh();
 		} catch (cause) {
 			error = cause instanceof Error ? cause.message : 'The authority action failed.';
 		} finally {
@@ -120,13 +138,19 @@
 		}
 	}
 
-	async function openBrowser(item: AttentionItem) {
-		if (!item.runtimeAttach || !clientId) return;
+	async function openReview(item: AttentionItem) {
+		if (!clientId) return;
 		error = '';
+		focusItem = item;
+		controller = 'observer';
+		conversation = null;
+		conversationError = '';
+		messageStatus = '';
+		desktopUrl = '';
+		void refreshConversation();
+		if (!item.runtimeAttach) return;
 		try {
 			desktopUrl = await issueDesktopTicket(companyId, item.id, clientId);
-			focusItem = item;
-			controller = 'observer';
 		} catch (cause) {
 			error = cause instanceof Error ? cause.message : 'The live browser is unavailable.';
 		}
@@ -155,35 +179,81 @@
 			error = cause instanceof Error ? cause.message : 'Control could not be returned.';
 		}
 	}
+
+	async function refreshConversation(showError = true) {
+		if (!focusItem || !requestingActor) {
+			conversation = null;
+			return;
+		}
+		try {
+			const refreshed = await getActorConversation(companyId, requestingActor, focusItem.workId);
+			conversation = refreshed;
+			if (
+				messageStatus.startsWith('Delivered to ') &&
+				refreshed.messages.at(-1)?.from_actor !== 'owner'
+			) {
+				messageStatus = `Reply received from ${requestingActorName}. The review remains open until you accept the outcome or request changes.`;
+			}
+			conversationError = '';
+		} catch (cause) {
+			if (showError) {
+				conversationError =
+					cause instanceof Error ? cause.message : 'The requester conversation is unavailable.';
+			}
+		}
+	}
+
+	async function decideReview(decision: 'accept' | 'request_changes') {
+		if (!focusItem || focusItem.category !== 'review' || acting) return;
+		const feedback = decision === 'request_changes' ? reviewFeedback : '';
+		if (decision === 'request_changes' && !feedback) {
+			conversationError = 'Write the exact change you want first.';
+			return;
+		}
+		acting = true;
+		conversationError = '';
+		try {
+			await reviewAction(companyId, focusItem.source.reference, decision, feedback);
+			if (controller === 'owner' && clientId) {
+				await browserControl(companyId, 'return', clientId).catch(() => undefined);
+			}
+			focusItem = null;
+			desktopUrl = '';
+			controller = 'observer';
+			messageDraft = '';
+			window.history.replaceState({}, '', baseHref);
+			await refresh();
+		} catch (cause) {
+			conversationError = cause instanceof Error ? cause.message : 'The review was not recorded.';
+		} finally {
+			acting = false;
+		}
+	}
+
+	async function sendMessage(event: SubmitEvent) {
+		event.preventDefault();
+		const body = messageDraft.trim();
+		if (!body || sendingMessage || !focusItem || !requestingActor) return;
+		sendingMessage = true;
+		conversationError = '';
+		messageStatus = '';
+		try {
+			await sendActorMessage(companyId, requestingActor, body, focusItem.workId);
+			messageDraft = '';
+			messageStatus = `Delivered to ${requestingActorName}. This is discussion only. Request these changes below to start a new revision.`;
+			await refreshConversation(false);
+		} catch (cause) {
+			conversationError =
+				cause instanceof Error ? cause.message : 'Your message was not delivered.';
+		} finally {
+			sendingMessage = false;
+		}
+	}
 </script>
 
 <svelte:head><title>Attention — {view?.company.name ?? companyId}</title></svelte:head>
 
-{#if authRequired}
-	<div class="owner-lock">
-		<form class="owner-lock-card" onsubmit={submitSignIn}>
-			<span class="mono owner-lock-eyebrow">OWNER SURFACE / PRIVATE</span>
-			<h1>Sign in to review the company</h1>
-			<p>
-				Use the credential printed once by <code>restless owner-token --rotate</code>. It is
-				kept in an HTTP-only session and never placed in a URL.
-			</p>
-			<input
-				class="comp-input"
-				type="password"
-				bind:value={ownerToken}
-				autocomplete="current-password"
-				placeholder="Owner credential"
-				aria-label="Owner credential"
-				required
-			/>
-			<button class="btn primary" type="submit" disabled={signingIn}>
-				{signingIn ? 'Checking…' : 'Enter owner surface'}
-			</button>
-			{#if error}<p class="owner-error">{error}</p>{/if}
-		</form>
-	</div>
-{:else if focusItem}
+{#if focusItem}
 	<div class="browser-focus">
 		<header class="handover-rail">
 			<div class="handover-context">
@@ -194,119 +264,315 @@
 				</div>
 			</div>
 			<div class="handover-state">
-				<span class="mono">{view?.sourceHealth.browser ?? 'unknown'} · {controller === 'owner' ? 'YOU CONTROL' : 'OBSERVE ONLY'}</span>
-				{#if controller === 'observer'}
-					<button class="btn small primary" type="button" onclick={takeControl}>Take control</button>
+				{#if focusItem.runtimeAttach && desktopUrl}
+					<span class="mono"
+						>{view?.sourceHealth.browser ?? 'unknown'} · {controller === 'owner'
+							? 'YOU CONTROL'
+							: 'OBSERVE ONLY'}</span
+					>
+					{#if controller === 'observer'}
+						<button class="btn small primary" type="button" onclick={takeControl}
+							>Take control</button
+						>
+					{:else}
+						<button class="btn small" type="button" onclick={returnControl}>Return control</button>
+					{/if}
 				{:else}
-					<button class="btn small" type="button" onclick={returnControl}>Return control</button>
+					<span class="mono">PREVIEW OFFLINE · DISCUSSION AVAILABLE</span>
 				{/if}
-				<button class="btn small" type="button" onclick={() => (focusItem = null)}>Back to inbox</button>
+				<button class="btn small" type="button" onclick={() => (focusItem = null)}
+					>Back to inbox</button
+				>
 			</div>
 		</header>
 		{#if error}<div class="focus-error">{error}</div>{/if}
-		<div class="desktop-stage">
-			<iframe
-				title="Live company browser"
-				src={desktopUrl}
-				allow="clipboard-read; clipboard-write"
-				referrerpolicy="same-origin"
-			></iframe>
+		<div class="browser-workspace">
+			<aside
+				class="handover-conversation"
+				aria-label={requestingActor
+					? 'Conversation with the responsible team lead'
+					: 'Prepared owner context'}
+			>
+				<div class="handover-conversation-head">
+					<div>
+						<span class="mono"
+							>RESPONSIBLE LEAD / {conversation?.actor.role ??
+								focusItem.responsibleActor?.role ??
+								'WORK OWNER'}</span
+						>
+						<strong>{requestingActorName}</strong>
+					</div>
+					<span class="controller-badge" class:owner={controller === 'owner' && !!desktopUrl}>
+						{desktopUrl
+							? controller === 'owner'
+								? 'YOU CONTROL'
+								: `${requestingActorName} OBSERVES`
+							: 'CHAT OPEN'}
+					</span>
+				</div>
+
+				<div class="handover-thread" aria-live="polite">
+					<div class="handover-message requester context-message">
+						<span>{requestingActorName} · prepared context</span>
+						<p>{focusItem.recommendation}</p>
+						<p>{focusItem.requestedAction}</p>
+					</div>
+					{#each conversation?.messages ?? [] as message (message.id)}
+						<div
+							class="handover-message"
+							class:owner-message={message.from_actor === 'owner'}
+							class:requester={message.from_actor !== 'owner'}
+						>
+							<span
+								>{message.from_actor === 'owner' ? 'You' : requestingActorName} · {when(
+									message.created_at
+								)}</span
+							>
+							<p>{message.body}</p>
+						</div>
+					{/each}
+				</div>
+
+				{#if requestingActor}
+					<div class="handover-footer">
+						<form class="handover-composer" onsubmit={sendMessage}>
+							<textarea
+								bind:value={messageDraft}
+								placeholder={reviewItem
+									? `Ask ${requestingActorName} a question or write exact revision feedback…`
+									: `Ask or tell ${requestingActorName} anything…`}
+								aria-label={`Message ${requestingActorName}`}
+								rows="3"></textarea>
+							<div>
+								<small>Sending keeps this review open. Replies appear in this conversation.</small>
+								<button
+									class="btn small"
+									type="submit"
+									disabled={sendingMessage || !messageDraft.trim()}
+								>
+									{sendingMessage ? 'Sending…' : 'Send for discussion'}
+								</button>
+							</div>
+						</form>
+						{#if messageStatus}
+							<p class="conversation-status" role="status">{messageStatus}</p>
+						{:else if awaitingLeadReply}
+							<p class="conversation-status" role="status">
+								Your last message is delivered. This page is checking for {requestingActorName}’s
+								reply.
+							</p>
+						{/if}
+						{#if reviewItem}
+							<div class="review-gate">
+								<span class="mono">YOUR DECISION / EXACT OUTCOME</span>
+								<div>
+									<button
+										class="btn small primary"
+										type="button"
+										onclick={() => decideReview('accept')}
+										disabled={acting}
+									>
+										{acting ? 'Recording…' : 'Accept outcome'}
+									</button>
+									<button
+										class="btn small danger"
+										type="button"
+										onclick={() => decideReview('request_changes')}
+										disabled={acting || !reviewFeedback}
+									>
+										Request these changes
+									</button>
+								</div>
+								<small
+									>Uses the text above, or your latest delivered message, as the next revision’s
+									exact brief.</small
+								>
+							</div>
+						{/if}
+						{#if conversationError}<p class="conversation-error">{conversationError}</p>{/if}
+					</div>
+				{:else}
+					<div class="handover-composer">
+						<small
+							>This older item has no recorded requesting actor. Restless will not guess who should
+							receive a message.</small
+						>
+					</div>
+				{/if}
+			</aside>
+			<div class="desktop-stage">
+				{#if desktopUrl}
+					<iframe
+						title="Live company browser"
+						src={desktopUrl}
+						allow="clipboard-read; clipboard-write"
+						referrerpolicy="same-origin"
+					></iframe>
+				{:else}
+					<div class="outcome-offline">
+						<span class="mono">LIVE OUTCOME UNAVAILABLE</span>
+						<h2>The review and lead conversation are still available.</h2>
+						<Markdown text={focusItem.whatHappened} />
+						{#each focusItem.evidence.filter((entry) => entry.uri) as evidence}
+							<a class="evidence-link" href={evidence.uri} target="_blank" rel="noreferrer"
+								>{evidence.label} ↗</a
+							>
+						{/each}
+					</div>
+				{/if}
+			</div>
 		</div>
 		<footer class="desktop-foot">
-			Returning control means only that the agent may inspect this same page again. It does not
-			approve an effect or mark “{focusItem.title}” complete.
+			{desktopUrl
+				? controller === 'owner'
+					? 'You are the sole input controller.'
+					: 'The desktop is observe-only.'
+				: 'No live desktop is attached.'}
+			Browser control and conversation never decide “{focusItem.title}”. Use the explicit review
+			controls.
 		</footer>
 	</div>
 {:else}
-	<div class="bridge-page bridge-bleed bridge-inbox">
-		<div class="page-head">
-			<div>
-				<h1>
-					Attention<Hint
-						text="Source-owned decisions, approvals and prepared human steps. Refresh reconstructs this queue."
-						label="What attention is"
-					/>
-				</h1>
-			</div>
-			<button class="btn small" type="button" onclick={() => refresh()} disabled={loading}>
-				{loading ? 'Checking…' : 'Refresh'}
-			</button>
-		</div>
-
-		{#if error}<div class="attention-error">{error}</div>{/if}
-
-		<div class="pane-frame">
-			<section class="pane brief in-p-brief">
-				<PaneHeader title="The live brief">
-					{#snippet action()}
-						<span class="brief-src mono">refreshed {view ? when(view.refreshedAt) : '—'}</span>
-					{/snippet}
-				</PaneHeader>
-				<div class="brief-segs">
-					<span class="brief-seg" class:lit={items.length > 0}>
-						<MatrixGlyph rows={GLYPHS.ring} size={10} glow={items.length > 0} />
-						<b>{items.length}</b> need your word
-					</span>
-					{#if view}
-						{#each Object.entries(view.sourceHealth) as [source, status] (source)}
-							<span class="brief-seg" class:lit={status === 'available'}>
-								<span class="source-dot" class:down={status !== 'available'}></span>
-								{source} · {status}
-							</span>
-						{/each}
-					{/if}
-				</div>
-			</section>
-
-			<div class="pane-row inbox-body">
-				<section class="pane inbox-list in-p-list">
-					<PaneHeader title="Needs your word · {items.length}" />
+	<div class="cockpit-screen attention-screen">
+		{#if error}<div class="cockpit-error attention-error">{error}</div>{/if}
+		<aside class="cockpit-pane attention-index">
+			<!-- No mark and no count. The mark rendered GLYPHS.ring, which means
+			     "waiting" everywhere else in the vocabulary and read here as a
+			     stray letter O; the count is already on the Attention tab, where
+			     it is useful from the other three surfaces. What is left is the
+			     label, and the queue below says the rest. -->
+			<header class="attention-pane-title">
+				<span class="over-label">Needs your judgement</span>
+			</header>
+			<div class="attention-index-scroll">
+				<div class="attention-list">
 					{#each items as item (item.id)}
 						<a
-							class="ib-row"
+							class="attention-item category-{item.category}"
 							class:selected={selectedItem?.id === item.id}
 							href={itemHref(item.id)}
 							aria-current={selectedItem?.id === item.id ? 'true' : undefined}
 						>
-							<span class="ib-dot waiting"></span>
-							<span class="ib-col">
-								<span class="ib-title">{item.title}</span>
-								<span class="ib-meta">{item.category} · {item.source.plane}</span>
+							<MatrixGlyph rows={GLYPHS.rules} size={8} />
+							<span class="attention-item-copy">
+								<strong>{item.title}</strong>
+								<small>{item.category} · {item.source.plane}</small>
 							</span>
-							<span class="ib-when">{when(item.createdAt)}</span>
+							<time>{when(item.createdAt)}</time>
 						</a>
 					{:else}
-						<p class="caption queue-empty">Nothing needs your word.</p>
+						{#if loaded}
+							<div class="attention-list-clear">
+								<MatrixGlyph rows={GLYPHS.check} size={10} />
+								<span
+									><strong>Queue clear</strong><small
+										>Exec will bring you the next material decision.</small
+									></span
+								>
+							</div>
+						{:else}
+							<!-- The source has not answered yet. Three placeholder rows
+							     hold the shape of the queue without asserting that it is
+							     empty — "Queue clear" here would be a claim we cannot
+							     make, and would be contradicted a round trip later. -->
+							<div class="attention-list-waiting" aria-hidden="true">
+								<i></i><i></i><i></i>
+							</div>
+						{/if}
 					{/each}
-				</section>
-
-				<div class="inbox-detail">
-					{#if selectedItem}
-						{@render attentionDetail(selectedItem)}
-					{:else}
-						<div class="pane inbox-emptycard">
-							<p class="inbox-empty-h">Nothing needs your word.</p>
-							<p class="caption">The queue is rebuilt from Authority and OrgIntel each time.</p>
-						</div>
-					{/if}
 				</div>
 			</div>
-		</div>
+		</aside>
+
+		<section class="cockpit-pane attention-focus">
+			{#if selectedItem}
+				{@render attentionDetail(selectedItem)}
+			{:else if !loaded}
+				<!-- Deliberately nothing until the source answers. An empty pane for
+				     one round trip reads as loading; the zero-state hero reads as a
+				     verdict, and it was the wrong one about half a second later. -->
+			{:else}
+				<div class="attention-zero">
+					<header class="attention-zero-hero">
+						<SemanticMark meaning="success" size="large" />
+						<div>
+							<h1>Nothing needs your judgement.</h1>
+							<p>Exec is continuing inside the authority you already set.</p>
+						</div>
+					</header>
+					<div class="attention-zero-grid">
+						<section class="zero-focus">
+							<span class="zero-label work">Current focus</span>
+							<strong>{activeWork[0]?.title ?? 'No Work is currently in motion'}</strong>
+							<p>
+								{activeWork.length
+									? `${activeWork.length} Work item${activeWork.length === 1 ? '' : 's'} in motion.`
+									: 'Exec is ready for the next outcome.'}
+							</p>
+						</section>
+						<section>
+							<span class="zero-label success">Recent accepted progress</span>
+							<strong>{recentAcceptedWork?.title ?? 'No evidence-backed completion yet'}</strong>
+							<p>
+								{recentAcceptedWork
+									? 'Linked to inspectable evidence.'
+									: 'Recorded completions remain in history until evidence is linked.'}
+							</p>
+						</section>
+						<section>
+							<span class="zero-label direction">Next expected review</span>
+							<strong>When judgement changes the plan</strong>
+							<p>
+								Routine progress stays in Work. Exec will surface an outcome, decision, or prepared
+								last mile here.
+							</p>
+						</section>
+						<section>
+							<span class="zero-label authority">Operating status</span>
+							<strong>{activeWork.length} in motion · {blockedWork.length} waiting</strong>
+							{#if degradedSources.length}
+								<p>
+									{degradedSources.map(([source, status]) => `${source}: ${status}`).join(' · ')}
+								</p>
+							{:else}
+								<p>All company sources are available.</p>
+							{/if}
+						</section>
+					</div>
+				</div>
+			{/if}
+		</section>
 	</div>
 {/if}
 
 {#snippet attentionDetail(item: AttentionItem)}
 	<div class="inbox-pane">
-		<div class="needs-card">
+		<div class="needs-card category-{item.category}">
 			<div class="nc-kicker">{item.category} · {item.source.plane}</div>
 			<div class="nc-title">{item.title}</div>
-			<p class="nc-detail">{item.whatHappened}</p>
+			<!-- The same author writes to the rail, the Work page and here; structure
+			     should survive on all three. `prepared_state` is the owner's primary
+			     reading surface for a decision, so it is the last place to render a
+			     wall of text. -->
+			<div class="nc-detail"><Markdown text={item.whatHappened} /></div>
 
 			<div class="attention-facts">
-				<div><span>Why it matters</span><p>{item.whyItMatters}</p></div>
-				<div><span>Recommendation</span><p>{item.recommendation}</p></div>
-				<div><span>Your move</span><p>{item.requestedAction}</p></div>
-				<div><span>If you do nothing</span><p>{item.ifNoAction}</p></div>
+				<div>
+					<span>Why it matters</span>
+					<p>{item.whyItMatters}</p>
+				</div>
+				<div>
+					<span>Recommendation</span>
+					<p>{item.recommendation}</p>
+				</div>
+				<div>
+					<span>Your move</span>
+					<Markdown text={item.requestedAction} />
+				</div>
+				<div>
+					<span>If you do nothing</span>
+					<p>{item.ifNoAction}</p>
+				</div>
 			</div>
 
 			{#each item.evidence as evidence (`${evidence.kind}:${evidence.label}`)}
@@ -321,21 +587,42 @@
 			{/each}
 
 			<div class="source-ref mono">
-				SOURCE {item.source.kind} / {item.source.reference} · {item.canContinue ? 'work may continue' : 'blocking'}
+				SOURCE {item.source.kind} / {item.source.reference} · {item.canContinue
+					? 'work may continue'
+					: 'blocking'}
 			</div>
 
 			<div class="nc-actions">
 				{#if item.category === 'approval'}
-					<form onsubmit={(event) => { event.preventDefault(); void decide(item, 'grant'); }}>
+					<form
+						onsubmit={(event) => {
+							event.preventDefault();
+							void decide(item, 'grant');
+						}}
+					>
 						<HoldApprove small label={acting ? 'Working…' : 'Hold to grant'} />
 					</form>
-					<button class="btn small danger" type="button" onclick={() => decide(item, 'decline')} disabled={acting}>
+					<button
+						class="btn small danger"
+						type="button"
+						onclick={() => decide(item, 'decline')}
+						disabled={acting}
+					>
 						Decline
 					</button>
 				{/if}
-				{#if item.runtimeAttach}
-					<button class="btn small" type="button" onclick={() => openBrowser(item)}>
-						Open live browser
+				{#if item.category === 'review'}
+					<button class="btn small primary" type="button" onclick={() => openReview(item)}>
+						Review outcome
+					</button>
+					{#if item.responsibleActor}
+						<button class="btn small" type="button" onclick={() => openReview(item)}>
+							Talk to {item.responsibleActor.display}
+						</button>
+					{/if}
+				{:else if item.runtimeAttach}
+					<button class="btn small" type="button" onclick={() => openReview(item)}>
+						Open prepared browser
 					</button>
 				{/if}
 			</div>
@@ -344,33 +631,368 @@
 {/snippet}
 
 <style>
-	.owner-lock { min-height: calc(100vh - var(--topbar-total)); display: grid; place-items: center; padding: 32px; background: radial-gradient(circle at 50% 42%, var(--surface) 0, transparent 42%); }
-	.owner-lock-card { width: min(440px, 100%); border: 1px solid var(--border-strong); background: var(--glass-strong); padding: 28px; border-radius: var(--radius-md); display: grid; gap: 14px; }
-	.owner-lock-card h1 { margin: 0; font-size: 22px; }
-	.owner-lock-card p { margin: 0; color: var(--text-secondary); line-height: 1.55; }
-	.owner-lock-eyebrow, .evidence-label, .source-ref { font-size: 10px; letter-spacing: .09em; color: var(--text-tertiary); }
-	.owner-error, .attention-error, .focus-error { color: var(--danger); font-size: 12px; }
-	.attention-error, .focus-error { padding: 9px 14px; border: 1px solid color-mix(in srgb, var(--danger) 45%, var(--border)); background: color-mix(in srgb, var(--danger) 7%, var(--surface)); }
-	.queue-empty { padding: 16px; margin: 0; }
-	.source-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
-	.source-dot.down { background: var(--status-waiting); }
-	.attention-facts { display: grid; gap: 9px; margin: 16px 0; }
-	.attention-facts div { display: grid; grid-template-columns: 110px 1fr; gap: 12px; padding-top: 8px; border-top: 1px solid var(--border); }
-	.attention-facts span { font: 10px 'IBM Plex Mono', monospace; text-transform: uppercase; letter-spacing: .06em; color: var(--text-tertiary); }
-	.attention-facts p { margin: 0; font-size: 12.5px; line-height: 1.5; color: var(--text-secondary); }
-	.evidence-link { display: block; margin-top: 10px; padding: 10px 12px; border: 1px solid var(--border-strong); color: var(--ink); text-decoration: none; }
-	.source-ref { margin-top: 14px; overflow-wrap: anywhere; }
-	.browser-focus { flex: 1 1 auto; width: 100%; min-width: 0; height: calc(100vh - var(--topbar-total)); min-height: 620px; display: grid; grid-template-rows: auto auto minmax(0, 1fr) auto; background: #111; }
-	.handover-rail { grid-row: 1; min-height: 58px; padding: 9px 14px; display: flex; justify-content: space-between; align-items: center; gap: 14px; border-bottom: 1px solid var(--border-strong); background: var(--glass-strong); }
-	.handover-context, .handover-state { display: flex; align-items: center; gap: 10px; }
-	.handover-context > div { display: grid; gap: 2px; }
-	.handover-context .mono, .handover-state .mono { font-size: 9px; letter-spacing: .08em; color: var(--text-tertiary); }
-	.live-mark { width: 9px; height: 28px; border: 1px solid var(--border-strong); background: repeating-linear-gradient(0deg, var(--surface), var(--surface) 3px, transparent 3px, transparent 6px); }
-	.live-mark.owner { background: var(--accent); box-shadow: 0 0 12px color-mix(in srgb, var(--accent) 45%, transparent); }
-	.focus-error { grid-row: 2; }
-	.desktop-stage { grid-row: 3; min-height: 0; padding: 10px; }
-	.desktop-stage iframe { width: 100%; height: 100%; border: 1px solid #333; background: #151515; }
-	.desktop-foot { grid-row: 4; padding: 8px 14px; font-size: 10px; color: var(--text-tertiary); border-top: 1px solid var(--border); background: var(--glass-strong); }
-	@media (max-width: 760px) { .browser-focus { display: none; } .attention-facts div { grid-template-columns: 1fr; gap: 4px; } }
-	@media (prefers-reduced-motion: reduce) { .live-mark.owner { box-shadow: none; } }
+	.evidence-label,
+	.source-ref {
+		font-size: var(--t-body);
+		letter-spacing: 0.09em;
+		color: var(--text-tertiary);
+	}
+	.attention-error,
+	.focus-error {
+		color: var(--danger);
+		font-size: var(--t-body);
+	}
+	.attention-error,
+	.focus-error {
+		padding: 9px 14px;
+		border: 1px solid color-mix(in srgb, var(--danger) 45%, var(--border));
+		background: color-mix(in srgb, var(--danger) 7%, var(--surface));
+	}
+	.attention-facts {
+		display: grid;
+		gap: 9px;
+		margin: 16px 0;
+	}
+	.attention-facts div {
+		display: grid;
+		grid-template-columns: 110px 1fr;
+		gap: 12px;
+		padding-top: 8px;
+		border-top: 1px solid var(--border);
+	}
+	.attention-facts span {
+		font: var(--t-body) var(--font-mono);
+		text-transform: uppercase;
+		letter-spacing: 0.06em;
+		color: var(--text-tertiary);
+	}
+	.attention-facts p {
+		margin: 0;
+		font-size: var(--t-body);
+		line-height: 1.5;
+		color: var(--text-secondary);
+	}
+	.evidence-link {
+		display: block;
+		margin-top: 10px;
+		padding: 10px 12px;
+		border: 1px solid var(--border-strong);
+		color: var(--ink);
+		text-decoration: none;
+	}
+	.source-ref {
+		margin-top: 14px;
+		overflow-wrap: anywhere;
+	}
+	.browser-focus {
+		flex: 1 1 auto;
+		width: 100%;
+		min-width: 0;
+		height: 100%;
+		min-height: 0;
+		display: grid;
+		grid-template-rows: auto auto minmax(0, 1fr) auto;
+		border: 1px solid var(--border-strong);
+		border-radius: var(--radius-pane);
+		overflow: hidden;
+		background: var(--glass-pane);
+	}
+	.handover-rail {
+		grid-row: 1;
+		min-height: 58px;
+		padding: 9px 14px;
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		gap: 14px;
+		border-bottom: 1px solid var(--border-strong);
+		background: var(--glass-strong);
+	}
+	.handover-context,
+	.handover-state {
+		display: flex;
+		align-items: center;
+		gap: 10px;
+	}
+	.handover-context > div {
+		display: grid;
+		gap: 2px;
+	}
+	.handover-context .mono,
+	.handover-state .mono {
+		font-size: var(--t-label);
+		letter-spacing: 0.08em;
+		color: var(--text-tertiary);
+	}
+	.live-mark {
+		width: 9px;
+		height: 28px;
+		border: 1px solid var(--border-strong);
+		background: repeating-linear-gradient(
+			0deg,
+			var(--surface),
+			var(--surface) 3px,
+			transparent 3px,
+			transparent 6px
+		);
+	}
+	.live-mark.owner {
+		background: var(--accent);
+		box-shadow: 0 0 12px color-mix(in srgb, var(--accent) 45%, transparent);
+	}
+	.focus-error {
+		grid-row: 2;
+	}
+	.browser-workspace {
+		grid-row: 3;
+		min-width: 0;
+		min-height: 0;
+		display: grid;
+		grid-template-columns: minmax(0, 1fr) minmax(238px, 274px);
+	}
+	.handover-conversation {
+		grid-column: 2;
+		min-height: 0;
+		display: grid;
+		grid-template-rows: auto minmax(0, 1fr) auto;
+		border-left: 1px solid var(--border-strong);
+		background: color-mix(in srgb, var(--glass-strong) 94%, #111);
+	}
+	.handover-conversation-head {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 10px;
+		padding: 13px 14px;
+		border-bottom: 1px solid var(--border);
+	}
+	.handover-conversation-head > div {
+		display: grid;
+		gap: 3px;
+		min-width: 0;
+	}
+	.handover-conversation-head .mono {
+		font-size: var(--t-label);
+		letter-spacing: 0.08em;
+		color: var(--text-tertiary);
+	}
+	.handover-conversation-head strong {
+		overflow: hidden;
+		text-overflow: ellipsis;
+		font-size: var(--t-body);
+	}
+	.controller-badge {
+		flex: none;
+		padding: 4px 6px;
+		border: 1px solid var(--border-strong);
+		font: var(--t-label) var(--font-mono);
+		color: var(--text-tertiary);
+	}
+	.controller-badge.owner {
+		border-color: var(--accent);
+		color: var(--accent);
+		box-shadow: 0 0 9px color-mix(in srgb, var(--accent) 28%, transparent);
+	}
+	.handover-thread {
+		min-height: 0;
+		overflow: auto;
+		display: flex;
+		flex-direction: column;
+		gap: 0;
+		padding: 0;
+	}
+	.handover-message {
+		width: 100%;
+		max-width: none;
+		padding: 13px 14px;
+		border: 0;
+		border-bottom: 1px solid var(--border);
+		background: rgba(255, 255, 255, 0.36);
+	}
+	.handover-message.owner-message {
+		background: var(--intent-conversation-soft);
+		box-shadow: inset 2px 0 0 color-mix(in srgb, var(--intent-conversation) 55%, transparent);
+	}
+	.handover-message.context-message {
+		box-shadow: inset 2px 0 0 var(--intent-feedback);
+	}
+	.handover-message > span {
+		display: block;
+		margin-bottom: 5px;
+		font: var(--t-label) var(--font-mono);
+		letter-spacing: 0.04em;
+		color: var(--text-tertiary);
+	}
+	.handover-message p {
+		margin: 0;
+		font-size: var(--t-body);
+		line-height: 1.5;
+		color: var(--text-secondary);
+		white-space: pre-wrap;
+	}
+	.handover-message p + p {
+		margin-top: 7px;
+		color: var(--ink);
+	}
+	.handover-footer {
+		border-top: 1px solid var(--border);
+	}
+	.handover-composer {
+		padding: 10px 12px 9px;
+	}
+	.handover-composer textarea {
+		width: 100%;
+		resize: vertical;
+		max-height: 130px;
+		min-height: 56px;
+		padding: 8px 9px;
+		border: 1px solid var(--border-strong);
+		background: var(--surface);
+		color: var(--ink);
+		font: inherit;
+		font-size: var(--t-body);
+		line-height: 1.4;
+	}
+	.handover-composer > div {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 8px;
+		margin-top: 7px;
+	}
+	.handover-composer small {
+		font-size: var(--t-label);
+		line-height: 1.35;
+		color: var(--text-tertiary);
+	}
+	.review-gate {
+		display: grid;
+		gap: 7px;
+		padding: 10px 12px 12px;
+		border-top: 1px solid var(--border);
+		background: color-mix(in srgb, var(--accent) 4%, var(--glass-strong));
+	}
+	.review-gate > .mono {
+		font-size: var(--t-label);
+		letter-spacing: 0.08em;
+		color: var(--text-tertiary);
+	}
+	.review-gate > div {
+		display: flex;
+		gap: 7px;
+	}
+	.review-gate small {
+		font-size: var(--t-label);
+		line-height: 1.35;
+		color: var(--text-tertiary);
+	}
+	.conversation-error {
+		margin: 0;
+		padding: 0 12px 10px;
+		color: var(--danger);
+		font-size: var(--t-label);
+	}
+	.conversation-status {
+		margin: 0;
+		padding: 0 12px 10px;
+		color: var(--text-secondary);
+		font-size: var(--t-label);
+		line-height: 1.45;
+	}
+	.desktop-stage {
+		grid-column: 1;
+		grid-row: 1;
+		min-width: 0;
+		min-height: 0;
+		padding: 10px;
+	}
+	.desktop-stage iframe {
+		width: 100%;
+		height: 100%;
+		border: 1px solid var(--border-strong);
+		border-radius: var(--radius-control);
+		background: white;
+	}
+	.outcome-offline {
+		height: 100%;
+		display: grid;
+		place-content: center;
+		justify-items: start;
+		gap: 10px;
+		padding: clamp(28px, 7vw, 92px);
+		border: 1px solid var(--border-strong);
+		border-radius: var(--radius-control);
+		background:
+			radial-gradient(circle at 35% 40%, var(--intent-conversation-soft), transparent 44%),
+			var(--glass-pane-strong);
+	}
+	.outcome-offline > .mono {
+		font-size: var(--t-label);
+		letter-spacing: 0.1em;
+		color: var(--intent-authority);
+	}
+	.outcome-offline h2 {
+		max-width: 520px;
+		margin: 0;
+		font-size: var(--t-title);
+		line-height: 1.05;
+	}
+	.outcome-offline p {
+		max-width: 620px;
+		margin: 0;
+		color: var(--text-secondary);
+		line-height: 1.55;
+	}
+	.desktop-foot {
+		grid-row: 4;
+		padding: 8px 14px;
+		font-size: var(--t-body);
+		color: var(--text-tertiary);
+		border-top: 1px solid var(--border);
+		background: var(--glass-strong);
+	}
+	@media (max-width: 1040px) {
+		.browser-workspace {
+			grid-template-columns: minmax(0, 1fr) 224px;
+		}
+		.handover-conversation-head {
+			padding-inline: 10px;
+		}
+		.handover-thread {
+			padding-inline: 0;
+		}
+	}
+	@media (max-width: 760px) {
+		.handover-rail,
+		.handover-state {
+			align-items: flex-start;
+			flex-wrap: wrap;
+		}
+		.browser-workspace {
+			grid-template-columns: 1fr;
+			grid-template-rows: minmax(250px, 1fr) minmax(300px, 1fr);
+			overflow: auto;
+		}
+		.desktop-stage {
+			grid-column: 1;
+			grid-row: 1;
+			min-height: 250px;
+		}
+		.handover-conversation {
+			grid-column: 1;
+			grid-row: 2;
+			min-height: 300px;
+			border-top: 1px solid var(--border-strong);
+			border-left: 0;
+		}
+		.attention-facts div {
+			grid-template-columns: 1fr;
+			gap: 4px;
+		}
+	}
+	@media (prefers-reduced-motion: reduce) {
+		.live-mark.owner {
+			box-shadow: none;
+		}
+	}
 </style>

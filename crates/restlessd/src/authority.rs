@@ -13,14 +13,17 @@ use sqlx::postgres::PgPoolOptions;
 use sqlx::{PgPool, Row as _};
 
 pub const GOVERNANCE_KINDS: &[&str] = &[
+    "effect_intent",
     "effect",
     "inbound_effect",
     "effect_replayed",
+    "effect_reconciled",
     "effect_repeat_party",
     "approval_required",
     "approval_granted",
     "approval_declined",
     "approval_revoked",
+    "lifecycle",
 ];
 
 const IMPORT_VERSION: i32 = 2;
@@ -28,8 +31,17 @@ const IMPORT_VERSION: i32 = 2;
 #[derive(Debug, Clone, sqlx::FromRow)]
 pub struct AuthorityRecord {
     pub id: i64,
+    pub actor_id: Option<String>,
     pub body: serde_json::Value,
     pub created_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, sqlx::FromRow, serde::Serialize)]
+pub struct ModelCooldown {
+    pub model: String,
+    pub kind: String,
+    pub reason: String,
+    pub retry_at: DateTime<Utc>,
 }
 
 /// One installation-wide pool; company is an indexed value, not a schema.
@@ -75,6 +87,24 @@ impl AuthorityStore {
         .await
         .context("index Authority records")?;
         sqlx::query(
+            "CREATE UNIQUE INDEX IF NOT EXISTS authority_effect_execution_intent \
+             ON restless_authority.records \
+             (company, (body->>'idempotency_key'), ((body->>'execution_no')::integer)) \
+             WHERE kind = 'effect_intent'",
+        )
+        .execute(&pool)
+        .await
+        .context("index effect execution intents")?;
+        sqlx::query(
+            "CREATE UNIQUE INDEX IF NOT EXISTS authority_effect_execution_receipt \
+             ON restless_authority.records \
+             (company, (body->>'idempotency_key'), ((body->>'execution_no')::integer)) \
+             WHERE kind = 'effect' AND body ? 'execution_no'",
+        )
+        .execute(&pool)
+        .await
+        .context("index effect execution receipts")?;
+        sqlx::query(
             "CREATE UNIQUE INDEX IF NOT EXISTS authority_inbound_provider_event \
              ON restless_authority.records (company, (body->>'provider_event_id')) \
              WHERE kind = 'inbound_effect'",
@@ -99,7 +129,60 @@ impl AuthorityStore {
         .execute(&pool)
         .await
         .context("version Authority migration markers")?;
+        sqlx::query(
+            "CREATE TABLE IF NOT EXISTS restless_authority.model_cooldowns (\
+               company TEXT NOT NULL, model TEXT NOT NULL, kind TEXT NOT NULL, reason TEXT NOT NULL, \
+               retry_at TIMESTAMPTZ NOT NULL, updated_at TIMESTAMPTZ NOT NULL DEFAULT now(), \
+               PRIMARY KEY (company, model)\
+             )",
+        )
+        .execute(&pool)
+        .await
+        .context("create model cooldowns")?;
         Ok(Self { pool })
+    }
+
+    pub async fn set_model_cooldown(
+        &self,
+        company: &str,
+        model: &str,
+        kind: &str,
+        reason: &str,
+        retry_at: DateTime<Utc>,
+    ) -> Result<()> {
+        sqlx::query(
+            "INSERT INTO restless_authority.model_cooldowns \
+             (company, model, kind, reason, retry_at) VALUES ($1,$2,$3,$4,$5) \
+             ON CONFLICT (company, model) DO UPDATE SET kind=EXCLUDED.kind, \
+             reason=EXCLUDED.reason, retry_at=EXCLUDED.retry_at, updated_at=now()",
+        )
+        .bind(company)
+        .bind(model)
+        .bind(kind)
+        .bind(reason)
+        .bind(retry_at)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    pub async fn active_model_cooldowns(&self, company: &str) -> Result<Vec<ModelCooldown>> {
+        Ok(sqlx::query_as(
+            "SELECT model, kind, reason, retry_at FROM restless_authority.model_cooldowns \
+             WHERE company=$1 AND retry_at > now() ORDER BY retry_at, model",
+        )
+        .bind(company)
+        .fetch_all(&self.pool)
+        .await?)
+    }
+
+    pub async fn clear_model_cooldown(&self, company: &str, model: &str) -> Result<()> {
+        sqlx::query("DELETE FROM restless_authority.model_cooldowns WHERE company=$1 AND model=$2")
+            .bind(company)
+            .bind(model)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
     }
 
     pub async fn emit(
@@ -123,9 +206,32 @@ impl AuthorityStore {
         Ok(id)
     }
 
+    /// Atomically reserve one execution number for a generic material effect.
+    /// Two daemon requests may race; only the row that lands may start the
+    /// child process.
+    pub async fn claim_effect_intent(
+        &self,
+        company: &str,
+        actor: &str,
+        body: serde_json::Value,
+    ) -> Result<bool> {
+        let inserted = sqlx::query_scalar::<_, i64>(
+            "INSERT INTO restless_authority.records (company, kind, actor_id, body) \
+             VALUES ($1, 'effect_intent', $2, $3) \
+             ON CONFLICT DO NOTHING RETURNING id",
+        )
+        .bind(company)
+        .bind(actor)
+        .bind(body)
+        .fetch_optional(&self.pool)
+        .await
+        .with_context(|| format!("claim effect execution for {company}"))?;
+        Ok(inserted.is_some())
+    }
+
     pub async fn records_of_kind(&self, company: &str, kind: &str) -> Result<Vec<AuthorityRecord>> {
         sqlx::query_as(
-            "SELECT id, body, created_at \
+            "SELECT id, actor_id, body, created_at \
              FROM restless_authority.records \
              WHERE company = $1 AND kind = $2 ORDER BY id",
         )

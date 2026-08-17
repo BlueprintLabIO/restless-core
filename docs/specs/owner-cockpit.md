@@ -103,7 +103,7 @@ The cockpit is a presentation and action surface over three authoritative planes
 ```text
 Owner Cockpit
 ├── OrgIntel
-│   └── people, goals, commitments, messages, decisions, attention
+│   └── people, goals, Work nodes, messages, decisions, attention
 ├── Authority Plane
 │   └── mandate, budgets, capabilities, effects, resources, lifecycle
 └── Company Runtime
@@ -264,7 +264,7 @@ The absence of attention items should communicate:
 The cockpit has four primary product areas:
 
 1. **Attention** — the priority stack requiring owner awareness or action.
-2. **Work** — goals, milestones, commitments, tasks, evidence, and outcomes.
+2. **Work** — goals, milestones, Work nodes, tasks, evidence, and outcomes.
 3. **People** — the employee directory and direct chat with every actor.
 4. **Authority** — mandate, budgets, capabilities, providers, resources, effects, and lifecycle controls.
 
@@ -326,8 +326,11 @@ The cockpit should consistently use the following concepts:
 | **Role** | Organisational responsibility and decision rights | OrgIntel |
 | **Session** | Temporary model/process execution | OrgIntel + Runtime Bridge |
 | **Goal** | Desired outcome at any abstraction level | OrgIntel |
-| **Commitment** | One actor’s responsibility to produce or decide something | OrgIntel |
-| **Task** | Owner-facing UI label for a commitment or small goal | Projection only |
+| **Work** | One actor’s durable outcome, expected artifact and exact workspace | OrgIntel |
+| **Attempt** | One claimed execution of one Work revision with exact inputs | OrgIntel |
+| **Work edge** | `requires` hard handover or `revises` review feedback | OrgIntel |
+| **Owner handoff** | Prepared browser/action state plus observable resume condition | OrgIntel |
+| **Task** | Owner-facing UI label for a Work or small goal | Projection only |
 | **Artifact reference** | Pointer to actual work | OrgIntel reference; Runtime owns artifact |
 | **Observation** | Directly measured, recorded, or witnessed information | OrgIntel or referenced source |
 | **Hypothesis** | Testable claim about what is true or will work | OrgIntel |
@@ -383,7 +386,7 @@ reviewing
 
 These are descriptive defaults, not universal gates.
 
-### Commitment status
+### Work status
 
 Owned by OrgIntel:
 
@@ -397,6 +400,10 @@ abandoned
 
 The UI should always make clear which kind of status it is showing.
 
+The UI does not expose a generic Work-status control. Ready claim, artifact/gate acceptance, review
+revision, owner-handoff resolution, dependency release and attempt-limit blocking are the graph's
+deterministic transitions.
+
 ---
 
 # 5. Attention Inbox
@@ -405,7 +412,9 @@ The UI should always make clear which kind of status it is showing.
 
 **Core contract**
 
-The Attention Inbox is the owner’s primary work queue.
+The Attention Inbox is the owner’s primary work queue. A blocked Work node is not automatically an
+attention item. Only an explicit owner handoff, Authority request, or material owner decision enters
+the queue.
 
 It answers:
 
@@ -537,7 +546,7 @@ The Work area shows how the company’s current activity connects to its mission
 It should support both:
 
 - a high-level map of goals and breakdowns;
-- a practical kanban of active commitments/tasks.
+- a compact graph of active Work nodes, deterministic handovers, revisions, Attempts and evidence.
 
 ## 6.2 Work hierarchy
 
@@ -547,7 +556,7 @@ The underlying model should remain flexible:
 owner mandate
 → company goals
 → milestones or subgoals
-→ commitments/tasks
+→ Work nodes/tasks
 → artifacts, observations, and external outcomes
 ```
 
@@ -560,26 +569,31 @@ The UI can provide familiar labels such as:
 - milestone;
 - task.
 
-These are views over OrgIntel goals and commitments, not separate hard-coded entities.
+These are views over OrgIntel goals and Work nodes, not separate hard-coded entities.
 
-## 6.3 Kanban view
+## 6.3 Work graph view
 
 **Default interaction**
 
-The main operational view is an active-work board grouped by commitment status:
+The first operational view is a horizontal graph rail on the calm main surface:
 
 ```text
-Proposed | Active | Blocked | Completed
+producer --requires--> critic --requires--> publisher
+    ^----------revises-------------|
 ```
 
-`Abandoned` work remains available in history but is not a permanent default column.
+Each node shows revision/status, accountable actor, latest Attempt, prerequisites, returned review,
+artifact count and gate result. `requires` and `revises` must be visually distinct. The same
+repeatable-read OrgIntel projection backs both the CLI and SPA. A denser kanban or history view may be
+added only if dogfood needs it.
 
 Each card should show:
 
 - outcome or deliverable;
 - accountable actor;
 - parent goal;
-- current status and next meaningful step;
+- current revision/status and latest Attempt;
+- hard prerequisites and revises return edge;
 - blocker, if any;
 - expected artifact or evidence;
 - latest meaningful update;
@@ -597,7 +611,7 @@ A goal detail page should show:
 - definition of done or success contract;
 - current strategy;
 - relevant assumptions, hypotheses, and unknowns;
-- active commitments;
+- active Work nodes;
 - evidence and artifacts;
 - key decisions;
 - cost and elapsed time;
@@ -675,7 +689,7 @@ The directory should show every persistent employee with:
 - name and role;
 - responsibilities and decision rights;
 - current focus;
-- active commitments;
+- active Work nodes;
 - current availability/session state;
 - recent accepted outputs;
 - important competence evidence;
@@ -700,7 +714,7 @@ An actor profile may include:
 - design or communication preferences;
 - relevant strengths and weaknesses;
 - trusted collaborators;
-- current and past commitments;
+- current and past Work nodes;
 - accepted artifacts and important decisions;
 - current session and model;
 - organisational learning associated with the actor.
@@ -711,7 +725,9 @@ Competence should be evidence-backed and revisable, not a permanent score based 
 
 **Core contract**
 
-The owner can chat with any employee, but chat is not automatically the source of truth for company operation.
+The owner can chat freely with any employee. Conversation has no scripted three-state lifecycle.
+When a message is explicitly linked to Work, OrgIntel records it as exact feedback input for the next
+Attempt; otherwise it remains ordinary conversation.
 
 The interface should distinguish:
 
@@ -719,13 +735,18 @@ The interface should distinguish:
 
 Conversational communication, questions, clarification, or advice.
 
-A message does not silently alter goals, commitments, authority, or the mandate.
+A message does not silently alter goals, authority, the mandate, or a pending review. For an
+`owner_judgement` handoff, the owner surface presents separate **Accept outcome** and **Request
+changes** decisions. Only one of those explicit decisions resolves the handoff; free-form chat with
+the responsible Work owner remains discussion and exact Work-linked feedback. Identity, CAPTCHA,
+MFA, legal and payment handoffs require their actual external condition.
 
 ### Feedback
 
 A comment tied to an artifact, goal, or result.
 
-The responsible actor or Exec decides how to incorporate it unless the owner promotes it to a directive.
+The responsible actor receives it in the exact next Attempt context. Judgement about how to apply it
+remains with that actor or Exec unless the owner separately changes the mandate or authority.
 
 ### Directive
 
@@ -922,7 +943,7 @@ The current phase may influence OrgIntel defaults:
 - more bounded hypotheses and prototypes;
 - short planning horizons;
 - emphasis on learning rate and falsification;
-- lower commitment to infrastructure and process.
+- lower investment in infrastructure and process.
 
 ### Validation / pre-profit
 
@@ -955,7 +976,7 @@ The Exec may propose a phase change with:
 - required capital or authority changes;
 - success criteria for the new phase.
 
-The owner should explicitly review a phase change when it implies material capital, risk, or strategic commitment.
+The owner should explicitly review a phase change when it implies material capital, risk, or strategic lock-in.
 
 Otherwise, the Exec may update the operating phase within the existing mandate and make the change visible to the owner.
 
@@ -1098,7 +1119,7 @@ Owner opens actor profile
 → sends message or feedback
 → OrgIntel delivers to actor inbox/session
 → actor responds
-→ durable operating change occurs only if converted to directive, decision, or commitment
+→ durable operating change occurs only if converted to directive, decision, or Work
 ```
 
 ## 11.3 Authority approval
@@ -1165,7 +1186,7 @@ Useful detail routes may include:
 
 ```text
 /work/:goal_id
-/work/commitments/:commitment_id
+/work/:work_id
 /people/:actor_id
 /authority/effects/:effect_id
 /authority/resources/:resource_id
@@ -1193,7 +1214,8 @@ Required V0 elements:
 Required V0 elements:
 
 - goal hierarchy/navigation;
-- active commitments kanban;
+- active Work graph with `requires` and `revises` edges;
+- revisions, latest Attempts and exact upstream artifact inputs;
 - filter by goal, owner, status, and priority;
 - goal detail with success contract;
 - linked artifacts and evidence;
@@ -1207,7 +1229,7 @@ Required V0 elements:
 
 - employee directory;
 - role/current-focus summary;
-- active commitments;
+- active Work nodes;
 - session/availability state;
 - recent outputs;
 - actor profile;
@@ -1278,7 +1300,7 @@ The cockpit should:
 
 After restore, the cockpit should distinguish:
 
-- current OrgIntel commitments and decisions;
+- current OrgIntel Work nodes and decisions;
 - restored runtime generation and artifacts;
 - current Authority receipts and external history;
 - reconciliation warnings.
@@ -1305,7 +1327,7 @@ The cockpit communicates with layer-owned APIs:
 OrgIntel API
 - actors
 - messages/directives
-- goals and commitments
+- goals and Work nodes
 - decisions and hypotheses
 - attention-ready organisational requests
 - operating phase and health projections
@@ -1345,7 +1367,7 @@ Use live updates only for meaningful state changes:
 
 - new or resolved attention item;
 - actor/session state;
-- commitment status or blocker;
+- Work status or blocker;
 - outcome ready for review;
 - budget/resource threshold;
 - effect result;
@@ -1373,7 +1395,9 @@ actor_id
 session_id
 principal_id
 goal_id
-commitment_id
+work_id
+attempt_id
+owner_handoff_id
 artifact_ref
 attention_source_ref
 effect_id
@@ -1488,7 +1512,7 @@ Do not optimise for clicks, time in app, or notification volume.
 1. Existing Svelte application reshaped into the four primary areas.
 2. Global company status bar.
 3. Unified owner attention queue over OrgIntel and Authority requests.
-4. Goal hierarchy and commitment/task kanban.
+4. Goal hierarchy and Work/task kanban.
 5. Goal detail with success contract, evidence, and artifacts.
 6. Persistent employee directory and actor profile.
 7. Direct chat with explicit message/feedback/directive semantics.
@@ -1533,7 +1557,7 @@ Connect real OrgIntel and Authority requests. Prove the complete review/action l
 
 ## Step 4: Build Work
 
-Implement goal hierarchy, active commitments kanban, success contracts, evidence, artifacts, and owner feedback/directives.
+Implement goal hierarchy, active Work nodes kanban, success contracts, evidence, artifacts, and owner feedback/directives.
 
 ## Step 5: Build People and chat
 
@@ -1560,8 +1584,8 @@ Delete views, fields, and alerts that do not improve decisions, trust, outcomes,
 3. The product has four primary areas: Attention, Work, People, and Authority.
 4. Attention is the default home.
 5. A persistent global bar shows company phase, health, runtime, spend, and authority status.
-6. Work combines hierarchical goals with an active-commitment kanban.
-7. `Task` is a UI term; `Commitment` remains the OrgIntel primitive.
+6. Work combines hierarchical goals with a compact deterministic Work graph; denser boards are optional projections.
+7. `Task` is a UI term; `Work` remains the OrgIntel primitive.
 8. The owner can chat with every employee.
 9. Messages, feedback, directives, and authority decisions have distinct semantics.
 10. Durable directives are visible to the Exec and affect OrgIntel state.

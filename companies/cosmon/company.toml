@@ -6,4 +6,5 @@ core product can exist: exploration → encounter → capture in one integrated
 loop. Procedural primitives only — no original art pipeline this sprint.
 """
 spend_ceiling_usd = 10.0
-model = "company-general-v1"
+model = "moonshot/kimi-k3"
+model_failover = []

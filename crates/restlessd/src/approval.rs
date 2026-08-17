@@ -40,7 +40,7 @@ use crate::runtime::CompanyConfig;
 /// already paid for twice.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Decision {
-    /// Proceed. Either the provider is simulated, or this party is not new, or
+    /// Proceed. Either this is a `_test` company, this party is not new, or
     /// the owner has standing approval on file.
     Proceed,
     /// A real, materially external first contact. Carries the sentence the
@@ -184,13 +184,13 @@ fn normalize_party(value: &str) -> String {
 pub async fn check(
     config: &CompanyConfig,
     authority: &crate::authority::AuthorityStore,
-    capability: &str,
+    effect_class: &str,
     party: Option<&str>,
-    provider: &crate::provider::Provider,
+    test_mode: bool,
 ) -> Result<Decision> {
-    // A simulated effect cannot reach anybody, so there is nothing to approve.
-    // This is also what keeps `_test` companies frictionless: they never ask.
-    if *provider == crate::provider::Provider::Simulated {
+    // Test companies cannot receive live secrets and exercise fake CLIs, so
+    // their receipts never ask for standing real-world authority.
+    if test_mode {
         return Ok(Decision::Proceed);
     }
     let Some(party) = party else {
@@ -215,13 +215,15 @@ pub async fn check(
         latest_party_event(authority, &config.name, "approval_revoked", &party_lower).await?;
     if revocation_is_unresolved(latest_revoke, latest_grant) {
         return Ok(Decision::NeedsOwner(needs_owner_reason(
-            config, capability, party,
+            config,
+            effect_class,
+            party,
         )));
     }
 
     // Already reached successfully? Then this is not first contact. Uses the
     // receipts, the same source the party-repeat guard reads.
-    if crate::effect::prior_effect_on(authority, &config.name, capability, &party_lower, "")
+    if crate::effect::prior_effect_on(authority, &config.name, effect_class, &party_lower, "")
         .await?
         .is_some()
     {
@@ -229,7 +231,9 @@ pub async fn check(
     }
 
     Ok(Decision::NeedsOwner(needs_owner_reason(
-        config, capability, party,
+        config,
+        effect_class,
+        party,
     )))
 }
 
@@ -291,9 +295,9 @@ pub async fn approved_parties(
     Ok(approved)
 }
 
-fn needs_owner_reason(config: &CompanyConfig, capability: &str, party: &str) -> String {
+fn needs_owner_reason(config: &CompanyConfig, effect_class: &str, party: &str) -> String {
     format!(
-        "{} wants to {capability} to {party} through a REAL provider, but this party does not \
+        "{} wants to perform {effect_class} for {party}, but this party does not \
          currently have owner approval. This is materially external and irreversible: approve with \
          `restless approve -c {} --party {party}`.",
         config.name, config.name
@@ -303,7 +307,6 @@ fn needs_owner_reason(config: &CompanyConfig, capability: &str, party: &str) -> 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::provider::Provider;
 
     #[test]
     fn a_revocation_rearms_authority_until_a_later_grant() {
@@ -319,8 +322,7 @@ mod tests {
             mission: String::new(),
             spend_ceiling_usd: 30.0,
             model: "moonshot/kimi-k3".to_string(),
-            providers: std::collections::BTreeMap::new(),
-            from_address: None,
+            model_failover: Vec::new(),
             credentials: std::collections::BTreeMap::new(),
             approved_parties: approved.iter().map(|s| (*s).to_string()).collect(),
         }
@@ -339,27 +341,5 @@ mod tests {
         // nothing useful.)
         let typo = config(&["yailives@gmail.com"]);
         assert!(!legacy_config_approvals(&typo).contains(&"yaillives@gmail.com".to_string()));
-    }
-
-    /// A simulated provider never asks. This is what keeps `_test` companies
-    /// usable and is the same structural property S03-T7 relies on.
-    #[tokio::test]
-    async fn a_simulated_effect_never_asks_the_owner() {
-        // No OrgIntel needed: the simulated branch returns before touching it.
-        let config = config(&[]);
-        let decision = tokio::task::spawn_blocking(move || {
-            // check() is async but the simulated path is pure; assert the
-            // property directly on the branch that governs it.
-            matches!(
-                (
-                    Provider::Simulated == Provider::Simulated,
-                    config.approved_parties.len()
-                ),
-                (true, 0)
-            )
-        })
-        .await
-        .unwrap();
-        assert!(decision, "a simulated provider must not require approval");
     }
 }

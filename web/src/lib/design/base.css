@@ -19,9 +19,10 @@
 }
 
 :root {
-	font-family: 'Inter', system-ui, sans-serif;
-	color: #f4f5f6;
-	background: #0a0b0d;
+	font-family: var(--font-ui);
+	color: #17181c;
+	background: #eef1f5;
+	color-scheme: light;
 	font-synthesis: none;
 }
 

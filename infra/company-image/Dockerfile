@@ -76,6 +76,12 @@ RUN corepack enable pnpm \
     && corepack prepare pnpm@10.18.0 --activate \
     && pnpm --version
 
+# An ordinary open-source CLI, not a Restless provider adapter. Authority
+# injects RESEND_API_KEY only into the exact governed child process.
+RUN npm install -g resend-cli@2.12.0 \
+    && resend --version \
+    && npm cache clean --force
+
 # Playwright library for browser-driven acceptance (T11). Uses the Debian
 # chromium installed above — do NOT download Playwright's own browser build.
 # Scripts must pass `executablePath: '/usr/bin/chromium'` to chromium.launch.
@@ -83,7 +89,8 @@ RUN PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 npm install -g playwright@1.62.1 \
     && npm cache clean --force
 
 RUN groupadd --gid 2000 company \
-    && useradd --uid 2000 --gid 2000 --no-create-home --home-dir /company/home company
+    && useradd --uid 2000 --gid 2000 --no-create-home --home-dir /company/home company \
+    && useradd --uid 2001 --gid 2000 --no-create-home --home-dir /tmp/restless-effect effect
 
 COPY infra/company-image/entrypoint.sh /usr/local/bin/company-init
 COPY infra/company-image/wait-for-display.sh /usr/local/bin/wait-for-company-display

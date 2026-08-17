@@ -33,23 +33,39 @@ static CLIENT: OnceLock<ClientConfig> = OnceLock::new();
 #[derive(Clone)]
 pub struct ClientConfig {
     gateway_token: String,
-    providers: BTreeSet<String>,
+    providers: BTreeMap<String, ModelBilling>,
 }
 
 impl ClientConfig {
     pub fn auth_for(&self, model: &str) -> Result<AgentGatewayAuth> {
         let (provider, _) = split_model(model)?;
-        if !self.providers.contains(provider) {
+        let Some(billing) = self.providers.get(provider).copied() else {
             bail!(
                 "model provider {provider} was not loaded into the host gateway at daemon boot; configure its credential and restart restlessd"
             );
-        }
+        };
         Ok(AgentGatewayAuth {
             provider: provider.to_string(),
             token_env: GATEWAY_TOKEN_ENV.to_string(),
             token: self.gateway_token.clone(),
             runtime_url: GATEWAY_RUNTIME_URL.to_string(),
+            billing,
         })
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ModelBilling {
+    MeteredApi,
+    Subscription,
+}
+
+impl ModelBilling {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::MeteredApi => "metered_api",
+            Self::Subscription => "subscription",
+        }
     }
 }
 
@@ -58,6 +74,94 @@ pub struct AgentGatewayAuth {
     pub token_env: String,
     pub token: String,
     pub runtime_url: String,
+    pub billing: ModelBilling,
+}
+
+/// Apply the installation-wide cooldown facts to one company's ordered model
+/// policy. This is shared by Exec and Staff so a dead provider is not retried
+/// once per actor and wake.
+pub async fn available_candidates(
+    config: &CompanyConfig,
+    preferred: Option<&str>,
+    authority: &crate::authority::AuthorityStore,
+) -> Result<Vec<String>> {
+    let ordered = ordered_candidates(config, preferred)?;
+    let cooldowns = authority.active_model_cooldowns(&config.name).await?;
+    filter_cooling_candidates(ordered, &cooldowns)
+}
+
+fn ordered_candidates(config: &CompanyConfig, preferred: Option<&str>) -> Result<Vec<String>> {
+    let mut ordered = Vec::new();
+    if let Some(model) = preferred.map(str::trim).filter(|model| !model.is_empty()) {
+        ordered.push(model.to_string());
+    }
+    for model in config.model_candidates()? {
+        if !ordered.iter().any(|candidate| candidate == model) {
+            ordered.push(model.to_string());
+        }
+    }
+    Ok(ordered)
+}
+
+fn filter_cooling_candidates(
+    mut ordered: Vec<String>,
+    cooldowns: &[crate::authority::ModelCooldown],
+) -> Result<Vec<String>> {
+    ordered.retain(|model| !cooldowns.iter().any(|cooldown| &cooldown.model == model));
+    if ordered.is_empty() {
+        let next = cooldowns
+            .first()
+            .map(|cooldown| {
+                format!(
+                    "{} until {} ({})",
+                    cooldown.model,
+                    cooldown.retry_at.to_rfc3339(),
+                    cooldown.kind
+                )
+            })
+            .unwrap_or_else(|| "no configured candidates".into());
+        bail!("all model candidates are cooling down; next: {next}");
+    }
+    Ok(ordered)
+}
+
+pub async fn record_cooldown(
+    authority: &crate::authority::AuthorityStore,
+    company: &str,
+    model: &str,
+    kind: crate::health::BlockKind,
+    reason: &str,
+) -> Result<()> {
+    let duration = match kind {
+        crate::health::BlockKind::Credential | crate::health::BlockKind::Model => {
+            chrono::Duration::hours(24)
+        }
+        crate::health::BlockKind::Quota => chrono::Duration::hours(1),
+        crate::health::BlockKind::NoOp => chrono::Duration::minutes(15),
+        crate::health::BlockKind::Transport => chrono::Duration::minutes(2),
+        _ => return Ok(()),
+    };
+    let retry_at = chrono::Utc::now() + duration;
+    authority
+        .set_model_cooldown(
+            company,
+            model,
+            kind.as_str(),
+            &reason.chars().take(500).collect::<String>(),
+            retry_at,
+        )
+        .await?;
+    authority
+        .emit(
+            company,
+            "model_cooldown",
+            None,
+            serde_json::json!({
+                "model": model, "kind": kind.as_str(), "retry_at": retry_at,
+            }),
+        )
+        .await?;
+    Ok(())
 }
 
 /// Child handles are deliberately ordinary supervised processes. Dropping the
@@ -78,8 +182,8 @@ impl Drop for Processes {
 /// Start the imported broker/gateway pair and install its narrow client
 /// configuration for ACP and world-model processes.
 pub async fn start(configs: &[CompanyConfig]) -> Result<Processes> {
-    let provider_keys = provider_keys(configs).await?;
-    if provider_keys.is_empty() {
+    let provider_credentials = provider_credentials(configs).await?;
+    if provider_credentials.is_empty() {
         bail!("no configured company model provider is available for the model gateway");
     }
 
@@ -103,10 +207,13 @@ pub async fn start(configs: &[CompanyConfig]) -> Result<Processes> {
     prune_unconfigured_credentials(
         &http,
         &broker_token,
-        provider_keys.keys().map(String::as_str).collect(),
+        provider_credentials.keys().map(String::as_str).collect(),
     )
     .await?;
-    for (provider, key) in &provider_keys {
+    for (provider, credential) in &provider_credentials {
+        let ProviderCredential::ApiKey(key) = credential else {
+            continue;
+        };
         let response = http
             .post(format!("{BROKER_URL}/v1/credential"))
             .bearer_auth(&broker_token)
@@ -126,7 +233,7 @@ pub async fn start(configs: &[CompanyConfig]) -> Result<Processes> {
             );
         }
     }
-    prune_superseded_credentials(&http, &broker_token, &provider_keys).await?;
+    reconcile_credentials(&http, &broker_token, &provider_credentials).await?;
 
     let gateway_token = token(&omp, GATEWAY_PROFILE, "auth-gateway").await?;
     let mut gateway = Command::new(&omp)
@@ -140,8 +247,15 @@ pub async fn start(configs: &[CompanyConfig]) -> Result<Processes> {
         .kill_on_drop(true)
         .spawn()
         .context("start OMP model auth gateway")?;
-    let providers = provider_keys.keys().cloned().collect::<BTreeSet<_>>();
-    wait_for_gateway(&mut gateway, &gateway_token, &providers).await?;
+    let required = provider_credentials
+        .keys()
+        .cloned()
+        .collect::<BTreeSet<_>>();
+    wait_for_gateway(&mut gateway, &gateway_token, &required).await?;
+    let providers = provider_credentials
+        .into_iter()
+        .map(|(provider, credential)| (provider, credential.billing()))
+        .collect();
 
     CLIENT
         .set(ClientConfig {
@@ -168,6 +282,10 @@ impl BrokerCredential {
     fn api_key(&self) -> Option<&str> {
         (self.credential.get("type")?.as_str()? == "api_key")
             .then(|| self.credential.get("key")?.as_str())?
+    }
+
+    fn is_oauth(&self) -> bool {
+        self.credential.get("type").and_then(|value| value.as_str()) == Some("oauth")
     }
 }
 
@@ -247,14 +365,19 @@ async fn prune_unconfigured_credentials(
 /// however: after uploading the current Infisical value, disable every other
 /// active row for that provider. This both applies rotation and prevents daemon
 /// restarts from accumulating equally privileged fallback keys.
-async fn prune_superseded_credentials(
+async fn reconcile_credentials(
     http: &reqwest::Client,
     broker_token: &str,
-    provider_keys: &BTreeMap<String, String>,
+    provider_credentials: &BTreeMap<String, ProviderCredential>,
 ) -> Result<()> {
     let snapshot = broker_snapshot(http, broker_token).await?;
-    for (provider, expected_key) in provider_keys {
-        let (keep_id, superseded_ids) = canonical_credential(&snapshot, provider, expected_key)?;
+    for (provider, expected) in provider_credentials {
+        let (keep_id, superseded_ids) = match expected {
+            ProviderCredential::ApiKey(expected_key) => {
+                canonical_api_key_credential(&snapshot, provider, expected_key)?
+            }
+            ProviderCredential::OmpOauth => canonical_oauth_credential(&snapshot, provider)?,
+        };
         for credential in snapshot
             .credentials
             .iter()
@@ -264,7 +387,7 @@ async fn prune_superseded_credentials(
                 http,
                 broker_token,
                 credential,
-                "superseded by the current Restless credential reference",
+                "superseded by the current Restless model credential reference",
             )
             .await?;
         }
@@ -275,17 +398,22 @@ async fn prune_superseded_credentials(
             .iter()
             .filter(|credential| credential.provider == *provider)
             .collect::<Vec<_>>();
-        if active.len() != 1
-            || active[0].id != keep_id
-            || active[0].api_key() != Some(expected_key.as_str())
-        {
+        let matches = active.len() == 1
+            && active[0].id == keep_id
+            && match expected {
+                ProviderCredential::ApiKey(expected_key) => {
+                    active[0].api_key() == Some(expected_key.as_str())
+                }
+                ProviderCredential::OmpOauth => active[0].is_oauth(),
+            };
+        if !matches {
             bail!("host model broker did not converge {provider} to one current credential");
         }
     }
     Ok(())
 }
 
-fn canonical_credential(
+fn canonical_api_key_credential(
     snapshot: &BrokerSnapshot,
     provider: &str,
     expected_key: &str,
@@ -313,10 +441,44 @@ fn canonical_credential(
     Ok((keep_id, superseded))
 }
 
+fn canonical_oauth_credential(
+    snapshot: &BrokerSnapshot,
+    provider: &str,
+) -> Result<(i64, Vec<i64>)> {
+    let provider_rows = snapshot
+        .credentials
+        .iter()
+        .filter(|credential| credential.provider == provider)
+        .collect::<Vec<_>>();
+    let matching = provider_rows
+        .iter()
+        .filter(|credential| credential.is_oauth())
+        .collect::<Vec<_>>();
+    if matching.len() != 1 {
+        bail!(
+            "host model broker has {} OAuth credentials for {provider}; expected exactly one owner-authenticated account",
+            matching.len()
+        );
+    }
+    let keep_id = matching[0].id;
+    let superseded = provider_rows
+        .into_iter()
+        .filter_map(|credential| (credential.id != keep_id).then_some(credential.id))
+        .collect();
+    Ok((keep_id, superseded))
+}
+
 pub fn client() -> Result<&'static ClientConfig> {
     CLIENT
         .get()
         .context("host model gateway is not installed; restlessd did not finish booting")
+}
+
+pub fn oauth_is_loaded(provider: &str) -> Result<bool> {
+    Ok(matches!(
+        client()?.providers.get(provider),
+        Some(ModelBilling::Subscription)
+    ))
 }
 
 pub fn models_config(provider: &str, runtime_url: &str, token_env: &str) -> Result<String> {
@@ -335,35 +497,81 @@ providers:\n  {provider}:\n    baseUrl: {runtime_url}\n    apiKey: {token_env}\n
     ))
 }
 
-async fn provider_keys(configs: &[CompanyConfig]) -> Result<BTreeMap<String, String>> {
-    let mut keys = BTreeMap::<String, String>::new();
-    for config in configs {
-        let (provider, _) = split_model(&config.model)?;
-        let key = match config.credentials.get("model.inference") {
-            Some(reference) => crate::credential::resolve_reference(reference)
-                .await
-                .with_context(|| format!("resolve model credential for {}", config.name))?,
-            None => {
-                let env = provider_key_env(provider)?;
-                std::env::var(env).with_context(|| {
-                    format!(
-                        "{env} must be set for configured model {} (or set credentials.model.inference)",
-                        config.model
-                    )
-                })?
-            }
-        };
-        if let Some(existing) = keys.get(provider) {
-            if existing != &key {
-                bail!(
-                    "V0 model gateway refuses different {provider} credentials across companies; separate provider custody before multi-account use"
-                );
-            }
-        } else {
-            keys.insert(provider.to_string(), key);
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum ProviderCredential {
+    ApiKey(String),
+    OmpOauth,
+}
+
+impl ProviderCredential {
+    fn billing(&self) -> ModelBilling {
+        match self {
+            Self::ApiKey(_) => ModelBilling::MeteredApi,
+            Self::OmpOauth => ModelBilling::Subscription,
         }
     }
-    Ok(keys)
+}
+
+async fn provider_credentials(
+    configs: &[CompanyConfig],
+) -> Result<BTreeMap<String, ProviderCredential>> {
+    let mut credentials = BTreeMap::<String, ProviderCredential>::new();
+    // Resolve only explicit host references on the first pass. Throwaway
+    // configs deliberately carry none; they may use an installation route
+    // authorised by another company, but iteration order must never decide it.
+    for config in configs {
+        let (primary_provider, _) = split_model(&config.model)?;
+        for model in config.model_candidates()? {
+            let (provider, _) = split_model(model)?;
+            let provider_capability = format!("model.inference.{provider}");
+            let reference = config.credentials.get(&provider_capability).or_else(|| {
+                (provider == primary_provider)
+                    .then(|| config.credentials.get("model.inference"))
+                    .flatten()
+            });
+            let Some(reference) = reference else {
+                continue;
+            };
+            let credential = match crate::credential::omp_oauth_provider(reference)? {
+                Some(referenced_provider) => {
+                    if referenced_provider != provider {
+                        bail!(
+                            "company {} maps {provider_capability} to OAuth provider {referenced_provider}",
+                            config.name
+                        );
+                    }
+                    ProviderCredential::OmpOauth
+                }
+                None => ProviderCredential::ApiKey(
+                    crate::credential::resolve_reference(reference)
+                        .await
+                        .with_context(|| {
+                            format!("resolve {provider} model credential for {}", config.name)
+                        })?,
+                ),
+            };
+            if let Some(existing) = credentials.get(provider) {
+                if existing != &credential {
+                    bail!(
+                        "V0 model gateway refuses different {provider} credentials across companies; separate provider custody before multi-account use"
+                    );
+                }
+            } else {
+                credentials.insert(provider.to_string(), credential);
+            }
+        }
+    }
+    for config in configs {
+        for model in config.model_candidates()? {
+            let (provider, _) = split_model(model)?;
+            if !credentials.contains_key(provider) {
+                bail!(
+                    "no configured company provides a host credential reference for model {model}; set credentials.model.inference.{provider}"
+                );
+            }
+        }
+    }
+    Ok(credentials)
 }
 
 fn split_model(model: &str) -> Result<(&str, &str)> {
@@ -374,17 +582,6 @@ fn split_model(model: &str) -> Result<(&str, &str)> {
         bail!("model {model} must contain a provider and model id");
     }
     Ok((provider, id))
-}
-
-fn provider_key_env(provider: &str) -> Result<&'static str> {
-    match provider {
-        "zai" => Ok("ZAI_API_KEY"),
-        "anthropic" => Ok("ANTHROPIC_API_KEY"),
-        "openai" => Ok("OPENAI_API_KEY"),
-        "moonshot" => Ok("MOONSHOT_API_KEY"),
-        "openrouter" => Ok("OPENROUTER_API_KEY"),
-        other => bail!("no credential mapping for model provider {other}"),
-    }
 }
 
 async fn token(omp: &str, profile: &str, command: &str) -> Result<String> {
@@ -449,7 +646,8 @@ async fn wait_for_gateway(
     let http = reqwest::Client::builder()
         .timeout(Duration::from_secs(2))
         .build()?;
-    for _ in 0..150 {
+    let mut observed = BTreeSet::new();
+    for _ in 0..300 {
         if let Some(status) = child.try_wait().context("inspect OMP gateway")? {
             bail!("OMP model auth gateway exited during boot ({status})");
         }
@@ -461,6 +659,12 @@ async fn wait_for_gateway(
         {
             if response.status().is_success() {
                 if let Ok(list) = response.json::<ModelList>().await {
+                    observed = list
+                        .data
+                        .iter()
+                        .filter_map(|model| model.id.split_once('/').map(|(provider, _)| provider))
+                        .map(str::to_string)
+                        .collect();
                     let ready = providers.iter().all(|provider| {
                         let prefix = format!("{provider}/");
                         list.data.iter().any(|model| model.id.starts_with(&prefix))
@@ -473,7 +677,12 @@ async fn wait_for_gateway(
         }
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
-    bail!("OMP model auth gateway did not expose every configured provider")
+    let missing = providers.difference(&observed).cloned().collect::<Vec<_>>();
+    bail!(
+        "OMP model auth gateway did not expose configured providers {:?} (observed {:?})",
+        missing,
+        observed
+    )
 }
 
 #[cfg(test)]
@@ -509,9 +718,50 @@ mod tests {
         }))
         .unwrap();
         assert_eq!(
-            canonical_credential(&snapshot, "moonshot", "current").unwrap(),
+            canonical_api_key_credential(&snapshot, "moonshot", "current").unwrap(),
             (2, vec![1])
         );
-        assert!(canonical_credential(&snapshot, "moonshot", "missing").is_err());
+        assert!(canonical_api_key_credential(&snapshot, "moonshot", "missing").is_err());
+    }
+
+    #[test]
+    fn oauth_reference_keeps_exactly_one_authenticated_provider_row() {
+        let snapshot: BrokerSnapshot = serde_json::from_value(serde_json::json!({
+            "credentials": [
+                {"id": 7, "provider": "anthropic", "credential": {"type": "oauth", "refresh": "<remote>", "access": "redacted", "expires": 1}},
+                {"id": 8, "provider": "anthropic", "credential": {"type": "api_key", "key": "old"}}
+            ]
+        }))
+        .unwrap();
+        assert_eq!(
+            canonical_oauth_credential(&snapshot, "anthropic").unwrap(),
+            (7, vec![8])
+        );
+    }
+
+    #[test]
+    fn one_cooldown_read_drives_exec_and_staff_candidate_order() {
+        let config = CompanyConfig {
+            name: "continuity_test".into(),
+            mission: String::new(),
+            spend_ceiling_usd: 10.0,
+            model: "moonshot/kimi-k3".into(),
+            model_failover: vec!["anthropic/claude-sonnet-4-5".into()],
+            credentials: BTreeMap::new(),
+            approved_parties: Vec::new(),
+        };
+        let ordered = ordered_candidates(&config, Some("moonshot/kimi-k3")).unwrap();
+        assert_eq!(ordered, ["moonshot/kimi-k3", "anthropic/claude-sonnet-4-5"]);
+        let available = filter_cooling_candidates(
+            ordered,
+            &[crate::authority::ModelCooldown {
+                model: "moonshot/kimi-k3".into(),
+                kind: "quota".into(),
+                reason: "allowance exhausted".into(),
+                retry_at: chrono::Utc::now() + chrono::Duration::hours(1),
+            }],
+        )
+        .unwrap();
+        assert_eq!(available, ["anthropic/claude-sonnet-4-5"]);
     }
 }

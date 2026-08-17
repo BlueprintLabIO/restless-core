@@ -1,9 +1,9 @@
 /* ============================================================================
  * Bridge — the design language.
  *
- * Canon: docs/design-language.md. The thesis is the dark cockpit: when everything
- * is normal, nothing is lit, nothing moves, nothing is coloured. Seriousness is
- * the absence of noise plus the guarantee that annunciation means something.
+ * The implementation contract is a light operational surface over the dot-matrix
+ * machine: normal is quiet, while restrained colour has stable meaning for
+ * conversation, feedback, direction, authority and outcome.
  *
  * Everything below the token layer is scoped under `.bridge-root`. That scope is
  * load-bearing, not cosmetic: it keeps the ramp, the type helpers, and every
@@ -15,17 +15,32 @@
  * override earlier ones. Do not reorder without reading what breaks.
  * ========================================================================== */
 
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
+/* Self-hosted, because restlessd serves this SPA from web/build and a company
+ * computer is not guaranteed a route to fonts.googleapis.com. The CDN import
+ * that used to sit here made the owner's type depend on a third-party network
+ * round trip, and flashed unstyled text on every cold load. */
+/* Latin and latin-ext only. The unqualified imports carry Cyrillic, Greek and
+ * Vietnamese as well — 68 font files for a product whose owner surface is
+ * English with European company and person names in it. */
+@import '@fontsource/ibm-plex-sans/latin-400.css';
+@import '@fontsource/ibm-plex-sans/latin-500.css';
+@import '@fontsource/ibm-plex-sans/latin-600.css';
+@import '@fontsource/ibm-plex-sans/latin-ext-400.css';
+@import '@fontsource/ibm-plex-mono/latin-400.css';
+@import '@fontsource/ibm-plex-mono/latin-500.css';
+@import '@fontsource/ibm-plex-mono/latin-600.css';
+/* the wordmark only — the pixel matrix the marks already speak in */
+@import '@fontsource/silkscreen/latin-400.css';
 
 /* app-level: the z-ladder and the document reset, outside the scope */
 @import './base.css';
 
 /* the language itself, in cascade order */
-@import './tokens.css'; /* the 9-step neutral ramp + the light sibling */
+@import './tokens.css'; /* light surfaces, geometry, intent and outcome tokens */
 @import './type.css'; /* mono, display, over-label, caption, headings */
-@import './chrome.css'; /* topbar, brand menu, tabs, annunciator, account, avatar */
-@import './primitives.css'; /* chips, buttons, the pane system, pane headings */
-@import './chat.css'; /* thread, sidebar, attachments, ledger rows, the composer */
-@import './patterns.css'; /* page scaffolding, kanban, tables, modals, the door */
-@import './surfaces.css'; /* inbox, executive rail, mission, people, ops, library, tape */
-@import './hints.css'; /* explanation on demand, in the browser's top layer */
+@import './chrome.css'; /* company identity, four tabs, presence, account mark */
+@import './primitives.css'; /* bounded buttons and hold-to-confirm */
+@import './chat.css'; /* transcript separators, attachments, the composer */
+@import './patterns.css'; /* company door */
+@import './surfaces.css'; /* focused evidence + persistent executive transcript */
+@import './cockpit.css'; /* Bridge Light four-surface cockpit + semantic colour */

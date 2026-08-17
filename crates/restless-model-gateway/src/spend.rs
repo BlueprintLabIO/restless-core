@@ -8,7 +8,7 @@
 //! retired path.
 
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     fs::{self, OpenOptions},
     io::Write as _,
     path::PathBuf,
@@ -75,13 +75,283 @@ pub struct SpendRecord {
 pub const POISON_MARKER: &str = "poison-marker";
 pub const POISON_CLEARED: &str = "poison-cleared";
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+enum SpendEntryType {
+    #[serde(rename = "spendCorrection")]
+    SpendCorrection,
+}
+
+/// An append-only correction to exact, already-recorded duplicate requests.
+/// The original [`SpendRecord`] lines are never edited or removed.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SpendCorrection {
+    #[serde(rename = "type")]
+    entry_type: SpendEntryType,
+    pub correction_id: Uuid,
+    pub company_id: String,
+    pub request_ids: Vec<Uuid>,
+    /// Signed for audit clarity, but corrections are strictly subtractive.
+    pub delta_micro_usd: i64,
+    pub reason: String,
+    pub corrected_by: String,
+    pub occurred_at: DateTime<Utc>,
+}
+
+/// What a correction would do. Previewing this value never writes the spool.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SpendCorrectionPreview {
+    pub correction_id: Uuid,
+    pub company_id: String,
+    pub request_ids: Vec<Uuid>,
+    pub delta_micro_usd: i64,
+    pub current_total_micro_usd: u64,
+    pub post_correction_total_micro_usd: u64,
+    pub reason: String,
+    pub corrected_by: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+enum SpendEntry {
+    Correction(SpendCorrection),
+    Record(SpendRecord),
+}
+
+impl SpendEntry {
+    fn company_id(&self) -> &str {
+        match self {
+            Self::Correction(correction) => &correction.company_id,
+            Self::Record(record) => &record.company_id,
+        }
+    }
+}
+
+#[derive(Clone, Default)]
+struct SpendState {
+    accounted_totals: HashMap<String, u64>,
+    poisons: HashSet<String>,
+    records: HashMap<Uuid, SpendRecord>,
+    corrections: HashMap<Uuid, SpendCorrection>,
+    corrected_requests: HashSet<Uuid>,
+    breakdowns: HashMap<String, HashMap<(String, String), u64>>,
+}
+
+struct CorrectionPlan {
+    preview: SpendCorrectionPreview,
+    records: Vec<SpendRecord>,
+}
+
+impl SpendState {
+    fn apply_record(&mut self, record: SpendRecord) -> GatewayResult<()> {
+        if record.request_id == Uuid::nil() {
+            match record.model.as_str() {
+                POISON_MARKER => {
+                    self.poisons.insert(record.company_id);
+                    return Ok(());
+                }
+                POISON_CLEARED => {
+                    self.poisons.remove(&record.company_id);
+                    return Ok(());
+                }
+                _ => {
+                    return Err(GatewayError::Configuration(
+                        "nil spend request id is reserved for poison audit markers".into(),
+                    ))
+                }
+            }
+        }
+        if self.records.contains_key(&record.request_id) {
+            return Err(GatewayError::Configuration(format!(
+                "duplicate spend request id {}",
+                record.request_id
+            )));
+        }
+        let current = self
+            .accounted_totals
+            .get(&record.company_id)
+            .copied()
+            .unwrap_or_default();
+        let next = current.checked_add(record.cost_micro_usd).ok_or_else(|| {
+            GatewayError::Configuration(format!(
+                "spend total overflow for company {:?}",
+                record.company_id
+            ))
+        })?;
+        let actor = if record.actor_id.is_empty() {
+            "unattributed".to_string()
+        } else {
+            record.actor_id.clone()
+        };
+        let key = (actor, record.model.clone());
+        let breakdown = self
+            .breakdowns
+            .entry(record.company_id.clone())
+            .or_default();
+        let current_key = breakdown.get(&key).copied().unwrap_or_default();
+        let next_key = current_key
+            .checked_add(record.cost_micro_usd)
+            .ok_or_else(|| {
+                GatewayError::Configuration(format!(
+                    "spend breakdown overflow for company {:?}",
+                    record.company_id
+                ))
+            })?;
+        self.accounted_totals
+            .insert(record.company_id.clone(), next);
+        breakdown.insert(key, next_key);
+        self.records.insert(record.request_id, record);
+        Ok(())
+    }
+
+    fn correction_plan(&self, correction: &SpendCorrection) -> GatewayResult<CorrectionPlan> {
+        if correction.correction_id == Uuid::nil() {
+            return Err(GatewayError::InvalidRequest(
+                "correction id must be a non-nil stable UUID".into(),
+            ));
+        }
+        if self.corrections.contains_key(&correction.correction_id) {
+            return Err(GatewayError::InvalidRequest(format!(
+                "correction id {} is already applied",
+                correction.correction_id
+            )));
+        }
+        if correction.company_id.trim().is_empty()
+            || correction.reason.trim().is_empty()
+            || correction.corrected_by.trim().is_empty()
+        {
+            return Err(GatewayError::InvalidRequest(
+                "correction needs company, reason and correcting principal".into(),
+            ));
+        }
+        if correction.delta_micro_usd >= 0 {
+            return Err(GatewayError::InvalidRequest(
+                "a spend correction must have a negative micro-USD delta".into(),
+            ));
+        }
+        if correction.request_ids.is_empty() {
+            return Err(GatewayError::InvalidRequest(
+                "a spend correction must reference at least one exact request id".into(),
+            ));
+        }
+
+        let mut unique = HashSet::new();
+        let mut records = Vec::with_capacity(correction.request_ids.len());
+        let mut referenced_total = 0_u64;
+        for request_id in &correction.request_ids {
+            if !unique.insert(*request_id) {
+                return Err(GatewayError::InvalidRequest(format!(
+                    "request id {request_id} is duplicated within the correction"
+                )));
+            }
+            let record = self.records.get(request_id).ok_or_else(|| {
+                GatewayError::InvalidRequest(format!(
+                    "correction references unknown request id {request_id}"
+                ))
+            })?;
+            if record.company_id != correction.company_id {
+                return Err(GatewayError::InvalidRequest(format!(
+                    "request id {request_id} belongs to company {:?}, not {:?}",
+                    record.company_id, correction.company_id
+                )));
+            }
+            if self.corrected_requests.contains(request_id) {
+                return Err(GatewayError::InvalidRequest(format!(
+                    "request id {request_id} was already corrected"
+                )));
+            }
+            referenced_total = referenced_total
+                .checked_add(record.cost_micro_usd)
+                .ok_or_else(|| {
+                    GatewayError::InvalidRequest("referenced spend total overflows u64".into())
+                })?;
+            records.push(record.clone());
+        }
+
+        let subtraction = correction.delta_micro_usd.unsigned_abs();
+        if subtraction > referenced_total {
+            return Err(GatewayError::InvalidRequest(format!(
+                "over-correction: requested {subtraction} micro-USD but referenced records total {referenced_total}"
+            )));
+        }
+        if subtraction != referenced_total {
+            return Err(GatewayError::InvalidRequest(format!(
+                "correction must remove the exact referenced duplicate records: delta is -{subtraction}, referenced total is {referenced_total} micro-USD"
+            )));
+        }
+        let current_total = self
+            .accounted_totals
+            .get(&correction.company_id)
+            .copied()
+            .unwrap_or_default();
+        let post_correction_total = current_total.checked_sub(subtraction).ok_or_else(|| {
+            GatewayError::InvalidRequest(format!(
+                "over-correction: company total is {current_total} micro-USD, subtraction is {subtraction}"
+            ))
+        })?;
+        Ok(CorrectionPlan {
+            preview: SpendCorrectionPreview {
+                correction_id: correction.correction_id,
+                company_id: correction.company_id.clone(),
+                request_ids: correction.request_ids.clone(),
+                delta_micro_usd: correction.delta_micro_usd,
+                current_total_micro_usd: current_total,
+                post_correction_total_micro_usd: post_correction_total,
+                reason: correction.reason.clone(),
+                corrected_by: correction.corrected_by.clone(),
+            },
+            records,
+        })
+    }
+
+    fn apply_correction(
+        &mut self,
+        correction: SpendCorrection,
+        plan: CorrectionPlan,
+    ) -> GatewayResult<()> {
+        self.accounted_totals.insert(
+            correction.company_id.clone(),
+            plan.preview.post_correction_total_micro_usd,
+        );
+        let breakdown = self
+            .breakdowns
+            .entry(correction.company_id.clone())
+            .or_default();
+        for record in &plan.records {
+            let actor = if record.actor_id.is_empty() {
+                "unattributed".to_string()
+            } else {
+                record.actor_id.clone()
+            };
+            let key = (actor, record.model.clone());
+            let current = breakdown.get(&key).copied().unwrap_or_default();
+            let next = current.checked_sub(record.cost_micro_usd).ok_or_else(|| {
+                GatewayError::Configuration(format!(
+                    "correction {} exceeds its actor/model breakdown",
+                    correction.correction_id
+                ))
+            })?;
+            if next == 0 {
+                breakdown.remove(&key);
+            } else {
+                breakdown.insert(key, next);
+            }
+            self.corrected_requests.insert(record.request_id);
+        }
+        self.corrections
+            .insert(correction.correction_id, correction);
+        Ok(())
+    }
+}
+
 /// Crash-durable per-company spend counter. Append-only JSONL spool +
 /// in-memory totals rebuilt on boot. Open failure is fatal to the gateway
 /// (fail closed): a gateway that cannot account does not serve.
 pub struct SpendStore {
     path: PathBuf,
     writer: Mutex<fs::File>,
-    totals: Mutex<HashMap<String, u64>>,
+    state: Mutex<SpendState>,
 }
 
 impl SpendStore {
@@ -98,8 +368,7 @@ impl SpendStore {
             .canonicalize()
             .map_err(|error| GatewayError::Configuration(format!("spend root: {error}")))?;
         let path = root.join("spend.jsonl");
-        let mut totals: HashMap<String, u64> = HashMap::new();
-        let mut poisons: std::collections::HashSet<String> = std::collections::HashSet::new();
+        let mut state = SpendState::default();
         if path.exists() {
             let text = fs::read_to_string(&path).map_err(|error| {
                 GatewayError::Configuration(format!("read spend spool: {error}"))
@@ -109,9 +378,9 @@ impl SpendStore {
                 if line.trim().is_empty() {
                     continue;
                 }
-                let record: SpendRecord =
+                let entry: SpendEntry =
                     match serde_json::from_str(line) {
-                        Ok(record) => record,
+                        Ok(entry) => entry,
                         Err(error) => {
                             let torn_tail =
                                 lines[index + 1..].iter().all(|rest| rest.trim().is_empty());
@@ -147,27 +416,19 @@ impl SpendStore {
                             )));
                         }
                     };
-                // A cleared poison is cancelled, not erased: both records stay
-                // in the spool so the incident is still legible, but the
-                // company's total returns to its real spend. Without this a
-                // fail-closed poison is permanent and a company is bricked by a
-                // provider outage it did not cause — observed live when a
-                // credit exhaustion produced usage with no cost, poisoning two
-                // companies that were otherwise healthy.
-                if record.model == POISON_CLEARED {
-                    poisons.remove(&record.company_id);
-                    continue;
+                match entry {
+                    SpendEntry::Record(record) => state.apply_record(record)?,
+                    SpendEntry::Correction(correction) => {
+                        let plan = state.correction_plan(&correction).map_err(|error| {
+                            GatewayError::Configuration(format!(
+                                "invalid spend correction on line {}: {error}",
+                                index + 1
+                            ))
+                        })?;
+                        state.apply_correction(correction, plan)?;
+                    }
                 }
-                if record.model == POISON_MARKER {
-                    poisons.insert(record.company_id.clone());
-                    continue;
-                }
-                let total = totals.entry(record.company_id).or_default();
-                *total = total.saturating_add(record.cost_micro_usd);
             }
-        }
-        for company in poisons {
-            totals.insert(company, u64::MAX);
         }
         let writer = OpenOptions::new()
             .create(true)
@@ -177,15 +438,25 @@ impl SpendStore {
         Ok(Self {
             path,
             writer: Mutex::new(writer),
-            totals: Mutex::new(totals),
+            state: Mutex::new(state),
         })
     }
 
     #[must_use]
     pub fn spent_micro_usd(&self, company_id: &str) -> u64 {
-        self.totals
+        self.state
             .lock()
-            .map(|totals| totals.get(company_id).copied().unwrap_or(0))
+            .map(|state| {
+                if state.poisons.contains(company_id) {
+                    u64::MAX
+                } else {
+                    state
+                        .accounted_totals
+                        .get(company_id)
+                        .copied()
+                        .unwrap_or_default()
+                }
+            })
             .unwrap_or(u64::MAX) // poisoned lock fails closed
     }
 
@@ -197,28 +468,16 @@ impl SpendStore {
     /// alternative is a second aggregate to keep in sync with the first.
     #[must_use]
     pub fn breakdown_micro_usd(&self, company_id: &str) -> Vec<(String, String, u64)> {
-        let mut by_key: HashMap<(String, String), u64> = HashMap::new();
-        let Ok(text) = fs::read_to_string(&self.path) else {
+        let Ok(state) = self.state.lock() else {
             return Vec::new();
         };
-        for line in text.lines() {
-            let Ok(record) = serde_json::from_str::<SpendRecord>(line) else {
-                continue;
-            };
-            if record.company_id != company_id || record.request_id == Uuid::nil() {
-                continue;
-            }
-            let actor = if record.actor_id.is_empty() {
-                // Records written before the actor dimension existed. Named for
-                // what they are rather than blamed on a guess.
-                "unattributed".to_string()
-            } else {
-                record.actor_id.clone()
-            };
-            *by_key.entry((actor, record.model.clone())).or_default() += record.cost_micro_usd;
-        }
-        let mut rows: Vec<(String, String, u64)> =
-            by_key.into_iter().map(|((a, m), c)| (a, m, c)).collect();
+        let mut rows: Vec<(String, String, u64)> = state
+            .breakdowns
+            .get(company_id)
+            .into_iter()
+            .flat_map(|breakdown| breakdown.iter())
+            .map(|((actor, model), cost)| (actor.clone(), model.clone(), *cost))
+            .collect();
         rows.sort_by(|a, b| b.2.cmp(&a.2));
         rows
     }
@@ -232,6 +491,8 @@ impl SpendStore {
     /// meant to close, where three "identical" comparison arms ran with
     /// $2.45 / $10.51 / $12.85 of headroom against a nominal $15 ceiling.
     pub fn forget(&self, company_id: &str) -> GatewayResult<()> {
+        let mut writer = self.writer.lock().map_err(|_| GatewayError::Upstream)?;
+        let mut state = self.state.lock().map_err(|_| GatewayError::Upstream)?;
         let text = match fs::read_to_string(&self.path) {
             Ok(text) => text,
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
@@ -244,8 +505,8 @@ impl SpendStore {
         let kept: Vec<&str> = text
             .lines()
             .filter(|line| {
-                serde_json::from_str::<SpendRecord>(line)
-                    .map(|record| record.company_id != company_id)
+                serde_json::from_str::<SpendEntry>(line)
+                    .map(|entry| entry.company_id() != company_id)
                     .unwrap_or(true)
             })
             .collect();
@@ -261,13 +522,25 @@ impl SpendStore {
         fs::rename(&temporary, &self.path).map_err(|error| {
             GatewayError::Configuration(format!("replace spend spool: {error}"))
         })?;
-
-        if let Ok(mut totals) = self.totals.lock() {
-            totals.remove(company_id);
-        }
-        if let Ok(mut writer) = self.writer.lock() {
-            let _ = writer.flush();
-        }
+        *writer = OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&self.path)
+            .map_err(|error| GatewayError::Configuration(format!("reopen spend spool: {error}")))?;
+        state.accounted_totals.remove(company_id);
+        state.poisons.remove(company_id);
+        state.breakdowns.remove(company_id);
+        state
+            .records
+            .retain(|_, record| record.company_id != company_id);
+        state
+            .corrections
+            .retain(|_, correction| correction.company_id != company_id);
+        state.corrected_requests = state
+            .corrections
+            .values()
+            .flat_map(|correction| correction.request_ids.iter().copied())
+            .collect();
         Ok(())
     }
 
@@ -291,8 +564,8 @@ impl SpendStore {
         };
         if self.record(&marker).is_err() {
             // Spool is unwritable; at minimum stop this process from serving.
-            if let Ok(mut totals) = self.totals.lock() {
-                totals.insert(company_id.to_owned(), u64::MAX);
+            if let Ok(mut state) = self.state.lock() {
+                state.poisons.insert(company_id.to_owned());
             }
         }
     }
@@ -312,19 +585,84 @@ impl SpendStore {
             occurred_at: Utc::now(),
         };
         self.record(&marker)?;
-        if let Ok(mut totals) = self.totals.lock() {
-            totals.remove(company_id);
-        }
         Ok(())
     }
 
     /// Append one accounted call, fsync, then update the in-memory total.
     pub fn record(&self, record: &SpendRecord) -> GatewayResult<()> {
-        let mut line = serde_json::to_vec(record).map_err(|error| {
-            GatewayError::Configuration(format!("encode spend record: {error}"))
-        })?;
-        line.push(b'\n');
         let mut writer = self.writer.lock().map_err(|_| GatewayError::Upstream)?;
+        let mut state = self.state.lock().map_err(|_| GatewayError::Upstream)?;
+        let mut candidate = state.clone();
+        candidate.apply_record(record.clone())?;
+        self.append(&mut writer, record, "spend record")?;
+        *state = candidate;
+        Ok(())
+    }
+
+    /// Calculate the exact new accounted total without writing the spool.
+    pub fn preview_correction(
+        &self,
+        correction_id: Uuid,
+        company_id: &str,
+        request_ids: &[Uuid],
+        delta_micro_usd: i64,
+        reason: &str,
+        corrected_by: &str,
+    ) -> GatewayResult<SpendCorrectionPreview> {
+        let correction = SpendCorrection {
+            entry_type: SpendEntryType::SpendCorrection,
+            correction_id,
+            company_id: company_id.to_owned(),
+            request_ids: request_ids.to_vec(),
+            delta_micro_usd,
+            reason: reason.trim().to_owned(),
+            corrected_by: corrected_by.to_owned(),
+            occurred_at: Utc::now(),
+        };
+        let state = self.state.lock().map_err(|_| GatewayError::Upstream)?;
+        Ok(state.correction_plan(&correction)?.preview)
+    }
+
+    /// Append one owner-attributed correction after revalidating it against
+    /// the current spool state. The delta can only remove exact referenced
+    /// records, so this recovery act can never mint additional spend authority.
+    pub fn correct(
+        &self,
+        correction_id: Uuid,
+        company_id: &str,
+        request_ids: &[Uuid],
+        delta_micro_usd: i64,
+        reason: &str,
+        corrected_by: &str,
+    ) -> GatewayResult<(SpendCorrection, SpendCorrectionPreview)> {
+        let correction = SpendCorrection {
+            entry_type: SpendEntryType::SpendCorrection,
+            correction_id,
+            company_id: company_id.to_owned(),
+            request_ids: request_ids.to_vec(),
+            delta_micro_usd,
+            reason: reason.trim().to_owned(),
+            corrected_by: corrected_by.to_owned(),
+            occurred_at: Utc::now(),
+        };
+        let mut writer = self.writer.lock().map_err(|_| GatewayError::Upstream)?;
+        let mut state = self.state.lock().map_err(|_| GatewayError::Upstream)?;
+        let plan = state.correction_plan(&correction)?;
+        let preview = plan.preview.clone();
+        self.append(&mut writer, &correction, "spend correction")?;
+        state.apply_correction(correction.clone(), plan)?;
+        Ok((correction, preview))
+    }
+
+    fn append<T: Serialize>(
+        &self,
+        writer: &mut fs::File,
+        value: &T,
+        label: &str,
+    ) -> GatewayResult<()> {
+        let mut line = serde_json::to_vec(value)
+            .map_err(|error| GatewayError::Configuration(format!("encode {label}: {error}")))?;
+        line.push(b'\n');
         writer.write_all(&line)?;
         writer.sync_all()?;
         // fsync the directory so the append survives a crash on all filesystems.
@@ -333,10 +671,6 @@ impl SpendStore {
                 let _ = dir.sync_all();
             }
         }
-        drop(writer);
-        let mut totals = self.totals.lock().map_err(|_| GatewayError::Upstream)?;
-        let total = totals.entry(record.company_id.clone()).or_default();
-        *total = total.saturating_add(record.cost_micro_usd);
         Ok(())
     }
 }
@@ -554,5 +888,260 @@ mod tests {
             "real spend must survive the poison, un-inflated"
         );
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn correction_preview_is_read_only_and_application_is_exact_once() {
+        let temporary = tempfile::tempdir().unwrap();
+        let store = SpendStore::open(temporary.path()).unwrap();
+        let mut duplicate_a = spend_record("acme", 470_000);
+        duplicate_a.actor_id = "lead".into();
+        duplicate_a.model = "kimi-k3".into();
+        let mut duplicate_b = spend_record("acme", 1_110_000);
+        duplicate_b.actor_id = "lead".into();
+        duplicate_b.model = "kimi-k3".into();
+        let mut truthful_final = spend_record("acme", 2_380_000);
+        truthful_final.actor_id = "lead".into();
+        truthful_final.model = "kimi-k3".into();
+        store.record(&duplicate_a).unwrap();
+        store.record(&duplicate_b).unwrap();
+        store.record(&truthful_final).unwrap();
+        let spool = temporary.path().join("spend.jsonl");
+        let before = fs::read(&spool).unwrap();
+        let correction_id = Uuid::new_v4();
+        let request_ids = [duplicate_a.request_id, duplicate_b.request_id];
+
+        let preview = store
+            .preview_correction(
+                correction_id,
+                "acme",
+                &request_ids,
+                -1_580_000,
+                "ACP emitted cumulative snapshots as separate records",
+                "owner",
+            )
+            .unwrap();
+        assert_eq!(preview.current_total_micro_usd, 3_960_000);
+        assert_eq!(preview.post_correction_total_micro_usd, 2_380_000);
+        assert_eq!(fs::read(&spool).unwrap(), before, "preview must not write");
+        assert_eq!(store.spent_micro_usd("acme"), 3_960_000);
+
+        let (correction, applied) = store
+            .correct(
+                correction_id,
+                "acme",
+                &request_ids,
+                -1_580_000,
+                "ACP emitted cumulative snapshots as separate records",
+                "owner",
+            )
+            .unwrap();
+        assert_eq!(applied, preview);
+        assert_eq!(correction.correction_id, correction_id);
+        assert_eq!(correction.delta_micro_usd, -1_580_000);
+        assert_eq!(correction.corrected_by, "owner");
+        assert_eq!(store.spent_micro_usd("acme"), 2_380_000);
+        assert_eq!(
+            store.breakdown_micro_usd("acme"),
+            vec![("lead".into(), "kimi-k3".into(), 2_380_000)]
+        );
+
+        let text = fs::read_to_string(&spool).unwrap();
+        assert_eq!(
+            text.lines().count(),
+            4,
+            "three originals plus one correction"
+        );
+        for request_id in request_ids {
+            assert!(
+                text.contains(&request_id.to_string()),
+                "the original duplicate and exact reference both remain"
+            );
+        }
+        let correction_line: serde_json::Value =
+            serde_json::from_str(text.lines().last().unwrap()).unwrap();
+        assert_eq!(correction_line["type"], "spendCorrection");
+        assert_eq!(correction_line["correctionId"], correction_id.to_string());
+        assert_eq!(correction_line["deltaMicroUsd"], -1_580_000);
+        assert_eq!(correction_line["correctedBy"], "owner");
+        assert!(correction_line["occurredAt"].is_string());
+
+        assert!(store
+            .correct(
+                correction_id,
+                "acme",
+                &request_ids,
+                -1_580_000,
+                "retry",
+                "owner",
+            )
+            .is_err());
+        assert!(store
+            .correct(
+                Uuid::new_v4(),
+                "acme",
+                &request_ids,
+                -1_580_000,
+                "same records under another id",
+                "owner",
+            )
+            .is_err());
+        assert_eq!(store.spent_micro_usd("acme"), 2_380_000);
+        assert_eq!(text, fs::read_to_string(&spool).unwrap());
+
+        drop(store);
+        let reopened = SpendStore::open(temporary.path()).unwrap();
+        assert_eq!(reopened.spent_micro_usd("acme"), 2_380_000);
+        assert_eq!(
+            reopened.breakdown_micro_usd("acme"),
+            vec![("lead".into(), "kimi-k3".into(), 2_380_000)]
+        );
+        assert!(reopened
+            .preview_correction(
+                Uuid::new_v4(),
+                "acme",
+                &request_ids,
+                -1_580_000,
+                "cannot apply twice after restart",
+                "owner",
+            )
+            .is_err());
+    }
+
+    #[test]
+    fn correction_rejects_ambiguous_or_authority_expanding_inputs_without_writing() {
+        let temporary = tempfile::tempdir().unwrap();
+        let store = SpendStore::open(temporary.path()).unwrap();
+        let acme = spend_record("acme", 100);
+        let other = spend_record("other", 50);
+        store.record(&acme).unwrap();
+        store.record(&other).unwrap();
+        let spool = temporary.path().join("spend.jsonl");
+        let before = fs::read(&spool).unwrap();
+
+        let invalid = [
+            (vec![Uuid::new_v4()], -100, "unknown request"),
+            (vec![other.request_id], -50, "cross-company request"),
+            (
+                vec![acme.request_id, acme.request_id],
+                -200,
+                "duplicate request reference",
+            ),
+            (vec![acme.request_id], 100, "positive correction"),
+            (vec![acme.request_id], 0, "zero correction"),
+            (vec![acme.request_id], -101, "over correction"),
+            (vec![acme.request_id], -99, "partial ambiguous correction"),
+        ];
+        for (request_ids, delta, label) in invalid {
+            assert!(
+                store
+                    .preview_correction(
+                        Uuid::new_v4(),
+                        "acme",
+                        &request_ids,
+                        delta,
+                        label,
+                        "owner",
+                    )
+                    .is_err(),
+                "{label} must fail"
+            );
+        }
+        assert!(store
+            .preview_correction(
+                Uuid::nil(),
+                "acme",
+                &[acme.request_id],
+                -100,
+                "nil correction id",
+                "owner",
+            )
+            .is_err());
+        assert_eq!(store.spent_micro_usd("acme"), 100);
+        assert_eq!(store.spent_micro_usd("other"), 50);
+        assert_eq!(fs::read(&spool).unwrap(), before);
+    }
+
+    #[test]
+    fn legacy_spool_and_torn_correction_tail_recover_without_guessing() {
+        let temporary = tempfile::tempdir().unwrap();
+        let old_request = Uuid::new_v4();
+        let old_line = serde_json::json!({
+            "requestId": old_request,
+            "companyId": "legacy",
+            "model": "old-model",
+            "inputTokens": 2,
+            "outputTokens": 3,
+            "costMicroUsd": 75,
+            "occurredAt": Utc::now(),
+        });
+        fs::write(
+            temporary.path().join("spend.jsonl"),
+            format!("{old_line}\n{{\"type\":\"spendCorrection\",\"correctionId\":\"partial"),
+        )
+        .unwrap();
+
+        let store = SpendStore::open(temporary.path()).expect("torn tail is discarded loudly");
+        assert_eq!(store.spent_micro_usd("legacy"), 75);
+        assert_eq!(
+            store.breakdown_micro_usd("legacy"),
+            vec![("unattributed".into(), "old-model".into(), 75)]
+        );
+        store.record(&spend_record("legacy", 25)).unwrap();
+        drop(store);
+        assert_eq!(
+            SpendStore::open(temporary.path())
+                .unwrap()
+                .spent_micro_usd("legacy"),
+            100
+        );
+    }
+
+    #[test]
+    fn invalid_or_mid_file_corrections_fail_closed() {
+        let invalid_cases = [
+            "{\"type\":\"spendCorrection\",\"correctionId\":\"not-a-uuid\"}",
+            "{\"type\":\"spendCorrection\",\"correctionId\":\"partial",
+        ];
+        for invalid in invalid_cases {
+            let temporary = tempfile::tempdir().unwrap();
+            let first = serde_json::to_string(&spend_record("acme", 100)).unwrap();
+            let after = serde_json::to_string(&spend_record("acme", 25)).unwrap();
+            fs::write(
+                temporary.path().join("spend.jsonl"),
+                format!("{first}\n{invalid}\n{after}\n"),
+            )
+            .unwrap();
+            assert!(
+                SpendStore::open(temporary.path()).is_err(),
+                "invalid correction before valid history must be fatal"
+            );
+        }
+
+        let temporary = tempfile::tempdir().unwrap();
+        let record = spend_record("acme", 100);
+        let positive = SpendCorrection {
+            entry_type: SpendEntryType::SpendCorrection,
+            correction_id: Uuid::new_v4(),
+            company_id: "acme".into(),
+            request_ids: vec![record.request_id],
+            delta_micro_usd: 100,
+            reason: "would create authority".into(),
+            corrected_by: "owner".into(),
+            occurred_at: Utc::now(),
+        };
+        fs::write(
+            temporary.path().join("spend.jsonl"),
+            format!(
+                "{}\n{}\n",
+                serde_json::to_string(&record).unwrap(),
+                serde_json::to_string(&positive).unwrap()
+            ),
+        )
+        .unwrap();
+        assert!(
+            SpendStore::open(temporary.path()).is_err(),
+            "a well-formed but authority-expanding correction is not a torn tail"
+        );
     }
 }

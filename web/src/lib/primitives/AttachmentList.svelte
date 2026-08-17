@@ -9,11 +9,7 @@
 		hrefFor
 	}: {
 		attachments: MessageAttachment[];
-		/**
-		 * Where an attachment's bytes live. Unwired: no uploads endpoint exists yet, so
-		 * the default resolves to nothing and the link is inert. Wiring this is a prop,
-		 * not a change to this component.
-		 */
+		/** Where this company-scoped attachment's bytes live. */
 		hrefFor?: (attachment: MessageAttachment) => string;
 	} = $props();
 
@@ -34,7 +30,6 @@
 		return match ? match[1].toLowerCase() : 'file';
 	}
 </script>
-
 
 {#if attachments.length > 0}
 	<div class="attach-list">

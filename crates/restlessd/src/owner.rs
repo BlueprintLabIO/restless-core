@@ -14,8 +14,8 @@ use std::time::{Duration, SystemTime};
 use anyhow::{Context as _, Result};
 use axum::body::Body;
 use axum::extract::ws::{Message as AxumMessage, WebSocket, WebSocketUpgrade};
-use axum::extract::{Path as AxumPath, Query, State};
-use axum::http::header::{CACHE_CONTROL, CONTENT_TYPE, COOKIE, SET_COOKIE};
+use axum::extract::{DefaultBodyLimit, Multipart, Path as AxumPath, Query, State};
+use axum::http::header::{CACHE_CONTROL, CONTENT_DISPOSITION, CONTENT_TYPE, COOKIE, SET_COOKIE};
 use axum::http::{HeaderMap, HeaderValue, Response, StatusCode};
 use axum::response::{IntoResponse, Redirect};
 use axum::routing::{get, post};
@@ -28,13 +28,20 @@ use tokio_tungstenite::{client_async, tungstenite};
 use tower_http::services::{ServeDir, ServeFile};
 use uuid::Uuid;
 
-use crate::{approval, attention, runtime, Daemon};
+use crate::{approval, attention, credential, reconcile, runtime, Daemon};
 
 const OWNER_COOKIE: &str = "restless_owner";
 const ATTACH_COOKIE: &str = "restless_attach";
 const TICKET_TTL: Duration = Duration::from_secs(30);
 const ATTACH_TTL: Duration = Duration::from_secs(30 * 60);
 const CONTROL_TTL_SECONDS: i64 = 45;
+const MAX_ATTACHMENTS: usize = 6;
+const MAX_ATTACHMENT_BYTES: usize = 5 * 1024 * 1024;
+const ATTACHMENT_BLOCK: &str = "\n\n[Restless attachments]\n";
+const ATTACHMENT_MARKER: &str = "<!--restless-attachments:";
+const INTENT_MARKER: &str = "\n\n<!--restless-intent:";
+const CONTEXT_BLOCK: &str = "\n\n[Owner cockpit context]\n";
+const CONTEXT_MARKER: &str = "\n\n<!--restless-context:";
 
 #[derive(Clone)]
 struct OwnerState {
@@ -50,6 +57,7 @@ struct AttachTicket {
     generation: String,
     item_id: String,
     client_id: String,
+    requesting_actor: Option<String>,
     expires_at: SystemTime,
 }
 
@@ -57,6 +65,7 @@ struct AttachTicket {
 struct AttachSession {
     company: String,
     client_id: String,
+    requesting_actor: Option<String>,
     expires_at: SystemTime,
 }
 
@@ -68,6 +77,63 @@ struct SignIn {
 #[derive(Debug, Deserialize)]
 struct PartyAction {
     party: String,
+}
+
+#[derive(Default)]
+struct OwnerMessageInput {
+    body: String,
+    work_id: Option<Uuid>,
+    context_path: Option<String>,
+    attachments: Vec<PendingAttachment>,
+}
+
+struct PendingAttachment {
+    name: String,
+    media_type: String,
+    bytes: Vec<u8>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct OwnerAttachment {
+    upload_id: Uuid,
+    name: String,
+    media_type: String,
+    size_bytes: usize,
+    path: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum OwnerIntentKind {
+    Conversation,
+    WorkFeedback,
+    Direction,
+    Authority,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct OwnerIntentReceipt {
+    kind: OwnerIntentKind,
+    summary: String,
+}
+
+#[derive(Debug, Deserialize, Default)]
+struct ConversationQuery {
+    work_id: Option<Uuid>,
+}
+
+#[derive(Debug, Deserialize, Default)]
+struct CockpitQuery {
+    #[serde(default)]
+    probe_credentials: bool,
+}
+
+#[derive(Debug, Deserialize)]
+struct OwnerReviewInput {
+    decision: String,
+    #[serde(default)]
+    feedback: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -103,6 +169,17 @@ struct ErrorResponse {
     message: String,
 }
 
+#[derive(Debug, Serialize)]
+struct CompanyCatalogEntry {
+    id: String,
+    name: String,
+    mission: String,
+    model: String,
+    spend_ceiling_usd: f64,
+    runtime_status: &'static str,
+    lifecycle_status: &'static str,
+}
+
 pub async fn serve(daemon: Arc<Daemon>) -> Result<()> {
     let address = std::env::var("RESTLESS_OWNER_ADDR")
         .unwrap_or_else(|_| "127.0.0.1:7788".to_string())
@@ -120,7 +197,23 @@ pub async fn serve(daemon: Arc<Daemon>) -> Result<()> {
 
     let api = Router::new()
         .route("/session", post(sign_in).delete(sign_out))
+        .route("/companies", get(company_catalog))
+        .route("/companies/{company}/archive", post(archive_company))
+        .route("/companies/{company}/restore", post(restore_company))
         .route("/companies/{company}/attention", get(attention_view))
+        .route("/companies/{company}/cockpit", get(cockpit_view))
+        .route(
+            "/companies/{company}/actors/{actor}/conversation",
+            get(actor_conversation).post(send_actor_message),
+        )
+        .route(
+            "/companies/{company}/attachments/{attachment}",
+            get(download_attachment),
+        )
+        .route(
+            "/companies/{company}/handoffs/{handoff}/review",
+            post(review_outcome),
+        )
         .route("/companies/{company}/approvals/grant", post(grant))
         .route("/companies/{company}/approvals/decline", post(decline))
         .route("/companies/{company}/approvals/revoke", post(revoke))
@@ -128,7 +221,8 @@ pub async fn serve(daemon: Arc<Daemon>) -> Result<()> {
         .route("/companies/{company}/browser/status", get(browser_status))
         .route("/companies/{company}/browser/take", post(take_control))
         .route("/companies/{company}/browser/heartbeat", post(heartbeat))
-        .route("/companies/{company}/browser/return", post(return_control));
+        .route("/companies/{company}/browser/return", post(return_control))
+        .layer(DefaultBodyLimit::max(32 * 1024 * 1024));
 
     let source = runtime::source_root()?;
     let web = source.join("web/build");
@@ -198,6 +292,178 @@ async fn sign_out() -> impl IntoResponse {
     response
 }
 
+async fn company_catalog(State(state): State<OwnerState>, headers: HeaderMap) -> impl IntoResponse {
+    if let Some(response) = require_owner(&state, &headers) {
+        return response;
+    }
+    let companies = match crate::configured_companies(&state.daemon.root) {
+        Ok(companies) => companies,
+        Err(error) => {
+            return api_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "company",
+                format!("{error:#}"),
+            )
+        }
+    };
+    let archived = match runtime::archived_company_names(&state.daemon.root) {
+        Ok(companies) => companies,
+        Err(error) => {
+            return api_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "company",
+                format!("{error:#}"),
+            )
+        }
+    };
+    let mut catalog = Vec::with_capacity(companies.len() + archived.len());
+    for company in companies {
+        let config = match runtime::CompanyConfig::load(&state.daemon.root, &company) {
+            Ok(config) => config,
+            Err(error) => return api_error(StatusCode::NOT_FOUND, "company", format!("{error:#}")),
+        };
+        catalog.push(company_catalog_entry(config, "active").await);
+    }
+    for company in archived {
+        let config = match runtime::CompanyConfig::load_archived(&state.daemon.root, &company) {
+            Ok(config) => config,
+            Err(error) => return api_error(StatusCode::NOT_FOUND, "company", format!("{error:#}")),
+        };
+        catalog.push(company_catalog_entry(config, "archived").await);
+    }
+    Json(catalog).into_response()
+}
+
+async fn company_catalog_entry(
+    config: runtime::CompanyConfig,
+    lifecycle_status: &'static str,
+) -> CompanyCatalogEntry {
+    let runtime_status = match runtime::status(&config.name).await {
+        Ok(runtime::ContainerStatus::Running) => "running",
+        Ok(runtime::ContainerStatus::Stopped) => "stopped",
+        Ok(runtime::ContainerStatus::Absent) => "absent",
+        Err(_) => "unavailable",
+    };
+    CompanyCatalogEntry {
+        id: config.name.clone(),
+        name: company_display_name(&config.name),
+        mission: config.mission,
+        model: config.model,
+        spend_ceiling_usd: config.spend_ceiling_usd,
+        runtime_status,
+        lifecycle_status,
+    }
+}
+
+async fn archive_company(
+    State(state): State<OwnerState>,
+    AxumPath(company): AxumPath<String>,
+    headers: HeaderMap,
+) -> impl IntoResponse {
+    if let Some(response) = require_owner(&state, &headers) {
+        return response;
+    }
+    if runtime::CompanyConfig::load_archived(&state.daemon.root, &company).is_ok() {
+        return Json(serde_json::json!({
+            "company": company,
+            "lifecycle_status": "archived",
+            "changed": false,
+        }))
+        .into_response();
+    }
+    if let Err(error) = runtime::CompanyConfig::load(&state.daemon.root, &company) {
+        return api_error(StatusCode::NOT_FOUND, "company", format!("{error:#}"));
+    }
+    let message = match runtime::archive(&state.daemon.root, &company).await {
+        Ok(message) => message,
+        Err(error) => {
+            return api_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "lifecycle",
+                format!("{error:#}"),
+            )
+        }
+    };
+    if let Err(error) = state
+        .daemon
+        .authority
+        .emit(
+            &company,
+            "lifecycle",
+            Some("owner"),
+            serde_json::json!({ "state": "archived", "message": message }),
+        )
+        .await
+    {
+        return api_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "authority",
+            format!("company archived but its lifecycle receipt could not be recorded: {error:#}"),
+        );
+    }
+    Json(serde_json::json!({
+        "company": company,
+        "lifecycle_status": "archived",
+        "changed": true,
+    }))
+    .into_response()
+}
+
+async fn restore_company(
+    State(state): State<OwnerState>,
+    AxumPath(company): AxumPath<String>,
+    headers: HeaderMap,
+) -> impl IntoResponse {
+    if let Some(response) = require_owner(&state, &headers) {
+        return response;
+    }
+    if runtime::CompanyConfig::load(&state.daemon.root, &company).is_ok() {
+        return Json(serde_json::json!({
+            "company": company,
+            "lifecycle_status": "active",
+            "changed": false,
+        }))
+        .into_response();
+    }
+    if let Err(error) = runtime::CompanyConfig::load_archived(&state.daemon.root, &company) {
+        return api_error(StatusCode::NOT_FOUND, "company", format!("{error:#}"));
+    }
+    if let Err(error) = runtime::restore(&state.daemon.root, &company) {
+        return api_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "lifecycle",
+            format!("{error:#}"),
+        );
+    }
+    if let Err(error) = state
+        .daemon
+        .authority
+        .emit(
+            &company,
+            "lifecycle",
+            Some("owner"),
+            serde_json::json!({
+                "state": "stopped",
+                "restored_from": "archived",
+            }),
+        )
+        .await
+    {
+        return api_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "authority",
+            format!("company restored but its lifecycle receipt could not be recorded: {error:#}"),
+        );
+    }
+    Json(serde_json::json!({
+        "company": company,
+        "lifecycle_status": "active",
+        "runtime_status": "stopped",
+        "changed": true,
+    }))
+    .into_response()
+}
+
 async fn attention_view(
     State(state): State<OwnerState>,
     AxumPath(company): AxumPath<String>,
@@ -219,6 +485,721 @@ async fn attention_view(
             format!("{error:#}"),
         ),
     }
+}
+
+/// The owner cockpit's cross-plane read. This is deliberately an aggregation
+/// at the presentation boundary, not a second writer: each field is read from
+/// the plane that owns it and carries explicit source health when that plane
+/// cannot answer. Authority remains readable when recoverable OrgIntel is
+/// unavailable.
+async fn cockpit_view(
+    State(state): State<OwnerState>,
+    AxumPath(company): AxumPath<String>,
+    Query(query): Query<CockpitQuery>,
+    headers: HeaderMap,
+) -> impl IntoResponse {
+    if let Some(response) = require_owner(&state, &headers) {
+        return response;
+    }
+    let config = match runtime::CompanyConfig::load(&state.daemon.root, &company) {
+        Ok(config) => config,
+        Err(error) => return api_error(StatusCode::NOT_FOUND, "company", format!("{error:#}")),
+    };
+
+    let mut source_health = serde_json::Map::new();
+    let org = match state.daemon.orgintel.get(&company).await {
+        Ok(org) => {
+            source_health.insert("orgintel".into(), serde_json::json!("available"));
+            Some(org)
+        }
+        Err(error) => {
+            source_health.insert(
+                "orgintel".into(),
+                serde_json::json!(format!("unavailable: {error}")),
+            );
+            None
+        }
+    };
+
+    let (actors, teams, goals, work) = if let Some(org) = org.as_ref() {
+        match tokio::try_join!(
+            org.list_actors(),
+            org.list_teams(),
+            org.list_goals(),
+            org.list_work()
+        ) {
+            Ok((actors, teams, goals, work)) => (actors, teams, goals, work),
+            Err(error) => {
+                source_health.insert(
+                    "orgintel".into(),
+                    serde_json::json!(format!("unavailable: {error}")),
+                );
+                (Vec::new(), Vec::new(), Vec::new(), Vec::new())
+            }
+        }
+    } else {
+        (Vec::new(), Vec::new(), Vec::new(), Vec::new())
+    };
+
+    let spend_breakdown = state.daemon.spend.breakdown(&company);
+    let accounted_usd: f64 = spend_breakdown.iter().map(|(_, _, usd)| usd).sum();
+    let poisoned = state.daemon.spend.spent_usd(&company) > 1_000_000_000.0;
+    let cooldowns = state
+        .daemon
+        .authority
+        .active_model_cooldowns(&company)
+        .await
+        .unwrap_or_default();
+    let people = actors
+        .iter()
+        .map(|actor| {
+            let spent: f64 = spend_breakdown
+                .iter()
+                .filter(|(id, _, _)| id == &actor.id)
+                .map(|(_, _, usd)| usd)
+                .sum();
+            let session_running = if actor.id == "exec" {
+                state
+                    .daemon
+                    .in_flight
+                    .lock()
+                    .map(|running| running.is_active(&company))
+                    .unwrap_or(false)
+            } else {
+                state.daemon.staff.is_actor_running(&company, &actor.id)
+            };
+            serde_json::json!({
+                "actor_id": actor.id,
+                "role": actor.kind,
+                "display": actor.display,
+                "model": actor.model,
+                "team_id": actor.team_id,
+                "spent_usd": round_owner_usd(spent),
+                "session_running": session_running,
+                "model_cooldown": actor.model.as_deref().and_then(|model| {
+                    cooldowns.iter().find(|cooldown| cooldown.model == model)
+                }),
+            })
+        })
+        .collect::<Vec<_>>();
+
+    // Team structure is read from OrgIntel, never reconstructed from role names
+    // or Work titles in the browser. Standing company/system actors remain
+    // outside teams even if a malformed row happens to point at one.
+    let actor_teams = actors
+        .iter()
+        .filter(|actor| !matches!(actor.id.as_str(), "owner" | "exec" | "world" | "daemon"))
+        .filter_map(|actor| actor.team_id.map(|team_id| (actor.id.as_str(), team_id)))
+        .collect::<HashMap<_, _>>();
+    let team_rows = teams
+        .iter()
+        .map(|team| {
+            let member_count = actor_teams
+                .values()
+                .filter(|team_id| **team_id == team.id)
+                .count();
+            let in_motion_count = work
+                .iter()
+                .filter(|item| {
+                    item.status == restless_orgintel::WorkStatus::Active
+                        && actor_teams.get(item.owner_id.as_str()) == Some(&team.id)
+                })
+                .count();
+            let blocked_count = work
+                .iter()
+                .filter(|item| {
+                    item.status == restless_orgintel::WorkStatus::Blocked
+                        && actor_teams.get(item.owner_id.as_str()) == Some(&team.id)
+                })
+                .count();
+            serde_json::json!({
+                "id": team.id,
+                "name": team.name,
+                "brief": team.brief,
+                "lead_actor_id": team.lead_actor_id,
+                "created_by": team.created_by,
+                "created_at": team.created_at,
+                "member_count": member_count,
+                "in_motion_count": in_motion_count,
+                "blocked_count": blocked_count,
+            })
+        })
+        .collect::<Vec<_>>();
+
+    let approved_parties = match approval::approved_parties(&state.daemon.authority, &company).await
+    {
+        Ok(parties) => {
+            source_health.insert("authority".into(), serde_json::json!("available"));
+            parties
+        }
+        Err(error) => {
+            source_health.insert(
+                "authority".into(),
+                serde_json::json!(format!("unavailable: {error}")),
+            );
+            Vec::new()
+        }
+    };
+
+    let receipts = match state
+        .daemon
+        .authority
+        .records_of_kind(&company, "effect")
+        .await
+    {
+        Ok(events) => events
+            .iter()
+            .rev()
+            .take(50)
+            .map(|event| {
+                serde_json::json!({
+                    "id": event.id,
+                    "effect_class": event.body.get("effect_class").or_else(|| event.body.get("capability")),
+                    "tool": event.body.get("tool"),
+                    "success": event.body.get("success"),
+                    "party": event.body.get("party"),
+                    "actor": event.body.get("actor").cloned().or_else(|| event.actor_id.clone().map(serde_json::Value::String)),
+                    "outcome": event.body.get("outcome"),
+                    "evidence_quality": if reconcile::is_governed_receipt(&event.body) {
+                        "governed"
+                    } else {
+                        "legacy_unverified"
+                    },
+                    "at": event.created_at,
+                })
+            })
+            .collect::<Vec<_>>(),
+        Err(error) => {
+            source_health.insert(
+                "authority".into(),
+                serde_json::json!(format!("unavailable: {error}")),
+            );
+            Vec::new()
+        }
+    };
+
+    let mut credentials = Vec::with_capacity(config.credentials.len());
+    for (binding, reference) in &config.credentials {
+        if query.probe_credentials {
+            let probe = credential::probe_reference(reference).await;
+            credentials.push(serde_json::json!({
+                "binding": binding,
+                "status": probe.status.as_str(),
+                "detail": probe.detail,
+            }));
+        } else {
+            credentials.push(serde_json::json!({
+                "binding": binding,
+                "status": "configured_unprobed",
+                "detail": "A governed reference is configured. Availability was not probed by this read.",
+            }));
+        }
+    }
+
+    let runtime_status = match runtime::status(&company).await {
+        Ok(runtime::ContainerStatus::Running) => "running",
+        Ok(runtime::ContainerStatus::Stopped) => "stopped",
+        Ok(runtime::ContainerStatus::Absent) => "absent",
+        Err(_) => "unavailable",
+    };
+    source_health.insert("runtime".into(), serde_json::json!(runtime_status));
+
+    Json(serde_json::json!({
+        "company": {
+            "id": company,
+            "name": config.name,
+            "mission": config.mission,
+            "model": config.model,
+        },
+        "source_health": source_health,
+        "people": people,
+        "teams": team_rows,
+        "goals": goals,
+        "spend": {
+            "accounted_usd": round_owner_usd(accounted_usd),
+            "ceiling_usd": config.spend_ceiling_usd,
+            "remaining_usd": if poisoned {
+                serde_json::Value::Null
+            } else {
+                serde_json::json!(round_owner_usd((config.spend_ceiling_usd - accounted_usd).max(0.0)))
+            },
+            "poisoned": poisoned,
+        },
+        "authority": {
+            "approved_parties": approved_parties,
+            "credentials": credentials,
+        },
+        "receipts": receipts,
+        "refreshed_at": Utc::now(),
+    }))
+    .into_response()
+}
+
+fn round_owner_usd(usd: f64) -> f64 {
+    let rounded = (usd * 10_000.0).round() / 10_000.0;
+    if rounded == 0.0 {
+        0.0
+    } else {
+        rounded
+    }
+}
+
+async fn actor_conversation(
+    State(state): State<OwnerState>,
+    AxumPath((company, actor)): AxumPath<(String, String)>,
+    Query(query): Query<ConversationQuery>,
+    headers: HeaderMap,
+) -> impl IntoResponse {
+    if let Some(response) = require_owner(&state, &headers) {
+        return response;
+    }
+    let org = match state.daemon.orgintel.get(&company).await {
+        Ok(org) => org,
+        Err(error) => {
+            return api_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "orgintel",
+                format!("{error:#}"),
+            )
+        }
+    };
+    let actor_row = match org.list_actors().await {
+        Ok(actors) => actors.into_iter().find(|row| row.id == actor),
+        Err(error) => {
+            return api_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "orgintel",
+                format!("{error:#}"),
+            )
+        }
+    };
+    let Some(actor_row) = actor_row else {
+        return api_error(
+            StatusCode::NOT_FOUND,
+            "actor",
+            "requesting actor no longer exists",
+        );
+    };
+    let messages = match query.work_id {
+        Some(work_id) => org.owner_work_conversation(&actor, work_id, 100).await,
+        None => org.owner_conversation(&actor, 100).await,
+    };
+    match messages {
+        Ok(messages) => Json(serde_json::json!({
+            "actor": {
+                "id": actor_row.id,
+                "display": actor_row.display,
+                "role": actor_row.kind,
+            },
+            "messages": messages.into_iter().map(|message| {
+                let (body, intent) = split_intent_receipt(&message.body);
+                let (body, attachments) = split_attachment_block(body);
+                let (body, context_path) = split_context_marker(body);
+                serde_json::json!({
+                    "id": message.id,
+                    "from_actor": message.from_actor,
+                    "to_actor": message.to_actor,
+                    "body": body,
+                    "attachments": attachments,
+                    "intent": intent,
+                    "context_path": context_path,
+                    "created_at": message.created_at,
+                    "read_at": message.read_at,
+                })
+            }).collect::<Vec<_>>(),
+        }))
+        .into_response(),
+        Err(error) => api_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "orgintel",
+            format!("{error:#}"),
+        ),
+    }
+}
+
+async fn review_outcome(
+    State(state): State<OwnerState>,
+    AxumPath((company, handoff)): AxumPath<(String, Uuid)>,
+    headers: HeaderMap,
+    Json(input): Json<OwnerReviewInput>,
+) -> impl IntoResponse {
+    if let Some(response) = require_owner(&state, &headers) {
+        return response;
+    }
+    let decision = match input.decision.trim() {
+        "accept" => restless_orgintel::OwnerReviewDecision::Accepted,
+        "request_changes" => restless_orgintel::OwnerReviewDecision::ChangesRequested,
+        _ => {
+            return api_error(
+                StatusCode::BAD_REQUEST,
+                "review",
+                "decision must be accept or request_changes",
+            )
+        }
+    };
+    let org = match state.daemon.orgintel.get(&company).await {
+        Ok(org) => org,
+        Err(error) => {
+            return api_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "orgintel",
+                format!("{error:#}"),
+            )
+        }
+    };
+    match org
+        .decide_owner_review(handoff, decision, &input.feedback)
+        .await
+    {
+        Ok(()) => Json(serde_json::json!({
+            "handoff_id": handoff,
+            "decision": input.decision,
+            "recorded": true,
+        }))
+        .into_response(),
+        Err(error) => api_error(StatusCode::BAD_REQUEST, "review", format!("{error:#}")),
+    }
+}
+
+async fn send_actor_message(
+    State(state): State<OwnerState>,
+    AxumPath((company, actor)): AxumPath<(String, String)>,
+    headers: HeaderMap,
+    multipart: Multipart,
+) -> impl IntoResponse {
+    if let Some(response) = require_owner(&state, &headers) {
+        return response;
+    }
+    let input = match parse_owner_message(multipart).await {
+        Ok(input) => input,
+        Err(message) => return api_error(StatusCode::BAD_REQUEST, "message", message),
+    };
+    let body = input.body.trim();
+    if body.is_empty() || body.chars().count() > 20_000 {
+        return api_error(
+            StatusCode::BAD_REQUEST,
+            "message",
+            "message must contain between 1 and 20,000 characters",
+        );
+    }
+    if input.context_path.as_deref().is_some_and(|path| {
+        path != format!("/{company}") && !path.starts_with(&format!("/{company}/"))
+    }) {
+        return api_error(
+            StatusCode::BAD_REQUEST,
+            "message",
+            "cockpit context must belong to this company",
+        );
+    }
+    let org = match state.daemon.orgintel.get(&company).await {
+        Ok(org) => org,
+        Err(error) => {
+            return api_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "orgintel",
+                format!("{error:#}"),
+            )
+        }
+    };
+    let target_exists = match org.list_actors().await {
+        Ok(actors) => actors.iter().any(|row| row.id == actor),
+        Err(error) => {
+            return api_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "orgintel",
+                format!("{error:#}"),
+            )
+        }
+    };
+    if !target_exists {
+        return api_error(
+            StatusCode::NOT_FOUND,
+            "actor",
+            "requesting actor no longer exists",
+        );
+    }
+    if let Err(error) = org.add_actor("owner", "owner", "The Owner").await {
+        return api_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "orgintel",
+            format!("{error:#}"),
+        );
+    }
+    let mut stored = Vec::with_capacity(input.attachments.len());
+    for attachment in input.attachments {
+        let upload_id = Uuid::new_v4();
+        let metadata = OwnerAttachment {
+            upload_id,
+            name: attachment.name,
+            media_type: attachment.media_type,
+            size_bytes: attachment.bytes.len(),
+            path: format!("/company/inbox/owner-attachments/{upload_id}/content"),
+        };
+        let sidecar = match serde_json::to_vec(&metadata) {
+            Ok(sidecar) => sidecar,
+            Err(error) => {
+                rollback_attachments(&company, &stored).await;
+                return api_error(StatusCode::BAD_REQUEST, "attachment", error.to_string());
+            }
+        };
+        match runtime::store_owner_attachment(&company, upload_id, &attachment.bytes, &sidecar)
+            .await
+        {
+            Ok(path) => {
+                debug_assert_eq!(path, metadata.path);
+                stored.push(metadata);
+            }
+            Err(error) => {
+                rollback_attachments(&company, &stored).await;
+                return api_error(
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    "attachment",
+                    format!("{error:#}"),
+                );
+            }
+        }
+    }
+
+    let recorded_body = message_with_context(body, input.context_path.as_deref());
+    let recorded_body = message_with_attachments(&recorded_body, &stored);
+    let sent = match input.work_id {
+        Some(work_id) => {
+            org.send_work_message("owner", &actor, work_id, &recorded_body)
+                .await
+        }
+        None => {
+            org.send_message("owner", Some(&actor), &recorded_body)
+                .await
+        }
+    };
+    match sent {
+        Ok(message_id) => Json(serde_json::json!({ "message_id": message_id })).into_response(),
+        Err(error) => {
+            rollback_attachments(&company, &stored).await;
+            api_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "orgintel",
+                format!("{error:#}"),
+            )
+        }
+    }
+}
+
+async fn parse_owner_message(
+    mut multipart: Multipart,
+) -> std::result::Result<OwnerMessageInput, String> {
+    let mut input = OwnerMessageInput::default();
+    while let Some(field) = multipart
+        .next_field()
+        .await
+        .map_err(|error| format!("read message form: {error}"))?
+    {
+        match field.name() {
+            Some("body") => {
+                input.body = field
+                    .text()
+                    .await
+                    .map_err(|error| format!("read message body: {error}"))?;
+            }
+            Some("work_id") => {
+                let value = field
+                    .text()
+                    .await
+                    .map_err(|error| format!("read Work reference: {error}"))?;
+                if !value.trim().is_empty() {
+                    input.work_id = Some(
+                        Uuid::parse_str(value.trim())
+                            .map_err(|error| format!("invalid Work reference: {error}"))?,
+                    );
+                }
+            }
+            Some("context_path") => {
+                let value = field
+                    .text()
+                    .await
+                    .map_err(|error| format!("read cockpit context: {error}"))?;
+                let value = value.trim();
+                if !value.is_empty() {
+                    if value.chars().count() > 512
+                        || !value.starts_with('/')
+                        || value.contains("//")
+                    {
+                        return Err("cockpit context must be a bounded local path".into());
+                    }
+                    input.context_path = Some(value.to_string());
+                }
+            }
+            Some("attachments") => {
+                if input.attachments.len() >= MAX_ATTACHMENTS {
+                    return Err(format!("attach at most {MAX_ATTACHMENTS} files"));
+                }
+                let name = safe_attachment_name(field.file_name().unwrap_or("attachment"));
+                let media_type = field
+                    .content_type()
+                    .unwrap_or("application/octet-stream")
+                    .to_string();
+                let bytes = field
+                    .bytes()
+                    .await
+                    .map_err(|error| format!("read {name}: {error}"))?;
+                if bytes.len() > MAX_ATTACHMENT_BYTES {
+                    return Err(format!("{name} exceeds the 5 MB attachment limit"));
+                }
+                input.attachments.push(PendingAttachment {
+                    name,
+                    media_type,
+                    bytes: bytes.to_vec(),
+                });
+            }
+            _ => {}
+        }
+    }
+    Ok(input)
+}
+
+fn safe_attachment_name(value: &str) -> String {
+    let cleaned: String = value
+        .chars()
+        .filter(|character| !character.is_control())
+        .take(180)
+        .collect();
+    let cleaned = cleaned.trim();
+    if cleaned.is_empty() {
+        "attachment".into()
+    } else {
+        cleaned.to_string()
+    }
+}
+
+fn message_with_attachments(body: &str, attachments: &[OwnerAttachment]) -> String {
+    if attachments.is_empty() {
+        return body.to_string();
+    }
+    let paths = attachments
+        .iter()
+        .map(|attachment| format!("- {}: {}", attachment.name, attachment.path))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let manifest = serde_json::to_string(attachments).unwrap_or_else(|_| "[]".into());
+    format!("{body}{ATTACHMENT_BLOCK}{paths}\n{ATTACHMENT_MARKER}{manifest}-->")
+}
+
+fn message_with_context(body: &str, context_path: Option<&str>) -> String {
+    match context_path {
+        Some(path) => {
+            let encoded = serde_json::json!({ "path": path });
+            format!("{body}{CONTEXT_BLOCK}{path}{CONTEXT_MARKER}{encoded}-->")
+        }
+        None => body.to_string(),
+    }
+}
+
+fn split_attachment_block(body: &str) -> (&str, Vec<OwnerAttachment>) {
+    let Some((visible, block)) = body.rsplit_once(ATTACHMENT_BLOCK) else {
+        return (body, Vec::new());
+    };
+    let Some(marker) = block.rfind(ATTACHMENT_MARKER) else {
+        return (body, Vec::new());
+    };
+    let encoded = &block[marker + ATTACHMENT_MARKER.len()..];
+    let Some(encoded) = encoded.strip_suffix("-->") else {
+        return (body, Vec::new());
+    };
+    match serde_json::from_str(encoded) {
+        Ok(attachments) => (visible, attachments),
+        Err(_) => (body, Vec::new()),
+    }
+}
+
+fn split_intent_receipt(body: &str) -> (&str, Option<OwnerIntentReceipt>) {
+    let Some((visible, encoded)) = body.rsplit_once(INTENT_MARKER) else {
+        return (body, None);
+    };
+    let Some(encoded) = encoded.strip_suffix("-->") else {
+        return (body, None);
+    };
+    match serde_json::from_str::<OwnerIntentReceipt>(encoded) {
+        Ok(receipt)
+            if !receipt.summary.trim().is_empty() && receipt.summary.chars().count() <= 300 =>
+        {
+            (visible, Some(receipt))
+        }
+        _ => (body, None),
+    }
+}
+
+fn split_context_marker(body: &str) -> (&str, Option<String>) {
+    let Some((visible, encoded)) = body.rsplit_once(CONTEXT_MARKER) else {
+        return (body, None);
+    };
+    let Some(encoded) = encoded.strip_suffix("-->") else {
+        return (body, None);
+    };
+    let path = serde_json::from_str::<serde_json::Value>(encoded)
+        .ok()
+        .and_then(|value| {
+            value
+                .get("path")
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_string)
+        });
+    match path {
+        Some(path) => match visible.rsplit_once(CONTEXT_BLOCK) {
+            Some((body, rendered)) if rendered == path => (body, Some(path)),
+            _ => (visible, Some(path)),
+        },
+        None => (body, None),
+    }
+}
+
+async fn rollback_attachments(company: &str, attachments: &[OwnerAttachment]) {
+    for attachment in attachments {
+        if let Err(error) = runtime::remove_owner_attachment(company, attachment.upload_id).await {
+            tracing::warn!(%error, %company, attachment = %attachment.upload_id, "failed to roll back owner attachment");
+        }
+    }
+}
+
+async fn download_attachment(
+    State(state): State<OwnerState>,
+    AxumPath((company, attachment)): AxumPath<(String, Uuid)>,
+    headers: HeaderMap,
+) -> Response<Body> {
+    if let Some(response) = require_owner(&state, &headers) {
+        return response;
+    }
+    let (bytes, metadata) = match runtime::read_owner_attachment(&company, attachment).await {
+        Ok(value) => value,
+        Err(error) => {
+            return api_error(StatusCode::NOT_FOUND, "attachment", format!("{error:#}"));
+        }
+    };
+    let metadata: OwnerAttachment = match serde_json::from_slice(&metadata) {
+        Ok(metadata) => metadata,
+        Err(error) => {
+            return api_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "attachment",
+                format!("invalid attachment metadata: {error}"),
+            );
+        }
+    };
+    let mut response = Response::new(Body::from(bytes));
+    response.headers_mut().insert(
+        CONTENT_TYPE,
+        HeaderValue::from_str(&metadata.media_type)
+            .unwrap_or_else(|_| HeaderValue::from_static("application/octet-stream")),
+    );
+    let disposition = format!(
+        "inline; filename=\"{}\"",
+        metadata.name.replace(['\\', '"'], "_")
+    );
+    response.headers_mut().insert(
+        CONTENT_DISPOSITION,
+        HeaderValue::from_str(&disposition)
+            .unwrap_or_else(|_| HeaderValue::from_static("attachment")),
+    );
+    response
 }
 
 async fn grant(
@@ -320,6 +1301,7 @@ async fn issue_ticket(
             )
         }
     };
+    let mut requesting_actor = None;
     if input.item_id != "runtime-rescue" {
         let config = match runtime::CompanyConfig::load(&state.daemon.root, &company) {
             Ok(config) => config,
@@ -357,6 +1339,7 @@ async fn issue_ticket(
                 "runtime generation changed; refresh the item",
             );
         }
+        requesting_actor.clone_from(&reference.requesting_actor);
     }
     let ticket = Uuid::new_v4().simple().to_string();
     state.tickets.lock().expect("ticket registry").insert(
@@ -366,6 +1349,7 @@ async fn issue_ticket(
             generation: current,
             item_id: input.item_id,
             client_id: input.client_id,
+            requesting_actor,
             expires_at: SystemTime::now() + TICKET_TTL,
         },
     );
@@ -418,6 +1402,7 @@ async fn open_desktop(
         AttachSession {
             company: company.clone(),
             client_id: ticket.client_id,
+            requesting_actor: ticket.requesting_actor,
             expires_at: SystemTime::now() + ATTACH_TTL,
         },
     );
@@ -669,6 +1654,7 @@ async fn take_control(
         "controller": "owner",
         "client_id": input.client_id,
         "requester": requester,
+        "requesting_actor": attach.requesting_actor,
         "acquired_at": Utc::now(),
         "expires_at": Utc::now() + ChronoDuration::seconds(CONTROL_TTL_SECONDS),
     });
@@ -741,6 +1727,7 @@ async fn return_control(
         );
     }
     let requester = current["requester"].as_str().map(str::to_string);
+    let requesting_actor = current["requesting_actor"].as_str().map(str::to_string);
     let next = match requester.as_deref() {
         Some(requester) => serde_json::json!({
             "controller": "agent",
@@ -756,14 +1743,13 @@ async fn return_control(
             format!("{error:#}"),
         );
     }
-    if let Some(requester) = requester {
+    if let Some(requesting_actor) = requesting_actor {
         if let Ok(org) = state.daemon.orgintel.get(&company).await {
             let _ = org.add_actor("owner", "owner", "The Owner").await;
-            let _ = org.add_actor(&requester, "staff", &requester).await;
             let _ = org
                 .send_message(
                     "owner",
-                    Some(&requester),
+                    Some(&requesting_actor),
                     "Browser control returned. Inspect the same page state and verify the source condition; hand-back is not proof of completion.",
                 )
                 .await;
@@ -830,6 +1816,20 @@ fn token_digest(token: &str) -> String {
     format!("{:x}", Sha256::digest(token.as_bytes()))
 }
 
+fn company_display_name(name: &str) -> String {
+    name.split('_')
+        .filter(|part| !part.is_empty())
+        .map(|part| {
+            let mut characters = part.chars();
+            characters
+                .next()
+                .map(|first| first.to_uppercase().collect::<String>() + characters.as_str())
+                .unwrap_or_default()
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
 fn constant_time_eq(left: &[u8], right: &[u8]) -> bool {
     if left.len() != right.len() {
         return false;
@@ -881,5 +1881,46 @@ mod tests {
             digest.as_bytes(),
             token_digest("wrong-token").as_bytes()
         ));
+    }
+
+    #[test]
+    fn owner_message_metadata_round_trips_without_leaking_into_visible_copy() {
+        let attachment = OwnerAttachment {
+            upload_id: Uuid::nil(),
+            name: "brief.pdf".into(),
+            media_type: "application/pdf".into(),
+            size_bytes: 42,
+            path: "/company/inbox/owner-attachments/00000000-0000-0000-0000-000000000000/content"
+                .into(),
+        };
+        let with_context = message_with_context("Please read this.", Some("/aris/work"));
+        let recorded = message_with_attachments(&with_context, std::slice::from_ref(&attachment));
+
+        let (without_attachments, attachments) = split_attachment_block(&recorded);
+        let (visible, context) = split_context_marker(without_attachments);
+        assert_eq!(visible, "Please read this.");
+        assert_eq!(context.as_deref(), Some("/aris/work"));
+        assert_eq!(attachments.len(), 1);
+        assert_eq!(attachments[0].name, "brief.pdf");
+        assert!(recorded.contains(&attachment.path));
+    }
+
+    #[test]
+    fn only_a_valid_exec_intent_receipt_is_promoted_to_ui_metadata() {
+        let body = concat!(
+            "I will treat this as durable direction.",
+            "\n\n<!--restless-intent:{\"kind\":\"direction\",",
+            "\"summary\":\"Prioritise tutor interviews before outreach.\"}-->"
+        );
+        let (visible, receipt) = split_intent_receipt(body);
+        assert_eq!(visible, "I will treat this as durable direction.");
+        assert!(matches!(
+            receipt.map(|receipt| receipt.kind),
+            Some(OwnerIntentKind::Direction)
+        ));
+
+        let malformed = "Reply\n\n<!--restless-intent:{\"kind\":\"whatever\",\"summary\":\"x\"}-->";
+        assert_eq!(split_intent_receipt(malformed).0, malformed);
+        assert!(split_intent_receipt(malformed).1.is_none());
     }
 }

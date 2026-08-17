@@ -22,12 +22,15 @@ real tutoring-centre emails are present in Attention and remain unsent.
   private.
 - `restless` now covers the deterministic company/config/credential/revocation operations named by
   T2; open-ended computer work remains behind `restless attach`.
-- A pinned, loopback-only self-hosted Infisical instance now holds the provider material behind a
+- A pinned, loopback-only self-hosted Infisical instance now holds API-key provider material behind a
   dedicated project-scoped Universal Auth identity. The daemon resolves `infisical:` references and
-  launches OMP's host auth broker/gateway. Aris's live ACP process receives a gateway bearer, not the
-  Kimi provider key; only Moonshot is present in the broker.
-- Aris exposes one blocked review item and four exact centre approval items. No centre has authority
-  and no centre send receipt exists.
+  launches OMP's host auth broker/gateway. Runtime ACP processes receive a gateway bearer, not raw
+  provider credentials. The active broker contains Moonshot for Aris and the explicit `_test` policy,
+  plus host-held Anthropic OAuth for that `_test` policy; Aris itself remains Kimi-only.
+- Aris exposes one explicit owner-review item for the rendered tutoring-centre landing page. Legacy
+  approval rows whose prepared command is null remain Authority history but are not actionable inbox
+  items. The four proposed centre emails remain unsent: no centre has authority and no matching send
+  receipt exists.
 
 ## Desktop branch, run and purge
 
@@ -185,9 +188,10 @@ The first acceptance attempt failed because the running daemon had not inherited
 or `RESEND_API_KEY`. Both names were present in the ignored repository `.env`; the diagnosis was a
 daemon startup/configuration gap, not missing credentials and not a reason to change model/provider.
 
-The corrected daemon loaded `.env` without overriding inherited service configuration. Against live
-Aris, `credential check` then reported `email.send = present` and the deliberately unset
-`repo.push = absent`; Resend ingress listened on 7792. A real `moonshot/kimi-k3` wake ran through the
+The corrected daemon loaded `.env` without overriding inherited service configuration. At this
+earlier T2 checkpoint, before T8 removed capability-named bindings, Aris reported the then-current
+Resend binding `present` and a deliberately unset Git probe binding `absent`; Resend ingress listened
+on 7792. A real `moonshot/kimi-k3` wake ran through the
 host OMP auth broker/gateway. The broker snapshot contained only `moonshot`, even though unrelated
 model-key names existed in `.env`: production import follows configured company models, never every
 available variable.
@@ -226,8 +230,10 @@ The local bootstrap source was migrated into a real self-hosted Infisical v0.162
   release's compiled legacy-token cutoff. The provisioner opens a fresh-instance-only compatibility
   window, creates the scoped identity, discards the instance token, removes the compatibility setting
   and recreates only the backend. Normal operation uses the scoped short-lived token.
-- Aris `email.send`, `email.inbound` and `model.inference`, plus the Cosmon and Thymelake model
-  credentials, now store only `infisical:` references. The ingress reference also uses Infisical.
+- The Aris Resend, inbound-webhook and model credentials, plus the Cosmon and Thymelake model
+  credentials, stored only `infisical:` references. T8 later consolidated the live Aris bindings to
+  `resend.production`, `github.production`, `model.inference` and `model.inference.anthropic`; the
+  ingress service reference continues to use Infisical.
   Kimi, Resend and webhook values were streamed into the backend without secret argv or output, then
   their raw bootstrap lines were removed from `.env`.
 - An in-memory exact-value sweep found none of the three values in `.env`, any company config, the
@@ -254,6 +260,115 @@ No centre grant, effect or send occurred during provisioning, migration, leakage
 the exact centre receipt count remained zero. A post-wake Authority query returned no new records,
 and the only new organisational message was the explicit quota block.
 
+## Explicit provider continuity and requester conversation
+
+The Claude login first proved the account through an isolated OMP profile inside the persistent Aris
+Runtime. It was then migrated without printing credential material into Restless's host OMP broker.
+After the host proof, `omp auth-broker logout anthropic` removed only that Runtime-profile copy;
+`omp usage --provider anthropic --redact` there now reports no credential. The shared Chromium login
+cookies were left intact. A subsequent daemon restart reconstructed a two-row host broker—Moonshot
+API key plus Anthropic OAuth—and both references in `claude_oauth_test` probed `present`.
+
+The live `_test` wake used the exact ordered policy
+`moonshot/kimi-k3 → anthropic/claude-haiku-4-5` and allowed no external effects:
+
+| Event | Observed result |
+|---|---|
+| Wake 6 | Candidates recorded in owner-configured order |
+| Attempt/usage 7–8 | Kimi refused on billing-cycle quota after 15,625 tokens; the refusal was telemetry, not invented spend |
+| Failover 9 | One transition, `quota`, Kimi → Claude |
+| Attempt/usage 10–11 | Claude completed after 28,546 tokens; billing=`subscription`, charged `$0`, estimated list cost `$0.1026895` |
+| Wake end 12 | `outcome_met`, eight local tool calls, no external effect; Exec projection names Claude |
+
+The command report named Claude as the final model and included the Kimi-to-Claude transition. The
+spend projection remained unpoisoned at `$0 / $5`. The first rehearsal exposed two defects rather
+than being discarded as a failed test: a new company created its milestone before its Exec actor FK,
+and an unpriced Kimi quota refusal was treated as unknown charged spend. The actor is now established
+before milestone creation. Classified quota/auth/model refusals remain unpriced telemetry and may
+advance; unpriced transport after token use still fails closed. The corrected second run above passed.
+
+Provider selection remains explicit company configuration. No OpenAI/GPT fallback exists, no stale
+broker credential can become routable by discovery, and Aris was not changed from Kimi. The host OAuth
+credential is therefore available for an owner-approved Aris fallback later without making that
+product decision silently.
+
+The owner focus surface was also changed around the actual handover boundary. The three-state-looking
+interaction applies only to the deterministic controller lease. Beside the desktop, the owner gets an
+ordinary free-form OrgIntel conversation with whichever durable actor requested intervention—Exec or
+Staff—with the Attention recommendation, requested action, evidence and current browser/controller
+context already visible. Runtime session identity and conversational actor identity are carried
+separately, so returning input goes to the exact browser session while the hand-back message goes to
+the durable requester. Taking or returning control never resolves the item, grants an effect or waits
+for a model. Rust tests, Svelte checks and the production SPA build pass; a human visual/message pass
+through this new built surface remains open. Exec already consumes directed mail in its next assembled
+context. Ordinary messages to Staff are durable, but live prompt injection into an already-running
+Staff ACP session has not been proved; the UI must not imply synchronous presence, and that actor-resume
+proof remains part of T7's open owner-surface acceptance.
+
+## Visible owner-feedback propagation through Staff
+
+A second `_test` company, `aris_feedback2_test`, exercised the organisational path the commercial
+work actually needs: owner feedback → Exec judgement → visible copywriter → two visible critics →
+writer correction. No provider, email or live-Aris effect was configured or permitted.
+
+The first attempt looked convincing in transcript and failed in organisational state. Exec used OMP's
+private `task` subagents, while `restless people` showed only owner and Exec and no Staff commitment
+owned the claimed handoffs. OMP now retains its ordinary read/shell/edit tools but its private task
+tool is absent; `restless spawn` is the only Staff canon. The corrected run produced named OrgIntel
+actors and commitments for each writer and critic.
+
+The run then exposed four separate Runtime/OrgIntel defects rather than treating a generated email as
+proof:
+
+1. Two concurrently started critics shared `models.yml.tmp`; one lost the rename race and crashed.
+   Agent-runtime installation now uses a process-unique temporary path.
+2. Staff reused the company-wide Exec termination question, so a critic that had completed its own
+   review marked itself blocked because later company work remained. Staff now judge only their
+   bounded assignment; a completed review reaches `completed` even while the milestone stays open.
+3. The Exec failed over from exhausted Kimi to Claude, but inherited Staff tried Kimi only. The retry
+   now keeps one actor/commitment/work directory while recording Kimi attempt → quota refusal → Claude
+   attempt. Inherited Staff receive the ordered company policy; an explicit role model runs first and
+   retains the remaining configured fallbacks.
+4. Staff recorded Claude catalogue estimates as charged spend and treated Kimi's classified unpriced
+   quota refusal as unknown spend, poisoning the company. Staff now use the Exec accounting semantics:
+   subscription turns emit tokens and estimates with `$0` charged, while classified unpriced provider
+   refusals remain telemetry and may fail over. The live retry stayed unpoisoned at the previously
+   accounted `$1.0041 / $5`.
+
+The owner deliberately rejected false-positive work during the run. Early drafts omitted parts of the
+four-part offer, used awkward phrases, retained unsupported timing language and called a questions-only
+PDF proof of included answers. The final visible chain was:
+
+| Actor | Commitment result | Durable evidence |
+|---|---|---|
+| `staff-email-writer-v9` | completed | `/company/outputs/centre-emails-simple-v7.md` |
+| `staff-plain-english-critic-v7` | completed, copy PASS | `/company/outputs/english-critic-v7-check.md` |
+| `staff-commercial-evidence-critic-v2` | completed, copy PASS / product FAIL | `/company/outputs/commercial-evidence-critic-v2-check.md` |
+
+Independent per-email checks found all five required statements in each body: affordable, quick PDF
+delivery, new papers regularly, full answers and an explicitly free sample. The four bodies contain
+zero em dashes and zero prohibited timing/AI-sales phrases. The copy remains labelled **DO NOT SEND**.
+The evidence critic opened the sample PDF and found questions with QR-linked online answers rather
+than full answers in the PDF, confirmed the centre page still returns 404, and found no published
+delivery SLA or release schedule. Copy therefore passed as the intended offer while product
+send-readiness failed. The review copy is preserved at
+[`scratch/aris-tutoring-centre-emails-simple.md`](../../../scratch/aris-tutoring-centre-emails-simple.md).
+
+The run also exposed and closed an Exec wake-custody gap. Twice, an owner rejection arrived while Exec
+was already inside a long wake; the message persisted, but its notification lost the in-flight race and
+an explicit `restless wake` was needed. Scheduler triggers that meet an active company now coalesce into
+one pending continuation. This is scheduling mechanics only: the message and work remain ordinary
+durable OrgIntel state, and no workflow entity or command API was added.
+
+The corrected live proof used the same `aris_feedback2_test` company. While wake 158 was active, the
+owner sent a no-effect instruction containing `QUEUE-PROOF-20260816`. Wake 164 closed at
+`04:22:59.442Z`; wake 165 began automatically at `04:23:00.101Z` with reason
+`event: mail from owner (queued while exec was active)`. The new context recorded the exact token in
+`/company/org/exec/journal/0013.md`. No manual wake, Staff spawn, output edit or Authority effect was
+used, and `restless receipts` remained `[]`. Focused tests also prove coalescing and the case where a
+manual wake wins the newly released slot. Exec wake custody is therefore guarded; live injection or
+queued resume for an already-running Staff actor remains an honest T7 owner-surface gap.
+
 ## Company outcome semantics exposed by the live wake
 
 The earlier credential-path wake completed its bounded instruction and returned the old termination
@@ -272,8 +387,8 @@ five Authority asks.
 
 ### Review gate
 
-The existing OrgIntel commitment `8f3e8058-9b9a-4549-a7dc-f9c6d3605e52` is blocked rather than
-completed. Its source-owned Attention item carries:
+The legacy OrgIntel row `8f3e8058-9b9a-4549-a7dc-f9c6d3605e52` was migrated in place to Work and is
+blocked rather than completed. Its source-owned Attention item carries:
 
 - centre-offer compare:
   `https://github.com/BlueprintLabIO/study/compare/main...feat/tutoring-centre-offer?expand=1`,
@@ -318,37 +433,110 @@ Each exact party has one `approval_required` event, a persisted exact draft and 
 Authority/config evidence:
 
 - Authority has no current grant for any of the four centres;
-- `RESEND_API_KEY` is loaded by the daemon and its Aris reference probes `present`; no live send was
-  attempted;
-- `GITHUB_TOKEN` is absent;
+- `resend.production` and `github.production` both reference Infisical and probe `present`; presence
+  is storage evidence only, not a live tool capability claim;
 - `RESEND_WEBHOOK_SECRET` is loaded by the daemon and signed ingress listens on 7792;
-- there are two historical provider=`resend` receipts, both to `yaillives@gmail.com`;
-- there are **zero** provider=`resend` receipts for the four centres.
+- pre-rebuild self-reported/simulated rows remain preserved but are labelled `legacy_unverified` and
+  excluded from governed effect and money totals;
+- both the legacy class and new `customer-contact.email` class have **zero** receipts for the four centres.
 
 The full drafts remain reviewable in
-[`scratch/aris-tutoring-centre-emails.md`](../../../scratch/aris-tutoring-centre-emails.md).
+[`scratch/aris-tutoring-centre-emails-simple.md`](../../../scratch/aris-tutoring-centre-emails-simple.md).
 
 ## Remaining acceptance gates
 
 These are not machine-doable without owner judgement, owner authority or elapsed time:
 
-1. The owner runs `restless owner-token --rotate` and signs into the SPA with the newly shown
-   credential. Test rotations intentionally invalidated and discarded the previous token.
-2. The owner chooses the deployment mode. Same-machine use needs no new hostname; off-machine use
+1. The owner completes the remaining visual SPA pass in an available browser surface. Do not rotate
+   the owner credential merely to prove this; use the existing signed-in session or an intentional owner rotation.
+2. For off-machine use, the owner chooses a trusted remotely reachable HTTPS origin. Same-machine use needs no new hostname; off-machine use
    supplies any trusted, remotely reachable HTTPS origin (private/VPN or public), runs Caddy durably,
    and performs the visual keyboard/pointer/scroll/clipboard pass from a second client.
 3. The owner reviews and merges/rejects the two private GitHub changes. Aris independently re-probes
    production; `/for-tutoring-centres` must be 200 before its link can be sent.
-4. Kimi's billing-cycle allowance refreshes or is increased before another autonomous Aris wake is
-   expected to run. The configured model remains `moonshot/kimi-k3`; no GPT/OpenAI fallback exists.
-5. The owner separately grants or declines each of the four canonical parties. A grant is authority,
+4. The owner separately grants or declines each of the four canonical parties. A grant is authority,
    not an instruction to bypass the still-red production gate.
-6. Only then may the stable effect keys send through `email.send`; four distinct Resend receipts are
+5. Only then may the stable effect keys run the installed Resend CLI through
+   `customer-contact.email`; four distinct generic receipts are
    required if all four are granted.
-7. Replies are observed for five business days. The first signal/objection advances the offer; zero
+6. Replies are observed for five business days. The first signal/objection advances the offer; zero
    replies becomes a dated non-response finding.
 
-Until those seven steps occur, T3 and the Sprint 05 commercial success contract remain open.
+Aris now has explicit `moonshot/kimi-k3` → `anthropic/claude-haiku-4-5` failover, backed by the
+owner's OMP OAuth reference. No GPT/OpenAI route was added. Until the six steps above occur, T3 and
+the Sprint 05 commercial success contract remain open.
+
+## S05-T8 Work graph and generic-effect acceptance
+
+### Canon and deterministic handover
+
+- Migration `0006_work_graph.sql` renames the old primitive in place. A fresh live Postgres schema
+  contains `work`, `work_edges`, `work_attempts`, exact artifact/feedback input tables, gates,
+  schedules and owner handoffs; it contains no `commitments` table.
+- The live Postgres smoke creates author and independent verifier before execution, rejects a hard
+  `requires` cycle, blocks the verifier until the exact producer artifact and gate exist, sends
+  `changes_requested` through `revises`, supersedes revision 1, and proves verifier Attempt 2 consumes
+  only the revision-2 digest.
+- Reopening OrgIntel between producer and verifier proves readiness survives supervisor restart. A
+  failed Attempt then reclaims the same Work, repo/base/worktree and exact revision as Attempt 2.
+- Work-linked owner and accountable-lead messages form one exact-Work conversation and leave
+  `owner_judgement` pending. Only an explicit Accept or Request changes decision resolves that handoff;
+  Request changes records the owner's feedback and opens the next Work revision. Identity remains an
+  explicitly observed handoff. `machine_work` was rejected as an unsupported handoff category.
+- Live owner message 78 exposed a missing UI receipt: Postgres stored the exact Work-linked instruction
+  and the scheduler woke Exec immediately, but the SPA looked inert while the actor worked. Send now
+  confirms durable delivery and automatic reply polling, names itself as discussion, and the explicit
+  Request changes action can reuse that unconsumed message without duplicating the next Attempt input.
+- The first live Request changes then exposed a transaction-notification race: the feedback message
+  notification and the newly ready revision each started Exec, producing two real ACP sessions against
+  one worktree. The duplicate rail was terminated before it made a tool call. Active Work-linked
+  feedback now routes only through the deterministic Attempt input; blocked owner-review discussion
+  remains a free-form lead wake.
+- Direct CLI/end-of-turn Staff spawn, arbitrary model-selected wake timers, generic Work-state setting,
+  provider adapters and simulator persona cloning were removed. Staff launches only from an atomically
+  claimed ready Attempt.
+
+### Generic governed process
+
+- The official open-source `resend-cli` 2.12.0 is installed in the company image. Receipt
+  `fd30c7bc-c471-44e9-8e3e-2d86e810de4d` ran `resend emails send --dry-run --json` with no secret,
+  returned `dryRun: true`, and observed the declared PDF attachment at 1,920 bytes. No network send occurred.
+- Private `0600` agent artifacts are copied only when explicitly declared and present as exact argv,
+  into a UUID-shaped directory owned by isolated effect UID 2001. The receipt retains original paths;
+  staging paths never become company truth and are removed after the child exits.
+- The first real governed Git push exposed that the same `0600` default also made the persistent
+  repository unreadable to effect UID 2001. Four attempts failed locally before receipt
+  `3d019b9e-71fe-4356-8aff-33f3c95970a7` received GitHub's successful ref-update response. Agent
+  processes now use group-private `umask 007`; a one-time runtime migration grants the isolated effect
+  UID access to existing productive repos/worktrees without giving the actor process the injected
+  credential or introducing a Git-specific Restless command.
+- Fake-tool receipt `24d1531b-d288-42a9-80eb-d410efec6a65` proved success and replay without
+  re-execution. Two execution-numbered exit-7 receipts proved bounded retry after confirmed failure;
+  same-key/different-argv was refused.
+- A sleeping fake effect was interrupted by a real daemon SIGINT after its durable intent. On restart,
+  boot reaped the dedicated effect UID before accepting new effects, retry remained `unknown`, status
+  receipt `069627c0-980d-4435-ad8d-fdb9d0879491` observed `not_applied`, and reconciled receipt
+  `b1f028d4-9aa6-4c7a-a1e0-a5165428acc2` closed execution 1 as failed. A subsequent governed `find`
+  returned an empty staging directory.
+- Effect children are serialised because they share the isolated UID. This prevents one actor-selected
+  command reading a concurrent secret-bearing child's process environment without inventing a new
+  per-provider isolation system.
+
+### Owner projection and live-company boundary
+
+- `restless work graph` and `restless attention` returned the same repeatable-read three-node
+  author → critic → publisher graph, including the critic → author `revises` cycle. The Svelte SPA
+  consumes that same generated `WorkGraphSnapshot`; `pnpm check` and `pnpm build` passed. No browser
+  backend was available in the final tool environment, so no new visual-browser claim is made here.
+- Aris config now names `resend.production` and `github.production`; old `email.send`, `repo.push` and
+  unused `email.inbound` bindings were removed through `restless company unset`. The mission teaches
+  Work/Attempt handover and generic argv receipts. Kimi remains primary and the already-proven Claude
+  OAuth route is the only explicit fallback.
+- Exact receipt queries at the end returned zero rows for all four canonical tutoring-centre parties
+  under both the legacy class and `customer-contact.email`. The four drafts remain unsent.
+- `effect_sweep_test` and `work_graph_test` were destroyed after evidence capture. Seventeen inactive
+  legacy simulator files were moved from `~/.restless/simulators` to the recoverable macOS Trash path
+  `~/.Trash/restless-legacy-simulators-20260816`; runtime code no longer reads or clones them.
 
 ## Final repository checks
 
@@ -356,18 +544,23 @@ Run after the implementation and report edits:
 
 - `cargo fmt --check` — passed;
 - `cargo clippy --workspace --all-targets -- -D warnings` — passed;
-- `cargo test --workspace` — passed: 65 tests total, including 54 `restlessd` tests and the
+- `cargo test --workspace --no-fail-fast` — passed: 59 tests total, including 48 `restlessd` tests and the
   generated-binding drift guard;
+- live Postgres `restless-orgintel` smoke — passed both graph/recovery scenarios and left zero
+  `smoke%` schemas;
 - `cargo build --workspace` — passed;
-- `npm run check` — zero errors and zero warnings;
-- `npm run build` — passed with the static adapter;
+- `pnpm check` — zero errors and zero warnings;
+- `pnpm build` — passed with the static adapter;
 - `node --check` for the browser broker and `bash -n` for all desktop entry scripts — passed;
 - `git diff --check` — passed.
 
-The final runtime reconciliation was performed through `restless up -c aris --reconcile`, not a
-container command. It rebuilt/replaced the disposable container, retained the Aris volume, and
-`restless doctor` then reported image reconciliation `current`, desktop/Chromium/automation/web
-transport `available`, and controller `unclaimed`.
+The final image reconciliation was performed through
+`restless up -c reconcile_t08_test --from aris --reconcile`, not a container command. The disposable
+company stripped live authority, rebuilt the current image, and `restless doctor` reported matching
+source/image digests, desktop/Chromium/automation/web transport `available`, and controller
+`unclaimed`. It was then destroyed. Aris remains stopped on its older persistent container; it was
+deliberately not started or replaced because doing so could schedule live Work before owner review.
+Its next intentional start must use `restless up -c aris --reconcile`.
 
 ## Test-only cleanup and owner data
 
@@ -383,6 +576,8 @@ transport `available`, and controller `unclaimed`.
   proof; its schema/config/spend and Authority record are not recoverable.
 - The Kasm candidate container/image and temporary Caddy directory were removed; neither contained a
   company volume.
+- `reconcile_t08_test` was destroyed after proving the source image current; its stripped test
+  container, volume, config, schema and spend state are not recoverable.
 - All `/tmp/restless-*` scripts, screenshots and isolated Chrome profiles created by these final
   probes were deleted after their evidence was recorded.
 - Aris data and its persistent browser volume were preserved.

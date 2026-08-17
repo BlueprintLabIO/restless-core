@@ -1,6 +1,6 @@
 # Sprint 05 — Review in the real browser, then make first centre contact
 
-**Status:** In progress — T1, T2, T4 and T6 are complete; T5 implementation and full automated
+**Status:** In progress — T1, T2, T4, T6 and T8 are complete; T5 implementation and full automated
 `_test` proof are recorded. The owner visual/merge, four grants/sends and five-business-day gates
 remain open. The four prepared emails are unsent.
 **Date:** 16 August 2026
@@ -71,11 +71,13 @@ same door, not a second command algebra and not a provider catalogue.
 | [x] | **S05-T1 · Unified attention projection and SPA review loop** | Owner surface over OrgIntel and Authority | The owner received merge links, a production blocker and effect grants through ordinary mail/prose; the SPA still renders fixtures and its four-kind union cannot express the observed envelope | S04-T10, S05-T4 |
 | [ ] | **S05-T5 · Persistent remote browser and owner handover** | Runtime + Owner surface + Authority boundary | The company image has headless Chromium/Playwright but no visible desktop, persistent browser service, secure remote attach, controller handover or resume observation | S05-T1 |
 | [x] | **S05-T6 · Imported Infisical credential backend** | Authority | The live keys existed in `.env` but the daemon did not load it, while the current `env:` resolver contradicts the spec's default backend and the workload has crossed its old deferral trigger | S05-T2 |
+| [ ] | **S05-T7 · Contextual owner handover and explicit provider failover** | OrgIntel + Runtime + Authority + Owner surface | Kimi exhausted its allowance after 54 tool calls and stopped the singleton Exec; the owner then completed Claude OAuth successfully in the shared browser, but the SPA did not carry a free-form conversation with the requesting actor and Restless cannot use the authenticated provider | S05-T5, S05-T6 |
+| [x] | **S05-T8 · One Work graph, deterministic handover, ordinary governed tools** | OrgIntel + Runtime Bridge + Authority + Owner surface | The live Aris continuation started verification before its input was complete, retained contradictory artifact claims, retried a known-dead provider for every actor, escalated machine work to the owner and split custody across spawn paths, legacy Commitments, messages, timers, files and branches | S05-T7 |
 | [ ] | **S05-T3 · Browser-reviewed launch gate → first real centre outreach** | All | Sprint 04 ended with prepared work and no external contact; the owner still has to reconstruct merge, live health and four grants from mail | S04-T4, S05-T1, S05-T5, S05-T6 |
 | [x] | **S05-T2 · The CLI is the complete administrative control surface** | Owner surface / Authority | Three companies were created by hand-writing TOML and authority withdrawal still requires an editor | S04-T10 |
 | [x] | **S05-T4 · The OrgIntel → owner-surface type seam, generated** | OrgIntel | Rust and TypeScript wire rows could drift silently; the guard now fails on drift | — |
 
-The outcome path is **T1 → T5 → T6 → T3**. T2 may proceed in parallel but supplies T6's owner
+The outcome path is **T1 → T5 → T6 → T7 → T8 → T3**. T2 may proceed in parallel but supplies T6's owner
 verb; T4 has already landed.
 
 ### 16 August implementation checkpoint
@@ -93,7 +95,7 @@ verb; T4 has already landed.
   not intrinsically required.
 - **T2:** complete. The bounded control-surface verbs, config round-trip, revocation re-arm and
   completeness mutation guard ran. After the daemon loaded the checkout `.env`, Aris reported Resend
-  `present`, the deliberately absent Git reference `absent`, ingress listened, and a real
+  `present`, a deliberately absent probe reference `absent`, ingress listened, and a real
   `moonshot/kimi-k3` wake ran without an editor, `psql`, another model or a printed credential.
 - **T6:** complete. A pinned self-hosted Infisical instance now runs as loopback-only host
   infrastructure with a dedicated project and project-scoped Universal Auth identity. Kimi, Resend
@@ -103,12 +105,42 @@ verb; T4 has already landed.
   reconciliation and a controlled Infisical outage all passed while the four centre receipt count
   stayed zero. That wake then exhausted the Kimi account's own billing-cycle quota; no other model was
   tried.
+- **T7:** implementation and provider proof complete; owner-surface acceptance remains open. Claude
+  OAuth now lives only in the host broker, an explicit Kimi → Claude `_test` policy completed a real
+  wake after Kimi's quota refusal, and subscription usage added `$0` to charged spend while retaining
+  token/list-price telemetry. A later visible-Staff dogfood run proved the same policy for an inherited
+  copywriter and critics without poisoning spend. That run also exposed and closed an Exec wake-custody
+  gap: a trigger received during an active wake is now coalesced into one continuation. Live events
+  164–165 show owner mail starting its next wake automatically one second after the active wake closed;
+  the new context recorded the exact owner proof token without a manual wake or effect. The built SPA
+  carries a free-form ordinary OrgIntel conversation with the actual Exec or Staff requester beside the
+  shared browser; the deterministic controller lease remains separate. A real owner visual/message pass
+  and Staff queued-message resume proof through that built surface are still required before the ticket
+  is checked complete. Aris now keeps Kimi primary with only the proven Claude OAuth fallback; the
+  four emails remain unsent.
+- **Owner-review repair:** the live Aris queue now presents the rendered tutoring-centre page as one
+  explicit owner-judgement review, with **Accept outcome**, **Request changes**, and a Work-scoped
+  conversation with Exec as accountable lead. Ordinary messages keep the review open; revision
+  feedback advances the same Work to a new revision. The conversation now confirms persisted delivery,
+  says plainly that Send is discussion rather than a review decision, and lets Request changes reuse
+  the latest unconsumed owner message without duplicate feedback. Eight legacy approval projections
+  whose source records contained no prepared command were removed from the active queue without
+  rewriting their Authority history.
 - **Live outcome correction:** a bounded wake returning the legacy word `done` incorrectly completed
   the company milestone despite named owner gates. The wire now uses `outcome_met`, rejects `done`,
-  and requires `blocked` while any human/external gate remains. The source commitment was restored
-  through the CLI and the next real Kimi wake returned `blocked` correctly.
-- **T3:** four exact Aris approval items are queued with zero centre send receipts. The centre page is
-  still 404, so merge/production/grants/sends/reply observation have not started.
+  and requires `blocked` while any human/external gate remains. The source legacy Commitment (now
+  migrated to Work) was restored through the CLI and the next real Kimi wake returned `blocked` correctly.
+- **T8:** complete. The in-place Work migration, `requires`/`revises` graph, atomic Attempt claims,
+  exact revision inputs, deterministic retry/invalidation, executable gates and prepared owner
+  handoffs passed a real Postgres run. Staff now starts only from ready Work. Generic governed argv
+  execution replaced provider adapters; Resend dry-run with a test PDF, replay/failure/unknown
+  reconciliation and daemon-restart orphan cleanup passed in disposable runtimes. Kimi remains
+  primary, Claude OAuth is the only configured fallback, and all four centre receipt queries stayed
+  at zero.
+- **T3:** the four centre drafts remain unsent and all four exact receipt queries remain at zero.
+  Current first-contact approvals will be projected only from a fresh governed effect attempt that
+  preserves the exact prepared command; the legacy `null` command rows are audit history, not safe
+  approval requests. Merge/production/grants/sends/reply observation have not started.
 
 Evidence and the exact remaining gates are in
 [`sprint-05/run-report.md`](./sprint-05/run-report.md). Checkboxes stay open until their full ticket
@@ -233,7 +265,7 @@ without placing simulated evidence in Aris.
   personal/root identity, the direct owner-browser link is used instead.
 - The production gate resolves only after an external 200/title probe, not when the owner closes the
   review surface.
-- The four email items remain pending and no `email.send` receipt exists.
+- The four email items remain pending and no `customer-contact.email` receipt exists.
 
 ### 4. Live commercial run
 
@@ -255,6 +287,8 @@ Only after the owner explicitly proceeds:
 | Desktop disconnect is mistaken for task completion | **Invariant** | Resolution comes from the source-owned condition or effect receipt, never connection close or lease release |
 | Browser stack choice becomes permanent before it works | **Guarded** | T5 runs KasmVNC and noVNC/TigerVNC candidates against the same acceptance probe, records evidence, then purges one |
 | Browser system expands into per-site automation APIs | **Accepted and watched** | Browser/desktop, CDP and generic effects are sufficient for this run; a new site-specific operation needs repeated observed friction |
+| A hidden fallback changes model behaviour or repeats consequential work | **Guarded** | Fallback is an ordered company config, only named failure classes advance it, every attempt names the actual model and cause, and material effects still reconcile through Authority idempotency before retry |
+| Subscription usage is charged as API spend | **Invariant** | OAuth-backed turns retain token/list-price telemetry but add zero dollars to the charged-spend fuse; the provider's own allowance remains a separate availability boundary |
 | Remote video is awkward on a small screen | **Accepted** | Desktop browser is the Sprint 05 target. Mobile-native interaction is explicitly deferred |
 | First contact becomes spam | **Guarded** | Four hand-verified centres, one useful free sample, per-party owner authority, no sequence or automated follow-up |
 | No centre replies | **Accepted** | Four sends are a channel probe. Bounded non-response is a valid commercial finding |
@@ -274,8 +308,9 @@ Only after the owner explicitly proceeds:
 
 ## Carried constraints
 
-- **Kimi only.** The Runtime continues to use the configured Kimi/OMP path. Sprint 05 does not add,
-  substitute or silently fall back to an OpenAI model.
+- **Explicit providers only.** Kimi remains the primary model. The owner may configure an ordered
+  Claude fallback proven through OMP OAuth; there is no implicit provider discovery, no OpenAI/GPT
+  fallback, and no model change hidden from the wake report or owner surface.
 - **No simulated evidence in Aris.** Browser and effect simulations run only in `_test` companies.
 - **One concept, one writer.** The SPA resolves back to OrgIntel or Authority; it stores no duplicate
   attention lifecycle, approval or receipt.
@@ -294,6 +329,11 @@ Only after the owner explicitly proceeds:
 5. Browser-driven material effects use generic effect receipts. They do not earn provider-specific
    APIs merely because the transport is a browser.
 6. The four prepared emails remain unsent until the live-run grants.
+7. The requesting actor—not necessarily Exec—gets a contextual, free-form handover conversation in
+   the SPA, but the deterministic controller lease remains usable when every model provider is
+   unavailable.
+8. Provider continuity is an explicit ordered company policy. It is not a gateway-selected mystery
+   model and does not turn model providers into Authority effect APIs.
 
 ## Exit evidence
 
@@ -303,6 +343,9 @@ The Sprint 05 run report must contain:
 - the `_test` handover transcript and browser-state persistence evidence;
 - an SPA capture showing the real source-owned attention envelope and focus-mode desktop;
 - controller-exclusion and expired-ticket failures;
+- a `_test` wake whose primary provider fails, whose configured Claude fallback succeeds, and whose
+  report/operational events name both models and the failover reason without mischarging subscription
+  usage;
 - the Aris compare URL, merge commit and independent production probe;
 - the four canonical party grants/declines and, when granted, four provider send receipts;
 - the first reply/objection or the dated five-business-day non-response finding;

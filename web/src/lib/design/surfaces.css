@@ -1,1186 +1,236 @@
-/* ---------- inbox (the landing surface) ---------- */
-/* the brief — the morning in one read, from the record. The frame supplies the gutter now,
- * so the old `margin-bottom` is gone: a pane never spaces itself. */
-.bridge-root .brief {
-	padding: 16px 22px 16px;
-}
-.bridge-root .brief-src {
-	font-size: 10px;
-	letter-spacing: 0.08em;
-	color: var(--text-tertiary);
-}
-.bridge-root .brief-segs {
-	display: flex;
-	gap: 20px;
-	flex-wrap: wrap;
-	margin-top: 10px;
-}
-.bridge-root .brief-seg {
-	display: flex;
-	align-items: center;
-	gap: 7px;
-	font-size: 12.5px;
-	color: var(--text-secondary);
-}
-.bridge-root .brief-seg b {
-	color: var(--ink);
-	font-weight: 600;
-}
-.bridge-root .brief-seg.lit {
-	color: var(--ink);
-}
-.bridge-root .brief-rows {
-	margin-top: 12px;
-	padding-top: 8px;
-	border-top: 1px solid var(--border);
-}
-.bridge-root .brief-row {
-	display: flex;
-	gap: 10px;
-	align-items: baseline;
-	padding: 2px 0;
-	font-size: 12px;
-}
-.bridge-root .brief-time {
-	font-size: 11px;
-	color: var(--text-tertiary);
-	font-variant-numeric: tabular-nums;
-	flex: 0 0 auto;
-}
-.bridge-root .brief-entry {
-	white-space: nowrap;
-	overflow: hidden;
-	text-overflow: ellipsis;
-}
-.bridge-root .inbox-body {
-	grid-template-columns: minmax(0, 1fr) minmax(280px, 400px);
-}
-@media (max-width: 720px) {
-	.bridge-root .inbox-body {
-		grid-template-columns: 1fr;
-	}
-}
-/* A list pane keeps its rows edge to edge — hover and the selected state read as bands
- * across the whole region, which they cannot do inside 18px of pane padding. The heading
- * carries the inset instead. */
-.bridge-root .in-p-list {
-	padding: 0 0 8px;
-	overflow: hidden;
-}
-.bridge-root .in-p-list > .pane-head {
-	padding: 16px 16px 0;
-	margin-bottom: 6px;
-}
-.bridge-root .inbox-detail {
-	min-width: 0;
-}
-.bridge-root .ib-row {
-	display: flex;
-	align-items: center;
-	gap: 10px;
-	padding: 10px 16px;
-	border-bottom: 1px solid var(--border);
-	text-decoration: none;
-	color: inherit;
-}
-.bridge-root .ib-row:hover {
-	background: color-mix(in srgb, var(--surface) 60%, transparent);
-}
-.bridge-root .ib-row.selected {
-	background: var(--surface);
-	box-shadow: inset 2px 0 0 var(--accent);
-}
-.bridge-root .ib-dot {
-	flex: 0 0 auto;
-	width: 6px;
-	height: 6px;
-	border-radius: 999px;
-	background: transparent;
-}
-.bridge-root .ib-dot.waiting {
-	background: var(--status-waiting);
-}
-.bridge-root .ib-dot.unread {
-	background: var(--accent);
-}
-.bridge-root .ib-col {
-	display: flex;
-	flex-direction: column;
-	gap: 1px;
-	min-width: 0;
-	flex: 1;
-}
-.bridge-root .ib-title {
-	font-size: 13px;
-	font-weight: 600;
-	color: var(--ink);
-	white-space: nowrap;
-	overflow: hidden;
-	text-overflow: ellipsis;
-}
-.bridge-root .ib-title.read {
-	font-weight: 400;
-}
-.bridge-root .ib-meta {
-	font-size: 11px;
-	color: var(--text-tertiary);
-	white-space: nowrap;
-	overflow: hidden;
-	text-overflow: ellipsis;
-}
-.bridge-root .ib-when {
-	flex: 0 0 auto;
-	font-family: 'IBM Plex Mono', monospace;
-	font-size: 10px;
-	color: var(--text-tertiary);
-}
-
-/* the selected item, beside the list */
-.bridge-root .inbox-detail {
-	display: flex;
-	flex-direction: column;
-	gap: 10px;
-}
+/* Focused Attention evidence. */
 .bridge-root .inbox-pane {
 	width: 100%;
 	display: flex;
 	flex-direction: column;
-	gap: 10px;
 }
+
 .bridge-root .inbox-pane .needs-card {
 	max-width: none;
 }
-.bridge-root .inbox-emptycard {
-	padding: 18px;
-}
-.bridge-root .inbox-empty-h {
-	font-family: 'Inter', system-ui, sans-serif;
-	font-weight: 600;
-	font-size: 15px;
-	margin: 0 0 6px;
-}
+
 .bridge-root .ib-quote {
 	margin: 12px 0 0;
 	padding: 10px 12px;
-	border-radius: var(--radius-sm);
-	background: var(--surface-alt);
 	border: 1px solid var(--border);
-	font-size: 12.5px;
+	border-radius: var(--radius-control);
+	background: var(--surface-alt);
+	font-size: var(--t-body);
 	font-style: italic;
-	color: var(--text-secondary);
 	line-height: 1.5;
 	white-space: pre-line;
-}
-.bridge-root .ib-facts {
-	display: flex;
-	flex-direction: column;
-	gap: 4px;
-	margin-top: 12px;
+	color: var(--text-secondary);
 }
 
-/* ---------- executive rail (CoS sidebar that takes real space) ---------- */
+/* Persistent executive transcript. It takes real desktop space and disappears
+ * below the prototype's compact breakpoint; it is never a floating chat mode. */
 .bridge-root .bridge-exrail {
-	flex: 0 0 auto;
-	width: 0;
-	overflow: hidden;
 	position: sticky;
 	top: var(--topbar-total);
+	width: 0;
 	height: calc(100vh - var(--topbar-total));
-	background: var(--glass-strong);
-	backdrop-filter: blur(24px) saturate(1.5);
-	-webkit-backdrop-filter: blur(24px) saturate(1.5);
-	transition: width 0.26s cubic-bezier(0.32, 0.72, 0.24, 1);
+	flex: 0 0 auto;
+	overflow: hidden;
+	background: var(--surface-rail);
 }
+
 .bridge-root .bridge-exrail.open {
 	width: 400px;
 	box-shadow: -1px 0 0 var(--border);
 }
-/* Fixed inner width, clipped by the animating outer width — the conversation
- * never rewraps mid-slide, the page beside it does the moving. */
-.bridge-root .exr-inner {
+
+.bridge-root .exr-inner,
+.bridge-root .exr-lock {
 	width: 400px;
+}
+
+.bridge-root .exr-inner {
 	height: 100%;
 	display: flex;
 	flex-direction: column;
 }
-/* the connect gate: frosted glass over the conversation until a runtime is bound */
+
 .bridge-root .exr-lock {
 	position: absolute;
 	inset: 0;
 	z-index: var(--z-raised);
-	width: 400px;
 	display: grid;
 	place-items: center;
 	padding: 24px;
 	background: var(--glass);
 	backdrop-filter: blur(10px) saturate(1.2);
 	-webkit-backdrop-filter: blur(10px) saturate(1.2);
-	animation: exrlock 0.2s ease both;
 }
-@keyframes exrlock {
-	from {
-		opacity: 0;
-	}
-	to {
-		opacity: 1;
-	}
-}
+
 .bridge-root .exr-lock-card {
 	max-width: 300px;
-	text-align: center;
+	display: grid;
+	justify-items: center;
+	gap: 10px;
 	padding: 22px 20px;
-	border-radius: var(--radius-lg);
 	border: 1px solid var(--border-strong);
+	border-radius: var(--radius-pane);
 	background: var(--surface);
 	box-shadow: var(--shadow-lift);
+	text-align: center;
 }
+
 .bridge-root .exr-lock-badge {
-	display: grid;
-	place-items: center;
 	width: 40px;
 	height: 40px;
-	margin: 0 auto 12px;
-	border-radius: 12px;
-	background: var(--accent-soft);
-	color: var(--accent-strong);
-	font-size: 20px;
+	display: grid;
+	place-items: center;
+	border-radius: var(--radius-control);
+	background: var(--intent-direction-soft);
+	color: var(--intent-direction);
 }
+
+.bridge-root .exr-lock-h,
+.bridge-root .exr-lock-p,
+.bridge-root .exr-lock-note {
+	margin: 0;
+}
+
 .bridge-root .exr-lock-h {
-	margin: 0 0 6px;
-	font-family: 'Inter', system-ui, sans-serif;
-	font-size: 16px;
-	font-weight: 600;
+	font-size: var(--t-head);
 }
-.bridge-root .exr-lock-p {
-	margin: 0 0 16px;
-	font-size: 13px;
+
+.bridge-root .exr-lock-p,
+.bridge-root .exr-lock-note {
+	font-size: var(--t-body);
 	line-height: 1.5;
 	color: var(--text-secondary);
 }
-.bridge-root .exr-lock-providers {
-	display: flex;
-	gap: 8px;
-}
-.bridge-root .exr-lock-provider {
-	flex: 1;
-	padding: 10px 12px;
-	border-radius: var(--radius-md);
-	border: 1px solid var(--border-strong);
-	background: var(--surface-alt);
-	color: inherit;
-	font-size: 13px;
-	font-weight: 600;
-	cursor: pointer;
-}
-.bridge-root .exr-lock-provider:not(:disabled):hover {
-	background: var(--accent-soft);
-	border-color: color-mix(in srgb, var(--accent) 30%, var(--border));
-	color: var(--accent-strong);
-}
-.bridge-root .exr-lock-provider:disabled {
-	opacity: 0.55;
-	cursor: default;
-}
-.bridge-root .exr-lock-provider:focus-visible {
-	outline: 2px solid var(--accent);
-	outline-offset: 2px;
-}
-.bridge-root .exr-lock-note {
-	margin: 12px 0 0;
-	font-size: 12px;
-	color: var(--text-tertiary);
-}
-@media (prefers-reduced-motion: reduce) {
-	.bridge-root .exr-lock {
-		animation: none;
-	}
-}
+
 .bridge-root .exr-head {
 	display: flex;
 	align-items: center;
-	justify-content: space-between;
 	gap: 10px;
-	padding: 16px 18px 12px;
+	padding: 14px;
 	border-bottom: 1px solid var(--border);
 }
+
 .bridge-root .exr-who {
+	min-width: 0;
 	display: flex;
 	flex-direction: column;
 	gap: 2px;
-	min-width: 0;
 }
+
 .bridge-root .exr-name {
 	display: flex;
 	align-items: center;
 	gap: 8px;
-	font-family: 'Inter', system-ui, sans-serif;
+	font-size: var(--t-head);
 	font-weight: 600;
-	font-size: 15px;
 }
-.bridge-root .exr-lamp {
-	display: flex;
-	color: var(--status-offline);
-	flex: 0 0 auto;
-}
-.bridge-root .exr-lamp.live {
-	color: var(--ink);
-}
+
 .bridge-root .exr-sub {
-	font-size: 11.5px;
+	font-size: var(--t-body);
 	color: var(--text-tertiary);
 }
-.bridge-root .exr-close {
-	width: 30px;
-	height: 30px;
-	border-radius: 9px;
-	border: 1px solid transparent;
-	background: transparent;
-	font-size: 17px;
-	line-height: 1;
-	color: var(--text-tertiary);
-	cursor: pointer;
-	/* tap target ≈ 38px without a bigger button */
-	padding: 4px;
-	margin: -4px;
-	transition:
-		background 0.15s ease,
-		color 0.15s ease;
-}
-.bridge-root .exr-close:hover {
-	background: rgba(38, 41, 47, 0.06);
-	color: var(--ink);
-}
-.bridge-root .exr-needs {
-	display: block;
-	margin: 10px 14px 0;
-	padding: 9px 12px;
-	border-radius: var(--radius-md);
-	background: var(--accent-soft);
-	border: 1px solid var(--border-strong);
-	color: var(--ink);
-	font-size: 12.5px;
-	text-decoration: none;
-}
+
 .bridge-root .exr-msgs {
+	min-height: 0;
 	flex: 1;
-	overflow-y: auto;
-	padding: 16px 14px;
 	display: flex;
 	flex-direction: column;
-	gap: 8px;
+	overflow-y: auto;
 }
+
 .bridge-root .exr-row {
 	display: flex;
 }
-.bridge-root .exr-row.you {
-	justify-content: flex-end;
-}
+
 .bridge-root .exr-b {
-	max-width: 84%;
-	padding: 9px 13px;
-	border-radius: 14px;
-	font-size: 13.5px;
+	width: 100%;
+	max-width: none;
+	padding: 0;
+	border: 0;
+	border-radius: 0;
+	background: transparent;
+	color: var(--ink);
+	font-size: var(--t-body);
 	line-height: 1.55;
 }
+
 .bridge-root .exr-b p {
 	margin: 0;
 	white-space: pre-wrap;
 }
-.bridge-root .exr-row.you .exr-b {
-	background: var(--bubble-user);
-	border: 1px solid rgba(255, 255, 255, 0.1);
-	border-bottom-right-radius: 5px;
-	color: var(--text-inverse);
-}
-.bridge-root .exr-row.agent .exr-b {
-	background: var(--bubble-agent);
-	border: 1px solid var(--border);
-	border-bottom-left-radius: 5px;
-	box-shadow: var(--shadow-soft);
-}
+
 .bridge-root .exr-system {
+	font-size: var(--t-body);
 	font-style: italic;
 	color: var(--text-tertiary);
-	font-size: 12.5px;
 }
+
 .bridge-root .exr-empty {
+	max-width: 260px;
 	margin: auto;
 	text-align: center;
-	max-width: 260px;
 }
+
 .bridge-root .exr-empty-h {
-	font-family: 'Inter', system-ui, sans-serif;
-	font-weight: 600;
-	font-size: 15px;
 	margin: 0 0 6px;
+	font-size: var(--t-head);
+	font-weight: 600;
 }
+
 .bridge-root .exr-empty-p {
 	margin: 0;
-	font-size: 12.5px;
+	font-size: var(--t-body);
 	line-height: 1.6;
 	color: var(--text-secondary);
 }
+
 .bridge-root .exr-thinking {
 	display: flex;
 	align-items: center;
 	gap: 4px;
 	padding: 10px 14px;
 }
-/* Turn liveness beside the dots: the dots say "working", this says how much. */
-.bridge-root .exr-progress {
-	margin-left: 8px;
-	min-width: 0;
-	font-size: 10.5px;
-	color: var(--text-tertiary);
-	white-space: nowrap;
-	overflow: hidden;
-	text-overflow: ellipsis;
-}
+
 .bridge-root .exr-thinking i {
 	width: 6px;
 	height: 6px;
 	border-radius: 1px;
-	background: var(--status-working);
+	background: var(--intent-conversation);
 	opacity: 0.35;
 	animation: exr-pulse 1.2s ease-in-out infinite;
 }
+
 .bridge-root .exr-thinking i:nth-child(2) {
 	animation-delay: 0.15s;
 }
+
 .bridge-root .exr-thinking i:nth-child(3) {
 	animation-delay: 0.3s;
 }
+
 @keyframes exr-pulse {
-	0%,
-	100% {
-		opacity: 0.25;
-		transform: translateY(0);
-	}
 	50% {
 		opacity: 0.9;
 		transform: translateY(-2px);
 	}
 }
+
 .bridge-root .exr-composer {
-	border-top: 1px solid var(--border);
-	padding: 12px 14px 14px;
 	display: flex;
 	flex-direction: column;
 	gap: 8px;
+	padding: 12px 14px 14px;
+	border-top: 1px solid var(--border);
 }
-/* The founding floor's rail still runs its own single-row composer: it is
- * callback-driven rather than form-backed, so it did not move onto the shared
- * Composer in UIR-004. It has the same no-wrap <input> and should follow. */
-.bridge-root .exr-inputrow {
-	display: flex;
-	gap: 8px;
-}
-.bridge-root .exr-inputrow input {
-	flex: 1;
-	min-width: 0;
-	padding: 10px 13px;
-	border-radius: 12px;
-	border: 1px solid var(--border-strong);
-	background: var(--surface);
-	font: inherit;
-	font-size: 13.5px;
-	transition:
-		border-color 0.15s ease,
-		box-shadow 0.15s ease;
-}
-.bridge-root .exr-inputrow input:focus {
-	outline: none;
-	border-color: rgba(255, 255, 255, 0.35);
-	box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.14);
-}
-.bridge-root .exr-send {
-	width: 40px;
-	border: 0;
-	border-radius: var(--radius-md);
-	background: var(--accent-strong);
-	color: var(--text-inverse);
-	font-size: 15px;
-	cursor: pointer;
-	display: grid;
-	place-items: center;
-	transition: background 0.15s ease;
-}
-.bridge-root .exr-send:disabled {
-	opacity: 0.45;
-	cursor: default;
-}
+
 .bridge-root .exr-error {
 	margin: 0;
-	font-size: 12px;
-	color: var(--status-blocked);
+	font-size: var(--t-body);
+	color: var(--state-danger);
 }
-/* On narrow screens the rail can't take space without crushing the page, so
- * it falls back to floating over it. */
-@media (max-width: 720px) {
-	.bridge-root .bridge-exrail {
-		position: fixed;
-		top: 0;
-		right: 0;
-		bottom: 0;
-		height: auto;
-		z-index: var(--z-rail);
-		box-shadow: -18px 0 48px rgba(38, 41, 47, 0.12);
-	}
-	.bridge-root .bridge-exrail.open {
-		width: min(400px, 100vw);
-	}
-}
+
 @media (prefers-reduced-motion: reduce) {
-	.bridge-root .bridge-exrail {
-		transition: none;
-	}
 	.bridge-root .exr-thinking i {
 		animation: none;
 	}
-	.bridge-topbar .tb-menu {
-		animation: none;
-	}
 }
-
-/* ---------- full-bleed pane pages ---------- */
-/* A page whose body is a pane frame runs edge to edge: the frame's own gutter
- * is the only inset, so the panes fill the monitor instead of leaving an
- * L-shaped void beside the tall ones. The head keeps its own padding so the
- * title still lines up with the pane text below it. */
-.bridge-root .bridge-bleed {
-	padding-left: 0;
-	padding-right: 0;
-	padding-bottom: 0;
-	display: flex;
-	flex-direction: column;
-}
-/* the frame fills the window rather than stopping wherever the content ends —
- * a sparse page reads as a quiet room, not as a truncated one. It grows but
- * never shrinks below its content, so long pages still scroll normally. */
-.bridge-root .bridge-bleed .pane-frame {
-	flex: 1 0 auto;
-}
-.bridge-root .bridge-bleed .pane-frame > .pane-row {
-	flex: 1 0 auto;
-}
-.bridge-root .bridge-bleed .page-head {
-	padding: 0 28px;
-}
-@media (max-width: 900px) {
-	.bridge-root .bridge-bleed .page-head {
-		padding: 0 18px;
-	}
-}
-
-/* ---------- mission (the constitution) ---------- */
-.bridge-root .mi-pane {
-	padding: 22px 28px 24px;
-}
-/* the two tall working regions take the width; the two short ones stack into a
- * rail, so nothing leaves a crater beside a tall neighbour */
-.bridge-root .mi-body {
-	grid-template-columns: 5fr 4fr 3fr;
-}
-/* the rail and the footer band step down a surface — region role carried by
- * background does more separating work than any border weight */
-.bridge-root .mi-body > .pane-rail > .pane,
-.bridge-root .mi-p-team {
-	background: var(--surface-alt);
-}
-/* the masthead: the mission is the one thing that gets air */
-.bridge-root .mi-p-mission {
-	padding: 34px 28px 30px;
-}
-/* the constitution's edit affordance — quiet until asked for */
-.bridge-root .inline-edit {
-	position: absolute;
-	top: 14px;
-	right: 14px;
-	padding: 5px 12px;
-	border: 1px solid var(--border-strong);
-	border-radius: var(--radius-md);
-	background: transparent;
-	color: var(--text-secondary);
-	font: inherit;
-	font-size: 12px;
-	cursor: pointer;
-}
-.bridge-root .inline-edit:hover {
-	background: var(--surface-alt);
-	color: var(--ink);
-}
-.bridge-root .mi-input {
-	width: 100%;
-	min-height: 88px;
-	resize: vertical;
-	border: 1px solid var(--border-strong);
-	border-radius: var(--radius-md);
-	background: var(--surface-alt);
-	color: var(--ink);
-	font: inherit;
-	font-size: 15px;
-	line-height: 1.55;
-	padding: 12px 14px;
-}
-.bridge-root .mi-input:focus {
-	outline: 2px solid color-mix(in srgb, var(--accent) 35%, transparent);
-	border-color: var(--accent-strong);
-}
-.bridge-root .form-actions {
-	display: flex;
-	align-items: center;
-	gap: 10px;
-	margin-top: 12px;
-}
-.bridge-root .tape-note {
-	margin-left: auto;
-	font-size: 10.5px;
-	letter-spacing: 0.06em;
-	color: var(--text-tertiary);
-}
-.bridge-root .mi-text {
-	font-family: 'Inter', system-ui, sans-serif;
-	font-weight: 600;
-	font-size: clamp(22px, 3vw, 30px);
-	line-height: 1.22;
-	letter-spacing: -0.015em;
-	margin: 0 0 10px;
-	max-width: 26ch;
-}
-.bridge-root .mi-text.dim {
-	color: var(--text-tertiary);
-	font-weight: 500;
-}
-.bridge-root .mi-sub {
-	font-size: 11px;
-	letter-spacing: 0.1em;
-	text-transform: uppercase;
-	color: var(--text-tertiary);
-	margin: 0;
-}
-.bridge-root .mi-pane .tape-note {
-	display: block;
-	margin: 8px 0 0;
-}
-.bridge-root .mi-budget-input {
-	width: 180px;
-	padding: 10px 12px;
-	border: 1px solid var(--border-strong);
-	border-radius: var(--radius-md);
-	background: var(--surface-alt);
-	color: var(--ink);
-	font: inherit;
-	font-size: 15px;
-}
-.bridge-root .mi-budget-input:focus {
-	outline: 2px solid color-mix(in srgb, var(--accent) 35%, transparent);
-	border-color: var(--accent-strong);
-}
-.bridge-root .mi-pane .over-label {
-	margin-bottom: 12px;
-}
-.bridge-root .mi-line {
-	padding: 10px 0;
-	border-bottom: 1px solid var(--border);
-}
-.bridge-root .mi-line:last-of-type {
-	border-bottom: 0;
-}
-.bridge-root .mi-line-top {
-	display: flex;
-	align-items: center;
-	gap: 10px;
-	flex-wrap: wrap;
-}
-.bridge-root .mi-name {
-	font-weight: 600;
-	font-size: 14px;
-}
-.bridge-root .mi-by {
-	margin: 3px 0 0;
-	font-size: 13px;
-	line-height: 1.6;
-	color: var(--text-secondary);
-	max-width: 64ch;
-}
-.bridge-root .mi-state {
-	font-family: 'IBM Plex Mono', monospace;
-	font-size: 10px;
-	font-weight: 600;
-	letter-spacing: 0.08em;
-	text-transform: uppercase;
-	padding: 3px 8px;
-	border-radius: 999px;
-	background: rgba(38, 41, 47, 0.06);
-	color: var(--text-secondary);
-	white-space: nowrap;
-}
-.bridge-root .mi-state.st-active {
-	background: rgba(255, 255, 255, 0.06);
-	color: var(--ink);
-}
-.bridge-root .mi-state.st-draft,
-.bridge-root .mi-state.st-proposed {
-	background: var(--accent-soft);
-	color: var(--status-waiting);
-}
-.bridge-root .mi-money .mi-figure {
-	font-family: 'Inter', system-ui, sans-serif;
-	font-weight: 700;
-	font-size: 24px;
-	letter-spacing: -0.02em;
-}
-.bridge-root .mi-money .mi-per {
-	font-size: 13px;
-	font-weight: 500;
-	color: var(--text-tertiary);
-}
-.bridge-root .mi-empty {
-	font-size: 12.5px;
-	line-height: 1.6;
-	color: var(--text-tertiary);
-	font-style: italic;
-	margin: 4px 0;
-}
-.bridge-root .mi-goalform {
-	display: flex;
-	flex-direction: column;
-	gap: 8px;
-	margin-top: 14px;
-	padding-top: 14px;
-	border-top: 1px dashed var(--border-strong);
-}
-.bridge-root .mi-goalform input {
-	padding: 10px 13px;
-	border-radius: var(--radius-md);
-	border: 1px solid var(--border-strong);
-	background: var(--surface-alt);
-	font: inherit;
-	font-size: 13px;
-	transition:
-		border-color 0.15s ease,
-		box-shadow 0.15s ease,
-		background 0.15s ease;
-}
-.bridge-root .mi-goalform input:focus {
-	outline: none;
-	background: var(--surface);
-	border-color: rgba(255, 255, 255, 0.35);
-	box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.14);
-}
-.bridge-root .mi-auth-summary {
-	font-size: 12.5px;
-	color: var(--text-secondary);
-	margin: 0 0 10px;
-}
-.bridge-root .mi-chips {
-	display: flex;
-	flex-wrap: wrap;
-	gap: 6px;
-}
-.bridge-root .mi-chip {
-	font-size: 11.5px;
-	font-weight: 500;
-	padding: 4px 10px;
-	border-radius: 999px;
-	background: rgba(255, 255, 255, 0.05);
-	border: 1px solid rgba(255, 255, 255, 0.14);
-	color: var(--ink);
-}
-.bridge-root .mi-chip.approval {
-	background: var(--accent-soft);
-	border-color: var(--border-strong);
-	color: var(--ink);
-}
-.bridge-root .mi-auth-fold {
-	margin-top: 10px;
-}
-/* the Fold primitive, reskinned for v3 */
-.bridge-root .bridge-foldmark {
-	font-family: 'IBM Plex Mono', monospace;
-	font-size: 11px;
-	color: var(--accent-strong);
-	background: none;
-	border: 0;
-	border-bottom: 1px dotted var(--accent);
-	padding: 0 0 1px;
-	cursor: pointer;
-}
-.bridge-root .bridge-fold {
-	display: none;
-	margin-top: 10px;
-}
-.bridge-root .bridge-fold.open {
-	display: block;
-}
-/* fields inside the rail sit on --surface-alt, so they invert to keep an edge */
-.bridge-root .pane-rail .mi-budget-input {
-	background: var(--surface);
-}
-.bridge-root .mi-team-row {
-	display: grid;
-	grid-template-columns: 140px minmax(120px, 220px) 1fr;
-	gap: 14px;
-	padding: 9px 0;
-	border-bottom: 1px solid var(--border);
-	font-size: 13px;
-	align-items: baseline;
-}
-.bridge-root .mi-team-row:last-child {
-	border-bottom: 0;
-}
-.bridge-root .mi-team-who {
-	font-weight: 600;
-}
-.bridge-root .mi-team-serves {
-	color: var(--accent-strong);
-	font-size: 12px;
-}
-.bridge-root .mi-team-line {
-	color: var(--text-secondary);
-	font-size: 12.5px;
-	line-height: 1.55;
-}
-@media (max-width: 700px) {
-	.bridge-root .mi-team-row {
-		grid-template-columns: 1fr;
-		gap: 2px;
-	}
-}
-/* the panes fold in order: the rail drops under the two working regions and
- * lies on its side, then everything becomes one column. The gutter carries the
- * separation at every width, so no border juggling is needed. */
-@media (max-width: 1200px) {
-	.bridge-root .mi-body {
-		grid-template-columns: 1fr 1fr;
-	}
-	.bridge-root .mi-body > .pane-rail {
-		grid-column: 1 / -1;
-		flex-direction: row;
-	}
-	.bridge-root .mi-body > .pane-rail > * {
-		flex: 1 1 0;
-	}
-}
-@media (max-width: 900px) {
-	.bridge-root .mi-body {
-		grid-template-columns: 1fr;
-	}
-	.bridge-root .mi-body > .pane-rail {
-		flex-direction: column;
-	}
-	.bridge-root .mi-pane {
-		padding: 18px 18px 20px;
-	}
-	.bridge-root .mi-p-mission {
-		padding: 24px 18px 22px;
-	}
-}
-
-/* ---------- people (the roster) ---------- */
-/* Same shape as mission: the wide working region takes the width, the reporting tree
- * sits beside it. Padding matches `.mi-pane` so a pane reads the same on every surface. */
-.bridge-root .pe-pane {
-	padding: 22px 28px 24px;
-}
-.bridge-root .pe-body {
-	grid-template-columns: 4fr 6fr;
-}
-/* the org tree steps down a surface — it is context for the roster, not a peer of it */
-.bridge-root .pe-p-chart {
-	background: var(--surface-alt);
-}
-@media (max-width: 900px) {
-	.bridge-root .pe-body {
-		grid-template-columns: 1fr;
-	}
-	.bridge-root .pe-pane {
-		padding: 18px 18px 20px;
-	}
-}
-
-/* ---------- ops (the work) ---------- */
-.bridge-root .op-pane {
-	padding: 22px 28px 24px;
-}
-/* spend and connections stack beside the board; the board is the tall neighbour */
-.bridge-root .op-body {
-	grid-template-columns: 7fr 5fr;
-}
-.bridge-root .op-body > .pane-rail > .pane {
-	background: var(--surface-alt);
-}
-/* the kanban finally has a container: it used to be a bare div under a floating label */
-.bridge-root .op-p-work .bridge-kanban {
-	margin: 0;
-}
-@media (max-width: 1100px) {
-	.bridge-root .op-body {
-		grid-template-columns: 1fr;
-	}
-}
-@media (max-width: 900px) {
-	.bridge-root .op-pane {
-		padding: 18px 18px 20px;
-	}
-}
-
-/* ---------- library (versioned records) ---------- */
-.bridge-root .lb-pane {
-	padding: 20px 24px 22px;
-}
-.bridge-root .lb-body {
-	grid-template-columns: minmax(0, 1fr) minmax(320px, 420px);
-}
-/* the detail rail steps down a surface — it is what you are inspecting, not the index */
-.bridge-root .lb-body > .pane-rail > .pane {
-	background: var(--surface-alt);
-}
-/* the filters live in the pane head now rather than the page head: they act on this
- * region alone, so they belong to it */
-.bridge-root .lb-p-records .pane-head-action {
-	flex-wrap: wrap;
-	justify-content: flex-end;
-}
-@media (max-width: 900px) {
-	.bridge-root .lb-body {
-		grid-template-columns: 1fr;
-	}
-	.bridge-root .lb-pane {
-		padding: 18px 18px 20px;
-	}
-}
-
-/* ---------- staff profile (one employee, expanded) ---------- */
-.bridge-root .st-pane {
-	padding: 20px 24px 22px;
-}
-.bridge-root .st-body {
-	grid-template-columns: minmax(0, 1fr) minmax(300px, 380px);
-}
-/* identity leads: the person's own name is the heading, so this pane has no PaneHeader */
-.bridge-root .st-p-identity {
-	display: flex;
-	gap: 16px;
-	align-items: flex-start;
-}
-/* authority, policy, and the trail step down a surface — they are the settings depth
- * AGENTS.md keeps one click behind progress, not peers of it */
-.bridge-root .st-body > .pane-rail:last-child > .pane {
-	background: var(--surface-alt);
-}
-@media (max-width: 900px) {
-	.bridge-root .st-body {
-		grid-template-columns: 1fr;
-	}
-	.bridge-root .st-pane {
-		padding: 18px 18px 20px;
-	}
-}
-
-/* ---------- tape (one ledger, deliberately unsectioned) ---------- */
-/* The tape is a single ledger, so it gets one full-bleed pane and a header row rather
- * than sections — framing a continuous record would add chrome, not clarity. Rows run
- * edge to edge, so the pane carries no padding and the head supplies its own. */
-.bridge-root .tp-pane {
-	padding: 0;
-	overflow: hidden;
-}
-.bridge-root .tp-pane > .pane-head {
-	padding: 16px 16px 10px;
-	margin-bottom: 0;
-	border-bottom: 1px solid var(--border);
-}
-.bridge-root .tp-pane > .pane-head .pane-head-action {
-	min-width: 0;
-}
-
-/* ---------- settings (the rarely-changed controls, in one collection) ---------- */
-.bridge-root .set-body {
-	grid-template-columns: minmax(200px, 240px) minmax(0, 1fr);
-	align-items: start;
-}
-/* The index is a nav, not a list of panes: it steps down a surface so the section you are
- * reading is the one that reads as foreground. */
-.bridge-root .set-index {
-	background: var(--surface-alt);
-	padding: 10px;
-	display: flex;
-	flex-direction: column;
-	gap: 2px;
-	position: sticky;
-	top: var(--pane-gap);
-}
-.bridge-root .set-link {
-	display: flex;
-	flex-direction: column;
-	gap: 1px;
-	padding: 9px 11px;
-	border-radius: var(--radius-sm);
-	text-decoration: none;
-	color: inherit;
-	transition: background 0.14s ease;
-}
-.bridge-root .set-link:hover {
-	background: var(--accent-soft);
-}
-.bridge-root .set-link.on {
-	background: var(--surface);
-	box-shadow: inset 2px 0 0 var(--accent-strong);
-}
-.bridge-root .set-link-label {
-	font-size: 13px;
-	font-weight: 600;
-}
-.bridge-root .set-link-blurb {
-	font-size: 11px;
-	color: var(--text-tertiary);
-	line-height: 1.35;
-}
-/* the outlet is a pane column of its own, so each section stacks with the same gutter the
- * frame uses everywhere else */
-.bridge-root .set-outlet {
-	display: flex;
-	flex-direction: column;
-	gap: var(--pane-gap);
-	min-width: 0;
-}
-.bridge-root .set-pane {
-	padding: 20px 24px 22px;
-}
-.bridge-root .set-value {
-	display: flex;
-	align-items: center;
-	gap: 12px;
-	flex-wrap: wrap;
-}
-.bridge-root .set-figure {
-	font-size: 19px;
-	font-weight: 600;
-	letter-spacing: -0.01em;
-}
-.bridge-root .set-form {
-	display: flex;
-	flex-direction: column;
-	align-items: flex-start;
-	gap: 10px;
-}
-.bridge-root .set-field {
-	display: flex;
-	flex-direction: column;
-	gap: 5px;
-	width: 100%;
-	max-width: 420px;
-}
-.bridge-root .set-input {
-	width: 100%;
-	max-width: 420px;
-	padding: 9px 12px;
-	border: 1px solid var(--border-strong);
-	border-radius: var(--radius-md);
-	background: var(--surface-alt);
-	color: var(--ink);
-	font: inherit;
-	font-size: 13.5px;
-}
-.bridge-root .set-input:focus {
-	outline: 2px solid color-mix(in srgb, var(--accent) 35%, transparent);
-	border-color: var(--accent-strong);
-}
-.bridge-root .set-pane .tape-note {
-	display: block;
-}
-@media (max-width: 860px) {
-	.bridge-root .set-body {
-		grid-template-columns: 1fr;
-	}
-	.bridge-root .set-index {
-		position: static;
-		flex-direction: row;
-		flex-wrap: wrap;
-	}
-	.bridge-root .set-pane {
-		padding: 18px 18px 20px;
-	}
-}
-
-/* ---------- the record-only notice (UIR-009) ----------
- * The composer no longer carries a disclosure control — it is a company setting. What it does
- * carry is the surprising state: without this, a company with disclosure off looks ordinary,
- * and you would type a question, send, and silently get no answer. */
-.bridge-root .comp-recordonly {
-	margin: 0 0 8px;
-	font-size: 11.5px;
-	line-height: 1.45;
-	color: var(--text-secondary);
-}
-.bridge-root .comp-recordonly a {
-	color: var(--ink);
-	text-decoration: underline;
-	text-underline-offset: 2px;
-}
-/* The connect prompt sits in the composer's disclosure slot rather than floating over every
- * surface in the company. It used to be a fixed, dismissable card pinned bottom-right on all
- * six tabs — a standing nag on Ops, People, Mission and the inbox, none of which are places
- * you can talk to an executive. Here it is one line above the box you were about to type in,
- * it needs no dismiss because it is scoped to the moment it is true, and the CTA opens the
- * rail, which is where connecting actually happens. */
-.bridge-root .comp-connect {
-	display: flex;
-	align-items: center;
-	gap: 10px;
-	margin: 0 0 8px;
-	font-size: 11.5px;
-	line-height: 1.45;
-	color: var(--text-secondary);
-}
-.bridge-root .comp-connect-cta {
-	flex: 0 0 auto;
-	padding: 3px 9px;
-	border: 0;
-	border-radius: var(--radius-sm);
-	background: var(--accent);
-	color: var(--text-inverse);
-	font: inherit;
-	font-weight: 600;
-	cursor: pointer;
-}
-.bridge-root .comp-connect-cta:hover {
-	background: var(--accent-strong);
-}
-.bridge-root .hc-disclosure {
-	min-width: 0;
-}
-
-/* ---------- subtle entrance for page scaffolding ---------- */
-.bridge-root .bridge-page > * {
-	animation: v3rise 0.3s cubic-bezier(0.22, 0.9, 0.3, 1) both;
-}
-.bridge-root .bridge-page > *:nth-child(2) {
-	animation-delay: 0.04s;
-}
-.bridge-root .bridge-page > *:nth-child(3) {
-	animation-delay: 0.08s;
-}
-.bridge-root .bridge-page > *:nth-child(4) {
-	animation-delay: 0.12s;
-}
-.bridge-root .bridge-page > *:nth-child(5) {
-	animation-delay: 0.16s;
-}
-@keyframes v3rise {
-	from {
-		opacity: 0;
-		transform: translateY(6px);
-	}
-	to {
-		opacity: 1;
-		transform: translateY(0);
-	}
-}
-@media (prefers-reduced-motion: reduce) {
-	.bridge-root .bridge-page > * {
-		animation: none;
-	}
-}
-

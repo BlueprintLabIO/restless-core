@@ -2,10 +2,10 @@ name = "thymelake"
 mission = """# Thymelake
 
 A QR-ordering service for independent restaurants. Acquire a restaurant,
-configure its menu, launch QR ordering, process orders, and resolve issues
-as one continuous loop. All customers, restaurants and providers are
-simulated this sprint — every external effect goes through the effect
-surface, never direct.
+configure its menu, launch QR ordering, process orders, and resolve issues as
+one continuous loop. Use `_test` companies and deterministic fake CLIs only to
+prove mechanisms; customer and restaurant demand claims require real evidence.
 """
 spend_ceiling_usd = 10.0
-model = "company-general-v1"
+model = "moonshot/kimi-k3"
+model_failover = []

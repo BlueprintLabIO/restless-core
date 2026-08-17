@@ -1,35 +1,73 @@
-/* ---------- type helpers ---------- */
+/* ---------- type styles ----------
+ * A step is a size; a style is a size bound to its weight, tracking, case and
+ * ink. Components ask for a style, never for a number — that is what keeps the
+ * ramp from regrowing into twenty-four sizes the next time someone needs a line
+ * to feel slightly quieter.
+ *
+ * With only five sizes, hierarchy comes from four other levers:
+ *   weight  400 / 600 on the same size
+ *   ink     --ink / --text-secondary / --text-tertiary
+ *   space   a gap says "new group" louder than a pixel of type ever will
+ *   case    uppercase mono means one thing only — a data label
+ */
+
 .bridge-root .mono {
-	font-family: 'IBM Plex Mono', monospace;
+	font-family: var(--font-mono);
 }
+
 .bridge-root .display {
-	font-family: 'Inter', system-ui, sans-serif;
+	font-family: var(--font-ui);
 	font-weight: 600;
 	letter-spacing: -0.01em;
 }
+
+/* The one uppercase style. It names a datum — never a section, never an eyebrow
+ * repeating the surface you are already on. Tracking is 0.07em rather than the
+ * old 0.12em: tracking has to shrink as the size grows or the letters drift
+ * apart into separate marks. */
 .bridge-root .over-label {
-	font-family: 'IBM Plex Mono', monospace;
-	font-size: 10.5px;
+	font-family: var(--font-mono);
+	font-size: var(--t-label);
 	font-weight: 500;
-	letter-spacing: 0.12em;
+	letter-spacing: var(--track-label);
 	text-transform: uppercase;
 	color: var(--text-tertiary);
 	margin: 0 0 10px;
 }
+
 .bridge-root .caption {
-	font-size: 12px;
+	font-size: var(--t-body);
 	color: var(--text-secondary);
 	line-height: 1.6;
 }
+
+/* Headings default to the ramp by level, so a bare <h1> on a new surface is
+ * already correct and does not have to invent a size. */
 .bridge-root h1,
 .bridge-root h2,
 .bridge-root h3 {
-	font-family: 'Inter', system-ui, sans-serif;
+	font-family: var(--font-ui);
 	font-weight: 600;
 	letter-spacing: -0.01em;
 	margin: 0;
 }
+
+.bridge-root h1 {
+	font-size: var(--t-title);
+	line-height: 1.14;
+	letter-spacing: -0.025em;
+}
+
+.bridge-root h2 {
+	font-size: var(--t-head);
+	line-height: 1.25;
+}
+
+.bridge-root h3 {
+	font-size: var(--t-body);
+	line-height: 1.4;
+}
+
 .bridge-root a {
 	color: inherit;
 }
-

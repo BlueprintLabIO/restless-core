@@ -7,6 +7,9 @@ set -eu
 
 mkdir -p /tmp/.X11-unix
 chmod 1777 /tmp/.X11-unix
+mkdir -p /tmp/restless-effect
+chown effect:company /tmp/restless-effect
+chmod 0700 /tmp/restless-effect
 
 # Image upgrades may add durable directories after a volume has already been
 # seeded. Ensure the current runtime shape on every boot; `.seeded` only says

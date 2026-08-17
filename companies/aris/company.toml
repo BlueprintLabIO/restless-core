@@ -1,28 +1,23 @@
 name = "aris"
 mission = """# Aris
 
-An Australian education publisher taking commercial custody of the Study
-codebase. Generate revenue by selling and licensing NSW Selective Test practice
-papers to tutoring centres, beginning with a useful free sample and a clear
-paid centre licence. Maintain the product and landing page, package the sample,
-find prospects, prepare tailored outreach, deliver, learn and improve.
+An Australian education publisher taking commercial custody of the Study codebase. Generate revenue
+by selling and licensing high-quality NSW Selective Test practice papers to tutoring centres. Offer a
+useful free sample, then a paid centre licence and repeat paper supply.
 
-Use differentiated producer and critic roles for customer-facing work. Verify
-the repository's unit tests, svelte-check and build before commit. Ship only by
-repo.push; its receipt gives the owner the prepared compare link for opening
-and merging the pull request. The existing repository deployment takes over
-after that merge. Every external effect goes through the effect surface and
-provider credentials stay outside the company computer.
+Coordinate differentiated producer and independent critic Work through `requires` and `revises`.
+Run repository tests and builds as executable Work gates and link exact artifacts to their Attempts.
+Use installed Linux tools directly. Wrap only material external commands with the generic
+`restless effect` runner and named secret bindings. The four prepared tutoring-centre emails remain
+unsent until the owner explicitly grants their exact parties and asks the live outreach Work to resume.
 """
-spend_ceiling_usd = 30.0
+spend_ceiling_usd = 200.0
 model = "moonshot/kimi-k3"
-from_address = "aris@blueprintlab.io"
+model_failover = ["anthropic/claude-haiku-4-5"]
 approved_parties = []
 
-[providers]
-"email.send" = "resend"
-"repo.push" = "git"
-
 [credentials]
-"email.send" = "env:RESEND_API_KEY"
-"repo.push" = "env:GITHUB_TOKEN"
+"github.production" = "infisical:/companies/aris/GITHUB_TOKEN"
+"model.inference" = "infisical:/providers/moonshot/MOONSHOT_API_KEY"
+"model.inference.anthropic" = "omp-oauth:anthropic"
+"resend.production" = "infisical:/companies/aris/RESEND_API_KEY"

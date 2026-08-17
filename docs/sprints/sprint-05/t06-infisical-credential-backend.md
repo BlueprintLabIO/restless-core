@@ -41,8 +41,9 @@ Both statements were stale.
    credentials.
 
 The Agent Proxy is a separate second slice for ordinary authenticated Runtime traffic such as
-read-only GitHub CLI work. Consequential `repo.push` remains the generic Authority effect and does not
-move behind an unaccounted proxy request.
+read-only GitHub CLI work. A consequential `git push` runs through the generic governed-process
+boundary with an effect class chosen for the business consequence; Restless does not own a
+`repo.push` command or let the operation move behind an unaccounted proxy request.
 
 The OMP model gateway is not that general API slice. It is the already-installed ACP runtime's
 provider-compatible credential boundary and preserves the model usage updates Restless meters.

@@ -45,8 +45,8 @@ S05-T1's projection and S05-T2's reads will both assemble from.
 
 ## Scope
 
-1. **`ts_rs::TS` derived on the OrgIntel read model** — `ActorRow`, `GoalRow`, `CommitmentRow`,
-   `MessageRow`, `EventRow`, `CommitmentState`, plus the `JsonValue` that `EventRow.body` refers to.
+1. **`ts_rs::TS` derived on the OrgIntel read model** — `ActorRow`, `GoalRow`, `WorkRow`,
+   `WorkEdgeRow`, `WorkAttemptRow`, artifact/gate/handoff rows, `MessageRow`, `EventRow`, and their enums.
 2. **Generated output committed** at `web/src/lib/model/generated/orgintel.ts`, with a
    `web/.prettierignore` so the generator owns its formatting and `npm run lint` stays honest.
 3. **A drift guard that runs by default** — `crates/restless-orgintel/tests/bindings.rs` renders the
@@ -76,8 +76,8 @@ past any company's message count.
 
    ```
    line 28
-     committed: ... state: CommitmentState, resolution: string, ...
-     generated: ... state: CommitmentState, resolution_text: string, ...
+     committed: ... status: WorkStatus, resolution: string, ...
+     generated: ... status: WorkStatus, resolution_text: string, ...
    ```
 
    Reverted, and the test passes. *A check that happens to pass is not evidence* — this one was

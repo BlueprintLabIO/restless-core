@@ -1,9 +1,10 @@
 //! Host-side credential indirection.
 //!
 //! Company configuration stores a `credential_reference`, never raw secret
-//! material (`authority-plane §8.2`). Provider adapters resolve the reference
-//! at the point of use on the trusted host. The Runtime receives neither
-//! consequential provider credentials nor Infisical machine-identity access.
+//! material (`authority-plane §8.2`). The model gateway or generic governed
+//! process resolves the named reference at the point of use on the trusted
+//! host. The Runtime receives neither consequential external-tool credentials
+//! nor Infisical machine-identity access.
 //!
 //! `env:` remains a local bootstrap/migration backend. `infisical:` is the
 //! default durable backend from `ARCHITECTURE.md §3.2`: the daemon exchanges a
@@ -23,6 +24,10 @@ const DEFAULT_INFISICAL_ENVIRONMENT: &str = "prod";
 enum CredentialReference<'a> {
     Env(&'a str),
     Infisical(InfisicalLocator<'a>),
+    /// A subscription OAuth credential held by OMP's host-side Restless
+    /// broker. It is a reference to broker custody, never a plaintext value
+    /// that this generic resolver may return.
+    OmpOauth(&'a str),
 }
 
 #[derive(Debug)]
@@ -81,13 +86,11 @@ pub(crate) struct Probe {
     pub(crate) detail: Option<String>,
 }
 
-/// Resolve the credential a capability needs. The returned value is handed
-/// directly to the provider client and is never logged, persisted, or placed
-/// in an effect receipt.
-pub async fn resolve(config: &CompanyConfig, capability: &str) -> Result<String> {
-    let reference = config.credentials.get(capability).with_context(|| {
+/// Resolve one named binding for one governed child process.
+pub async fn resolve(config: &CompanyConfig, binding: &str) -> Result<String> {
+    let reference = config.credentials.get(binding).with_context(|| {
         format!(
-            "company {} has no credential_reference for {capability}; add one with `restless credential set` before this capability can reach a real provider",
+            "company {} has no credential reference for binding {binding}; add it with `restless credential set`",
             config.name
         )
     })?;
@@ -107,24 +110,42 @@ pub(crate) async fn resolve_reference(reference: &str) -> Result<String> {
                 .await?
                 .with_context(|| format!("Infisical secret {reference:?} was not found"))
         }
+        CredentialReference::OmpOauth(provider) => bail!(
+            "omp-oauth:{provider} is broker-held model access and cannot be resolved as a raw credential"
+        ),
     }
 }
 
 /// Forward secret material to the referenced backend. Restless remains a
 /// conduit, not a second store: only the reference is persisted by the caller.
 pub(crate) async fn store_reference(reference: &str, value: &str) -> Result<()> {
-    if value.is_empty() {
-        bail!("refusing to store an empty secret value");
-    }
+    let value = normalize_secret_value(value)?;
     match parse_reference(reference)? {
         CredentialReference::Env(locator) => bail!(
             "the env: backend cannot accept writes from Restless; set {locator} in the daemon environment or use an infisical: reference"
         ),
         CredentialReference::Infisical(locator) => {
             let settings = InfisicalSettings::from_env()?;
-            infisical_upsert(&settings, &locator, value).await
+            infisical_upsert(&settings, &locator, &value).await
         }
+        CredentialReference::OmpOauth(provider) => bail!(
+            "omp-oauth:{provider} is created through the owner OAuth handover, not by storing a raw value"
+        ),
     }
+}
+
+/// Files and clipboard pipes commonly add one or more line endings. Those are
+/// transport delimiters, not part of an API key. Other control characters are
+/// rejected rather than silently mutated.
+fn normalize_secret_value(value: &str) -> Result<String> {
+    let normalized = value.trim_end_matches(['\r', '\n']);
+    if normalized.is_empty() {
+        bail!("refusing to store an empty secret value");
+    }
+    if normalized.chars().any(char::is_control) {
+        bail!("secret value contains a control character other than a trailing line ending");
+    }
+    Ok(normalized.to_string())
 }
 
 /// Probe presence without leaking the value. `absent` is reserved for a
@@ -181,7 +202,34 @@ pub(crate) async fn probe_reference(reference: &str) -> Probe {
                 },
             }
         }
+        CredentialReference::OmpOauth(provider) => {
+            match crate::model_gateway::oauth_is_loaded(provider) {
+                Ok(true) => Probe {
+                    status: ProbeStatus::Present,
+                    detail: None,
+                },
+                Ok(false) => Probe {
+                    status: ProbeStatus::Absent,
+                    detail: Some(format!(
+                        "host OMP broker has no active OAuth credential for {provider}"
+                    )),
+                },
+                Err(error) => Probe {
+                    status: ProbeStatus::Invalid,
+                    detail: Some(format!("{error:#}")),
+                },
+            }
+        }
     }
+}
+
+/// Return the provider named by a host-broker OAuth reference. Other valid
+/// credential backends return `None`; malformed references remain errors.
+pub(crate) fn omp_oauth_provider(reference: &str) -> Result<Option<&str>> {
+    Ok(match parse_reference(reference)? {
+        CredentialReference::OmpOauth(provider) => Some(provider),
+        CredentialReference::Env(_) | CredentialReference::Infisical(_) => None,
+    })
 }
 
 fn parse_reference(reference: &str) -> Result<CredentialReference<'_>> {
@@ -200,8 +248,18 @@ fn parse_reference(reference: &str) -> Result<CredentialReference<'_>> {
         "infisical" => Ok(CredentialReference::Infisical(parse_infisical_locator(
             locator,
         )?)),
+        "omp-oauth" => {
+            if locator.is_empty()
+                || !locator.bytes().all(|byte| {
+                    byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-'
+                })
+            {
+                bail!("omp-oauth: locator must be a provider identifier such as anthropic");
+            }
+            Ok(CredentialReference::OmpOauth(locator))
+        }
         other => bail!(
-            "unknown credential scheme {other:?} in {reference:?}; supported schemes are env: and infisical:"
+            "unknown credential scheme {other:?} in {reference:?}; supported schemes are env:, infisical:, and omp-oauth:"
         ),
     }
 }
@@ -416,8 +474,7 @@ mod tests {
             mission: String::new(),
             spend_ceiling_usd: 30.0,
             model: "moonshot/kimi-k3".to_string(),
-            providers: std::collections::BTreeMap::new(),
-            from_address: None,
+            model_failover: Vec::new(),
             credentials,
             approved_parties: Vec::new(),
         }
@@ -425,16 +482,22 @@ mod tests {
 
     #[tokio::test]
     async fn a_missing_credential_names_what_is_missing() {
-        let config = config_with(&[("email.send", "env:DEFINITELY_NOT_SET_12345")]);
-        let error = format!("{:#}", resolve(&config, "email.send").await.unwrap_err());
+        let config = config_with(&[("resend.production", "env:DEFINITELY_NOT_SET_12345")]);
+        let error = format!(
+            "{:#}",
+            resolve(&config, "resend.production").await.unwrap_err()
+        );
         assert!(error.contains("DEFINITELY_NOT_SET_12345"), "{error}");
     }
 
     #[tokio::test]
     async fn no_reference_is_an_error_not_a_default() {
         let config = config_with(&[]);
-        let error = format!("{:#}", resolve(&config, "email.send").await.unwrap_err());
-        assert!(error.contains("credential_reference"), "{error}");
+        let error = format!(
+            "{:#}",
+            resolve(&config, "resend.production").await.unwrap_err()
+        );
+        assert!(error.contains("binding resend.production"), "{error}");
     }
 
     #[test]
@@ -558,5 +621,19 @@ mod tests {
         assert!(error.contains("502"), "{error}");
         assert!(!error.contains("reflected-provider-secret"), "{error}");
         server.abort();
+    }
+
+    #[test]
+    fn piped_line_endings_are_not_stored_as_part_of_a_secret() {
+        assert_eq!(
+            normalize_secret_value("re_example\n").unwrap(),
+            "re_example"
+        );
+        assert_eq!(
+            normalize_secret_value("re_example\r\n\r\n").unwrap(),
+            "re_example"
+        );
+        assert!(normalize_secret_value("\r\n").is_err());
+        assert!(normalize_secret_value("re_bad\tvalue").is_err());
     }
 }
