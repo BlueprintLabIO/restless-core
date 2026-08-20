@@ -15,6 +15,15 @@ export interface AttentionItem {
 	recommendation: string;
 	requestedAction: string;
 	ifNoAction: string;
+	uncertainty?: string;
+	deadline?: string;
+	briefStatus: 'current' | 'source-authored' | 'human-fallback' | string;
+	briefAuthor?: {
+		id: string;
+		display: string;
+		role: string;
+	};
+	briefedAt?: Date | string;
 	evidence: Array<{
 		label: string;
 		kind: string;
@@ -44,9 +53,26 @@ export interface AttentionItem {
 		id: string;
 		label: string;
 		consequence: string;
+		href?: string;
 	}>;
 	canContinue: boolean;
 	createdAt: Date | string;
+}
+
+export interface DecisionContinuation {
+	id: string;
+	workId: string;
+	title: string;
+	recordedDecision: string;
+	whatItUnlocked: string;
+	currentState: string;
+	observedOutcome: string;
+	responsibleActor?: {
+		id: string;
+		display: string;
+		role: string;
+	};
+	observedAt: Date | string;
 }
 
 export type NeedsYouItem = AttentionItem;
@@ -87,6 +113,40 @@ export interface ThreadMessage {
 	assetId: string | null;
 	runId: string | null;
 	attachments: MessageAttachment[];
+	details?: string | null;
 	intent?: MessageIntentReceipt | null;
 	contextPath?: string | null;
+}
+
+/** Collapse an uninterrupted run from the same company actor into one reading
+ * block. This is a presentation projection only: the source messages remain
+ * separate in the company record. Day boundaries stay visible. */
+export function mergeAdjacentAgentMessages(messages: ThreadMessage[]): ThreadMessage[] {
+	const merged: ThreadMessage[] = [];
+
+	for (const message of messages) {
+		const previous = merged.at(-1);
+		const sameDay = previous && dayKey(previous.createdAt) === dayKey(message.createdAt);
+		if (
+			previous?.from === 'agent' &&
+			message.from === 'agent' &&
+			previous.author === message.author &&
+			sameDay
+		) {
+			previous.id = `${previous.id}:${message.id}`;
+			previous.text = [previous.text, message.text].filter(Boolean).join('\n\n');
+			previous.attachments.push(...message.attachments);
+			previous.details = [previous.details, message.details].filter(Boolean).join('\n\n') || null;
+			continue;
+		}
+
+		merged.push({ ...message, attachments: [...message.attachments] });
+	}
+
+	return merged;
+}
+
+function dayKey(value: Date | string): string {
+	const date = value instanceof Date ? value : new Date(value);
+	return Number.isNaN(date.getTime()) ? String(value) : date.toDateString();
 }

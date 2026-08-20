@@ -1,0 +1,33 @@
+# Restless owns the actor contract. This overlay is applied to every Exec and
+# Staff ACP harness process; the isolated profile supplies models.yml only.
+disabledExtensions:
+  - agent-plugins
+  - claude
+  - claude-plugins
+  - cline
+  - codex
+  - cursor
+  - gemini
+  - github
+  - mcp-json
+  - omp-plugins
+  - opencode
+  - vscode
+  - windsurf
+mcp:
+  enableProjectConfig: false
+skills:
+  enabled: true
+  enableSkillCommands: true
+  enableCodexUser: false
+  enableClaudeUser: false
+  enableClaudeProject: false
+  enablePiUser: false
+  enablePiProject: false
+  enableAgentsUser: false
+  enableAgentsProject: true
+  customDirectories:
+    - /opt/restless/skills
+    - /company/skills
+autolearn:
+  enabled: false

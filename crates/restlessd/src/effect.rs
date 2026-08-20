@@ -221,6 +221,11 @@ pub async fn request_effect(
     if !valid_identifier(effect_class) {
         bail!("invalid effect class {effect_class:?}");
     }
+    if is_finance_identifier(effect_class) {
+        bail!(
+            "financial effects use the host-side Authority adapter; the generic Runtime child cannot execute {effect_class:?}"
+        );
+    }
     if !valid_company_cwd(cwd) {
         bail!("effect cwd must be an absolute path under /company");
     }
@@ -232,6 +237,12 @@ pub async fn request_effect(
         if !valid_env_name(name) {
             bail!("invalid child environment name {name:?}");
         }
+    }
+    if secret_bindings
+        .values()
+        .any(|binding| is_finance_identifier(binding))
+    {
+        bail!("finance credential bindings terminate in the host-side Authority adapter");
     }
     if crate::runtime::is_test_company(&config.name) && !secret_bindings.is_empty() {
         bail!("test companies cannot receive live secret bindings; install a fake CLI for the scenario");
@@ -318,7 +329,7 @@ pub async fn request_effect(
             )
             .await?;
         if let Some(org) = org {
-            let _ = org.add_actor("exec", "exec", "The Exec").await;
+            let _ = org.ensure_actor("exec", "exec", "exec", "The Exec").await;
         }
         bail!("{reason}");
     }
@@ -414,6 +425,13 @@ pub async fn request_effect(
         })).await?;
     }
     Ok(receipt)
+}
+
+fn is_finance_identifier(value: &str) -> bool {
+    value == "finance"
+        || value.starts_with("finance.")
+        || value.starts_with("finance/")
+        || value.contains("/finance/")
 }
 
 /// Close the one ambiguity the generic runner cannot decide: the daemon died
@@ -984,6 +1002,9 @@ mod tests {
             "/tmp/restless-effect-stage-0123456789abcdef0123456789abcdef"
         ));
         assert!(!valid_staging_path("/tmp/restless-effect/../company"));
+        assert!(is_finance_identifier("finance.payment"));
+        assert!(is_finance_identifier("finance/airwallex/submit"));
+        assert!(!is_finance_identifier("customer-contact.email"));
     }
 
     #[test]

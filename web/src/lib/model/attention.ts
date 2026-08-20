@@ -1,4 +1,4 @@
-import type { AttentionItem, MessageIntentReceipt } from './view';
+import type { AttentionItem, DecisionContinuation, MessageIntentReceipt } from './view';
 import type { MessageAttachment } from './view';
 import type { WorkGraphSnapshot } from './generated/orgintel';
 
@@ -12,6 +12,7 @@ export interface AttentionView {
 	};
 	workGraph: WorkGraphSnapshot | null;
 	items: AttentionItem[];
+	continuations: DecisionContinuation[];
 	refreshedAt: string;
 }
 
@@ -23,10 +24,45 @@ export interface ActorConversation {
 		to_actor: string | null;
 		body: string;
 		attachments: MessageAttachment[];
+		details?: string | null;
 		intent?: MessageIntentReceipt | null;
 		context_path?: string | null;
 		created_at: string;
 	}>;
+}
+
+export type ConversationLivePhase =
+	'queued' | 'thinking' | 'acting' | 'responding' | 'complete' | 'failed';
+
+export interface ConversationLiveActivity {
+	id: string;
+	kind: 'thinking' | 'tool' | 'note' | string;
+	label: string;
+	detail: string;
+	status: string;
+}
+
+export interface ConversationLiveState {
+	streamId: string;
+	sequence: number;
+	company: string;
+	actorId: string;
+	triggerMessageId: number;
+	workId?: string | null;
+	phase: ConversationLivePhase;
+	reply: string;
+	generatedOutputTokens?: number | null;
+	activity: ConversationLiveActivity[];
+	startedAt?: string | null;
+	updatedAt: string;
+	completedMessageId?: number | null;
+	error?: string | null;
+}
+
+export interface MessageSendResult {
+	messageId: number;
+	contextAttached: boolean;
+	contextOmitted: boolean;
 }
 
 type WireItem = {
@@ -40,6 +76,15 @@ type WireItem = {
 	recommendation: string;
 	requested_action: string;
 	if_no_action: string;
+	uncertainty?: string;
+	deadline?: string;
+	brief_status: string;
+	brief_author?: {
+		id: string;
+		display: string;
+		role: string;
+	};
+	briefed_at?: string;
 	evidence: AttentionItem['evidence'];
 	responsible_actor?: {
 		id: string;
@@ -63,6 +108,18 @@ type WireItem = {
 	actions: AttentionItem['actions'];
 	can_continue: boolean;
 	created_at: string;
+};
+
+type WireContinuation = {
+	id: string;
+	work_id: string;
+	title: string;
+	recorded_decision: string;
+	what_it_unlocked: string;
+	current_state: string;
+	observed_outcome: string;
+	responsible_actor?: DecisionContinuation['responsibleActor'];
+	observed_at: string;
 };
 
 export async function getAttention(company: string): Promise<AttentionView> {
@@ -92,6 +149,11 @@ export async function getAttention(company: string): Promise<AttentionView> {
 			recommendation: item.recommendation,
 			requestedAction: item.requested_action,
 			ifNoAction: item.if_no_action,
+			uncertainty: item.uncertainty,
+			deadline: item.deadline,
+			briefStatus: item.brief_status,
+			briefAuthor: item.brief_author,
+			briefedAt: item.briefed_at,
 			evidence: item.evidence,
 			responsibleActor: item.responsible_actor
 				? {
@@ -122,18 +184,21 @@ export async function getAttention(company: string): Promise<AttentionView> {
 			canContinue: item.can_continue,
 			createdAt: item.created_at
 		})),
+		continuations: ((wire.continuations as WireContinuation[] | undefined) ?? []).map(
+			(continuation) => ({
+				id: continuation.id,
+				workId: continuation.work_id,
+				title: continuation.title,
+				recordedDecision: continuation.recorded_decision,
+				whatItUnlocked: continuation.what_it_unlocked,
+				currentState: continuation.current_state,
+				observedOutcome: continuation.observed_outcome,
+				responsibleActor: continuation.responsible_actor,
+				observedAt: continuation.observed_at
+			})
+		),
 		refreshedAt: wire.refreshed_at
 	};
-}
-
-export async function signIn(token: string): Promise<void> {
-	const response = await fetch('/api/session', {
-		method: 'POST',
-		headers: { 'content-type': 'application/json' },
-		body: JSON.stringify({ token }),
-		credentials: 'same-origin'
-	});
-	if (!response.ok) throw await ownerError(response);
 }
 
 export async function getActorConversation(
@@ -148,6 +213,31 @@ export async function getActorConversation(
 	);
 	if (!response.ok) throw await ownerError(response);
 	return response.json();
+}
+
+/** Follow the live projection for one durable owner message. EventSource owns
+ * reconnection; every event is a complete bounded snapshot, so a dropped delta
+ * cannot corrupt the visible reply. */
+export function openActorConversationStream(
+	company: string,
+	actor: string,
+	messageId: number,
+	onstate: (state: ConversationLiveState) => void,
+	onerror?: () => void
+): () => void {
+	const source = new EventSource(
+		`/api/companies/${encodeURIComponent(company)}/actors/${encodeURIComponent(actor)}/conversation/live?message_id=${encodeURIComponent(messageId)}`
+	);
+	const receive = (event: MessageEvent<string>) => {
+		try {
+			onstate(JSON.parse(event.data) as ConversationLiveState);
+		} catch {
+			onerror?.();
+		}
+	};
+	source.addEventListener('conversation', receive as EventListener);
+	source.onerror = () => onerror?.();
+	return () => source.close();
 }
 
 export async function reviewAction(
@@ -168,6 +258,23 @@ export async function reviewAction(
 	if (!response.ok) throw await ownerError(response);
 }
 
+export async function resolveHandoffDecision(
+	company: string,
+	handoff: string,
+	resolution: string
+): Promise<void> {
+	const response = await fetch(
+		`/api/companies/${encodeURIComponent(company)}/handoffs/${encodeURIComponent(handoff)}/decision`,
+		{
+			method: 'POST',
+			headers: { 'content-type': 'application/json' },
+			body: JSON.stringify({ resolution }),
+			credentials: 'same-origin'
+		}
+	);
+	if (!response.ok) throw await ownerError(response);
+}
+
 export async function sendActorMessage(
 	company: string,
 	actor: string,
@@ -175,7 +282,7 @@ export async function sendActorMessage(
 	workId?: string,
 	files: File[] = [],
 	contextPath?: string
-): Promise<{ messageId: number }> {
+): Promise<MessageSendResult> {
 	const form = new FormData();
 	form.set('body', body);
 	if (workId) form.set('work_id', workId);
@@ -190,8 +297,36 @@ export async function sendActorMessage(
 		}
 	);
 	if (!response.ok) throw await ownerError(response);
-	const result = (await response.json()) as { message_id: number };
-	return { messageId: result.message_id };
+	const result = (await response.json()) as {
+		message_id: number;
+		context_attached?: boolean;
+		context_omitted?: boolean;
+	};
+	return {
+		messageId: result.message_id,
+		contextAttached: result.context_attached ?? false,
+		contextOmitted: result.context_omitted ?? false
+	};
+}
+
+/** The exact local cockpit location to associate with a message. Route parsing
+ * belongs here rather than in each composer, and the server remains the final
+ * company-scope authority. */
+export function cockpitContextPath(
+	company: string,
+	location: Pick<URL, 'pathname' | 'search'>
+): string | undefined {
+	const encodedCompany = location.pathname.split('/')[1];
+	if (!encodedCompany) return undefined;
+	let routeCompany: string;
+	try {
+		routeCompany = decodeURIComponent(encodedCompany);
+	} catch {
+		return undefined;
+	}
+	if (routeCompany !== company) return undefined;
+	const context = `${location.pathname}${location.search}`;
+	return context.length <= 512 ? context : undefined;
 }
 
 export async function approvalAction(

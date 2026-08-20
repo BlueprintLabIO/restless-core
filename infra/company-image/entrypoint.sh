@@ -23,6 +23,7 @@ mkdir -p \
 	/company/home \
 	/company/browser-profile \
 	/company/downloads \
+	/company/home/Desktop \
 	/company/run \
 	/company/services/supervisor
 
@@ -47,6 +48,24 @@ else
 	printf '{"session":{"restore_on_startup":1}}\n' > "$preferences"
 fi
 chown -R company:company /company/browser-profile /company/downloads /company/run
+
+# A file manager should expose durable company places by names an ordinary
+# owner recognises. These are links into the existing source-owned filesystem,
+# not copied assets or a second custody lifecycle. Never replace an owner-created
+# file or link at the same path.
+for place in Downloads Projects Outputs; do
+	case "$place" in
+		Downloads) target=/company/downloads ;;
+		Projects) target=/company/projects ;;
+		Outputs) target=/company/outputs ;;
+	esac
+	link="/company/home/$place"
+	if [ ! -e "$link" ] && [ ! -L "$link" ]; then
+		ln -s "$target" "$link"
+		chown -h company:company "$link"
+	fi
+done
+chown company:company /company/home /company/home/Desktop
 
 # The imported supervisor owns durable desktop/browser services. tini remains
 # PID 1 and reaps both those services and ordinary agent processes started by

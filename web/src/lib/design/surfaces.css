@@ -22,8 +22,9 @@
 	color: var(--text-secondary);
 }
 
-/* Persistent executive transcript. It takes real desktop space and disappears
- * below the prototype's compact breakpoint; it is never a floating chat mode. */
+/* Persistent executive transcript. It takes real desktop space; the compact
+ * treatment is supplied by cockpit.css, where the same rail becomes a bounded
+ * overlay so conversation remains available without squeezing the work surface. */
 .bridge-root .bridge-exrail {
 	position: sticky;
 	top: var(--topbar-total);
@@ -125,44 +126,12 @@
 	font-weight: 600;
 }
 
-.bridge-root .exr-sub {
-	font-size: var(--t-body);
-	color: var(--text-tertiary);
-}
-
 .bridge-root .exr-msgs {
 	min-height: 0;
 	flex: 1;
 	display: flex;
 	flex-direction: column;
 	overflow-y: auto;
-}
-
-.bridge-root .exr-row {
-	display: flex;
-}
-
-.bridge-root .exr-b {
-	width: 100%;
-	max-width: none;
-	padding: 0;
-	border: 0;
-	border-radius: 0;
-	background: transparent;
-	color: var(--ink);
-	font-size: var(--t-body);
-	line-height: 1.55;
-}
-
-.bridge-root .exr-b p {
-	margin: 0;
-	white-space: pre-wrap;
-}
-
-.bridge-root .exr-system {
-	font-size: var(--t-body);
-	font-style: italic;
-	color: var(--text-tertiary);
 }
 
 .bridge-root .exr-empty {
@@ -184,37 +153,6 @@
 	color: var(--text-secondary);
 }
 
-.bridge-root .exr-thinking {
-	display: flex;
-	align-items: center;
-	gap: 4px;
-	padding: 10px 14px;
-}
-
-.bridge-root .exr-thinking i {
-	width: 6px;
-	height: 6px;
-	border-radius: 1px;
-	background: var(--intent-conversation);
-	opacity: 0.35;
-	animation: exr-pulse 1.2s ease-in-out infinite;
-}
-
-.bridge-root .exr-thinking i:nth-child(2) {
-	animation-delay: 0.15s;
-}
-
-.bridge-root .exr-thinking i:nth-child(3) {
-	animation-delay: 0.3s;
-}
-
-@keyframes exr-pulse {
-	50% {
-		opacity: 0.9;
-		transform: translateY(-2px);
-	}
-}
-
 .bridge-root .exr-composer {
 	display: flex;
 	flex-direction: column;
@@ -229,8 +167,8 @@
 	color: var(--state-danger);
 }
 
-@media (prefers-reduced-motion: reduce) {
-	.bridge-root .exr-thinking i {
-		animation: none;
-	}
+.bridge-root .exr-notice {
+	margin: 0;
+	font-size: var(--t-label);
+	color: var(--text-tertiary);
 }

@@ -4,8 +4,10 @@ An autonomous-company control plane for ordinary owner/operators. **The product 
 you:** the human owner provides judgement, taste, sign-off, and the prepared last mile; the singleton
 Exec and Staff do the work.
 
-> **Status:** clean-slate rebuild. No runnable system yet — this repository holds the target
-> architecture and sprint scaffolding only. See `ARCHITECTURE.md` and `CLAUDE.md`.
+> **Status:** active clean-slate rebuild with a runnable local company appliance. The walking
+> skeleton spans the coordination daemon, OrgIntel, persistent company Runtime, owner cockpit and
+> Authority boundaries; it is not yet a production release. See `ARCHITECTURE.md`, `CLAUDE.md` and
+> the current sprint report for proved versus open outcomes.
 
 ## What this is
 
@@ -42,18 +44,21 @@ docs/
   sprints/               sprint specs (sprint-NN.md); see docs/sprints/README.md
   SALVAGE.md             proven-component lift map from the prior implementation
 crates/
-  restlessd/             the daemon (empty stub — the §4.4 stable coordination core)
-  restless/              the CLI (empty stub)
-web/                     the operator SPA (SvelteKit) — design + components + pages,
-                         rendering from fixtures; not wired to anything yet
+  restlessd/             daemon: coordination, Authority adapters and owner API
+  restless/              owner/operator CLI
+  restless-orgintel/     recoverable per-company organisational state
+  restless-model-gateway/  host-side model routing and spend accounting
+infra/company-image/     persistent company-computer image
+scripts/restless-dev     supported local cockpit stack
+web/                     live company-scoped owner cockpit (SvelteKit)
 ```
 
-Layer crates (`kernel`, `orgintel`, `runtime`) are intentionally not pre-scaffolded. They are grown
-from the first sprint slice that needs them.
+The workspace still avoids speculative layer crates. A boundary becomes a crate or service only
+when a proved slice needs an independent ownership or failure boundary.
 
-`web/` is the one piece of the prior system lifted so far — its SPA, which `docs/SALVAGE.md` names
-as the strongest non-Rust salvage. It is deliberately unwired: it holds the design language, the
-component layer, and every surface, and it renders from fixtures. See [`web/README.md`](./web/README.md).
+`web/` began as the strongest salvaged surface, then had its fixture truth removed. It now reads and
+writes through company-scoped owner APIs; the supported local entrypoint is `scripts/restless-dev`,
+not a standalone Vite shell. See [`web/README.md`](./web/README.md).
 
 ## How we work
 

@@ -157,6 +157,10 @@ Agents must still be able to do ordinary internal work through Linux if OrgIntel
 
 A Game Director can remain the same actor while its model changes, processes restart, and old transcripts are discarded.
 
+Company initialisation creates the standing Owner and singleton Exec identities before the first
+message, wake or Staff commission. Daemon startup repairs either missing row for restored or legacy
+state. Their existence is a company lifecycle fact; it must not depend on an incidental `tell` path.
+
 **Default pattern**
 
 Start with:
@@ -400,6 +404,29 @@ OrgIntel should repeatedly ask:
 
 Consider competence, time, price, opportunity cost, reliability, strategic importance, recurrence, confidentiality, and authority requirements.
 
+**Default pattern**
+
+The working postures are judgement vocabulary, not a provider algebra:
+
+```text
+reuse existing capability
+do internally
+build or automate
+buy an input
+rent a tool or bounded resource
+commission a deliverable
+delegate a function
+partner
+hire or otherwise internalise
+```
+
+A material missing capability is ordinary Work with one accountable internal actor. Its evidence
+should make the required outcome, chosen posture, retained company responsibility, provider scope,
+trial/acceptance evidence, authority/data needs and reconsider trigger explicit. Providers are not
+OrgIntel Actors, and sourcing adds no special Work kind, lifecycle or edge: use the existing Work,
+Attempt, artifact, decision, `requires` and `revises` semantics until repeated runs prove a smaller
+reusable concept.
+
 ---
 
 # 4. Thinking under uncertainty
@@ -515,6 +542,20 @@ The package may be persisted as structured rows plus readable versioned document
 
 Temporary actor working state—scratch notes, worktrees, caches, and active experiments—belongs in the Company Runtime.
 
+Actor identity keeps four facts separate:
+
+```text
+actor_id = stable organisational machine identity
+display  = stable human-readable colleague identity
+kind     = owner | exec | staff | system
+role     = current craft and responsibility
+```
+
+For newly created Staff, `actor_id` is a two-segment `{domain}-{craft}` kebab-case identity. It does
+not encode `staff`, team position, environment, Work revision, retry, model or implementation stage.
+Team membership and leadership are relations, not identity. Historical ids remain stable for
+provenance; new creation rejects assignment-shaped ids rather than repairing them after Work exists.
+
 Important company style must also live institutionally: mission, product doctrine, design system, architecture decisions, accepted examples, customer promises, and ethical limits.
 
 Actor identity should evolve from evidence without being rewritten from every session summary.
@@ -587,6 +628,7 @@ The stable coordination substrate should stay small:
 - **Work** — one actor’s durable responsibility for one outcome and workspace.
 - **Attempt** — one execution of one Work revision with immutable inputs.
 - **Work edge** — `requires` for hard acyclic dependency; `revises` for review feedback that may cycle.
+  A reviewer with revision power requires that same producer, and the pair is created atomically.
 - **Message** — targeted communication.
 - **Decision** — named choice with owner and rationale.
 - **Schedule** — durable future time fact that can release its exact blocker.
@@ -595,6 +637,10 @@ The stable coordination substrate should stay small:
 - **Event** — lightweight operational observation.
 
 Hypotheses, experiments, process templates, actor profiles, and knowledge claims may begin as files with indexes and references.
+
+A resolved owner handoff remains OrgIntel source truth. The cockpit may project it briefly as a
+decision continuation alongside current Work, Attempt and provider observations; OrgIntel does not
+gain a continuation entity or lifecycle.
 
 A Work initially needs only:
 
@@ -610,11 +656,24 @@ expected artifact or decision
 relevant links
 ```
 
-The scheduler atomically claims only ready Work and creates the Attempt before Staff starts. The
+The scheduler atomically claims only ready Work and creates the Attempt before Staff starts. Initial
+dependencies are immutable once that Work has an Attempt; graph repair must not retrofit inputs after
+execution has begun. The
 Attempt records the exact upstream artifact versions, input fingerprint, and Work-linked feedback it
 received. Review `changes_requested` invalidates the producer artifact and hard descendants into a
 new revision. Do not add leases, custody protocols, a scripted conversation lifecycle, or universal
 commands.
+
+One durable actor has one live cognitive process. A free-form conversation wake, including the
+singleton Exec wake, excludes that actor from Work claims until it ends; a running Work Attempt in
+turn queues addressed conversation. Process supervision and the actor registry enforce this without
+turning conversation into Work.
+
+An owner handoff blocks successor release, but attaching it does not mark a still-supervised Attempt
+terminal. The process remains attributable to that Attempt until it actually returns. Usually it
+returns `blocked` and the observed owner result becomes input to the next Attempt; if the result
+arrives while the same process is still live, that Attempt may observe it and finish. This prevents
+unattributed work and a second process starting for the same durable actor.
 
 ## 6.2 Communication
 

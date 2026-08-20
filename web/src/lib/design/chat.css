@@ -212,27 +212,7 @@
 	color: var(--text-tertiary);
 }
 
-/* Short inputs outside the composer, including the owner sign-in field. */
-.bridge-root .comp-input {
-	min-height: 42px;
-	max-height: 160px;
-	flex: 1;
-	padding: 10px 14px;
-	border: 1px solid var(--border-strong);
-	border-radius: var(--radius-control);
-	background: var(--surface-alt);
-	color: var(--ink);
-	font: inherit;
-	font-size: var(--t-body);
-	resize: none;
-}
-
-.bridge-root .comp-input:focus {
-	outline: 2px solid color-mix(in srgb, var(--intent-conversation) 35%, transparent);
-	border-color: var(--intent-conversation);
-}
-
-/* One composer field: context above, attachments inside, controls on the bottom edge. */
+/* One composer field: writing surface above a fixed action row. */
 .bridge-root .hc {
 	min-width: 0;
 	display: flex;
@@ -241,28 +221,63 @@
 }
 
 .bridge-root .hc-field {
+	position: relative;
+	isolation: isolate;
 	min-width: 0;
 	display: flex;
-	align-items: flex-end;
-	flex-wrap: wrap;
-	gap: 6px;
-	padding: 5px 5px 5px 6px;
+	flex-direction: column;
+	gap: 4px;
+	padding: 7px;
 	border: 1px solid var(--border-strong);
 	border-radius: var(--radius-pane);
 	background: var(--surface-alt);
+	overflow: clip;
+	transition:
+		border-color var(--motion-state) var(--ease-standard),
+		background-color var(--motion-state) var(--ease-standard),
+		box-shadow var(--motion-state) var(--ease-standard);
 }
 
 .bridge-root .hc-field:focus-within {
-	outline: 2px solid color-mix(in srgb, var(--intent-conversation) 28%, transparent);
 	border-color: var(--intent-conversation);
+	background: color-mix(in srgb, var(--intent-conversation-soft) 36%, white);
+	box-shadow:
+		var(--bevel),
+		0 0 0 3px color-mix(in srgb, var(--intent-conversation) 15%, transparent),
+		0 9px 24px rgba(43, 51, 66, 0.09);
+}
+
+.bridge-root .hc-field > :not(.hc-flare) {
+	position: relative;
+	z-index: 1;
+}
+
+.bridge-root .hc-flare {
+	position: absolute;
+	inset: 0;
+	z-index: 0;
+	pointer-events: none;
+	border-radius: inherit;
+	background: linear-gradient(
+		100deg,
+		transparent 4%,
+		color-mix(in srgb, var(--intent-conversation) 58%, transparent) 25%,
+		color-mix(in srgb, var(--intent-feedback) 52%, transparent) 42%,
+		color-mix(in srgb, var(--intent-direction) 54%, transparent) 60%,
+		color-mix(in srgb, var(--intent-authority) 48%, transparent) 76%,
+		transparent 96%
+	);
+	filter: blur(7px) saturate(1.12);
+	mix-blend-mode: multiply;
+	animation: composer-semantic-light var(--motion-punctuation) var(--ease-out) both;
 }
 
 .bridge-root .hc-input {
+	width: 100%;
 	min-width: 0;
 	min-height: 30px;
 	max-height: 160px;
-	flex: 1 1 auto;
-	padding: 6px 2px;
+	padding: 7px 6px 3px;
 	overflow-y: auto;
 	border: 0;
 	background: transparent;
@@ -282,12 +297,25 @@
 	cursor: not-allowed;
 }
 
-.bridge-root .hc-field .attach-chips {
-	flex-basis: 100%;
-	margin-bottom: 0;
+.bridge-root .hc-toolbar {
+	min-width: 0;
+	display: grid;
+	grid-template-columns: 28px minmax(0, 1fr) 28px 28px;
+	align-items: center;
+	gap: 6px;
+}
+
+.bridge-root .hc-toolbar .attachment-picker {
+	display: contents;
+}
+
+.bridge-root .hc-toolbar .attach-chips {
+	grid-column: 1 / -1;
+	margin: 0 0 2px;
 }
 
 .bridge-root .hc-field .attach-btn {
+	grid-column: 1;
 	width: 28px;
 	height: 28px;
 	border: 0;
@@ -295,28 +323,115 @@
 }
 
 .bridge-root .hc-slot {
+	grid-column: 2;
 	min-width: 0;
-	min-height: 31px;
-	flex: 1 0 calc(100% + 11px);
+	max-width: 100%;
+	min-height: 28px;
 	display: flex;
 	align-items: center;
-	flex-wrap: wrap;
-	gap: 6px;
-	margin: -5px -5px 0 -6px;
-	padding: 3px 7px;
-	border-bottom: 1px solid var(--border);
-	background: linear-gradient(
-		90deg,
-		color-mix(in srgb, var(--intent-feedback-soft) 72%, transparent),
-		rgba(244, 245, 247, 0.36)
-	);
+	padding: 0;
 }
 
 .bridge-root .hc-slot:empty {
 	display: none;
 }
 
+.bridge-root .hc-voice-state {
+	min-width: 0;
+	min-height: 31px;
+	width: calc(100% + 14px);
+	display: flex;
+	align-items: center;
+	gap: 7px;
+	margin: -7px -7px 2px;
+	padding: 5px 8px;
+	border-bottom: 1px solid var(--border);
+	background: color-mix(in srgb, var(--intent-conversation-soft) 48%, var(--surface));
+	color: var(--text-secondary);
+	font-size: var(--t-label);
+}
+
+.bridge-root .hc-voice-state.error {
+	background: color-mix(in srgb, var(--danger) 7%, var(--surface));
+	color: var(--danger);
+}
+
+.bridge-root .hc-voice-live {
+	width: 7px;
+	height: 7px;
+	flex: none;
+	border-radius: 50%;
+	background: var(--intent-conversation);
+	box-shadow: 0 0 0 4px color-mix(in srgb, var(--intent-conversation) 12%, transparent);
+	animation: composer-listening var(--motion-working) var(--ease-standard) infinite;
+}
+
+.bridge-root .hc-voice-state strong {
+	flex: none;
+	font-size: inherit;
+	font-weight: 600;
+}
+
+.bridge-root .hc-voice-preview,
+.bridge-root .hc-voice-state.error > span:first-child {
+	min-width: 0;
+	flex: 1 1 auto;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.bridge-root .hc-voice-state button {
+	flex: none;
+	padding: 2px 4px;
+	border: 0;
+	background: transparent;
+	color: currentColor;
+	font: 600 var(--t-label) var(--font-ui);
+	cursor: pointer;
+}
+
+.bridge-root .hc-voice-state button:hover {
+	text-decoration: underline;
+	text-underline-offset: 2px;
+}
+
+.bridge-root .hc-voice {
+	grid-column: 3;
+	width: 28px;
+	height: 28px;
+	flex: 0 0 auto;
+	display: grid;
+	place-items: center;
+	padding: 0;
+	border: 0;
+	border-radius: var(--radius-control);
+	background: transparent;
+	color: var(--text-secondary);
+	cursor: pointer;
+	transition:
+		background-color var(--motion-state) var(--ease-standard),
+		color var(--motion-state) var(--ease-standard),
+		transform var(--motion-press) var(--ease-standard);
+}
+
+.bridge-root .hc-voice:hover:not(:disabled),
+.bridge-root .hc-voice.listening {
+	background: var(--intent-conversation-soft);
+	color: var(--intent-conversation);
+}
+
+.bridge-root .hc-voice:active:not(:disabled) {
+	transform: translateY(1px);
+}
+
+.bridge-root .hc-voice:disabled {
+	opacity: 0.45;
+	cursor: not-allowed;
+}
+
 .bridge-root .hc-send {
+	grid-column: 4;
 	width: 28px;
 	height: 28px;
 	flex: 0 0 auto;
@@ -327,9 +442,52 @@
 	background: var(--ink);
 	color: var(--text-inverse);
 	cursor: pointer;
+	transform: translateY(0);
+	transition:
+		transform var(--motion-press) var(--ease-standard),
+		box-shadow var(--motion-state) var(--ease-standard),
+		opacity var(--motion-state) var(--ease-standard),
+		filter var(--motion-state) var(--ease-standard);
 }
 
 .bridge-root .hc-send:disabled {
 	opacity: 0.4;
+	filter: saturate(0.4);
 	cursor: not-allowed;
+}
+
+.bridge-root .hc-field[data-send-state='ready'] .hc-send {
+	transform: translateY(-1px);
+}
+
+@keyframes composer-semantic-light {
+	0% {
+		opacity: 0;
+		transform: translateX(-120%) scaleX(0.76);
+	}
+	34% {
+		opacity: 0.42;
+	}
+	100% {
+		opacity: 0;
+		transform: translateX(120%) scaleX(0.9);
+	}
+}
+
+@keyframes composer-listening {
+	0%,
+	100% {
+		opacity: 0.55;
+		transform: scale(0.86);
+	}
+	50% {
+		opacity: 1;
+		transform: scale(1);
+	}
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.bridge-root .hc-voice-live {
+		animation: none;
+	}
 }

@@ -1,0 +1,1839 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline' 'unsafe-eval' 'wasm-unsafe-eval' blob: data: https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://esm.sh https://fonts.bunny.net https://fonts.googleapis.com https://fonts.gstatic.com https://unpkg.com; style-src 'unsafe-inline' blob: data: https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://esm.sh https://fonts.bunny.net https://fonts.googleapis.com https://fonts.gstatic.com https://unpkg.com; img-src blob: data: https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://esm.sh https://fonts.bunny.net https://fonts.googleapis.com https://fonts.gstatic.com https://unpkg.com; font-src blob: data: https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://esm.sh https://fonts.bunny.net https://fonts.googleapis.com https://fonts.gstatic.com https://unpkg.com; media-src blob: data: https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://esm.sh https://fonts.bunny.net https://fonts.googleapis.com https://fonts.gstatic.com https://unpkg.com; worker-src blob:; connect-src blob: data:; frame-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
+<title>Authority Redesign Reset.Fragment</title>
+<style>:root{color-scheme:light dark;background:light-dark(rgb(255 255 255), rgb(24 24 24))}html,body{margin:0}body{box-sizing:border-box;padding:1rem;background:inherit}iframe{display:block;width:100%;height:calc(100vh - 2rem);margin:0 auto;border:0}</style>
+</head>
+<body>
+<iframe sandbox="allow-scripts" referrerpolicy="no-referrer" title="Authority Redesign Reset.Fragment" srcdoc="&lt;!doctype html&gt;
+&lt;html lang=&quot;en&quot;&gt;
+&lt;head&gt;
+&lt;meta charset=&quot;utf-8&quot;&gt;
+&lt;meta name=&quot;viewport&quot; content=&quot;width=device-width, initial-scale=1&quot;&gt;
+&lt;meta name=&quot;referrer&quot; content=&quot;no-referrer&quot;&gt;
+&lt;meta http-equiv=&quot;Content-Security-Policy&quot; content=&quot;default-src &#x27;none&#x27;; script-src &#x27;unsafe-inline&#x27; &#x27;unsafe-eval&#x27; &#x27;wasm-unsafe-eval&#x27; blob: data: https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://esm.sh https://fonts.bunny.net https://fonts.googleapis.com https://fonts.gstatic.com https://unpkg.com; style-src &#x27;unsafe-inline&#x27; blob: data: https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://esm.sh https://fonts.bunny.net https://fonts.googleapis.com https://fonts.gstatic.com https://unpkg.com; img-src blob: data: https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://esm.sh https://fonts.bunny.net https://fonts.googleapis.com https://fonts.gstatic.com https://unpkg.com; font-src blob: data: https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://esm.sh https://fonts.bunny.net https://fonts.googleapis.com https://fonts.gstatic.com https://unpkg.com; media-src blob: data: https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://esm.sh https://fonts.bunny.net https://fonts.googleapis.com https://fonts.gstatic.com https://unpkg.com; worker-src blob:; connect-src blob: data:; frame-src &#x27;none&#x27;; object-src &#x27;none&#x27;; base-uri &#x27;none&#x27;; form-action &#x27;none&#x27;&quot;&gt;
+&lt;title&gt;Authority Redesign Reset.Fragment&lt;/title&gt;
+&lt;style&gt;:root {
+  color-scheme: light dark;
+  background-color: var(
+    --background,
+    var(--color-background-primary, light-dark(rgb(255 255 255), rgb(24 24 24)))
+  ) !important;
+
+  /* Agent-facing contract; keep in sync with SKILL.md. */
+  --background: var(
+    --color-background-primary,
+    light-dark(rgb(255 255 255), rgb(24 24 24))
+  );
+  --foreground: var(
+    --color-text-primary,
+    light-dark(rgb(26 28 31), rgb(255 255 255))
+  );
+  --card: color-mix(in oklab, var(--foreground) 5%, var(--background));
+  --card-foreground: var(
+    --color-text-primary,
+    light-dark(rgb(26 28 31), rgb(255 255 255))
+  );
+  --popover: var(
+    --color-background-secondary,
+    light-dark(rgb(255 255 255), rgb(45 45 45))
+  );
+  --popover-foreground: var(
+    --color-text-primary,
+    light-dark(rgb(26 28 31), rgb(255 255 255))
+  );
+  --primary: var(
+    --color-text-info,
+    light-dark(rgb(51 156 255), rgb(131 195 255))
+  );
+  --primary-foreground: var(
+    --color-text-inverse,
+    light-dark(rgb(255 255 255), rgb(13 13 13))
+  );
+  --secondary: var(
+    --color-background-secondary,
+    light-dark(rgb(255 255 255 / 96%), rgb(54 54 54 / 96%))
+  );
+  --secondary-foreground: var(
+    --color-text-primary,
+    light-dark(rgb(26 28 31), rgb(255 255 255))
+  );
+  --muted: color-mix(in srgb, var(--foreground) 10%, transparent);
+  --muted-foreground: var(
+    --color-text-secondary,
+    light-dark(rgb(26 28 31 / 49.4%), rgb(255 255 255 / 49.8%))
+  );
+  --accent: var(
+    --color-background-info,
+    light-dark(rgb(229 242 255), rgb(13 39 63))
+  );
+  --accent-foreground: var(
+    --color-text-info,
+    light-dark(rgb(51 156 255), rgb(131 195 255))
+  );
+  --destructive: var(
+    --color-text-warning,
+    light-dark(rgb(226 85 7), rgb(255 133 73))
+  );
+  --border: var(
+    --color-border-secondary,
+    light-dark(rgb(26 28 31 / 8%), rgb(255 255 255 / 8.2%))
+  );
+  --input: var(
+    --color-border-primary,
+    light-dark(
+      rgb(26 28 31 / 11.8%),
+      color-mix(in oklab, rgb(0 0 0) 10%, transparent)
+    )
+  );
+  --ring: var(
+    --color-ring-primary,
+    light-dark(rgb(51 156 255), rgb(131 195 255 / 76%))
+  );
+  --font-size-base: var(--font-text-md-size, 14px);
+  --blue: light-dark(rgb(51 156 255), rgb(51 156 255));
+  --orange: light-dark(rgb(226 85 7), rgb(251 106 34));
+  --green: light-dark(rgb(0 162 64), rgb(64 201 119));
+  --red: light-dark(rgb(224 46 42), rgb(255 103 100));
+  --purple: light-dark(rgb(146 79 247), rgb(173 123 249));
+  --yellow: light-dark(rgb(255 195 0), rgb(255 210 64));
+  --viz-series-1: var(--primary);
+  --viz-series-2: light-dark(rgb(243 136 59), rgb(245 154 86));
+  --viz-series-3: light-dark(rgb(93 201 119), rgb(116 213 139));
+  --viz-series-4: light-dark(rgb(235 119 177), rgb(240 143 192));
+  --viz-series-5: light-dark(rgb(155 121 236), rgb(170 145 239));
+  --viz-series-6: light-dark(rgb(58 185 177), rgb(90 203 194));
+
+  /* Internal implementation variables; not part of the agent contract. */
+  --font-sans: -apple-system, system-ui, &quot;Segoe UI&quot;, sans-serif;
+  --font-mono:
+    ui-monospace, SFMono-Regular, &quot;SF Mono&quot;, Menlo, Consolas, &quot;Liberation Mono&quot;,
+    monospace;
+  --font-size-normal: max(11px, var(--font-size-base));
+  --font-size-tooltip: calc(var(--font-size-base) - 1px);
+  --font-size-small: max(11px, calc(var(--font-size-base) - 2px));
+  --font-size-h1: calc(var(--font-size-normal) * 1.7142857143);
+  --font-size-h2: calc(var(--font-size-normal) * 1.4285714286);
+  --font-size-h3: calc(var(--font-size-normal) * 1.2857142857);
+  --font-weight-normal: 430;
+  --font-weight-medium: 500;
+  --line-height-normal: calc(var(--font-size-normal) * 1.5);
+  --line-height-tooltip: calc(var(--font-size-tooltip) * 1.4285714286);
+  --line-height-small: calc(var(--font-size-small) + 4px);
+  --radius: var(--border-radius-lg, 12.5px);
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-2xl: calc(var(--radius) * 1.6);
+  --radius-full: 9999px;
+  --shadow-sm: 0 1px 2px -1px rgb(0 0 0 / 8%);
+  --checkmark-image: url(&quot;data:image/svg+xml,%3Csvg xmlns=&#x27;http://www.w3.org/2000/svg&#x27; viewBox=&#x27;0 0 17 17&#x27;%3E%3Cpath d=&#x27;M12.8961 3.64101C13.1297 3.41418 13.4984 3.37523 13.7779 3.56581C14.0571 3.75635 14.1554 4.11331 14.0299 4.41347L13.9615 4.53847L7.71151 13.7045C7.59411 13.8767 7.4063 13.9877 7.19881 14.0072C6.99136 14.0267 6.78564 13.9533 6.63826 13.806L2.88826 10.056L2.79842 9.9457C2.6192 9.67407 2.64927 9.30496 2.88826 9.06581C3.12738 8.82669 3.49647 8.79676 3.76815 8.97597L3.8785 9.06581L7.03084 12.2182L12.8053 3.74941L12.8961 3.64101Z&#x27;/%3E%3C/svg%3E&quot;);
+
+  /* Legacy aliases; not part of the current agent contract. */
+  --viz-bg: transparent;
+  --viz-panel: var(--card);
+  --viz-border: var(--border);
+  --viz-text: var(--foreground);
+  --viz-muted: var(--muted-foreground);
+  --viz-accent: var(--primary);
+  --viz-accent-text: var(--primary-foreground);
+  --viz-accent-bg: var(--accent);
+  --viz-font-size: var(--font-size-base);
+  --viz-warning: var(--destructive);
+}
+
+:root[data-theme=&quot;light&quot;] {
+  color-scheme: light;
+}
+
+:root[data-theme=&quot;dark&quot;] {
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html &gt; body {
+  /* Preserve MCP aliases for older inline renderers without creating :root cycles. */
+  --color-background-primary: var(
+    --background,
+    light-dark(rgb(255 255 255), rgb(24 24 24))
+  );
+  --color-text-primary: var(
+    --foreground,
+    light-dark(rgb(26 28 31), rgb(255 255 255))
+  );
+  --color-border-secondary: var(
+    --border,
+    light-dark(rgb(26 28 31 / 8%), rgb(255 255 255 / 8.2%))
+  );
+
+  margin: 0;
+  padding: 5px;
+  color: var(--foreground);
+  background: transparent !important;
+  font-family: var(--font-sans) !important;
+  font-size: var(--font-size-normal);
+  font-weight: var(--font-weight-normal);
+  line-height: var(--line-height-normal);
+}
+
+a {
+  color: color-mix(in srgb, var(--viz-accent) 80%, var(--viz-text) 20%);
+  cursor: pointer;
+  font-weight: var(--font-weight-medium, 500);
+  text-decoration: none;
+  text-underline-offset: 2px;
+}
+
+a:is(:hover, :focus-visible) {
+  text-decoration-line: underline;
+  text-decoration-style: dashed;
+  text-decoration-thickness: 0.5px;
+}
+
+h1,
+h2,
+h3,
+h4,
+h5,
+h6,
+p {
+  margin-block: 0;
+}
+
+h1 {
+  font-size: var(--font-size-h1);
+  font-weight: var(--font-weight-medium);
+  line-height: 1.25;
+}
+
+h2 {
+  font-size: var(--font-size-h2);
+  font-weight: var(--font-weight-medium);
+  line-height: 1.25;
+}
+
+h3,
+h4,
+h5,
+h6 {
+  font-size: var(--font-size-h3);
+  font-weight: var(--font-weight-medium);
+  line-height: 1.3;
+}
+
+b,
+strong,
+th {
+  font-weight: var(--font-weight-medium);
+}
+
+code:not(pre code) {
+  display: inline;
+  padding: 1px 6px;
+  border-radius: var(--radius-sm);
+  corner-shape: superellipse(1.5);
+  background: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 0.92em;
+  overflow-wrap: anywhere;
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
+  word-break: break-word;
+}
+
+.table-responsive {
+  width: 100%;
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  color: var(--foreground);
+  font: inherit;
+  text-align: start;
+}
+
+.table :is(th, td) {
+  padding-block: 10px;
+  padding-inline: 0 24px;
+  overflow-wrap: anywhere;
+  border-bottom: 1px solid var(--border);
+  text-align: start;
+  vertical-align: top;
+}
+
+.table-responsive &gt; .table :is(th, td) {
+  overflow-wrap: break-word;
+}
+
+.table :is(th, td):last-child {
+  padding-inline-end: 0;
+}
+
+.table :is(caption, thead th) {
+  font-weight: 600;
+}
+
+.table thead th {
+  padding-block: 8px;
+  border-bottom-color: color-mix(in srgb, var(--foreground) 16%, transparent);
+}
+
+.table tbody tr:last-child :is(th, td) {
+  border-bottom: 0;
+}
+
+.table.table-sm :is(th, td) {
+  padding-block: 6px;
+}
+
+.table.table-sm :is(th, td):not(:last-child) {
+  padding-inline-end: 16px;
+}
+
+.table :is(.text-end, [align=&quot;right&quot;]) {
+  text-align: end;
+  font-variant-numeric: tabular-nums;
+}
+
+.table :is(.text-center, [align=&quot;center&quot;]) {
+  text-align: center;
+}
+
+.table .text-nowrap {
+  white-space: nowrap;
+}
+
+#widget {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: 100%;
+  padding: 0;
+  background: transparent !important;
+}
+
+.card {
+  min-width: 0;
+  padding: 12px;
+  overflow: hidden;
+  overflow-wrap: break-word;
+  border-radius: var(--radius-2xl);
+  corner-shape: superellipse(1.5);
+  color: var(--card-foreground);
+  background: var(--card);
+}
+
+#widget &gt; :not(.card, .progress) {
+  width: 100% !important;
+  max-width: none !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.tooltip {
+  position: fixed;
+  z-index: 50;
+  top: 0;
+  left: 0;
+  width: max-content;
+  max-width: min(
+    20rem,
+    var(--tooltip-available-width, calc(100vw - 10px)),
+    calc(100vw - 10px)
+  );
+  max-height: min(
+    var(--tooltip-available-height, calc(100vh - 10px)),
+    calc(100vh - 10px)
+  );
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  corner-shape: superellipse(1.5);
+  color: var(--popover-foreground);
+  background: var(--popover);
+  box-shadow: none;
+  font-size: var(--font-size-tooltip);
+  line-height: var(--line-height-tooltip);
+  overflow-wrap: break-word;
+  white-space: normal;
+  pointer-events: none;
+  user-select: none;
+}
+
+.viz-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(max(180px, 24%), 1fr));
+  gap: 10px;
+}
+
+.viz-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.viz-stat-value {
+  font-size: var(--font-size-h2);
+  font-weight: var(--font-weight-medium);
+  line-height: 1.25;
+}
+
+.viz-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.progress {
+  display: flex;
+  height: 6px;
+  margin-block: calc((var(--line-height-normal, 1.5em) - 6px) / 2);
+  overflow: hidden;
+  border: 0;
+  border-radius: var(--radius-full);
+  background: var(--muted);
+}
+
+.progress-bar {
+  height: 100%;
+  flex-shrink: 0;
+  border: 0;
+  background: var(--viz-series-1);
+}
+
+.viz-badge {
+  padding: 3px 8px;
+  border-radius: var(--radius-full);
+  color: var(--accent-foreground);
+  background: var(--accent);
+  font-weight: var(--font-weight-medium);
+}
+
+small,
+.text-small,
+.viz-badge {
+  font-size: var(--font-size-small);
+  line-height: var(--line-height-small);
+}
+
+.text-muted {
+  color: var(--muted-foreground);
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.viz-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.viz-controls &gt; .form-label {
+  display: grid;
+  min-width: min(100%, 260px);
+  flex: 1 1 280px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: baseline;
+  gap: 2px 12px;
+  margin-bottom: 0;
+}
+
+.viz-controls &gt; .form-label &gt; :is(.form-control, .form-range, .form-select) {
+  grid-column: 1 / -1;
+}
+
+.btn,
+.form-check-input,
+.form-control,
+.form-range,
+.form-select {
+  font: inherit;
+}
+
+.btn {
+  appearance: button;
+  display: inline-flex;
+  inline-size: fit-content;
+  max-inline-size: 100%;
+  min-height: 28px;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  margin: 0;
+  padding: 0 8px;
+  -webkit-app-region: no-drag;
+  border: 1px solid var(--input);
+  border-radius: var(--radius-lg);
+  corner-shape: superellipse(1.5);
+  color: var(--secondary-foreground);
+  background: var(--secondary);
+  cursor: var(--cursor-interaction, pointer);
+  text-align: center;
+  text-decoration: none;
+  white-space: nowrap;
+  user-select: none;
+  -webkit-font-smoothing: antialiased;
+}
+
+.btn:is(.btn-block, .viz-tile) {
+  inline-size: 100%;
+}
+
+.btn.viz-tile {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+
+a.btn {
+  cursor: pointer;
+  text-decoration: none;
+}
+
+.btn:not(:disabled):hover {
+  background: color-mix(in srgb, var(--foreground) 6%, var(--secondary));
+}
+
+.btn-primary {
+  border-color: transparent;
+  color: var(--primary-foreground);
+  background: var(--foreground);
+  background-clip: padding-box;
+}
+
+.btn-primary .text-muted {
+  color: color-mix(in srgb, var(--primary-foreground) 50%, transparent);
+}
+
+.btn-primary:not(:disabled):hover {
+  background: color-mix(in srgb, var(--foreground) 80%, transparent);
+  background-clip: padding-box;
+}
+
+.btn-ghost {
+  border-color: transparent;
+  color: var(--muted-foreground);
+  background: transparent;
+}
+
+.btn-ghost:not(:disabled):hover {
+  color: var(--foreground);
+  background: color-mix(in srgb, var(--foreground) 6%, var(--secondary));
+}
+
+.btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.4;
+}
+
+[data-lucide] {
+  stroke-width: 1.6;
+}
+
+.form-label {
+  display: block;
+  margin-bottom: 6px;
+  color: var(--foreground);
+}
+
+.form-control {
+  display: block;
+  width: 100%;
+  min-height: 28px;
+  padding: 0 8px;
+  outline: none;
+  border: 1px solid var(--input);
+  border-radius: var(--radius-lg);
+  corner-shape: superellipse(1.5);
+  color: var(--foreground);
+  background: var(--secondary);
+}
+
+.form-control::placeholder {
+  color: var(--muted-foreground);
+}
+
+.form-control[type=&quot;file&quot;] {
+  padding: 0;
+  overflow: hidden;
+  cursor: var(--cursor-interaction, pointer);
+}
+
+.form-control[type=&quot;file&quot;]::file-selector-button {
+  min-height: 26px;
+  margin-right: 8px;
+  padding: 0 8px;
+  border: 0;
+  border-right: 1px solid var(--input);
+  color: var(--secondary-foreground);
+  background: var(--secondary);
+  cursor: inherit;
+  font: inherit;
+}
+
+.form-control[type=&quot;file&quot;]:not(:disabled):hover::file-selector-button {
+  background: color-mix(in srgb, var(--foreground) 6%, var(--secondary));
+}
+
+.form-control-color[type=&quot;color&quot;] {
+  width: 40px;
+  height: 28px;
+  padding: 3px;
+  cursor: var(--cursor-interaction, pointer);
+}
+
+.form-control-color[type=&quot;color&quot;]::-webkit-color-swatch-wrapper {
+  padding: 0;
+}
+
+.form-control-color[type=&quot;color&quot;]::-webkit-color-swatch {
+  border: 0;
+  border-radius: calc(var(--radius-lg) - 4px);
+  corner-shape: superellipse(1.5);
+}
+
+textarea.form-control {
+  height: auto;
+  min-height: 72px;
+  padding: 8px 10px;
+  resize: vertical;
+}
+
+.form-control:focus-visible {
+  border-color: var(--ring);
+  box-shadow: inset 0 0 0 1px var(--ring);
+}
+
+.form-control:disabled,
+.form-select:disabled {
+  cursor: not-allowed;
+  opacity: 0.4;
+}
+
+.form-select {
+  appearance: none;
+  display: block;
+  width: 100%;
+  min-height: 28px;
+  margin: 0;
+  padding: 0 32px 0 8px;
+  outline: none;
+  border: 1px solid var(--input);
+  border-radius: var(--radius-lg);
+  corner-shape: superellipse(1.5);
+  color: var(--foreground);
+  background-color: var(--secondary);
+  background-image:
+    linear-gradient(45deg, transparent 50%, var(--muted-foreground) 50%),
+    linear-gradient(135deg, var(--muted-foreground) 50%, transparent 50%);
+  background-position:
+    calc(100% - 14px) 50%,
+    calc(100% - 10px) 50%;
+  background-repeat: no-repeat;
+  background-size: 4px 4px;
+  cursor: var(--cursor-interaction, default);
+}
+
+.form-select:not(:disabled):hover {
+  background-color: color-mix(in srgb, var(--foreground) 6%, var(--secondary));
+}
+
+.form-select:focus-visible {
+  border-color: var(--ring);
+  box-shadow: inset 0 0 0 1px var(--ring);
+}
+
+.form-check {
+  display: flex;
+  min-height: 20px;
+  align-items: center;
+  gap: 6px;
+}
+
+.form-check-input {
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  flex: 0 0 auto;
+  margin: 0;
+  border: 1px solid var(--input);
+  color: var(--primary-foreground);
+  background-color: transparent;
+  cursor: var(--cursor-interaction, default);
+  transition:
+    background-color 150ms,
+    border-color 150ms,
+    box-shadow 150ms;
+}
+
+.form-check:not(.form-switch) .form-check-input[type=&quot;checkbox&quot;] {
+  border-color: var(--input);
+  border-radius: var(--radius-sm);
+  corner-shape: superellipse(1.5);
+  background-color: var(--secondary);
+  box-shadow: var(--shadow-sm);
+}
+
+.form-check:not(.form-switch)
+  .form-check-input:not(:disabled):not(:checked):hover {
+  background-color: var(--card);
+}
+
+.form-check:not(.form-switch) .form-check-input[type=&quot;checkbox&quot;]:checked {
+  border-color: var(--primary);
+  background-color: var(--primary);
+}
+
+.form-check:not(.form-switch)
+  .form-check-input[type=&quot;checkbox&quot;]:checked::before {
+  display: block;
+  width: 100%;
+  height: 100%;
+  background: var(--primary-foreground);
+  content: &quot;&quot;;
+  mask: var(--checkmark-image) center / 12px 12px no-repeat;
+}
+
+.form-check-input[type=&quot;radio&quot;] {
+  width: 14px;
+  height: 14px;
+  border-radius: var(--radius-full);
+}
+
+.form-check-input[type=&quot;radio&quot;]:checked {
+  border: 2px solid var(--primary);
+  background:
+    radial-gradient(circle, var(--primary-foreground) 0 2.5px, transparent 3px),
+    var(--primary);
+}
+
+.form-check:not(.form-switch) .form-check-input:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+.form-check:not(.form-switch) .form-check-input:disabled {
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+.form-check:not(.form-switch) .form-check-input:disabled + .form-check-label {
+  cursor: not-allowed;
+}
+
+.form-switch .form-check-input:disabled,
+.form-switch .form-check-input:disabled + .form-check-label {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.form-check-label {
+  color: var(--foreground);
+  cursor: var(--cursor-interaction, default);
+}
+
+.form-switch .form-check-input {
+  position: relative;
+  width: 32px;
+  height: 20px;
+  border: 0;
+  border-radius: var(--radius-full);
+  background: var(--muted);
+  box-shadow: none;
+  transition: background-color 200ms cubic-bezier(0, 0, 0.2, 1);
+}
+
+.form-switch .form-check-input::before {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  width: 16px;
+  height: 16px;
+  box-sizing: border-box;
+  border: 1px solid light-dark(var(--primary-foreground), var(--foreground));
+  border-radius: var(--radius-full);
+  background: light-dark(var(--primary-foreground), var(--foreground));
+  box-shadow: var(--shadow-sm);
+  content: &quot;&quot;;
+  transform: translate(2px, -50%);
+  transition: transform 200ms cubic-bezier(0, 0, 0.2, 1);
+}
+
+.form-switch .form-check-input:checked {
+  background: var(--primary);
+}
+
+.form-switch .form-check-input:checked::before {
+  transform: translate(14px, -50%);
+}
+
+.form-switch .form-check-input:focus-visible {
+  box-shadow: 0 0 0 2px var(--ring);
+}
+
+.form-range {
+  appearance: none;
+  display: block;
+  width: 100%;
+  height: 28px;
+  flex: 1;
+  margin: 0;
+  padding: 0;
+  outline: none;
+  border: 0;
+  accent-color: var(--primary);
+  background: linear-gradient(
+      color-mix(in srgb, var(--foreground) 7%, transparent),
+      color-mix(in srgb, var(--foreground) 7%, transparent)
+    )
+    center / 100% 2px no-repeat;
+}
+
+.form-range::-webkit-slider-runnable-track {
+  height: 28px;
+  background: transparent;
+}
+
+.form-range::-webkit-slider-thumb {
+  appearance: none;
+  width: 20px;
+  height: 20px;
+  margin-top: 4px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-full);
+  background: light-dark(var(--primary-foreground), var(--foreground));
+}
+
+.form-range:focus-visible::-webkit-slider-thumb {
+  border-color: var(--ring);
+  box-shadow: inset 0 0 0 1px var(--ring);
+}
+
+.form-range::-moz-range-track {
+  height: 28px;
+  background: transparent;
+}
+
+.form-range::-moz-range-thumb {
+  width: 20px;
+  height: 20px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-full);
+  background: light-dark(var(--primary-foreground), var(--foreground));
+}
+
+.form-range:focus-visible::-moz-range-thumb {
+  border-color: var(--ring);
+  box-shadow: inset 0 0 0 1px var(--ring);
+}
+
+.form-range:disabled {
+  cursor: not-allowed;
+  opacity: 0.4;
+}
+
+.btn:not(.btn-primary, .viz-tile):is(
+  [aria-pressed=&quot;true&quot;],
+  [aria-selected=&quot;true&quot;],
+  .is-selected
+) {
+  border-color: var(--primary);
+  color: var(--primary-foreground);
+  background: var(--primary);
+}
+
+.btn.viz-tile:is([aria-pressed=&quot;true&quot;], [aria-selected=&quot;true&quot;], .is-selected) {
+  border-color: var(--primary);
+  box-shadow: inset 0 0 0 1px var(--primary);
+}
+
+.btn:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+svg {
+  display: block;
+  max-width: 100%;
+  height: auto;
+}
+
+#widget &gt; svg {
+  width: 100%;
+}
+
+/* Model-authored chart rules can otherwise stretch icons after these styles load. */
+svg.lucide {
+  display: block;
+  width: 16px !important;
+  height: 16px !important;
+  flex: none;
+  margin: 0 !important;
+  stroke-width: 1.6;
+}
+
+.text-warning,
+.text-destructive {
+  color: var(--destructive);
+}
+
+html&gt;body{padding:0}&lt;/style&gt;
+&lt;/head&gt;
+&lt;body&gt;
+&lt;div id=&quot;restless-authority-reset&quot;&gt;
+  &lt;style&gt;
+    @import url(&#x27;https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&amp;family=IBM+Plex+Mono:wght@400;500&amp;family=IBM+Plex+Sans:wght@400;500&amp;family=Instrument+Sans:wght@400;500&amp;family=Manrope:wght@400;500&amp;display=swap&#x27;);
+
+    #restless-authority-reset {
+      --restless-page: light-dark(#eef2f5, #0e1218);
+      --restless-ink: light-dark(#202733, #eef2f7);
+      --restless-muted: light-dark(#69717d, #9fa8b5);
+      --restless-line: light-dark(#cdd4dc, #313b49);
+      --restless-soft: light-dark(#f7f9fb, #171d26);
+      --restless-white: light-dark(#ffffff, #121821);
+      --restless-blue: light-dark(#2f64a3, #86b7f0);
+      --restless-blue-soft: light-dark(#e6eff9, #17283b);
+      --restless-green: light-dark(#2f725c, #72c7a7);
+      --restless-green-soft: light-dark(#e4f1eb, #142a24);
+      --restless-amber: light-dark(#91621f, #e8b86e);
+      --restless-amber-soft: light-dark(#f7eedb, #302617);
+      --restless-red: light-dark(#98504b, #e19a92);
+      --restless-red-soft: light-dark(#f5e7e5, #321c1d);
+      color: var(--restless-ink);
+      font-family: &quot;IBM Plex Sans&quot;, sans-serif;
+      background: transparent;
+    }
+
+    #restless-authority-reset * { box-sizing: border-box; }
+    #restless-authority-reset button { font: inherit; }
+    #restless-authority-reset .reset-lab {
+      display: grid;
+      gap: 14px;
+    }
+    #restless-authority-reset .reset-picker {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      flex-wrap: wrap;
+      padding: 0 2px;
+    }
+    #restless-authority-reset .reset-picker-copy {
+      display: grid;
+      gap: 2px;
+    }
+    #restless-authority-reset .reset-picker-copy strong { font-weight: 500; }
+    #restless-authority-reset .reset-picker-copy span { color: var(--restless-muted); }
+    #restless-authority-reset .reset-directions {
+      display: flex;
+      gap: 4px;
+      padding: 4px;
+      background: var(--restless-white);
+      border: 1px solid var(--restless-line);
+      border-radius: 10px;
+    }
+    #restless-authority-reset .direction-choice {
+      appearance: none;
+      border: 0;
+      background: transparent;
+      color: var(--restless-muted);
+      padding: 8px 12px;
+      border-radius: 7px;
+      cursor: pointer;
+      font-weight: 500;
+    }
+    #restless-authority-reset .direction-choice[aria-pressed=&quot;true&quot;] {
+      color: var(--restless-ink);
+      background: var(--restless-blue-soft);
+    }
+    #restless-authority-reset .direction { display: none; }
+    #restless-authority-reset .direction.is-current { display: block; }
+    #restless-authority-reset .product-window {
+      min-height: 690px;
+      background: var(--restless-page);
+      border: 1px solid var(--restless-line);
+      overflow: hidden;
+      box-shadow: 0 18px 50px light-dark(rgba(36, 47, 63, .12), rgba(0, 0, 0, .35));
+    }
+    #restless-authority-reset .app-topbar {
+      min-height: 64px;
+      display: grid;
+      grid-template-columns: minmax(210px, auto) 1fr auto;
+      align-items: center;
+      gap: 20px;
+      padding: 0 18px;
+      background: var(--restless-white);
+      border-bottom: 1px solid var(--restless-line);
+    }
+    #restless-authority-reset .app-brand-zone,
+    #restless-authority-reset .app-brand,
+    #restless-authority-reset .app-primary-nav,
+    #restless-authority-reset .app-actions,
+    #restless-authority-reset .sidebar-switch,
+    #restless-authority-reset .authority-heading-row,
+    #restless-authority-reset .charter-heading-row,
+    #restless-authority-reset .status-line,
+    #restless-authority-reset .compact-row,
+    #restless-authority-reset .history-main,
+    #restless-authority-reset .boundary-top,
+    #restless-authority-reset .ledger-row,
+    #restless-authority-reset .index-row,
+    #restless-authority-reset .decision-footer,
+    #restless-authority-reset .company-menu-button {
+      display: flex;
+      align-items: center;
+    }
+    #restless-authority-reset .app-brand-zone { position: relative; gap: 10px; }
+    #restless-authority-reset .app-brand { gap: 9px; font-weight: 500; letter-spacing: .16em; }
+    #restless-authority-reset .app-mark {
+      width: 25px;
+      height: 25px;
+      display: grid;
+      place-items: center;
+      color: var(--restless-blue);
+      font-family: &quot;IBM Plex Mono&quot;, monospace;
+      letter-spacing: 0;
+      font-size: 18px;
+    }
+    #restless-authority-reset .company-menu-button {
+      gap: 7px;
+      border: 0;
+      background: transparent;
+      color: var(--restless-muted);
+      padding: 8px;
+      cursor: pointer;
+      border-radius: 7px;
+    }
+    #restless-authority-reset .company-menu-button:hover { background: var(--restless-soft); color: var(--restless-ink); }
+    #restless-authority-reset .company-menu {
+      display: none;
+      position: absolute;
+      z-index: 20;
+      top: 46px;
+      left: 118px;
+      width: 220px;
+      padding: 7px;
+      background: var(--restless-white);
+      border: 1px solid var(--restless-line);
+      box-shadow: 0 18px 40px light-dark(rgba(37, 46, 60, .18), rgba(0, 0, 0, .48));
+      border-radius: 10px;
+    }
+    #restless-authority-reset .company-menu.is-open { display: grid; }
+    #restless-authority-reset .company-menu button {
+      width: 100%;
+      border: 0;
+      text-align: left;
+      padding: 10px;
+      background: transparent;
+      color: var(--restless-ink);
+      border-radius: 7px;
+      cursor: pointer;
+    }
+    #restless-authority-reset .company-menu button:hover { background: var(--restless-blue-soft); }
+    #restless-authority-reset .company-menu small { display: block; color: var(--restless-muted); margin-top: 3px; }
+    #restless-authority-reset .app-primary-nav { justify-content: center; gap: 3px; }
+    #restless-authority-reset .app-primary-nav button,
+    #restless-authority-reset .app-actions button,
+    #restless-authority-reset .sidebar-switch button,
+    #restless-authority-reset .quiet-button,
+    #restless-authority-reset .text-button {
+      appearance: none;
+      border: 0;
+      background: transparent;
+      color: var(--restless-muted);
+      cursor: pointer;
+    }
+    #restless-authority-reset .app-primary-nav button {
+      padding: 10px 13px;
+      border-radius: 7px;
+    }
+    #restless-authority-reset .app-primary-nav button.is-active {
+      color: var(--restless-ink);
+      background: var(--restless-blue-soft);
+      font-weight: 500;
+    }
+    #restless-authority-reset .app-actions { justify-content: flex-end; gap: 8px; }
+    #restless-authority-reset .app-actions button,
+    #restless-authority-reset .quiet-button {
+      border: 1px solid var(--restless-line);
+      background: var(--restless-white);
+      color: var(--restless-ink);
+      padding: 9px 12px;
+      border-radius: 7px;
+    }
+    #restless-authority-reset .app-body {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 300px;
+      min-height: 625px;
+    }
+    #restless-authority-reset .main-view { min-width: 0; }
+    #restless-authority-reset .screen { display: none; }
+    #restless-authority-reset .screen.is-current { display: block; }
+    #restless-authority-reset .executive-sidebar {
+      min-width: 0;
+      background: var(--restless-white);
+      border-left: 1px solid var(--restless-line);
+      padding: 18px;
+    }
+    #restless-authority-reset .sidebar-switch {
+      background: var(--restless-soft);
+      padding: 3px;
+      border-radius: 8px;
+      margin-bottom: 18px;
+    }
+    #restless-authority-reset .sidebar-switch button {
+      flex: 1;
+      padding: 8px;
+      border-radius: 6px;
+    }
+    #restless-authority-reset .sidebar-switch button[aria-pressed=&quot;true&quot;] {
+      color: var(--restless-ink);
+      background: var(--restless-white);
+      box-shadow: 0 1px 4px light-dark(rgba(36, 47, 63, .13), rgba(0, 0, 0, .32));
+    }
+    #restless-authority-reset .side-panel { display: none; }
+    #restless-authority-reset .side-panel.is-current { display: block; }
+    #restless-authority-reset .side-title { font-weight: 500; margin-bottom: 6px; }
+    #restless-authority-reset .side-copy { color: var(--restless-muted); margin: 0 0 18px; }
+    #restless-authority-reset .chat-bubble {
+      margin: 0 0 10px;
+      padding: 11px 12px;
+      background: var(--restless-soft);
+      border-radius: 8px 8px 8px 2px;
+    }
+    #restless-authority-reset .chat-bubble.owner {
+      margin-left: 24px;
+      background: var(--restless-blue-soft);
+      border-radius: 8px 8px 2px 8px;
+    }
+    #restless-authority-reset .chat-author,
+    #restless-authority-reset .micro-label,
+    #restless-authority-reset .meta,
+    #restless-authority-reset .status-tag,
+    #restless-authority-reset .band-name,
+    #restless-authority-reset .folio-number,
+    #restless-authority-reset .journal-date {
+      font-family: &quot;IBM Plex Mono&quot;, monospace;
+      color: var(--restless-muted);
+      font-size: .78rem;
+    }
+    #restless-authority-reset .chat-author { margin-bottom: 6px; }
+    #restless-authority-reset .chat-bubble p { margin: 0; line-height: 1.45; }
+    #restless-authority-reset .composer {
+      width: 100%;
+      min-height: 68px;
+      resize: none;
+      padding: 10px;
+      color: var(--restless-ink);
+      background: var(--restless-white);
+      border: 1px solid var(--restless-line);
+      border-radius: 8px;
+      font: inherit;
+    }
+    #restless-authority-reset .attention-brief {
+      border-top: 3px solid var(--restless-amber);
+      padding-top: 14px;
+    }
+    #restless-authority-reset .attention-brief h3 { margin: 8px 0; font-size: 1.05rem; font-weight: 500; }
+    #restless-authority-reset .attention-brief p { color: var(--restless-muted); line-height: 1.5; }
+    #restless-authority-reset .attention-consequence {
+      padding: 11px 0;
+      margin: 12px 0;
+      border-top: 1px solid var(--restless-line);
+      border-bottom: 1px solid var(--restless-line);
+      color: var(--restless-ink) !important;
+    }
+    #restless-authority-reset .attention-actions { display: grid; gap: 8px; }
+    #restless-authority-reset .attention-actions button {
+      padding: 10px 12px;
+      border-radius: 7px;
+      border: 1px solid var(--restless-line);
+      background: var(--restless-white);
+      color: var(--restless-ink);
+      cursor: pointer;
+    }
+    #restless-authority-reset .attention-actions button:first-child {
+      background: var(--restless-blue);
+      border-color: var(--restless-blue);
+      color: light-dark(#ffffff, #08111b);
+    }
+
+    /* Direction one — semantic boundary bands. */
+    #restless-authority-reset .direction-one .product-window { border-radius: 12px; }
+    #restless-authority-reset .direction-one .authority-canvas,
+    #restless-authority-reset .direction-one .charter-canvas { padding: 34px 38px 44px; }
+    #restless-authority-reset .authority-heading-row,
+    #restless-authority-reset .charter-heading-row { justify-content: space-between; gap: 18px; align-items: flex-start; }
+    #restless-authority-reset .authority-title h1,
+    #restless-authority-reset .charter-title h1 {
+      margin: 0 0 8px;
+      font-size: 1.8rem;
+      font-weight: 500;
+      letter-spacing: -.025em;
+    }
+    #restless-authority-reset .authority-title p,
+    #restless-authority-reset .charter-title p { margin: 0; color: var(--restless-muted); max-width: 620px; }
+    #restless-authority-reset .status-tag { color: var(--restless-green); white-space: nowrap; padding-top: 7px; }
+    #restless-authority-reset .boundary-bands {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      margin: 32px 0 28px;
+      border-top: 1px solid var(--restless-line);
+      border-bottom: 1px solid var(--restless-line);
+    }
+    #restless-authority-reset .boundary-band { padding: 20px 19px 22px; min-width: 0; }
+    #restless-authority-reset .boundary-band + .boundary-band { border-left: 1px solid var(--restless-line); }
+    #restless-authority-reset .boundary-band.allowed { background: var(--restless-green-soft); }
+    #restless-authority-reset .boundary-band.ask { background: var(--restless-amber-soft); }
+    #restless-authority-reset .boundary-band.never { background: var(--restless-red-soft); }
+    #restless-authority-reset .band-name { color: var(--restless-ink); margin-bottom: 13px; font-weight: 500; }
+    #restless-authority-reset .boundary-band ul { list-style: none; padding: 0; margin: 0; }
+    #restless-authority-reset .boundary-band li { padding: 6px 0; line-height: 1.35; }
+    #restless-authority-reset .boundary-band li::before { content: &quot;—&quot;; color: var(--restless-muted); margin-right: 7px; }
+    #restless-authority-reset .authority-sections {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 30px;
+    }
+    #restless-authority-reset .authority-section h2 {
+      margin: 0 0 13px;
+      font-size: 1.02rem;
+      font-weight: 500;
+    }
+    #restless-authority-reset .compact-list { border-top: 1px solid var(--restless-line); }
+    #restless-authority-reset .compact-row { justify-content: space-between; gap: 12px; padding: 12px 0; border-bottom: 1px solid var(--restless-line); }
+    #restless-authority-reset .compact-row span:last-child { color: var(--restless-muted); text-align: right; }
+    #restless-authority-reset .history-entry { padding: 12px 0; border-top: 1px solid var(--restless-line); }
+    #restless-authority-reset .history-entry:last-child { border-bottom: 1px solid var(--restless-line); }
+    #restless-authority-reset .history-main { justify-content: space-between; gap: 12px; }
+    #restless-authority-reset .history-main span:first-child { font-weight: 500; }
+    #restless-authority-reset .history-main span:last-child { color: var(--restless-muted); white-space: nowrap; }
+    #restless-authority-reset .history-entry p { margin: 5px 0 0; color: var(--restless-muted); }
+    #restless-authority-reset .charter-sheet {
+      margin-top: 30px;
+      border-top: 1px solid var(--restless-line);
+      display: grid;
+      grid-template-columns: 145px 1fr;
+    }
+    #restless-authority-reset .charter-index { padding: 22px 22px 0 0; border-right: 1px solid var(--restless-line); }
+    #restless-authority-reset .charter-index div { padding: 7px 0; color: var(--restless-muted); }
+    #restless-authority-reset .charter-index div:first-child { color: var(--restless-ink); font-weight: 500; }
+    #restless-authority-reset .charter-document { padding: 24px 0 0 30px; max-width: 680px; }
+    #restless-authority-reset .charter-lede { font-size: 1.42rem; line-height: 1.38; margin: 0 0 26px; }
+    #restless-authority-reset .charter-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 25px 34px; }
+    #restless-authority-reset .charter-block h2 { font-size: .85rem; font-weight: 500; font-family: &quot;IBM Plex Mono&quot;, monospace; color: var(--restless-muted); margin: 0 0 7px; }
+    #restless-authority-reset .charter-block p { line-height: 1.5; margin: 0; }
+
+    /* Direction two — indexed operating manual. */
+    #restless-authority-reset .direction-two {
+      --restless-blue: light-dark(#355d87, #88b2df);
+      --restless-blue-soft: light-dark(#e7edf4, #182434);
+      --restless-green: light-dark(#356a58, #78bca3);
+      font-family: &quot;Instrument Sans&quot;, sans-serif;
+    }
+    #restless-authority-reset .direction-two .product-window { border-radius: 4px; }
+    #restless-authority-reset .direction-two .app-topbar { min-height: 58px; }
+    #restless-authority-reset .direction-two .app-brand,
+    #restless-authority-reset .direction-two .micro-label,
+    #restless-authority-reset .direction-two .meta,
+    #restless-authority-reset .direction-two .status-tag,
+    #restless-authority-reset .direction-two .chat-author,
+    #restless-authority-reset .direction-two .folio-number {
+      font-family: &quot;DM Mono&quot;, monospace;
+    }
+    #restless-authority-reset .manual-layout { display: grid; grid-template-columns: 186px minmax(0, 1fr); min-height: 625px; }
+    #restless-authority-reset .manual-index { padding: 30px 18px; background: var(--restless-soft); border-right: 1px solid var(--restless-line); }
+    #restless-authority-reset .manual-index-title { font-weight: 500; margin-bottom: 18px; }
+    #restless-authority-reset .manual-index button {
+      width: 100%;
+      border: 0;
+      background: transparent;
+      color: var(--restless-muted);
+      text-align: left;
+      padding: 8px 9px;
+      border-radius: 5px;
+      cursor: pointer;
+    }
+    #restless-authority-reset .manual-index button.is-active { color: var(--restless-ink); background: var(--restless-white); font-weight: 500; }
+    #restless-authority-reset .manual-main { padding: 34px 38px; }
+    #restless-authority-reset .manual-heading { display: grid; grid-template-columns: 1fr auto; gap: 20px; align-items: start; padding-bottom: 25px; border-bottom: 2px solid var(--restless-ink); }
+    #restless-authority-reset .manual-heading h1 { margin: 0 0 8px; font-size: 1.75rem; font-weight: 500; }
+    #restless-authority-reset .manual-heading p { margin: 0; color: var(--restless-muted); max-width: 620px; }
+    #restless-authority-reset .manual-status { text-align: right; }
+    #restless-authority-reset .manual-status strong { display: block; color: var(--restless-green); font-weight: 500; }
+    #restless-authority-reset .manual-status span { color: var(--restless-muted); }
+    #restless-authority-reset .rule-table { margin-top: 7px; }
+    #restless-authority-reset .rule-row {
+      display: grid;
+      grid-template-columns: 130px minmax(0, 1fr) 150px;
+      gap: 20px;
+      padding: 16px 0;
+      border-bottom: 1px solid var(--restless-line);
+      align-items: start;
+    }
+    #restless-authority-reset .rule-row.header { padding: 11px 0; color: var(--restless-muted); font-family: &quot;DM Mono&quot;, monospace; font-size: .77rem; }
+    #restless-authority-reset .rule-kind { font-weight: 500; }
+    #restless-authority-reset .rule-state { color: var(--restless-muted); }
+    #restless-authority-reset .rule-state.allowed { color: var(--restless-green); }
+    #restless-authority-reset .rule-state.ask { color: var(--restless-amber); }
+    #restless-authority-reset .manual-note { margin-top: 24px; padding-left: 14px; border-left: 3px solid var(--restless-blue); color: var(--restless-muted); }
+    #restless-authority-reset .folio {
+      max-width: 750px;
+      margin: 0 auto;
+      padding: 40px 45px;
+    }
+    #restless-authority-reset .folio-head { display: grid; grid-template-columns: 1fr auto; gap: 20px; padding-bottom: 24px; border-bottom: 2px solid var(--restless-ink); }
+    #restless-authority-reset .folio-head h1 { margin: 0; font-weight: 500; font-size: 2rem; }
+    #restless-authority-reset .folio-number { text-align: right; }
+    #restless-authority-reset .folio-purpose { font-size: 1.45rem; line-height: 1.45; margin: 32px 0; max-width: 650px; }
+    #restless-authority-reset .folio-section { display: grid; grid-template-columns: 140px 1fr; gap: 26px; padding: 20px 0; border-top: 1px solid var(--restless-line); }
+    #restless-authority-reset .folio-section h2 { margin: 0; font-size: .86rem; font-family: &quot;DM Mono&quot;, monospace; color: var(--restless-muted); font-weight: 500; }
+    #restless-authority-reset .folio-section p { margin: 0; line-height: 1.55; }
+
+    /* Direction three — decision-led journal. */
+    #restless-authority-reset .direction-three {
+      --restless-page: light-dark(#f0f3f6, #10151b);
+      --restless-blue: light-dark(#3b6494, #8ab9e8);
+      --restless-blue-soft: light-dark(#e1ebf5, #172739);
+      font-family: &quot;Manrope&quot;, sans-serif;
+    }
+    #restless-authority-reset .direction-three .product-window { border-radius: 16px; }
+    #restless-authority-reset .direction-three .app-topbar { background: var(--restless-page); }
+    #restless-authority-reset .direction-three .micro-label,
+    #restless-authority-reset .direction-three .meta,
+    #restless-authority-reset .direction-three .status-tag,
+    #restless-authority-reset .direction-three .chat-author,
+    #restless-authority-reset .direction-three .journal-date {
+      font-family: &quot;DM Mono&quot;, monospace;
+    }
+    #restless-authority-reset .journal-canvas { padding: 34px 42px 44px; }
+    #restless-authority-reset .journal-head { display: flex; justify-content: space-between; gap: 20px; align-items: flex-start; }
+    #restless-authority-reset .journal-head h1 { margin: 0 0 8px; font-size: 1.9rem; font-weight: 500; }
+    #restless-authority-reset .journal-head p { margin: 0; color: var(--restless-muted); max-width: 600px; }
+    #restless-authority-reset .authority-sentence {
+      margin: 28px 0 30px;
+      padding: 22px 0;
+      border-top: 1px solid var(--restless-line);
+      border-bottom: 1px solid var(--restless-line);
+      font-size: 1.22rem;
+      line-height: 1.5;
+    }
+    #restless-authority-reset .authority-sentence strong { font-weight: 500; color: var(--restless-green); }
+    #restless-authority-reset .decision-banner {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 20px;
+      padding: 18px 20px;
+      background: var(--restless-amber-soft);
+      border-radius: 10px;
+      align-items: center;
+      margin-bottom: 30px;
+    }
+    #restless-authority-reset .decision-banner strong { display: block; font-weight: 500; margin-bottom: 4px; }
+    #restless-authority-reset .decision-banner span { color: var(--restless-muted); }
+    #restless-authority-reset .decision-banner button { border: 0; background: var(--restless-ink); color: var(--restless-white); padding: 10px 13px; border-radius: 7px; cursor: pointer; white-space: nowrap; }
+    #restless-authority-reset .journal-section { margin-top: 25px; }
+    #restless-authority-reset .journal-section h2 { margin: 0 0 8px; font-size: 1rem; font-weight: 500; }
+    #restless-authority-reset .journal-entry {
+      display: grid;
+      grid-template-columns: 96px minmax(0, 1fr) auto;
+      gap: 20px;
+      padding: 16px 0;
+      border-top: 1px solid var(--restless-line);
+      align-items: start;
+    }
+    #restless-authority-reset .journal-entry:last-child { border-bottom: 1px solid var(--restless-line); }
+    #restless-authority-reset .journal-event strong { display: block; font-weight: 500; margin-bottom: 4px; }
+    #restless-authority-reset .journal-event span { color: var(--restless-muted); }
+    #restless-authority-reset .journal-state { color: var(--restless-muted); white-space: nowrap; }
+    #restless-authority-reset .charter-manifesto { max-width: 760px; padding: 42px; }
+    #restless-authority-reset .charter-manifesto h1 { margin: 0; font-size: 2rem; font-weight: 500; }
+    #restless-authority-reset .manifesto-line { font-size: 1.55rem; line-height: 1.45; margin: 34px 0; }
+    #restless-authority-reset .manifesto-principles { counter-reset: principle; }
+    #restless-authority-reset .manifesto-principle {
+      counter-increment: principle;
+      display: grid;
+      grid-template-columns: 46px 1fr;
+      gap: 16px;
+      padding: 18px 0;
+      border-top: 1px solid var(--restless-line);
+    }
+    #restless-authority-reset .manifesto-principle::before { content: &quot;0&quot; counter(principle); color: var(--restless-muted); font-family: &quot;DM Mono&quot;, monospace; }
+    #restless-authority-reset .manifesto-principle strong { display: block; font-weight: 500; margin-bottom: 5px; }
+    #restless-authority-reset .manifesto-principle span { color: var(--restless-muted); line-height: 1.5; }
+
+    @media (max-width: 880px) {
+      #restless-authority-reset .app-topbar { grid-template-columns: 1fr auto; }
+      #restless-authority-reset .app-primary-nav { grid-column: 1 / -1; grid-row: 2; order: 3; justify-content: flex-start; overflow-x: auto; padding-bottom: 9px; }
+      #restless-authority-reset .app-body { grid-template-columns: 1fr; }
+      #restless-authority-reset .executive-sidebar { border-left: 0; border-top: 1px solid var(--restless-line); }
+      #restless-authority-reset .boundary-bands { grid-template-columns: 1fr; }
+      #restless-authority-reset .boundary-band + .boundary-band { border-left: 0; border-top: 1px solid var(--restless-line); }
+      #restless-authority-reset .authority-sections { grid-template-columns: 1fr; }
+      #restless-authority-reset .manual-layout { grid-template-columns: 150px minmax(0, 1fr); }
+    }
+    @media (max-width: 600px) {
+      #restless-authority-reset .reset-picker { align-items: flex-start; }
+      #restless-authority-reset .reset-directions { width: 100%; }
+      #restless-authority-reset .direction-choice { flex: 1; padding-inline: 6px; }
+      #restless-authority-reset .product-window { min-height: 0; }
+      #restless-authority-reset .app-topbar { padding: 10px 12px 0; gap: 8px; }
+      #restless-authority-reset .app-actions { display: none; }
+      #restless-authority-reset .app-brand-zone { min-width: 0; }
+      #restless-authority-reset .app-brand { font-size: .88rem; }
+      #restless-authority-reset .app-primary-nav button { padding-inline: 9px; }
+      #restless-authority-reset .direction-one .authority-canvas,
+      #restless-authority-reset .direction-one .charter-canvas,
+      #restless-authority-reset .manual-main,
+      #restless-authority-reset .journal-canvas,
+      #restless-authority-reset .charter-manifesto { padding: 24px 18px 30px; }
+      #restless-authority-reset .authority-heading-row,
+      #restless-authority-reset .charter-heading-row,
+      #restless-authority-reset .journal-head { display: grid; }
+      #restless-authority-reset .charter-sheet { grid-template-columns: 1fr; }
+      #restless-authority-reset .charter-index { border-right: 0; border-bottom: 1px solid var(--restless-line); padding: 15px 0; display: flex; gap: 14px; overflow-x: auto; }
+      #restless-authority-reset .charter-document { padding: 22px 0 0; }
+      #restless-authority-reset .charter-grid { grid-template-columns: 1fr; }
+      #restless-authority-reset .manual-layout { grid-template-columns: 1fr; }
+      #restless-authority-reset .manual-index { display: flex; gap: 3px; overflow-x: auto; padding: 10px; border-right: 0; border-bottom: 1px solid var(--restless-line); }
+      #restless-authority-reset .manual-index-title { display: none; }
+      #restless-authority-reset .manual-index button { width: auto; white-space: nowrap; }
+      #restless-authority-reset .manual-heading { grid-template-columns: 1fr; }
+      #restless-authority-reset .manual-status { text-align: left; }
+      #restless-authority-reset .rule-row { grid-template-columns: 1fr; gap: 5px; }
+      #restless-authority-reset .rule-row.header { display: none; }
+      #restless-authority-reset .folio { padding: 28px 18px; }
+      #restless-authority-reset .folio-section { grid-template-columns: 1fr; gap: 8px; }
+      #restless-authority-reset .decision-banner { grid-template-columns: 1fr; }
+      #restless-authority-reset .journal-entry { grid-template-columns: 1fr; gap: 6px; }
+      #restless-authority-reset .manifesto-principle { grid-template-columns: 34px 1fr; }
+    }
+  &lt;/style&gt;
+
+  &lt;div class=&quot;reset-lab&quot;&gt;
+    &lt;div class=&quot;reset-picker&quot;&gt;
+      &lt;div class=&quot;reset-picker-copy&quot;&gt;
+        &lt;strong&gt;Authority redesign — structural reset&lt;/strong&gt;
+        &lt;span&gt;Each direction keeps the charter separate and removes raw execution logs.&lt;/span&gt;
+      &lt;/div&gt;
+      &lt;div class=&quot;reset-directions&quot; aria-label=&quot;Design direction&quot;&gt;
+        &lt;button type=&quot;button&quot; class=&quot;direction-choice&quot; data-direction=&quot;one&quot; aria-pressed=&quot;true&quot;&gt;1 · Boundary sheet&lt;/button&gt;
+        &lt;button type=&quot;button&quot; class=&quot;direction-choice&quot; data-direction=&quot;two&quot; aria-pressed=&quot;false&quot;&gt;2 · Operating manual&lt;/button&gt;
+        &lt;button type=&quot;button&quot; class=&quot;direction-choice&quot; data-direction=&quot;three&quot; aria-pressed=&quot;false&quot;&gt;3 · Decision journal&lt;/button&gt;
+      &lt;/div&gt;
+    &lt;/div&gt;
+
+    &lt;!-- Direction one --&gt;
+    &lt;section class=&quot;direction direction-one is-current&quot; data-direction-panel=&quot;one&quot;&gt;
+      &lt;div class=&quot;product-window&quot;&gt;
+        &lt;header class=&quot;app-topbar&quot;&gt;
+          &lt;div class=&quot;app-brand-zone&quot;&gt;
+            &lt;div class=&quot;app-brand&quot;&gt;&lt;span class=&quot;app-mark&quot;&gt;R&lt;/span&gt;&lt;span&gt;RESTLESS&lt;/span&gt;&lt;/div&gt;
+            &lt;button class=&quot;company-menu-button&quot; type=&quot;button&quot; aria-expanded=&quot;false&quot;&gt;Aris &lt;span aria-hidden=&quot;true&quot;&gt;⌄&lt;/span&gt;&lt;/button&gt;
+            &lt;div class=&quot;company-menu&quot;&gt;
+              &lt;button type=&quot;button&quot; data-show-screen=&quot;charter&quot;&gt;Company charter&lt;small&gt;Purpose, offer and owner principles&lt;/small&gt;&lt;/button&gt;
+            &lt;/div&gt;
+          &lt;/div&gt;
+          &lt;nav class=&quot;app-primary-nav&quot; aria-label=&quot;Primary&quot;&gt;
+            &lt;button type=&quot;button&quot;&gt;Attention&lt;/button&gt;&lt;button type=&quot;button&quot;&gt;Work&lt;/button&gt;&lt;button type=&quot;button&quot;&gt;People&lt;/button&gt;&lt;button type=&quot;button&quot; class=&quot;is-active&quot; data-show-screen=&quot;authority&quot;&gt;Authority&lt;/button&gt;
+          &lt;/nav&gt;
+          &lt;div class=&quot;app-actions&quot;&gt;&lt;button type=&quot;button&quot;&gt;Talk to Exec&lt;/button&gt;&lt;/div&gt;
+        &lt;/header&gt;
+        &lt;div class=&quot;app-body&quot;&gt;
+          &lt;main class=&quot;main-view&quot;&gt;
+            &lt;section class=&quot;screen is-current&quot; data-screen=&quot;authority&quot;&gt;
+              &lt;div class=&quot;authority-canvas&quot;&gt;
+                &lt;div class=&quot;authority-heading-row&quot;&gt;
+                  &lt;div class=&quot;authority-title&quot;&gt;&lt;h1&gt;Authority&lt;/h1&gt;&lt;p&gt;What Aris can do independently, where it must ask, and the boundaries it cannot cross.&lt;/p&gt;&lt;/div&gt;
+                  &lt;div class=&quot;status-tag&quot;&gt;● ACTIVE&lt;/div&gt;
+                &lt;/div&gt;
+                &lt;div class=&quot;boundary-bands&quot;&gt;
+                  &lt;section class=&quot;boundary-band allowed&quot;&gt;&lt;div class=&quot;band-name&quot;&gt;CAN ACT&lt;/div&gt;&lt;ul&gt;&lt;li&gt;Research tutoring centres&lt;/li&gt;&lt;li&gt;Prepare offers and outreach&lt;/li&gt;&lt;li&gt;Build and validate releases&lt;/li&gt;&lt;li&gt;Use connected development tools&lt;/li&gt;&lt;/ul&gt;&lt;/section&gt;
+                  &lt;section class=&quot;boundary-band ask&quot;&gt;&lt;div class=&quot;band-name&quot;&gt;ASK YOU FIRST&lt;/div&gt;&lt;ul&gt;&lt;li&gt;Send external outreach&lt;/li&gt;&lt;li&gt;Publish to production&lt;/li&gt;&lt;li&gt;Make purchases&lt;/li&gt;&lt;li&gt;Accept legal terms&lt;/li&gt;&lt;/ul&gt;&lt;/section&gt;
+                  &lt;section class=&quot;boundary-band never&quot;&gt;&lt;div class=&quot;band-name&quot;&gt;CANNOT DO&lt;/div&gt;&lt;ul&gt;&lt;li&gt;Change its own mandate&lt;/li&gt;&lt;li&gt;Exceed owner-set limits&lt;/li&gt;&lt;li&gt;Commit owner identity&lt;/li&gt;&lt;li&gt;Repeat an unknown effect&lt;/li&gt;&lt;/ul&gt;&lt;/section&gt;
+                &lt;/div&gt;
+                &lt;div class=&quot;authority-sections&quot;&gt;
+                  &lt;section class=&quot;authority-section&quot;&gt;&lt;h2&gt;Access and resources&lt;/h2&gt;&lt;div class=&quot;compact-list&quot;&gt;&lt;div class=&quot;compact-row&quot;&gt;&lt;span&gt;Company computer&lt;/span&gt;&lt;span&gt;Running normally&lt;/span&gt;&lt;/div&gt;&lt;div class=&quot;compact-row&quot;&gt;&lt;span&gt;GitHub · study&lt;/span&gt;&lt;span&gt;Connected&lt;/span&gt;&lt;/div&gt;&lt;div class=&quot;compact-row&quot;&gt;&lt;span&gt;Email account&lt;/span&gt;&lt;span&gt;Prepare only&lt;/span&gt;&lt;/div&gt;&lt;div class=&quot;compact-row&quot;&gt;&lt;span&gt;Production&lt;/span&gt;&lt;span&gt;Approval required&lt;/span&gt;&lt;/div&gt;&lt;/div&gt;&lt;/section&gt;
+                  &lt;section class=&quot;authority-section&quot;&gt;&lt;h2&gt;Consequential history&lt;/h2&gt;&lt;div class=&quot;history-entry&quot;&gt;&lt;div class=&quot;history-main&quot;&gt;&lt;span&gt;No external actions yet&lt;/span&gt;&lt;span&gt;Current period&lt;/span&gt;&lt;/div&gt;&lt;p&gt;Four outreach messages are prepared but remain unsent.&lt;/p&gt;&lt;/div&gt;&lt;div class=&quot;history-entry&quot;&gt;&lt;div class=&quot;history-main&quot;&gt;&lt;span&gt;Routine work is excluded&lt;/span&gt;&lt;span&gt;View in Work&lt;/span&gt;&lt;/div&gt;&lt;p&gt;Builds, repository commands and research do not clutter this history.&lt;/p&gt;&lt;/div&gt;&lt;/section&gt;
+                &lt;/div&gt;
+              &lt;/div&gt;
+            &lt;/section&gt;
+            &lt;section class=&quot;screen&quot; data-screen=&quot;charter&quot;&gt;
+              &lt;div class=&quot;charter-canvas&quot;&gt;
+                &lt;div class=&quot;charter-heading-row&quot;&gt;&lt;div class=&quot;charter-title&quot;&gt;&lt;h1&gt;Company charter&lt;/h1&gt;&lt;p&gt;The durable purpose and owner principles that guide Aris.&lt;/p&gt;&lt;/div&gt;&lt;button class=&quot;quiet-button&quot; type=&quot;button&quot; data-show-screen=&quot;authority&quot;&gt;Back to Authority&lt;/button&gt;&lt;/div&gt;
+                &lt;div class=&quot;charter-sheet&quot;&gt;&lt;aside class=&quot;charter-index&quot;&gt;&lt;div&gt;Charter&lt;/div&gt;&lt;div&gt;Current direction&lt;/div&gt;&lt;div&gt;Revision history&lt;/div&gt;&lt;/aside&gt;&lt;article class=&quot;charter-document&quot;&gt;&lt;p class=&quot;charter-lede&quot;&gt;Aris brings high-quality NSW Selective Test practice materials to Australian tutoring centres through a useful free sample and an honest paid-centre offer.&lt;/p&gt;&lt;div class=&quot;charter-grid&quot;&gt;&lt;section class=&quot;charter-block&quot;&gt;&lt;h2&gt;WHO WE SERVE&lt;/h2&gt;&lt;p&gt;Tutoring-centre owners and academic managers looking for credible, classroom-ready material.&lt;/p&gt;&lt;/section&gt;&lt;section class=&quot;charter-block&quot;&gt;&lt;h2&gt;WHAT WE OFFER&lt;/h2&gt;&lt;p&gt;A free sample that proves quality, followed by a centre licence and repeat paper supply.&lt;/p&gt;&lt;/section&gt;&lt;section class=&quot;charter-block&quot;&gt;&lt;h2&gt;OWNER PRINCIPLES&lt;/h2&gt;&lt;p&gt;Be direct about the offer. Preserve quality. Never imply evidence or customer demand that has not been observed.&lt;/p&gt;&lt;/section&gt;&lt;section class=&quot;charter-block&quot;&gt;&lt;h2&gt;CURRENT DIRECTION&lt;/h2&gt;&lt;p&gt;Prepare the first centre campaign. External outreach remains subject to owner approval.&lt;/p&gt;&lt;/section&gt;&lt;/div&gt;&lt;/article&gt;&lt;/div&gt;
+              &lt;/div&gt;
+            &lt;/section&gt;
+          &lt;/main&gt;
+          &lt;aside class=&quot;executive-sidebar&quot;&gt;
+            &lt;div class=&quot;sidebar-switch&quot;&gt;&lt;button type=&quot;button&quot; data-side=&quot;chat&quot; aria-pressed=&quot;true&quot;&gt;Exec chat&lt;/button&gt;&lt;button type=&quot;button&quot; data-side=&quot;attention&quot; aria-pressed=&quot;false&quot;&gt;Attention · 1&lt;/button&gt;&lt;/div&gt;
+            &lt;section class=&quot;side-panel is-current&quot; data-side-panel=&quot;chat&quot;&gt;&lt;div class=&quot;side-title&quot;&gt;Exec&lt;/div&gt;&lt;p class=&quot;side-copy&quot;&gt;Ask about this authority or change company direction.&lt;/p&gt;&lt;div class=&quot;chat-bubble&quot;&gt;&lt;div class=&quot;chat-author&quot;&gt;EXEC · NOW&lt;/div&gt;&lt;p&gt;Aris can prepare the campaign, but it cannot send outreach until you approve the exact recipients and messages.&lt;/p&gt;&lt;/div&gt;&lt;div class=&quot;chat-bubble owner&quot;&gt;&lt;div class=&quot;chat-author&quot;&gt;YOU&lt;/div&gt;&lt;p&gt;What happens after I approve?&lt;/p&gt;&lt;/div&gt;&lt;textarea class=&quot;composer&quot; aria-label=&quot;Message Exec&quot; placeholder=&quot;Message Exec…&quot;&gt;&lt;/textarea&gt;&lt;/section&gt;
+            &lt;section class=&quot;side-panel&quot; data-side-panel=&quot;attention&quot;&gt;&lt;div class=&quot;attention-brief&quot;&gt;&lt;div class=&quot;micro-label&quot;&gt;READY FOR YOUR DECISION&lt;/div&gt;&lt;h3&gt;Send four prepared outreach emails&lt;/h3&gt;&lt;p&gt;The messages and recipients have been reviewed. Approval authorises one bounded send.&lt;/p&gt;&lt;p class=&quot;attention-consequence&quot;&gt;&lt;strong&gt;After approval:&lt;/strong&gt; the lead sends them, observes provider receipts, and reports the outcome here.&lt;/p&gt;&lt;div class=&quot;attention-actions&quot;&gt;&lt;button type=&quot;button&quot;&gt;Review and decide&lt;/button&gt;&lt;button type=&quot;button&quot;&gt;Ask Exec&lt;/button&gt;&lt;/div&gt;&lt;/div&gt;&lt;/section&gt;
+          &lt;/aside&gt;
+        &lt;/div&gt;
+      &lt;/div&gt;
+    &lt;/section&gt;
+
+    &lt;!-- Direction two --&gt;
+    &lt;section class=&quot;direction direction-two&quot; data-direction-panel=&quot;two&quot;&gt;
+      &lt;div class=&quot;product-window&quot;&gt;
+        &lt;header class=&quot;app-topbar&quot;&gt;
+          &lt;div class=&quot;app-brand-zone&quot;&gt;&lt;div class=&quot;app-brand&quot;&gt;&lt;span class=&quot;app-mark&quot;&gt;R&lt;/span&gt;&lt;span&gt;RESTLESS&lt;/span&gt;&lt;/div&gt;&lt;button class=&quot;company-menu-button&quot; type=&quot;button&quot; aria-expanded=&quot;false&quot;&gt;Aris &lt;span aria-hidden=&quot;true&quot;&gt;⌄&lt;/span&gt;&lt;/button&gt;&lt;div class=&quot;company-menu&quot;&gt;&lt;button type=&quot;button&quot; data-show-screen=&quot;charter&quot;&gt;Company charter&lt;small&gt;Purpose and owner principles&lt;/small&gt;&lt;/button&gt;&lt;/div&gt;&lt;/div&gt;
+          &lt;nav class=&quot;app-primary-nav&quot; aria-label=&quot;Primary&quot;&gt;&lt;button type=&quot;button&quot;&gt;Attention&lt;/button&gt;&lt;button type=&quot;button&quot;&gt;Work&lt;/button&gt;&lt;button type=&quot;button&quot;&gt;People&lt;/button&gt;&lt;button type=&quot;button&quot; class=&quot;is-active&quot; data-show-screen=&quot;authority&quot;&gt;Authority&lt;/button&gt;&lt;/nav&gt;
+          &lt;div class=&quot;app-actions&quot;&gt;&lt;button type=&quot;button&quot;&gt;Exec&lt;/button&gt;&lt;/div&gt;
+        &lt;/header&gt;
+        &lt;div class=&quot;app-body&quot;&gt;
+          &lt;main class=&quot;main-view&quot;&gt;
+            &lt;section class=&quot;screen is-current&quot; data-screen=&quot;authority&quot;&gt;
+              &lt;div class=&quot;manual-layout&quot;&gt;
+                &lt;aside class=&quot;manual-index&quot;&gt;&lt;div class=&quot;manual-index-title&quot;&gt;Authority&lt;/div&gt;&lt;button type=&quot;button&quot; class=&quot;is-active&quot;&gt;Operating limits&lt;/button&gt;&lt;button type=&quot;button&quot;&gt;Access&lt;/button&gt;&lt;button type=&quot;button&quot;&gt;Budgets&lt;/button&gt;&lt;button type=&quot;button&quot;&gt;History&lt;/button&gt;&lt;button type=&quot;button&quot;&gt;Recovery&lt;/button&gt;&lt;/aside&gt;
+                &lt;div class=&quot;manual-main&quot;&gt;&lt;div class=&quot;manual-heading&quot;&gt;&lt;div&gt;&lt;h1&gt;Operating limits&lt;/h1&gt;&lt;p&gt;The enforceable boundaries around Aris. Company purpose and strategy live in the separate charter.&lt;/p&gt;&lt;/div&gt;&lt;div class=&quot;manual-status&quot;&gt;&lt;strong&gt;Active&lt;/strong&gt;&lt;span&gt;No restrictions&lt;/span&gt;&lt;/div&gt;&lt;/div&gt;&lt;div class=&quot;rule-table&quot;&gt;&lt;div class=&quot;rule-row header&quot;&gt;&lt;span&gt;Area&lt;/span&gt;&lt;span&gt;Current rule&lt;/span&gt;&lt;span&gt;Authority&lt;/span&gt;&lt;/div&gt;&lt;div class=&quot;rule-row&quot;&gt;&lt;span class=&quot;rule-kind&quot;&gt;Research&lt;/span&gt;&lt;span&gt;Find and evaluate tutoring centres using public sources.&lt;/span&gt;&lt;span class=&quot;rule-state allowed&quot;&gt;Independent&lt;/span&gt;&lt;/div&gt;&lt;div class=&quot;rule-row&quot;&gt;&lt;span class=&quot;rule-kind&quot;&gt;Outreach&lt;/span&gt;&lt;span&gt;Prepare messages freely. Sending requires the exact campaign to be approved.&lt;/span&gt;&lt;span class=&quot;rule-state ask&quot;&gt;Owner approval&lt;/span&gt;&lt;/div&gt;&lt;div class=&quot;rule-row&quot;&gt;&lt;span class=&quot;rule-kind&quot;&gt;Release&lt;/span&gt;&lt;span&gt;Build, test and stage. Publishing to production requires approval.&lt;/span&gt;&lt;span class=&quot;rule-state ask&quot;&gt;Owner approval&lt;/span&gt;&lt;/div&gt;&lt;div class=&quot;rule-row&quot;&gt;&lt;span class=&quot;rule-kind&quot;&gt;Purchases&lt;/span&gt;&lt;span&gt;No standing purchasing authority is currently granted.&lt;/span&gt;&lt;span class=&quot;rule-state&quot;&gt;Disabled&lt;/span&gt;&lt;/div&gt;&lt;div class=&quot;rule-row&quot;&gt;&lt;span class=&quot;rule-kind&quot;&gt;Mandate&lt;/span&gt;&lt;span&gt;Aris cannot alter its purpose, prohibitions, limits or owner controls.&lt;/span&gt;&lt;span class=&quot;rule-state&quot;&gt;Owner only&lt;/span&gt;&lt;/div&gt;&lt;/div&gt;&lt;p class=&quot;manual-note&quot;&gt;Routine Git and shell failures belong to the related Work attempt. Only consequential external actions appear in Authority history.&lt;/p&gt;&lt;/div&gt;
+              &lt;/div&gt;
+            &lt;/section&gt;
+            &lt;section class=&quot;screen&quot; data-screen=&quot;charter&quot;&gt;&lt;article class=&quot;folio&quot;&gt;&lt;div class=&quot;folio-head&quot;&gt;&lt;h1&gt;Aris company charter&lt;/h1&gt;&lt;div class=&quot;folio-number&quot;&gt;REVISION 03&lt;br&gt;19 AUG 2026&lt;/div&gt;&lt;/div&gt;&lt;p class=&quot;folio-purpose&quot;&gt;Commercialise the Study codebase by giving Australian tutoring centres a credible sample first, then a clear path to licensed practice papers.&lt;/p&gt;&lt;section class=&quot;folio-section&quot;&gt;&lt;h2&gt;Customer&lt;/h2&gt;&lt;p&gt;Tutoring-centre owners and academic managers who need high-quality NSW Selective Test material they can evaluate before buying.&lt;/p&gt;&lt;/section&gt;&lt;section class=&quot;folio-section&quot;&gt;&lt;h2&gt;Offer&lt;/h2&gt;&lt;p&gt;A useful free sample that demonstrates question quality, followed by a paid centre licence and repeat paper supply.&lt;/p&gt;&lt;/section&gt;&lt;section class=&quot;folio-section&quot;&gt;&lt;h2&gt;Principles&lt;/h2&gt;&lt;p&gt;Quality before volume. Evidence before claims. Honest scope. The company prepares every machine-doable last mile before involving the owner.&lt;/p&gt;&lt;/section&gt;&lt;section class=&quot;folio-section&quot;&gt;&lt;h2&gt;Current direction&lt;/h2&gt;&lt;p&gt;Complete the landing page and prepare the first bounded outreach campaign. Sending remains an Authority decision.&lt;/p&gt;&lt;/section&gt;&lt;button class=&quot;quiet-button&quot; type=&quot;button&quot; data-show-screen=&quot;authority&quot;&gt;Return to Authority&lt;/button&gt;&lt;/article&gt;&lt;/section&gt;
+          &lt;/main&gt;
+          &lt;aside class=&quot;executive-sidebar&quot;&gt;&lt;div class=&quot;sidebar-switch&quot;&gt;&lt;button type=&quot;button&quot; data-side=&quot;chat&quot; aria-pressed=&quot;true&quot;&gt;Exec&lt;/button&gt;&lt;button type=&quot;button&quot; data-side=&quot;attention&quot; aria-pressed=&quot;false&quot;&gt;Attention · 1&lt;/button&gt;&lt;/div&gt;&lt;section class=&quot;side-panel is-current&quot; data-side-panel=&quot;chat&quot;&gt;&lt;div class=&quot;side-title&quot;&gt;About this page&lt;/div&gt;&lt;p class=&quot;side-copy&quot;&gt;These are owner-readable rules, not implementation policy.&lt;/p&gt;&lt;div class=&quot;chat-bubble&quot;&gt;&lt;div class=&quot;chat-author&quot;&gt;EXEC · NOW&lt;/div&gt;&lt;p&gt;Outreach is the only current action waiting on your authority. Everything else can continue.&lt;/p&gt;&lt;/div&gt;&lt;textarea class=&quot;composer&quot; aria-label=&quot;Message Exec&quot; placeholder=&quot;Ask about a limit…&quot;&gt;&lt;/textarea&gt;&lt;/section&gt;&lt;section class=&quot;side-panel&quot; data-side-panel=&quot;attention&quot;&gt;&lt;div class=&quot;attention-brief&quot;&gt;&lt;div class=&quot;micro-label&quot;&gt;ONE DECISION&lt;/div&gt;&lt;h3&gt;Approve the prepared campaign&lt;/h3&gt;&lt;p&gt;Approval unlocks the send for the site-validation lead and preserves a provider receipt for each email.&lt;/p&gt;&lt;p class=&quot;attention-consequence&quot;&gt;If you wait, nothing is sent and internal work continues.&lt;/p&gt;&lt;div class=&quot;attention-actions&quot;&gt;&lt;button type=&quot;button&quot;&gt;Open decision&lt;/button&gt;&lt;button type=&quot;button&quot;&gt;Ask a question&lt;/button&gt;&lt;/div&gt;&lt;/div&gt;&lt;/section&gt;&lt;/aside&gt;
+        &lt;/div&gt;
+      &lt;/div&gt;
+    &lt;/section&gt;
+
+    &lt;!-- Direction three --&gt;
+    &lt;section class=&quot;direction direction-three&quot; data-direction-panel=&quot;three&quot;&gt;
+      &lt;div class=&quot;product-window&quot;&gt;
+        &lt;header class=&quot;app-topbar&quot;&gt;&lt;div class=&quot;app-brand-zone&quot;&gt;&lt;div class=&quot;app-brand&quot;&gt;&lt;span class=&quot;app-mark&quot;&gt;R&lt;/span&gt;&lt;span&gt;RESTLESS&lt;/span&gt;&lt;/div&gt;&lt;button class=&quot;company-menu-button&quot; type=&quot;button&quot; aria-expanded=&quot;false&quot;&gt;Aris &lt;span aria-hidden=&quot;true&quot;&gt;⌄&lt;/span&gt;&lt;/button&gt;&lt;div class=&quot;company-menu&quot;&gt;&lt;button type=&quot;button&quot; data-show-screen=&quot;charter&quot;&gt;Company charter&lt;small&gt;Purpose, offer and principles&lt;/small&gt;&lt;/button&gt;&lt;/div&gt;&lt;/div&gt;&lt;nav class=&quot;app-primary-nav&quot; aria-label=&quot;Primary&quot;&gt;&lt;button type=&quot;button&quot;&gt;Attention&lt;/button&gt;&lt;button type=&quot;button&quot;&gt;Work&lt;/button&gt;&lt;button type=&quot;button&quot;&gt;People&lt;/button&gt;&lt;button type=&quot;button&quot; class=&quot;is-active&quot; data-show-screen=&quot;authority&quot;&gt;Authority&lt;/button&gt;&lt;/nav&gt;&lt;div class=&quot;app-actions&quot;&gt;&lt;button type=&quot;button&quot;&gt;Talk to Exec&lt;/button&gt;&lt;/div&gt;&lt;/header&gt;
+        &lt;div class=&quot;app-body&quot;&gt;
+          &lt;main class=&quot;main-view&quot;&gt;
+            &lt;section class=&quot;screen is-current&quot; data-screen=&quot;authority&quot;&gt;&lt;div class=&quot;journal-canvas&quot;&gt;&lt;div class=&quot;journal-head&quot;&gt;&lt;div&gt;&lt;h1&gt;Authority&lt;/h1&gt;&lt;p&gt;A concise record of Aris’s freedom to act and the external consequences produced under it.&lt;/p&gt;&lt;/div&gt;&lt;div class=&quot;status-tag&quot;&gt;● OPERATING NORMALLY&lt;/div&gt;&lt;/div&gt;&lt;p class=&quot;authority-sentence&quot;&gt;Aris may &lt;strong&gt;research, prepare and build independently&lt;/strong&gt;. It must ask before sending, publishing or spending. It can never widen those limits itself.&lt;/p&gt;&lt;div class=&quot;decision-banner&quot;&gt;&lt;div&gt;&lt;strong&gt;One action is waiting in Attention&lt;/strong&gt;&lt;span&gt;Four reviewed outreach emails are prepared. No external action has occurred.&lt;/span&gt;&lt;/div&gt;&lt;button type=&quot;button&quot; data-open-attention&gt;Open decision&lt;/button&gt;&lt;/div&gt;&lt;section class=&quot;journal-section&quot;&gt;&lt;h2&gt;Current access&lt;/h2&gt;&lt;div class=&quot;journal-entry&quot;&gt;&lt;div class=&quot;journal-date&quot;&gt;READY&lt;/div&gt;&lt;div class=&quot;journal-event&quot;&gt;&lt;strong&gt;Company computer and browser&lt;/strong&gt;&lt;span&gt;Persistent working environment is available.&lt;/span&gt;&lt;/div&gt;&lt;div class=&quot;journal-state&quot;&gt;Independent&lt;/div&gt;&lt;/div&gt;&lt;div class=&quot;journal-entry&quot;&gt;&lt;div class=&quot;journal-date&quot;&gt;CONNECTED&lt;/div&gt;&lt;div class=&quot;journal-event&quot;&gt;&lt;strong&gt;Study repository&lt;/strong&gt;&lt;span&gt;Scoped development access; operational errors remain in Work.&lt;/span&gt;&lt;/div&gt;&lt;div class=&quot;journal-state&quot;&gt;Independent&lt;/div&gt;&lt;/div&gt;&lt;div class=&quot;journal-entry&quot;&gt;&lt;div class=&quot;journal-date&quot;&gt;BOUNDED&lt;/div&gt;&lt;div class=&quot;journal-event&quot;&gt;&lt;strong&gt;Email and production&lt;/strong&gt;&lt;span&gt;Preparation allowed; external consequence requires your approval.&lt;/span&gt;&lt;/div&gt;&lt;div class=&quot;journal-state&quot;&gt;Ask first&lt;/div&gt;&lt;/div&gt;&lt;/section&gt;&lt;section class=&quot;journal-section&quot;&gt;&lt;h2&gt;Consequential history&lt;/h2&gt;&lt;div class=&quot;journal-entry&quot;&gt;&lt;div class=&quot;journal-date&quot;&gt;THIS PERIOD&lt;/div&gt;&lt;div class=&quot;journal-event&quot;&gt;&lt;strong&gt;No external effects recorded&lt;/strong&gt;&lt;span&gt;Prepared work is not presented as a completed outcome.&lt;/span&gt;&lt;/div&gt;&lt;div class=&quot;journal-state&quot;&gt;None&lt;/div&gt;&lt;/div&gt;&lt;/section&gt;&lt;/div&gt;&lt;/section&gt;
+            &lt;section class=&quot;screen&quot; data-screen=&quot;charter&quot;&gt;&lt;article class=&quot;charter-manifesto&quot;&gt;&lt;div class=&quot;charter-heading-row&quot;&gt;&lt;div&gt;&lt;h1&gt;Company charter&lt;/h1&gt;&lt;div class=&quot;meta&quot;&gt;ARIS · REVISION 03&lt;/div&gt;&lt;/div&gt;&lt;button class=&quot;quiet-button&quot; type=&quot;button&quot; data-show-screen=&quot;authority&quot;&gt;Back to Authority&lt;/button&gt;&lt;/div&gt;&lt;p class=&quot;manifesto-line&quot;&gt;Make excellent selective-test practice material easy for Australian tutoring centres to evaluate, license and use.&lt;/p&gt;&lt;div class=&quot;manifesto-principles&quot;&gt;&lt;div class=&quot;manifesto-principle&quot;&gt;&lt;div&gt;&lt;strong&gt;Prove value before asking for commitment&lt;/strong&gt;&lt;span&gt;Lead with a useful free sample, then make the paid-centre offer direct and understandable.&lt;/span&gt;&lt;/div&gt;&lt;/div&gt;&lt;div class=&quot;manifesto-principle&quot;&gt;&lt;div&gt;&lt;strong&gt;Protect the quality of the material&lt;/strong&gt;&lt;span&gt;Use differentiated production and independent review before presenting an outcome.&lt;/span&gt;&lt;/div&gt;&lt;/div&gt;&lt;div class=&quot;manifesto-principle&quot;&gt;&lt;div&gt;&lt;strong&gt;Be honest about what is known&lt;/strong&gt;&lt;span&gt;Never turn internal confidence, simulated demand or an agent claim into evidence.&lt;/span&gt;&lt;/div&gt;&lt;/div&gt;&lt;div class=&quot;manifesto-principle&quot;&gt;&lt;div&gt;&lt;strong&gt;Bring the prepared last mile to the owner&lt;/strong&gt;&lt;span&gt;Only request judgement, identity or consequential approval after all machine-doable work is complete.&lt;/span&gt;&lt;/div&gt;&lt;/div&gt;&lt;/div&gt;&lt;/article&gt;&lt;/section&gt;
+          &lt;/main&gt;
+          &lt;aside class=&quot;executive-sidebar&quot;&gt;&lt;div class=&quot;sidebar-switch&quot;&gt;&lt;button type=&quot;button&quot; data-side=&quot;chat&quot; aria-pressed=&quot;true&quot;&gt;Exec chat&lt;/button&gt;&lt;button type=&quot;button&quot; data-side=&quot;attention&quot; aria-pressed=&quot;false&quot;&gt;Attention · 1&lt;/button&gt;&lt;/div&gt;&lt;section class=&quot;side-panel is-current&quot; data-side-panel=&quot;chat&quot;&gt;&lt;div class=&quot;side-title&quot;&gt;Exec&lt;/div&gt;&lt;p class=&quot;side-copy&quot;&gt;The journal shows only owner-relevant authority and consequences.&lt;/p&gt;&lt;div class=&quot;chat-bubble&quot;&gt;&lt;div class=&quot;chat-author&quot;&gt;EXEC · NOW&lt;/div&gt;&lt;p&gt;The team has finished the preparation. If you approve the campaign, the lead will send it and track delivery receipts.&lt;/p&gt;&lt;/div&gt;&lt;textarea class=&quot;composer&quot; aria-label=&quot;Message Exec&quot; placeholder=&quot;Message Exec…&quot;&gt;&lt;/textarea&gt;&lt;/section&gt;&lt;section class=&quot;side-panel&quot; data-side-panel=&quot;attention&quot;&gt;&lt;div class=&quot;attention-brief&quot;&gt;&lt;div class=&quot;micro-label&quot;&gt;AWAITING YOUR JUDGEMENT&lt;/div&gt;&lt;h3&gt;Release the outreach campaign&lt;/h3&gt;&lt;p&gt;Review four messages addressed to tutoring-centre owners.&lt;/p&gt;&lt;p class=&quot;attention-consequence&quot;&gt;&lt;strong&gt;Then:&lt;/strong&gt; site-validation-lead sends once, observes the provider response, and reports delivered, failed or blocked.&lt;/p&gt;&lt;div class=&quot;attention-actions&quot;&gt;&lt;button type=&quot;button&quot;&gt;Review outcome&lt;/button&gt;&lt;button type=&quot;button&quot;&gt;Talk to lead&lt;/button&gt;&lt;/div&gt;&lt;/div&gt;&lt;/section&gt;&lt;/aside&gt;
+        &lt;/div&gt;
+      &lt;/div&gt;
+    &lt;/section&gt;
+  &lt;/div&gt;
+
+  &lt;script&gt;
+    (() =&gt; {
+      const root = document.getElementById(&#x27;restless-authority-reset&#x27;);
+      if (!root) return;
+
+      const directions = root.querySelectorAll(&#x27;.direction-choice&#x27;);
+      directions.forEach((button) =&gt; {
+        button.addEventListener(&#x27;click&#x27;, () =&gt; {
+          directions.forEach((choice) =&gt; choice.setAttribute(&#x27;aria-pressed&#x27;, String(choice === button)));
+          root.querySelectorAll(&#x27;.direction&#x27;).forEach((panel) =&gt; panel.classList.toggle(&#x27;is-current&#x27;, panel.dataset.directionPanel === button.dataset.direction));
+        });
+      });
+
+      root.querySelectorAll(&#x27;.company-menu-button&#x27;).forEach((button) =&gt; {
+        button.addEventListener(&#x27;click&#x27;, () =&gt; {
+          const menu = button.parentElement.querySelector(&#x27;.company-menu&#x27;);
+          const next = !menu.classList.contains(&#x27;is-open&#x27;);
+          root.querySelectorAll(&#x27;.company-menu&#x27;).forEach((item) =&gt; item.classList.remove(&#x27;is-open&#x27;));
+          root.querySelectorAll(&#x27;.company-menu-button&#x27;).forEach((item) =&gt; item.setAttribute(&#x27;aria-expanded&#x27;, &#x27;false&#x27;));
+          menu.classList.toggle(&#x27;is-open&#x27;, next);
+          button.setAttribute(&#x27;aria-expanded&#x27;, String(next));
+        });
+      });
+
+      root.querySelectorAll(&#x27;[data-show-screen]&#x27;).forEach((button) =&gt; {
+        button.addEventListener(&#x27;click&#x27;, () =&gt; {
+          const direction = button.closest(&#x27;.direction&#x27;);
+          const target = button.dataset.showScreen;
+          direction.querySelectorAll(&#x27;.screen&#x27;).forEach((screen) =&gt; screen.classList.toggle(&#x27;is-current&#x27;, screen.dataset.screen === target));
+          direction.querySelectorAll(&#x27;.company-menu&#x27;).forEach((menu) =&gt; menu.classList.remove(&#x27;is-open&#x27;));
+          direction.querySelectorAll(&#x27;.company-menu-button&#x27;).forEach((item) =&gt; item.setAttribute(&#x27;aria-expanded&#x27;, &#x27;false&#x27;));
+          direction.querySelectorAll(&#x27;.app-primary-nav button&#x27;).forEach((nav) =&gt; nav.classList.toggle(&#x27;is-active&#x27;, target === &#x27;authority&#x27; &amp;&amp; nav.dataset.showScreen === &#x27;authority&#x27;));
+        });
+      });
+
+      root.querySelectorAll(&#x27;.sidebar-switch&#x27;).forEach((switcher) =&gt; {
+        const direction = switcher.closest(&#x27;.direction&#x27;);
+        switcher.querySelectorAll(&#x27;[data-side]&#x27;).forEach((button) =&gt; {
+          button.addEventListener(&#x27;click&#x27;, () =&gt; {
+            switcher.querySelectorAll(&#x27;[data-side]&#x27;).forEach((choice) =&gt; choice.setAttribute(&#x27;aria-pressed&#x27;, String(choice === button)));
+            direction.querySelectorAll(&#x27;[data-side-panel]&#x27;).forEach((panel) =&gt; panel.classList.toggle(&#x27;is-current&#x27;, panel.dataset.sidePanel === button.dataset.side));
+          });
+        });
+      });
+
+      root.querySelectorAll(&#x27;[data-open-attention]&#x27;).forEach((button) =&gt; {
+        button.addEventListener(&#x27;click&#x27;, () =&gt; {
+          const direction = button.closest(&#x27;.direction&#x27;);
+          const target = direction.querySelector(&#x27;[data-side=&quot;attention&quot;]&#x27;);
+          if (target) target.click();
+        });
+      });
+    })();
+  &lt;/script&gt;
+&lt;/div&gt;
+
+&lt;script src=&quot;https://unpkg.com/@floating-ui/core@1.7.3/dist/floating-ui.core.umd.min.js&quot;&gt;&lt;/script&gt;
+&lt;script src=&quot;https://unpkg.com/@floating-ui/dom@1.7.4/dist/floating-ui.dom.umd.min.js&quot;&gt;&lt;/script&gt;
+&lt;script&gt;
+(() =&gt; {
+  if (window.FloatingUIDOM == null) {
+    return;
+  }
+  const { autoUpdate, computePosition, flip, offset, shift, size } =
+    window.FloatingUIDOM;
+  const tooltipPlacements = new Set([&quot;top&quot;, &quot;right&quot;, &quot;bottom&quot;, &quot;left&quot;]);
+  const tooltipId = `codex-visualization-tooltip-${
+    window.crypto?.randomUUID?.() ?? Date.now().toString(36)
+  }`;
+  const tooltipGap = 5;
+  const hoverDelay = 700;
+  const skipDelay = 300;
+  let activeTrigger = null;
+  let pendingTrigger = null;
+  let tooltip = null;
+  let openTimeout = null;
+  let autoUpdateCleanup = null;
+  let positionRequest = 0;
+  let skipDelayUntil = 0;
+
+  const getTrigger = (target) =&gt;
+    target?.nodeType === Node.ELEMENT_NODE
+      ? target.closest(&quot;[data-tooltip]&quot;)
+      : null;
+  const containsTarget = (trigger, target) =&gt;
+    target?.nodeType != null &amp;&amp; trigger.contains(target);
+  const getContent = (trigger) =&gt;
+    trigger.getAttribute(&quot;data-tooltip&quot;)?.trim() ?? &quot;&quot;;
+  const getPlacement = (trigger) =&gt; {
+    const placement = trigger.getAttribute(&quot;data-tooltip-placement&quot;);
+    return tooltipPlacements.has(placement) ? placement : &quot;top&quot;;
+  };
+  const getTooltip = () =&gt; {
+    if (tooltip == null) {
+      tooltip = document.createElement(&quot;div&quot;);
+      tooltip.id = tooltipId;
+      tooltip.className = &quot;tooltip&quot;;
+      tooltip.setAttribute(&quot;role&quot;, &quot;tooltip&quot;);
+    }
+    return tooltip;
+  };
+  const setDescribedBy = (trigger, described) =&gt; {
+    const ids = new Set(
+      (trigger.getAttribute(&quot;aria-describedby&quot;) ?? &quot;&quot;)
+        .split(/\s+/)
+        .filter(Boolean),
+    );
+    if (described) {
+      ids.add(tooltipId);
+    } else {
+      ids.delete(tooltipId);
+    }
+    if (ids.size === 0) {
+      trigger.removeAttribute(&quot;aria-describedby&quot;);
+    } else {
+      trigger.setAttribute(&quot;aria-describedby&quot;, [...ids].join(&quot; &quot;));
+    }
+  };
+  const clearOpenTimeout = () =&gt; {
+    if (openTimeout != null) {
+      window.clearTimeout(openTimeout);
+      openTimeout = null;
+    }
+    pendingTrigger = null;
+  };
+  const closeTooltip = (activateSkipDelay = true) =&gt; {
+    clearOpenTimeout();
+    positionRequest += 1;
+    autoUpdateCleanup?.();
+    autoUpdateCleanup = null;
+    if (activeTrigger == null) {
+      return;
+    }
+    setDescribedBy(activeTrigger, false);
+    activeTrigger = null;
+    tooltip?.remove();
+    if (activateSkipDelay) {
+      skipDelayUntil = Date.now() + skipDelay;
+    }
+  };
+  const updatePosition = (trigger, floating) =&gt; {
+    const request = ++positionRequest;
+    void computePosition(trigger, floating, {
+      middleware: [
+        offset(tooltipGap),
+        flip({ padding: tooltipGap }),
+        shift({ padding: tooltipGap }),
+        size({
+          padding: tooltipGap,
+          apply({ availableHeight, availableWidth, elements }) {
+            elements.floating.style.setProperty(
+              &quot;--tooltip-available-width&quot;,
+              `${Math.max(0, availableWidth)}px`,
+            );
+            elements.floating.style.setProperty(
+              &quot;--tooltip-available-height&quot;,
+              `${Math.max(0, availableHeight)}px`,
+            );
+          },
+        }),
+      ],
+      placement: getPlacement(trigger),
+      strategy: &quot;fixed&quot;,
+    })
+      .then(({ x, y }) =&gt; {
+        if (activeTrigger !== trigger || request !== positionRequest) {
+          return;
+        }
+        const scale = window.devicePixelRatio || 1;
+        floating.style.transform = `translate(${Math.round(x * scale) / scale}px, ${Math.round(y * scale) / scale}px)`;
+        floating.style.visibility = &quot;visible&quot;;
+      })
+      .catch(() =&gt; {
+        if (activeTrigger === trigger &amp;&amp; request === positionRequest) {
+          closeTooltip(false);
+        }
+      });
+  };
+  const openTooltip = (trigger) =&gt; {
+    const content = getContent(trigger);
+    if (!trigger.isConnected || content.length === 0) {
+      return;
+    }
+    clearOpenTimeout();
+    if (activeTrigger === trigger) {
+      return;
+    }
+    closeTooltip();
+    const floating = getTooltip();
+    floating.textContent = content;
+    floating.style.visibility = &quot;hidden&quot;;
+    floating.style.transform = &quot;translate(0, 0)&quot;;
+    document.body.appendChild(floating);
+    activeTrigger = trigger;
+    setDescribedBy(trigger, true);
+    autoUpdateCleanup = autoUpdate(trigger, floating, () =&gt; {
+      updatePosition(trigger, floating);
+    });
+  };
+  const requestOpen = (trigger, immediate = false) =&gt; {
+    if (
+      getContent(trigger).length === 0 ||
+      activeTrigger === trigger ||
+      pendingTrigger === trigger
+    ) {
+      return;
+    }
+    clearOpenTimeout();
+    pendingTrigger = trigger;
+    const delay =
+      immediate || activeTrigger != null || Date.now() &lt; skipDelayUntil
+        ? 0
+        : hoverDelay;
+    if (delay === 0) {
+      openTooltip(trigger);
+      return;
+    }
+    openTimeout = window.setTimeout(() =&gt; {
+      openTimeout = null;
+      pendingTrigger = null;
+      openTooltip(trigger);
+    }, delay);
+  };
+  const handlePointerOpen = (event) =&gt; {
+    if (event.pointerType === &quot;touch&quot;) {
+      return;
+    }
+    const trigger = getTrigger(event.target);
+    if (trigger == null || containsTarget(trigger, event.relatedTarget)) {
+      return;
+    }
+    requestOpen(trigger);
+  };
+  const handleLeave = (event) =&gt; {
+    const trigger = getTrigger(event.target);
+    if (trigger == null || containsTarget(trigger, event.relatedTarget)) {
+      return;
+    }
+    if (activeTrigger === trigger || pendingTrigger === trigger) {
+      closeTooltip();
+    }
+  };
+  const handleFocusIn = (event) =&gt; {
+    const trigger = getTrigger(event.target);
+    if (trigger?.matches(&quot;:focus-visible&quot;)) {
+      requestOpen(trigger, true);
+    }
+  };
+  const handleKeyDown = (event) =&gt; {
+    if (event.key === &quot;Escape&quot;) {
+      closeTooltip();
+    }
+  };
+  const handleContextMenu = (event) =&gt; {
+    const trigger = getTrigger(event.target);
+    if (activeTrigger === trigger || pendingTrigger === trigger) {
+      closeTooltip();
+    }
+  };
+  const destroy = () =&gt; {
+    closeTooltip(false);
+    document.removeEventListener(&quot;pointerover&quot;, handlePointerOpen);
+    document.removeEventListener(&quot;pointerout&quot;, handleLeave);
+    document.removeEventListener(&quot;focusin&quot;, handleFocusIn);
+    document.removeEventListener(&quot;focusout&quot;, handleLeave);
+    document.removeEventListener(&quot;keydown&quot;, handleKeyDown);
+    document.removeEventListener(&quot;contextmenu&quot;, handleContextMenu);
+    tooltip = null;
+  };
+
+  document.addEventListener(&quot;pointerover&quot;, handlePointerOpen);
+  document.addEventListener(&quot;pointerout&quot;, handleLeave);
+  document.addEventListener(&quot;focusin&quot;, handleFocusIn);
+  document.addEventListener(&quot;focusout&quot;, handleLeave);
+  document.addEventListener(&quot;keydown&quot;, handleKeyDown);
+  document.addEventListener(&quot;contextmenu&quot;, handleContextMenu);
+  window.addEventListener(&quot;pagehide&quot;, destroy, { once: true });
+})();
+&lt;/script&gt;
+&lt;script id=&quot;codex-visualization-lucide&quot; async src=&quot;https://unpkg.com/lucide@1.17.0/dist/umd/lucide.js&quot;&gt;&lt;/script&gt;
+&lt;script&gt;
+(() =&gt; {
+  const initialize = () =&gt; {
+    globalThis.lucide?.createIcons({ attrs: { width: 16, height: 16 } });
+  };
+  if (globalThis.lucide != null) {
+    initialize();
+    return;
+  }
+  document
+    .getElementById(&quot;codex-visualization-lucide&quot;)
+    ?.addEventListener(&quot;load&quot;, initialize, { once: true });
+})();
+&lt;/script&gt;
+
+&lt;/body&gt;
+&lt;/html&gt;
+"></iframe>
+</body>
+</html>

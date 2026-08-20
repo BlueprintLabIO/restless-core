@@ -88,6 +88,11 @@ pub(crate) struct Probe {
 
 /// Resolve one named binding for one governed child process.
 pub async fn resolve(config: &CompanyConfig, binding: &str) -> Result<String> {
+    if finance_binding(binding) {
+        bail!(
+            "finance credential bindings may only be resolved by the host-side Authority adapter"
+        );
+    }
     let reference = config.credentials.get(binding).with_context(|| {
         format!(
             "company {} has no credential reference for binding {binding}; add it with `restless credential set`",
@@ -95,6 +100,47 @@ pub async fn resolve(config: &CompanyConfig, binding: &str) -> Result<String> {
         )
     })?;
     resolve_reference(reference).await
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum FinanceCredential {
+    Read,
+    Submit,
+    Webhook,
+}
+
+/// Resolve one finance secret only from its canonical company/provider path.
+/// This function is not reachable from the generic effect runner.
+pub(crate) async fn resolve_finance(
+    config: &CompanyConfig,
+    kind: FinanceCredential,
+) -> Result<String> {
+    let (binding, suffix) = match kind {
+        FinanceCredential::Read => ("finance.airwallex.read", "/read/api-key"),
+        FinanceCredential::Submit => ("finance.airwallex.submit", "/submit/api-key"),
+        FinanceCredential::Webhook => ("finance.airwallex.webhook", "/webhook/signing-secret"),
+    };
+    let reference = config.credentials.get(binding).with_context(|| {
+        format!(
+            "company {} has no {binding} credential reference",
+            config.name
+        )
+    })?;
+    let expected = format!(
+        "infisical:/companies/{}/finance/airwallex{suffix}",
+        config.name
+    );
+    if reference != &expected {
+        bail!("{binding} must use the canonical Infisical finance path {expected}");
+    }
+    resolve_reference(reference).await
+}
+
+fn finance_binding(value: &str) -> bool {
+    value == "finance"
+        || value.starts_with("finance.")
+        || value.starts_with("finance/")
+        || value.contains("/finance/")
 }
 
 /// Resolve one `scheme:locator` reference.
@@ -498,6 +544,43 @@ mod tests {
             resolve(&config, "resend.production").await.unwrap_err()
         );
         assert!(error.contains("binding resend.production"), "{error}");
+    }
+
+    #[tokio::test]
+    async fn generic_resolution_cannot_cross_the_finance_boundary() {
+        let config = config_with(&[(
+            "finance.airwallex.submit",
+            "env:FINANCE_SECRET_MUST_NOT_ENTER_RUNTIME",
+        )]);
+        let error = format!(
+            "{:#}",
+            resolve(&config, "finance.airwallex.submit")
+                .await
+                .unwrap_err()
+        );
+        assert!(error.contains("host-side Authority adapter"), "{error}");
+        assert!(
+            !error.contains("FINANCE_SECRET_MUST_NOT_ENTER_RUNTIME"),
+            "{error}"
+        );
+    }
+
+    #[tokio::test]
+    async fn finance_resolution_requires_the_exact_company_provider_path() {
+        let config = config_with(&[(
+            "finance.airwallex.submit",
+            "infisical:/companies/other/finance/airwallex/submit/api-key",
+        )]);
+        let error = format!(
+            "{:#}",
+            resolve_finance(&config, FinanceCredential::Submit)
+                .await
+                .unwrap_err()
+        );
+        assert!(
+            error.contains("canonical Infisical finance path"),
+            "{error}"
+        );
     }
 
     #[test]

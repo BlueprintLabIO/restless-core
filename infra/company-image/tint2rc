@@ -1,0 +1,73 @@
+# Restless Company computer — a small imported taskbar over Openbox.
+# It exists for application launch and switching, not desktop customisation.
+
+# Background 1: panel
+rounded = 0
+border_width = 0
+background_color = #202630 96
+border_color = #202630 100
+
+# Background 2: active task
+rounded = 3
+border_width = 1
+background_color = #3a4658 100
+border_color = #66758b 80
+
+# Panel
+panel_monitor = all
+panel_position = bottom center horizontal
+panel_size = 100% 30
+panel_margin = 0 0
+panel_padding = 4 2 4
+panel_background_id = 1
+wm_menu = 1
+panel_dock = 1
+panel_layer = top
+strut_policy = follow_size
+panel_items = LTSC
+
+# Launchers
+launcher_padding = 2 4 2
+launcher_background_id = 0
+launcher_icon_background_id = 0
+launcher_icon_size = 18
+launcher_icon_theme = Adwaita
+launcher_item_app = /usr/share/applications/company-browser.desktop
+launcher_item_app = /usr/share/applications/pcmanfm.desktop
+
+# Taskbar and tasks
+taskbar_mode = single_desktop
+taskbar_hide_if_empty = 0
+taskbar_padding = 2 2 2
+taskbar_background_id = 0
+taskbar_active_background_id = 0
+task_icon = 1
+task_text = 1
+task_centered = 0
+task_maximum_size = 190 26
+task_padding = 5 2 5
+task_background_id = 0
+task_active_background_id = 2
+task_font = IBM Plex Sans 9
+task_font_color = #d9dee7 82
+task_active_font_color = #ffffff 100
+task_iconified_font_color = #aab3c0 62
+
+# System tray
+systray_padding = 3 2 3
+systray_background_id = 0
+systray_icon_size = 16
+
+# Clock
+time1_format = %H:%M
+time1_font = IBM Plex Mono 9
+clock_font_color = #d9dee7 88
+clock_padding = 7 0
+clock_background_id = 0
+clock_tooltip = %A, %d %B
+
+# Mouse behaviour
+mouse_middle = none
+mouse_right = close
+mouse_scroll_up = toggle_iconify
+mouse_scroll_down = iconify

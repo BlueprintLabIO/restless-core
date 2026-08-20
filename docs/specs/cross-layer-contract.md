@@ -85,24 +85,26 @@ Do not force all cross-layer actions into one universal `Command`, mutation prot
 
 The following identifiers are shared across layers:
 
-| Identifier | Meaning | Stability |
-|---|---|---|
-| `company_id` | Durable company identity | Never reused |
-| `actor_id` | Durable human, agent, or service identity inside a company | Persists across models and sessions |
-| `session_id` | One temporary model/process execution | Ends with the process/session |
-| `work_id` | One durable OrgIntel outcome node | Persists across revisions and Attempts |
-| `attempt_id` | One atomically claimed execution of a Work revision | Immutable after creation |
-| `owner_handoff_id` | One prepared last-mile request to the owner | Stable through resolution |
-| `principal_id` | Authenticated security principal used at an authority boundary | May differ from `actor_id` |
-| `runtime_id` | A provisioned Company Runtime instance | Replaced when the work machine is recreated |
-| `runtime_generation` | Monotonic generation of the runtime's material state | Increments on replacement or restore |
-| `operation_id` | Idempotency/correlation identity for a lifecycle or control operation | Stable across retries |
-| `effect_intent_id` | Identity of one consequential effect intent | Stable across retries and reconciliation |
-| `resource_grant_id` | Identity of one bounded productive-resource grant | Stable for the grant lifetime |
-| `artifact_ref_id` | OrgIntel identity for a reference to work owned elsewhere | Stable while the reference remains useful |
-| `attention_item_id` | Owner-facing projection of something requiring review | Stable until resolved/withdrawn |
+| Identifier           | Meaning                                                                           | Stability                                              |
+| -------------------- | --------------------------------------------------------------------------------- | ------------------------------------------------------ |
+| `company_id`         | Durable company identity                                                          | Never reused                                           |
+| `actor_id`           | Durable human, agent, or service identity inside a company                        | Persists across models and sessions                    |
+| `session_id`         | One temporary model/process execution                                             | Ends with the process/session                          |
+| `work_id`            | One durable OrgIntel outcome node                                                 | Persists across revisions and Attempts                 |
+| `attempt_id`         | One atomically claimed execution of a Work revision                               | Immutable after creation                               |
+| `owner_handoff_id`   | One prepared last-mile request to the owner                                       | Stable through resolution                              |
+| `principal_id`       | Authenticated security principal used at an authority boundary                    | May differ from `actor_id`                             |
+| `runtime_id`         | A provisioned Company Runtime instance                                            | Replaced when the work machine is recreated            |
+| `runtime_generation` | Monotonic generation of the runtime's material state                              | Increments on replacement or restore                   |
+| `operation_id`       | Idempotency/correlation identity for a lifecycle or control operation             | Stable across retries                                  |
+| `effect_intent_id`   | Identity of one consequential effect intent                                       | Stable across retries and reconciliation               |
+| `resource_grant_id`  | Identity of one bounded productive-resource grant                                 | Stable for the grant lifetime                          |
+| `artifact_ref_id`    | OrgIntel identity for a reference to work owned elsewhere                         | Stable while the reference remains useful              |
+| `attention_item_id`  | Owner-facing projection of a source request and its immediate causal continuation | Stable through resolution and the compact continuation |
 
-Identifiers are opaque. Do not encode mutable state, role names, or deployment location into them.
+Identifiers are opaque except for the bounded Staff convention defined by OrgIntel: new Staff use a
+durable `{domain}-{craft}` identity. Even there, do not encode mutable role wording, team position,
+Work/revision state, environment, retry, model or deployment location.
 
 ## 2.2 Actor identity is not process identity
 
@@ -131,26 +133,26 @@ Do not claim strong per-agent security while agents share one permissive Linux w
 
 ## 3.1 Stable concepts
 
-| Concept | Meaning | Authoritative owner |
-|---|---|---|
-| Company identity | Durable organisation and infrastructure lifecycle | Authority Plane |
-| Mandate | Owner-defined purpose and outer constraints | Authority Plane |
-| Operating phase | Exploration, validation/pre-profit, profit, or scale | OrgIntel |
-| Actor and role | Persistent organisational identity and responsibility | OrgIntel |
-| Session | Temporary model/process execution | OrgIntel records intent/status; Runtime owns process reality |
-| Goal | Desired outcome at any abstraction level | OrgIntel |
-| Work | One actor's durable responsibility for an outcome, expected artifact and exact workspace | OrgIntel |
-| Work edge | `requires` hard DAG dependency or `revises` review feedback cycle | OrgIntel |
-| Attempt | One Work-revision execution with immutable artifact and feedback inputs | OrgIntel |
-| Owner handoff | Prepared last mile for a bounded human-only action and observable resume condition | OrgIntel |
-| Message/directive | Organisational communication or durable owner instruction | OrgIntel; mandate changes also update Authority Plane |
-| Observation/hypothesis/decision | Company belief and decision semantics | OrgIntel or referenced source |
-| Artifact | Code, document, build, asset, dataset, or project output | Company Runtime or external application |
-| Artifact reference | Pointer from organisational state to an artifact | OrgIntel |
-| Capability/envelope | Bounded external authority | Authority Plane |
-| Effect/receipt | Consequential external action and authoritative outcome | Authority Plane/provider |
-| Resource grant | Bounded productive resource made available to the company | Authority Plane |
-| External business record | Email delivery, payment, deployment, CRM state, etc. | External provider/application |
+| Concept                                | Meaning                                                                                  | Authoritative owner                                          |
+| -------------------------------------- | ---------------------------------------------------------------------------------------- | ------------------------------------------------------------ |
+| Company identity                       | Durable organisation and infrastructure lifecycle                                        | Authority Plane                                              |
+| Mandate                                | Owner-defined purpose and outer constraints                                              | Authority Plane                                              |
+| Operating phase                        | Exploration, validation/pre-profit, profit, or scale                                     | OrgIntel                                                     |
+| Actor identity, kind, display and role | Persistent identity/class/display plus evolving responsibility                           | OrgIntel                                                     |
+| Session                                | Temporary model/process execution                                                        | OrgIntel records intent/status; Runtime owns process reality |
+| Goal                                   | Desired outcome at any abstraction level                                                 | OrgIntel                                                     |
+| Work                                   | One actor's durable responsibility for an outcome, expected artifact and exact workspace | OrgIntel                                                     |
+| Work edge                              | `requires` hard DAG dependency or `revises` review feedback cycle                        | OrgIntel                                                     |
+| Attempt                                | One Work-revision execution with immutable artifact and feedback inputs                  | OrgIntel                                                     |
+| Owner handoff                          | Prepared last mile for a bounded human-only action and observable resume condition       | OrgIntel                                                     |
+| Message/directive                      | Organisational communication or durable owner instruction                                | OrgIntel; mandate changes also update Authority Plane        |
+| Observation/hypothesis/decision        | Company belief and decision semantics                                                    | OrgIntel or referenced source                                |
+| Artifact                               | Code, document, build, asset, dataset, or project output                                 | Company Runtime or external application                      |
+| Artifact reference                     | Pointer from organisational state to an artifact                                         | OrgIntel                                                     |
+| Capability/envelope                    | Bounded external authority                                                               | Authority Plane                                              |
+| Effect/receipt                         | Consequential external action and authoritative outcome                                  | Authority Plane/provider                                     |
+| Resource grant                         | Bounded productive resource made available to the company                                | Authority Plane                                              |
+| External business record               | Email delivery, payment, deployment, CRM state, etc.                                     | External provider/application                                |
 
 ## 3.2 Source-of-truth split
 
@@ -164,7 +166,7 @@ Authority Plane store
 - runtime lifecycle operations and generations
 
 OrgIntel store
-- actors, roles, and persistent identity packages
+- actor identities, kind/display/role, team relations, and persistent identity packages
 - goals, Work nodes, edges, Attempts and exact inputs, messages, schedules and owner handoffs
 - hypotheses, experiments, decisions, and learning
 - operating phase and organisational health
@@ -352,6 +354,21 @@ Provider-root credentials, Docker/containerd authority, host filesystem access, 
 
 Ordinary authenticated APIs may be used through bounded credentials or Infisical Agent Proxy. Consequential effects remain brokered.
 
+## 5.5 Human owner access
+
+The current single-company appliance has one stable human principal: `owner`. When every supported
+owner entry point is confined to loopback, the local appliance boundary authenticates the operator and
+the Owner Cockpit attributes requests directly to that principal. Local mode has no bearer-token or
+account subsystem.
+
+Loopback is a deployment constraint, not a header claim. A non-loopback listener or any
+Restless-supported reverse proxy, tunnel or hosted endpoint is network exposure and must wait for a
+real human authenticator and revocable session boundary. An independently configured tunnel that
+impersonates a localhost client is outside supported local mode because the daemon cannot detect it.
+A future authenticator proves an account identity and maps it to the same semantic owner principal;
+it does not create a second writer for owner authority.
+The detailed decision is [`ADR 0001`](../adr/0001-local-owner-access.md).
+
 ---
 
 # 6. Company bootstrap
@@ -466,14 +483,14 @@ archived
 
 Meaning:
 
-| State | Meaning |
-|---|---|
-| `provisioning` | Durable company exists but required components are not yet ready |
-| `running` | Runtime may operate and external authority is available within the envelope |
-| `externally_frozen` | Internal work may continue; new consequential effects/resource expansion are paused |
-| `stopped` | Company Runtime is not executing; durable Authority/OrgIntel state remains |
-| `restoring` | Runtime material state is being restored/replaced and reconciled |
-| `archived` | Company is inactive and preserved for inspection/recovery; no automatic work resumes |
+| State               | Meaning                                                                              |
+| ------------------- | ------------------------------------------------------------------------------------ |
+| `provisioning`      | Durable company exists but required components are not yet ready                     |
+| `running`           | Runtime may operate and external authority is available within the envelope          |
+| `externally_frozen` | Internal work may continue; new consequential effects/resource expansion are paused  |
+| `stopped`           | Company Runtime is not executing; durable Authority/OrgIntel state remains           |
+| `restoring`         | Runtime material state is being restored/replaced and reconciled                     |
+| `archived`          | Company is inactive and preserved for inspection/recovery; no automatic work resumes |
 
 ## 7.2 Runtime instance lifecycle
 
@@ -509,6 +526,10 @@ lost
 A completed session does not imply that its Work is completed. The running Attempt reaches
 `produced` only when its expected artifact and deterministic gates are present; review may return a
 `changes_requested` revision instead.
+
+Likewise, a pending owner handoff blocks Work and successors but does not by itself mean the
+supervised session or attached Attempt stopped. OrgIntel records an Attempt terminal state only when
+the Runtime-observed process actually returns or is lost.
 
 ## 7.4 Operating phase
 
@@ -937,19 +958,19 @@ Do not attempt to make OrgIntel or Authority Plane data match an old runtime sna
 
 # 12. Failure and degraded operation
 
-| Failure | Expected behaviour |
-|---|---|
-| Runtime Bridge disconnects | Running work may continue locally; launches/messages pause; reconnect and reconcile |
-| Company Runtime fails | OrgIntel and Authority state remain; owner can inspect; restart/restore Runtime |
-| OrgIntel unavailable | Running agents may continue local work; organisational writes/wakeups pause; Authority Plane remains independent |
-| Authority Plane unavailable | Internal work continues; new effects/resources/lifecycle changes pause |
-| Authority DB unavailable | Do not guess permission or effect outcome |
-| OrgIntel DB unavailable | Do not invent Work nodes/messages; preserve local work and retry |
-| Model gateway unavailable | Agents stop or use an approved alternative; files/services remain |
-| External provider unavailable | Affected action/resource pauses; unrelated company work continues |
-| Cockpit unavailable | Company may continue under existing mandate; owner interactions pause |
-| Runtime restored to stale state | Reconcile forward; never rewind external history |
-| Version incompatibility | Enter visible degraded state; do not silently discard messages or commands |
+| Failure                         | Expected behaviour                                                                                               |
+| ------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| Runtime Bridge disconnects      | Running work may continue locally; launches/messages pause; reconnect and reconcile                              |
+| Company Runtime fails           | OrgIntel and Authority state remain; owner can inspect; restart/restore Runtime                                  |
+| OrgIntel unavailable            | Running agents may continue local work; organisational writes/wakeups pause; Authority Plane remains independent |
+| Authority Plane unavailable     | Internal work continues; new effects/resources/lifecycle changes pause                                           |
+| Authority DB unavailable        | Do not guess permission or effect outcome                                                                        |
+| OrgIntel DB unavailable         | Do not invent Work nodes/messages; preserve local work and retry                                                 |
+| Model gateway unavailable       | Agents stop or use an approved alternative; files/services remain                                                |
+| External provider unavailable   | Affected action/resource pauses; unrelated company work continues                                                |
+| Cockpit unavailable             | Company may continue under existing mandate; owner interactions pause                                            |
+| Runtime restored to stale state | Reconcile forward; never rewind external history                                                                 |
+| Version incompatibility         | Enter visible degraded state; do not silently discard messages or commands                                       |
 
 ## 12.1 Buffering
 
@@ -982,6 +1003,13 @@ An attention item may originate from:
 
 The cockpit uses one attention envelope, but resolution writes back to the owning layer.
 
+Owner-required provider signup, connection, verification, MFA and initial credential issuance use
+the same envelope. Financial and provider-root authentication opens in the owner's external browser,
+outside Company Runtime. OrgIntel retains the source Work and owner handoff; Authority retains grants,
+credential references and authenticated provider observations; the provider retains account and
+authentication state. Attention owns none of them, and returning from the browser is not proof of
+completion. See [`ADR 0002`](../adr/0002-owner-provider-authentication-handoffs.md).
+
 ## 13.2 Work
 
 The Work view is primarily OrgIntel state linked to Runtime artifacts and Authority receipts.
@@ -996,11 +1024,23 @@ Goal
 
 ## 13.3 People
 
-People and chat are OrgIntel-owned. Runtime session status is a live projection from the Bridge. Authority grants may be shown as read-only references.
+People and chat are OrgIntel-owned. The Exec and team leads are owner-facing contacts; other Staff
+are inspection-first and route to their lead or Exec. Provenance-only `system` actors remain in
+OrgIntel and are omitted from People by kind. Runtime session status is a live projection from the
+Bridge. Authority grants may be shown as read-only references.
 
-## 13.4 Authority
+## 13.4 Company
 
-The Authority view reads the Authority Plane directly. OrgIntel may explain organisational context, but cannot rewrite the authoritative envelope or receipts.
+The Company view composes six stable owner concepts: charter, authority and limits, resources and
+access, external actions, Company computer, and Company doctor. The Authority Plane remains authoritative for the
+mandate, envelope, grants, effects, receipts and Runtime lifecycle authority; OrgIntel may project
+current direction and prepared handoff meaning; the Runtime reports files, services, browser and
+process reality. The cockpit cannot rewrite any of those sources; an owner charter edit invokes the
+Authority-owned, version-checked mandate action and retains no second copy. Pending owner decisions link to
+Attention instead of forming a second queue, and an unavailable source never projects as an empty
+inventory. Company computer is the immersive attachment threshold; Company doctor owns the
+diagnostic and bounded-recovery presentation. Both remain projections over the same Runtime and
+Authority actions rather than separate state owners.
 
 ## 13.5 Degraded presentation
 

@@ -11,6 +11,7 @@ use restless_orgintel::{ClaimedWork, WorkAttemptState, WorkStatus};
 use sha2::{Digest as _, Sha256};
 
 use crate::acp::{self, AgentAuth};
+use crate::conversation::ConversationStreams;
 use crate::exec::{self, Termination};
 use crate::health;
 use crate::runtime::{self, CompanyConfig};
@@ -100,7 +101,10 @@ fn valid_slug(slug: &str) -> bool {
 }
 
 async fn mail_exec(org: &restless_orgintel::OrgIntel, body: &str) {
-    if let Err(error) = org.add_actor("daemon", "daemon", "The daemon").await {
+    if let Err(error) = org
+        .ensure_actor("daemon", "system", "system-sender", "The daemon")
+        .await
+    {
         tracing::warn!("failed to ensure daemon actor: {error:#}");
         return;
     }
@@ -128,39 +132,41 @@ pub async fn dispatch_claimed_work(
             bail!("invalid repo name {repo:?}");
         }
     }
-    let actors = org.list_actors().await?;
-    let actor_row = actors
-        .into_iter()
-        .find(|row| row.id == actor)
-        .with_context(|| format!("Work owner {actor:?} is not an OrgIntel actor"))?;
-    let candidates =
-        crate::model_gateway::available_candidates(config, actor_row.model.as_deref(), authority)
-            .await?;
-    let first_model = candidates
-        .first()
-        .context("staff model policy has no candidates")?;
-    org.add_actor_with_model(
-        &actor,
-        &actor_row.kind,
-        &actor_row.display,
-        Some(first_model),
-    )
-    .await?;
-    org.set_attempt_model(claimed.attempt_id, first_model)
-        .await?;
+    // Reserve the durable actor before the first await after the database
+    // claim. Otherwise a queued free-form Exec wake can claim its separate
+    // in-memory slot while model/workspace setup is yielding, launching two
+    // processes for one actor even though the Work Attempt lease is sound.
     registry.try_claim(&config.name, &actor)?;
 
-    let workdir = match if claimed.work.repo.is_some() {
-        ensure_worktree(config, &claimed.work).await
-    } else {
-        Ok("/company".to_string())
-    } {
-        Ok(workdir) => workdir,
+    let setup = async {
+        let actors = org.list_actors().await?;
+        let actor_row = actors
+            .into_iter()
+            .find(|row| row.id == actor)
+            .with_context(|| format!("Work owner {actor:?} is not an OrgIntel actor"))?;
+        let candidates = crate::model_gateway::available_candidates(
+            config,
+            actor_row.model.as_deref(),
+            authority,
+        )
+        .await?;
+        let first_model = candidates
+            .first()
+            .context("staff model policy has no candidates")?;
+        org.update_actor_model(&actor, first_model).await?;
+        org.set_attempt_model(claimed.attempt_id, first_model)
+            .await?;
+        let workdir = if claimed.work.repo.is_some() {
+            ensure_worktree(config, &claimed.work).await?
+        } else {
+            "/company".to_string()
+        };
+        anyhow::Ok((actor_row, candidates, workdir))
+    }
+    .await;
+    let (actor_row, candidates, workdir) = match setup {
+        Ok(setup) => setup,
         Err(error) => {
-            let note = format!("workspace setup failed before the process started: {error:#}");
-            let _ = org
-                .finish_work_attempt(claimed.attempt_id, WorkAttemptState::Failed, &note)
-                .await;
             registry.release(&config.name, &actor);
             return Err(error);
         }
@@ -170,7 +176,7 @@ pub async fn dispatch_claimed_work(
     let company = config.name.clone();
     let name = actor_row.display;
     let task = format!(
-        "# Work {} revision {} attempt {}\nAttempt UUID: {}\n{}\n\nExpected artifact: {}\nInput fingerprint: {}\nInputs:\n{}\n\nOwner/operator feedback through message {}:\n{}",
+        "# Work {} revision {} attempt {}\nAttempt UUID: {}\n{}\n\nExpected artifact: {}\nInput fingerprint: {}\nInputs:\n{}",
         claimed.work.id,
         claimed.work.revision,
         claimed.attempt_no,
@@ -179,15 +185,30 @@ pub async fn dispatch_claimed_work(
         claimed.work.expected_artifact,
         claimed.input_fingerprint,
         claimed.inputs.iter().map(|input| format!("- {} [{}] {}", input.label, input.kind, input.uri)).collect::<Vec<_>>().join("\n"),
-        claimed.feedback.last().map(|message| message.id).unwrap_or(0),
-        claimed.feedback.iter().map(|message| format!("- {}: {}", message.from_actor, message.body)).collect::<Vec<_>>().join("\n")
     );
+    let turn_prompt = if claimed.feedback.is_empty() {
+        "Begin or continue the claimed Work Attempt described in your system context. Work until the assigned outcome is done or genuinely blocked."
+            .to_string()
+    } else {
+        format!(
+            "# New Work feedback\n{}\n\nApply this feedback to the claimed Work Attempt described in your system context. Work until the assigned outcome is done or genuinely blocked.",
+            claimed
+                .feedback
+                .iter()
+                .map(|message| format!(
+                    "- message {} from {}: {}",
+                    message.id, message.from_actor, message.body
+                ))
+                .collect::<Vec<_>>()
+                .join("\n")
+        )
+    };
     let container = runtime::container_name(&config.name);
     let org = org.clone();
     let registry = registry.clone();
     let meter = spend.meter();
     let authority = authority.clone();
-    let role = actor_row.kind;
+    let role = actor_row.role;
     let attempt_id = claimed.attempt_id;
     let work_id = claimed.work.id;
     tokio::spawn(async move {
@@ -199,6 +220,7 @@ pub async fn dispatch_claimed_work(
             actor: actor.clone(),
             name: name.clone(),
             task,
+            turn_prompt,
             role,
             spine,
             candidates,
@@ -206,6 +228,7 @@ pub async fn dispatch_claimed_work(
             meter,
             authority,
             conversation: false,
+            observer: None,
         })
         .await;
         record_staff_outcome(
@@ -218,7 +241,7 @@ pub async fn dispatch_claimed_work(
                 attempt_id,
                 workdir: &workdir,
             },
-            outcome,
+            outcome.map(|outcome| (outcome.termination, outcome.summary)),
         )
         .await;
         registry.release(&company, &actor);
@@ -230,19 +253,26 @@ pub async fn dispatch_claimed_work(
 /// This is deliberately the same supervised actor process as Work execution,
 /// without manufacturing a Work Attempt for conversation. The trigger is a
 /// deterministic owed condition; the response and repair remain judgement.
+pub struct ConversationRuntime<'a> {
+    pub spend: &'a SpendLedger,
+    pub authority: &'a crate::authority::AuthorityStore,
+    pub registry: &'a StaffRegistry,
+    pub streams: &'a ConversationStreams,
+}
+
 pub async fn dispatch_actor_conversation(
     config: &CompanyConfig,
-    spend: &SpendLedger,
-    authority: &crate::authority::AuthorityStore,
     org: &restless_orgintel::OrgIntel,
-    registry: &StaffRegistry,
+    runtime: ConversationRuntime<'_>,
     actor: &str,
     reason: &str,
 ) -> Result<bool> {
     if actor == "exec" || matches!(actor, "owner" | "world" | "daemon") {
         return Ok(false);
     }
-    if spend.over_ceiling(config).is_some() || registry.is_actor_running(&config.name, actor) {
+    if runtime.spend.over_ceiling(config).is_some()
+        || runtime.registry.is_actor_running(&config.name, actor)
+    {
         return Ok(false);
     }
 
@@ -277,9 +307,11 @@ pub async fn dispatch_actor_conversation(
                 "- {} · {}{} · model {}",
                 candidate.id,
                 candidate.kind,
-                (candidate.id == team.lead_actor_id)
-                    .then_some(" · accountable lead")
-                    .unwrap_or(""),
+                if candidate.id == team.lead_actor_id {
+                    " · accountable lead"
+                } else {
+                    ""
+                },
                 candidate.model.as_deref().unwrap_or("inherited")
             )
         })
@@ -333,14 +365,10 @@ pub async fn dispatch_actor_conversation(
         .collect::<Vec<_>>();
     let mail = addressed
         .iter()
+        .filter(|message| message.from_actor != "owner")
         .map(|message| {
-            let trust = if message.from_actor == "owner" {
-                "owner direction — interpret and apply"
-            } else {
-                "internal coordination"
-            };
             format!(
-                "- message {} [{trust}] from {}: {}",
+                "- message {} [internal coordination] from {}: {}",
                 message.id, message.from_actor, message.body
             )
         })
@@ -363,41 +391,74 @@ pub async fn dispatch_actor_conversation(
         .iter()
         .map(|message| message.id)
         .collect::<Vec<_>>();
+    let owner_message_ids = addressed
+        .iter()
+        .filter(|message| message.from_actor == "owner")
+        .map(|message| message.id)
+        .collect::<Vec<_>>();
+    let owner_input = addressed
+        .iter()
+        .filter(|message| message.from_actor == "owner")
+        .map(|message| format!("- owner message {}: {}", message.id, message.body))
+        .collect::<Vec<_>>();
+    let reply_work_id = match owner_message_ids.last() {
+        Some(message_id) => org.message_work_id(*message_id).await?,
+        None => None,
+    };
     let task = format!(
-        "# Team charter\n{}\n\n# Roster\n{}\n\n# Team Work\n{}\n\n# Team Work edges\n{}\n\n# Addressed messages\n{}\n\n# Judgement you owe\n{}\n\n\
+        "# Team charter\n{}\n\n# Roster\n{}\n\n# Team Work\n{}\n\n# Team Work edges\n{}\n\n# Addressed internal messages\n{}\n\n# Judgement you owe\n{}\n\n\
          You are accountable for this team's outcome, not a relay. Resolve local blockers by changing the smallest relevant mechanism: roster, brief, context, skill, model, tool, dependency, or Work graph. The scheduler starts ready Work; do not narrate handoffs manually.\n\n\
-         Assemble the smallest differentiated roster. Inspect `restless people` before adding anyone. If no active actor buys the missing capability, use `restless people create --id <stable-id> --role <role> --display <name> [--model <model>] --reason <difference>`; then `restless teams assign --actor <id> --team <this team> --reason <difference or repair>`. Reuse those actors across Work and revisions; never mint v2/v3 actors.\n\n\
+         Assemble the smallest differentiated roster. Inspect `restless people` before adding anyone. New Staff is one possible sourcing posture, not the automatic answer to a missing capability. If evidence calls for new internal capacity, use `restless people create --id <durable-domain>-<craft> --role <role> --display <colleague-name> [--model <model>] --reason <difference>`; then `restless teams assign --actor <id> --team <this team> --reason <difference or repair>`. Reuse those actors across Work and revisions; never encode Staff, team position, environment, stage, implementation or retry in the id.\n\n\
+         # Sourcing a missing capability [shared skill]\n{}\n\n\
          When creating dependent Work, declare every initial dependency in the same `restless work add` with repeatable `--requires <prerequisite-work-id>` and `--revises <producer-work-id>` flags. Those commit atomically. Use `restless work edge` only to repair an existing graph: for requires, `--from` is the prerequisite and `--to` is the dependent; revises runs reviewer to producer. Remove a mistaken local edge with `--remove --as {actor} --reason <evidence>`. Adding edges after node creation can let the scheduler start a half-built node.\n\n\
          Graph state outranks prose. Only completed final-acceptance Work makes acceptance canonical. Evidence and research Work are inputs to that judgement; a free-form status message may report them but must not declare the outcome accepted, canonical, or shipped while a dependency or final-acceptance Work remains open.\n\n\
          For a pending judgement you can settle, use `restless work resolve-handoff --handoff <id> --state resolved --resolution <answer>`. If it is genuinely outside the charter, use `restless work escalate-handoff --handoff <id> --as {actor} --reason <evidence and smallest decision>`; it goes to the Exec, not directly to the owner. Resume repaired failed Work with `restless work resume --work <id> --as {actor} --reason <what changed>`.\n\n\
-         If the owner wrote, reply before ending with `restless message --from {actor} '<plain reply>'`. Speak for the whole team: what is moving, blocked, and what you changed. If the owner directed a change, make the Work graph change before claiming it did. End the reply with exactly one intent marker: `<!--restless-intent:{{\"kind\":\"conversation|work_feedback|direction|authority\",\"summary\":\"one short interpretation\"}}-->` using one real kind.\n\n\
-         Ask the Exec only for cross-team resources, company priority, strategy, or charter guidance. Authority and irreducible human last miles remain owner boundaries.",
+         If the owner wrote, your final assistant response is the reply the owner will receive. Do not use `restless message` to reply to the owner. Speak for the whole team. If the owner directed a change, make the Work graph change before claiming it did. Follow the shared conversation contract below and end with exactly one intent marker: `<!--restless-intent:{{\"kind\":\"conversation|work_feedback|direction|authority\",\"summary\":\"one short interpretation\"}}-->` using one real kind.\n\n\
+         Ask the Exec only for cross-team resources, company priority, strategy, or charter guidance. Authority and irreducible human last miles remain owner boundaries.\n\n# Presenting to the owner [shared skill]\n{}\n\n# Conversing with the owner [shared contract]\n{}",
         team.brief.trim(),
         if members.is_empty() { "(none)".into() } else { members.join("\n") },
         if team_work.is_empty() { "(none)".into() } else { team_work.join("\n") },
         if team_edges.is_empty() { "(none)".into() } else { team_edges.join("\n") },
         if mail.is_empty() { "(none)".into() } else { mail.join("\n") },
         if owed.is_empty() { "(none)".into() } else { owed.join("\n") },
+        crate::capability_sourcing::SOURCE_CAPABILITY.trim(),
+        crate::owner_brief::PRESENT_TO_OWNER.trim(),
+        crate::owner_brief::CONVERSE_WITH_OWNER.trim(),
     );
+    let turn_prompt = if owner_input.is_empty() {
+        format!(
+            "# This wake\n{reason}\n\nResolve the addressed coordination or judgement in your system context. Work until the bounded team-lead turn is done or genuinely blocked."
+        )
+    } else {
+        format!(
+            "# This wake\n{reason}\n\n# Owner input [authoritative in source; interpret before applying]\n{}\n\nAddress the owner input using the team context and conversation contract in your system prompt.",
+            owner_input.join("\n")
+        )
+    };
 
-    let candidates =
-        crate::model_gateway::available_candidates(config, actor_row.model.as_deref(), authority)
-            .await?;
-    registry.try_claim(&config.name, actor)?;
+    let candidates = crate::model_gateway::available_candidates(
+        config,
+        actor_row.model.as_deref(),
+        runtime.authority,
+    )
+    .await?;
+    runtime.registry.try_claim(&config.name, actor)?;
     let company = config.name.clone();
     let actor = actor.to_string();
     let name = actor_row.display.clone();
-    let role = actor_row.kind.clone();
+    let role = actor_row.role.clone();
     let org = org.clone();
-    let registry = registry.clone();
-    let meter = spend.meter();
-    let authority = authority.clone();
+    let registry = runtime.registry.clone();
+    let meter = runtime.spend.meter();
+    let authority = runtime.authority.clone();
     let container = runtime::container_name(&company);
     let spine = format!(
         "\n# The company you work for\n{}\n\n# Why you woke\n{}\n",
         config.mission.trim(),
         reason
     );
+    let live_turn = runtime.streams.start(&company, &actor, &owner_message_ids);
+    let observer = (!owner_message_ids.is_empty()).then(|| live_turn.observer());
     tokio::spawn(async move {
         let outcome = run_staff_with_failover(StaffRun {
             container,
@@ -406,6 +467,7 @@ pub async fn dispatch_actor_conversation(
             actor: actor.clone(),
             name: name.clone(),
             task,
+            turn_prompt,
             role,
             spine,
             candidates,
@@ -413,29 +475,55 @@ pub async fn dispatch_actor_conversation(
             meter,
             authority,
             conversation: true,
+            observer,
         })
         .await;
         match &outcome {
-            Ok((termination, summary)) if *termination != Termination::Blocked => {
-                for id in message_ids {
-                    let _ = org.mark_read(id).await;
+            Ok(outcome) if outcome.termination != Termination::Blocked => {
+                let recorded = if owner_message_ids.is_empty() {
+                    Ok(None)
+                } else if let Some(work_id) = reply_work_id {
+                    org.send_work_message_to_owner(&actor, work_id, &outcome.summary)
+                        .await
+                        .map(Some)
+                } else {
+                    org.send_message(&actor, None, &outcome.summary)
+                        .await
+                        .map(Some)
+                };
+                match recorded {
+                    Ok(recorded_message_id) => {
+                        for id in &message_ids {
+                            let _ = org.mark_read(*id).await;
+                        }
+                        if let Some(message_id) = recorded_message_id {
+                            live_turn.complete(message_id, outcome.output_tokens);
+                        }
+                    }
+                    Err(error) => {
+                        live_turn.fail(&format!("could not record the reply: {error:#}"));
+                    }
                 }
                 let _ = org
                     .emit_event(
                         "actor_wake_end",
                         Some(&actor),
-                        serde_json::json!({ "termination": termination, "reason": summary }),
+                        serde_json::json!({ "termination": outcome.termination, "reason": outcome.summary }),
                     )
                     .await;
             }
-            Ok((_, summary)) => {
-                let reason =
-                    format!("{name} could not complete its team coordination turn: {summary}");
+            Ok(outcome) => {
+                live_turn.fail(&outcome.summary);
+                let reason = format!(
+                    "{name} could not complete its team coordination turn: {}",
+                    outcome.summary
+                );
                 let _ = org.fallthrough_handoffs_to_exec(&actor, &reason).await;
                 let _ = org.send_message(&actor, Some("exec"), &reason).await;
             }
             Err(error) => {
                 let reason = format!("{name} coordination turn crashed: {error:#}");
+                live_turn.fail(&reason);
                 let _ = org.fallthrough_handoffs_to_exec(&actor, &reason).await;
                 let _ = org.send_message(&actor, Some("exec"), &reason).await;
             }
@@ -477,15 +565,21 @@ async fn shared_spine(
         }
         Err(error) => tracing::warn!(%error, "could not read Work graph for the staff spine"),
     }
-    let coordinator = org
-        .team_lead_for(actor)
-        .await
-        .ok()
-        .flatten()
-        .unwrap_or_else(|| "exec".to_string());
-    spine.push_str(&format!(
-        "\nYour accountable coordinator is {coordinator}. Use `restless message --to {coordinator} \"...\"` for blockers or free-form coordination. Use the Work CLI to link the exact artifact version you produced. An owner handoff is only for identity, CAPTCHA, MFA, legal attestation, payment confirmation, or irreducible owner judgement; ordinary uncertainty goes to {coordinator}.\n"
-    ));
+    if actor == "exec" {
+        spine.push_str(
+            "\nYou are the accountable coordinator for this Work; do not message yourself. Use the Work CLI to link the exact artifact version you produced. An owner handoff is only for identity, CAPTCHA, MFA, legal attestation, payment confirmation, or irreducible owner judgement.\n",
+        );
+    } else {
+        let coordinator = org
+            .team_lead_for(actor)
+            .await
+            .ok()
+            .flatten()
+            .unwrap_or_else(|| "exec".to_string());
+        spine.push_str(&format!(
+            "\nYour accountable coordinator is {coordinator}. Use `restless message --to {coordinator} \"...\"` for blockers or free-form coordination. Use the Work CLI to link the exact artifact version you produced. An owner handoff is only for identity, CAPTCHA, MFA, legal attestation, payment confirmation, or irreducible owner judgement; ordinary uncertainty goes to {coordinator}.\n"
+        ));
+    }
     spine
 }
 
@@ -496,7 +590,11 @@ struct StaffRun {
     company: String,
     actor: String,
     name: String,
+    /// Trusted assignment/team state assembled by OrgIntel and the bridge.
     task: String,
+    /// The immediate input for this ACP turn: owner text, Work feedback, or a
+    /// bounded instruction to begin the already-claimed Attempt.
+    turn_prompt: String,
     role: String,
     spine: String,
     candidates: Vec<String>,
@@ -504,15 +602,20 @@ struct StaffRun {
     meter: crate::spend::TurnMeter,
     authority: crate::authority::AuthorityStore,
     conversation: bool,
+    observer: Option<acp::SessionObserver>,
 }
 
-async fn run_staff_with_failover(run: StaffRun) -> Result<(Termination, String)> {
+struct StaffOutcome {
+    termination: Termination,
+    summary: String,
+    output_tokens: Option<u64>,
+}
+
+async fn run_staff_with_failover(run: StaffRun) -> Result<StaffOutcome> {
     let mut continuity_note: Option<String> = None;
 
     for (index, model) in run.candidates.iter().enumerate() {
-        run.org
-            .add_actor_with_model(&run.actor, &run.role, &run.name, Some(model.as_str()))
-            .await?;
+        run.org.update_actor_model(&run.actor, model).await?;
         run.org
             .emit_event(
                 "model_attempt",
@@ -548,7 +651,11 @@ async fn run_staff_with_failover(run: StaffRun) -> Result<(Termination, String)>
                     continuity_note = Some(blocked.message());
                     continue;
                 }
-                return Ok((Termination::Blocked, blocked.message()));
+                return Ok(StaffOutcome {
+                    termination: Termination::Blocked,
+                    summary: blocked.message(),
+                    output_tokens: None,
+                });
             }
         };
 
@@ -572,14 +679,16 @@ async fn run_staff_with_failover(run: StaffRun) -> Result<(Termination, String)>
             actor: run.actor.clone(),
             name: run.name.clone(),
             task: run.task.clone(),
+            turn_prompt: run.turn_prompt.clone(),
             role: run.role.clone(),
             spine,
             conversation: run.conversation,
+            observer: run.observer.clone(),
         })
         .await;
 
         let failure_kind = match &outcome {
-            Ok((Termination::Blocked, reason, _)) => health::block_kind_from_message(reason)
+            Ok((Termination::Blocked, reason, _, _)) => health::block_kind_from_message(reason)
                 .or_else(|| health::classify_provider_error(reason).map(|blocked| blocked.kind)),
             Err(error) => {
                 let text = format!("{error:#}");
@@ -596,7 +705,7 @@ async fn run_staff_with_failover(run: StaffRun) -> Result<(Termination, String)>
         // provider refusal is telemetry, not mysterious spend; subscription
         // usage is recorded as zero charged dollars, with the catalogue
         // estimate retained only in the event.
-        if let Ok((_, _, spent)) = &outcome {
+        if let Ok((_, _, spent, _)) = &outcome {
             record_staff_usage(
                 &run.meter,
                 &run.org,
@@ -612,7 +721,7 @@ async fn run_staff_with_failover(run: StaffRun) -> Result<(Termination, String)>
 
         if let Some(kind) = failure_kind.filter(|kind| health::is_provider_failover_kind(*kind)) {
             let reason = match &outcome {
-                Ok((_, reason, _)) => reason.clone(),
+                Ok((_, reason, _, _)) => reason.clone(),
                 Err(error) => format!("{error:#}"),
             };
             crate::model_gateway::record_cooldown(
@@ -630,7 +739,7 @@ async fn run_staff_with_failover(run: StaffRun) -> Result<(Termination, String)>
             run.candidates.get(index + 1),
         ) {
             let reason = match &outcome {
-                Ok((_, reason, _)) => reason.clone(),
+                Ok((_, reason, _, _)) => reason.clone(),
                 Err(error) => format!("{error:#}"),
             };
             record_staff_failover(&run.org, &run.actor, model, next, kind, &reason).await?;
@@ -643,7 +752,11 @@ async fn run_staff_with_failover(run: StaffRun) -> Result<(Termination, String)>
                 .clear_model_cooldown(&run.company, model)
                 .await?;
         }
-        return outcome.map(|(termination, reason, _)| (termination, reason));
+        return outcome.map(|(termination, summary, _, output_tokens)| StaffOutcome {
+            termination,
+            summary,
+            output_tokens,
+        });
     }
 
     unreachable!("validated Staff model policy always has a candidate")
@@ -780,6 +893,7 @@ struct StaffBrief {
     actor: String,
     name: String,
     task: String,
+    turn_prompt: String,
     /// What this actor IS. Reaches the agent's own briefing, so the
     /// specialisation is something it knows about itself rather than a label
     /// only the daemon can see.
@@ -790,6 +904,7 @@ struct StaffBrief {
     /// same process, model, failover and supervision path with a team-scoped
     /// brief rather than inventing a second runtime class.
     conversation: bool,
+    observer: Option<acp::SessionObserver>,
 }
 
 /// A staff turn that did not run to completion, as one sentence — or `None`
@@ -820,7 +935,9 @@ const STAFF_TERMINATION_PROMPT: &str =
     - abandon: your assigned task is not worth continuing; say why\n\
     Judge only your assignment. Other company work, later review, or another actor's task does not make your completed task blocked.";
 
-async fn run_staff(brief: StaffBrief) -> Result<(Termination, String, Vec<acp::TurnUsage>)> {
+async fn run_staff(
+    brief: StaffBrief,
+) -> Result<(Termination, String, Vec<acp::TurnUsage>, Option<u64>)> {
     let StaffBrief {
         container,
         auth,
@@ -829,9 +946,11 @@ async fn run_staff(brief: StaffBrief) -> Result<(Termination, String, Vec<acp::T
         actor,
         name,
         task,
+        turn_prompt,
         role,
         spine,
         conversation,
+        observer,
     } = brief;
     let (container, auth, workdir, actor) =
         (container.as_str(), &auth, workdir.as_str(), actor.as_str());
@@ -845,107 +964,155 @@ async fn run_staff(brief: StaffBrief) -> Result<(Termination, String, Vec<acp::T
     } else {
         "Your working directory is {workdir} — it is YOURS: a dedicated git worktree. Commit meaningful checkpoints there with clear messages; do not touch other worktrees or the main checkout."
     };
-    let prompt = format!(
-        "You are {name}, the {role} of {company}, {assignment}.\n\
+    let system_prompt = format!(
+        "# Company operating rules [authoritative — applies to every actor]\n{}\n\n\
+         You are {name}, the {role} of {company}, {assignment}. Your stable OrgIntel actor id is `{actor}`.\n\
          You are a SPECIALIST, not a smaller Exec. Do the job your role names and \
          say so plainly when something falls outside it — a specialist who quietly \
          does everything is a generalist with a job title, and the reason you exist \
          is that one actor doing every job did one of them badly.\n\
          {workspace}\n\
          {spine}\n\
-         # Task\n{task}\n\n\
-         Work until the task is done or you are stuck. The session ends when you stop \
-         writing; you will then be asked for a decision envelope.",
+         # Trusted assignment context [OrgIntel decision]\n{task}\n\n\
+         Work until the task is done or you are stuck. {ending}",
+        crate::context::COMPANY_OPERATING_RULES.trim(),
         workspace = workspace.replace("{workdir}", workdir),
+        ending = if conversation {
+            "After using any tools you need, end with the complete owner-facing reply and its required intent marker. Do not narrate private reasoning in that reply."
+        } else {
+            "The session ends when you stop writing; you will then be asked for a decision envelope."
+        },
     );
     const CONTINUE_PROMPT: &str =
         "Continue the task. If it is done or you are stuck, stop writing.";
-    acp::with_agent(container, auth, workdir, actor, move |session| {
-        Box::pin(async move {
-            let mut next = prompt;
-            // Each prompt yields another cumulative session snapshot. Keep the
-            // observations for failure telemetry, then charge only the final
-            // snapshot once when this provider attempt ends.
-            let mut spent: Vec<acp::TurnUsage> = Vec::new();
-            loop {
-                let end = session.prompt_live(&next, |_| false).await;
-                // The work text is observability; the envelope is the record.
-                // The usage is neither — it is the fuse's input, so it is the
-                // one part of the transcript that must not be dropped, and it
-                // is dropped LAST: a staff member that wedged or failed still
-                // spent the company's money, and billing only the clean path
-                // is how spend goes quietly missing. Staff spend is real spend
-                // (two per company, T9).
-                if let Some(usage) = end.usage() {
-                    spent.push(usage);
-                }
-                // Staff report to the Exec, not to the owner, so they have no
-                // Verdict of their own to act on — the whole run is abandoned
-                // and the Exec reads the reason on its next wake. But the
-                // reason must still be the specific one.
-                if let Some(blocked) = staff_halt(&end) {
-                    if health::block_kind_from_message(&blocked)
-                        .is_some_and(health::is_provider_failover_kind)
-                    {
-                        return Ok((Termination::Blocked, blocked, spent));
+    let controls = acp::AgentControls::company_actor(system_prompt)?;
+    acp::with_agent(
+        container,
+        auth,
+        workdir,
+        actor,
+        controls,
+        observer,
+        move |session| {
+            Box::pin(async move {
+                let mut next = turn_prompt;
+                // Each prompt yields another cumulative session snapshot. Keep the
+                // observations for failure telemetry, then charge only the final
+                // snapshot once when this provider attempt ends.
+                let mut spent: Vec<acp::TurnUsage> = Vec::new();
+                loop {
+                    let end = session.prompt_live(&next, |_| false).await;
+                    // The work text is observability; the envelope is the record.
+                    // The usage is neither — it is the fuse's input, so it is the
+                    // one part of the transcript that must not be dropped, and it
+                    // is dropped LAST: a staff member that wedged or failed still
+                    // spent the company's money, and billing only the clean path
+                    // is how spend goes quietly missing. Staff spend is real spend
+                    // (two per company, T9).
+                    if let Some(usage) = end.usage() {
+                        spent.push(usage);
                     }
-                    bail!("staff turn: {blocked}");
-                }
-
-                let end = session
-                    .prompt_live(STAFF_TERMINATION_PROMPT, |_| false)
-                    .await;
-                if let Some(usage) = end.usage() {
-                    spent.push(usage);
-                }
-                if let Some(blocked) = staff_halt(&end) {
-                    if health::block_kind_from_message(&blocked)
-                        .is_some_and(health::is_provider_failover_kind)
-                    {
-                        return Ok((Termination::Blocked, blocked, spent));
-                    }
-                    bail!("staff termination ask: {blocked}");
-                }
-                let said = end.into_transcript().text;
-                match exec::parse_termination(&said) {
-                    Some(decision) if matches!(decision.termination, Termination::Continue) => {
-                        next = CONTINUE_PROMPT.to_string();
-                    }
-                    Some(decision) => return Ok((decision.termination, decision.reason, spent)),
-                    None => {
-                        // Before blaming the model, check whether it spoke at
-                        // all. omp streams an upstream error body through as
-                        // message CONTENT, so a provider refusal arrives as
-                        // assistant text: the turn "succeeds", tokens are
-                        // consumed, and nothing in the transport looks wrong.
-                        //
-                        // This is F1 in its third costume. It was fixed for the
-                        // Exec path in sprint 02 and the identical gap sat here
-                        // untouched until a critic ran on a second provider
-                        // hit `429 [1113] Insufficient balance` and was reported
-                        // as "staff produced no parseable termination decision"
-                        // — which blames the specialist for the wallet.
-                        if let Some(blocked) = health::classify_provider_error(&said) {
-                            tracing::warn!(
-                                kind = blocked.kind.as_str(),
-                                "staff blocked by the provider, not by its own output"
-                            );
-                            return Ok((Termination::Blocked, blocked.message(), spent));
+                    // Staff report to the Exec, not to the owner, so they have no
+                    // Verdict of their own to act on — the whole run is abandoned
+                    // and the Exec reads the reason on its next wake. But the
+                    // reason must still be the specific one.
+                    if let Some(blocked) = staff_halt(&end) {
+                        if health::block_kind_from_message(&blocked)
+                            .is_some_and(health::is_provider_failover_kind)
+                        {
+                            return Ok((Termination::Blocked, blocked, spent, None));
                         }
-                        tracing::warn!(
-                            said = %said.chars().take(600).collect::<String>(),
-                            "staff termination unparseable"
-                        );
+                        bail!("staff turn: {blocked}");
+                    }
+
+                    if conversation {
+                        let transcript = end.into_transcript();
+                        // ACP may emit conversational bridge text around tools.
+                        // Only its final assistant block is the owner's durable
+                        // reply; the earlier blocks are ephemeral activity.
+                        let reply = transcript.last_message_text.trim().to_string();
+                        if reply.is_empty() {
+                            return Ok((
+                                Termination::Blocked,
+                                "team lead produced no owner-facing reply".to_string(),
+                                spent,
+                                transcript.output_tokens,
+                            ));
+                        }
+                        if let Some(blocked) = health::classify_provider_error(&reply) {
+                            return Ok((
+                                Termination::Blocked,
+                                blocked.message(),
+                                spent,
+                                transcript.output_tokens,
+                            ));
+                        }
                         return Ok((
-                            Termination::Blocked,
-                            "staff produced no parseable termination decision".to_string(),
+                            Termination::OutcomeMet,
+                            reply,
                             spent,
+                            transcript.output_tokens,
                         ));
                     }
+
+                    let end = session
+                        .prompt_live(STAFF_TERMINATION_PROMPT, |_| false)
+                        .await;
+                    if let Some(usage) = end.usage() {
+                        spent.push(usage);
+                    }
+                    if let Some(blocked) = staff_halt(&end) {
+                        if health::block_kind_from_message(&blocked)
+                            .is_some_and(health::is_provider_failover_kind)
+                        {
+                            return Ok((Termination::Blocked, blocked, spent, None));
+                        }
+                        bail!("staff termination ask: {blocked}");
+                    }
+                    let said = end.into_transcript().text;
+                    match exec::parse_termination(&said) {
+                        Some(decision) if matches!(decision.termination, Termination::Continue) => {
+                            next = CONTINUE_PROMPT.to_string();
+                        }
+                        Some(decision) => {
+                            return Ok((decision.termination, decision.reason, spent, None))
+                        }
+                        None => {
+                            // Before blaming the model, check whether it spoke at
+                            // all. omp streams an upstream error body through as
+                            // message CONTENT, so a provider refusal arrives as
+                            // assistant text: the turn "succeeds", tokens are
+                            // consumed, and nothing in the transport looks wrong.
+                            //
+                            // This is F1 in its third costume. It was fixed for the
+                            // Exec path in sprint 02 and the identical gap sat here
+                            // untouched until a critic ran on a second provider
+                            // hit `429 [1113] Insufficient balance` and was reported
+                            // as "staff produced no parseable termination decision"
+                            // — which blames the specialist for the wallet.
+                            if let Some(blocked) = health::classify_provider_error(&said) {
+                                tracing::warn!(
+                                    kind = blocked.kind.as_str(),
+                                    "staff blocked by the provider, not by its own output"
+                                );
+                                return Ok((Termination::Blocked, blocked.message(), spent, None));
+                            }
+                            tracing::warn!(
+                                said = %said.chars().take(600).collect::<String>(),
+                                "staff termination unparseable"
+                            );
+                            return Ok((
+                                Termination::Blocked,
+                                "staff produced no parseable termination decision".to_string(),
+                                spent,
+                                None,
+                            ));
+                        }
+                    }
                 }
-            }
-        })
-    })
+            })
+        },
+    )
     .await
 }
 

@@ -15,7 +15,7 @@
 		| 'presence';
 
 	const MARKS: Record<MarkMeaning, { rows: readonly string[]; label: string }> = {
-		executive: { rows: GLYPHS.p, label: 'Executive' },
+		executive: { rows: GLYPHS.e, label: 'Executive' },
 		attention: { rows: GLYPHS.ring, label: 'Needs attention' },
 		direction: { rows: GLYPHS.up, label: 'Company direction' },
 		work: { rows: GLYPHS.work, label: 'Work' },
@@ -43,6 +43,8 @@
 	} = $props();
 
 	const mark = $derived(MARKS[meaning]);
+	/* The tile is a tactile status object, but it stays inline with the words it
+	 * qualifies. Layouts must not promote it into a dedicated content column. */
 	const glyphSize = $derived(size === 'large' ? 17 : size === 'small' ? 8 : 11);
 </script>
 

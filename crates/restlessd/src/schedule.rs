@@ -9,6 +9,8 @@ use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use anyhow::Result;
+use chrono::{DateTime, Utc};
 use restless_orgintel::{OrgIntel, WorkAttemptState};
 use sqlx::postgres::PgListener;
 
@@ -137,6 +139,12 @@ async fn handle_notification(daemon: &Arc<Daemon>, in_flight: &InFlight, payload
     };
     match value["kind"].as_str() {
         Some("message") if value["body"]["to"] == "exec" => {
+            // A Work owned by the singleton Exec has no higher internal
+            // coordinator. Preserve a self-addressed note as transcript, but
+            // never turn it into a second free-form Exec process.
+            if is_exec_self_message(&value) {
+                return;
+            }
             let message_id = value["body"]["message_id"].as_i64();
             let routes_through_work = match message_id {
                 Some(message_id) => match daemon.orgintel.get(company).await {
@@ -178,6 +186,10 @@ async fn handle_notification(daemon: &Arc<Daemon>, in_flight: &InFlight, payload
         }
         _ => {}
     }
+}
+
+fn is_exec_self_message(value: &serde_json::Value) -> bool {
+    value["body"]["to"] == "exec" && value["body"]["from"] == "exec"
 }
 
 async fn scan_all_companies(daemon: &Arc<Daemon>, in_flight: &InFlight) {
@@ -243,6 +255,14 @@ async fn scan_company(daemon: &Arc<Daemon>, in_flight: &InFlight, company: &str)
         }
     }
 
+    // Owner mail is itself the durable owed-work fact for a free-form Exec
+    // conversation. A daemon restart destroys the ACP process and its live
+    // projection, so recover an unread message when no completed wake has
+    // observed it, or when the latest wake never reached wake_end. Ordinary
+    // completed failures are not blindly retried: their wake_end is the
+    // terminal observation, and the owner surface presents the interruption.
+    recover_exec_conversation(daemon, in_flight, &org, company).await;
+
     // Team judgement and owner-to-lead conversation take precedence over
     // launching more member Work. Otherwise a full staff cap can starve the
     // coordinator that must repair what is already blocked.
@@ -253,10 +273,13 @@ async fn scan_company(daemon: &Arc<Daemon>, in_flight: &InFlight, company: &str)
             }
             match crate::staff::dispatch_actor_conversation(
                 &config,
-                &daemon.spend,
-                &daemon.authority,
                 &org,
-                &daemon.staff,
+                crate::staff::ConversationRuntime {
+                    spend: &daemon.spend,
+                    authority: &daemon.authority,
+                    registry: &daemon.staff,
+                    streams: &daemon.conversations,
+                },
                 &team.lead_actor_id,
                 "addressed message or team judgement became ready",
             )
@@ -277,7 +300,14 @@ async fn scan_company(daemon: &Arc<Daemon>, in_flight: &InFlight, company: &str)
         // Exclude the registry snapshot before the database claim so a busy
         // actor's ready node stays untouched rather than being claimed and
         // then misclassified as a failed Attempt by dispatch.
-        let busy_actors = daemon.staff.running_actors(company);
+        // The singleton Exec also has a free-form wake path outside the Staff
+        // registry. Work created during that wake must wait for it to finish;
+        // otherwise one durable Exec runs two ACP processes concurrently.
+        let exec_waking = in_flight
+            .lock()
+            .expect("in-flight guard")
+            .is_active(company);
+        let busy_actors = actor_exclusions(daemon.staff.running_actors(company), exec_waking);
         let claimed = match org
             .claim_ready_work_excluding("dependency graph became ready", &busy_actors)
             .await
@@ -309,6 +339,167 @@ async fn scan_company(daemon: &Arc<Daemon>, in_flight: &InFlight, company: &str)
     }
 }
 
+async fn recover_exec_conversation(
+    daemon: &Arc<Daemon>,
+    in_flight: &InFlight,
+    org: &OrgIntel,
+    company: &str,
+) {
+    let wake_active = in_flight
+        .lock()
+        .map(|claims| claims.is_active(company))
+        .unwrap_or(true);
+    if wake_active || daemon.staff.is_actor_running(company, "exec") {
+        return;
+    }
+
+    let Ok(messages) = org.inbox(Some("exec")).await else {
+        return;
+    };
+    let mut newest_owner_message: Option<DateTime<Utc>> = None;
+    for message in messages {
+        if message.from_actor != "owner" {
+            continue;
+        }
+        if org
+            .message_is_work_attempt_input(message.id)
+            .await
+            .unwrap_or(false)
+        {
+            continue;
+        }
+        newest_owner_message = Some(newest_owner_message.map_or(message.created_at, |current| {
+            current.max(message.created_at)
+        }));
+    }
+    let Some(message_created_at) = newest_owner_message else {
+        return;
+    };
+
+    let latest_wake = org.latest_event_at("wake").await.ok().flatten();
+    let latest_wake_end = org.latest_event_at("wake_end").await.ok().flatten();
+    if exec_conversation_is_owed(message_created_at, latest_wake, latest_wake_end) {
+        fire_exec(
+            daemon,
+            in_flight,
+            company,
+            "recovering unread owner conversation after an interrupted or missed wake",
+        )
+        .await;
+    }
+}
+
+fn exec_conversation_is_owed(
+    message_created_at: DateTime<Utc>,
+    latest_wake: Option<DateTime<Utc>>,
+    latest_wake_end: Option<DateTime<Utc>>,
+) -> bool {
+    let latest_observation = latest_wake.into_iter().chain(latest_wake_end).max();
+    let message_was_never_observed =
+        latest_observation.is_none_or(|observed_at| message_created_at > observed_at);
+    let wake_was_interrupted =
+        latest_wake.is_some_and(|wake_at| latest_wake_end.is_none_or(|end_at| wake_at > end_at));
+    message_was_never_observed || wake_was_interrupted
+}
+
+fn actor_exclusions(mut running: Vec<String>, exec_waking: bool) -> Vec<String> {
+    if exec_waking && !running.iter().any(|actor| actor == "exec") {
+        running.push("exec".into());
+    }
+    running
+}
+
+/// Run one Exec turn through the same conversation boundary regardless of
+/// whether a message notification, restart reconciliation, schedule, or the
+/// operator CLI initiated it. OrgIntel remains the durable transcript; the
+/// in-memory projection exists only while this call owns the ACP process.
+pub(crate) async fn run_exec_turn(
+    daemon: &Daemon,
+    config: &CompanyConfig,
+    org: &OrgIntel,
+    reason: &str,
+) -> Result<exec::WakeReport> {
+    let mut message_ids = Vec::new();
+    let mut owner_message_ids = Vec::new();
+    for message in org.inbox(Some("exec")).await? {
+        if org.message_is_work_attempt_input(message.id).await? {
+            continue;
+        }
+        message_ids.push(message.id);
+        if message.from_actor == "owner" {
+            owner_message_ids.push(message.id);
+        }
+    }
+    let prior_reply_id = org
+        .owner_conversation("exec", 200)
+        .await?
+        .into_iter()
+        .filter(|message| message.from_actor == "exec")
+        .map(|message| message.id)
+        .max()
+        .unwrap_or(0);
+    let live_turn = daemon
+        .conversations
+        .start(&config.name, "exec", &owner_message_ids);
+    let observer = (!owner_message_ids.is_empty()).then(|| live_turn.observer());
+    let outcome = exec::wake(
+        config,
+        &daemon.spend,
+        &daemon.authority,
+        org,
+        reason,
+        observer,
+    )
+    .await;
+
+    match &outcome {
+        Ok(report) if !owner_message_ids.is_empty() => {
+            let mut recorded_reply = org
+                .owner_conversation("exec", 200)
+                .await?
+                .into_iter()
+                .filter(|message| message.from_actor == "exec" && message.id > prior_reply_id)
+                .max_by_key(|message| message.id);
+
+            // The live assistant block is already the text the owner saw.
+            // Preserve it durably when the model answered but missed the
+            // explicit message tool; a company-level `blocked` decision is
+            // not a failed conversation.
+            if recorded_reply.is_none() {
+                if let Some(reply) = report.owner_reply.as_deref() {
+                    let message_id = org.send_message("exec", None, reply).await?;
+                    recorded_reply = org
+                        .owner_conversation("exec", 200)
+                        .await?
+                        .into_iter()
+                        .find(|message| message.id == message_id);
+                }
+            }
+
+            if let Some(reply) = recorded_reply {
+                for message_id in message_ids {
+                    let _ = org.mark_read(message_id).await;
+                }
+                live_turn.complete(reply.id, None);
+            } else if report.termination == exec::Termination::Blocked {
+                live_turn.fail(&report.reason);
+            } else {
+                live_turn.fail("Exec finished without recording a reply.");
+            }
+        }
+        Ok(report) if report.termination != exec::Termination::Blocked => {
+            for message_id in message_ids {
+                let _ = org.mark_read(message_id).await;
+            }
+        }
+        Err(error) if !owner_message_ids.is_empty() => {
+            live_turn.fail(&format!("Exec reply failed: {error:#}"));
+        }
+        _ => {}
+    }
+    outcome
+}
+
 /// Fire a free-form Exec conversation. It never owns or mutates Work.
 async fn fire_exec(daemon: &Arc<Daemon>, in_flight: &InFlight, company: &str, reason: &str) {
     if daemon.staff.is_actor_running(company, "exec") {
@@ -334,7 +525,7 @@ async fn fire_exec(daemon: &Arc<Daemon>, in_flight: &InFlight, company: &str, re
         let outcome = async {
             let config = CompanyConfig::load(&daemon.root, &company)?;
             let org = daemon.orgintel.get(&company).await?;
-            exec::wake(&config, &daemon.spend, &daemon.authority, &org, &reason).await
+            run_exec_turn(&daemon, &config, &org, &reason).await
         }
         .await;
         if let Err(error) = outcome {
@@ -352,7 +543,9 @@ async fn fire_pending(daemon: &Arc<Daemon>, in_flight: &InFlight) {
 
 #[cfg(test)]
 mod tests {
-    use super::WakeClaims;
+    use chrono::{TimeZone, Utc};
+
+    use super::{actor_exclusions, exec_conversation_is_owed, is_exec_self_message, WakeClaims};
 
     #[test]
     fn trigger_during_active_wake_becomes_one_follow_up() {
@@ -375,5 +568,53 @@ mod tests {
         assert!(claims.claim("probe"));
         claims.release("probe");
         assert!(claims.take_ready().is_empty());
+    }
+
+    #[test]
+    fn a_free_form_exec_wake_excludes_exec_work_claims() {
+        assert_eq!(
+            actor_exclusions(vec!["delivery-build".into()], true),
+            vec!["delivery-build", "exec"]
+        );
+        assert_eq!(actor_exclusions(vec!["exec".into()], true), vec!["exec"]);
+        assert!(actor_exclusions(Vec::new(), false).is_empty());
+    }
+
+    #[test]
+    fn an_exec_note_to_itself_never_creates_a_second_wake() {
+        assert!(is_exec_self_message(&serde_json::json!({
+            "body": { "from": "exec", "to": "exec" }
+        })));
+        assert!(!is_exec_self_message(&serde_json::json!({
+            "body": { "from": "daemon", "to": "exec" }
+        })));
+    }
+
+    #[test]
+    fn restart_recovery_distinguishes_missed_interrupted_and_completed_wakes() {
+        let at = |second| Utc.timestamp_opt(second, 0).unwrap();
+        let message = at(20);
+
+        assert!(exec_conversation_is_owed(message, None, None));
+        assert!(exec_conversation_is_owed(
+            message,
+            Some(at(21)),
+            Some(at(10))
+        ));
+        assert!(exec_conversation_is_owed(
+            message,
+            Some(at(10)),
+            Some(at(11))
+        ));
+        assert!(!exec_conversation_is_owed(
+            message,
+            Some(at(21)),
+            Some(at(22))
+        ));
+        assert!(!exec_conversation_is_owed(
+            message,
+            Some(at(10)),
+            Some(at(21))
+        ));
     }
 }

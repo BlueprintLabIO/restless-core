@@ -24,6 +24,16 @@ keeping every approach. The counter, in one line:
 This is the working stance. Read [`LLM_CURE.md`](./LLM_CURE.md) before designing or coding — it is the
 canonical home for these frames, why each failure mode happens, and what has already been tried.
 
+ALWAYS use tooltips or hover explanations instead of eyebrows or subtitles. Typography should always be minimalist.
+
+For any owner-facing frontend design or implementation, read
+[`docs/FRONTEND_DESIGN_REFERENCES.md`](./docs/FRONTEND_DESIGN_REFERENCES.md). During every final
+visual touch-up pass, consult Beautiful UI and Cult UI as the general polish bar, then compare the
+live desktop and mobile result with at least one relevant source-first reference from that document.
+Prefer public, licensed source or a component registry that an agent can fetch. Extract the exact
+quality that fits Restless and port it into the existing Svelte design system; do not import a second
+visual identity or a React runtime merely because the reference is attractive.
+
 ---
 
 ## What carries over from the legacy agreement (still true)
@@ -205,15 +215,16 @@ This repo is built in sprints by two founders collaborating on the `dev` branch.
 
 ## Repo conventions
 
-- **Rust workspace.** For now, only two empty binary crates exist: `restlessd` (the daemon, the
-  "stable coordination core" of §4.4) and `restless` (the CLI). Layer crates (`kernel`, `orgintel`,
-  `runtime`) are NOT pre-scaffolded — they are grown from the first slice that needs them, per §16.1.
-- **The operator SPA is in `web/`** — lifted from the prior control plane (`cf8a028`): design layer,
-  primitives, composed surfaces and every page, rendering from `$lib/fixtures`. It carries no truth;
-  wiring it means swapping the fixture for a read client and passing real write callbacks. Its read
-  model, `web/src/lib/model/view.ts` (`DeskView`), is the de facto owner-surface contract — read it
-  before designing anything owner-facing. **Brand config is not in this repo yet** (cofounder ports
-  branding manually). Keep code and protocols brand-neutral so a configured name is applied in one place.
+- **Rust workspace.** The implemented crates are `restlessd` (the daemon and stable coordination
+  core), `restless` (the owner CLI), `restless-orgintel` (recoverable organisational state) and
+  `restless-model-gateway` (host-side model access and spend accounting). Do not pre-scaffold new
+  layer crates; grow a crate or service only when a proved slice needs its ownership or failure
+  boundary, per §16.1.
+- **The operator SPA is in `web/`** — lifted from the prior control plane (`cf8a028`) and now wired
+  to company-scoped owner APIs. It carries projections, never source truth. Its read models in
+  `web/src/lib/model/` are the owner-surface contracts — read them before designing anything
+  owner-facing. **Brand config is not in this repo yet** (cofounder ports branding manually). Keep
+  code and protocols brand-neutral so a configured name is applied in one place.
 - **Pushing** is owner-only; never `git push` without being asked.
 - **Testing style** (carried forward): add automated tests only for key product invariants and
   security/data-integrity boundaries. Do not add tests for implementation details, trivial wiring,
@@ -223,6 +234,12 @@ This repo is built in sprints by two founders collaborating on the `dev` branch.
 - **Verifying.** Prefer headless verification (CLI, API, service-level probe, headless run) with stated
   inputs and expected outcome. Manual visual inspection supplements, it does not replace, a feasible
   headless check.
+- **Local cockpit stack.** Use `restless-dev <company>` rather than starting Vite alone; use
+  `restless doctor -c <company>` to probe the browser-to-runtime path before reporting it live. A
+  rendered SPA shell is not evidence that its owner APIs are connected.
+- **Build storage is bounded operating state.** Before full Rust verification or build-heavy scratch
+  work, follow [`docs/BUILD_STORAGE.md`](./docs/BUILD_STORAGE.md). Keep throwaway targets isolated,
+  check host headroom, and clean only exact regenerable locations while their tools are idle.
 - **Never report green without running it.** No component is described as working — in a commit
   message, spec, or summary — unless it has been executed with stated inputs and observed output.
   "Compiles" is not "works"; "tests pass" is not "the company produced the artifact".

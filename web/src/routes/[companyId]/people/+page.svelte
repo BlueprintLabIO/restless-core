@@ -1,27 +1,18 @@
 <script lang="ts">
-	/* People is a conversation surface (S06-T2/T6). The centre is the transcript
-	 * with the selected person; their operating evidence sits beside it rather
-	 * than in front of it. There is no Executive rail on this route because a
-	 * second permanent conversation would compete with the one already open.
-	 *
-	 * Teams and membership come from the cockpit projection. This page does not
-	 * infer hierarchy from role strings or Work titles. The Exec and active team
-	 * leads are addressable; other Staff receive owner input through their Work. */
+	/* People distinguishes accountable contacts from inspectable contributors.
+	 * Teams, actor class and membership come from source-owned projections; the
+	 * page never infers them from ids, role strings or Work titles. */
 
-	import { onMount } from 'svelte';
+	import { onMount, tick } from 'svelte';
 	import { page } from '$app/state';
 	import MatrixGlyph, { GLYPHS } from '$lib/primitives/MatrixGlyph.svelte';
 	import SemanticMark from '$lib/primitives/SemanticMark.svelte';
-	import AttachmentList from '$lib/primitives/AttachmentList.svelte';
 	import Composer from '$lib/primitives/Composer.svelte';
-	import IntentReceipt from '$lib/primitives/IntentReceipt.svelte';
-	import Markdown from '$lib/primitives/Markdown.svelte';
-	import {
-		getActorConversation,
-		getAttention,
-		sendActorMessage,
-		type AttentionView
-	} from '$lib/model/attention';
+	import ConversationHistoryTools from '$lib/primitives/ConversationHistoryTools.svelte';
+	import ConversationMessage from '$lib/primitives/ConversationMessage.svelte';
+	import ConversationTurnDock from '$lib/primitives/ConversationTurnDock.svelte';
+	import { cockpitContextPath, getAttention, type AttentionView } from '$lib/model/attention';
+	import { conversationSource } from '$lib/model/conversationSource.svelte';
 	import {
 		getCockpit,
 		personTone,
@@ -29,7 +20,7 @@
 		type CockpitTeam,
 		type CockpitView
 	} from '$lib/model/cockpit';
-	import type { ThreadMessage } from '$lib/model/view';
+	import { mergeAdjacentAgentMessages } from '$lib/model/view';
 
 	const companyId = $derived(page.params.companyId ?? 'aris');
 	let cockpit = $state<CockpitView | null>(null);
@@ -37,13 +28,23 @@
 	let selectedId = $state('');
 	let error = $state('');
 
-	let messages = $state<ThreadMessage[]>([]);
 	let loadedFor = $state('');
 	let composer = $state('');
 	let composerFiles = $state<File[]>([]);
 	let sendError = $state('');
+	let sendNotice = $state('');
 	let sending = $state(false);
 	let scrollEl = $state<HTMLDivElement | undefined>();
+	let anchoredTurnId = $state<number | null>(null);
+	let transcriptTailHeight = $state(0);
+	let initiallyScrolledFor = $state('');
+	const selectedConversation = $derived(
+		selectedId && isContact(cockpit, selectedId) ? conversationSource(companyId, selectedId) : null
+	);
+	$effect(() => selectedConversation?.attach());
+	const messages = $derived(selectedConversation?.messages ?? []);
+	const visibleMessages = $derived(mergeAdjacentAgentMessages(messages));
+	const turn = $derived(selectedConversation?.activeTurn ?? null);
 
 	onMount(() => {
 		void refresh();
@@ -61,22 +62,11 @@
 			attention = nextAttention;
 			error = '';
 			if (!nextCockpit.people.some((person) => person.actor_id === selectedId)) {
-				const firstLead = nextCockpit.teams
-					.map((team) => team.lead_actor_id)
-					.find((actorId) =>
-						nextCockpit.people.some(
-							(person) =>
-								person.actor_id === actorId &&
-								!['owner', 'exec', 'world', 'daemon'].includes(person.actor_id)
-						)
-					);
 				selectedId =
-					firstLead ??
-					nextCockpit.people.find((person) => person.actor_id === 'exec')?.actor_id ??
-					nextCockpit.people.find((person) => person.actor_id !== 'owner')?.actor_id ??
+					nextCockpit.people.find((person) => person.kind === 'exec')?.actor_id ??
+					nextCockpit.people.find((person) => person.kind === 'staff')?.actor_id ??
 					'';
 			}
-			if (selectedId) await loadConversation(selectedId);
 		} catch (cause) {
 			if (showError) error = cause instanceof Error ? cause.message : 'People are unavailable.';
 		}
@@ -88,56 +78,67 @@
 		const id = selectedId;
 		if (!id || id === loadedFor) return;
 		loadedFor = id;
-		messages = [];
 		composer = '';
 		composerFiles = [];
 		sendError = '';
-		void loadConversation(id);
+		sendNotice = '';
+		anchoredTurnId = null;
+		transcriptTailHeight = 0;
+	});
+
+	async function anchorSubmittedMessage(messageId: number) {
+		await tick();
+		const scroller = scrollEl;
+		const message = document.getElementById(messageDomId(String(messageId)));
+		if (!scroller || !message || anchoredTurnId !== messageId) return;
+
+		transcriptTailHeight = Math.max(0, scroller.clientHeight - message.offsetHeight);
+		await tick();
+		const top =
+			message.getBoundingClientRect().top -
+			scroller.getBoundingClientRect().top +
+			scroller.scrollTop;
+		const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+		scroller.scrollTo({ top, behavior: reduceMotion ? 'auto' : 'smooth' });
+	}
+
+	$effect(() => {
+		const messageId = turn?.triggerMessageId ?? null;
+		if (messageId === null || anchoredTurnId === messageId) return;
+		const firstMessageId = messages[0]?.id;
+		if (firstMessageId) initiallyScrolledFor = `${companyId}:${selectedId}:${firstMessageId}`;
+		anchoredTurnId = messageId;
+		void anchorSubmittedMessage(messageId);
 	});
 
 	$effect(() => {
-		if (messages.length === 0) return;
-		scrollEl?.scrollTo({ top: scrollEl.scrollHeight });
+		const firstMessageId = messages[0]?.id;
+		if (!firstMessageId || turn) return;
+		const conversationKey = `${companyId}:${selectedId}:${firstMessageId}`;
+		if (initiallyScrolledFor === conversationKey) return;
+		initiallyScrolledFor = conversationKey;
+		anchoredTurnId = null;
+		transcriptTailHeight = 0;
+		void tick().then(() => scrollEl?.scrollTo({ top: scrollEl.scrollHeight }));
 	});
-
-	async function loadConversation(actorId: string) {
-		try {
-			const conversation = await getActorConversation(companyId, actorId);
-			/* A slower request for a person the owner has already moved on from must
-			 * not overwrite the transcript now on screen. */
-			if (actorId !== selectedId) return;
-			messages = conversation.messages.map((message) => ({
-				id: String(message.id),
-				from: message.from_actor === 'owner' ? 'you' : 'agent',
-				author: message.from_actor === 'owner' ? 'You' : conversation.actor.display,
-				text: message.body,
-				createdAt: message.created_at,
-				replyToMessageId: null,
-				assetId: null,
-				runId: null,
-				attachments: message.attachments ?? [],
-				intent: message.intent ?? null,
-				contextPath: message.context_path ?? null
-			}));
-		} catch {
-			/* Preserve the last observed transcript when the live source drops. */
-		}
-	}
 
 	async function submitMessage(event: SubmitEvent) {
 		event.preventDefault();
 		const text = composer.trim();
-		if (!text || sending || !canSend) return;
+		if (!text || sending || !canSend || !selectedConversation) return;
 		sending = true;
 		sendError = '';
+		sendNotice = '';
 		const sent = composer;
 		const files = composerFiles;
-		const target = selectedId;
 		composer = '';
 		try {
-			await sendActorMessage(companyId, target, text, undefined, files, page.url.pathname);
+			const contextPath = cockpitContextPath(companyId, page.url);
+			const result = await selectedConversation.send(text, files, contextPath);
 			composerFiles = [];
-			await loadConversation(target);
+			if (!contextPath || result.contextOmitted) {
+				sendNotice = 'Message sent without the current-screen link.';
+			}
 		} catch (cause) {
 			composer = sent;
 			sendError = cause instanceof Error ? cause.message : 'Your message was not delivered.';
@@ -146,20 +147,20 @@
 		}
 	}
 
-	const people = $derived(cockpit?.people.filter((person) => person.actor_id !== 'owner') ?? []);
+	const people = $derived(
+		cockpit?.people.filter((person) => person.kind !== 'owner' && person.kind !== 'system') ?? []
+	);
+	const exec = $derived(people.find((person) => person.kind === 'exec') ?? null);
 	const teams = $derived(cockpit?.teams ?? []);
 	const teamGroups = $derived(
 		teams.map((team) => ({
 			team,
-			lead:
-				people.find(
-					(person) => person.actor_id === team.lead_actor_id && !isStandingActor(person)
-				) ?? null,
+			lead: people.find((person) => person.actor_id === team.lead_actor_id) ?? null,
 			members: people.filter(
 				(person) =>
 					person.team_id === team.id &&
 					person.actor_id !== team.lead_actor_id &&
-					!isStandingActor(person)
+					person.kind === 'staff'
 			)
 		}))
 	);
@@ -167,10 +168,9 @@
 	const unassigned = $derived(
 		people.filter(
 			(person) =>
-				!isStandingActor(person) && (person.team_id === null || !activeTeamIds.has(person.team_id))
+				person.kind === 'staff' && (person.team_id === null || !activeTeamIds.has(person.team_id))
 		)
 	);
-	const standingActors = $derived(people.filter(isStandingActor));
 	const selected = $derived(
 		people.find((person) => person.actor_id === selectedId) ?? people[0] ?? null
 	);
@@ -195,13 +195,9 @@
 
 	const canSend = $derived(
 		cockpit?.source_health.orgintel === 'available' &&
-			(selected?.actor_id === 'exec' ||
-				(selected !== null &&
-					!isStandingActor(selected) &&
-					teams.some((team) => team.lead_actor_id === selected.actor_id)))
+			selected !== null &&
+			isContact(cockpit, selected.actor_id)
 	);
-	const waiting = $derived(canSend && messages.length > 0 && messages.at(-1)!.from === 'you');
-
 	const attachmentHref = (attachment: { uploadId: string }) =>
 		`/api/companies/${encodeURIComponent(companyId)}/attachments/${encodeURIComponent(attachment.uploadId)}`;
 
@@ -214,14 +210,18 @@
 			.join('');
 	}
 
-	function stateOf(person: CockpitPerson): string {
+	function exceptionalState(person: CockpitPerson): string | null {
 		if (person.model_cooldown) return 'cooling down';
 		if (person.session_running) return 'working';
-		return 'ready';
+		return null;
 	}
 
-	function isStandingActor(person: CockpitPerson): boolean {
-		return ['exec', 'world', 'daemon'].includes(person.actor_id);
+	function isContact(view: CockpitView | null, actorId: string): boolean {
+		const person = view?.people.find((candidate) => candidate.actor_id === actorId);
+		return (
+			person?.kind === 'exec' ||
+			(view?.teams.some((team) => team.lead_actor_id === actorId) ?? false)
+		);
 	}
 
 	function teamState(team: CockpitTeam): string {
@@ -251,10 +251,31 @@
 		return date.toLocaleDateString(undefined, { month: 'long', day: 'numeric' });
 	}
 
-	function timeLabel(value: Date | string): string {
-		const date = value instanceof Date ? value : new Date(value);
-		if (Number.isNaN(date.getTime())) return '';
-		return date.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+	function messageDomId(messageId: string): string {
+		return `people-message-${companyId}-${selectedId}-${messageId.replaceAll(':', '-')}`;
+	}
+
+	function jumpToMessage(messageId: string) {
+		const message = document.getElementById(messageDomId(messageId));
+		if (!message) return;
+		const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+		message.scrollIntoView({ behavior: reduceMotion ? 'auto' : 'smooth', block: 'center' });
+		if (!reduceMotion) {
+			message.animate(
+				[
+					{
+						boxShadow:
+							'inset 2px 0 0 color-mix(in srgb, var(--intent-conversation) 0%, transparent)'
+					},
+					{ boxShadow: 'inset 2px 0 0 var(--intent-conversation)' },
+					{
+						boxShadow:
+							'inset 2px 0 0 color-mix(in srgb, var(--intent-conversation) 0%, transparent)'
+					}
+				],
+				{ duration: 900, easing: 'cubic-bezier(0.23, 1, 0.32, 1)' }
+			);
+		}
 	}
 
 	function selectTeam(team: CockpitTeam) {
@@ -274,6 +295,12 @@
 			<span class="pane-count">{people.length}</span>
 		</header>
 		<div class="people-list">
+			{#if exec}
+				<section class="exec-anchor" aria-label="Company executive">
+					{@render personRow(exec, 'exec')}
+				</section>
+			{/if}
+
 			{#each teamGroups as group (group.team.id)}
 				<section class="team-group" aria-label={group.team.name}>
 					<button
@@ -302,16 +329,7 @@
 						<span>Unassigned</span><small>{unassigned.length}</small>
 					</div>
 					{#each unassigned as person (person.actor_id)}
-						{@render personRow(person, 'root')}
-					{/each}
-				</section>
-			{/if}
-
-			{#if standingActors.length}
-				<section class="team-group roster-remainder" aria-label="Company and system actors">
-					<div class="team-heading static"><span>Not people</span></div>
-					{#each standingActors as person (person.actor_id)}
-						{@render personRow(person, 'root')}
+						{@render personRow(person, 'member')}
 					{/each}
 				</section>
 			{/if}
@@ -322,8 +340,8 @@
 		</div>
 		{#if selected}
 			<section class="people-focus-summary">
-				<strong>{selected.display} is working on</strong>
-				<p>{focusWork?.outcome ?? focusWork?.title ?? 'No active outcome is assigned.'}</p>
+				<strong>{selected.display}'s current focus</strong>
+				<p>{focusWork?.title ?? 'No active Work is assigned.'}</p>
 				<a href={`/${companyId}/work`}>Open linked Work →</a>
 			</section>
 		{/if}
@@ -337,111 +355,123 @@
 				>
 				<div class="talk-who">
 					<strong>{selected.display}</strong>
-					<small>{roleLabel(selected.role)}</small>
+					<small title={`Actor ${selected.actor_id}`}
+						>{roleLabel(selected.role)} · {selected.actor_id}</small
+					>
 				</div>
-				<span class="profile-presence {selected.session_running ? 'working' : ''}">
-					<MatrixGlyph
-						rows={selected.session_running ? GLYPHS.dots : GLYPHS.ring}
-						size={9}
-						glow={selected.session_running}
+				{#if canSend && visibleMessages.length}
+					<ConversationHistoryTools
+						messages={visibleMessages}
+						participantName={selected.actor_id === 'exec' ? 'Exec' : selected.display}
+						onjump={jumpToMessage}
 					/>
-					{stateOf(selected)}
-				</span>
+				{/if}
+				{#if exceptionalState(selected)}
+					<span class="profile-presence {selected.session_running ? 'working' : ''}">
+						<MatrixGlyph
+							rows={selected.session_running ? GLYPHS.dots : GLYPHS.ring}
+							size={9}
+							glow={selected.session_running}
+						/>
+						{exceptionalState(selected)}
+					</span>
+				{/if}
 			</header>
 
-			<div class="talk-msgs exr-msgs" bind:this={scrollEl}>
-				{#each messages as message, i (message.id)}
-					{#if i === 0 || dayOf(message.createdAt) !== dayOf(messages[i - 1].createdAt)}
-						<div class="day-sep" aria-hidden="true"><span>{dayLabel(message.createdAt)}</span></div>
-					{/if}
-					<article class="people-message {message.from === 'you' ? 'you' : 'agent'}">
-						<header class="people-message-author">
-							<span>
-								{#if message.from === 'agent'}
-									<MatrixGlyph rows={GLYPHS.p} size={7} />
-								{/if}
-								<strong
-									>{message.from === 'you' ? 'You' : message.author || selected.display}</strong
-								>
-								{#if message.from === 'agent'}<small>{roleLabel(selected.role)}</small>{/if}
-							</span>
-							<time>{timeLabel(message.createdAt)}</time>
-						</header>
-						<div class="people-message-body">
-							{#if message.from === 'agent'}
-								<Markdown text={message.text} />
-								<AttachmentList attachments={message.attachments} hrefFor={attachmentHref} />
-								{#if message.intent}<IntentReceipt intent={message.intent} />{/if}
-							{:else}
-								<p>{message.text}</p>
-								<AttachmentList attachments={message.attachments} hrefFor={attachmentHref} />
-								{#if message.contextPath}
-									<span class="message-context-ref">
-										<MatrixGlyph rows={GLYPHS.work} size={7} />
-										Sent from {message.contextPath}
-									</span>
-								{/if}
-							{/if}
-						</div>
-					</article>
-				{:else}
-					<div class="exr-empty">
-						<p class="exr-empty-h">Nothing said yet.</p>
-						<p class="exr-empty-p">
-							This is the company record of what has passed between you and {selected.display}.
-						</p>
-					</div>
-				{/each}
-				{#if waiting}
-					<div class="exr-thinking" aria-label="Preparing an answer"><i></i><i></i><i></i></div>
-				{/if}
-			</div>
-
 			{#if canSend}
+				<div class="talk-msgs exr-msgs" bind:this={scrollEl}>
+					{#each visibleMessages as message, i (message.id)}
+						{#if i === 0 || dayOf(message.createdAt) !== dayOf(visibleMessages[i - 1].createdAt)}
+							<div class="day-sep" aria-hidden="true">
+								<span>{dayLabel(message.createdAt)}</span>
+							</div>
+						{/if}
+						<ConversationMessage
+							domId={messageDomId(message.id)}
+							sender={message.from === 'you' ? 'owner' : 'agent'}
+							author={message.from === 'you' ? 'You' : message.author || selected.display}
+							text={message.text}
+							createdAt={message.createdAt}
+							details={message.details}
+							attachments={message.attachments}
+							hrefFor={attachmentHref}
+						/>
+					{:else}
+						<div class="exr-empty">
+							<p class="exr-empty-h">Nothing said yet.</p>
+							<p class="exr-empty-p">Start a conversation with this accountable company contact.</p>
+						</div>
+					{/each}
+					{#if turn}
+						<ConversationTurnDock
+							participantName={selected.actor_id === 'exec' ? 'Exec' : selected.display}
+							{turn}
+						/>
+					{/if}
+					{#if anchoredTurnId !== null}
+						<div
+							class="conversation-tail"
+							style:height={`${transcriptTailHeight}px`}
+							aria-hidden="true"
+						></div>
+					{/if}
+				</div>
 				<form class="talk-composer" onsubmit={submitMessage}>
 					<Composer
 						bind:value={composer}
 						bind:files={composerFiles}
 						disabled={sending}
+						minlength={1}
 						placeholder={`Ask ${selected.display}, redirect, or make a judgement…`}
 						ariaLabel={`Message ${selected.display}`}
-					>
-						{#snippet controls()}
-							<div class="people-composer-context">
-								<MatrixGlyph rows={GLYPHS.work} size={8} />
-								<strong>Message {selected.display}</strong>
-								<span>Linked · People</span>
-							</div>
-						{/snippet}
-					</Composer>
-					<div class="composer-foot">
-						<span>
-							{selected.actor_id === 'exec'
-								? 'Exec interprets intent and confirms consequential changes'
-								: `${selected.display} speaks for ${selectedTeam?.name ?? 'their team'} and can change its Work`}
-						</span>
-						<span>⌘ ↵ send</span>
-					</div>
+					/>
 					{#if sendError}<p class="exr-error" role="alert">{sendError}</p>{/if}
+					{#if sendNotice}<p class="exr-notice" role="status">{sendNotice}</p>{/if}
 				</form>
 			{:else}
-				<div class="talk-closed">
-					<SemanticMark meaning="unavailable" size="small" />
-					<div>
-						<strong>{selected.display} is not a team contact.</strong>
-						<p>Direct conversation is available with the Exec and accountable team leads.</p>
-						{#if selectedTeamLead && selectedTeamLead.actor_id !== selected.actor_id}
-							<button
-								type="button"
-								class="contact-route"
-								onclick={() => (selectedId = selectedTeamLead!.actor_id)}
-							>
-								Talk to {selectedTeamLead.display} for {selectedTeam?.name} ▸
-							</button>
+				<div class="member-inspection">
+					<section class="inspection-route">
+						<div>
+							<strong class="inspection-route-title">
+								<SemanticMark meaning="people" size="small" />
+								{selected.display} contributes through accountable Work.
+							</strong>
+							{#if selectedTeamLead && selectedTeamLead.actor_id !== selected.actor_id}
+								<p>{selectedTeamLead.display} is accountable for {selectedTeam?.name}.</p>
+								<button
+									type="button"
+									class="contact-route"
+									onclick={() => (selectedId = selectedTeamLead!.actor_id)}
+								>
+									Talk to {selectedTeamLead.display} ▸
+								</button>
+							{:else if exec}
+								<p>This specialist is currently unassigned; the Exec is accountable.</p>
+								<button
+									type="button"
+									class="contact-route"
+									onclick={() => (selectedId = exec!.actor_id)}
+								>
+									Talk to {exec.display} ▸
+								</button>
+							{/if}
+						</div>
+					</section>
+
+					<section class="inspection-work">
+						<header>
+							<h2>Current Work</h2>
+							<span>{selectedWork.length}</span>
+						</header>
+						{#each selectedWork as item (item.id)}
+							<a href={`/${companyId}/work/${item.id}`} class="inspection-work-row">
+								<div><strong>{item.title}</strong><small>Revision {item.revision}</small></div>
+								<span class:blocked={item.status === 'blocked'}>{item.status}</span>
+							</a>
 						{:else}
-							<a href={`/${companyId}`}>Talk to the Exec ▸</a>
-						{/if}
-					</div>
+							<p class="inspection-empty">No Work is currently assigned.</p>
+						{/each}
+					</section>
 				</div>
 			{/if}
 		{:else}
@@ -450,11 +480,13 @@
 	</section>
 </div>
 
-{#snippet personRow(person: CockpitPerson, level: 'lead' | 'member' | 'root')}
+{#snippet personRow(person: CockpitPerson, level: 'exec' | 'lead' | 'member')}
 	<button
 		type="button"
 		class="person-row {level}"
 		class:selected={selected?.actor_id === person.actor_id}
+		title={`${person.display} · ${roleLabel(person.role)} · ${person.actor_id}`}
+		aria-label={level === 'member' ? `Inspect ${person.display}` : `Contact ${person.display}`}
 		onclick={() => (selectedId = person.actor_id)}
 	>
 		<span class="person-avatar tone-{personTone({ actor_id: person.actor_id })}"
@@ -462,17 +494,30 @@
 		>
 		<span class="person-copy">
 			<strong>{person.display}</strong>
-			<small>{level === 'lead' ? 'Team lead' : roleLabel(person.role)}</small>
 		</span>
-		<span class="person-state {person.session_running ? 'working' : ''}">
-			<i></i>{stateOf(person)}
-		</span>
+		{#if exceptionalState(person)}
+			<span class="person-state {person.session_running ? 'working' : ''}">
+				<i></i>{exceptionalState(person)}
+			</span>
+		{/if}
 	</button>
 {/snippet}
 
 <style>
 	.team-group {
 		border-bottom: 1px solid var(--border);
+	}
+
+	.exec-anchor {
+		padding: 8px;
+		border-bottom: 1px solid var(--border-strong);
+		background:
+			linear-gradient(
+				135deg,
+				color-mix(in srgb, var(--intent-conversation) 10%, transparent),
+				transparent 58%
+			),
+			var(--surface-alt);
 	}
 
 	.team-heading {
@@ -532,11 +577,21 @@
 		cursor: pointer;
 	}
 
-	.person-row.member {
-		padding-left: 29px;
+	.person-row.exec {
+		border: 1px solid color-mix(in srgb, var(--intent-conversation) 28%, var(--border));
+		background: rgba(255, 255, 255, 0.58);
+		box-shadow: var(--bevel-subtle);
 	}
 
-	.person-row:hover,
+	.person-row.member {
+		grid-template-columns: 22px minmax(0, 1fr) auto;
+		gap: 8px;
+		padding: 6px 12px 6px 31px;
+		color: var(--text-secondary);
+	}
+
+	.person-row.exec:hover,
+	.person-row.lead:hover,
 	.person-row.selected {
 		background: rgba(255, 255, 255, 0.56);
 	}
@@ -549,6 +604,19 @@
 		width: 28px;
 		height: 28px;
 		font-size: var(--t-label);
+	}
+
+	.person-row.member :global(.person-avatar) {
+		width: 22px;
+		height: 22px;
+		border-color: var(--border);
+		font-size: var(--t-label);
+		opacity: 0.82;
+	}
+
+	.person-row.member .person-copy strong {
+		font-size: var(--t-label);
+		font-weight: 560;
 	}
 
 	.roster-remainder {
@@ -574,5 +642,106 @@
 		text-transform: uppercase;
 		color: var(--intent-conversation);
 		cursor: pointer;
+	}
+
+	.conversation-tail {
+		width: 1px;
+		flex: 0 0 auto;
+		pointer-events: none;
+	}
+
+	.member-inspection {
+		min-height: 0;
+		overflow: auto;
+		padding: 18px;
+	}
+
+	.inspection-route {
+		padding: 15px 16px;
+		border: 1px solid color-mix(in srgb, var(--intent-conversation) 22%, var(--border));
+		background: color-mix(in srgb, var(--intent-conversation) 5%, var(--surface));
+		box-shadow: var(--bevel-subtle);
+	}
+
+	.inspection-route-title {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+	}
+
+	.inspection-route strong {
+		display: block;
+		font-size: var(--t-body);
+	}
+
+	.inspection-route p,
+	.inspection-empty {
+		margin: 5px 0 0;
+		font-size: var(--t-body);
+		line-height: 1.5;
+		color: var(--text-secondary);
+	}
+
+	.inspection-work {
+		margin-top: 18px;
+		border: 1px solid var(--border);
+		background: rgba(255, 255, 255, 0.35);
+	}
+
+	.inspection-work > header {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		padding: 10px 12px;
+		border-bottom: 1px solid var(--border);
+	}
+
+	.inspection-work h2 {
+		margin: 0;
+		font-size: var(--t-body);
+	}
+
+	.inspection-work > header span,
+	.inspection-work-row > span {
+		font: 500 var(--t-label) var(--font-mono);
+		text-transform: uppercase;
+		color: var(--text-tertiary);
+	}
+
+	.inspection-work-row {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 16px;
+		padding: 12px;
+		border-bottom: 1px solid var(--border);
+		color: var(--ink);
+		text-decoration: none;
+	}
+
+	.inspection-work-row:last-child {
+		border-bottom: 0;
+	}
+
+	.inspection-work-row:hover {
+		background: rgba(255, 255, 255, 0.58);
+	}
+
+	.inspection-work-row strong,
+	.inspection-work-row small {
+		display: block;
+	}
+
+	.inspection-work-row small {
+		margin-top: 4px;
+		color: var(--text-tertiary);
+	}
+
+	.inspection-work-row > span.blocked {
+		color: var(--danger);
+	}
+
+	.inspection-empty {
+		padding: 14px 12px;
 	}
 </style>

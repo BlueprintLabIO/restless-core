@@ -27,6 +27,7 @@ RUN apt-get update \
         ca-certificates \
         chromium \
         curl \
+		dbus-x11 \
         fonts-liberation \
         g++ \
         git \
@@ -34,13 +35,17 @@ RUN apt-get update \
         make \
         novnc \
         openbox \
+		pcmanfm \
         python3 \
         ripgrep \
         socat \
         supervisor \
+		tint2 \
         tigervnc-standalone-server \
         tini \
+		wmctrl \
         websockify \
+		x11-xserver-utils \
     && rm -rf /var/lib/apt/lists/*
 
 # The ACP agent binary: omp (Oh My Pi), which speaks ACP natively and reports
@@ -95,10 +100,17 @@ RUN groupadd --gid 2000 company \
 COPY infra/company-image/entrypoint.sh /usr/local/bin/company-init
 COPY infra/company-image/wait-for-display.sh /usr/local/bin/wait-for-company-display
 COPY infra/company-image/start-chromium.sh /usr/local/bin/start-company-chromium
+COPY infra/company-image/start-desktop-panel.sh /usr/local/bin/start-company-desktop-panel
+COPY infra/company-image/focus-chromium.sh /usr/local/bin/focus-company-chromium
+COPY infra/company-image/tint2rc /etc/restless/tint2rc
+COPY infra/company-image/company-browser.desktop /usr/share/applications/company-browser.desktop
 COPY infra/company-image/browser-broker.mjs /usr/local/lib/restless/browser-broker.mjs
 COPY infra/company-image/supervisord.conf /etc/supervisor/conf.d/restless.conf
-RUN chmod 0555 /usr/local/bin/company-init /usr/local/bin/wait-for-company-display /usr/local/bin/start-company-chromium \
-    && chmod 0444 /usr/local/lib/restless/browser-broker.mjs /etc/supervisor/conf.d/restless.conf
+RUN chmod 0555 /usr/local/bin/company-init /usr/local/bin/wait-for-company-display \
+        /usr/local/bin/start-company-chromium /usr/local/bin/start-company-desktop-panel \
+        /usr/local/bin/focus-company-chromium \
+    && chmod 0444 /usr/local/lib/restless/browser-broker.mjs /etc/supervisor/conf.d/restless.conf \
+        /etc/restless/tint2rc /usr/share/applications/company-browser.desktop
 
 # The coordination CLI, and where it finds the daemon from inside the
 # container (TCP: unix sockets do not cross the Docker Desktop file share —

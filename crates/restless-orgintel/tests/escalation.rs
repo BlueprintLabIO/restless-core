@@ -14,8 +14,22 @@
 //! RESTLESS_TEST_DATABASE_URL is set.
 
 use restless_orgintel::{
-    NewOwnerHandoff, NewWork, OrgIntel, OwnerHandoffCategory, OwnerHandoffState, WorkspaceSpec,
+    NewOwnerHandoff, NewWork, OrgIntel, OwnerBrief, OwnerBriefKind, OwnerHandoffCategory,
+    OwnerHandoffState, OwnerReviewDecision, WorkspaceSpec,
 };
+
+fn owner_brief(kind: OwnerBriefKind, headline: &str) -> OwnerBrief {
+    OwnerBrief {
+        kind,
+        headline: headline.into(),
+        situation: "The team completed the machine-doable preparation.".into(),
+        impact: "The remaining choice changes the company's capital exposure.".into(),
+        recommendation: "Choose the bounded exposure with the stronger downside limit.".into(),
+        no_action: "The Work remains paused and no capital is committed.".into(),
+        uncertainty: Some("Demand at the higher exposure is not yet observed.".into()),
+        deadline: None,
+    }
+}
 
 async fn work_for(org: &OrgIntel, owner: &str, title: &str) -> uuid::Uuid {
     org.add_work(NewWork {
@@ -77,40 +91,51 @@ async fn judgement_routes_to_the_lead_before_the_owner() {
         .await
         .expect("ensure schema");
 
-    org.add_actor("owner", "owner", "The Owner").await.unwrap();
-    org.add_actor("exec", "exec", "The Exec").await.unwrap();
-    org.add_actor("offer-lead", "lead", "Offer lead")
+    org.ensure_actor("owner", "owner", "owner", "The Owner")
         .await
         .unwrap();
-    org.add_actor("writer", "copywriter", "Writer")
+    org.ensure_actor("exec", "exec", "exec", "The Exec")
         .await
         .unwrap();
-    org.add_actor("critic", "critic", "Critic").await.unwrap();
-    org.add_actor("loner", "researcher", "Unassigned researcher")
+    org.ensure_actor("offer-strategy", "staff", "lead", "Offer lead")
         .await
         .unwrap();
+    org.ensure_actor("offer-copy", "staff", "copywriter", "Writer")
+        .await
+        .unwrap();
+    org.ensure_actor("offer-review", "staff", "critic", "Critic")
+        .await
+        .unwrap();
+    org.ensure_actor(
+        "market-research",
+        "staff",
+        "researcher",
+        "Unassigned researcher",
+    )
+    .await
+    .unwrap();
 
     let team = org
         .create_team(
             "Centre offer",
             "Sell the centre licence",
-            "offer-lead",
+            "offer-strategy",
             "exec",
         )
         .await
         .unwrap();
     org.set_actor_team(
-        "writer",
+        "offer-copy",
         Some(team),
-        "offer-lead",
+        "offer-strategy",
         "writes the centre offer",
     )
     .await
     .unwrap();
     org.set_actor_team(
-        "critic",
+        "offer-review",
         Some(team),
-        "offer-lead",
+        "offer-strategy",
         "independently checks the offer",
     )
     .await
@@ -122,19 +147,19 @@ async fn judgement_routes_to_the_lead_before_the_owner() {
         .await
         .unwrap()
         .into_iter()
-        .find(|actor| actor.id == "offer-lead")
+        .find(|actor| actor.id == "offer-strategy")
         .unwrap();
     assert_eq!(lead_row.team_id, Some(team));
 
     // 1. A member's judgement goes to its lead, and does NOT reach the owner.
-    let writer_work = work_for(&org, "writer", "Draft the centre email").await;
-    let escalated = judgement(&org, "writer", writer_work).await;
+    let writer_work = work_for(&org, "offer-copy", "Draft the centre email").await;
+    let escalated = judgement(&org, "offer-copy", writer_work).await;
 
     let rows = org.list_owner_handoffs().await.unwrap();
     let row = rows.iter().find(|row| row.id == escalated).unwrap();
     assert_eq!(
         row.assigned_to.as_deref(),
-        Some("offer-lead"),
+        Some("offer-strategy"),
         "a member's judgement must be owed by its lead"
     );
     assert!(
@@ -142,7 +167,7 @@ async fn judgement_routes_to_the_lead_before_the_owner() {
         "judgement a lead owes must not consume owner attention"
     );
     assert_eq!(
-        org.handoffs_assigned_to("offer-lead")
+        org.handoffs_assigned_to("offer-strategy")
             .await
             .unwrap()
             .iter()
@@ -162,7 +187,7 @@ async fn judgement_routes_to_the_lead_before_the_owner() {
         .find(|work| work.id == writer_work)
         .unwrap();
     assert!(
-        blocked.resolution.contains("offer-lead"),
+        blocked.resolution.contains("offer-strategy"),
         "blocked Work must name its resolver, got {:?}",
         blocked.resolution
     );
@@ -171,7 +196,7 @@ async fn judgement_routes_to_the_lead_before_the_owner() {
     // Exec can answer and the answer becomes exact input to the blocked Work.
     org.escalate_handoff(
         escalated,
-        "offer-lead",
+        "offer-strategy",
         "needs company-wide pricing guidance",
     )
     .await
@@ -179,7 +204,7 @@ async fn judgement_routes_to_the_lead_before_the_owner() {
     let rows = org.list_owner_handoffs().await.unwrap();
     let row = rows.iter().find(|row| row.id == escalated).unwrap();
     assert_eq!(row.assigned_to.as_deref(), Some("exec"));
-    assert_eq!(row.escalated_from.as_deref(), Some("offer-lead"));
+    assert_eq!(row.escalated_from.as_deref(), Some("offer-strategy"));
     assert!(row.escalated_at.is_some());
     assert!(
         row.resolution.contains("pricing guidance"),
@@ -217,10 +242,10 @@ async fn judgement_routes_to_the_lead_before_the_owner() {
 
     // 3. An escalation with no reason is refused. The owner is being asked for
     //    time; an unexplained handoff is the cost this whole change removes.
-    let critic_work = work_for(&org, "critic", "Review the draft").await;
-    let silent = judgement(&org, "critic", critic_work).await;
+    let critic_work = work_for(&org, "offer-review", "Review the draft").await;
+    let silent = judgement(&org, "offer-review", critic_work).await;
     assert!(
-        org.escalate_handoff(silent, "offer-lead", "   ")
+        org.escalate_handoff(silent, "offer-strategy", "   ")
             .await
             .is_err(),
         "escalating without a reason must be refused"
@@ -228,7 +253,7 @@ async fn judgement_routes_to_the_lead_before_the_owner() {
 
     // 4. Only the lead it is assigned to may escalate it.
     assert!(
-        org.escalate_handoff(silent, "writer", "not mine")
+        org.escalate_handoff(silent, "offer-copy", "not mine")
             .await
             .is_err(),
         "an actor cannot pass up a judgement it does not owe"
@@ -238,20 +263,23 @@ async fn judgement_routes_to_the_lead_before_the_owner() {
     // failure. Supervision reassigns the exact pending row to Exec and records
     // the observed reason.
     let fell_through = org
-        .fallthrough_handoffs_to_exec("offer-lead", "provider exhausted during lead turn")
+        .fallthrough_handoffs_to_exec("offer-strategy", "provider exhausted during lead turn")
         .await
         .unwrap();
     assert_eq!(fell_through, 1);
     let rows = org.list_owner_handoffs().await.unwrap();
     let unavailable = rows.iter().find(|row| row.id == silent).unwrap();
     assert_eq!(unavailable.assigned_to.as_deref(), Some("exec"));
-    assert_eq!(unavailable.escalated_from.as_deref(), Some("offer-lead"));
+    assert_eq!(
+        unavailable.escalated_from.as_deref(),
+        Some("offer-strategy")
+    );
     assert!(unavailable.resolution.contains("provider exhausted"));
 
     // 5. A lead's own judgement reaches the Exec: nobody escalates to
     // themselves, and ordinary team guidance never jumps to the owner.
-    let lead_work = work_for(&org, "offer-lead", "Decide the offer shape").await;
-    let lead_judgement = judgement(&org, "offer-lead", lead_work).await;
+    let lead_work = work_for(&org, "offer-strategy", "Decide the offer shape").await;
+    let lead_judgement = judgement(&org, "offer-strategy", lead_work).await;
     let rows = org.list_owner_handoffs().await.unwrap();
     assert!(
         rows.iter()
@@ -264,7 +292,61 @@ async fn judgement_routes_to_the_lead_before_the_owner() {
     );
 
     // Only the Exec can decide that ordinary judgement genuinely needs the
-    // owner. That final hop is explicit and reasoned.
+    // owner. The final hop is refused until the accountable lead has authored
+    // the meaning against the current source snapshot.
+    let refused = org
+        .escalate_handoff(
+            lead_judgement,
+            "exec",
+            "owner must choose the capital exposure",
+        )
+        .await
+        .unwrap_err();
+    assert!(refused
+        .to_string()
+        .contains("prepare a current owner brief"));
+    assert!(!owner_queue(&org).await.contains(&lead_judgement));
+    org.prepare_owner_brief(
+        lead_judgement,
+        "offer-strategy",
+        owner_brief(OwnerBriefKind::Decision, "Choose the launch exposure"),
+    )
+    .await
+    .unwrap();
+    assert!(
+        org.prepare_owner_brief(
+            lead_judgement,
+            "offer-copy",
+            owner_brief(OwnerBriefKind::Decision, "A member cannot replace the lead"),
+        )
+        .await
+        .unwrap_err()
+        .to_string()
+        .contains("accountable lead"),
+        "an unrelated team member must not be able to replace the accountable brief"
+    );
+    let mut malformed = owner_brief(OwnerBriefKind::Decision, "ignored");
+    malformed.headline = "   ".into();
+    assert!(
+        org.prepare_owner_brief(lead_judgement, "offer-strategy", malformed)
+            .await
+            .unwrap_err()
+            .to_string()
+            .contains("headline"),
+        "a malformed brief must stay below owner attention instead of leaking raw source copy"
+    );
+    assert!(
+        org.prepare_owner_brief(
+            lead_judgement,
+            "offer-strategy",
+            owner_brief(OwnerBriefKind::HumanStep, "Use the wrong boundary"),
+        )
+        .await
+        .unwrap_err()
+        .to_string()
+        .contains("irreducible-human boundary"),
+        "ordinary judgement must not masquerade as an irreducible human step"
+    );
     org.escalate_handoff(
         lead_judgement,
         "exec",
@@ -274,10 +356,98 @@ async fn judgement_routes_to_the_lead_before_the_owner() {
     .unwrap();
     assert!(owner_queue(&org).await.contains(&lead_judgement));
 
+    // Re-authoring an admitted brief changes what the owner is being asked to
+    // understand. Attribution alone is insufficient: the changed story must
+    // leave Attention and pass through Exec admission again.
+    org.prepare_owner_brief(
+        lead_judgement,
+        "offer-strategy",
+        owner_brief(
+            OwnerBriefKind::Decision,
+            "Choose the refreshed launch exposure",
+        ),
+    )
+    .await
+    .unwrap();
+    assert!(!owner_queue(&org).await.contains(&lead_judgement));
+    assert_eq!(
+        org.list_owner_handoffs()
+            .await
+            .unwrap()
+            .into_iter()
+            .find(|row| row.id == lead_judgement)
+            .unwrap()
+            .assigned_to
+            .as_deref(),
+        Some("exec")
+    );
+    org.escalate_handoff(
+        lead_judgement,
+        "exec",
+        "the refreshed capital choice remains irreducibly the owner's",
+    )
+    .await
+    .unwrap();
+    assert!(owner_queue(&org).await.contains(&lead_judgement));
+
+    let admitted = org
+        .list_owner_handoffs()
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|row| row.id == lead_judgement)
+        .unwrap();
+    assert_eq!(admitted.briefed_by.as_deref(), Some("offer-strategy"));
+    assert_eq!(
+        admitted
+            .owner_brief
+            .as_ref()
+            .map(|brief| brief.headline.as_str()),
+        Some("Choose the refreshed launch exposure")
+    );
+    assert!(admitted.owner_brief_is_current(1));
+    assert!(
+        org.decide_owner_review(
+            lead_judgement,
+            OwnerReviewDecision::Accepted,
+            "wrong semantic path",
+        )
+        .await
+        .unwrap_err()
+        .to_string()
+        .contains("only an outcome_review brief"),
+        "a bounded decision must not inherit outcome acceptance semantics"
+    );
+    org.resolve_handoff_as(
+        lead_judgement,
+        "owner",
+        OwnerHandoffState::Resolved,
+        "Use the lower exposure until demand is observed.",
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        org.get_work(lead_work).await.unwrap().unwrap().status,
+        restless_orgintel::WorkStatus::Active,
+        "the exact owner decision must return to and release the affected Work"
+    );
+
+    // An Exec-authored request is not self-admitting either. It first appears
+    // in the Exec's own queue, where it can still be resolved below the owner.
+    let exec_work = work_for(&org, "exec", "Set the company capital ceiling").await;
+    let exec_judgement = judgement(&org, "exec", exec_work).await;
+    assert!(org
+        .handoffs_assigned_to("exec")
+        .await
+        .unwrap()
+        .iter()
+        .any(|row| row.id == exec_judgement));
+    assert!(!owner_queue(&org).await.contains(&exec_judgement));
+
     // 6. An actor with no team reaches the Exec rather than being stranded or
     // consuming owner attention directly.
-    let loner_work = work_for(&org, "loner", "Check the prospect list").await;
-    let loner_judgement = judgement(&org, "loner", loner_work).await;
+    let loner_work = work_for(&org, "market-research", "Check the prospect list").await;
+    let loner_judgement = judgement(&org, "market-research", loner_work).await;
     assert!(
         org.list_owner_handoffs()
             .await
@@ -302,8 +472,8 @@ async fn judgement_routes_to_the_lead_before_the_owner() {
         OwnerHandoffCategory::LegalAttestation,
         OwnerHandoffCategory::PaymentConfirmation,
     ] {
-        let work = work_for(&org, "writer", &format!("{category:?} step")).await;
-        let id = handoff(&org, "writer", work, category).await;
+        let work = work_for(&org, "offer-copy", &format!("{category:?} step")).await;
+        let id = handoff(&org, "offer-copy", work, category).await;
         let rows = org.list_owner_handoffs().await.unwrap();
         assert!(
             rows.iter()
@@ -316,9 +486,13 @@ async fn judgement_routes_to_the_lead_before_the_owner() {
     }
 
     // 8. Disbanding releases members and does not swallow what the team owed.
-    let disband_work = work_for(&org, "critic", "Resolve before disband").await;
-    let held_for_disband = judgement(&org, "critic", disband_work).await;
-    let held = org.handoffs_assigned_to("offer-lead").await.unwrap().len();
+    let disband_work = work_for(&org, "offer-review", "Resolve before disband").await;
+    let held_for_disband = judgement(&org, "offer-review", disband_work).await;
+    let held = org
+        .handoffs_assigned_to("offer-strategy")
+        .await
+        .unwrap()
+        .len();
     assert!(
         held > 0,
         "the lead should still owe the un-escalated judgement"
@@ -331,7 +505,7 @@ async fn judgement_routes_to_the_lead_before_the_owner() {
         fell_through as usize, held,
         "every judgement the team owed must fall through to the Exec"
     );
-    for actor in ["offer-lead", "writer", "critic"] {
+    for actor in ["offer-strategy", "offer-copy", "offer-review"] {
         let row = org
             .list_actors()
             .await
@@ -347,7 +521,7 @@ async fn judgement_routes_to_the_lead_before_the_owner() {
     let rows = org.list_owner_handoffs().await.unwrap();
     let stranded = rows.iter().find(|row| row.id == held_for_disband).unwrap();
     assert_eq!(stranded.assigned_to.as_deref(), Some("exec"));
-    assert_eq!(stranded.escalated_from.as_deref(), Some("offer-lead"));
+    assert_eq!(stranded.escalated_from.as_deref(), Some("offer-strategy"));
     assert!(
         stranded.resolution.contains("sprint ended"),
         "a disband must say why the Exec suddenly owes this"

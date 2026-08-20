@@ -1,0 +1,81 @@
+/* Bridge motion: physical continuity, not ambient entertainment. The cockpit
+ * is quiet at rest; motion only explains a press, a disclosure, or a recorded
+ * change. Component files own their geometry and select from this vocabulary. */
+
+@keyframes bridge-popover-in {
+	from {
+		opacity: 0;
+		transform: translateY(-5px) scale(0.985);
+	}
+	to {
+		opacity: 1;
+		transform: translateY(0) scale(1);
+	}
+}
+
+@keyframes bridge-disclosure-in {
+	from {
+		opacity: 0;
+		transform: translateY(-3px);
+	}
+	to {
+		opacity: 1;
+		transform: translateY(0);
+	}
+}
+
+@keyframes bridge-tab-arrive {
+	0% {
+		opacity: 0;
+		transform: translateX(-115%);
+	}
+	36% {
+		opacity: 0.72;
+	}
+	100% {
+		opacity: 0;
+		transform: translateX(115%);
+	}
+}
+
+@keyframes bridge-acknowledge {
+	0% {
+		box-shadow: var(--control-depth);
+	}
+	36% {
+		box-shadow:
+			var(--bevel),
+			0 0 0 3px color-mix(in srgb, var(--state-success) 17%, transparent),
+			0 7px 18px color-mix(in srgb, var(--state-success) 13%, transparent);
+	}
+	100% {
+		box-shadow: var(--control-depth);
+	}
+}
+
+@keyframes bridge-working {
+	0%,
+	100% {
+		opacity: 0.58;
+		transform: scale(0.94);
+	}
+	50% {
+		opacity: 1;
+		transform: scale(1);
+	}
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.bridge-root {
+		--motion-press: 1ms;
+		--motion-state: 1ms;
+		--motion-disclosure: 1ms;
+		--motion-punctuation: 1ms;
+	}
+
+	.bridge-root *,
+	.bridge-root *::before,
+	.bridge-root *::after {
+		scroll-behavior: auto !important;
+	}
+}

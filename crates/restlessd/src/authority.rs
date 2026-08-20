@@ -6,9 +6,12 @@
 //! to explain those decisions. OrgIntel remains recoverable coordination state
 //! and may disappear without taking this truth with it.
 
-use anyhow::{Context as _, Result};
+use std::path::Path;
+
+use anyhow::{bail, Context as _, Result};
 use chrono::{DateTime, Utc};
 use restless_orgintel::OrgIntel;
+use sha2::{Digest as _, Sha256};
 use sqlx::postgres::PgPoolOptions;
 use sqlx::{PgPool, Row as _};
 
@@ -24,9 +27,11 @@ pub const GOVERNANCE_KINDS: &[&str] = &[
     "approval_declined",
     "approval_revoked",
     "lifecycle",
+    "mandate_revision",
 ];
 
 const IMPORT_VERSION: i32 = 2;
+const MAX_MANDATE_BYTES: usize = 64 * 1024;
 
 #[derive(Debug, Clone, sqlx::FromRow)]
 pub struct AuthorityRecord {
@@ -42,6 +47,20 @@ pub struct ModelCooldown {
     pub kind: String,
     pub reason: String,
     pub retry_at: DateTime<Utc>,
+}
+
+#[derive(Debug, serde::Serialize)]
+pub(crate) struct MandateRevisionOutcome {
+    message: String,
+    runtime_projection: MandateProjectionOutcome,
+    evidence_status: &'static str,
+}
+
+#[derive(Debug, serde::Serialize)]
+struct MandateProjectionOutcome {
+    status: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    detail: Option<String>,
 }
 
 /// One installation-wide pool; company is an indexed value, not a schema.
@@ -139,7 +158,14 @@ impl AuthorityStore {
         .execute(&pool)
         .await
         .context("create model cooldowns")?;
+        crate::legal::ensure_schema(&pool).await?;
+        crate::finance::ensure_schema(&pool).await?;
+        crate::airwallex::ensure_schema(&pool).await?;
         Ok(Self { pool })
+    }
+
+    pub(crate) fn pool(&self) -> &PgPool {
+        &self.pool
     }
 
     pub async fn set_model_cooldown(
@@ -423,6 +449,22 @@ impl AuthorityStore {
             anyhow::bail!("refusing to delete Authority records for non-test company {company}");
         }
         let mut tx = self.pool.begin().await?;
+        sqlx::query("DELETE FROM restless_authority.payment_intents WHERE company = $1")
+            .bind(company)
+            .execute(&mut *tx)
+            .await?;
+        sqlx::query("DELETE FROM restless_authority.money_envelopes WHERE company = $1")
+            .bind(company)
+            .execute(&mut *tx)
+            .await?;
+        sqlx::query("DELETE FROM restless_authority.legal_profiles WHERE company = $1")
+            .bind(company)
+            .execute(&mut *tx)
+            .await?;
+        sqlx::query("DELETE FROM restless_authority.airwallex_connections WHERE company = $1")
+            .bind(company)
+            .execute(&mut *tx)
+            .await?;
         sqlx::query("DELETE FROM restless_authority.records WHERE company = $1")
             .bind(company)
             .execute(&mut *tx)
@@ -433,5 +475,163 @@ impl AuthorityStore {
             .await?;
         tx.commit().await?;
         Ok(())
+    }
+}
+
+pub(crate) fn mandate_revision(markdown: &str) -> String {
+    format!("sha256:{:x}", Sha256::digest(markdown.as_bytes()))
+}
+
+pub(crate) fn validate_mandate(markdown: &str) -> Result<()> {
+    if markdown.trim().is_empty() {
+        bail!("charter must contain at least one non-whitespace character");
+    }
+    if markdown.len() > MAX_MANDATE_BYTES {
+        bail!("charter must be at most {MAX_MANDATE_BYTES} UTF-8 bytes");
+    }
+    if markdown.contains('\0') {
+        bail!("charter cannot contain a NUL character");
+    }
+    Ok(())
+}
+
+/// The one source-owned owner mandate mutation. CompanyConfig remains the
+/// canonical host file; Authority evidence brackets the atomic replacement,
+/// and the Runtime receives only a read-only projection.
+pub(crate) async fn revise_mandate(
+    authority: &AuthorityStore,
+    root: &Path,
+    mut config: crate::runtime::CompanyConfig,
+    markdown: String,
+) -> Result<MandateRevisionOutcome> {
+    validate_mandate(&markdown)?;
+    let previous_markdown = config.mission.clone();
+    let previous_revision = mandate_revision(&previous_markdown);
+    let revision = mandate_revision(&markdown);
+    if revision == previous_revision {
+        return Ok(MandateRevisionOutcome {
+            message: "Charter is already current.".into(),
+            runtime_projection: MandateProjectionOutcome {
+                status: "unchanged",
+                detail: None,
+            },
+            evidence_status: "unchanged",
+        });
+    }
+
+    let requested_at = Utc::now();
+    let request_record_id = authority
+        .emit(
+            &config.name,
+            "mandate_revision",
+            Some("owner"),
+            serde_json::json!({
+                "state": "requested",
+                "previous_revision": previous_revision,
+                "revision": revision,
+                "previous_markdown": previous_markdown,
+                "markdown": markdown,
+                "requested_at": requested_at,
+            }),
+        )
+        .await
+        .context("record owner charter revision before changing the canonical mandate")?;
+
+    config.mission = markdown;
+    if let Err(error) = crate::runtime::CompanyConfig::save(root, &config) {
+        authority
+            .emit(
+                &config.name,
+                "mandate_revision",
+                Some("owner"),
+                serde_json::json!({
+                    "state": "failed",
+                    "request_record_id": request_record_id,
+                    "previous_revision": previous_revision,
+                    "revision": revision,
+                    "requested_at": requested_at,
+                    "observed_at": Utc::now(),
+                    "error": format!("{error:#}"),
+                }),
+            )
+            .await
+            .context(
+                "charter save failed and its Authority failure evidence could not be recorded",
+            )?;
+        return Err(error).context("save canonical owner charter");
+    }
+
+    let runtime_projection = match crate::runtime::sync_mission_projection(&config).await {
+        Ok(status) => MandateProjectionOutcome {
+            status,
+            detail: None,
+        },
+        Err(error) => MandateProjectionOutcome {
+            status: "failed",
+            detail: Some(format!("{error:#}")),
+        },
+    };
+    let evidence_status = match authority
+        .emit(
+            &config.name,
+            "mandate_revision",
+            Some("owner"),
+            serde_json::json!({
+                "state": "succeeded",
+                "request_record_id": request_record_id,
+                "previous_revision": previous_revision,
+                "revision": revision,
+                "requested_at": requested_at,
+                "observed_at": Utc::now(),
+                "runtime_projection": runtime_projection.status,
+                "runtime_projection_detail": runtime_projection.detail.as_deref(),
+            }),
+        )
+        .await
+    {
+        Ok(_) => "recorded",
+        Err(error) => {
+            tracing::error!(
+                company = config.name,
+                %error,
+                "canonical charter changed but final Authority revision evidence is incomplete"
+            );
+            "incomplete"
+        }
+    };
+
+    let message = match runtime_projection.status {
+        "updated" => "Charter saved and the Company computer projection was refreshed.",
+        "deferred" => "Charter saved. The Company computer will receive it when next started.",
+        "failed" => "Charter saved, but the Company computer projection could not be refreshed.",
+        _ => "Charter saved.",
+    };
+    Ok(MandateRevisionOutcome {
+        message: message.into(),
+        runtime_projection,
+        evidence_status,
+    })
+}
+
+#[cfg(test)]
+mod mandate_tests {
+    use super::*;
+
+    #[test]
+    fn revision_tracks_exact_owner_text_and_validation_is_bounded() {
+        let original = "# Company\n\nDo useful work.\n";
+        assert_eq!(mandate_revision(original), mandate_revision(original));
+        assert_ne!(
+            mandate_revision(original),
+            mandate_revision(original.trim_end())
+        );
+        assert_ne!(
+            mandate_revision(original),
+            mandate_revision("# Company\n\nDo useful work!\n")
+        );
+        assert!(validate_mandate(original).is_ok());
+        assert!(validate_mandate("  \n").is_err());
+        assert!(validate_mandate("valid\0invalid").is_err());
+        assert!(validate_mandate(&"a".repeat(MAX_MANDATE_BYTES + 1)).is_err());
     }
 }

@@ -274,6 +274,10 @@ The Runtime Bridge may:
 - proxy local OrgIntel tools for the session;
 - buffer a small number of important events during brief OrgIntel outages.
 
+**Core contract — Restless owns actor launch policy.** ACP standardises the session transport and MCP attachments; it does not standardise a system-prompt field or a native-tool/skill policy. The Bridge therefore configures the concrete ACP harness at process launch for both Exec and every Staff actor. The launch contract includes the Restless-authored system prompt, actor identity, trusted session context, explicit native-tool allowlist, applicable skill roots and already-authorised MCP server descriptions. The immediate owner message, Work feedback or wake instruction is then sent as the ACP user turn. Harness defaults and ambient user configuration may not silently add another persona, private subagents, undeclared tools, skills, rules, extensions or MCP servers.
+
+This ownership does not turn the Bridge into a planner. OrgIntel still decides who the actor is and what Work or conversation is owed; Runtime files still own project instructions and skills; Authority still owns credentials and consequential capability. The Bridge only materialises those decisions faithfully for the selected replaceable harness.
+
 ## 4.3 Non-responsibilities
 
 The Runtime Bridge must not:
@@ -658,6 +662,8 @@ Keep it concise and versioned with the project.
 
 For harnesses with different native instruction formats, the Bridge may inject or generate the relevant equivalent while preserving the project’s canonical guidance.
 
+The Bridge must also distinguish instruction hierarchy. Standing actor policy and trusted company state are system context. A current owner message or Work feedback is turn input. Concatenating both into one user message beneath a harness-owned default system prompt is not equivalent: it lets the replaceable harness redefine the actor.
+
 Do not use instruction files for secrets, current task state, permission enforcement, or large historical dumps.
 
 ## 9.5 Skills
@@ -876,7 +882,19 @@ Begin with one persistent company browser profile and one attachable desktop ses
 
 A logged-in browser is itself authority. High-impact accounts should use restricted identities, brokered effects, or human takeover.
 
-## 12.2 Durable project services
+## 12.2 Owner-only provider authentication
+
+Provider-root enrolment, financial-account administration, identity or business verification, MFA
+and initial credential issuance do not use the persistent Company Runtime profile. Attention opens
+the provider-hosted flow in the owner's external browser. Restless does not copy that profile,
+session cookies, passwords or factors into Runtime.
+
+This does not ban ordinary authenticated browser work or a bounded browser adapter for consequential
+effects. It keeps the account-establishment and root-administration session outside the environment
+agents can inspect and control. See
+[`ADR 0002`](../adr/0002-owner-provider-authentication-handoffs.md).
+
+## 12.3 Durable project services
 
 Agents may create services that outlive their current model process.
 
@@ -884,7 +902,7 @@ Use an imported service supervisor and simple runbooks rather than a custom dura
 
 OrgIntel may track service ownership and health references, but the Runtime owns the service process and data.
 
-## 12.3 Publication
+## 12.4 Publication
 
 A local service may be developed freely. Publishing it externally crosses the Authority Plane when it creates meaningful external exposure, spend, or production consequence.
 

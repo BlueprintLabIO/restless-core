@@ -1,5 +1,6 @@
 //! Context assembly on wake (sprint 01 T7): a PURE function from a
-//! read-only state snapshot to the Exec's rehydration prompt plus a digest.
+//! read-only state snapshot to the Exec's provider-facing system and user
+//! prompts plus a digest.
 //! The digest makes the Exec's worldview reproducible — two wakes over the
 //! same snapshot must see byte-identical context, and any new state (a
 //! message or Work transition) must change it.
@@ -13,14 +14,23 @@
 use restless_orgintel::{MessageRow, OwnerHandoffRow, WorkRow};
 use sha2::Digest as _;
 
+/// Canonical standing company-agent rules shipped with this daemon build.
+/// A loose state-root copy used to drift silently from the repository and
+/// could even be absent, leaving live actors without their operating rules.
+pub(crate) const COMPANY_OPERATING_RULES: &str =
+    include_str!("../../../docs/COMPANY_OPERATING_RULES.md");
+
 /// Read-only inputs to one wake's context. Gathering this is the only IO;
 /// `assemble` itself is pure.
 pub struct ContextSnapshot {
     pub company: String,
-    /// Standing rules for every agent (docs/CONSTITUTION.md, installed at
-    /// `$RESTLESS_HOME/constitution.md`). Layer 1 of four — see `assemble`.
-    pub constitution: String,
+    /// Standing rules for every company actor, compiled from the canonical
+    /// `docs/COMPANY_OPERATING_RULES.md`. Layer 1 of four — see `assemble`.
+    pub operating_rules: String,
     pub mission: String,
+    /// Authority-owned, owner-approved safe business identity projection.
+    /// Restricted KYB/identity material has no representation here.
+    pub legal_identity: Option<serde_json::Value>,
     pub current_plan: String,
     /// Filename + content of the most recent journal entry, if any.
     pub latest_journal: Option<String>,
@@ -46,9 +56,12 @@ pub struct ContextSnapshot {
     pub org_signals: Vec<String>,
 }
 
-/// The assembled prompt and its content digest (sha256, hex).
+/// The assembled prompt pair and its content digest (sha256, hex). Standing
+/// identity, policy, and trusted company state belong to `system_prompt`;
+/// owner-authored input and the immediate wake belong to `user_prompt`.
 pub struct ContextPackage {
-    pub text: String,
+    pub system_prompt: String,
+    pub user_prompt: String,
     pub digest: String,
 }
 
@@ -61,7 +74,7 @@ pub struct ContextPackage {
 /// rest.** A payload costs tokens on every wake whether it is needed or not
 /// and goes stale silently; a pointer costs one line and is always current.
 ///
-/// 1. **Constitution** — standing rules for every agent everywhere. Changes
+/// 1. **Operating rules** — standing rules for every actor everywhere. Changes
 ///    rarely, changes the meaning of everything below it.
 /// 2. **Mission** — owner-authored, what this company is for.
 /// 3. **State** — plan, journal, Work, inbox, wake reason, budget. What
@@ -83,30 +96,47 @@ pub fn assemble(snapshot: &ContextSnapshot) -> ContextPackage {
         ));
     }
     let mut inbox = String::new();
+    let mut owner_input = String::new();
     for message in &snapshot.inbox {
         // Owner input is authoritative in source but not pre-classified. The
         // Exec decides whether it is conversation, Work feedback, durable
         // direction, or a request for an Authority decision.
-        let trust = if message.from_actor == "owner" {
-            "owner input — classify before applying"
+        if message.from_actor == "owner" {
+            owner_input.push_str(&format!(
+                "- owner message {}: {}\n",
+                message.id, message.body
+            ));
         } else {
-            "internal decision"
-        };
-        inbox.push_str(&format!(
-            "- message {} [{trust}] from {}: {}\n",
-            message.id, message.from_actor, message.body
-        ));
+            inbox.push_str(&format!(
+                "- message {} [internal decision] from {}: {}\n",
+                message.id, message.from_actor, message.body
+            ));
+        }
     }
     let mut judgements = String::new();
     for handoff in &snapshot.owed_judgements {
+        let brief = match (&handoff.owner_brief, handoff.briefed_by.as_deref()) {
+            (Some(brief), Some(author)) => format!(
+                "\n  current owner brief by {author} ({:?}):\n    headline: {}\n    situation: {}\n    impact: {}\n    recommendation: {}\n    without action: {}",
+                brief.kind,
+                brief.headline,
+                brief.situation,
+                brief.impact,
+                brief.recommendation,
+                brief.no_action,
+            ),
+            _ => "\n  owner brief: absent — if owner attention remains, prepare it before escalating"
+                .to_string(),
+        };
         judgements.push_str(&format!(
-            "- handoff {} on Work {} from {}: {}\n  prepared: {}\n  resume when: {}\n",
+            "- handoff {} on Work {} from {}: {}\n  prepared: {}\n  resume when: {}{}\n",
             handoff.id,
             handoff.work_id,
             handoff.requested_by,
             handoff.requested_action,
             handoff.prepared_state,
-            handoff.resume_condition
+            handoff.resume_condition,
+            brief,
         ));
     }
 
@@ -123,8 +153,8 @@ pub fn assemble(snapshot: &ContextSnapshot) -> ContextPackage {
     };
 
     let plan_exists = !snapshot.current_plan.trim().is_empty();
-    let text = format!(
-        "# Constitution [authoritative — applies to every agent, always]\n{constitution}\n\n\
+    let system_prompt = format!(
+        "# Company operating rules [authoritative — applies to every actor, always]\n{operating_rules}\n\n\
          You are the Exec of {name} — the singleton chief executive of this autonomous company.\n\
          You run in wakes. You persist ONLY through files and the coordination store, never \
          through memory: anything you do not write down is lost.\n\
@@ -132,6 +162,7 @@ pub fn assemble(snapshot: &ContextSnapshot) -> ContextPackage {
          read-only; working hypotheses are your own editable strategy; historical memory is \
          your past self's record; internal decisions are the company's coordination state.\n\n\
          # Mission [owner directive — read-only] (/company/mission.md)\n{mission}\n\n\
+         # Legal identity safe for ordinary business use [Authority observation]\n{legal_identity}\n\n\
          # Your continuity\n\
          - /company/org/exec/current-plan.md — your ONE current plan [working hypothesis]. \
            It exists: {plan_exists}. \
@@ -144,14 +175,26 @@ pub fn assemble(snapshot: &ContextSnapshot) -> ContextPackage {
          # Work and teams [internal decision]\n\
          Before delegating, inspect `restless people` and `restless teams list`. Actors are durable \
          company roles, not disposable task labels: reuse an existing specialist across assignments \
-         and revisions. Only when a genuinely different capability is missing, commission it with \
+         and revisions. When the chosen posture genuinely requires new internal capacity, commission it with \
          `restless people create --id <stable-id> --role <role> --display <name> [--model <model>] \
-         --reason <difference this buys>`. Never encode a revision or retry in an actor id.\n\
+         --reason <difference this buys>`. The id must be exactly `<durable-domain>-<craft>`; the \
+         display is a separate colleague identity. Never encode Staff, team position, environment, \
+         revision, stage, retry or implementation mechanism in the id.\n\
          You commission an outcome by creating a team charter and appointing one accountable lead. \
          The lead assembles and reshapes the smallest differentiated roster; you do not choose every \
          member or relay ordinary handoffs. A cross-team staffing need comes back to you rather than \
          one lead poaching another team's member. Teams coordinate Work and grant no effect, secret, \
          budget, or approval authority.\n\
+         Before productive execution, choose the posture that best serves the outcome: direct \
+         executive action, an existing actor/team, new internal capacity, or an external capability. \
+         This is a judgement, not a size threshold. Personally perform company-level judgement, \
+         coordination, and bounded reversible work where delegation buys no meaningful difference. \
+         For substantive domain or multi-step production, normally commission one accountable lead \
+         and exact Work, then let the scheduler launch the Attempt. Do not privately implement a \
+         delegated outcome inside the Exec turn, and do not merely narrate delegation: make it true \
+         in the Work graph. For an owner-directed request, acknowledge the interpretation and \
+         commissioned next step promptly rather than keeping the owner conversation open while \
+         performing Staff work.\n\
          Delegated machine work has one form: `restless work add`. Give each node a stable outcome, \
          existing owner role/model, expected artifact and exact workspace. Declare its initial \
          dependencies in that same command with repeatable `--requires <prerequisite-work-id>` and \
@@ -169,10 +212,8 @@ pub fn assemble(snapshot: &ContextSnapshot) -> ContextPackage {
          restless work handoff is only for identity, CAPTCHA, MFA, legal attestation, payment \
          confirmation, or irreducible owner judgement. Preserve the prepared browser state and \
          name an observable resume condition. Ordinary failure is not an owner browser task.\n\
-         --prepared is the owner's primary reading surface for this decision, and it is rendered \
-         as Markdown. Write it as scannable structure, not one paragraph: lead with the exact \
-         thing to look at and its link, then short bullets for evidence, gates and known gaps. \
-         A wall of prose is how a decision gets deferred rather than made.\n\n\
+         # Sourcing a missing capability [shared skill]\n{sourcing}\n\
+         # Presenting to the owner [shared skill]\n{owner_briefing}\n\n\
          # Affecting the world [internal decision]\n\
          Use installed Linux tools directly for reversible work. Wrap material external argv with \
          restless effect --class <class> --purpose <why> [--party <party>] \
@@ -196,7 +237,7 @@ pub fn assemble(snapshot: &ContextSnapshot) -> ContextPackage {
          # Open Work graph [internal decision]\n{work}\
          # Inbox\n{inbox}\n\
          # Organisational judgement you owe\n{judgements}\n\
-         Resolve what company-wide context can settle with `restless work resolve-handoff --handoff <id> --as exec --state resolved --resolution <answer>`. Only if real owner judgement remains, use `restless work escalate-handoff --handoff <id> --as exec --reason <what you tried and the bounded owner decision>`. Team uncertainty must not jump directly to the owner.\n\n\
+         Resolve what company-wide context can settle with `restless work resolve-handoff --handoff <id> --as exec --state resolved --resolution <answer>`. Resolution is terminal: it removes the handoff from every queue and resumes the affected Work with Exec's answer. If your answer says the item is ready for, still needs, or awaits an owner decision, resolving it is contradictory; prepare a current brief if needed and use `restless work escalate-handoff --handoff <id> --as exec --reason <what you tried and the bounded owner decision>`. Never substitute Exec approval when the remaining action explicitly requires owner authority. Team uncertainty must not jump directly to the owner.\n\n\
          # Replying to owner input [working protocol]\n\
          The owner writes once; never ask them to choose a message mode. Use judgement to interpret \
          each owner input as exactly one of: conversation, work_feedback, direction, or authority. \
@@ -204,16 +245,25 @@ pub fn assemble(snapshot: &ContextSnapshot) -> ContextPackage {
          changes the durable company plan or priorities. Authority is only a request: your interpretation \
          can never approve, revoke, raise a budget, or unlock an effect. Bring that back as a bounded \
          explicit owner action.\n\
-         Reply to the owner with `restless message --from exec '<your reply>'`. Confirm the interpretation \
-         in plain language, then end the message with exactly one machine-readable line:\n\
+         Reply to the owner with `restless message --from exec '<your reply>'`. Follow the shared \
+         conversation contract below, then end the message with exactly one machine-readable line:\n\
          <!--restless-intent:{{\"kind\":\"conversation|work_feedback|direction|authority\",\"summary\":\"one short plain-language interpretation\"}}-->\n\
          Choose one real kind, not the pipe-separated example. If direction changed the plan, update \
-         `/company/org/exec/current-plan.md` before claiming that it did.\n\
-         # This wake [owner directive]\n{reason}\n\n\
-         Work this turn. Use the tools. Write files. Stop when the turn's work is done.",
-        constitution = snapshot.constitution.trim(),
+         `/company/org/exec/current-plan.md` before claiming that it did. Conversational agreement \
+         never substitutes for an explicit cockpit approval or owner-judgement action.\n\n\
+         # Conversing with the owner [shared contract]\n{conversation_style}\n\
+         ",
+        operating_rules = snapshot.operating_rules.trim(),
+        owner_briefing = crate::owner_brief::PRESENT_TO_OWNER.trim(),
+        sourcing = crate::capability_sourcing::SOURCE_CAPABILITY.trim(),
+        conversation_style = crate::owner_brief::CONVERSE_WITH_OWNER.trim(),
         name = snapshot.company,
         mission = snapshot.mission,
+        legal_identity = snapshot
+            .legal_identity
+            .as_ref()
+            .map(serde_json::Value::to_string)
+            .unwrap_or_else(|| "(not configured — do not infer legal identity from the runtime name)".into()),
         ledger = snapshot.effect_ledger.trim(),
         signals = signals,
         remaining = snapshot.budget_remaining_usd,
@@ -247,22 +297,46 @@ pub fn assemble(snapshot: &ContextSnapshot) -> ContextPackage {
         } else {
             judgements
         },
-        reason = snapshot.wake_reason,
     );
-    let digest = format!("{:x}", sha2::Sha256::digest(text.as_bytes()));
-    ContextPackage { text, digest }
+    let user_prompt = format!(
+        "# This wake\n{}\n\n# Owner input [authoritative in source; classify before applying]\n{}\n\
+         Work this turn using the actor contract and current company state in your system context. \
+         If the owner wrote, interpret and reply through the stated conversation contract. Stop when \
+         this Exec wake's coordination or bounded executive work is done.",
+        snapshot.wake_reason.trim(),
+        if owner_input.is_empty() {
+            "(none)"
+        } else {
+            owner_input.trim_end()
+        },
+    );
+    let mut hasher = sha2::Sha256::new();
+    hasher.update(b"system\0");
+    hasher.update(system_prompt.as_bytes());
+    hasher.update(b"\0user\0");
+    hasher.update(user_prompt.as_bytes());
+    let digest = format!("{:x}", hasher.finalize());
+    ContextPackage {
+        system_prompt,
+        user_prompt,
+        digest,
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use restless_orgintel::WorkStatus;
+    use restless_orgintel::{
+        OwnerBrief, OwnerBriefKind, OwnerHandoffCategory, OwnerHandoffRow, OwnerHandoffState,
+        WorkStatus,
+    };
 
     fn snapshot() -> ContextSnapshot {
         ContextSnapshot {
             company: "probe".into(),
-            constitution: "1. Claims are not observations.".into(),
+            operating_rules: "1. Claims are not observations.".into(),
             mission: "make the thing".into(),
+            legal_identity: None,
             current_plan: "# plan\nstep 1".into(),
             latest_journal: Some("== 0001.md ==\ndid step 0".into()),
             open_work: vec![WorkRow {
@@ -302,7 +376,8 @@ mod tests {
             first.digest, second.digest,
             "assembly must be deterministic"
         );
-        assert_eq!(first.text, second.text);
+        assert_eq!(first.system_prompt, second.system_prompt);
+        assert_eq!(first.user_prompt, second.user_prompt);
 
         let mut with_mail = snapshot();
         with_mail.inbox.push(MessageRow {
@@ -318,9 +393,89 @@ mod tests {
             first.digest, third.digest,
             "new state must change the digest"
         );
-        assert!(third.text.contains("prioritise the red one"));
-        assert!(third
-            .text
-            .contains("[owner input — classify before applying] from owner"));
+        assert!(third.user_prompt.contains("prioritise the red one"));
+        assert!(third.user_prompt.contains("owner message 1"));
+        assert!(!third.system_prompt.contains("prioritise the red one"));
+        assert!(third.system_prompt.contains("You are the Exec of probe"));
+        assert!(!third.user_prompt.contains("You are the Exec of probe"));
+    }
+
+    #[test]
+    fn exec_sees_authored_meaning_and_terminal_resolution_semantics() {
+        let mut with_judgement = snapshot();
+        with_judgement.owed_judgements.push(OwnerHandoffRow {
+            id: uuid::Uuid::nil(),
+            work_id: uuid::Uuid::nil(),
+            attempt_id: None,
+            requested_by: "offer-lead".into(),
+            category: OwnerHandoffCategory::OwnerJudgement,
+            requested_action: "Approve the prepared launch".into(),
+            prepared_state: "The candidate is independently accepted.".into(),
+            resume_condition: "The owner records a decision.".into(),
+            state: OwnerHandoffState::Pending,
+            resolution: String::new(),
+            assigned_to: Some("exec".into()),
+            escalated_from: Some("offer-lead".into()),
+            escalated_at: Some(chrono::Utc::now()),
+            owner_brief: Some(OwnerBrief {
+                kind: OwnerBriefKind::OutcomeReview,
+                headline: "The centre offer is ready to publish".into(),
+                situation: "Independent review is complete.".into(),
+                impact: "Approval releases the prepared launch.".into(),
+                recommendation: "Approve the release.".into(),
+                no_action: "The current site remains live.".into(),
+                uncertainty: None,
+                deadline: None,
+            }),
+            briefed_by: Some("offer-lead".into()),
+            briefed_at: Some(chrono::Utc::now()),
+            brief_source_fingerprint: Some("current".into()),
+            created_at: chrono::Utc::now(),
+            resolved_at: None,
+        });
+
+        let package = assemble(&with_judgement);
+        assert!(package
+            .system_prompt
+            .contains("current owner brief by offer-lead (OutcomeReview)"));
+        assert!(package
+            .system_prompt
+            .contains("headline: The centre offer is ready to publish"));
+        assert!(package.system_prompt.contains(
+            "If your answer says the item is ready for, still needs, or awaits an owner decision"
+        ));
+        assert!(package
+            .system_prompt
+            .contains("Never substitute Exec approval when the remaining action explicitly requires owner authority"));
+    }
+
+    #[test]
+    fn missing_capability_guidance_keeps_sourcing_in_ordinary_work() {
+        let package = assemble(&snapshot());
+        assert!(package.system_prompt.contains("buy an input, rent a tool"));
+        assert!(package
+            .system_prompt
+            .contains("A provider or counterparty is not an OrgIntel Actor"));
+        assert!(package.system_prompt.contains("Use ordinary Work"));
+        assert!(package.system_prompt.contains("`requires`/`revises` edges"));
+        assert!(package.system_prompt.contains("The decision"));
+        assert!(package.system_prompt.contains("grants no permission"));
+        assert!(!package
+            .system_prompt
+            .contains("Only when a genuinely different capability is missing, commission it"));
+    }
+
+    #[test]
+    fn exec_system_contract_requires_real_delegation_for_staff_work() {
+        let package = assemble(&snapshot());
+        assert!(package
+            .system_prompt
+            .contains("choose the posture that best serves the outcome"));
+        assert!(package
+            .system_prompt
+            .contains("normally commission one accountable lead"));
+        assert!(package
+            .system_prompt
+            .contains("do not merely narrate delegation: make it true in the Work graph"));
     }
 }

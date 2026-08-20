@@ -1,38 +1,43 @@
-//! Authenticated owner transport for the static SPA and persistent desktop.
+//! Loopback-only owner transport for the static SPA and persistent desktop.
 //!
 //! This is intentionally a narrow BFF: owner projection, source-owned
 //! approval actions, and browser attach/lease transport. It is not a generic
 //! REST facade over the company computer.
 
 use std::collections::HashMap;
-use std::net::SocketAddr;
-use std::os::unix::fs::PermissionsExt as _;
-use std::path::Path;
+use std::convert::Infallible;
+use std::net::{IpAddr, SocketAddr};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime};
 
 use anyhow::{Context as _, Result};
 use axum::body::Body;
 use axum::extract::ws::{Message as AxumMessage, WebSocket, WebSocketUpgrade};
-use axum::extract::{DefaultBodyLimit, Multipart, OriginalUri, Path as AxumPath, Query, State};
-use axum::http::header::{
-    CACHE_CONTROL, CONTENT_DISPOSITION, CONTENT_TYPE, COOKIE, HOST, SET_COOKIE,
+use axum::extract::{
+    DefaultBodyLimit, Multipart, OriginalUri, Path as AxumPath, Query, Request, State,
 };
+use axum::http::header::{
+    CACHE_CONTROL, CONTENT_DISPOSITION, CONTENT_TYPE, COOKIE, HOST, ORIGIN, SET_COOKIE,
+};
+use axum::http::uri::Authority;
 use axum::http::{HeaderMap, HeaderValue, Method, Response, StatusCode};
+use axum::middleware::{self, Next};
+use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::response::{IntoResponse, Redirect};
 use axum::routing::{any, get, post};
 use axum::{Json, Router};
 use chrono::{Duration as ChronoDuration, Utc};
 use futures_util::{SinkExt as _, StreamExt as _};
 use serde::{Deserialize, Serialize};
-use sha2::{Digest as _, Sha256};
 use tokio_tungstenite::{client_async, tungstenite};
 use tower_http::services::{ServeDir, ServeFile};
 use uuid::Uuid;
 
-use crate::{approval, attention, credential, reconcile, runtime, Daemon};
+use crate::{
+    airwallex, approval, attention, authority, company as company_projection, credential, finance,
+    legal, reconcile, runtime, Daemon,
+};
 
-const OWNER_COOKIE: &str = "restless_owner";
 const ATTACH_COOKIE: &str = "restless_attach";
 const TICKET_TTL: Duration = Duration::from_secs(30);
 const ATTACH_TTL: Duration = Duration::from_secs(30 * 60);
@@ -43,17 +48,25 @@ const MAX_ATTACHMENT_BYTES: usize = 5 * 1024 * 1024;
 const ATTACHMENT_BLOCK: &str = "\n\n[Restless attachments]\n";
 const ATTACHMENT_MARKER: &str = "<!--restless-attachments:";
 const INTENT_MARKER: &str = "\n\n<!--restless-intent:";
+const DETAILS_MARKER: &str = "\n\n<!--restless-details:";
 const CONTEXT_BLOCK: &str = "\n\n[Owner cockpit context]\n";
 const CONTEXT_MARKER: &str = "\n\n<!--restless-context:";
 
 #[derive(Clone)]
 struct OwnerState {
     daemon: Arc<Daemon>,
+    charter_writes: Arc<tokio::sync::Mutex<()>>,
     tickets: Arc<Mutex<HashMap<String, AttachTicket>>>,
     attaches: Arc<Mutex<HashMap<String, AttachSession>>>,
     reviews: Arc<Mutex<HashMap<String, ReviewSession>>>,
     review_public_url: String,
-    secure_cookie: bool,
+}
+
+#[derive(Clone)]
+pub(crate) struct OwnerConfig {
+    address: SocketAddr,
+    review_address: SocketAddr,
+    review_public_url: String,
 }
 
 #[derive(Clone)]
@@ -85,11 +98,6 @@ struct ReviewSession {
 }
 
 #[derive(Debug, Deserialize)]
-struct SignIn {
-    token: String,
-}
-
-#[derive(Debug, Deserialize)]
 struct PartyAction {
     party: String,
 }
@@ -98,6 +106,7 @@ struct PartyAction {
 struct OwnerMessageInput {
     body: String,
     work_id: Option<Uuid>,
+    context_requested: bool,
     context_path: Option<String>,
     attachments: Vec<PendingAttachment>,
 }
@@ -133,9 +142,19 @@ struct OwnerIntentReceipt {
     summary: String,
 }
 
+#[derive(Debug, Deserialize)]
+struct OwnerMessageDetails {
+    markdown: String,
+}
+
 #[derive(Debug, Deserialize, Default)]
 struct ConversationQuery {
     work_id: Option<Uuid>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ConversationLiveQuery {
+    message_id: i64,
 }
 
 #[derive(Debug, Deserialize, Default)]
@@ -145,10 +164,33 @@ struct CockpitQuery {
 }
 
 #[derive(Debug, Deserialize)]
+struct CompanyRecoveryInput {
+    action: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct CharterRevisionInput {
+    markdown: String,
+    base_revision: String,
+}
+
+#[derive(Debug, Serialize)]
+struct CharterRevisionResponse {
+    company: company_projection::CompanyView,
+    #[serde(flatten)]
+    revision: authority::MandateRevisionOutcome,
+}
+
+#[derive(Debug, Deserialize)]
 struct OwnerReviewInput {
     decision: String,
     #[serde(default)]
     feedback: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct OwnerHandoffDecisionInput {
+    resolution: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -206,43 +248,75 @@ struct CompanyCatalogEntry {
     lifecycle_status: &'static str,
 }
 
-pub async fn serve(daemon: Arc<Daemon>) -> Result<()> {
-    let address = std::env::var("RESTLESS_OWNER_ADDR")
-        .unwrap_or_else(|_| "127.0.0.1:7788".to_string())
-        .parse::<SocketAddr>()
-        .context("parse RESTLESS_OWNER_ADDR")?;
-    let secure_cookie = std::env::var("RESTLESS_OWNER_SECURE_COOKIE")
-        .map(|value| value != "0" && !value.eq_ignore_ascii_case("false"))
-        .unwrap_or(false);
-    let review_address = std::env::var("RESTLESS_REVIEW_ADDR")
-        // 7788 is the owner gateway, 7789 the auth broker, 7790 the model
-        // gateway, 7791 coordination, 7792 ingress and 7793 Infisical. Keep
-        // review on its own local origin.
-        .unwrap_or_else(|_| "127.0.0.1:7794".to_string())
-        .parse::<SocketAddr>()
-        .context("parse RESTLESS_REVIEW_ADDR")?;
-    let review_public_url = std::env::var("RESTLESS_REVIEW_PUBLIC_URL")
-        .unwrap_or_else(|_| format!("http://{{ticket}}.localhost:{}", review_address.port()));
-    validate_review_public_url(&review_public_url)?;
+impl OwnerConfig {
+    pub(crate) fn from_env() -> Result<Self> {
+        let address = std::env::var("RESTLESS_OWNER_ADDR")
+            .unwrap_or_else(|_| "127.0.0.1:7788".to_string())
+            .parse::<SocketAddr>()
+            .context("parse RESTLESS_OWNER_ADDR")?;
+        let review_address = std::env::var("RESTLESS_REVIEW_ADDR")
+            // 7788 is the owner gateway, 7789 the auth broker, 7790 the model
+            // gateway, 7791 coordination, 7792 ingress and 7793 Infisical.
+            .unwrap_or_else(|_| "127.0.0.1:7794".to_string())
+            .parse::<SocketAddr>()
+            .context("parse RESTLESS_REVIEW_ADDR")?;
+        ensure_loopback(address, "RESTLESS_OWNER_ADDR")?;
+        ensure_loopback(review_address, "RESTLESS_REVIEW_ADDR")?;
+        let review_public_url = std::env::var("RESTLESS_REVIEW_PUBLIC_URL")
+            .unwrap_or_else(|_| format!("http://{{ticket}}.localhost:{}", review_address.port()));
+        validate_review_public_url(&review_public_url, review_address.port())?;
+        Ok(Self {
+            address,
+            review_address,
+            review_public_url,
+        })
+    }
+}
+
+fn ensure_loopback(address: SocketAddr, variable: &str) -> Result<()> {
+    if !address.ip().is_loopback() {
+        anyhow::bail!("{variable} must remain loopback-only until network authentication exists");
+    }
+    Ok(())
+}
+
+pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
+    let OwnerConfig {
+        address,
+        review_address,
+        review_public_url,
+    } = config;
     let state = OwnerState {
         daemon,
+        charter_writes: Arc::new(tokio::sync::Mutex::new(())),
         tickets: Arc::new(Mutex::new(HashMap::new())),
         attaches: Arc::new(Mutex::new(HashMap::new())),
         reviews: Arc::new(Mutex::new(HashMap::new())),
         review_public_url,
-        secure_cookie,
     };
 
     let api = Router::new()
-        .route("/session", post(sign_in).delete(sign_out))
         .route("/companies", get(company_catalog))
         .route("/companies/{company}/archive", post(archive_company))
         .route("/companies/{company}/restore", post(restore_company))
         .route("/companies/{company}/attention", get(attention_view))
         .route("/companies/{company}/cockpit", get(cockpit_view))
+        .route("/companies/{company}/company", get(company_view))
+        .route(
+            "/companies/{company}/company/charter",
+            post(revise_company_charter),
+        )
+        .route(
+            "/companies/{company}/company/recover",
+            post(recover_company_computer),
+        )
         .route(
             "/companies/{company}/actors/{actor}/conversation",
             get(actor_conversation).post(send_actor_message),
+        )
+        .route(
+            "/companies/{company}/actors/{actor}/conversation/live",
+            get(actor_conversation_live),
         )
         .route(
             "/companies/{company}/attachments/{attachment}",
@@ -251,6 +325,10 @@ pub async fn serve(daemon: Arc<Daemon>) -> Result<()> {
         .route(
             "/companies/{company}/handoffs/{handoff}/review",
             post(review_outcome),
+        )
+        .route(
+            "/companies/{company}/handoffs/{handoff}/decision",
+            post(resolve_handoff_decision),
         )
         .route("/companies/{company}/approvals/grant", post(grant))
         .route("/companies/{company}/approvals/decline", post(decline))
@@ -264,6 +342,7 @@ pub async fn serve(daemon: Arc<Daemon>) -> Result<()> {
         .route("/companies/{company}/browser/take", post(take_control))
         .route("/companies/{company}/browser/heartbeat", post(heartbeat))
         .route("/companies/{company}/browser/return", post(return_control))
+        .fallback(api_not_found)
         .layer(DefaultBodyLimit::max(32 * 1024 * 1024));
 
     let source = runtime::source_root()?;
@@ -272,15 +351,17 @@ pub async fn serve(daemon: Arc<Daemon>) -> Result<()> {
     let app = Router::new()
         .nest("/api", api)
         .route("/desktop/{company}", get(open_desktop))
+        .route("/desktop/{company}/observe", get(open_observed_desktop))
         .route("/desktop/{company}/control", get(open_controlled_desktop))
         .route("/desktop/{company}/websockify", get(desktop_websocket))
         .route("/desktop/{company}/{*asset}", get(desktop_asset))
         .fallback_service(static_files)
-        .with_state(state.clone());
+        .with_state(state.clone())
+        .layer(middleware::from_fn(enforce_local_owner_boundary));
 
     // A separate origin is load-bearing. Reviewed company code may run
-    // JavaScript and use root-relative assets, but it must never inherit the
-    // host-only owner cookie used by the cockpit API.
+    // JavaScript and use root-relative assets, but it never shares the owner
+    // cockpit origin or its authority boundary.
     let preview = Router::new().fallback(any(review_proxy)).with_state(state);
 
     let listener = tokio::net::TcpListener::bind(address)
@@ -299,59 +380,92 @@ pub async fn serve(daemon: Arc<Daemon>) -> Result<()> {
     .context("owner gateways")
 }
 
-/// Generate/rotate the one-owner credential. Only its digest is persisted;
-/// the returned value is the one moment the owner can copy it.
-pub fn rotate_token(root: &Path) -> Result<String> {
-    let token = format!("{}{}", Uuid::new_v4().simple(), Uuid::new_v4().simple());
-    let digest = token_digest(&token);
-    let path = root.join("owner-token.sha256");
-    let temporary = root.join(".owner-token.sha256.tmp");
-    std::fs::write(&temporary, format!("{digest}\n"))
-        .with_context(|| format!("write {}", temporary.display()))?;
-    std::fs::set_permissions(&temporary, std::fs::Permissions::from_mode(0o600))?;
-    std::fs::rename(&temporary, &path).with_context(|| format!("replace {}", path.display()))?;
-    Ok(token)
+async fn enforce_local_owner_boundary(request: Request, next: Next) -> Response<Body> {
+    if let Some(reason) = local_owner_boundary_violation(request.method(), request.headers()) {
+        return api_error(StatusCode::FORBIDDEN, "local_owner_boundary", reason);
+    }
+    next.run(request).await
 }
 
-async fn sign_in(
-    State(state): State<OwnerState>,
-    headers: HeaderMap,
-    Json(input): Json<SignIn>,
-) -> impl IntoResponse {
-    if !valid_token(&state.daemon.root, &input.token) {
-        return api_error(
-            StatusCode::UNAUTHORIZED,
-            "authentication",
-            "invalid owner credential",
-        );
+fn local_owner_boundary_violation(method: &Method, headers: &HeaderMap) -> Option<&'static str> {
+    for forwarded in [
+        "forwarded",
+        "x-forwarded-for",
+        "x-forwarded-host",
+        "x-forwarded-proto",
+        "x-real-ip",
+    ] {
+        if headers.contains_key(forwarded) {
+            return Some("forwarded owner requests require network authentication");
+        }
     }
-    let mut cookie = format!(
-        "{OWNER_COOKIE}={}; Path=/; HttpOnly; SameSite=Strict; Max-Age=43200",
-        input.token
-    );
-    if secure_request(&state, &headers) {
-        cookie.push_str("; Secure");
+
+    let host = headers
+        .get(HOST)
+        .and_then(|value| value.to_str().ok())
+        .and_then(local_authority);
+    let Some(host) = host else {
+        return Some("owner request host is not the configured loopback origin");
+    };
+
+    if let Some(site) = headers
+        .get("sec-fetch-site")
+        .and_then(|value| value.to_str().ok())
+    {
+        if !site.eq_ignore_ascii_case("same-origin") && !site.eq_ignore_ascii_case("none") {
+            return Some("cross-site owner requests are refused");
+        }
     }
-    let mut response = Json(serde_json::json!({ "authenticated": true })).into_response();
-    response
-        .headers_mut()
-        .insert(SET_COOKIE, HeaderValue::from_str(&cookie).expect("cookie"));
-    response
+
+    let origin = headers.get(ORIGIN).and_then(|value| value.to_str().ok());
+    if !matches!(*method, Method::GET | Method::HEAD) && origin.is_none() {
+        return Some("state-changing owner requests require a same-origin browser origin");
+    }
+    if let Some(origin) = origin {
+        if local_origin(origin).as_ref() != Some(&host) {
+            return Some("owner request origin does not match its loopback host");
+        }
+    }
+    None
 }
 
-async fn sign_out() -> impl IntoResponse {
-    let mut response = Json(serde_json::json!({ "authenticated": false })).into_response();
-    response.headers_mut().insert(
-        SET_COOKIE,
-        HeaderValue::from_static("restless_owner=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0"),
-    );
-    response
+fn local_authority(value: &str) -> Option<(String, u16)> {
+    let authority = value.parse::<Authority>().ok()?;
+    let port = authority.port_u16().unwrap_or(80);
+    local_host(authority.host()).map(|host| (host, port))
 }
 
-async fn company_catalog(State(state): State<OwnerState>, headers: HeaderMap) -> impl IntoResponse {
-    if let Some(response) = require_owner(&state, &headers) {
-        return response;
+fn local_origin(value: &str) -> Option<(String, u16)> {
+    let origin = url::Url::parse(value).ok()?;
+    if origin.scheme() != "http"
+        || !origin.username().is_empty()
+        || origin.password().is_some()
+        || origin.path() != "/"
+        || origin.query().is_some()
+        || origin.fragment().is_some()
+    {
+        return None;
     }
+    let port = origin.port_or_known_default()?;
+    local_host(origin.host_str()?).map(|host| (host, port))
+}
+
+fn local_host(value: &str) -> Option<String> {
+    if value.eq_ignore_ascii_case("localhost") {
+        return Some("localhost".to_string());
+    }
+    let unbracketed = value
+        .strip_prefix('[')
+        .and_then(|v| v.strip_suffix(']'))
+        .unwrap_or(value);
+    unbracketed
+        .parse::<IpAddr>()
+        .ok()
+        .filter(IpAddr::is_loopback)
+        .map(|ip| ip.to_string())
+}
+
+async fn company_catalog(State(state): State<OwnerState>) -> impl IntoResponse {
     let companies = match crate::configured_companies(&state.daemon.root) {
         Ok(companies) => companies,
         Err(error) => {
@@ -414,11 +528,7 @@ async fn company_catalog_entry(
 async fn archive_company(
     State(state): State<OwnerState>,
     AxumPath(company): AxumPath<String>,
-    headers: HeaderMap,
 ) -> impl IntoResponse {
-    if let Some(response) = require_owner(&state, &headers) {
-        return response;
-    }
     if runtime::CompanyConfig::load_archived(&state.daemon.root, &company).is_ok() {
         return Json(serde_json::json!({
             "company": company,
@@ -468,11 +578,7 @@ async fn archive_company(
 async fn restore_company(
     State(state): State<OwnerState>,
     AxumPath(company): AxumPath<String>,
-    headers: HeaderMap,
 ) -> impl IntoResponse {
-    if let Some(response) = require_owner(&state, &headers) {
-        return response;
-    }
     if runtime::CompanyConfig::load(&state.daemon.root, &company).is_ok() {
         return Json(serde_json::json!({
             "company": company,
@@ -523,11 +629,7 @@ async fn restore_company(
 async fn attention_view(
     State(state): State<OwnerState>,
     AxumPath(company): AxumPath<String>,
-    headers: HeaderMap,
 ) -> impl IntoResponse {
-    if let Some(response) = require_owner(&state, &headers) {
-        return response;
-    }
     let config = match runtime::CompanyConfig::load(&state.daemon.root, &company) {
         Ok(config) => config,
         Err(error) => return api_error(StatusCode::NOT_FOUND, "company", format!("{error:#}")),
@@ -543,6 +645,108 @@ async fn attention_view(
     }
 }
 
+async fn company_view(
+    State(state): State<OwnerState>,
+    AxumPath(company): AxumPath<String>,
+    Query(query): Query<CockpitQuery>,
+) -> impl IntoResponse {
+    let config = match runtime::CompanyConfig::load(&state.daemon.root, &company) {
+        Ok(config) => config,
+        Err(error) => return api_error(StatusCode::NOT_FOUND, "company", format!("{error:#}")),
+    };
+    Json(company_projection::project(&state.daemon, &config, query.probe_credentials).await)
+        .into_response()
+}
+
+async fn revise_company_charter(
+    State(state): State<OwnerState>,
+    AxumPath(company): AxumPath<String>,
+    Json(input): Json<CharterRevisionInput>,
+) -> impl IntoResponse {
+    if let Err(error) = authority::validate_mandate(&input.markdown) {
+        return api_error(StatusCode::BAD_REQUEST, "charter", format!("{error:#}"));
+    }
+
+    // One local owner may still have several tabs. Serialising this bounded
+    // read/compare/write section makes base_revision a real precondition
+    // instead of two simultaneous saves both passing the same read.
+    let _write = state.charter_writes.lock().await;
+    let config = match runtime::CompanyConfig::load(&state.daemon.root, &company) {
+        Ok(config) => config,
+        Err(error) => return api_error(StatusCode::NOT_FOUND, "company", format!("{error:#}")),
+    };
+    let current_revision = authority::mandate_revision(&config.mission);
+    if input.base_revision != current_revision {
+        return api_error(
+            StatusCode::CONFLICT,
+            "charter_revision",
+            "The charter changed after this editor opened. Your draft is preserved; refresh the source before saving again.",
+        );
+    }
+
+    let revision = match authority::revise_mandate(
+        &state.daemon.authority,
+        &state.daemon.root,
+        config,
+        input.markdown,
+    )
+    .await
+    {
+        Ok(outcome) => outcome,
+        Err(error) => {
+            return api_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "charter",
+                format!("{error:#}"),
+            )
+        }
+    };
+    let config = match runtime::CompanyConfig::load(&state.daemon.root, &company) {
+        Ok(config) => config,
+        Err(error) => {
+            return api_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "charter",
+                format!("charter changed but its canonical config could not be reread: {error:#}"),
+            )
+        }
+    };
+    Json(CharterRevisionResponse {
+        company: company_projection::project(&state.daemon, &config, false).await,
+        revision,
+    })
+    .into_response()
+}
+
+async fn recover_company_computer(
+    State(state): State<OwnerState>,
+    AxumPath(company): AxumPath<String>,
+    Json(input): Json<CompanyRecoveryInput>,
+) -> impl IntoResponse {
+    let config = match runtime::CompanyConfig::load(&state.daemon.root, &company) {
+        Ok(config) => config,
+        Err(error) => return api_error(StatusCode::NOT_FOUND, "company", format!("{error:#}")),
+    };
+    let action = match company_projection::RecoveryAction::parse(&input.action) {
+        Some(action) => action,
+        None => {
+            return api_error(
+                StatusCode::BAD_REQUEST,
+                "recovery",
+                "action must be start, restart or reconcile",
+            )
+        }
+    };
+    match company_projection::recover(&state.daemon, &config, action).await {
+        Ok(outcome) => Json(outcome).into_response(),
+        Err(error) => api_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "recovery",
+            format!("{error:#}"),
+        ),
+    }
+}
+
 /// The owner cockpit's cross-plane read. This is deliberately an aggregation
 /// at the presentation boundary, not a second writer: each field is read from
 /// the plane that owns it and carries explicit source health when that plane
@@ -552,11 +756,7 @@ async fn cockpit_view(
     State(state): State<OwnerState>,
     AxumPath(company): AxumPath<String>,
     Query(query): Query<CockpitQuery>,
-    headers: HeaderMap,
 ) -> impl IntoResponse {
-    if let Some(response) = require_owner(&state, &headers) {
-        return response;
-    }
     let config = match runtime::CompanyConfig::load(&state.daemon.root, &company) {
         Ok(config) => config,
         Err(error) => return api_error(StatusCode::NOT_FOUND, "company", format!("{error:#}")),
@@ -608,25 +808,29 @@ async fn cockpit_view(
         .unwrap_or_default();
     let people = actors
         .iter()
+        .filter(|actor| actor.kind != "system")
         .map(|actor| {
             let spent: f64 = spend_breakdown
                 .iter()
                 .filter(|(id, _, _)| id == &actor.id)
                 .map(|(_, _, usd)| usd)
                 .sum();
-            let session_running = if actor.id == "exec" {
-                state
+            let conversation_running = actor.id == "exec"
+                && state
                     .daemon
                     .in_flight
                     .lock()
                     .map(|running| running.is_active(&company))
-                    .unwrap_or(false)
-            } else {
-                state.daemon.staff.is_actor_running(&company, &actor.id)
-            };
+                    .unwrap_or(false);
+            // Exec is also a legitimate Work owner. Its free-form wake and
+            // graph-claimed Attempt are mutually exclusive in the scheduler,
+            // but either is observed activity on People.
+            let session_running =
+                conversation_running || state.daemon.staff.is_actor_running(&company, &actor.id);
             serde_json::json!({
                 "actor_id": actor.id,
-                "role": actor.kind,
+                "kind": actor.kind,
+                "role": actor.role,
                 "display": actor.display,
                 "model": actor.model,
                 "team_id": actor.team_id,
@@ -644,7 +848,7 @@ async fn cockpit_view(
     // outside teams even if a malformed row happens to point at one.
     let actor_teams = actors
         .iter()
-        .filter(|actor| !matches!(actor.id.as_str(), "owner" | "exec" | "world" | "daemon"))
+        .filter(|actor| actor.kind == "staff")
         .filter_map(|actor| actor.team_id.map(|team_id| (actor.id.as_str(), team_id)))
         .collect::<HashMap<_, _>>();
     let team_rows = teams
@@ -752,6 +956,63 @@ async fn cockpit_view(
         }
     }
 
+    let legal_profile = match legal::get_profile(&state.daemon.authority, &company).await {
+        Ok(profile) => serde_json::json!({
+            "status": "available",
+            "profile": profile,
+        }),
+        Err(error) => serde_json::json!({
+            "status": "unavailable",
+            "detail": format!("{error:#}"),
+            "profile": null,
+        }),
+    };
+    let provider = match airwallex::connection(&state.daemon.authority, &company).await {
+        Ok(connection) => serde_json::json!({
+            "status": "available",
+            "connection": connection.map(|connection| serde_json::json!({
+                "environment": connection.configured.environment,
+                "account_ref": connection.configured.account_ref,
+                "api_version": connection.configured.api_version,
+                "read_scopes": connection.configured.read_scopes,
+                "submit_scopes": connection.configured.submit_scopes,
+                "approval_workflow_observed": connection.configured.approval_workflow_observed,
+                "observed_at": connection.configured.observed_at,
+                "updated_at": connection.updated_at,
+            })),
+        }),
+        Err(error) => serde_json::json!({
+            "status": "unavailable",
+            "detail": format!("{error:#}"),
+            "connection": null,
+        }),
+    };
+    let finance_state = match tokio::try_join!(
+        finance::envelopes(&state.daemon.authority, &company),
+        finance::payments(&state.daemon.authority, &company),
+        state
+            .daemon
+            .authority
+            .records_of_kind(&company, "finance_balance_observed")
+    ) {
+        Ok((envelopes, payments, balances)) => serde_json::json!({
+            "status": "available",
+            "envelopes": envelopes,
+            "payments": payments,
+            "last_balance_observation": balances.last().map(|row| serde_json::json!({
+                "observed_at": row.created_at,
+                "body": row.body,
+            })),
+        }),
+        Err(error) => serde_json::json!({
+            "status": "unavailable",
+            "detail": format!("{error:#}"),
+            "envelopes": [],
+            "payments": [],
+            "last_balance_observation": null,
+        }),
+    };
+
     let runtime_status = match runtime::status(&company).await {
         Ok(runtime::ContainerStatus::Running) => "running",
         Ok(runtime::ContainerStatus::Stopped) => "stopped",
@@ -784,6 +1045,9 @@ async fn cockpit_view(
         "authority": {
             "approved_parties": approved_parties,
             "credentials": credentials,
+            "legal": legal_profile,
+            "provider": provider,
+            "finance": finance_state,
         },
         "receipts": receipts,
         "refreshed_at": Utc::now(),
@@ -804,11 +1068,7 @@ async fn actor_conversation(
     State(state): State<OwnerState>,
     AxumPath((company, actor)): AxumPath<(String, String)>,
     Query(query): Query<ConversationQuery>,
-    headers: HeaderMap,
 ) -> impl IntoResponse {
-    if let Some(response) = require_owner(&state, &headers) {
-        return response;
-    }
     let org = match state.daemon.orgintel.get(&company).await {
         Ok(org) => org,
         Err(error) => {
@@ -845,10 +1105,12 @@ async fn actor_conversation(
             "actor": {
                 "id": actor_row.id,
                 "display": actor_row.display,
-                "role": actor_row.kind,
+                "kind": actor_row.kind,
+                "role": actor_row.role,
             },
             "messages": messages.into_iter().map(|message| {
                 let (body, intent) = split_intent_receipt(&message.body);
+                let (body, details) = split_message_details(body);
                 let (body, attachments) = split_attachment_block(body);
                 let (body, context_path) = split_context_marker(body);
                 serde_json::json!({
@@ -858,6 +1120,7 @@ async fn actor_conversation(
                     "body": body,
                     "attachments": attachments,
                     "intent": intent,
+                    "details": details,
                     "context_path": context_path,
                     "created_at": message.created_at,
                     "read_at": message.read_at,
@@ -873,15 +1136,75 @@ async fn actor_conversation(
     }
 }
 
+/// Reconnectable live projection for one recorded owner message. This endpoint
+/// never invents durable transcript rows: it carries only the in-flight ACP
+/// reply/activity state until OrgIntel records the final message.
+async fn actor_conversation_live(
+    State(state): State<OwnerState>,
+    AxumPath((company, actor)): AxumPath<(String, String)>,
+    Query(query): Query<ConversationLiveQuery>,
+) -> Response<Body> {
+    let org = match state.daemon.orgintel.get(&company).await {
+        Ok(org) => org,
+        Err(error) => {
+            return api_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "orgintel",
+                format!("{error:#}"),
+            )
+        }
+    };
+    match org.list_actors().await {
+        Ok(actors) if actors.iter().any(|row| row.id == actor) => {}
+        Ok(_) => {
+            return api_error(
+                StatusCode::NOT_FOUND,
+                "actor",
+                "requesting actor no longer exists",
+            )
+        }
+        Err(error) => {
+            return api_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "orgintel",
+                format!("{error:#}"),
+            )
+        }
+    }
+
+    let receiver = state
+        .daemon
+        .conversations
+        .subscribe(&company, &actor, query.message_id);
+    let stream =
+        futures_util::stream::unfold((receiver, true), |(mut receiver, first)| async move {
+            if !first && receiver.changed().await.is_err() {
+                return None;
+            }
+            let state = receiver.borrow().clone();
+            let data = serde_json::to_string(&state).unwrap_or_else(|_| {
+                "{\"phase\":\"failed\",\"error\":\"live projection could not be encoded\"}".into()
+            });
+            let event = Event::default()
+                .event("conversation")
+                .id(state.sequence.to_string())
+                .data(data);
+            Some((Ok::<_, Infallible>(event), (receiver, false)))
+        });
+    Sse::new(stream)
+        .keep_alive(
+            KeepAlive::new()
+                .interval(Duration::from_secs(15))
+                .text("still-connected"),
+        )
+        .into_response()
+}
+
 async fn review_outcome(
     State(state): State<OwnerState>,
     AxumPath((company, handoff)): AxumPath<(String, Uuid)>,
-    headers: HeaderMap,
     Json(input): Json<OwnerReviewInput>,
 ) -> impl IntoResponse {
-    if let Some(response) = require_owner(&state, &headers) {
-        return response;
-    }
     let decision = match input.decision.trim() {
         "accept" => restless_orgintel::OwnerReviewDecision::Accepted,
         "request_changes" => restless_orgintel::OwnerReviewDecision::ChangesRequested,
@@ -917,15 +1240,51 @@ async fn review_outcome(
     }
 }
 
+async fn resolve_handoff_decision(
+    State(state): State<OwnerState>,
+    AxumPath((company, handoff)): AxumPath<(String, Uuid)>,
+    Json(input): Json<OwnerHandoffDecisionInput>,
+) -> impl IntoResponse {
+    if input.resolution.trim().is_empty() {
+        return api_error(
+            StatusCode::BAD_REQUEST,
+            "decision",
+            "recording a decision needs the owner's exact answer",
+        );
+    }
+    let org = match state.daemon.orgintel.get(&company).await {
+        Ok(org) => org,
+        Err(error) => {
+            return api_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "orgintel",
+                format!("{error:#}"),
+            )
+        }
+    };
+    match org
+        .resolve_handoff_as(
+            handoff,
+            "owner",
+            restless_orgintel::OwnerHandoffState::Resolved,
+            input.resolution.trim(),
+        )
+        .await
+    {
+        Ok(()) => Json(serde_json::json!({
+            "handoff_id": handoff,
+            "recorded": true,
+        }))
+        .into_response(),
+        Err(error) => api_error(StatusCode::BAD_REQUEST, "decision", format!("{error:#}")),
+    }
+}
+
 async fn send_actor_message(
     State(state): State<OwnerState>,
     AxumPath((company, actor)): AxumPath<(String, String)>,
-    headers: HeaderMap,
     multipart: Multipart,
 ) -> impl IntoResponse {
-    if let Some(response) = require_owner(&state, &headers) {
-        return response;
-    }
     let input = match parse_owner_message(multipart).await {
         Ok(input) => input,
         Err(message) => return api_error(StatusCode::BAD_REQUEST, "message", message),
@@ -938,15 +1297,15 @@ async fn send_actor_message(
             "message must contain between 1 and 20,000 characters",
         );
     }
-    if input.context_path.as_deref().is_some_and(|path| {
-        path != format!("/{company}") && !path.starts_with(&format!("/{company}/"))
-    }) {
-        return api_error(
-            StatusCode::BAD_REQUEST,
-            "message",
-            "cockpit context must belong to this company",
-        );
-    }
+    // Context is useful navigation metadata, not part of message delivery. Parse
+    // it as a URL so a root screen with query state (for example
+    // `/aris?item=...`) remains company-scoped. A malformed or cross-company
+    // link is omitted rather than making the owner's actual message fail.
+    let context_path = input
+        .context_path
+        .as_deref()
+        .and_then(|path| canonical_cockpit_context(&company, path));
+    let context_omitted = input.context_requested && context_path.is_none();
     let org = match state.daemon.orgintel.get(&company).await {
         Ok(org) => org,
         Err(error) => {
@@ -974,7 +1333,10 @@ async fn send_actor_message(
             "requesting actor no longer exists",
         );
     }
-    if let Err(error) = org.add_actor("owner", "owner", "The Owner").await {
+    if let Err(error) = org
+        .ensure_actor("owner", "owner", "owner", "The Owner")
+        .await
+    {
         return api_error(
             StatusCode::SERVICE_UNAVAILABLE,
             "orgintel",
@@ -1016,7 +1378,7 @@ async fn send_actor_message(
         }
     }
 
-    let recorded_body = message_with_context(body, input.context_path.as_deref());
+    let recorded_body = message_with_context(body, context_path.as_deref());
     let recorded_body = message_with_attachments(&recorded_body, &stored);
     let sent = match input.work_id {
         Some(work_id) => {
@@ -1029,7 +1391,18 @@ async fn send_actor_message(
         }
     };
     match sent {
-        Ok(message_id) => Json(serde_json::json!({ "message_id": message_id })).into_response(),
+        Ok(message_id) => {
+            state
+                .daemon
+                .conversations
+                .expect(&company, &actor, message_id, input.work_id);
+            Json(serde_json::json!({
+                "message_id": message_id,
+                "context_attached": context_path.is_some(),
+                "context_omitted": context_omitted,
+            }))
+            .into_response()
+        }
         Err(error) => {
             rollback_attachments(&company, &stored).await;
             api_error(
@@ -1076,13 +1449,10 @@ async fn parse_owner_message(
                     .map_err(|error| format!("read cockpit context: {error}"))?;
                 let value = value.trim();
                 if !value.is_empty() {
-                    if value.chars().count() > 512
-                        || !value.starts_with('/')
-                        || value.contains("//")
-                    {
-                        return Err("cockpit context must be a bounded local path".into());
+                    input.context_requested = true;
+                    if value.chars().count() <= 512 {
+                        input.context_path = Some(value.to_string());
                     }
-                    input.context_path = Some(value.to_string());
                 }
             }
             Some("attachments") => {
@@ -1111,6 +1481,35 @@ async fn parse_owner_message(
         }
     }
     Ok(input)
+}
+
+fn canonical_cockpit_context(company: &str, value: &str) -> Option<String> {
+    let value = value.trim();
+    if value.is_empty()
+        || value.chars().count() > 512
+        || !value.starts_with('/')
+        || value.starts_with("//")
+        || value.contains('\\')
+    {
+        return None;
+    }
+
+    let parsed = url::Url::parse(&format!("http://cockpit.invalid{value}")).ok()?;
+    if parsed.fragment().is_some() {
+        return None;
+    }
+    let company_root = format!("/{company}");
+    let pathname = parsed.path();
+    if pathname != company_root && !pathname.starts_with(&format!("{company_root}/")) {
+        return None;
+    }
+
+    let mut canonical = pathname.to_string();
+    if let Some(query) = parsed.query() {
+        canonical.push('?');
+        canonical.push_str(query);
+    }
+    (canonical.chars().count() <= 512).then_some(canonical)
 }
 
 fn safe_attachment_name(value: &str) -> String {
@@ -1184,6 +1583,22 @@ fn split_intent_receipt(body: &str) -> (&str, Option<OwnerIntentReceipt>) {
     }
 }
 
+fn split_message_details(body: &str) -> (&str, Option<String>) {
+    let Some((visible, encoded)) = body.rsplit_once(DETAILS_MARKER) else {
+        return (body, None);
+    };
+    let Some(encoded) = encoded.strip_suffix("-->") else {
+        // Metadata syntax is never owner-facing, even when a provider emits a
+        // malformed optional block.
+        return (visible.trim_end(), None);
+    };
+    let details = serde_json::from_str::<OwnerMessageDetails>(encoded)
+        .ok()
+        .map(|details| details.markdown.trim().to_string())
+        .filter(|markdown| !markdown.is_empty() && markdown.chars().count() <= 20_000);
+    (visible.trim_end(), details)
+}
+
 fn split_context_marker(body: &str) -> (&str, Option<String>) {
     let Some((visible, encoded)) = body.rsplit_once(CONTEXT_MARKER) else {
         return (body, None);
@@ -1217,13 +1632,8 @@ async fn rollback_attachments(company: &str, attachments: &[OwnerAttachment]) {
 }
 
 async fn download_attachment(
-    State(state): State<OwnerState>,
     AxumPath((company, attachment)): AxumPath<(String, Uuid)>,
-    headers: HeaderMap,
 ) -> Response<Body> {
-    if let Some(response) = require_owner(&state, &headers) {
-        return response;
-    }
     let (bytes, metadata) = match runtime::read_owner_attachment(&company, attachment).await {
         Ok(value) => value,
         Err(error) => {
@@ -1261,12 +1671,8 @@ async fn download_attachment(
 async fn grant(
     State(state): State<OwnerState>,
     AxumPath(company): AxumPath<String>,
-    headers: HeaderMap,
     Json(input): Json<PartyAction>,
 ) -> impl IntoResponse {
-    if let Some(response) = require_owner(&state, &headers) {
-        return response;
-    }
     let org = state.daemon.orgintel.get(&company).await.ok();
     match approval::grant(
         &state.daemon.root,
@@ -1286,12 +1692,8 @@ async fn grant(
 async fn decline(
     State(state): State<OwnerState>,
     AxumPath(company): AxumPath<String>,
-    headers: HeaderMap,
     Json(input): Json<PartyAction>,
 ) -> impl IntoResponse {
-    if let Some(response) = require_owner(&state, &headers) {
-        return response;
-    }
     match approval::decline(
         &state.daemon.root,
         &company,
@@ -1309,12 +1711,8 @@ async fn decline(
 async fn revoke(
     State(state): State<OwnerState>,
     AxumPath(company): AxumPath<String>,
-    headers: HeaderMap,
     Json(input): Json<PartyAction>,
 ) -> impl IntoResponse {
-    if let Some(response) = require_owner(&state, &headers) {
-        return response;
-    }
     let org = state.daemon.orgintel.get(&company).await.ok();
     match approval::revoke(
         &state.daemon.root,
@@ -1334,12 +1732,8 @@ async fn revoke(
 async fn issue_review_ticket(
     State(state): State<OwnerState>,
     AxumPath(company): AxumPath<String>,
-    headers: HeaderMap,
     Json(input): Json<ReviewTicketRequest>,
 ) -> impl IntoResponse {
-    if let Some(response) = require_owner(&state, &headers) {
-        return response;
-    }
     let config = match runtime::CompanyConfig::load(&state.daemon.root, &company) {
         Ok(config) => config,
         Err(error) => return api_error(StatusCode::NOT_FOUND, "company", format!("{error:#}")),
@@ -1534,14 +1928,23 @@ async fn review_proxy(
     response
 }
 
-fn validate_review_public_url(template: &str) -> Result<()> {
+fn validate_review_public_url(template: &str, expected_port: u16) -> Result<()> {
     if template.matches("{ticket}").count() != 1 {
         anyhow::bail!("RESTLESS_REVIEW_PUBLIC_URL must contain one {{ticket}} placeholder");
     }
     let (url, _) = materialize_review_url(template, &"a".repeat(32), "/")?;
     let parsed = url::Url::parse(&url)?;
-    if !matches!(parsed.scheme(), "http" | "https") || parsed.host_str().is_none() {
-        anyhow::bail!("review public URL must be an http(s) origin");
+    if parsed.scheme() != "http"
+        || !parsed.username().is_empty()
+        || parsed.password().is_some()
+        || parsed.port_or_known_default() != Some(expected_port)
+        || !parsed
+            .host_str()
+            .is_some_and(|host| host.ends_with(".localhost"))
+    {
+        anyhow::bail!(
+            "review public URL must be the configured http loopback origin on port {expected_port}"
+        );
     }
     Ok(())
 }
@@ -1577,12 +1980,8 @@ fn materialize_review_url(
 async fn issue_ticket(
     State(state): State<OwnerState>,
     AxumPath(company): AxumPath<String>,
-    headers: HeaderMap,
     Json(input): Json<TicketRequest>,
 ) -> impl IntoResponse {
-    if let Some(response) = require_owner(&state, &headers) {
-        return response;
-    }
     if Uuid::parse_str(&input.client_id).is_err() {
         return api_error(
             StatusCode::BAD_REQUEST,
@@ -1662,12 +2061,8 @@ async fn issue_ticket(
 async fn open_desktop(
     State(state): State<OwnerState>,
     AxumPath(company): AxumPath<String>,
-    headers: HeaderMap,
     Query(query): Query<TicketQuery>,
 ) -> impl IntoResponse {
-    if let Some(response) = require_owner(&state, &headers) {
-        return response;
-    }
     let ticket = state
         .tickets
         .lock()
@@ -1706,25 +2101,51 @@ async fn open_desktop(
         },
     );
     tracing::info!(company, item = %ticket.item_id, "owner desktop attached");
-    let target = format!(
-        "/desktop/{company}/vnc.html?autoconnect=1&resize=scale&view_only=1&path=desktop/{company}/websockify"
-    );
+    let target = desktop_client_url(&company, DesktopClientMode::Observe);
     let mut response = Redirect::to(&target).into_response();
-    let secure = if secure_request(&state, &headers) {
-        "; Secure"
-    } else {
-        ""
-    };
     response.headers_mut().insert(
         SET_COOKIE,
         HeaderValue::from_str(&format!(
-            "{ATTACH_COOKIE}={attach}; Path=/; HttpOnly; SameSite=Strict; Max-Age={}{}",
-            ATTACH_TTL.as_secs(),
-            secure
+            "{ATTACH_COOKIE}={attach}; Path=/; HttpOnly; SameSite=Strict; Max-Age={}",
+            ATTACH_TTL.as_secs()
         ))
         .expect("attach cookie"),
     );
     response
+}
+
+#[derive(Clone, Copy)]
+enum DesktopClientMode {
+    Observe,
+    Control,
+}
+
+/// Keep the imported display client behind one server-owned seam. Observers
+/// scale locally so two browser tabs cannot fight over the dimensions of the
+/// shared company computer; only the sole controller may resize its framebuffer.
+fn desktop_client_url(company: &str, mode: DesktopClientMode) -> String {
+    let (resize, view_only) = match mode {
+        DesktopClientMode::Observe => ("scale", "1"),
+        DesktopClientMode::Control => ("remote", "0"),
+    };
+    format!(
+        "/desktop/{company}/vnc.html?autoconnect=1&reconnect=1&reconnect_delay=1000&shared=1&resize={resize}&view_only={view_only}&path=desktop/{company}/websockify"
+    )
+}
+
+async fn open_observed_desktop(
+    State(state): State<OwnerState>,
+    AxumPath(company): AxumPath<String>,
+    headers: HeaderMap,
+) -> impl IntoResponse {
+    if valid_attach(&state, &company, &headers).is_none() {
+        return api_error(
+            StatusCode::UNAUTHORIZED,
+            "attach",
+            "desktop attachment is absent or expired",
+        );
+    }
+    Redirect::to(&desktop_client_url(&company, DesktopClientMode::Observe)).into_response()
 }
 
 async fn open_controlled_desktop(
@@ -1733,9 +2154,6 @@ async fn open_controlled_desktop(
     headers: HeaderMap,
     Query(query): Query<DesktopMode>,
 ) -> impl IntoResponse {
-    if let Some(response) = require_owner(&state, &headers) {
-        return response;
-    }
     let Some(attach) = valid_attach(&state, &company, &headers) else {
         return api_error(
             StatusCode::UNAUTHORIZED,
@@ -1760,10 +2178,7 @@ async fn open_controlled_desktop(
             "this browser tab does not hold control",
         );
     }
-    Redirect::to(&format!(
-        "/desktop/{company}/vnc.html?autoconnect=1&resize=scale&view_only=0&path=desktop/{company}/websockify"
-    ))
-    .into_response()
+    Redirect::to(&desktop_client_url(&company, DesktopClientMode::Control)).into_response()
 }
 
 async fn desktop_asset(
@@ -1771,9 +2186,7 @@ async fn desktop_asset(
     AxumPath((company, asset)): AxumPath<(String, String)>,
     headers: HeaderMap,
 ) -> impl IntoResponse {
-    if require_owner(&state, &headers).is_some()
-        || valid_attach(&state, &company, &headers).is_none()
-    {
+    if valid_attach(&state, &company, &headers).is_none() {
         return api_error(
             StatusCode::UNAUTHORIZED,
             "attach",
@@ -1826,9 +2239,6 @@ async fn desktop_websocket(
     headers: HeaderMap,
     upgrade: WebSocketUpgrade,
 ) -> impl IntoResponse {
-    if let Some(response) = require_owner(&state, &headers) {
-        return response;
-    }
     if valid_attach(&state, &company, &headers).is_none() {
         return api_error(
             StatusCode::UNAUTHORIZED,
@@ -1885,14 +2295,7 @@ async fn proxy_websocket(browser: WebSocket, company: &str) -> Result<()> {
     Ok(())
 }
 
-async fn browser_status(
-    State(state): State<OwnerState>,
-    AxumPath(company): AxumPath<String>,
-    headers: HeaderMap,
-) -> impl IntoResponse {
-    if let Some(response) = require_owner(&state, &headers) {
-        return response;
-    }
+async fn browser_status(AxumPath(company): AxumPath<String>) -> impl IntoResponse {
     match runtime::doctor(&company).await {
         Ok(report) => Json(serde_json::json!({
             "generation": runtime::generation(&company).await.ok().flatten(),
@@ -1914,9 +2317,6 @@ async fn take_control(
     headers: HeaderMap,
     Json(input): Json<ControlRequest>,
 ) -> impl IntoResponse {
-    if let Some(response) = require_owner(&state, &headers) {
-        return response;
-    }
     let Some(attach) = valid_attach(&state, &company, &headers) else {
         return api_error(
             StatusCode::UNAUTHORIZED,
@@ -1968,14 +2368,9 @@ async fn take_control(
 }
 
 async fn heartbeat(
-    State(state): State<OwnerState>,
     AxumPath(company): AxumPath<String>,
-    headers: HeaderMap,
     Json(input): Json<ControlRequest>,
 ) -> impl IntoResponse {
-    if let Some(response) = require_owner(&state, &headers) {
-        return response;
-    }
     let Some(mut current) = runtime::read_browser_control(&company).await.ok().flatten() else {
         return api_error(
             StatusCode::CONFLICT,
@@ -2005,12 +2400,8 @@ async fn heartbeat(
 async fn return_control(
     State(state): State<OwnerState>,
     AxumPath(company): AxumPath<String>,
-    headers: HeaderMap,
     Json(input): Json<ControlRequest>,
 ) -> impl IntoResponse {
-    if let Some(response) = require_owner(&state, &headers) {
-        return response;
-    }
     let Some(current) = runtime::read_browser_control(&company).await.ok().flatten() else {
         return api_error(
             StatusCode::CONFLICT,
@@ -2044,7 +2435,9 @@ async fn return_control(
     }
     if let Some(requesting_actor) = requesting_actor {
         if let Ok(org) = state.daemon.orgintel.get(&company).await {
-            let _ = org.add_actor("owner", "owner", "The Owner").await;
+            let _ = org
+                .ensure_actor("owner", "owner", "owner", "The Owner")
+                .await;
             let _ = org
                 .send_message(
                     "owner",
@@ -2055,27 +2448,6 @@ async fn return_control(
         }
     }
     Json(next).into_response()
-}
-
-fn require_owner(state: &OwnerState, headers: &HeaderMap) -> Option<Response<Body>> {
-    let token = cookie(headers, OWNER_COOKIE).unwrap_or_default();
-    if valid_token(&state.daemon.root, &token) {
-        None
-    } else {
-        Some(api_error(
-            StatusCode::UNAUTHORIZED,
-            "authentication",
-            "owner sign-in required",
-        ))
-    }
-}
-
-fn secure_request(state: &OwnerState, headers: &HeaderMap) -> bool {
-    state.secure_cookie
-        || headers
-            .get("x-forwarded-proto")
-            .and_then(|value| value.to_str().ok())
-            .is_some_and(|value| value.eq_ignore_ascii_case("https"))
 }
 
 fn valid_attach(state: &OwnerState, company: &str, headers: &HeaderMap) -> Option<AttachSession> {
@@ -2100,21 +2472,6 @@ fn cookie(headers: &HeaderMap, name: &str) -> Option<String> {
         })
 }
 
-fn valid_token(root: &Path, token: &str) -> bool {
-    if token.is_empty() {
-        return false;
-    }
-    let stored = std::fs::read_to_string(root.join("owner-token.sha256"))
-        .ok()
-        .map(|value| value.trim().to_string())
-        .unwrap_or_default();
-    constant_time_eq(stored.as_bytes(), token_digest(token).as_bytes())
-}
-
-fn token_digest(token: &str) -> String {
-    format!("{:x}", Sha256::digest(token.as_bytes()))
-}
-
 fn company_display_name(name: &str) -> String {
     name.split('_')
         .filter(|part| !part.is_empty())
@@ -2127,18 +2484,6 @@ fn company_display_name(name: &str) -> String {
         })
         .collect::<Vec<_>>()
         .join(" ")
-}
-
-fn constant_time_eq(left: &[u8], right: &[u8]) -> bool {
-    if left.len() != right.len() {
-        return false;
-    }
-    left.iter()
-        .zip(right)
-        .fold(0_u8, |difference, (left, right)| {
-            difference | (left ^ right)
-        })
-        == 0
 }
 
 fn lease_is_live(value: &serde_json::Value) -> bool {
@@ -2165,21 +2510,63 @@ fn api_error(
         .expect("error response")
 }
 
+async fn api_not_found() -> Response<Body> {
+    api_error(StatusCode::NOT_FOUND, "api", "unknown owner API route")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn digest_comparison_is_exact() {
-        let digest = token_digest("right-token");
-        assert!(constant_time_eq(
-            digest.as_bytes(),
-            token_digest("right-token").as_bytes()
-        ));
-        assert!(!constant_time_eq(
-            digest.as_bytes(),
-            token_digest("wrong-token").as_bytes()
-        ));
+    fn network_owner_bindings_are_refused_until_real_auth_exists() {
+        assert!(ensure_loopback("127.0.0.1:7788".parse().unwrap(), "owner").is_ok());
+        assert!(ensure_loopback("[::1]:7788".parse().unwrap(), "owner").is_ok());
+        assert!(ensure_loopback("0.0.0.0:7788".parse().unwrap(), "owner").is_err());
+        assert!(ensure_loopback("192.0.2.1:7788".parse().unwrap(), "owner").is_err());
+    }
+
+    #[test]
+    fn local_owner_boundary_allows_reads_and_same_origin_writes() {
+        let mut read = HeaderMap::new();
+        read.insert(HOST, HeaderValue::from_static("localhost:7788"));
+        assert_eq!(local_owner_boundary_violation(&Method::GET, &read), None);
+
+        let mut write = read.clone();
+        write.insert(ORIGIN, HeaderValue::from_static("http://localhost:7788"));
+        write.insert("sec-fetch-site", HeaderValue::from_static("same-origin"));
+        assert_eq!(local_owner_boundary_violation(&Method::POST, &write), None);
+
+        let mut proxied = HeaderMap::new();
+        proxied.insert(HOST, HeaderValue::from_static("127.0.0.1:5173"));
+        proxied.insert(ORIGIN, HeaderValue::from_static("http://127.0.0.1:5173"));
+        assert_eq!(
+            local_owner_boundary_violation(&Method::POST, &proxied),
+            None
+        );
+    }
+
+    #[test]
+    fn local_owner_boundary_refuses_proxy_cross_site_and_origin_bypass() {
+        let mut headers = HeaderMap::new();
+        headers.insert(HOST, HeaderValue::from_static("localhost:7788"));
+
+        assert!(local_owner_boundary_violation(&Method::POST, &headers).is_some());
+
+        headers.insert(ORIGIN, HeaderValue::from_static("http://127.0.0.1:7788"));
+        assert!(local_owner_boundary_violation(&Method::POST, &headers).is_some());
+
+        headers.insert(ORIGIN, HeaderValue::from_static("http://localhost:7788"));
+        headers.insert("sec-fetch-site", HeaderValue::from_static("cross-site"));
+        assert!(local_owner_boundary_violation(&Method::POST, &headers).is_some());
+
+        headers.insert("sec-fetch-site", HeaderValue::from_static("same-origin"));
+        headers.insert("x-forwarded-for", HeaderValue::from_static("127.0.0.1"));
+        assert!(local_owner_boundary_violation(&Method::GET, &headers).is_some());
+
+        headers.remove("x-forwarded-for");
+        headers.insert(HOST, HeaderValue::from_static("example.com:7788"));
+        assert!(local_owner_boundary_violation(&Method::GET, &headers).is_some());
     }
 
     #[test]
@@ -2197,7 +2584,23 @@ mod tests {
         );
         assert_eq!(host, "0123456789abcdef0123456789abcdef.localhost:7794");
         assert!(materialize_review_url("http://localhost:7794/{ticket}", ticket, "/").is_err());
-        assert!(validate_review_public_url("http://preview.localhost:7794").is_err());
+        assert!(validate_review_public_url("http://preview.localhost:7794", 7794).is_err());
+        assert!(validate_review_public_url("http://{ticket}.localhost:7794", 7794).is_ok());
+        assert!(validate_review_public_url("https://{ticket}.localhost:7794", 7794).is_err());
+        assert!(validate_review_public_url("http://{ticket}.example.com:7794", 7794).is_err());
+        assert!(validate_review_public_url("http://{ticket}.localhost:8000", 7794).is_err());
+    }
+
+    #[test]
+    fn only_the_controller_can_resize_the_shared_desktop() {
+        let observer = desktop_client_url("company_test", DesktopClientMode::Observe);
+        assert!(observer.contains("resize=scale"));
+        assert!(observer.contains("view_only=1"));
+
+        let controller = desktop_client_url("company_test", DesktopClientMode::Control);
+        assert!(controller.contains("resize=remote"));
+        assert!(controller.contains("view_only=0"));
+        assert!(controller.contains("reconnect=1"));
     }
 
     #[test]
@@ -2223,6 +2626,32 @@ mod tests {
     }
 
     #[test]
+    fn cockpit_context_is_scoped_by_url_path_not_raw_query_text() {
+        assert_eq!(
+            canonical_cockpit_context("aris", "/aris?item=release-integrity"),
+            Some("/aris?item=release-integrity".into())
+        );
+        assert_eq!(
+            canonical_cockpit_context("aris", "/aris?next=https://example.com/review"),
+            Some("/aris?next=https://example.com/review".into())
+        );
+        assert_eq!(
+            canonical_cockpit_context("aris", "/aris/work/42?lens=board"),
+            Some("/aris/work/42?lens=board".into())
+        );
+
+        assert_eq!(canonical_cockpit_context("aris", "/cosmon?item=42"), None);
+        assert_eq!(canonical_cockpit_context("aris", "/aris-other"), None);
+        assert_eq!(canonical_cockpit_context("aris", "/aris/../cosmon"), None);
+        assert_eq!(canonical_cockpit_context("aris", "//aris/work"), None);
+        assert_eq!(
+            canonical_cockpit_context("aris", "https://example.com/aris"),
+            None
+        );
+        assert_eq!(canonical_cockpit_context("aris", "/aris#hidden"), None);
+    }
+
+    #[test]
     fn only_a_valid_exec_intent_receipt_is_promoted_to_ui_metadata() {
         let body = concat!(
             "I will treat this as durable direction.",
@@ -2239,5 +2668,22 @@ mod tests {
         let malformed = "Reply\n\n<!--restless-intent:{\"kind\":\"whatever\",\"summary\":\"x\"}-->";
         assert_eq!(split_intent_receipt(malformed).0, malformed);
         assert!(split_intent_receipt(malformed).1.is_none());
+    }
+
+    #[test]
+    fn optional_work_details_are_separate_and_malformed_metadata_stays_hidden() {
+        let body = concat!(
+            "The release is ready.",
+            "\n\n<!--restless-details:{\"markdown\":\"- Commit `abc123`\\n- Build passed\"}-->"
+        );
+        let (visible, details) = split_message_details(body);
+        assert_eq!(visible, "The release is ready.");
+        assert_eq!(
+            details.as_deref(),
+            Some("- Commit `abc123`\n- Build passed")
+        );
+
+        let malformed = "Answer.\n\n<!--restless-details:not-json-->";
+        assert_eq!(split_message_details(malformed), ("Answer.", None));
     }
 }

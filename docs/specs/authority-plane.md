@@ -361,6 +361,11 @@ The Authority Plane may reference an OrgIntel actor or goal for attribution, but
 
 OrgIntel may reference an effect receipt or resource grant, but it cannot rewrite it.
 
+The Authority Plane also owns the company's safe legal profile projection and operating-money
+controls. Restricted personal identity evidence remains in the provider or an owner-controlled
+vault; Restless stores only the minimum business fields needed by the company and an owner
+assertion or public-registry observation describing where those fields came from.
+
 There should be no cross-layer database foreign keys. Stable identifiers and reconciliation are sufficient.
 
 ---
@@ -502,6 +507,40 @@ Possible results:
 - **unknown** — provider may have executed, but response is ambiguous;
 - **denied** — policy or approval rejected the request;
 - **awaiting_approval** — only this effect waits; unrelated internal work continues.
+
+### 5.1.1 Operating-money transfers
+
+**Core contract.** A money transfer is a narrow typed effect because two facts must be enforced
+atomically before a provider call: the exact payment must fit both its per-payment and aggregate
+envelopes, and the same owner handoff must never reserve or submit twice. The durable intent binds:
+
+```text
+company + Work + pending owner PaymentConfirmation handoff
+source account + existing provider beneficiary
+exact amount and currency + purpose
+idempotency key + provider request/transfer ids
+reserved aggregate amount + observed provider state
+```
+
+Submission does not create beneficiaries and does not amount to Restless owner approval. Where the
+provider supports native approval, Restless submits into that workflow and brings the exact
+provider-native approval last mile to the owner. Only an authenticated provider read may advance or
+reconcile provider state. An ambiguous create or read becomes `unknown`, retains its reservation,
+and must not be retried as a new payment.
+
+The authenticated observation is current external truth, not a locally absorbing terminal state. A
+provider may report a later correction or reversal (including a paid transfer later becoming failed);
+Authority records that transition atomically with the current payment projection, and OrgIntel is
+notified without inventing a second payment or a second owner approval.
+
+This is a deliberately bounded exception to the generic governed-process runner. It is justified by
+host-only financial credentials, atomic money envelopes, and ambiguous-outcome reconciliation. It
+does not establish a provider catalogue, universal procurement state machine, or one adapter per
+external capability.
+
+**Initial hypothesis.** The first implementation is AUD-only, uses pre-existing provider
+beneficiaries, and supports one provider. A real sandbox run must prove the provider's request-id,
+approval, status, and recovery behaviour before any low-value live transfer.
 
 ## 5.2 Resources
 
@@ -691,6 +730,16 @@ For V0:
 - sensitive accounts should use restricted roles, brokered APIs, or human takeover;
 - the Authority Plane should not attempt to semantically inspect every HTTP request;
 - high-impact credentials should not be present merely because the browser is generally available.
+
+Provider-root enrolment, financial-account administration, identity or business verification, MFA
+and initial credential issuance use a provider-hosted flow in the owner's browser outside the Company
+Runtime. Any resulting API secret enters through a dedicated owner-authenticated Authority ingress
+and is stored or applied by Infisical; provider passwords, MFA factors, session cookies and identity
+evidence do not enter Runtime or OrgIntel. Connection state becomes verified only after an
+authenticated provider observation. Authentication does not itself approve a consequential effect.
+
+The cross-plane ownership and risk dispositions are in
+[`ADR 0002`](../adr/0002-owner-provider-authentication-handoffs.md).
 
 ---
 
@@ -1114,10 +1163,18 @@ runtime_instances
 runtime_snapshots
 usage_records
 credential_bindings        # references and metadata, not raw secrets
+legal_profiles             # safe business fields and observation metadata only
+provider_connections       # environment, account and scope evidence; never raw secrets
+money_envelopes            # source, beneficiary, currency and aggregate hard limits
+payment_intents            # typed transfer reservations and reconciled provider state
 ```
 
 Avoid adding a durable entity for every external tool concept. Generic effect intents and receipts
 may carry bounded JSON outcome data; tool-specific state remains in the external system.
+
+The four bounded records above are not a general external-capability registry. They exist because
+legal identity and operating money are Authority-owned facts; external sourcing decisions remain
+ordinary Work in OrgIntel.
 
 No Work, Attempt, Team, Asset, Review, or internal process entities belong here.
 

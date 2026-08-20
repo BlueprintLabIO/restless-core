@@ -279,6 +279,9 @@ pub enum ReconciliationStatus {
 pub struct RuntimeDoctor {
     pub company: String,
     pub container: ContainerStatus,
+    pub volume: String,
+    pub volume_exists: bool,
+    pub volume_mounted: bool,
     pub image: String,
     pub container_image_id: Option<String>,
     pub target_image_id: Option<String>,
@@ -287,7 +290,21 @@ pub struct RuntimeDoctor {
     pub reconciliation: ReconciliationStatus,
     pub action: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub supervisor: Option<SupervisorDoctor>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub browser: Option<BrowserDoctor>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct SupervisorDoctor {
+    pub status: String,
+    pub services: Vec<SupervisedService>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct SupervisedService {
+    pub name: String,
+    pub state: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -331,7 +348,8 @@ pub async fn up(config: &CompanyConfig, reconcile: bool) -> Result<String> {
     if reconcile {
         rebuilt = ensure_current_image().await?;
         if status(company).await? != ContainerStatus::Absent
-            && container_uses_old_image(company).await?
+            && (container_uses_old_image(company).await?
+                || !container_uses_company_volume(company).await?)
         {
             let name = container_name(company);
             // Give supervised Chromium long enough to flush its persistent
@@ -387,6 +405,13 @@ pub async fn up(config: &CompanyConfig, reconcile: bool) -> Result<String> {
 /// Check the replaceable runtime image independently of an agent report.
 pub async fn doctor(company: &str) -> Result<RuntimeDoctor> {
     let container = status(company).await?;
+    let volume = volume_name(company);
+    let volume_exists = docker(&["volume", "inspect", &volume])
+        .await?
+        .status
+        .success();
+    let volume_mounted =
+        container != ContainerStatus::Absent && container_uses_company_volume(company).await?;
     let container_image_id = if container == ContainerStatus::Absent {
         None
     } else {
@@ -408,6 +433,8 @@ pub async fn doctor(company: &str) -> Result<RuntimeDoctor> {
         .and_then(|root| digest_source(&root).ok());
 
     let runtime_missing_or_stale = container == ContainerStatus::Absent
+        || !volume_exists
+        || !volume_mounted
         || matches!(
             (&container_image_id, &target_image_id),
             (Some(container_id), Some(target_id)) if container_id != target_id
@@ -428,15 +455,21 @@ pub async fn doctor(company: &str) -> Result<RuntimeDoctor> {
         ReconciliationStatus::Unknown
     };
 
-    let browser = if container == ContainerStatus::Running {
-        Some(browser_doctor(company).await)
+    let (supervisor, browser) = if container == ContainerStatus::Running {
+        (
+            Some(supervisor_doctor(company).await),
+            Some(browser_doctor(company).await),
+        )
     } else {
-        None
+        (None, None)
     };
 
     Ok(RuntimeDoctor {
         company: company.to_string(),
         container,
+        volume,
+        volume_exists,
+        volume_mounted,
         image: COMPANY_IMAGE.to_string(),
         container_image_id,
         target_image_id,
@@ -445,6 +478,7 @@ pub async fn doctor(company: &str) -> Result<RuntimeDoctor> {
         reconciliation,
         action: (reconciliation != ReconciliationStatus::Current)
             .then(|| format!("restless up -c {company} --reconcile")),
+        supervisor,
         browser,
     })
 }
@@ -526,6 +560,42 @@ async fn browser_doctor(company: &str) -> BrowserDoctor {
         automation,
         web_transport,
         controller,
+    }
+}
+
+async fn supervisor_doctor(company: &str) -> SupervisorDoctor {
+    let name = container_name(company);
+    let output = docker(&[
+        "exec",
+        &name,
+        "supervisorctl",
+        "-c",
+        "/etc/supervisor/conf.d/restless.conf",
+        "status",
+    ])
+    .await;
+    let services = match output {
+        Ok(output) if output.status.success() => String::from_utf8_lossy(&output.stdout)
+            .lines()
+            .filter_map(|line| {
+                let mut parts = line.split_whitespace();
+                Some(SupervisedService {
+                    name: parts.next()?.to_string(),
+                    state: parts.next()?.to_lowercase(),
+                })
+            })
+            .collect::<Vec<_>>(),
+        _ => Vec::new(),
+    };
+    let status =
+        if !services.is_empty() && services.iter().all(|service| service.state == "running") {
+            "available"
+        } else {
+            "degraded"
+        };
+    SupervisorDoctor {
+        status: status.to_string(),
+        services,
     }
 }
 
@@ -879,6 +949,17 @@ async fn container_uses_old_image(company: &str) -> Result<bool> {
     })
 }
 
+async fn container_uses_company_volume(company: &str) -> Result<bool> {
+    let mounted = inspect_value(&[
+        "inspect",
+        "-f",
+        "{{range .Mounts}}{{if eq .Destination \"/company\"}}{{.Name}}{{end}}{{end}}",
+        &container_name(company),
+    ])
+    .await?;
+    Ok(mounted.as_deref() == Some(volume_name(company).as_str()))
+}
+
 async fn inspect_value(args: &[&str]) -> Result<Option<String>> {
     let output = docker(args).await?;
     if !output.status.success() {
@@ -1116,6 +1197,19 @@ async fn seed_mission(config: &CompanyConfig) -> Result<()> {
         );
     }
     Ok(())
+}
+
+/// Refresh the Runtime's read-only projection of the owner mandate without
+/// restarting the persistent company computer. A stopped or absent Runtime
+/// will receive the canonical value through the ordinary `up` seed path.
+pub(crate) async fn sync_mission_projection(config: &CompanyConfig) -> Result<&'static str> {
+    match status(&config.name).await? {
+        ContainerStatus::Running => {
+            seed_mission(config).await?;
+            Ok("updated")
+        }
+        ContainerStatus::Stopped | ContainerStatus::Absent => Ok("deferred"),
+    }
 }
 
 /// Put an owner-supplied attachment on the persistent company computer as an

@@ -8,11 +8,20 @@ focus, explain, and act on it.
 > routes were removed rather than retained as a second product.
 
 ```
-pnpm install
-pnpm dev        # http://localhost:5180
-pnpm check      # svelte-check — must be clean
-pnpm build      # static build via @sveltejs/adapter-static
+npm install
+# once per checkout; ~/.local/bin is already on the development PATH
+ln -s "$PWD/../scripts/restless-dev" "$HOME/.local/bin/restless-dev"
+cargo install --locked --path ../crates/restless --root "$HOME/.local"
+restless-dev aris
+                    # live daemon + company computer + Vite at http://localhost:5173/aris
+restless doctor -c aris
+                    # read-only check of every local boundary
+npm run check   # svelte-check — must be clean
+npm run build   # static build via @sveltejs/adapter-static
 ```
+
+Do not start Vite alone for the live cockpit: its shell can render while every `/api` request is
+unavailable. `restless-dev` keeps Vite on the owner gateway's same-origin API contract.
 
 ## Where it came from
 
@@ -38,7 +47,14 @@ Two things were deliberately changed in the lift:
 | `src/lib/primitives/` | The small pieces: matrix glyphs, bounded confirmation, Markdown, attachments and the composer.                                                                                       |
 | `src/lib/components/` | The one shell, situation strip and persistent executive transcript.                                                                                                                  |
 | `src/lib/model/`      | The narrow owner-surface contract, generated OrgIntel rows and company-scoped API clients.                                                                                           |
+| `src/lib/office/`     | The live Attention-room adapter: source-owned People/Work projection, asset decoding and the Svelte canvas boundary.                                                                 |
 | `src/routes/`         | Company door plus Attention, Work, People and Authority.                                                                                                                             |
+
+The room vendors Pixel Agents 1.4.1's office engine and artwork at pinned commit
+`3537e140c2094761beae748592aeb92ece8edfdd`. Its renderer, sprites, furniture, seat assignment,
+pathfinding and character state machine remain upstream code; Restless supplies only the browser asset
+adapter, the company-shaped layout and a read-only projection from People/Work. See
+`src/lib/vendor/pixel-agents/NOTICE.md` and `static/vendor/pixel-agents/LICENSE`.
 
 ## Data boundaries
 

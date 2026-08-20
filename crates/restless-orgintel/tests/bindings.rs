@@ -17,8 +17,8 @@
 //! hides drift instead of reporting it.
 
 use restless_orgintel::{
-    ActorRow, ArtifactRefRow, ArtifactRefState, EventRow, GoalRow, MessageRow,
-    OwnerHandoffCategory, OwnerHandoffRow, OwnerHandoffState, ScheduleRow, TeamRow,
+    ActorRow, ArtifactRefRow, ArtifactRefState, EventRow, GoalRow, MessageRow, OwnerBrief,
+    OwnerBriefKind, OwnerHandoffCategory, OwnerHandoffRow, OwnerHandoffState, ScheduleRow, TeamRow,
     WorkAttemptFeedbackRow, WorkAttemptInputRow, WorkAttemptRow, WorkAttemptState, WorkEdgeKind,
     WorkEdgeRow, WorkGateRow, WorkGateRunRow, WorkGraphSnapshot, WorkRow, WorkStatus,
     WorkspaceSpec,
@@ -57,6 +57,8 @@ fn render() -> String {
         ArtifactRefState::decl(&cfg),
         OwnerHandoffCategory::decl(&cfg),
         OwnerHandoffState::decl(&cfg),
+        OwnerBriefKind::decl(&cfg),
+        OwnerBrief::decl(&cfg),
         WorkspaceSpec::decl(&cfg),
         TeamRow::decl(&cfg),
         ActorRow::decl(&cfg),

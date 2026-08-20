@@ -26,6 +26,10 @@ pub struct AttentionView {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub work_graph: Option<restless_orgintel::WorkGraphSnapshot>,
     pub items: Vec<AttentionItem>,
+    /// Recently resolved owner steps remain visible long enough to show the
+    /// source-observed consequence. This is a projection, not another state
+    /// machine: the handoff, Work graph and Authority payment remain owners.
+    pub continuations: Vec<DecisionContinuation>,
     pub refreshed_at: DateTime<Utc>,
 }
 
@@ -58,6 +62,15 @@ pub struct AttentionItem {
     pub recommendation: String,
     pub requested_action: String,
     pub if_no_action: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub uncertainty: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub deadline: Option<String>,
+    pub brief_status: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub brief_author: Option<AttentionActorRef>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub briefed_at: Option<DateTime<Utc>>,
     pub evidence: Vec<AttentionEvidence>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub responsible_actor: Option<AttentionActorRef>,
@@ -68,6 +81,20 @@ pub struct AttentionItem {
     pub actions: Vec<AttentionAction>,
     pub can_continue: bool,
     pub created_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct DecisionContinuation {
+    pub id: String,
+    pub work_id: uuid::Uuid,
+    pub title: String,
+    pub recorded_decision: String,
+    pub what_it_unlocked: String,
+    pub current_state: String,
+    pub observed_outcome: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub responsible_actor: Option<AttentionActorRef>,
+    pub observed_at: DateTime<Utc>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -117,9 +144,11 @@ pub struct ReviewTargetRef {
 
 #[derive(Debug, Clone, Serialize)]
 pub struct AttentionAction {
-    pub id: &'static str,
-    pub label: &'static str,
-    pub consequence: &'static str,
+    pub id: String,
+    pub label: String,
+    pub consequence: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub href: Option<String>,
 }
 
 /// Compose the live queue from its owners. Authority remains independently
@@ -183,24 +212,42 @@ pub async fn project(
         latest.insert((capability.to_string(), party), event);
     }
 
-    let actors = match org {
-        Some(org) => org
-            .list_actors()
-            .await
-            .unwrap_or_default()
-            .into_iter()
-            .map(|actor| {
-                (
-                    actor.id.clone(),
-                    AttentionActorRef {
-                        id: actor.id,
-                        display: actor.display,
-                        role: actor.kind,
-                    },
-                )
-            })
-            .collect::<HashMap<_, _>>(),
-        None => HashMap::new(),
+    let (actors, accountable_actors) = match org {
+        Some(org) => {
+            let rows = org.list_actors().await.unwrap_or_default();
+            let team_leads = org
+                .list_teams()
+                .await
+                .unwrap_or_default()
+                .into_iter()
+                .map(|team| (team.id, team.lead_actor_id))
+                .collect::<HashMap<_, _>>();
+            let accountable = rows
+                .iter()
+                .map(|actor| {
+                    let responsible = actor
+                        .team_id
+                        .and_then(|team| team_leads.get(&team).cloned())
+                        .unwrap_or_else(|| actor.id.clone());
+                    (actor.id.clone(), responsible)
+                })
+                .collect::<HashMap<_, _>>();
+            let refs = rows
+                .into_iter()
+                .map(|actor| {
+                    (
+                        actor.id.clone(),
+                        AttentionActorRef {
+                            id: actor.id,
+                            display: actor.display,
+                            role: actor.role,
+                        },
+                    )
+                })
+                .collect::<HashMap<_, _>>();
+            (refs, accountable)
+        }
+        None => (HashMap::new(), HashMap::new()),
     };
     let generation = runtime::generation(&config.name).await.ok().flatten();
     let attach_for = |actor: Option<&str>| {
@@ -248,20 +295,27 @@ pub async fn project(
             recommendation: "Review the exact recipient and draft, then grant or decline this party.".into(),
             requested_action: format!("Allow or decline first contact with {party}."),
             if_no_action: "Nothing is sent. The company may continue work that does not depend on this contact.".into(),
+            uncertainty: None,
+            deadline: None,
+            brief_status: "source-authored",
+            brief_author: event.actor_id.as_deref().and_then(|actor| actors.get(actor)).cloned(),
+            briefed_at: Some(event.created_at),
             evidence,
             responsible_actor: None,
             runtime_attach: None,
             review_target: None,
             actions: vec![
                 AttentionAction {
-                    id: "grant",
-                    label: "Grant first contact",
-                    consequence: "Allows real first-contact effects to this exact party.",
+                    id: "grant".into(),
+                    label: "Grant first contact".into(),
+                    consequence: "Allows real first-contact effects to this exact party.".into(),
+                    href: None,
                 },
                 AttentionAction {
-                    id: "decline",
-                    label: "Decline",
-                    consequence: "Leaves this party unapproved and closes this request.",
+                    id: "decline".into(),
+                    label: "Decline".into(),
+                    consequence: "Leaves this party unapproved and closes this request.".into(),
+                    href: None,
                 },
             ],
             can_continue: true,
@@ -286,6 +340,11 @@ pub async fn project(
         .into_iter()
         .map(|item| (item.id, item))
         .collect::<HashMap<_, _>>();
+    let payments = crate::finance::payments(authority, &config.name)
+        .await?
+        .into_iter()
+        .map(|payment| (payment.request.owner_handoff_id, payment))
+        .collect::<HashMap<_, _>>();
     for handoff in work_graph
         .as_ref()
         .map(|graph| graph.handoffs.clone())
@@ -305,6 +364,24 @@ pub async fn project(
         let Some(item) = work.get(&handoff.work_id) else {
             continue;
         };
+        let judgement = handoff.category == restless_orgintel::OwnerHandoffCategory::OwnerJudgement;
+        let payment = payments.get(&handoff.id);
+        // A payment handoff asks the owner for exactly one irreducible action:
+        // approval in the provider. Reserved, submitted, blocked and unknown
+        // transfers are company reconciliation work, not owner judgement.
+        if payment.is_some_and(|payment| !payment_state_needs_owner(payment.state)) {
+            continue;
+        }
+        let brief_current = handoff.owner_brief_is_current(item.revision);
+        if judgement && !brief_current {
+            tracing::warn!(
+                handoff = %handoff.id,
+                work = %handoff.work_id,
+                "ordinary judgement was in the owner queue without a current authored brief; withholding it from Attention"
+            );
+            continue;
+        }
+        let brief = handoff.owner_brief.as_ref();
         let mut evidence = Vec::new();
         let mut seen = HashSet::new();
         let mut runtime_review_url = None;
@@ -363,16 +440,70 @@ pub async fn project(
                 });
             }
         }
-        let judgement = handoff.category == restless_orgintel::OwnerHandoffCategory::OwnerJudgement;
-        let responsible_actor = actors.get(&item.owner_id).cloned().or_else(|| {
-            Some(AttentionActorRef {
-                id: item.owner_id.clone(),
-                display: title_case(&item.owner_id),
-                role: "work lead".into(),
+        for gate in work_graph
+            .as_ref()
+            .into_iter()
+            .flat_map(|graph| &graph.gates)
+            .filter(|gate| gate.work_id == handoff.work_id)
+        {
+            let latest = work_graph
+                .as_ref()
+                .into_iter()
+                .flat_map(|graph| &graph.gate_runs)
+                .filter(|run| run.gate_id == gate.id)
+                .filter(|run| {
+                    handoff.attempt_id.is_none() || Some(run.attempt_id) == handoff.attempt_id
+                })
+                .max_by_key(|run| run.ran_at);
+            if let Some(run) = latest {
+                evidence.push(AttentionEvidence {
+                    label: format!(
+                        "{} · {}",
+                        gate.name,
+                        if run.passed { "passed" } else { "failed" }
+                    ),
+                    uri: None,
+                    content: Some(run.output_excerpt.clone()),
+                    kind: "gate",
+                });
+            }
+        }
+        if !handoff.prepared_state.trim().is_empty() {
+            evidence.push(AttentionEvidence {
+                label: "Prepared source notes".into(),
+                uri: None,
+                content: Some(handoff.prepared_state.clone()),
+                kind: "source-notes",
+            });
+        }
+        let brief_author = handoff
+            .briefed_by
+            .as_deref()
+            .and_then(|actor| actors.get(actor))
+            .cloned();
+        let responsible_actor = brief_author
+            .clone()
+            .or_else(|| {
+                accountable_actors
+                    .get(&item.owner_id)
+                    .and_then(|actor| actors.get(actor))
+                    .cloned()
             })
-        });
-        let runtime_attach = attach_for(Some(&item.owner_id));
-        let review_target = if judgement {
+            .or_else(|| {
+                Some(AttentionActorRef {
+                    id: item.owner_id.clone(),
+                    display: title_case(&item.owner_id),
+                    role: "work lead".into(),
+                })
+            });
+        let responsible_id = responsible_actor
+            .as_ref()
+            .map(|actor| actor.id.as_str())
+            .unwrap_or(&item.owner_id);
+        let runtime_attach = attach_for(Some(responsible_id));
+        let outcome_review = brief
+            .is_some_and(|brief| brief.kind == restless_orgintel::OwnerBriefKind::OutcomeReview);
+        let review_target = if outcome_review {
             match (generation.as_ref(), runtime_review_url) {
                 (Some(generation), Some(uri)) if runtime::runtime_http_target(&uri).is_ok() => {
                     let status = if runtime::probe_runtime_http(&config.name, &uri)
@@ -397,45 +528,182 @@ pub async fn project(
         } else {
             None
         };
-        let mut actions = if judgement {
+        let mut actions = if outcome_review {
             vec![
                 AttentionAction {
-                    id: "accept-review",
-                    label: "Accept outcome",
-                    consequence: "Accepts this exact outcome and completes the Work.",
+                    id: "accept-review".into(),
+                    label: "Accept outcome".into(),
+                    consequence: "Accepts this exact outcome and completes the Work.".into(),
+                    href: None,
                 },
                 AttentionAction {
-                    id: "request-revision",
-                    label: "Request changes",
-                    consequence: "Sends exact feedback to the lead and starts a new Work revision.",
+                    id: "request-revision".into(),
+                    label: "Request changes".into(),
+                    consequence: "Sends exact feedback to the lead and starts a new Work revision."
+                        .into(),
+                    href: None,
                 },
                 AttentionAction {
-                    id: "chat-lead",
-                    label: "Talk with lead",
-                    consequence: "Opens a Work-scoped conversation without deciding the review.",
+                    id: "chat-lead".into(),
+                    label: "Talk with lead".into(),
+                    consequence: "Opens a Work-scoped conversation without deciding the review."
+                        .into(),
+                    href: None,
                 },
             ]
         } else {
             Vec::new()
         };
-        if review_target.is_some() || (!judgement && runtime_attach.is_some()) {
+        if brief.is_some_and(|brief| {
+            matches!(
+                brief.kind,
+                restless_orgintel::OwnerBriefKind::Decision
+                    | restless_orgintel::OwnerBriefKind::Blocker
+                    | restless_orgintel::OwnerBriefKind::Opportunity
+                    | restless_orgintel::OwnerBriefKind::Contradiction
+            )
+        }) {
+            actions.push(AttentionAction {
+                id: "record-decision".into(),
+                label: "Record decision".into(),
+                consequence:
+                    "Returns the owner's exact answer to the blocked Work and releases it.".into(),
+                href: None,
+            });
+        }
+        if !outcome_review && responsible_actor.is_some() {
+            actions.push(AttentionAction {
+                id: "chat-lead".into(),
+                label: "Talk with lead".into(),
+                consequence: "Opens the source-linked conversation without resolving this handoff."
+                    .into(),
+                href: None,
+            });
+        }
+        if payment.is_none()
+            && (review_target.is_some() || (!judgement && runtime_attach.is_some()))
+        {
             actions.insert(
                 0,
                 AttentionAction {
-                    id: "open-outcome",
+                    id: "open-outcome".into(),
                     label: if judgement {
-                        "Review live outcome"
+                        "Review live outcome".into()
                     } else {
-                        "Open prepared browser"
+                        "Open prepared browser".into()
                     },
                     consequence: if judgement {
-                        "Opens the real outcome without deciding or approving anything."
+                        "Opens the real outcome without deciding or approving anything.".into()
                     } else {
                         "Opens the prepared company browser without deciding or approving anything."
+                            .into()
                     },
+                    href: None,
                 },
             );
         }
+        if let Some(payment) = payment {
+            evidence.insert(
+                0,
+                AttentionEvidence {
+                    label: "Authority-bound payment".into(),
+                    uri: None,
+                    content: Some(format!(
+                        "{} {} from {} to immutable provider beneficiary {}. Purpose: {}. Provider state: {}{}.",
+                        format_minor(payment.request.amount_minor),
+                        payment.request.currency,
+                        payment.request.source_account_ref,
+                        payment.request.provider_beneficiary_ref,
+                        payment.request.purpose,
+                        payment.state.as_str(),
+                        payment
+                            .raw_provider_status
+                            .as_deref()
+                            .map(|raw| format!(" ({raw})"))
+                            .unwrap_or_default(),
+                    )),
+                    kind: "authority-payment",
+                },
+            );
+            if payment.state == crate::finance::PaymentState::InApproval {
+                if let Some(href) = payment.provider_approval_url.clone() {
+                    actions.insert(
+                        0,
+                        AttentionAction {
+                            id: "open-provider-approval".into(),
+                            label: "Review and approve in Airwallex".into(),
+                            consequence: format!(
+                                "Opens Airwallex for this exact {} {} payment; Restless cannot approve it.",
+                                format_minor(payment.request.amount_minor),
+                                payment.request.currency
+                            ),
+                            href: Some(href),
+                        },
+                    );
+                }
+            }
+        }
+        let fallback_kind = match handoff.category {
+            restless_orgintel::OwnerHandoffCategory::Identity
+            | restless_orgintel::OwnerHandoffCategory::Captcha
+            | restless_orgintel::OwnerHandoffCategory::Mfa
+            | restless_orgintel::OwnerHandoffCategory::LegalAttestation
+            | restless_orgintel::OwnerHandoffCategory::PaymentConfirmation => "human_step",
+            restless_orgintel::OwnerHandoffCategory::OwnerJudgement => "decision",
+        };
+        let category = brief.map_or(fallback_kind, |brief| match brief.kind {
+            restless_orgintel::OwnerBriefKind::OutcomeReview => "review",
+            restless_orgintel::OwnerBriefKind::Decision => "decision",
+            restless_orgintel::OwnerBriefKind::Blocker => "blocker",
+            restless_orgintel::OwnerBriefKind::Opportunity => "opportunity",
+            restless_orgintel::OwnerBriefKind::Contradiction => "contradiction",
+            restless_orgintel::OwnerBriefKind::HumanStep => "human_step",
+        });
+        let fallback_title = human_step_title(handoff.category);
+        let payment_title = payment.map(|payment| {
+            format!(
+                "Approve {} {} to {}",
+                format_minor(payment.request.amount_minor),
+                payment.request.currency,
+                payment.request.provider_beneficiary_ref
+            )
+        });
+        let payment_situation = payment.map(|payment| {
+            format!(
+                "The company reserved this exact payment inside the owner-set envelope and Airwallex reports {}.",
+                payment.state.as_str()
+            )
+        });
+        let payment_impact = payment.map(|payment| {
+            format!(
+                "No action leaves {} {} reserved and the linked Work paused; approval changes only this provider transfer.",
+                format_minor(payment.request.amount_minor),
+                payment.request.currency
+            )
+        });
+        let payment_action = payment.map(|payment| {
+            if payment.state == crate::finance::PaymentState::InApproval {
+                format!(
+                    "Verify beneficiary {} and approve or reject {} {} in Airwallex.",
+                    payment.request.provider_beneficiary_ref,
+                    format_minor(payment.request.amount_minor),
+                    payment.request.currency
+                )
+            } else {
+                format!(
+                    "No further Restless approval is available. Provider state is {}; Work will resume from authenticated reconciliation.",
+                    payment.state.as_str()
+                )
+            }
+        });
+        let payment_recommendation = payment.map(|payment| format!(
+            "Confirm the immutable beneficiary and purpose, then use Airwallex's own approval for this exact {} {} transfer only.",
+            format_minor(payment.request.amount_minor), payment.request.currency
+        ));
+        let payment_no_action = payment.map(|payment| format!(
+            "The provider transfer stays {}, {} {} remains reserved, and the linked Work stays paused.",
+            payment.state.as_str(), format_minor(payment.request.amount_minor), payment.request.currency
+        ));
         items.push(AttentionItem {
             id: format!("orgintel:handoff:{}", handoff.id),
             work_id: Some(handoff.work_id),
@@ -444,32 +712,30 @@ pub async fn project(
                 kind: "owner_handoff".into(),
                 reference: handoff.id.to_string(),
             },
-            category: if judgement { "review" } else { "handoff" }.into(),
-            title: item.title.clone(),
-            what_happened: handoff.prepared_state.clone(),
-            why_it_matters: match (&handoff.escalated_from, judgement) {
-                // An escalation reached the owner because someone below them
-                // could not settle it. Saying who tried, and why they stopped,
-                // is what keeps a lead from being a silent filter.
-                (Some(from), _) => format!(
-                    "{} could not settle this and passed it up: {}",
-                    actors.get(from).map_or(from.as_str(), |actor| actor.display.as_str()),
-                    if handoff.resolution.trim().is_empty() {
-                        "no reason recorded"
-                    } else {
-                        handoff.resolution.trim()
-                    }
-                ),
-                (None, true) => "The lead has prepared the final outcome. Your judgement decides whether it ships or returns for revision.".into(),
-                (None, false) => format!("This exact {:?} step cannot be performed by the company actor.", handoff.category),
-            },
-            recommendation: if judgement {
-                "Inspect the independent evidence and make the bounded owner decision.".into()
-            } else {
-                "Take the prepared last mile, then release control; the company observes the resume condition itself.".into()
-            },
-            requested_action: handoff.requested_action.clone(),
-            if_no_action: format!("Work remains blocked until: {}", handoff.resume_condition),
+            category: category.into(),
+            title: payment_title.unwrap_or_else(|| brief.map_or_else(|| fallback_title.to_string(), |brief| brief.headline.clone())),
+            what_happened: payment_situation.unwrap_or_else(|| brief.map_or_else(
+                || format!("The company prepared the final {:?} step and cannot perform it on your behalf.", handoff.category),
+                |brief| brief.situation.clone(),
+            )),
+            why_it_matters: payment_impact.unwrap_or_else(|| brief.map_or_else(
+                || format!("This Work is paused until the required human step is complete: {}", handoff.resume_condition),
+                |brief| brief.impact.clone(),
+            )),
+            recommendation: payment_recommendation.unwrap_or_else(|| brief.map_or_else(
+                || "Complete the prepared step, then return control. Restless will observe the result and resume.".into(),
+                |brief| brief.recommendation.clone(),
+            )),
+            requested_action: payment_action.unwrap_or_else(|| handoff.requested_action.clone()),
+            if_no_action: payment_no_action.unwrap_or_else(|| brief.map_or_else(
+                || format!("Work remains paused until: {}", handoff.resume_condition),
+                |brief| brief.no_action.clone(),
+            )),
+            uncertainty: brief.and_then(|brief| brief.uncertainty.clone()),
+            deadline: brief.and_then(|brief| brief.deadline.clone()),
+            brief_status: if brief_current { "current" } else { "human-fallback" },
+            brief_author,
+            briefed_at: handoff.briefed_at,
             evidence,
             responsible_actor,
             runtime_attach,
@@ -483,11 +749,145 @@ pub async fn project(
     items.sort_by_key(|item| {
         let priority = match item.category.as_str() {
             "review" => 0,
-            "handoff" => 1,
+            "decision" | "contradiction" => 1,
+            "human_step" | "blocker" => 2,
             _ => 2,
         };
         (priority, Reverse(item.created_at))
     });
+
+    let mut continuations = work_graph
+        .as_ref()
+        .into_iter()
+        .flat_map(|graph| &graph.handoffs)
+        .filter(|handoff| {
+            handoff.state != restless_orgintel::OwnerHandoffState::Pending
+                && handoff.assigned_to.is_none()
+                && handoff.resolved_at.is_some()
+        })
+        .filter_map(|handoff| {
+            let item = work.get(&handoff.work_id)?;
+            let payment = payments.get(&handoff.id);
+            let successor = work_graph.as_ref().and_then(|graph| {
+                graph
+                    .edges
+                    .iter()
+                    .filter(|edge| {
+                        edge.kind == restless_orgintel::WorkEdgeKind::Requires
+                            && edge.from_work_id == handoff.work_id
+                    })
+                    .filter_map(|edge| work.get(&edge.to_work_id))
+                    .max_by_key(|successor| successor.updated_at)
+            });
+            // A dependency edge names what may run after this Work completes;
+            // owner resolution alone must not be narrated as completing it.
+            let released_successor = (item.status == restless_orgintel::WorkStatus::Completed)
+                .then_some(successor)
+                .flatten();
+            let state_work = released_successor.unwrap_or(item);
+            let attempt = work_graph.as_ref().and_then(|graph| {
+                graph
+                    .attempts
+                    .iter()
+                    .filter(|attempt| {
+                        attempt.work_id == state_work.id && attempt.revision == state_work.revision
+                    })
+                    .max_by_key(|attempt| (attempt.attempt_no, attempt.started_at))
+            });
+            let accountable = accountable_actors
+                .get(&state_work.owner_id)
+                .map(String::as_str)
+                .unwrap_or(&state_work.owner_id);
+            let responsible_actor = actors.get(accountable).cloned().or_else(|| {
+                Some(AttentionActorRef {
+                    id: accountable.to_string(),
+                    display: title_case(accountable),
+                    role: "work lead".into(),
+                })
+            });
+            let work_state = format!("{} · {}", state_work.title, work_status(state_work.status));
+            let attempt_state = attempt
+                .map(|attempt| {
+                    format!(
+                        "attempt {} is {}",
+                        attempt.attempt_no,
+                        attempt_status(attempt.state)
+                    )
+                })
+                .unwrap_or_else(|| "no current Attempt".into());
+            let provider_state = payment.map(|payment| {
+                format!(
+                    "Airwallex reports {}{}",
+                    payment.state.as_str(),
+                    payment
+                        .raw_provider_status
+                        .as_deref()
+                        .map(|raw| format!(" ({raw})"))
+                        .unwrap_or_default()
+                )
+            });
+            let what_it_unlocked = if let Some(successor) = released_successor {
+                format!(
+                    "Released successor Work “{}”; it is {}.",
+                    successor.title,
+                    work_status(successor.status)
+                )
+            } else if item.status == restless_orgintel::WorkStatus::Completed {
+                format!(
+                    "Completed Work “{}”; no further action is scheduled.",
+                    item.title
+                )
+            } else {
+                format!(
+                    "Returned Work “{}” to its accountable owner; it is {}.",
+                    item.title,
+                    work_status(item.status)
+                )
+            };
+            let title = payment.map_or_else(
+                || {
+                    handoff.owner_brief.as_ref().map_or_else(
+                        || human_step_title(handoff.category).to_string(),
+                        |brief| brief.headline.clone(),
+                    )
+                },
+                |payment| {
+                    format!(
+                        "{} {} to {}",
+                        format_minor(payment.request.amount_minor),
+                        payment.request.currency,
+                        payment.request.provider_beneficiary_ref
+                    )
+                },
+            );
+            Some(DecisionContinuation {
+                id: format!("orgintel:handoff:{}", handoff.id),
+                work_id: handoff.work_id,
+                title,
+                recorded_decision: if handoff.resolution.trim().is_empty() {
+                    format!("Handoff recorded as {:?}.", handoff.state)
+                } else {
+                    handoff.resolution.clone()
+                },
+                what_it_unlocked,
+                current_state: provider_state
+                    .unwrap_or_else(|| format!("{work_state}; {attempt_state}")),
+                observed_outcome: payment.map_or_else(
+                    || work_state,
+                    |payment| {
+                        format!(
+                            "Authenticated provider observation at {}.",
+                            payment.updated_at.to_rfc3339()
+                        )
+                    },
+                ),
+                responsible_actor,
+                observed_at: handoff.resolved_at.expect("filtered above"),
+            })
+        })
+        .collect::<Vec<_>>();
+    continuations.sort_by_key(|continuation| Reverse(continuation.observed_at));
+    continuations.truncate(5);
     let doctor = runtime::doctor(&config.name).await.ok();
     let (runtime_health, browser_health) = match doctor.as_ref() {
         Some(report) if report.container == ContainerStatus::Running => (
@@ -517,8 +917,54 @@ pub async fn project(
         },
         work_graph,
         items,
+        continuations,
         refreshed_at: Utc::now(),
     })
+}
+
+fn work_status(status: restless_orgintel::WorkStatus) -> &'static str {
+    match status {
+        restless_orgintel::WorkStatus::Proposed => "proposed",
+        restless_orgintel::WorkStatus::Active => "active",
+        restless_orgintel::WorkStatus::Blocked => "blocked",
+        restless_orgintel::WorkStatus::Completed => "completed",
+        restless_orgintel::WorkStatus::Abandoned => "abandoned",
+    }
+}
+
+fn payment_state_needs_owner(state: crate::finance::PaymentState) -> bool {
+    state == crate::finance::PaymentState::InApproval
+}
+
+fn attempt_status(status: restless_orgintel::WorkAttemptState) -> &'static str {
+    match status {
+        restless_orgintel::WorkAttemptState::Running => "running",
+        restless_orgintel::WorkAttemptState::Produced => "produced",
+        restless_orgintel::WorkAttemptState::ChangesRequested => "changes requested",
+        restless_orgintel::WorkAttemptState::Blocked => "blocked",
+        restless_orgintel::WorkAttemptState::Failed => "failed",
+        restless_orgintel::WorkAttemptState::Abandoned => "abandoned",
+        restless_orgintel::WorkAttemptState::Superseded => "superseded",
+    }
+}
+
+fn human_step_title(category: restless_orgintel::OwnerHandoffCategory) -> &'static str {
+    match category {
+        restless_orgintel::OwnerHandoffCategory::Identity => "Confirm your identity",
+        restless_orgintel::OwnerHandoffCategory::Captcha => "Complete the human check",
+        restless_orgintel::OwnerHandoffCategory::Mfa => "Confirm the sign-in",
+        restless_orgintel::OwnerHandoffCategory::LegalAttestation => {
+            "Provide the legal attestation"
+        }
+        restless_orgintel::OwnerHandoffCategory::PaymentConfirmation => "Confirm the payment",
+        restless_orgintel::OwnerHandoffCategory::OwnerJudgement => {
+            "A decision needs your judgement"
+        }
+    }
+}
+
+fn format_minor(amount: i64) -> String {
+    format!("{}.{:02}", amount / 100, amount.unsigned_abs() % 100)
 }
 
 fn normalize_party(value: &str) -> String {
@@ -542,7 +988,7 @@ fn extract_urls(text: &str) -> Vec<String> {
     text.split_whitespace()
         .filter_map(|word| {
             let trimmed = word.trim_matches(|character: char| {
-                matches!(character, ',' | '.' | ')' | ']' | '}' | '"' | '\'')
+                matches!(character, ',' | '.' | ';' | ')' | ']' | '}' | '"' | '\'')
             });
             (trimmed.starts_with("https://") || trimmed.starts_with("http://"))
                 .then(|| trimmed.to_string())
@@ -574,6 +1020,19 @@ mod tests {
     use super::*;
 
     #[test]
+    fn prepared_urls_drop_prose_punctuation_without_changing_the_route() {
+        assert_eq!(
+            extract_urls(
+                "Review http://127.0.0.1:4173/for-tutoring-centres; then inspect https://example.com/report.pdf."
+            ),
+            vec![
+                "http://127.0.0.1:4173/for-tutoring-centres",
+                "https://example.com/report.pdf",
+            ]
+        );
+    }
+
+    #[test]
     fn only_current_approvals_with_exact_commands_are_actionable() {
         assert!(has_reviewable_prepared_command(&serde_json::json!({
             "prepared_command": {"argv": ["resend", "send"], "effect_class": "customer-contact.email"}
@@ -584,5 +1043,26 @@ mod tests {
         assert!(!has_reviewable_prepared_command(&serde_json::json!({
             "party": "old@example.com"
         })));
+    }
+
+    #[test]
+    fn only_provider_in_approval_is_owner_attention() {
+        use crate::finance::PaymentState;
+
+        assert!(payment_state_needs_owner(PaymentState::InApproval));
+        for company_owned_state in [
+            PaymentState::Reserved,
+            PaymentState::Submitted,
+            PaymentState::Scheduled,
+            PaymentState::Processing,
+            PaymentState::Blocked,
+            PaymentState::Unknown,
+            PaymentState::Settled,
+            PaymentState::Rejected,
+            PaymentState::Cancelled,
+            PaymentState::Failed,
+        ] {
+            assert!(!payment_state_needs_owner(company_owned_state));
+        }
     }
 }

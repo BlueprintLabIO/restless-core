@@ -135,13 +135,28 @@
 		padding-inline: 10px;
 	}
 
+	.bridge-topbar .tb-name {
+		display: none;
+	}
+
 	.bridge-topbar .tb-tabs {
-		margin-left: auto;
+		flex: 1 1 auto;
+		margin-left: 0;
 	}
 
 	.bridge-topbar .tb-tab {
+		flex: 0 0 auto;
 		min-width: 0;
 		padding-inline: 7px;
 		font-size: var(--t-body);
+	}
+
+	.bridge-topbar .tb-tab:not(.on) .tb-tab-label {
+		display: none;
+	}
+
+	.bridge-topbar .tb-right {
+		margin-left: 0;
+		gap: 6px;
 	}
 }

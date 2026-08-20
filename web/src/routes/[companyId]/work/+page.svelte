@@ -4,12 +4,14 @@
 	import MatrixGlyph, { GLYPHS } from '$lib/primitives/MatrixGlyph.svelte';
 	import { getAttention, type AttentionView } from '$lib/model/attention';
 	import { getCockpit, type CockpitView } from '$lib/model/cockpit';
-	import type { WorkEdgeRow, WorkRow } from '$lib/model/generated/orgintel';
+	import type { WorkRow } from '$lib/model/generated/orgintel';
+	import WorkGraph from '$lib/work/WorkGraph.svelte';
 
 	const companyId = $derived(page.params.companyId ?? 'aris');
 	let attention = $state<AttentionView | null>(null);
 	let cockpit = $state<CockpitView | null>(null);
 	let error = $state('');
+	let loaded = $state(false);
 	let lens = $state<'map' | 'board'>(
 		page.url.searchParams.get('lens') === 'board' ? 'board' : 'map'
 	);
@@ -34,6 +36,7 @@
 			attention = nextAttention;
 			cockpit = nextCockpit;
 			error = '';
+			loaded = true;
 			if (!goalSelectionInitialized) {
 				const requestedGoal = page.url.searchParams.get('goal');
 				selectedGoal = nextCockpit.goals.find((goal) => goal.id === requestedGoal)?.id ?? '';
@@ -43,7 +46,8 @@
 				goalSelectionInitialized = true;
 			}
 		} catch (cause) {
-			if (showError) error = cause instanceof Error ? cause.message : 'Work is unavailable.';
+			error = cause instanceof Error ? cause.message : 'Work is unavailable.';
+			if (showError) loaded = true;
 		}
 	}
 
@@ -66,10 +70,18 @@
 		completedWork.filter((item) => artifactCount(item) > 0 || gateCount(item).passed > 0)
 	);
 	const recentlyLanded = $derived(evidenceBackedCompleted.slice(0, 3));
-	const visibleWork = $derived([
-		...goalWork.filter((item) => item.status !== 'completed' && item.status !== 'abandoned'),
-		...(showHistory ? completedWork : recentlyLanded)
-	]);
+	// Map and board consume this exact row set. History expands the same
+	// projection; it does not create a board-only source of status or ordering.
+	const visibleWork = $derived(
+		goalWork.filter(
+			(item) =>
+				item.status !== 'abandoned' &&
+				(item.status !== 'completed' ||
+					showHistory ||
+					recentlyLanded.some((landed) => landed.id === item.id))
+		)
+	);
+	const totalGraphWork = $derived(goalWork.filter((item) => item.status !== 'abandoned').length);
 	const visibleIds = $derived(new Set(visibleWork.map((item) => item.id)));
 	const visibleEdges = $derived(
 		(graph?.edges ?? []).filter(
@@ -77,7 +89,17 @@
 		)
 	);
 	function attemptOf(work: WorkRow) {
-		return graph?.attempts.filter((attempt) => attempt.work_id === work.id).at(-1) ?? null;
+		return (
+			graph?.attempts
+				.filter((attempt) => attempt.work_id === work.id)
+				.toSorted(
+					(a, b) =>
+						a.revision - b.revision ||
+						a.attempt_no - b.attempt_no ||
+						Date.parse(a.started_at) - Date.parse(b.started_at)
+				)
+				.at(-1) ?? null
+		);
 	}
 
 	function artifactCount(work: WorkRow): number {
@@ -97,129 +119,39 @@
 		return { passed, total: gates.length };
 	}
 
-	function prerequisites(work: WorkRow): WorkEdgeRow[] {
-		return visibleEdges.filter((edge) => edge.to_work_id === work.id && edge.kind === 'requires');
+	function attemptState(work: WorkRow): string {
+		return attemptOf(work)?.state ?? 'Not started';
 	}
-
-	function depthOf(work: WorkRow, seen = new Set<string>()): number {
-		if (seen.has(work.id)) return 0;
-		seen.add(work.id);
-		const parents = prerequisites(work);
-		if (!parents.length) return 0;
-		return (
-			1 +
-			Math.max(
-				...parents.map((edge) => {
-					const parent = visibleWork.find((candidate) => candidate.id === edge.from_work_id);
-					return parent ? depthOf(parent, new Set(seen)) : 0;
-				})
-			)
-		);
-	}
-
-	const depthGroups = $derived.by(() => {
-		const groups = new Map<number, WorkRow[]>();
-		for (const item of visibleWork) {
-			const depth = depthOf(item);
-			groups.set(depth, [...(groups.get(depth) ?? []), item]);
-		}
-		return [...groups.entries()].sort(([a], [b]) => a - b);
-	});
-
-	type MapNode = { item: WorkRow; depth: number; x: number; y: number };
-	type MapConnector = {
-		key: string;
-		kind: WorkEdgeRow['kind'];
-		x: number;
-		y: number;
-		length: number;
-		angle: number;
-	};
-
-	const NODE_WIDTH = 208;
-	const NODE_HEIGHT = 132;
-	const COLUMN_STEP = 300;
-	const ROW_STEP = 160;
-	const MAP_INSET = 24;
-
-	const mapNodes = $derived.by((): MapNode[] => {
-		const largestColumn = Math.max(1, ...depthGroups.map(([, rows]) => rows.length));
-		return depthGroups.flatMap(([depth, rows]) => {
-			const columnOffset = ((largestColumn - rows.length) * ROW_STEP) / 2;
-			return rows.map((item, row) => ({
-				item,
-				depth,
-				x: MAP_INSET + depth * COLUMN_STEP,
-				y: 48 + columnOffset + row * ROW_STEP
-			}));
-		});
-	});
-
-	const mapConnectors = $derived.by((): MapConnector[] => {
-		const positions = new Map(mapNodes.map((node) => [node.item.id, node]));
-		return visibleEdges.flatMap((edge) => {
-			const from = positions.get(edge.from_work_id);
-			const to = positions.get(edge.to_work_id);
-			if (!from || !to) return [];
-			const forwards = to.x >= from.x;
-			const startX = forwards ? from.x + NODE_WIDTH : from.x;
-			const endX = forwards ? to.x : to.x + NODE_WIDTH;
-			const startY = from.y + NODE_HEIGHT / 2;
-			const endY = to.y + NODE_HEIGHT / 2;
-			const dx = endX - startX;
-			const dy = endY - startY;
-			return [
-				{
-					key: `${edge.from_work_id}:${edge.to_work_id}:${edge.kind}`,
-					kind: edge.kind,
-					x: startX,
-					y: startY,
-					length: Math.hypot(dx, dy),
-					angle: Math.atan2(dy, dx) * (180 / Math.PI)
-				}
-			];
-		});
-	});
-
-	const mapWidth = $derived(
-		Math.max(
-			760,
-			MAP_INSET * 2 + Math.max(0, ...depthGroups.map(([depth]) => depth)) * COLUMN_STEP + NODE_WIDTH
-		)
-	);
-	const mapHeight = $derived(
-		Math.max(570, 96 + Math.max(1, ...depthGroups.map(([, rows]) => rows.length)) * ROW_STEP)
-	);
 
 	const boardColumns = $derived([
 		{
 			key: 'proposed',
 			label: 'Next',
-			rows: goalWork.filter((item) => item.status === 'proposed')
+			rows: visibleWork.filter((item) => item.status === 'proposed')
 		},
 		{
 			key: 'active',
 			label: 'In motion',
-			rows: goalWork.filter((item) => item.status === 'active')
+			rows: visibleWork.filter((item) => item.status === 'active')
 		},
 		{
 			key: 'blocked',
 			label: 'Waiting',
-			rows: goalWork.filter((item) => item.status === 'blocked')
+			rows: visibleWork.filter((item) => item.status === 'blocked')
 		},
 		{
 			key: 'completed',
 			label: showHistory ? 'Completed history' : 'Recently landed',
-			rows: showHistory ? completedWork : recentlyLanded
+			rows: visibleWork.filter((item) => item.status === 'completed')
 		}
 	]);
 
-	function goalProgress(goalId: string): number {
+	function goalProgress(goalId: string): string {
 		const rows = (graph?.work ?? []).filter((item) => item.goal_id === goalId);
-		if (!rows.length) return 0;
-		return Math.round(
-			(rows.filter((item) => item.status === 'completed').length / rows.length) * 100
-		);
+		if (!rows.length) return 'No Work';
+		const landed = rows.filter((item) => item.status === 'completed').length;
+		const inMotion = rows.filter((item) => item.status === 'active').length;
+		return `${landed} landed · ${inMotion} in motion`;
 	}
 
 	function ownerName(actorId: string): string {
@@ -232,6 +164,16 @@
 	function selectGoal(id: string) {
 		selectedGoal = id;
 		showHistory = false;
+	}
+
+	function toggleHistory() {
+		showHistory = !showHistory;
+		if (showHistory) lens = 'board';
+	}
+
+	function showMap() {
+		showHistory = false;
+		lens = 'map';
 	}
 
 	function workHref(workId: string): string {
@@ -254,38 +196,48 @@
 			</div>
 			<span class="pane-count">{goals.length}</span>
 		</header>
-		<button class:current={!selectedGoal} type="button" onclick={() => selectGoal('')}>
-			<span class="goal-index"><em>ALL</em><b>{graph?.work.length ?? 0}</b></span>
-			<strong>All work</strong>
-			<small>Every Work item across the company.</small>
-		</button>
-		<button
-			class:current={selectedGoal === UNASSIGNED_QUERY}
-			type="button"
-			onclick={() => selectGoal(UNASSIGNED_QUERY)}
-		>
-			<span class="goal-index"><em>—</em><b>{unassignedWork.length}</b></span>
-			<strong>Unassigned</strong>
-			<small>Work not linked to a company goal.</small>
-		</button>
-		{#each goals as goal, index (goal.id)}
+		{#if loaded && graph}
 			<button
-				class:current={selectedGoal === goal.id}
+				class:current={!selectedGoal}
 				type="button"
-				onclick={() => selectGoal(goal.id)}
+				aria-pressed={!selectedGoal}
+				title="Every Work item across the company"
+				onclick={() => selectGoal('')}
 			>
-				<span class="goal-index">
-					<em>G–{String(index + 1).padStart(2, '0')}</em><b>{goalProgress(goal.id)}%</b>
-				</span>
-				<strong>{goal.title}</strong>
-				<small>{goal.body || `${goal.closed_at ? 'Closed' : 'Open'} company goal.`}</small>
-				<i class="goal-progress" aria-hidden="true"
-					><b style={`width: ${goalProgress(goal.id)}%`}></b></i
-				>
+				<span class="goal-index"><em>ALL</em><b>{graph?.work.length ?? 0}</b></span>
+				<strong>All work</strong>
 			</button>
+			<button
+				class:current={selectedGoal === UNASSIGNED_QUERY}
+				type="button"
+				aria-pressed={selectedGoal === UNASSIGNED_QUERY}
+				title="Work not linked to a company goal"
+				onclick={() => selectGoal(UNASSIGNED_QUERY)}
+			>
+				<span class="goal-index"><em>—</em><b>{unassignedWork.length}</b></span>
+				<strong>Unassigned</strong>
+			</button>
+			{#each goals as goal, index (goal.id)}
+				<button
+					class:current={selectedGoal === goal.id}
+					type="button"
+					aria-pressed={selectedGoal === goal.id}
+					title={goal.body || `${goal.closed_at ? 'Closed' : 'Open'} company goal`}
+					onclick={() => selectGoal(goal.id)}
+				>
+					<span class="goal-index">
+						<em>G–{String(index + 1).padStart(2, '0')}</em><b>{goalProgress(goal.id)}</b>
+					</span>
+					<strong>{goal.title}</strong>
+				</button>
+			{:else}
+				<p class="empty-state">No company goals are recorded.</p>
+			{/each}
+		{:else if !loaded}
+			<p class="empty-state">Loading goals…</p>
 		{:else}
-			<p class="empty-state">No company goals are recorded.</p>
-		{/each}
+			<p class="empty-state">Goals are unavailable.</p>
+		{/if}
 	</aside>
 
 	<section class="work-stage cockpit-pane">
@@ -309,61 +261,38 @@
 					class:on={showHistory}
 					type="button"
 					aria-pressed={showHistory}
-					onclick={() => (showHistory = !showHistory)}
+					onclick={toggleHistory}
 				>
 					<MatrixGlyph rows={showHistory ? GLYPHS.check : GLYPHS.ring} size={8} />
 					{showHistory ? 'Hide history' : `${completedWork.length} completed`}
 				</button>
 			{/if}
-			<div class="lens-switch" role="tablist" aria-label="Work view">
-				<button
-					type="button"
-					role="tab"
-					aria-selected={lens === 'map'}
-					onclick={() => (lens = 'map')}>Map</button
-				>
-				<button
-					type="button"
-					role="tab"
-					aria-selected={lens === 'board'}
-					onclick={() => (lens = 'board')}>Board</button
+			<div class="lens-switch" class:board={lens === 'board'} role="group" aria-label="Work view">
+				<button type="button" aria-pressed={lens === 'map'} onclick={showMap}>Map</button>
+				<button type="button" aria-pressed={lens === 'board'} onclick={() => (lens = 'board')}
+					>Board</button
 				>
 			</div>
 		</header>
 
-		{#if lens === 'map'}
+		{#if !loaded}
+			<p class="empty-state">Loading the current Work projection…</p>
+		{:else if !graph}
+			<p class="empty-state">Work is unavailable. No empty state is being inferred.</p>
+		{:else if lens === 'map'}
 			<div class="work-map" aria-label="Work dependency map">
-				<div class="work-map-inner" style={`width: ${mapWidth}px; height: ${mapHeight}px`}>
-					{#each depthGroups as [depth] (depth)}
-						<span class="map-depth-label" style={`left: ${MAP_INSET + depth * COLUMN_STEP}px`}>
-							{depth === 0 ? 'Starts here' : `Handover ${depth}`}
-						</span>
-					{/each}
-					{#each mapConnectors as connector (connector.key)}
-						<span
-							class="map-connector {connector.kind}"
-							style={`left: ${connector.x}px; top: ${connector.y}px; width: ${connector.length}px; transform: rotate(${connector.angle}deg)`}
-							aria-hidden="true"
-						></span>
-					{/each}
-					{#each mapNodes as node (node.item.id)}
-						<a
-							class="work-map-node status-{node.item.status}"
-							href={workHref(node.item.id)}
-							aria-label={`Open Work: ${node.item.title}`}
-							style={`left: ${node.x}px; top: ${node.y}px`}
-						>
-							<span class="node-state"><i></i>R{node.item.revision} · {node.item.status}</span>
-							<strong>{node.item.title}</strong>
-							<p>{node.item.outcome}</p>
-							<small
-								>{ownerName(node.item.owner_id)} · {attemptOf(node.item)?.state ??
-									'not started'}</small
-							>
-						</a>
-					{/each}
-				</div>
-				{#if !visibleWork.length}
+				{#if visibleWork.length}
+					<WorkGraph
+						work={visibleWork}
+						edges={visibleEdges}
+						totalCount={totalGraphWork}
+						{ownerName}
+						{attemptState}
+						{artifactCount}
+						gateSummary={gateCount}
+						{workHref}
+					/>
+				{:else}
 					<p class="empty-state">
 						{selectedGoal === UNASSIGNED_QUERY
 							? 'Every Work item is linked to a goal.'
@@ -386,7 +315,7 @@
 							>
 								<span><i></i>R{item.revision} · {item.status}</span>
 								<strong>{item.title}</strong>
-								<p>{item.outcome}</p>
+								<p>{attemptState(item)} · {gateCount(item).passed}/{gateCount(item).total} gates</p>
 								<footer>
 									<span>{ownerName(item.owner_id)}</span><span>{artifactCount(item)} outputs</span>
 								</footer>

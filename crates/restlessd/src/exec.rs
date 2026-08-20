@@ -50,6 +50,11 @@ pub struct WakeReport {
     pub tool_calls: Vec<String>,
     /// The Exec's closing text this turn, truncated.
     pub said: String,
+    /// The final assistant block from the work turn. Conversation scheduling
+    /// uses this only as a durable-reply fallback when the Exec spoke to the
+    /// owner but omitted the `restless message` tool call.
+    #[serde(skip)]
+    pub(crate) owner_reply: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -80,13 +85,15 @@ pub async fn wake(
     authority: &crate::authority::AuthorityStore,
     org: &OrgIntel,
     reason: &str,
+    observer: Option<acp::SessionObserver>,
 ) -> Result<WakeReport> {
     let container = runtime::container_name(&config.name);
     // Exec conversation is free-form. Machine work is created and claimed
     // through OrgIntel's Work graph, never inferred from this wake.
-    org.add_actor_with_model("exec", "exec", "The Exec", Some(&config.model))
+    org.ensure_actor_with_model("exec", "exec", "exec", "The Exec", Some(&config.model))
         .await?;
-    org.add_actor("owner", "owner", "The Owner").await?;
+    org.ensure_actor("owner", "owner", "owner", "The Owner")
+        .await?;
 
     // Preflight: a company whose computer is stopped or whose disk is full
     // must not be woken. Nothing below this line is free — context assembly
@@ -133,8 +140,7 @@ pub async fn wake(
     let mut continuity_note: Option<String> = None;
 
     for (index, model) in candidates.iter().enumerate() {
-        org.add_actor_with_model("exec", "exec", "The Exec", Some(model))
-            .await?;
+        org.update_actor_model("exec", model).await?;
         org.emit_event(
             "model_attempt",
             Some("exec"),
@@ -170,28 +176,37 @@ pub async fn wake(
         };
 
         let turn_context = continuity_note.as_ref().map_or_else(
-            || package.text.clone(),
+            || package.user_prompt.clone(),
             |failure| {
                 format!(
                     "PROVIDER CONTINUITY NOTE\nA previously configured model failed: {failure}\n\
-                     Rehydrate from the durable company files and organisational state below. Before \
+                     Rehydrate from the durable company files and system context. Before \
                      repeating any material external effect, reconcile its existing Authority receipt \
                      and idempotency key.\n\n{}",
-                    package.text
+                    package.user_prompt
                 )
             },
         );
         let remaining = (config.spend_ceiling_usd - spend.spent_usd(&config.name)).max(0.0);
         let metered = auth.billing == crate::model_gateway::ModelBilling::MeteredApi;
-        let outcome = acp::with_agent(&container, &auth, "/company", "exec", {
-            let company = config.name.clone();
-            let model = model.clone();
-            move |session| {
-                Box::pin(async move {
-                    run_turn(session, &turn_context, &company, &model, remaining, metered).await
-                })
-            }
-        })
+        let controls = acp::AgentControls::company_actor(package.system_prompt.clone())?;
+        let outcome = acp::with_agent(
+            &container,
+            &auth,
+            "/company",
+            "exec",
+            controls,
+            observer.clone(),
+            {
+                let company = config.name.clone();
+                let model = model.clone();
+                move |session| {
+                    Box::pin(async move {
+                        run_turn(session, &turn_context, &company, &model, remaining, metered).await
+                    })
+                }
+            },
+        )
         .await;
 
         // The turn itself was already classified inside `run_turn`, once, by
@@ -279,6 +294,7 @@ async fn blocked_wake(org: &OrgIntel, config: &CompanyConfig, reason: &str) -> R
         retry_after_seconds: None,
         tool_calls: Vec::new(),
         said: String::new(),
+        owner_reply: None,
     };
     record_outcome(org, &report).await?;
     Ok(report)
@@ -311,6 +327,7 @@ fn blocked_report(
         retry_after_seconds: None,
         tool_calls: Vec::new(),
         said: String::new(),
+        owner_reply: None,
     }
 }
 
@@ -454,6 +471,8 @@ async fn run_turn(
         retry_after_seconds,
         tool_calls: transcript.tool_calls.clone(),
         said: transcript.text.chars().take(1_000).collect(),
+        owner_reply: (!transcript.last_message_text.trim().is_empty())
+            .then(|| transcript.last_message_text.trim().to_string()),
     };
 
     match verdict {
@@ -610,11 +629,11 @@ async fn gather_snapshot(
         .collect();
     let inbox = org.inbox(Some("exec")).await?;
     let owed_judgements = org.handoffs_assigned_to("exec").await?;
-    let root = runtime::state_root();
     Ok(ContextSnapshot {
         company: config.name.clone(),
-        constitution: load_operating_rules(&root),
+        operating_rules: crate::context::COMPANY_OPERATING_RULES.to_string(),
         mission: config.mission.clone(),
+        legal_identity: crate::legal::safe_projection(authority, &config.name).await?,
         current_plan,
         latest_journal,
         open_work: open,
@@ -632,26 +651,6 @@ async fn gather_snapshot(
             .map(|signal| format!("[{}] {}", signal.kind, signal.detail))
             .collect(),
     })
-}
-
-/// The installation's standing rules for agents, from
-/// `docs/COMPANY_OPERATING_RULES.md`. NOT the product constitution — that is a
-/// document about what Restless is, read by its builders, never injected into
-/// a prompt. Absent
-/// is not fatal — a company with no constitution still runs, it just runs
-/// without the rules that stop it lying about verification.
-fn load_operating_rules(root: &std::path::Path) -> String {
-    let path = root.join("operating-rules.md");
-    match std::fs::read_to_string(&path) {
-        Ok(text) => text,
-        Err(_) => {
-            tracing::warn!(
-                path = %path.display(),
-                "no operating rules installed; agents run without standing rules"
-            );
-            String::new()
-        }
-    }
 }
 
 /// Record the conversation wake. Work status changes only through an Attempt;

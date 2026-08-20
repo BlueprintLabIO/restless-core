@@ -29,6 +29,7 @@
 		execName = 'Exec',
 		execLive = false,
 		railOpen = true,
+		immersive = false,
 		onexectoggle = null,
 		rail = null,
 		children
@@ -40,6 +41,8 @@
 		execName?: string;
 		execLive?: boolean;
 		railOpen?: boolean;
+		/** Gives a prepared live outcome the full browser window while preserving one bounded Exec control. */
+		immersive?: boolean;
 		/** The one control for the rail: presence lamp and open/close in a single stable button. */
 		onexectoggle?: (() => void) | null;
 		/**
@@ -55,9 +58,15 @@
 	const activeCompanies = $derived(
 		companies.filter((company) => company.lifecycle_status === 'active')
 	);
+	const tabGlyphs: Record<string, readonly string[]> = {
+		attention: GLYPHS.alert,
+		work: GLYPHS.briefcase,
+		people: GLYPHS.group,
+		company: GLYPHS.key
+	};
 </script>
 
-<div class="bridge-root">
+<div class="bridge-root" class:immersive>
 	<header class="bridge-topbar" aria-label="Global navigation">
 		<div class="tb-brand">
 			<a class="tb-brand-home" href="/" aria-label={`${PRODUCT_NAME} companies`}>
@@ -102,9 +111,12 @@
 					data-surface={tab.key}
 					href={tab.href}
 					aria-current={tab.on ? 'page' : undefined}
+					aria-label={tab.badge ? `${tab.label}, ${tab.badge} items` : tab.label}
 				>
-					<span class="tb-tab-mark" aria-hidden="true"></span>
-					{tab.label}
+					<span class="tb-tab-mark" aria-hidden="true">
+						<MatrixGlyph rows={tabGlyphs[tab.key] ?? GLYPHS.square} size={12} />
+					</span>
+					<span class="tb-tab-label" aria-hidden="true">{tab.label}</span>
 					{#if tab.badge}<span class="tb-badge">{tab.badge}</span>{/if}
 				</a>
 			{/each}
@@ -130,6 +142,22 @@
 			{/if}
 		</div>
 	</header>
+
+	{#if immersive && rail}
+		<button
+			class="immersive-exec"
+			class:live={execLive}
+			class:on={railOpen}
+			type="button"
+			aria-controls="bridge-exrail"
+			aria-expanded={railOpen}
+			title={railOpen ? `Close ${execName}` : `Open ${execName}`}
+			onclick={() => onexectoggle?.()}
+		>
+			<MessageSquare size={13} strokeWidth={2} aria-hidden="true" />
+			{railOpen ? `Close ${execName}` : execName}
+		</button>
+	{/if}
 
 	<div class="bridge-body">
 		<div class="bridge-workspace">

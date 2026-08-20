@@ -1,4 +1,18 @@
 /* Shared bounded actions. Surfaces and panes live in cockpit.css. */
+.bridge-root
+	:where(
+		a,
+		button,
+		input,
+		textarea,
+		select,
+		summary,
+		[tabindex]:not([tabindex='-1'])
+	):focus-visible {
+	outline: 2px solid var(--intent-conversation);
+	outline-offset: 2px;
+}
+
 .bridge-root .btn,
 .bridge-root .hold-approve {
 	padding: 9px 18px;
@@ -11,6 +25,12 @@
 	font-size: var(--t-body);
 	font-weight: 600;
 	cursor: pointer;
+	transition:
+		transform var(--motion-press) var(--ease-standard),
+		border-color var(--motion-state) var(--ease-standard),
+		background-color var(--motion-state) var(--ease-standard),
+		box-shadow var(--motion-state) var(--ease-standard),
+		filter var(--motion-state) var(--ease-standard);
 }
 
 .bridge-root .btn:hover,
@@ -81,6 +101,7 @@
 	border-color: var(--intent-authority);
 	background: var(--intent-authority);
 	color: var(--text-inverse);
+	animation: bridge-acknowledge var(--motion-punctuation) var(--ease-out) both;
 }
 
 .bridge-root

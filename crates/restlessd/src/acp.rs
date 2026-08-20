@@ -16,8 +16,8 @@ use agent_client_protocol::{
     self as acp,
     schema::{
         v1::{
-            CancelNotification, ContentBlock, InitializeRequest, NewSessionRequest,
-            PermissionOptionKind, PromptRequest, RequestPermissionOutcome,
+            CancelNotification, ContentBlock, InitializeRequest, McpServer, NewSessionRequest,
+            PermissionOptionKind, PromptRequest, PromptResponse, RequestPermissionOutcome,
             RequestPermissionRequest, RequestPermissionResponse, SelectedPermissionOutcome,
             SessionId, SessionNotification, SessionUpdate, TextContent, ToolCallStatus,
         },
@@ -49,6 +49,31 @@ pub struct AgentAuth {
 }
 
 pub(crate) const AGENT_CONFIG_DIR: &str = "/company/home/.restless/omp-agent";
+const OMP_RUNTIME_CONFIG: &str = "/company/home/.restless/omp-agent/restless-runtime.yml";
+
+/// User-relevant pieces of a live ACP turn. The completed OrgIntel message is
+/// still authoritative; these events are a bounded, ephemeral owner view.
+#[derive(Debug, Clone)]
+pub enum LiveSessionEvent {
+    ReplyDelta {
+        message_id: Option<String>,
+        text: String,
+    },
+    ThoughtDelta,
+    ToolStarted {
+        id: String,
+        title: String,
+        kind: String,
+    },
+    ToolUpdated {
+        id: String,
+        title: Option<String>,
+        status: String,
+    },
+    GeneratedOutputTokens(u64),
+}
+
+pub type SessionObserver = Arc<dyn Fn(LiveSessionEvent) + Send + Sync>;
 
 /// OMP is the actor runtime, not Restless's organisation layer. Keep its
 /// ordinary file and shell tools, but do not expose OMP's private `task`
@@ -57,6 +82,89 @@ pub(crate) const AGENT_CONFIG_DIR: &str = "/company/home/.restless/omp-agent";
 /// the company itself blind to who did the work. Restless delegation has one
 /// canon: a claimed Work Attempt.
 const OMP_AGENT_TOOLS: &str = "read,bash,edit,write,grep";
+
+/// The complete Restless-owned launch contract for one actor session.
+///
+/// ACP deliberately has no standard system-prompt field: it transports turns
+/// and session attachments. The concrete ACP agent therefore receives the
+/// actor's system prompt and native-tool policy when its process is launched,
+/// while MCP servers travel through `session/new`. Keeping those concerns in
+/// one value prevents Exec and Staff from quietly acquiring different prompt,
+/// tool, skill, or integration semantics.
+#[derive(Clone)]
+pub struct AgentControls {
+    system_prompt: String,
+    mcp_servers: Vec<McpServer>,
+}
+
+impl AgentControls {
+    pub fn company_actor(system_prompt: String) -> Result<Self> {
+        if system_prompt.trim().is_empty() {
+            anyhow::bail!("actor system prompt must not be empty");
+        }
+        Ok(Self {
+            system_prompt,
+            mcp_servers: Vec::new(),
+        })
+    }
+
+    /// Attach only connections selected for this actor and session. Provider
+    /// discovery and credentials remain Authority concerns; this method merely
+    /// carries an already-authorised ACP description to the agent.
+    #[allow(dead_code)]
+    pub fn with_mcp_servers(mut self, mcp_servers: Vec<McpServer>) -> Self {
+        self.mcp_servers = mcp_servers;
+        self
+    }
+}
+
+/// OMP is an implementation behind the bridge, not the owner of company
+/// policy. Its profile is isolated already; this overlay also prevents host or
+/// framework conventions from silently changing an actor's capabilities.
+/// Standalone project `AGENTS.md`, `.agents/skills`, and the two explicit
+/// company skill roots remain available because they are Runtime-owned company
+/// context (§5.4), not ambient developer configuration.
+const RESTLESS_OMP_CONFIG: &str = include_str!("../omp-runtime.yml");
+
+async fn write_private_container_file(container: &str, path: &str, contents: &str) -> Result<()> {
+    let mut child = tokio::process::Command::new("docker")
+        .args([
+            "exec",
+            "-i",
+            "-u",
+            "company",
+            container,
+            "sh",
+            "-c",
+            "set -eu; path=$1; dir=${path%/*}; mkdir -p \"$dir\"; umask 077; tmp=\"$path.$$\"; trap 'rm -f \"$tmp\"' EXIT; cat > \"$tmp\"; mv \"$tmp\" \"$path\"; trap - EXIT",
+            "restless-write-private",
+            path,
+        ])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .kill_on_drop(true)
+        .spawn()
+        .with_context(|| format!("prepare private agent file {path}"))?;
+    let mut stdin = child.stdin.take().context("open agent file stdin")?;
+    stdin.write_all(contents.as_bytes()).await?;
+    stdin.shutdown().await?;
+    drop(stdin);
+    let output = child
+        .wait_with_output()
+        .await
+        .with_context(|| format!("write private agent file {path}"))?;
+    if !output.status.success() {
+        anyhow::bail!(
+            "prepare private agent file {path} failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+                .chars()
+                .take(300)
+                .collect::<String>()
+        );
+    }
+    Ok(())
+}
 
 /// Install the provider's credential-free OMP route in a Restless-owned agent
 /// directory. This never touches the company's general-purpose ~/.omp config
@@ -67,40 +175,13 @@ pub(crate) async fn prepare_agent_runtime(container: &str, auth: &AgentAuth) -> 
         &auth.gateway_url,
         &auth.gateway_token_env,
     )?;
-    let mut child = tokio::process::Command::new("docker")
-        .args([
-            "exec",
-            "-i",
-            "-u",
-            "company",
-            container,
-            "sh",
-            "-c",
-            "set -eu; dir=/company/home/.restless/omp-agent; mkdir -p \"$dir\"; umask 077; tmp=\"$dir/models.yml.$$\"; trap 'rm -f \"$tmp\"' EXIT; cat > \"$tmp\"; mv \"$tmp\" \"$dir/models.yml\"; trap - EXIT",
-        ])
-        .stdin(Stdio::piped())
-        .stdout(Stdio::null())
-        .stderr(Stdio::piped())
-        .kill_on_drop(true)
-        .spawn()
-        .context("prepare credential-free OMP gateway config")?;
-    let mut stdin = child.stdin.take().context("open OMP config stdin")?;
-    stdin.write_all(config.as_bytes()).await?;
-    stdin.shutdown().await?;
-    drop(stdin);
-    let output = child
-        .wait_with_output()
-        .await
-        .context("write OMP gateway config")?;
-    if !output.status.success() {
-        anyhow::bail!(
-            "prepare OMP gateway config failed: {}",
-            String::from_utf8_lossy(&output.stderr)
-                .chars()
-                .take(300)
-                .collect::<String>()
-        );
-    }
+    write_private_container_file(
+        container,
+        &format!("{AGENT_CONFIG_DIR}/models.yml"),
+        &config,
+    )
+    .await?;
+    write_private_container_file(container, OMP_RUNTIME_CONFIG, RESTLESS_OMP_CONFIG).await?;
     Ok(())
 }
 
@@ -125,7 +206,13 @@ pub struct TurnUsage {
 #[derive(Debug)]
 pub struct TurnTranscript {
     pub text: String,
+    /// The most recent assistant message in this prompt turn. Agents may emit
+    /// several message blocks around tools; conversation persists only the
+    /// final one while earlier blocks remain ephemeral activity.
+    pub last_message_text: String,
+    pub output_tokens: Option<u64>,
     pub tool_calls: Vec<String>,
+    last_message_id: Option<String>,
     /// Last usage report of the turn; `None` means the agent never sent one,
     /// which `health::classify_turn` treats exactly like zero.
     pub usage: Option<TurnUsage>,
@@ -144,7 +231,10 @@ impl Default for TurnTranscript {
     fn default() -> Self {
         Self {
             text: String::new(),
+            last_message_text: String::new(),
+            output_tokens: None,
             tool_calls: Vec::new(),
+            last_message_id: None,
             usage: None,
             last_activity: std::time::Instant::now(),
             tools_in_flight: 0,
@@ -153,13 +243,27 @@ impl Default for TurnTranscript {
 }
 
 impl TurnTranscript {
-    fn note(&mut self, update: SessionUpdate) {
+    fn note(&mut self, update: &SessionUpdate) {
         // Every update is liveness, whatever it carries.
         self.last_activity = std::time::Instant::now();
         match update {
             SessionUpdate::AgentMessageChunk(chunk) => {
-                if let ContentBlock::Text(text) = chunk.content {
+                if let ContentBlock::Text(text) = &chunk.content {
+                    let message_id = chunk.message_id.as_ref().map(ToString::to_string);
+                    if self.last_message_id.is_some()
+                        && message_id.is_some()
+                        && self.last_message_id != message_id
+                    {
+                        self.last_message_text.clear();
+                        if !self.text.is_empty() && !self.text.ends_with("\n\n") {
+                            self.text.push_str("\n\n");
+                        }
+                    }
+                    if message_id.is_some() {
+                        self.last_message_id = message_id;
+                    }
                     self.text.push_str(&text.text);
+                    self.last_message_text.push_str(&text.text);
                 }
             }
             SessionUpdate::ToolCall(call) => {
@@ -187,11 +291,43 @@ impl TurnTranscript {
     }
 }
 
+fn live_event(update: &SessionUpdate) -> Option<LiveSessionEvent> {
+    match update {
+        SessionUpdate::AgentMessageChunk(chunk) => match &chunk.content {
+            ContentBlock::Text(text) => Some(LiveSessionEvent::ReplyDelta {
+                message_id: chunk.message_id.as_ref().map(ToString::to_string),
+                text: text.text.clone(),
+            }),
+            _ => None,
+        },
+        SessionUpdate::AgentThoughtChunk(chunk) => match &chunk.content {
+            ContentBlock::Text(_) => Some(LiveSessionEvent::ThoughtDelta),
+            _ => None,
+        },
+        SessionUpdate::ToolCall(call) => Some(LiveSessionEvent::ToolStarted {
+            id: call.tool_call_id.to_string(),
+            title: call.title.clone(),
+            kind: format!("{:?}", call.kind).to_lowercase(),
+        }),
+        SessionUpdate::ToolCallUpdate(update) => Some(LiveSessionEvent::ToolUpdated {
+            id: update.tool_call_id.to_string(),
+            title: update.fields.title.clone(),
+            status: update
+                .fields
+                .status
+                .map(|status| format!("{status:?}").to_lowercase())
+                .unwrap_or_else(|| "active".into()),
+        }),
+        _ => None,
+    }
+}
+
 /// A live agent process and connection, mid-turn.
 pub struct AgentSession {
     cx: ConnectionTo<Agent>,
     pub session_id: SessionId,
     transcript: Arc<Mutex<TurnTranscript>>,
+    observer: Option<SessionObserver>,
 }
 
 /// Silence with nothing running: the agent is wedged.
@@ -315,7 +451,17 @@ impl AgentSession {
             tokio::select! {
                 finished = &mut prompt => {
                     return match finished {
-                        Ok(()) => TurnEnd::Completed { transcript: self.take_transcript() },
+                        Ok(response) => {
+                            let output_tokens = response.usage.map(|usage| usage.output_tokens);
+                            if let Some(tokens) = output_tokens {
+                                if let Some(observer) = &self.observer {
+                                    observer(LiveSessionEvent::GeneratedOutputTokens(tokens));
+                                }
+                            }
+                            let mut transcript = self.take_transcript();
+                            transcript.output_tokens = output_tokens;
+                            TurnEnd::Completed { transcript }
+                        },
                         Err(error) => TurnEnd::Failed {
                             error: format!("{error:#}"),
                             transcript: self.take_transcript(),
@@ -357,7 +503,7 @@ impl AgentSession {
     }
 
     /// Send one prompt and wait for the turn to complete.
-    pub async fn prompt(&self, text: &str) -> Result<()> {
+    pub async fn prompt(&self, text: &str) -> Result<PromptResponse> {
         self.cx
             .send_request(PromptRequest::new(
                 self.session_id.clone(),
@@ -365,8 +511,7 @@ impl AgentSession {
             ))
             .block_task()
             .await
-            .context("acp session/prompt")?;
-        Ok(())
+            .context("acp session/prompt")
     }
 
     /// Ask the agent to stop mid-turn (best-effort; the process is killed
@@ -386,7 +531,7 @@ impl AgentSession {
     }
 }
 
-/// Spawn codex-acp inside the company container, authenticate against the
+/// Spawn OMP's ACP server inside the company container, authenticate against the
 /// gateway, open a session rooted at `workdir`, and hand it to `drive`. The
 /// process dies when the returned future completes — agents are ordinary
 /// processes, not daemons (§5). `actor` becomes RESTLESS_ACTOR in the
@@ -398,6 +543,8 @@ pub async fn with_agent<F, T>(
     auth: &AgentAuth,
     workdir: &str,
     actor: &str,
+    controls: AgentControls,
+    observer: Option<SessionObserver>,
     drive: F,
 ) -> Result<T>
 where
@@ -412,7 +559,10 @@ where
     // session id inside the container so cleanup can reap only its process
     // tree. A before/after PID diff is not ownership: a staff turn may start
     // while the Exec is running, and the Exec must never kill it on exit.
-    let session_marker = format!("/tmp/restless-agent-{}.sid", uuid::Uuid::new_v4().simple());
+    let launch_id = uuid::Uuid::new_v4().simple().to_string();
+    let session_marker = format!("/tmp/restless-agent-{launch_id}.sid");
+    let system_prompt_path = format!("/tmp/restless-agent-{launch_id}.system.md");
+    write_private_container_file(container, &system_prompt_path, &controls.system_prompt).await?;
     // docker exec takes its -e flags BEFORE the container name; anything after
     // it belongs to the command. Build the vector explicitly rather than
     // chaining .args() and hoping the order is right — appending the base-URL
@@ -456,28 +606,45 @@ where
             "acp",
             "--model",
             auth.model.as_str(),
+            "--system-prompt",
+            system_prompt_path.as_str(),
+            "--config",
+            OMP_RUNTIME_CONFIG,
+            "--no-extensions",
+            "--no-rules",
             "--tools",
             OMP_AGENT_TOOLS,
         ]
         .iter()
         .map(|arg| (*arg).to_string()),
     );
-    let mut child = tokio::process::Command::new("docker")
+    let spawned = tokio::process::Command::new("docker")
         .env(&auth.gateway_token_env, &auth.gateway_token)
         .args(&args)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
         .kill_on_drop(true)
-        .spawn()
-        .context("spawn codex-acp in container")?;
+        .spawn();
+    let mut child = match spawned {
+        Ok(child) => child,
+        Err(error) => {
+            let _ = tokio::process::Command::new("docker")
+                .args(["exec", container, "unlink", &system_prompt_path])
+                .output()
+                .await;
+            return Err(error).context("spawn ACP agent in container");
+        }
+    };
     let stdin = child.stdin.take().expect("piped stdin");
     let stdout = child.stdout.take().expect("piped stdout");
     let transport = ByteStreams::new(stdin.compat_write(), stdout.compat());
 
     let transcript = Arc::new(Mutex::new(TurnTranscript::default()));
     let sink = Arc::clone(&transcript);
+    let event_observer = observer.clone();
     let workdir = workdir.to_string();
+    let mcp_servers = controls.mcp_servers;
     // connect_with speaks acp::Error; the real anyhow chain is parked here
     // and restored after the connection closes.
     let failure = Arc::new(Mutex::new(None::<anyhow::Error>));
@@ -488,9 +655,15 @@ where
         .on_receive_notification(
             move |notification: SessionNotification, _cx| {
                 let sink = Arc::clone(&sink);
+                let event_observer = event_observer.clone();
                 async move {
+                    if let (Some(observer), Some(event)) =
+                        (event_observer.as_ref(), live_event(&notification.update))
+                    {
+                        observer(event);
+                    }
                     if let Ok(mut transcript) = sink.lock() {
-                        transcript.note(notification.update);
+                        transcript.note(&notification.update);
                     }
                     Ok(())
                 }
@@ -545,7 +718,7 @@ where
                 tracing::info!(agent = %agent_name, "acp agent initialized");
 
                 let session = cx
-                    .send_request(NewSessionRequest::new(workdir).mcp_servers(vec![]))
+                    .send_request(NewSessionRequest::new(workdir).mcp_servers(mcp_servers))
                     .block_task()
                     .await
                     .context("acp session/new")?;
@@ -554,6 +727,7 @@ where
                     cx,
                     session_id: session.session_id,
                     transcript,
+                    observer,
                 };
                 drive(&agent).await
             };
@@ -579,6 +753,10 @@ where
     }
     let _ = tokio::process::Command::new("docker")
         .args(["exec", container, "unlink", &session_marker])
+        .output()
+        .await;
+    let _ = tokio::process::Command::new("docker")
+        .args(["exec", container, "unlink", &system_prompt_path])
         .output()
         .await;
     if let Ok(mut slot) = failure.lock() {
@@ -709,7 +887,7 @@ fn pids_in_session(table: &str, session_id: &str) -> Vec<String> {
 mod tests {
     use agent_client_protocol::schema::v1::ClientCapabilities;
 
-    use super::{pids_in_session, OMP_AGENT_TOOLS};
+    use super::{pids_in_session, AgentControls, OMP_AGENT_TOOLS, RESTLESS_OMP_CONFIG};
 
     /// OrgIntel owns Staff identity and handoff evidence. OMP's similarly
     /// named task runtime is deliberately absent so an actor cannot bypass
@@ -719,6 +897,26 @@ mod tests {
         let tools: Vec<_> = OMP_AGENT_TOOLS.split(',').collect();
         assert_eq!(tools, ["read", "bash", "edit", "write", "grep"]);
         assert!(!tools.contains(&"task"));
+    }
+
+    #[test]
+    fn every_actor_launch_requires_restless_system_policy() {
+        assert!(AgentControls::company_actor("   ".into()).is_err());
+        let controls = AgentControls::company_actor("You are a Restless actor.".into()).unwrap();
+        assert_eq!(controls.system_prompt, "You are a Restless actor.");
+        assert!(controls.mcp_servers.is_empty());
+    }
+
+    #[test]
+    fn omp_profile_rejects_ambient_agent_capabilities() {
+        assert!(RESTLESS_OMP_CONFIG.contains("enableProjectConfig: false"));
+        assert!(RESTLESS_OMP_CONFIG.contains("enableAgentsUser: false"));
+        assert!(RESTLESS_OMP_CONFIG.contains("enableAgentsProject: true"));
+        assert!(RESTLESS_OMP_CONFIG.contains("/opt/restless/skills"));
+        assert!(RESTLESS_OMP_CONFIG.contains("/company/skills"));
+        for provider in ["claude", "codex", "github", "opencode"] {
+            assert!(RESTLESS_OMP_CONFIG.contains(&format!("  - {provider}\n")));
+        }
     }
 
     /// Guards the silent failure that cost a probe cycle: if the client ever

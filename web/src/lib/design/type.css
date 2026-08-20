@@ -21,20 +21,6 @@
 	letter-spacing: -0.01em;
 }
 
-/* The one uppercase style. It names a datum — never a section, never an eyebrow
- * repeating the surface you are already on. Tracking is 0.07em rather than the
- * old 0.12em: tracking has to shrink as the size grows or the letters drift
- * apart into separate marks. */
-.bridge-root .over-label {
-	font-family: var(--font-mono);
-	font-size: var(--t-label);
-	font-weight: 500;
-	letter-spacing: var(--track-label);
-	text-transform: uppercase;
-	color: var(--text-tertiary);
-	margin: 0 0 10px;
-}
-
 .bridge-root .caption {
 	font-size: var(--t-body);
 	color: var(--text-secondary);

@@ -85,6 +85,35 @@ pub enum OwnerHandoffState {
     Withdrawn,
 }
 
+/// The meaning of an organisational owner handoff. This controls presentation
+/// and which existing source operation is truthful; it is not a Work or
+/// Authority lifecycle.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
+#[serde(rename_all = "snake_case")]
+pub enum OwnerBriefKind {
+    OutcomeReview,
+    Decision,
+    Blocker,
+    Opportunity,
+    Contradiction,
+    HumanStep,
+}
+
+/// A stable executive explanation of one exact handoff source snapshot.
+/// Evidence remains in `prepared_state`, artifacts, gates and their owning
+/// planes; this is the accountable actor's authored meaning.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ts_rs::TS)]
+pub struct OwnerBrief {
+    pub kind: OwnerBriefKind,
+    pub headline: String,
+    pub situation: String,
+    pub impact: String,
+    pub recommendation: String,
+    pub no_action: String,
+    pub uncertainty: Option<String>,
+    pub deadline: Option<String>,
+}
+
 /// An explicit owner decision on a prepared outcome. Ordinary Work-linked
 /// conversation never implies either variant.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -150,6 +179,44 @@ fn valid_runtime_slug(value: &str) -> bool {
         && value
             .bytes()
             .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-')
+}
+
+fn valid_staff_actor_id(value: &str) -> bool {
+    if value.len() > 32 {
+        return false;
+    }
+    let mut segments = value.split('-');
+    let valid_segment = |segment: &str| {
+        if segment.is_empty()
+            || !segment
+                .bytes()
+                .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit())
+        {
+            return false;
+        }
+        let version_suffix = segment.starts_with('v')
+            && segment.len() > 1
+            && segment[1..].bytes().all(|byte| byte.is_ascii_digit());
+        !matches!(
+            segment,
+            "staff"
+                | "lead"
+                | "live"
+                | "test"
+                | "dev"
+                | "prod"
+                | "stage"
+                | "retry"
+                | "attempt"
+                | "revision"
+                | "impl"
+                | "implementation"
+        ) && !version_suffix
+    };
+    matches!(
+        (segments.next(), segments.next(), segments.next()),
+        (Some(domain), Some(craft), None) if valid_segment(domain) && valid_segment(craft)
+    )
 }
 
 fn valid_git_ref(value: &str) -> bool {
@@ -276,8 +343,15 @@ impl OrgIntel {
 
     // ---- actors ----
 
-    pub async fn add_actor(&self, id: &str, kind: &str, display: &str) -> Result<()> {
-        self.add_actor_with_model(id, kind, display, None).await
+    pub async fn ensure_actor(
+        &self,
+        id: &str,
+        kind: &str,
+        role: &str,
+        display: &str,
+    ) -> Result<()> {
+        self.ensure_actor_with_model(id, kind, role, display, None)
+            .await
     }
 
     /// S04-T9. The same insert, carrying what this actor thinks with.
@@ -286,55 +360,105 @@ impl OrgIntel {
     /// actor persists across wakes (`orgintel §2.1`) while the model it is
     /// given can change between them, and the owner asking "which model wrote
     /// this" wants the one that ran, not the one it was first created with.
-    pub async fn add_actor_with_model(
+    pub async fn ensure_actor_with_model(
         &self,
         id: &str,
         kind: &str,
+        role: &str,
         display: &str,
         model: Option<&str>,
     ) -> Result<()> {
-        if id.trim().is_empty() || kind.trim().is_empty() || display.trim().is_empty() {
+        if id.trim().is_empty()
+            || kind.trim().is_empty()
+            || role.trim().is_empty()
+            || display.trim().is_empty()
+        {
             return Err(OrgIntelError::InvalidWork(
                 "an actor needs a stable id, role and display name".into(),
             ));
         }
+        if !matches!(kind, "owner" | "exec" | "staff" | "system") {
+            return Err(OrgIntelError::InvalidWork(format!(
+                "unknown actor kind {kind:?}; expected owner, exec, staff or system"
+            )));
+        }
+        if kind == "staff" && !valid_staff_actor_id(id) {
+            return Err(OrgIntelError::InvalidWork(
+                "a Staff actor id must be exactly {domain}-{craft}: two lowercase kebab segments with no assignment, stage or retry suffix"
+                    .into(),
+            ));
+        }
         let changed = sqlx::query(
-            "INSERT INTO actors (id, kind, display, model) VALUES ($1, $2, $3, $4) \
+            "INSERT INTO actors (id, kind, role, display, model) VALUES ($1, $2, $3, $4, $5) \
              ON CONFLICT (id) DO UPDATE SET model = COALESCE(EXCLUDED.model, actors.model) \
-             WHERE actors.retired_at IS NULL",
+             WHERE actors.retired_at IS NULL AND actors.kind = EXCLUDED.kind \
+               AND actors.role = EXCLUDED.role",
         )
         .bind(id)
         .bind(kind)
+        .bind(role)
         .bind(display)
         .bind(model)
         .execute(&self.pool)
         .await?;
         if changed.rows_affected() != 1 {
             return Err(OrgIntelError::InvalidWork(format!(
-                "actor {id:?} is retired; restore must be an explicit organisational decision"
+                "actor {id:?} is retired or has a different kind/role; identity changes must be explicit"
+            )));
+        }
+        Ok(())
+    }
+
+    /// Refresh the model used by a known active actor without re-creating or
+    /// reinterpreting its durable identity.
+    pub async fn update_actor_model(&self, id: &str, model: &str) -> Result<()> {
+        let changed = sqlx::query("UPDATE actors SET model=$2 WHERE id=$1 AND retired_at IS NULL")
+            .bind(id)
+            .bind(model)
+            .execute(&self.pool)
+            .await?;
+        if changed.rows_affected() != 1 {
+            return Err(OrgIntelError::InvalidWork(format!(
+                "actor {id:?} is not an active durable identity"
             )));
         }
         Ok(())
     }
 
     /// Create one durable specialist identity. Runtime wakes use
-    /// `add_actor_with_model` to refresh a known active actor's session model;
+    /// `update_actor_model` to refresh a known active actor's session model;
     /// this is the explicit organisational path for adding a person.
     pub async fn create_actor(
         &self,
         id: &str,
-        kind: &str,
+        role: &str,
         display: &str,
         model: Option<&str>,
         created_by: &str,
         reason: &str,
     ) -> Result<()> {
         let id = id.trim();
-        let kind = kind.trim();
+        let role = role.trim();
         let display = display.trim();
-        if id.trim().is_empty() || kind.trim().is_empty() || display.trim().is_empty() {
+        if id.is_empty() || role.is_empty() || display.is_empty() {
             return Err(OrgIntelError::InvalidWork(
                 "an actor needs a stable id, role and display name".into(),
+            ));
+        }
+        if !valid_staff_actor_id(id) {
+            return Err(OrgIntelError::InvalidWork(
+                "a Staff actor id must be exactly {domain}-{craft}: two lowercase kebab segments with no assignment, stage or retry suffix"
+                    .into(),
+            ));
+        }
+        let display_key = display.to_ascii_lowercase();
+        if display_key == role.to_ascii_lowercase()
+            || display_key == id.replace('-', " ")
+            || display == id
+        {
+            return Err(OrgIntelError::InvalidWork(
+                "display must be a stable human-readable colleague identity, not the actor id or role repeated"
+                    .into(),
             ));
         }
         if reason.trim().is_empty() {
@@ -343,7 +467,7 @@ impl OrgIntel {
             ));
         }
         if matches!(id, "owner" | "exec" | "world" | "daemon")
-            || matches!(kind, "owner" | "exec" | "world" | "daemon")
+            || matches!(role, "owner" | "exec" | "world" | "daemon" | "system")
         {
             return Err(OrgIntelError::InvalidWork(
                 "standing company/system actors are bootstrapped, not commissioned as specialists"
@@ -368,11 +492,11 @@ impl OrgIntel {
         }
 
         let changed = sqlx::query(
-            "INSERT INTO actors (id, kind, display, model) VALUES ($1,$2,$3,$4) \
+            "INSERT INTO actors (id, kind, role, display, model) VALUES ($1,'staff',$2,$3,$4) \
              ON CONFLICT (id) DO NOTHING",
         )
         .bind(id)
-        .bind(kind)
+        .bind(role)
         .bind(display)
         .bind(model)
         .execute(&mut *tx)
@@ -386,7 +510,7 @@ impl OrgIntel {
             .bind(created_by)
             .bind(serde_json::json!({
                 "actor_id": id,
-                "role": kind,
+                "role": role,
                 "display": display,
                 "model": model,
                 "reason": reason.trim(),
@@ -400,7 +524,7 @@ impl OrgIntel {
     /// Every actor the company has, for `restless people`.
     pub async fn list_actors(&self) -> Result<Vec<ActorRow>> {
         Ok(sqlx::query_as::<_, ActorRow>(
-            "SELECT id, kind, display, model, team_id, retired_at, retired_by, \
+            "SELECT id, kind, role, display, model, team_id, retired_at, retired_by, \
                     retirement_reason, created_at FROM actors \
              WHERE retired_at IS NULL ORDER BY created_at",
         )
@@ -411,7 +535,7 @@ impl OrgIntel {
     /// Active and retired actors for an explicit historical People read.
     pub async fn list_actors_including_retired(&self) -> Result<Vec<ActorRow>> {
         Ok(sqlx::query_as::<_, ActorRow>(
-            "SELECT id, kind, display, model, team_id, retired_at, retired_by, \
+            "SELECT id, kind, role, display, model, team_id, retired_at, retired_by, \
                     retirement_reason, created_at FROM actors ORDER BY created_at",
         )
         .fetch_all(&self.pool)
@@ -421,7 +545,7 @@ impl OrgIntel {
     /// Resolve a Work owner without mutating the actor roster.
     pub async fn active_actor(&self, actor_id: &str) -> Result<Option<ActorRow>> {
         Ok(sqlx::query_as::<_, ActorRow>(
-            "SELECT id, kind, display, model, team_id, retired_at, retired_by, \
+            "SELECT id, kind, role, display, model, team_id, retired_at, retired_by, \
                     retirement_reason, created_at FROM actors \
              WHERE id=$1 AND retired_at IS NULL",
         )
@@ -1003,7 +1127,8 @@ impl OrgIntel {
         Ok(sqlx::query_as(
             "SELECT id, work_id, attempt_id, requested_by, category, requested_action, \
                     prepared_state, resume_condition, state, resolution, assigned_to, \
-                    escalated_from, escalated_at, created_at, resolved_at \
+                    escalated_from, escalated_at, owner_brief, briefed_by, briefed_at, \
+                    brief_source_fingerprint, created_at, resolved_at \
              FROM owner_handoffs WHERE state='pending' AND assigned_to=$1 \
              ORDER BY created_at, id",
         )
@@ -1024,6 +1149,41 @@ impl OrgIntel {
             ));
         }
         let next = (from_actor != "exec").then_some("exec");
+        if from_actor == "exec" {
+            let row = sqlx::query(
+                "SELECT h.work_id, h.attempt_id, h.category, h.requested_action, \
+                        h.prepared_state, h.resume_condition, h.owner_brief, \
+                        h.brief_source_fingerprint, w.revision \
+                 FROM owner_handoffs h JOIN work w ON w.id=h.work_id \
+                 WHERE h.id=$1 AND h.state='pending' AND h.assigned_to='exec'",
+            )
+            .bind(id)
+            .fetch_optional(&self.pool)
+            .await?
+            .ok_or_else(|| {
+                OrgIntelError::InvalidWork("no pending handoff is assigned to that actor".into())
+            })?;
+            let category: OwnerHandoffCategory = row.get("category");
+            if category == OwnerHandoffCategory::OwnerJudgement {
+                let brief: Option<serde_json::Value> = row.get("owner_brief");
+                let recorded: Option<String> = row.get("brief_source_fingerprint");
+                let current = owner_handoff_source_fingerprint(
+                    row.get("work_id"),
+                    row.get("attempt_id"),
+                    category,
+                    row.get::<String, _>("requested_action").as_str(),
+                    row.get::<String, _>("prepared_state").as_str(),
+                    row.get::<String, _>("resume_condition").as_str(),
+                    row.get("revision"),
+                );
+                if brief.is_none() || recorded.as_deref() != Some(current.as_str()) {
+                    return Err(OrgIntelError::InvalidWork(
+                        "owner attention admission refused: prepare a current owner brief before escalating ordinary judgement"
+                            .into(),
+                    ));
+                }
+            }
+        }
         let changed = sqlx::query(
             "UPDATE owner_handoffs SET assigned_to=$3, escalated_from=$2, escalated_at=now(), \
              resolution=$4 WHERE id=$1 AND state='pending' AND assigned_to=$2",
@@ -1290,6 +1450,18 @@ impl OrgIntel {
                 }
             }
         }
+        let required_targets = requires
+            .iter()
+            .copied()
+            .collect::<std::collections::HashSet<_>>();
+        if let Some(unpaired) = revises
+            .iter()
+            .find(|target| !required_targets.contains(target))
+        {
+            return Err(OrgIntelError::InvalidWork(format!(
+                "review Work that may revise {unpaired} must require that same producer in the atomic creation call"
+            )));
+        }
 
         sqlx::query(
             "INSERT INTO work \
@@ -1461,6 +1633,46 @@ impl OrgIntel {
                 "a Work node cannot depend on itself".into(),
             ));
         }
+        let mut tx = self.pool.begin().await?;
+        let runnable_work_id = match kind {
+            WorkEdgeKind::Requires => to,
+            WorkEdgeKind::Revises => from,
+        };
+        let runnable_exists: bool =
+            sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM work WHERE id=$1 FOR UPDATE)")
+                .bind(runnable_work_id)
+                .fetch_one(&mut *tx)
+                .await?;
+        if !runnable_exists {
+            return Err(OrgIntelError::InvalidWork(format!(
+                "Work {runnable_work_id} does not exist"
+            )));
+        }
+        let has_attempt: bool =
+            sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM work_attempts WHERE work_id=$1)")
+                .bind(runnable_work_id)
+                .fetch_one(&mut *tx)
+                .await?;
+        if has_attempt {
+            return Err(OrgIntelError::InvalidWork(format!(
+                "cannot add a {kind:?} edge after Work {runnable_work_id} has started; create initial edges atomically or create a revised Work node"
+            )));
+        }
+        if kind == WorkEdgeKind::Revises {
+            let paired_requirement: bool = sqlx::query_scalar(
+                "SELECT EXISTS(SELECT 1 FROM work_edges \
+                 WHERE from_work_id=$1 AND to_work_id=$2 AND kind='requires')",
+            )
+            .bind(to)
+            .bind(from)
+            .fetch_one(&mut *tx)
+            .await?;
+            if !paired_requirement {
+                return Err(OrgIntelError::InvalidWork(format!(
+                    "review Work {from} may revise {to} only after the paired requires edge {to} -> {from} exists"
+                )));
+            }
+        }
         if kind == WorkEdgeKind::Requires {
             let closes_cycle = sqlx::query_scalar::<_, bool>(
                 "WITH RECURSIVE reachable(id) AS (\
@@ -1474,7 +1686,7 @@ impl OrgIntel {
             )
             .bind(to)
             .bind(from)
-            .fetch_one(&self.pool)
+            .fetch_one(&mut *tx)
             .await?;
             if closes_cycle {
                 return Err(OrgIntelError::InvalidWork(format!(
@@ -1489,8 +1701,9 @@ impl OrgIntel {
         .bind(from)
         .bind(to)
         .bind(kind)
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await?;
+        tx.commit().await?;
         Ok(())
     }
 
@@ -2198,7 +2411,8 @@ impl OrgIntel {
         let handoffs = sqlx::query_as(
             "SELECT id, work_id, attempt_id, requested_by, category, requested_action, \
                     prepared_state, resume_condition, state, resolution, assigned_to, \
-                    escalated_from, escalated_at, created_at, resolved_at \
+                    escalated_from, escalated_at, owner_brief, briefed_by, briefed_at, \
+                    brief_source_fingerprint, created_at, resolved_at \
              FROM owner_handoffs ORDER BY created_at, id",
         )
         .fetch_all(&mut *tx)
@@ -2290,7 +2504,10 @@ impl OrgIntel {
         // the owner; nobody escalates to themselves.
         let assigned_to = if handoff.category == OwnerHandoffCategory::OwnerJudgement {
             if handoff.requested_by == "exec" {
-                None
+                // Exec still performs the explicit final admission step. A
+                // request cannot appear in owner Attention before its source
+                // snapshot has a current authored brief.
+                Some("exec".to_string())
             } else {
                 self.team_lead_for(handoff.requested_by)
                     .await?
@@ -2310,8 +2527,9 @@ impl OrgIntel {
 
         let mut tx = self.pool.begin().await?;
         // Serialize with scheduler claim. A handoff without an Attempt is
-        // valid for a prepared legacy/manual outcome, but it must not strand
-        // an already-running actor behind a second source of truth.
+        // valid for a prepared legacy/manual outcome, but it must not detach
+        // an already-running actor from the Attempt that still attributes its
+        // process and any work it performs while the owner item is pending.
         sqlx::query("SELECT id FROM work WHERE id=$1 FOR UPDATE")
             .bind(handoff.work_id)
             .fetch_one(&mut *tx)
@@ -2322,11 +2540,20 @@ impl OrgIntel {
         .bind(handoff.work_id)
         .fetch_optional(&mut *tx)
         .await?;
-        if handoff.attempt_id.is_none() && running_attempt.is_some() {
-            return Err(OrgIntelError::InvalidWork(
-                "a Work with a running Attempt must attach that Attempt to its owner handoff"
-                    .into(),
-            ));
+        match (handoff.attempt_id, running_attempt) {
+            (None, Some(_)) => {
+                return Err(OrgIntelError::InvalidWork(
+                    "a Work with a running Attempt must attach that Attempt to its owner handoff"
+                        .into(),
+                ));
+            }
+            (Some(attached), Some(running)) if attached == running => {}
+            (Some(_), _) => {
+                return Err(OrgIntelError::InvalidWork(
+                    "handoff Attempt must be the running Attempt of this Work".into(),
+                ));
+            }
+            (None, None) => {}
         }
         sqlx::query(
             "INSERT INTO owner_handoffs \
@@ -2345,22 +2572,13 @@ impl OrgIntel {
         .bind(assigned_to.as_deref())
         .execute(&mut *tx)
         .await?;
-        if let Some(attempt_id) = handoff.attempt_id {
-            let closed = sqlx::query(
-                "UPDATE work_attempts SET state='blocked', summary=$3, finished_at=now() \
-                 WHERE id=$1 AND work_id=$2 AND state='running'",
-            )
-            .bind(attempt_id)
-            .bind(handoff.work_id)
-            .bind(&blocked_reason)
-            .execute(&mut *tx)
-            .await?;
-            if closed.rows_affected() != 1 {
-                return Err(OrgIntelError::InvalidWork(
-                    "handoff Attempt must be the running Attempt of this Work".into(),
-                ));
-            }
-        }
+        // The Work is blocked, but an attached Attempt stays running until
+        // its supervised process actually returns a terminal result. Closing
+        // it here would make any preparation the still-live process performs
+        // unattributed and would let the scheduler start a second process for
+        // the same durable actor. Usually the actor now returns `blocked`; if
+        // the owner responds while it is still live, that same Attempt may
+        // continue and finish with the response observed.
         sqlx::query("UPDATE work SET status='blocked', resolution=$2 WHERE id=$1")
             .bind(handoff.work_id)
             .bind(&blocked_reason)
@@ -2425,7 +2643,10 @@ impl OrgIntel {
 
         sqlx::query(
             "UPDATE owner_handoffs SET requested_action=$2, prepared_state=$3, \
-                    resume_condition=$4 WHERE id=$1",
+                    resume_condition=$4, \
+                    assigned_to=CASE WHEN category='owner_judgement' AND assigned_to IS NULL \
+                                     THEN 'exec' ELSE assigned_to END \
+             WHERE id=$1",
         )
         .bind(id)
         .bind(requested_action.trim())
@@ -2453,14 +2674,144 @@ impl OrgIntel {
         Ok(())
     }
 
+    /// Attach or refresh the accountable actor's owner-altitude explanation.
+    /// This does not move the handoff into the owner's queue; the Exec still
+    /// performs the explicit final admission after checking the need.
+    pub async fn prepare_owner_brief(
+        &self,
+        id: Uuid,
+        briefed_by: &str,
+        brief: OwnerBrief,
+    ) -> Result<()> {
+        validate_owner_brief(&brief)?;
+        let mut tx = self.pool.begin().await?;
+        let row = sqlx::query(
+            "SELECT h.work_id, h.attempt_id, h.category, h.requested_action, \
+                    h.prepared_state, h.resume_condition, h.owner_brief, h.briefed_by, \
+                    h.brief_source_fingerprint, h.assigned_to, w.owner_id, w.revision, \
+                    t.lead_actor_id \
+             FROM owner_handoffs h JOIN work w ON w.id=h.work_id \
+             LEFT JOIN actors a ON a.id=w.owner_id \
+             LEFT JOIN teams t ON t.id=a.team_id AND t.disbanded_at IS NULL \
+             WHERE h.id=$1 AND h.state='pending' FOR UPDATE OF h, w",
+        )
+        .bind(id)
+        .fetch_optional(&mut *tx)
+        .await?
+        .ok_or_else(|| OrgIntelError::InvalidWork("no outstanding handoff with that id".into()))?;
+        let work_owner: String = row.get("owner_id");
+        let team_lead: Option<String> = row.get("lead_actor_id");
+        if briefed_by != "exec"
+            && briefed_by != work_owner
+            && team_lead.as_deref() != Some(briefed_by)
+        {
+            return Err(OrgIntelError::InvalidWork(
+                "only the Work owner, its accountable lead or Exec may prepare its owner brief"
+                    .into(),
+            ));
+        }
+        let category: OwnerHandoffCategory = row.get("category");
+        let kind_matches_boundary = match category {
+            OwnerHandoffCategory::OwnerJudgement => brief.kind != OwnerBriefKind::HumanStep,
+            OwnerHandoffCategory::Identity
+            | OwnerHandoffCategory::Captcha
+            | OwnerHandoffCategory::Mfa
+            | OwnerHandoffCategory::LegalAttestation
+            | OwnerHandoffCategory::PaymentConfirmation => brief.kind == OwnerBriefKind::HumanStep,
+        };
+        if !kind_matches_boundary {
+            return Err(OrgIntelError::InvalidWork(
+                "owner brief kind must preserve the handoff's judgement or irreducible-human boundary"
+                    .into(),
+            ));
+        }
+        let fingerprint = owner_handoff_source_fingerprint(
+            row.get("work_id"),
+            row.get("attempt_id"),
+            category,
+            row.get::<String, _>("requested_action").as_str(),
+            row.get::<String, _>("prepared_state").as_str(),
+            row.get::<String, _>("resume_condition").as_str(),
+            row.get("revision"),
+        );
+        let previous_brief: Option<serde_json::Value> = row.get("owner_brief");
+        let previous_author: Option<String> = row.get("briefed_by");
+        let previous_fingerprint: Option<String> = row.get("brief_source_fingerprint");
+        let retract_from_owner = category == OwnerHandoffCategory::OwnerJudgement
+            && row.get::<Option<String>, _>("assigned_to").is_none();
+        let encoded = serde_json::to_value(&brief)
+            .map_err(|error| OrgIntelError::InvalidWork(format!("invalid owner brief: {error}")))?;
+        if previous_brief.as_ref() == Some(&encoded)
+            && previous_author.as_deref() == Some(briefed_by)
+            && previous_fingerprint.as_deref() == Some(fingerprint.as_str())
+        {
+            return Err(OrgIntelError::InvalidWork(
+                "the owner brief and its source snapshot are unchanged".into(),
+            ));
+        }
+        sqlx::query(
+            "UPDATE owner_handoffs SET owner_brief=$2, briefed_by=$3, briefed_at=now(), \
+                    brief_source_fingerprint=$4, \
+                    assigned_to=CASE WHEN $5 THEN 'exec' ELSE assigned_to END, \
+                    escalated_from=CASE WHEN $5 THEN $3 ELSE escalated_from END, \
+                    escalated_at=CASE WHEN $5 THEN now() ELSE escalated_at END \
+             WHERE id=$1",
+        )
+        .bind(id)
+        .bind(&encoded)
+        .bind(briefed_by)
+        .bind(&fingerprint)
+        .bind(retract_from_owner)
+        .execute(&mut *tx)
+        .await?;
+        sqlx::query(
+            "INSERT INTO events (kind, actor_id, body) VALUES ('owner_brief_prepared',$1,$2)",
+        )
+        .bind(briefed_by)
+        .bind(serde_json::json!({
+            "handoff_id": id,
+            "work_id": row.get::<Uuid, _>("work_id"),
+            "source_fingerprint": fingerprint,
+            "kind": brief.kind,
+            "replaced_briefed_by": previous_author,
+            "attention_retracted": retract_from_owner,
+        }))
+        .execute(&mut *tx)
+        .await?;
+        tx.commit().await?;
+        Ok(())
+    }
+
     pub async fn resolve_owner_handoff(
         &self,
         id: Uuid,
         state: OwnerHandoffState,
         resolution: &str,
     ) -> Result<()> {
-        self.resolve_handoff_as(id, "owner", state, resolution)
+        self.resolve_handoff(id, "owner", state, resolution, false)
             .await
+            .map(|_| ())
+    }
+
+    /// Resolve an irreducible-human handoff from a live external observation.
+    /// The observer is explicit in the transcript and feedback edge; this is
+    /// never available for open-ended owner judgement or outcome review.
+    /// Returns false when the exact handoff was already resolved, which makes
+    /// repeated provider reconciliation harmless.
+    pub async fn resolve_observed_handoff(
+        &self,
+        id: Uuid,
+        observed_by: &str,
+        resolution: &str,
+    ) -> Result<bool> {
+        self.resolve_handoff(
+            id,
+            observed_by,
+            OwnerHandoffState::Resolved,
+            resolution,
+            true,
+        )
+        .await
     }
 
     /// Resolve judgement at the altitude that currently owes it, write the
@@ -2474,6 +2825,19 @@ impl OrgIntel {
         state: OwnerHandoffState,
         resolution: &str,
     ) -> Result<()> {
+        self.resolve_handoff(id, resolved_by, state, resolution, false)
+            .await
+            .map(|_| ())
+    }
+
+    async fn resolve_handoff(
+        &self,
+        id: Uuid,
+        resolved_by: &str,
+        state: OwnerHandoffState,
+        resolution: &str,
+        external_observation: bool,
+    ) -> Result<bool> {
         if state == OwnerHandoffState::Pending {
             return Err(OrgIntelError::InvalidWork(
                 "a handoff cannot be resolved back to pending".into(),
@@ -2486,21 +2850,72 @@ impl OrgIntel {
             ));
         }
         let row = sqlx::query(
-            "SELECT h.work_id, h.assigned_to, w.owner_id FROM owner_handoffs h \
-             JOIN work w ON w.id=h.work_id WHERE h.id=$1 AND h.state='pending' FOR UPDATE",
+            "SELECT h.work_id, h.attempt_id, h.category, h.requested_action, \
+                    h.prepared_state, h.resume_condition, h.assigned_to, h.owner_brief, \
+                    h.brief_source_fingerprint, w.owner_id, w.revision \
+             FROM owner_handoffs h JOIN work w ON w.id=h.work_id \
+             WHERE h.id=$1 AND h.state='pending' FOR UPDATE",
         )
         .bind(id)
-        .fetch_one(&mut *tx)
+        .fetch_optional(&mut *tx)
         .await?;
+        let Some(row) = row else {
+            if external_observation {
+                return Ok(false);
+            }
+            return Err(OrgIntelError::InvalidWork(
+                "no pending owner handoff with that id".into(),
+            ));
+        };
         let work_id: Uuid = row.get("work_id");
         let assigned_to: Option<String> = row.get("assigned_to");
         let work_owner: String = row.get("owner_id");
-        let resolver_owns = assigned_to.as_deref() == Some(resolved_by)
+        let category: OwnerHandoffCategory = row.get("category");
+        let observable_human_step = external_observation
+            && assigned_to.is_none()
+            && category != OwnerHandoffCategory::OwnerJudgement;
+        let resolver_owns = observable_human_step
+            || assigned_to.as_deref() == Some(resolved_by)
             || (assigned_to.is_none() && resolved_by == "owner");
         if !resolver_owns {
             return Err(OrgIntelError::InvalidWork(format!(
                 "handoff is not currently owed by {resolved_by:?}"
             )));
+        }
+        if external_observation && resolved_by != "daemon" {
+            return Err(OrgIntelError::InvalidWork(
+                "external owner-step observations must be attributed to daemon".into(),
+            ));
+        }
+        if resolved_by == "owner" && category == OwnerHandoffCategory::OwnerJudgement {
+            let brief = row
+                .get::<Option<serde_json::Value>, _>("owner_brief")
+                .and_then(|value| serde_json::from_value::<OwnerBrief>(value).ok())
+                .ok_or_else(|| {
+                    OrgIntelError::InvalidWork(
+                        "owner decision needs a current authored owner brief".into(),
+                    )
+                })?;
+            let current = owner_handoff_source_fingerprint(
+                work_id,
+                row.get("attempt_id"),
+                category,
+                row.get::<String, _>("requested_action").as_str(),
+                row.get::<String, _>("prepared_state").as_str(),
+                row.get::<String, _>("resume_condition").as_str(),
+                row.get("revision"),
+            );
+            let recorded: Option<String> = row.get("brief_source_fingerprint");
+            if recorded.as_deref() != Some(current.as_str()) {
+                return Err(OrgIntelError::InvalidWork(
+                    "owner decision brief is stale against the current handoff source".into(),
+                ));
+            }
+            if brief.kind == OwnerBriefKind::OutcomeReview {
+                return Err(OrgIntelError::InvalidWork(
+                    "outcome_review must use accept or request-changes semantics".into(),
+                ));
+            }
         }
         sqlx::query(
             "UPDATE owner_handoffs SET state=$2, resolution=$3, resolved_at=now() WHERE id=$1",
@@ -2536,7 +2951,7 @@ impl OrgIntel {
             .execute(&mut *tx)
             .await?;
         tx.commit().await?;
-        Ok(())
+        Ok(true)
     }
 
     /// Resolve an owner-judgement handoff as a review of the exact prepared
@@ -2557,7 +2972,9 @@ impl OrgIntel {
         }
         let mut tx = self.pool.begin().await?;
         let row = sqlx::query(
-            "SELECT h.work_id, h.category::text AS category, w.owner_id \
+            "SELECT h.work_id, h.attempt_id, h.category, h.requested_action, \
+                    h.prepared_state, h.resume_condition, h.assigned_to, h.owner_brief, \
+                    h.brief_source_fingerprint, w.owner_id, w.revision \
              FROM owner_handoffs h JOIN work w ON w.id=h.work_id \
              WHERE h.id=$1 AND h.state='pending' FOR UPDATE",
         )
@@ -2565,11 +2982,45 @@ impl OrgIntel {
         .fetch_one(&mut *tx)
         .await?;
         let work_id: Uuid = row.get("work_id");
-        let category: String = row.get("category");
+        let category: OwnerHandoffCategory = row.get("category");
         let owner_id: String = row.get("owner_id");
-        if category != "owner_judgement" {
+        if category != OwnerHandoffCategory::OwnerJudgement {
             return Err(OrgIntelError::InvalidWork(
                 "only an owner_judgement handoff can receive an outcome review".into(),
+            ));
+        }
+        let assigned_to: Option<String> = row.get("assigned_to");
+        if assigned_to.is_some() {
+            return Err(OrgIntelError::InvalidWork(
+                "the owner cannot review judgement that is still assigned below them".into(),
+            ));
+        }
+        let brief: Option<serde_json::Value> = row.get("owner_brief");
+        let brief = brief
+            .and_then(|value| serde_json::from_value::<OwnerBrief>(value).ok())
+            .ok_or_else(|| {
+                OrgIntelError::InvalidWork(
+                    "outcome review needs a current authored owner brief".into(),
+                )
+            })?;
+        let current = owner_handoff_source_fingerprint(
+            work_id,
+            row.get("attempt_id"),
+            category,
+            row.get::<String, _>("requested_action").as_str(),
+            row.get::<String, _>("prepared_state").as_str(),
+            row.get::<String, _>("resume_condition").as_str(),
+            row.get("revision"),
+        );
+        let recorded: Option<String> = row.get("brief_source_fingerprint");
+        if recorded.as_deref() != Some(current.as_str()) {
+            return Err(OrgIntelError::InvalidWork(
+                "outcome review brief is stale against the current handoff source".into(),
+            ));
+        }
+        if brief.kind != OwnerBriefKind::OutcomeReview {
+            return Err(OrgIntelError::InvalidWork(
+                "only an outcome_review brief has accept/request-changes semantics".into(),
             ));
         }
         let has_running_attempt: bool = sqlx::query_scalar(
@@ -2585,7 +3036,7 @@ impl OrgIntel {
         }
 
         sqlx::query(
-            "INSERT INTO actors (id, kind, display) VALUES ('owner','owner','The Owner') \
+            "INSERT INTO actors (id, kind, role, display) VALUES ('owner','owner','owner','The Owner') \
              ON CONFLICT (id) DO NOTHING",
         )
         .execute(&mut *tx)
@@ -2666,7 +3117,8 @@ impl OrgIntel {
         Ok(sqlx::query_as(
             "SELECT id, work_id, attempt_id, requested_by, category, requested_action, \
                     prepared_state, resume_condition, state, resolution, assigned_to, \
-                    escalated_from, escalated_at, created_at, resolved_at \
+                    escalated_from, escalated_at, owner_brief, briefed_by, briefed_at, \
+                    brief_source_fingerprint, created_at, resolved_at \
              FROM owner_handoffs ORDER BY created_at, id",
         )
         .fetch_all(&self.pool)
@@ -2818,6 +3270,18 @@ impl OrgIntel {
         .bind(message_id)
         .fetch_one(&self.pool)
         .await?)
+    }
+
+    /// Work context attached to a message, when there is one. Conversation
+    /// streaming uses this only to persist the final reply beside the owner's
+    /// triggering message; `work_feedback` remains the one canonical link.
+    pub async fn message_work_id(&self, message_id: i64) -> Result<Option<Uuid>> {
+        Ok(
+            sqlx::query_scalar("SELECT work_id FROM work_feedback WHERE message_id=$1")
+                .bind(message_id)
+                .fetch_optional(&self.pool)
+                .await?,
+        )
     }
 
     /// Reply from the accountable Work owner to the human owner, preserving
@@ -3133,10 +3597,12 @@ async fn invalidate_from(
 #[derive(Debug, Serialize, sqlx::FromRow, ts_rs::TS)]
 pub struct ActorRow {
     pub id: String,
-    /// The actor's durable role — `copywriter`, `critic`, `exec`, `owner`.
-    /// S04-T5 stopped flattening every worker to the literal `"staff"`, which
-    /// is why AC5 can ask for rows whose kind is not `"staff"`.
+    /// Small principal class used for filtering and trust/presentation:
+    /// `owner`, `exec`, `staff`, or `system`.
     pub kind: String,
+    /// Durable organisational craft/responsibility, separate from actor class
+    /// and current team relation.
+    pub role: String,
     pub display: String,
     /// NULL means inherited or not applicable, never "unknown".
     pub model: Option<String>,
@@ -3343,8 +3809,86 @@ pub struct OwnerHandoffRow {
     /// single point of failure one level down, with the evidence removed.
     pub escalated_from: Option<String>,
     pub escalated_at: Option<DateTime<Utc>>,
+    #[sqlx(json(nullable))]
+    pub owner_brief: Option<OwnerBrief>,
+    pub briefed_by: Option<String>,
+    pub briefed_at: Option<DateTime<Utc>>,
+    pub brief_source_fingerprint: Option<String>,
     pub created_at: DateTime<Utc>,
     pub resolved_at: Option<DateTime<Utc>>,
+}
+
+impl OwnerHandoffRow {
+    /// Whether the authored meaning still names this exact mutable source
+    /// snapshot. Callers supply the current Work revision they already read.
+    pub fn owner_brief_is_current(&self, work_revision: i64) -> bool {
+        let current = owner_handoff_source_fingerprint(
+            self.work_id,
+            self.attempt_id,
+            self.category,
+            &self.requested_action,
+            &self.prepared_state,
+            &self.resume_condition,
+            work_revision,
+        );
+        self.owner_brief.is_some()
+            && self.brief_source_fingerprint.as_deref() == Some(current.as_str())
+    }
+}
+
+fn validate_owner_brief(brief: &OwnerBrief) -> Result<()> {
+    for (name, value) in [
+        ("headline", brief.headline.as_str()),
+        ("situation", brief.situation.as_str()),
+        ("impact", brief.impact.as_str()),
+        ("recommendation", brief.recommendation.as_str()),
+        ("no-action consequence", brief.no_action.as_str()),
+    ] {
+        if value.trim().is_empty() {
+            return Err(OrgIntelError::InvalidWork(format!(
+                "owner brief needs a non-empty {name}"
+            )));
+        }
+    }
+    if brief
+        .uncertainty
+        .as_deref()
+        .is_some_and(|value| value.trim().is_empty())
+        || brief
+            .deadline
+            .as_deref()
+            .is_some_and(|value| value.trim().is_empty())
+    {
+        return Err(OrgIntelError::InvalidWork(
+            "optional owner brief fields must be omitted rather than blank".into(),
+        ));
+    }
+    Ok(())
+}
+
+fn owner_handoff_source_fingerprint(
+    work_id: Uuid,
+    attempt_id: Option<Uuid>,
+    category: OwnerHandoffCategory,
+    requested_action: &str,
+    prepared_state: &str,
+    resume_condition: &str,
+    work_revision: i64,
+) -> String {
+    let mut digest = Sha256::new();
+    for part in [
+        work_id.to_string(),
+        attempt_id.map(|id| id.to_string()).unwrap_or_default(),
+        format!("{category:?}"),
+        requested_action.trim().to_string(),
+        prepared_state.trim().to_string(),
+        resume_condition.trim().to_string(),
+        work_revision.to_string(),
+    ] {
+        digest.update((part.len() as u64).to_be_bytes());
+        digest.update(part.as_bytes());
+    }
+    format!("{:x}", digest.finalize())
 }
 
 #[derive(Debug, Clone, Serialize, ts_rs::TS)]
@@ -3399,4 +3943,37 @@ pub struct EventRow {
     pub actor_id: Option<String>,
     pub body: serde_json::Value,
     pub created_at: DateTime<Utc>,
+}
+
+#[cfg(test)]
+mod actor_identity_tests {
+    use super::valid_staff_actor_id;
+
+    #[test]
+    fn staff_identity_is_domain_plus_craft_not_assignment_history() {
+        for valid in [
+            "centre-critic",
+            "copy-critic",
+            "release-build",
+            "prospect-research",
+        ] {
+            assert!(valid_staff_actor_id(valid), "{valid} should be durable");
+        }
+        for invalid in [
+            "staff-centre-critic",
+            "site-validation-lead",
+            "centre-critic-live",
+            "copy-critic-v2",
+            "release-build-retry",
+            "sales-lead",
+            "release-impl",
+            "critic",
+            "Centre-critic",
+        ] {
+            assert!(
+                !valid_staff_actor_id(invalid),
+                "{invalid} encodes class, assignment or lifecycle state"
+            );
+        }
+    }
 }

@@ -96,10 +96,17 @@ pub async fn grant(
         )
         .await?;
     if let Some(org) = org {
-        if let Err(error) = org.add_actor("owner", "owner", "The Owner").await {
+        if let Err(error) = org
+            .ensure_actor("owner", "owner", "owner", "The Owner")
+            .await
+        {
             tracing::warn!("approval persisted but owner projection actor failed: {error}");
         }
-        if org.add_actor("exec", "exec", "The Exec").await.is_ok() {
+        if org
+            .ensure_actor("exec", "exec", "exec", "The Exec")
+            .await
+            .is_ok()
+        {
             if let Err(error) = org
                 .send_message(
                     "owner",
@@ -142,7 +149,9 @@ pub async fn revoke(
         )
         .await?;
     if let Some(org) = org {
-        let _ = org.add_actor("owner", "owner", "The Owner").await;
+        let _ = org
+            .ensure_actor("owner", "owner", "owner", "The Owner")
+            .await;
     }
     Ok(format!("{party} approval revoked for {company}"))
 }

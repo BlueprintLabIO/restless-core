@@ -6,7 +6,7 @@
 	import OwnerMenu from '$lib/components/OwnerMenu.svelte';
 	import MatrixGlyph, { GLYPHS } from '$lib/primitives/MatrixGlyph.svelte';
 	import SemanticMark from '$lib/primitives/SemanticMark.svelte';
-	import { getAttention, signIn } from '$lib/model/attention';
+	import { getAttention } from '$lib/model/attention';
 	import { getCockpit, getCompanies, type CompanyCatalogEntry } from '$lib/model/cockpit';
 
 	type PortfolioProjection = {
@@ -18,9 +18,6 @@
 
 	let companies = $state<CompanyCatalogEntry[]>([]);
 	let projections = $state<Record<string, PortfolioProjection>>({});
-	let ownerToken = $state('');
-	let authRequired = $state(false);
-	let signingIn = $state(false);
 	let loaded = $state(false);
 	let error = $state('');
 	const activeCompanies = $derived(
@@ -36,14 +33,11 @@
 		try {
 			companies = await getCompanies();
 			void loadProjections(companies.filter((company) => company.lifecycle_status === 'active'));
-			authRequired = false;
 			error = '';
 			const next = safeNext(page.url.searchParams.get('next'));
 			if (next) await goto(next, { replaceState: true });
 		} catch (cause) {
-			const typed = cause as Error & { status?: number };
-			authRequired = typed.status === 401;
-			error = authRequired ? '' : typed.message;
+			error = cause instanceof Error ? cause.message : 'Companies could not be loaded.';
 		} finally {
 			loaded = true;
 		}
@@ -82,22 +76,6 @@
 		projections = Object.fromEntries(entries);
 	}
 
-	async function submitSignIn(event: SubmitEvent) {
-		event.preventDefault();
-		if (!ownerToken || signingIn) return;
-		signingIn = true;
-		error = '';
-		try {
-			await signIn(ownerToken);
-			ownerToken = '';
-			await loadCompanies();
-		} catch (cause) {
-			error = cause instanceof Error ? cause.message : 'Sign-in failed.';
-		} finally {
-			signingIn = false;
-		}
-	}
-
 	function safeNext(value: string | null): string {
 		return value?.startsWith('/') && !value.startsWith('//') ? value : '';
 	}
@@ -130,41 +108,17 @@
 			<span class="tb-mark"><MatrixGlyph rows={GLYPHS.r} size={13} glow /></span>
 			<span class="tb-name">{PRODUCT_NAME}</span>
 		</a>
-		{#if !authRequired && loaded}
+		{#if loaded}
 			<span class="portfolio-location">Companies</span>
 		{/if}
-		{#if !authRequired && loaded}
+		{#if loaded}
 			<div class="tb-right">
 				<OwnerMenu {companies} onchanged={loadCompanies} />
 			</div>
 		{/if}
 	</header>
 
-	{#if authRequired}
-		<main class="portfolio-auth">
-			<form class="portfolio-auth-card" onsubmit={submitSignIn}>
-				<span class="portfolio-auth-mark"><MatrixGlyph rows={GLYPHS.r} size={16} glow /></span>
-				<h1>Sign in to your companies</h1>
-				<p>
-					Use the owner credential created when this Restless installation was set up. One sign-in
-					opens the portfolio and every company you own.
-				</p>
-				<input
-					class="comp-input"
-					type="password"
-					bind:value={ownerToken}
-					autocomplete="current-password"
-					placeholder="Owner credential"
-					aria-label="Owner credential"
-					required
-				/>
-				<button class="btn primary" type="submit" disabled={signingIn}>
-					{signingIn ? 'Checking…' : 'Open owner surface'}
-				</button>
-				{#if error}<p class="owner-error">{error}</p>{/if}
-			</form>
-		</main>
-	{:else if loaded}
+	{#if loaded}
 		<main class="portfolio-main">
 			<header class="portfolio-head">
 				<h1>Companies</h1>

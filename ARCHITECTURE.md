@@ -120,6 +120,14 @@ It must remain small enough to reason about, test aggressively and operate relia
 
 Restless should use **Infisical as the default imported secrets and machine-identity backend**, behind a kernel-owned adapter. Infisical stores, rotates and supplies credentials; Restless remains responsible for capability semantics, budgets, approvals, effect idempotency and receipts. Low-risk tools may use a credential-brokering proxy so agents never receive raw secrets, while consequential actions still pass through Restless's effect broker.
 
+When signup, connection, identity verification, MFA or initial credential issuance requires the
+owner, Attention supplies a prepared provider-hosted handoff in the owner's browser. Financial and
+provider-root authentication sessions do not enter the agent-accessible Company Runtime; issued
+secrets use a dedicated owner-to-Authority ingress, and only an authenticated provider observation
+marks the connection verified. This is a projection over Work, owner handoff and Authority/provider
+state, not a separate onboarding lifecycle. See
+[`docs/adr/0002-owner-provider-authentication-handoffs.md`](docs/adr/0002-owner-provider-authentication-handoffs.md).
+
 The deployment choice should remain replaceable: OSS users may [self-host Infisical](https://infisical.com/docs/self-hosting/overview), while the managed product may use [Infisical Cloud or a managed self-hosted deployment](https://infisical.com/docs/documentation/getting-started/concepts/deployment-models). Infisical is an implementation dependency, not part of Restless's constitutional ontology.
 
 ### Model and compute access
@@ -272,6 +280,8 @@ Self-building applies inside the company environment. OrgIntel may **request** n
 
 The Exec logically belongs to OrgIntel but physically runs as an ordinary ACP process inside the Linux company environment. Its identity, mandate, inbox and organisational memory persist even when the model session or process restarts.
 
+ACP is the session transport, not the source of actor policy. The Runtime Bridge owns the complete launch contract for Exec and every Staff process: Restless-authored system instructions, durable actor identity, focused trusted context, explicit native tools, applicable skill roots and any already-authorised MCP servers. Owner text and immediate task feedback cross ACP as user turns; they must not carry the standing identity and operating policy. A concrete ACP harness may implement the process, but its default persona, ambient user configuration, private subagents, project MCP discovery and undeclared tools must not silently augment that contract.
+
 A sensible initial topology is:
 
 ```text
@@ -313,7 +323,10 @@ A deliberately small ontology:
 
 Work should have only a few states, such as proposed, active, blocked, completed and abandoned. A
 `requires` edge is a hard acyclic dependency. A `revises` edge returns review feedback to a producer
-and may form a deliberate feedback cycle. The scheduler atomically claims ready Work and records the
+and may form a deliberate feedback cycle. A review that may revise a producer must also require that
+producer; both edges are created atomically so the review cannot start against a missing candidate.
+Graph repair cannot add an initial dependency after the affected Work has begun. The scheduler
+atomically claims ready Work and records the
 Attempt before launching Staff. Messages remain free-form context: they do not own kickoff or
 handover. A reviewer requesting changes invalidates the producer's prior artifacts and hard
 descendants into a new revision; the next Attempt receives the exact feedback and upstream versions.
@@ -701,13 +714,44 @@ Multiplayer and hosted deployment remain deliberately deferred:
 - Build managed hosting when users want Restless but will not operate it. Begin with a dedicated deployment per company.
 - Build shared multi-tenancy only when proven demand exists and the cost of dedicated deployments materially blocks scale.
 
+The target is a **cell-based SaaS architecture with a shared cloud control plane and one strongly
+isolated cell per company**. The tenancy boundary is a company, not a human user. Restless Core and
+Restless Cloud run the same company-cell architecture:
+
+- **Restless Core** is one self-hosted company cell and its local owner entry point.
+- **Restless Cloud** adds accounts, subscription/billing, provisioning, routing and fleet health in a
+  shared control plane, then operates one isolated cell for each company.
+
+A cell contains that company's Authority Plane, OrgIntel, Company Runtime, database credentials,
+filesystem/browser state and secret scope. Multiple cells may share physical hosts or mature
+commodity infrastructure, but they do not share mutable runtime, authority or organisational state.
+This is also called cell-per-tenant, managed single tenancy, a silo tenancy model or a deployment
+stamp. The detailed target and Core/Cloud responsibility split are in
+[`docs/CELL_ARCHITECTURE.md`](docs/CELL_ARCHITECTURE.md).
+
 The expected progression, if evidence supports it, is:
 
 ```text
-single-company appliance
-→ managed dedicated company instances
-→ shared multi-tenant infrastructure only if economically necessary
+Restless Core: one local company cell
+→ Restless Cloud: shared control plane + managed isolated company cells
+→ selectively share stateless or commodity services only when measured economics justify it
 ```
+
+Owner authentication follows that deployment progression. The current appliance is local-only: when
+every supported owner entry point is confined to loopback, the cockpit treats the local operator as
+the `owner` principal without a separate bearer credential or sign-in ceremony. Every owner entry
+point Restless ships in this mode binds to loopback; non-loopback listeners, non-local browser origins
+and forwarding claims are refused. An externally added tunnel or proxy is unsupported and breaks the
+local trust assumption because it can be indistinguishable from a local client. The first supported
+network entry point must include a real human account and session authenticator; the local owner token
+is not a transitional production-auth contract.
+
+When managed or network access is justified by a real deployment, authentication should map a proven
+human identity onto the same stable owner principal. Likely mechanisms include OpenID Connect over
+OAuth 2.0 for delegated identity and, where product evidence requires it, first-party username or
+email plus password, recovery, stronger factors and revocable sessions. Provider choice, multiple
+human roles and tenant administration remain deferred. See
+[`docs/adr/0001-local-owner-access.md`](docs/adr/0001-local-owner-access.md).
 
 ---
 
@@ -1063,6 +1107,10 @@ Restless should not attempt to:
 22. Focus the first product on one owner, one Exec and agents inside a single isolated company environment.
 23. If managed demand emerges, begin with dedicated per-company deployments; add shared multi-tenancy only when its economics are demonstrated.
 24. Future-proof minimally through actor/principal identifiers, company-state isolation, explicit layer interfaces, backups and upgrades—not speculative collaboration or fleet infrastructure.
+25. Present owner-required provider enrolment through Attention, but keep financial and provider-root
+    authentication in an owner-controlled browser outside the Company Runtime; deliver issued secrets
+    through owner-only Authority ingress and resume from observed provider state rather than a “done”
+    click.
 
 ---
 

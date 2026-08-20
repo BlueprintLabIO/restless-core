@@ -8,12 +8,16 @@
 		small = false,
 		duration = 900,
 		disabled = false,
+		title = 'Hold to approve',
+		completeLabel = 'approved ✓',
 		onapprove
 	}: {
 		label: string;
 		small?: boolean;
 		duration?: number;
 		disabled?: boolean;
+		title?: string;
+		completeLabel?: string;
 		onapprove?: () => void;
 	} = $props();
 
@@ -68,10 +72,10 @@
 	onpointerup={stop}
 	onpointerleave={stop}
 	onclick={guardClick}
-	title="hold to approve"
+	{title}
 >
 	{#if done}
-		approved ✓
+		{completeLabel}
 	{:else if pct > 2}
 		hold… {Math.round(pct)}%
 	{:else}

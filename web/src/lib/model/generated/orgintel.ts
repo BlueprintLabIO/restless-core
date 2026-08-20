@@ -21,6 +21,10 @@ export type OwnerHandoffCategory = "identity" | "captcha" | "mfa" | "legal_attes
 
 export type OwnerHandoffState = "pending" | "resolved" | "declined" | "withdrawn";
 
+export type OwnerBriefKind = "outcome_review" | "decision" | "blocker" | "opportunity" | "contradiction" | "human_step";
+
+export type OwnerBrief = { kind: OwnerBriefKind, headline: string, situation: string, impact: string, recommendation: string, no_action: string, uncertainty: string | null, deadline: string | null, };
+
 export type WorkspaceSpec = { repo: string | null, base_ref: string | null, integration_branch: string | null, worktree: string | null, };
 
 export type TeamRow = { id: string, name: string,
@@ -31,11 +35,15 @@ brief: string, lead_actor_id: string, created_by: string, created_at: string, di
 
 export type ActorRow = { id: string,
 /**
- * The actor's durable role — `copywriter`, `critic`, `exec`, `owner`.
- * S04-T5 stopped flattening every worker to the literal `"staff"`, which
- * is why AC5 can ask for rows whose kind is not `"staff"`.
+ * Small principal class used for filtering and trust/presentation:
+ * `owner`, `exec`, `staff`, or `system`.
  */
-kind: string, display: string,
+kind: string,
+/**
+ * Durable organisational craft/responsibility, separate from actor class
+ * and current team relation.
+ */
+role: string, display: string,
 /**
  * NULL means inherited or not applicable, never "unknown".
  */
@@ -89,7 +97,7 @@ assigned_to: string | null,
  * be visible: a lead that silently swallows escalations is the S05-T7
  * single point of failure one level down, with the evidence removed.
  */
-escalated_from: string | null, escalated_at: string | null, created_at: string, resolved_at: string | null, };
+escalated_from: string | null, escalated_at: string | null, owner_brief: OwnerBrief | null, briefed_by: string | null, briefed_at: string | null, brief_source_fingerprint: string | null, created_at: string, resolved_at: string | null, };
 
 export type WorkGraphSnapshot = { work: Array<WorkRow>, edges: Array<WorkEdgeRow>, attempts: Array<WorkAttemptRow>, attempt_inputs: Array<WorkAttemptInputRow>, attempt_feedback: Array<WorkAttemptFeedbackRow>, artifacts: Array<ArtifactRefRow>, gates: Array<WorkGateRow>, gate_runs: Array<WorkGateRunRow>, handoffs: Array<OwnerHandoffRow>, };
 

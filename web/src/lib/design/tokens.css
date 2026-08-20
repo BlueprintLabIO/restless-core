@@ -74,6 +74,13 @@
 	--status-offline: #aab1bd;
 	--intent-conversation: #2f6ca8;
 	--intent-conversation-soft: rgba(63, 120, 182, 0.09);
+	/* Conversation rows stay full-width and calm, but speaker ownership must be
+	 * legible before reading the author line. These are sender surfaces, not
+	 * intent colours: every chat presentation consumes the same pair. */
+	--chat-owner-bg: #edf4fb;
+	--chat-agent-bg: #f8fafc;
+	--chat-context-bg: #eef6f3;
+	--chat-owner-edge: rgba(47, 108, 168, 0.5);
 	--intent-feedback: #237563;
 	--intent-feedback-soft: rgba(45, 138, 120, 0.09);
 	--intent-direction: #6447a6;
@@ -104,6 +111,18 @@
 	--space-4: 16px;
 	--space-5: 20px;
 	--space-6: 24px;
+	/* Motion is a hierarchy, just like type. Press is tactile, state is local,
+	 * disclosure preserves object continuity, and punctuation is the one
+	 * memorable acknowledgement. Components choose a role instead of inventing
+	 * another nearly-identical duration or easing curve. */
+	--motion-press: 110ms;
+	--motion-state: 180ms;
+	--motion-disclosure: 320ms;
+	--motion-punctuation: 650ms;
+	--motion-working: 1400ms;
+	--ease-standard: cubic-bezier(0.2, 0, 0, 1);
+	--ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+	--ease-spring: cubic-bezier(0.16, 1, 0.3, 1);
 	/* The seam between panes. Wide enough to read as a channel, thin enough
 	 * that the panes still read as one divided surface rather than as cards
 	 * scattered on a page. */

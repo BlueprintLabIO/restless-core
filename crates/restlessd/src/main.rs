@@ -5,18 +5,26 @@
 //! response line.
 
 mod acp;
+mod airwallex;
+mod airwallex_ingress;
 mod approval;
 mod attention;
 mod authority;
+mod capability_sourcing;
+mod company;
 mod context;
+mod conversation;
 mod credential;
 mod effect;
 mod exec;
+mod finance;
 mod health;
 mod inbound;
 mod ingress;
+mod legal;
 mod model_gateway;
 mod owner;
+mod owner_brief;
 mod reconcile;
 mod runtime;
 mod schedule;
@@ -148,6 +156,22 @@ struct Request {
     prepared: Option<String>,
     #[serde(default)]
     resume_when: Option<String>,
+    #[serde(default)]
+    owner_kind: Option<String>,
+    #[serde(default)]
+    headline: Option<String>,
+    #[serde(default)]
+    situation: Option<String>,
+    #[serde(default)]
+    impact: Option<String>,
+    #[serde(default)]
+    recommendation: Option<String>,
+    #[serde(default)]
+    no_action: Option<String>,
+    #[serde(default)]
+    uncertainty: Option<String>,
+    #[serde(default)]
+    deadline: Option<String>,
     /// S04-T10. Who is asking, at the authority boundary. `authority-plane §4.1`
     /// names the V0 set; `cross-layer §2.2` keeps `principal_id` distinct from
     /// `actor_id` (an actor is who did the work, a principal is who was allowed
@@ -213,7 +237,10 @@ const OWNER_ONLY: &[&str] = &[
     "company-set",
     "company-unset",
     "credential-set",
-    "owner-token",
+    "legal-set",
+    "finance-envelope-set",
+    "finance-freeze",
+    "finance-connect-airwallex",
     "work-review",
 ];
 
@@ -279,6 +306,13 @@ impl Response {
             ok: true,
             data: Some(data.into()),
             error: None,
+        }
+    }
+
+    fn ok_serialized(data: impl serde::Serialize) -> Self {
+        match serde_json::to_value(data) {
+            Ok(data) => Self::ok(data),
+            Err(error) => Self::err(format!("encode response: {error}")),
         }
     }
     fn err(message: impl Into<String>) -> Self {
@@ -387,12 +421,29 @@ impl OrgIntelRegistry {
     }
 }
 
+/// Owner and Exec exist for the lifetime of a company, not only after its
+/// first conversation or wake. Keeping that lifecycle fact here prevents a
+/// freshly created company from presenting an empty People surface or making
+/// its first staff creation depend on an unrelated `tell` command.
+async fn ensure_standing_actors(org: &OrgIntel, model: Option<&str>) -> Result<()> {
+    org.ensure_actor("owner", "owner", "owner", "The Owner")
+        .await
+        .context("ensure standing Owner")?;
+    org.ensure_actor_with_model("exec", "exec", "exec", "The Exec", model)
+        .await
+        .context("ensure standing Exec")?;
+    Ok(())
+}
+
 pub(crate) struct Daemon {
     pub(crate) root: PathBuf,
     pub(crate) spend: spend::SpendLedger,
     pub(crate) authority: authority::AuthorityStore,
     pub(crate) orgintel: OrgIntelRegistry,
     pub(crate) staff: staff::StaffRegistry,
+    /// Reconnectable live projections for owner/lead turns. Completed messages
+    /// remain OrgIntel truth; this state is intentionally ephemeral.
+    pub(crate) conversations: conversation::ConversationStreams,
     /// One wake at a time per company, however the wake was requested —
     /// the scheduler (T6) and the owner-typed socket path share this set.
     pub(crate) in_flight: schedule::InFlight,
@@ -401,6 +452,53 @@ pub(crate) struct Daemon {
 /// TCP port the company containers reach the daemon on (T10). Next to the
 /// model gateway's 7790; reachable as host.docker.internal from containers.
 pub(crate) const COORD_TCP_PORT: u16 = 7791;
+
+/// Advance ordinary Work only after authenticated provider state proves the
+/// owner's irreducible approval step has ended. Submission and IN_APPROVAL are
+/// intentionally not enough; repeated reconciliation is idempotent.
+pub(crate) async fn continue_after_payment_observation(
+    daemon: &Daemon,
+    company: &str,
+    payment: &finance::PaymentIntent,
+    state_changed: bool,
+) -> Result<()> {
+    use finance::PaymentState;
+    if !matches!(
+        payment.state,
+        PaymentState::Scheduled
+            | PaymentState::Processing
+            | PaymentState::Settled
+            | PaymentState::Rejected
+            | PaymentState::Cancelled
+            | PaymentState::Failed
+    ) {
+        return Ok(());
+    }
+    let org = daemon.orgintel.get(company).await?;
+    let provider_id = payment
+        .provider_transfer_id
+        .as_deref()
+        .unwrap_or("unavailable");
+    let resolution = format!(
+        "Airwallex authenticated API observed transfer {provider_id} as {} (raw status {}).",
+        payment.state.as_str(),
+        payment.raw_provider_status.as_deref().unwrap_or("unknown")
+    );
+    let newly_resolved = org
+        .resolve_observed_handoff(payment.request.owner_handoff_id, "daemon", &resolution)
+        .await?;
+    if !newly_resolved && state_changed {
+        org.ensure_actor("daemon", "system", "system-sender", "The daemon")
+            .await?;
+        let work = org
+            .get_work(payment.request.work_id)
+            .await?
+            .context("payment Work disappeared before provider continuation")?;
+        org.send_work_message("daemon", &work.owner_id, work.id, &resolution)
+            .await?;
+    }
+    Ok(())
+}
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -422,6 +520,9 @@ async fn main() -> Result<()> {
     let root = runtime::state_root();
     std::fs::create_dir_all(root.join("companies"))
         .with_context(|| format!("create state root {}", root.display()))?;
+    // The current owner cockpit has one supported topology: direct loopback.
+    // Refuse network configuration before starting provider or scheduler work.
+    let owner_config = owner::OwnerConfig::from_env()?;
 
     // Model access is a host authority boundary. OMP's imported broker and
     // gateway hold the provider credential; company processes receive only a
@@ -454,6 +555,7 @@ async fn main() -> Result<()> {
     for company in configured_companies(&root)? {
         let mut config = runtime::CompanyConfig::load(&root, &company)?;
         let org = bootstrap_orgintel.get(&company).await?;
+        ensure_standing_actors(&org, Some(&config.model)).await?;
         let imported = authority
             .import_legacy_company(&company, &org, &approval::legacy_config_approvals(&config))
             .await?;
@@ -476,6 +578,7 @@ async fn main() -> Result<()> {
             handles: std::sync::Mutex::new(HashMap::new()),
         },
         staff: staff::StaffRegistry::default(),
+        conversations: conversation::ConversationStreams::default(),
         in_flight: std::sync::Arc::new(std::sync::Mutex::new(schedule::WakeClaims::default())),
     });
 
@@ -493,12 +596,12 @@ async fn main() -> Result<()> {
     // OrgIntel LISTEN/NOTIFY events share one loop.
     tokio::spawn(schedule::run(std::sync::Arc::clone(&daemon)));
 
-    // S05-T1/T5: the authenticated owner projection and browser transport are
+    // S05-T1/T5: the local-owner projection and browser transport are
     // a separate failure boundary. Losing the SPA must not stop schedules,
     // coordination or provider ingress.
     let owner_daemon = std::sync::Arc::clone(&daemon);
     tokio::spawn(async move {
-        if let Err(error) = owner::serve(owner_daemon).await {
+        if let Err(error) = owner::serve(owner_daemon, owner_config).await {
             tracing::error!("owner gateway stopped: {error:#}");
         }
     });
@@ -568,6 +671,17 @@ async fn main() -> Result<()> {
              The company can send but cannot receive; inbound replies will not wake it"
         ),
     }
+
+    // Finance webhooks use Airwallex's own timestamp+body HMAC and trigger a
+    // direct authenticated provider read. The listener is independent of the
+    // Resend/Svix rail so one provider's credential outage cannot disable the
+    // other or the scheduler.
+    let finance_daemon = std::sync::Arc::clone(&daemon);
+    tokio::spawn(async move {
+        if let Err(error) = airwallex_ingress::serve(finance_daemon).await {
+            tracing::error!("Airwallex event ingress stopped: {error:#}");
+        }
+    });
 
     loop {
         let (stream, _) = listener.accept().await?;
@@ -688,17 +802,8 @@ where
 }
 
 async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Response {
-    // The one-owner credential and company catalogue exist above any one
-    // company. Keep these explicit instead of inventing a fake global company.
-    if request.cmd == "owner-token" {
-        return match owner::rotate_token(&daemon.root) {
-            Ok(token) => Response::ok(serde_json::json!({
-                "token": token,
-                "note": "shown once; only its digest is stored. Sign in at the owner gateway, then remove this output from scrollback if needed.",
-            })),
-            Err(error) => Response::err(format!("{error:#}")),
-        };
-    }
+    // The company catalogue exists above any one company. Keep it explicit
+    // instead of inventing a fake global company.
     if request.cmd == "company-list" {
         let directory = daemon.root.join("companies");
         let mut companies = Vec::new();
@@ -887,30 +992,33 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
                         "company config name mismatch: command names {company}, file says {}",
                         config.name
                     )),
-                    Ok(mut config) => match runtime::CompanyConfig::save(&daemon.root, &config) {
-                        Ok(()) => match daemon
-                            .authority
-                            .initialise_company(
-                                company,
-                                &approval::legacy_config_approvals(&config),
-                            )
-                            .await
-                        {
-                            Ok(()) => match approval::purge_legacy_config_approvals(
+                    Ok(mut config) => {
+                        let initialise = async {
+                            runtime::CompanyConfig::save(&daemon.root, &config)?;
+                            daemon
+                                .authority
+                                .initialise_company(
+                                    company,
+                                    &approval::legacy_config_approvals(&config),
+                                )
+                                .await
+                                .context("initialise company Authority")?;
+                            let org = daemon.orgintel.get(company).await?;
+                            ensure_standing_actors(&org, Some(&config.model)).await?;
+                            approval::purge_legacy_config_approvals(
                                 &daemon.root,
                                 &mut config,
-                            ) {
-                                Ok(()) => Response::ok(format!("created company {company}")),
-                                Err(error) => Response::err(format!(
-                                    "company and Authority created but legacy config cleanup failed: {error:#}"
-                                )),
-                            },
+                            )?;
+                            Result::<()>::Ok(())
+                        }
+                        .await;
+                        match initialise {
+                            Ok(()) => Response::ok(format!("created company {company}")),
                             Err(error) => Response::err(format!(
-                                "company config created but Authority initialisation failed: {error:#}"
+                                "company initialisation was incomplete: {error:#}"
                             )),
-                        },
-                        Err(error) => Response::err(format!("{error:#}")),
-                    },
+                        }
+                    }
                     Err(error) => Response::err(format!("invalid company TOML: {error}")),
                 }
             }
@@ -1041,16 +1149,190 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
             }
             Err(error) => Response::err(format!("{error:#}")),
         },
-        // T5 probe: ensure the company schema and report what is in it.
-        "orgintel-init" => match daemon.orgintel.get(company).await {
-            Ok(org) => match org.table_names().await {
-                Ok(tables) => Response::ok(serde_json::json!({
-                    "schema": org.schema(),
-                    "tables": tables,
-                })),
+        "legal-show" => match legal::get_profile(&daemon.authority, company).await {
+            Ok(profile) => Response::ok(serde_json::json!({
+                "profile": profile,
+                "source": "authority",
+            })),
+            Err(error) => Response::err(format!("{error:#}")),
+        },
+        "legal-probe" => match runtime::CompanyConfig::load(&daemon.root, company) {
+            Ok(config) => match legal::probe_abr(&daemon.authority, &config).await {
+                Ok(profile) => Response::ok_serialized(profile),
                 Err(error) => Response::err(format!("{error:#}")),
             },
             Err(error) => Response::err(format!("{error:#}")),
+        },
+        "legal-set" => match request.body.as_deref() {
+            Some(body) => match serde_json::from_str::<legal::LegalProfileInput>(body) {
+                Ok(input) => match legal::set_profile(&daemon.authority, company, input, "owner").await
+                {
+                    Ok(profile) => Response::ok_serialized(profile),
+                    Err(error) => Response::err(format!("{error:#}")),
+                },
+                Err(error) => Response::err(format!("invalid safe legal profile: {error}")),
+            },
+            None => Response::err("legal-set needs a safe legal profile"),
+        },
+        "finance-show" => {
+            let provider = airwallex::connection(&daemon.authority, company).await;
+            let envelopes = finance::envelopes(&daemon.authority, company).await;
+            let payments = finance::payments(&daemon.authority, company).await;
+            let balances = daemon
+                .authority
+                .records_of_kind(company, "finance_balance_observed")
+                .await;
+            match (provider, envelopes, payments, balances) {
+                (Ok(provider), Ok(envelopes), Ok(payments), Ok(balances)) => {
+                    Response::ok(serde_json::json!({
+                        "provider": provider,
+                        "envelopes": envelopes,
+                        "payments": payments,
+                        "last_balance_observation": balances.last().map(|row| serde_json::json!({
+                            "observed_at": row.created_at,
+                            "body": row.body,
+                        })),
+                    }))
+                }
+                (Err(error), _, _, _)
+                | (_, Err(error), _, _)
+                | (_, _, Err(error), _)
+                | (_, _, _, Err(error)) => Response::err(format!("{error:#}")),
+            }
+        }
+        "finance-envelope-set" => match request.body.as_deref() {
+            Some(body) => match serde_json::from_str::<finance::MoneyEnvelopeInput>(body) {
+                Ok(input) => {
+                    match finance::set_envelope(&daemon.authority, company, input, "owner").await {
+                        Ok(envelope) => Response::ok_serialized(envelope),
+                        Err(error) => Response::err(format!("{error:#}")),
+                    }
+                }
+                Err(error) => Response::err(format!("invalid money envelope: {error}")),
+            },
+            None => Response::err("finance-envelope-set needs an envelope"),
+        },
+        "finance-freeze" => match request.state.as_deref() {
+            Some(currency) => match finance::set_frozen(
+                &daemon.authority,
+                company,
+                currency,
+                request.apply,
+                "owner",
+            )
+            .await
+            {
+                Ok(envelope) => Response::ok_serialized(envelope),
+                Err(error) => Response::err(format!("{error:#}")),
+            },
+            None => Response::err("finance-freeze needs a currency"),
+        },
+        "finance-connect-airwallex" => match request.body.as_deref() {
+            Some(body) => match serde_json::from_str::<airwallex::ConnectionInput>(body) {
+                Ok(input) => {
+                    match airwallex::set_connection(&daemon.authority, company, input, "owner").await
+                    {
+                        Ok(connection) => Response::ok_serialized(connection),
+                        Err(error) => Response::err(format!("{error:#}")),
+                    }
+                }
+                Err(error) => Response::err(format!("invalid Airwallex connection: {error}")),
+            },
+            None => Response::err("finance-connect-airwallex needs connection evidence"),
+        },
+        "finance-balances" => match runtime::CompanyConfig::load(&daemon.root, company) {
+            Ok(config) => match airwallex::observe_balances(&config, &daemon.authority).await {
+                Ok(observation) => Response::ok_serialized(observation),
+                Err(error) => Response::err(format!("{error:#}")),
+            },
+            Err(error) => Response::err(format!("{error:#}")),
+        },
+        "finance-probe" => match runtime::CompanyConfig::load(&daemon.root, company) {
+            Ok(config) => match airwallex::probe_connection(&config, &daemon.authority).await {
+                Ok(probe) => Response::ok_serialized(probe),
+                Err(error) => Response::err(format!("{error:#}")),
+            },
+            Err(error) => Response::err(format!("{error:#}")),
+        },
+        "finance-reserve" => match request.body.as_deref() {
+            Some(body) => match serde_json::from_str::<finance::PaymentIntentInput>(body) {
+                Ok(mut input) => {
+                    input.requesting_actor = if principal == Principal::Owner {
+                        "owner".into()
+                    } else {
+                        "exec".into()
+                    };
+                    match daemon.orgintel.get(company).await {
+                        Ok(org) => match finance::validate_work_link(&org, &input).await {
+                            Ok(()) => match finance::reserve(&daemon.authority, company, input).await {
+                                Ok(reservation) => Response::ok_serialized(reservation),
+                                Err(error) => Response::err(format!("{error:#}")),
+                            },
+                            Err(error) => Response::err(format!("{error:#}")),
+                        },
+                        Err(error) => Response::err(format!("{error:#}")),
+                    }
+                }
+                Err(error) => Response::err(format!("invalid payment intent: {error}")),
+            },
+            None => Response::err("finance-reserve needs an exact payment intent"),
+        },
+        "finance-submit" => match (
+            runtime::CompanyConfig::load(&daemon.root, company),
+            request.key.as_deref(),
+        ) {
+            (Ok(config), Some(key)) => {
+                match airwallex::submit_reserved(&config, &daemon.authority, key).await {
+                    Ok(payment) => Response::ok_serialized(payment),
+                    Err(error) => Response::err(format!("{error:#}")),
+                }
+            }
+            (Err(error), _) => Response::err(format!("{error:#}")),
+            (_, None) => Response::err("finance-submit needs an idempotency key"),
+        },
+        "finance-reconcile" => match (
+            runtime::CompanyConfig::load(&daemon.root, company),
+            request.key.as_deref(),
+        ) {
+            (Ok(config), Some(key)) => {
+                match airwallex::reconcile_payment(&config, &daemon.authority, key).await {
+                    Ok(observation) => {
+                        let continuation = continue_after_payment_observation(
+                            daemon,
+                            company,
+                            &observation.payment,
+                            observation.changed,
+                        )
+                        .await;
+                        match continuation {
+                            Ok(()) => Response::ok_serialized(observation.payment),
+                            Err(error) => Response::err(format!(
+                                "provider state was recorded but Work continuation failed: {error:#}"
+                            )),
+                        }
+                    }
+                    Err(error) => Response::err(format!("{error:#}")),
+                }
+            }
+            (Err(error), _) => Response::err(format!("{error:#}")),
+            (_, None) => Response::err("finance-reconcile needs an idempotency key"),
+        },
+        // T5 probe: ensure the company schema and report what is in it.
+        "orgintel-init" => match (
+            daemon.orgintel.get(company).await,
+            runtime::CompanyConfig::load(&daemon.root, company),
+        ) {
+            (Ok(org), Ok(config)) => match ensure_standing_actors(&org, Some(&config.model)).await {
+                Ok(()) => match org.table_names().await {
+                    Ok(tables) => Response::ok(serde_json::json!({
+                        "schema": org.schema(),
+                        "tables": tables,
+                    })),
+                    Err(error) => Response::err(format!("{error:#}")),
+                },
+                Err(error) => Response::err(format!("{error:#}")),
+            },
+            (Err(error), _) | (_, Err(error)) => Response::err(format!("{error:#}")),
         },
         // T4: one Exec wake — rehydrate, work a turn, decide termination.
         // One wake at a time per company, whoever asked: a second exec
@@ -1075,8 +1357,7 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
                     }
                     let _guard = schedule::WakeGuard::new(company, &daemon.in_flight);
                     let reason = request.reason.as_deref().unwrap_or("owner-requested wake");
-                    match exec::wake(&config, &daemon.spend, &daemon.authority, &org, reason).await
-                    {
+                    match schedule::run_exec_turn(daemon, &config, &org, reason).await {
                         Ok(report) => match serde_json::to_value(&report) {
                             Ok(value) => Response::ok(value),
                             Err(error) => Response::err(format!("encode report: {error}")),
@@ -1097,14 +1378,9 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
         "tell" => match request.body {
             Some(body) => match daemon.orgintel.get(company).await {
                 Ok(org) => {
-                    // Both ends of the message carry an FK: on a fresh
-                    // company (no wake yet) neither row exists, and the
-                    // owner's first ever interaction must not fail on a
-                    // machinery detail.
-                    if let Err(error) = org.add_actor("owner", "owner", "The Owner").await {
-                        return Response::err(format!("{error:#}"));
-                    }
-                    if let Err(error) = org.add_actor("exec", "exec", "The Exec").await {
+                    // The lifecycle path owns standing actors; retain this as
+                    // a repair for restored/legacy schemas missing either row.
+                    if let Err(error) = ensure_standing_actors(&org, None).await {
                         return Response::err(format!("{error:#}"));
                     }
                     match org.send_message("owner", Some("exec"), &body).await {
@@ -1162,7 +1438,8 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
                                     .collect();
                                 serde_json::json!({
                                     "actor_id": actor.id,
-                                    "role": actor.kind,
+                                    "kind": actor.kind,
+                                    "role": actor.role,
                                     "display": actor.display,
                                     "model": actor.model,
                                     "team_id": actor.team_id,
@@ -1263,7 +1540,8 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
                                     serde_json::json!({
                                         "actor_id": actor.id,
                                         "display": actor.display,
-                                        "role": actor.kind,
+                                        "kind": actor.kind,
+                                        "role": actor.role,
                                         "lead": actor.id == team.lead_actor_id,
                                     })
                                 })
@@ -1282,10 +1560,7 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
                         .iter()
                         .filter(|actor| {
                             actor.team_id.is_none()
-                                && !matches!(
-                                    actor.kind.as_str(),
-                                    "owner" | "exec" | "world" | "daemon"
-                                )
+                                && actor.kind == "staff"
                         })
                         .map(|actor| actor.id.as_str())
                         .collect();
@@ -1488,7 +1763,7 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
                 Ok(actors) => {
                     let roles: HashMap<String, String> = actors
                         .into_iter()
-                        .map(|actor| (actor.id, actor.kind))
+                        .map(|actor| (actor.id, actor.role))
                         .collect();
                     let by_actor = daemon.spend.breakdown(company);
                     // Accounted spend is summed from the real records. It is NOT
@@ -1715,10 +1990,10 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
                             )),
                             Err(error) => return Response::err(format!("{error:#}")),
                         };
-                        if actor.kind != role {
+                        if actor.role != role {
                             return Response::err(format!(
                                 "Work requested role {role:?}, but durable actor {owner:?} has role {:?}; reuse the actor's recorded role",
-                                actor.kind
+                                actor.role
                             ));
                         }
                         if let Some(requested_model) = request.model.as_deref() {
@@ -1913,7 +2188,12 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
                     Ok(value) => value,
                     Err(error) => return Response::err(format!("bad Attempt id: {error}")),
                 };
-                let category = match category {
+                // Owner-facing prose and CLI help use kebab-case; the stored
+                // protocol historically used snake_case. Accept both spellings
+                // at this boundary so an irreducible handoff is not blocked by
+                // serialization punctuation.
+                let normalized_category = category.replace('-', "_");
+                let category = match normalized_category.as_str() {
                     "identity" => restless_orgintel::OwnerHandoffCategory::Identity,
                     "captcha" => restless_orgintel::OwnerHandoffCategory::Captcha,
                     "mfa" => restless_orgintel::OwnerHandoffCategory::Mfa,
@@ -1924,9 +2204,7 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
                         restless_orgintel::OwnerHandoffCategory::PaymentConfirmation
                     }
                     "owner_judgement" => restless_orgintel::OwnerHandoffCategory::OwnerJudgement,
-                    other => {
-                        return Response::err(format!("unsupported handoff category {other:?}"))
-                    }
+                    _ => return Response::err(format!("unsupported handoff category {category:?}")),
                 };
                 match daemon.orgintel.get(company).await {
                     Ok(org) => match org
@@ -1978,6 +2256,65 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
             }
             _ => Response::err(
                 "work-handoff-refresh needs handoff, action, prepared, resume condition and --as",
+            ),
+        },
+        "work-handoff-prepare-brief" => match (
+            request.id.as_deref(),
+            request.as_actor.as_deref(),
+            request.owner_kind.as_deref(),
+            request.headline.as_deref(),
+            request.situation.as_deref(),
+            request.impact.as_deref(),
+            request.recommendation.as_deref(),
+            request.no_action.as_deref(),
+        ) {
+            (
+                Some(id),
+                Some(briefed_by),
+                Some(kind),
+                Some(headline),
+                Some(situation),
+                Some(impact),
+                Some(recommendation),
+                Some(no_action),
+            ) => {
+                let Ok(id) = uuid::Uuid::parse_str(id) else {
+                    return Response::err("bad handoff id");
+                };
+                let kind = match kind {
+                    "outcome_review" => restless_orgintel::OwnerBriefKind::OutcomeReview,
+                    "decision" => restless_orgintel::OwnerBriefKind::Decision,
+                    "blocker" => restless_orgintel::OwnerBriefKind::Blocker,
+                    "opportunity" => restless_orgintel::OwnerBriefKind::Opportunity,
+                    "contradiction" => restless_orgintel::OwnerBriefKind::Contradiction,
+                    "human_step" => restless_orgintel::OwnerBriefKind::HumanStep,
+                    other => {
+                        return Response::err(format!("unsupported owner brief kind {other:?}"))
+                    }
+                };
+                let brief = restless_orgintel::OwnerBrief {
+                    kind,
+                    headline: headline.to_string(),
+                    situation: situation.to_string(),
+                    impact: impact.to_string(),
+                    recommendation: recommendation.to_string(),
+                    no_action: no_action.to_string(),
+                    uncertainty: request.uncertainty.clone(),
+                    deadline: request.deadline.clone(),
+                };
+                match daemon.orgintel.get(company).await {
+                    Ok(org) => match org.prepare_owner_brief(id, briefed_by, brief).await {
+                        Ok(()) => Response::ok(serde_json::json!({
+                            "handoff_id": id,
+                            "briefed_by": briefed_by,
+                        })),
+                        Err(error) => Response::err(format!("{error:#}")),
+                    },
+                    Err(error) => Response::err(format!("{error:#}")),
+                }
+            }
+            _ => Response::err(
+                "work-handoff-prepare-brief needs handoff, kind, headline, situation, impact, recommendation, no-action and --as",
             ),
         },
         "work-handoff-resolve" => match (
@@ -2390,7 +2727,7 @@ mod tests {
                 }
             }
         }
-        verbs.extend(["owner-token".to_string(), "company-list".to_string()]);
+        verbs.insert("company-list".to_string());
         for verb in verbs {
             assert!(
                 cli_source.contains(&format!("\"{verb}\"")),

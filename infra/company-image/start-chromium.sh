@@ -10,6 +10,7 @@ set -- \
 	--download-default-directory=/company/downloads \
 	--remote-debugging-address=127.0.0.1 \
 	--remote-debugging-port=9222 \
+	--start-maximized \
 	--restore-last-session \
 	--password-store=basic \
 	--no-first-run \

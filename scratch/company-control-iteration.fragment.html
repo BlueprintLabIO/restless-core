@@ -1,0 +1,609 @@
+<div id="restless-company-control">
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Instrument+Sans:wght@400;500&display=swap');
+
+    #restless-company-control {
+      --company-canvas: light-dark(#edf1f4, #0e1319);
+      --company-surface: light-dark(#ffffff, #151b23);
+      --company-surface-soft: light-dark(#f5f7f9, #1b222c);
+      --company-sidebar: light-dark(#f1f4f6, #111820);
+      --company-ink: light-dark(#1e2530, #edf2f7);
+      --company-muted: light-dark(#68717d, #a3adba);
+      --company-line: light-dark(#cfd6dd, #34404e);
+      --company-blue: light-dark(#365f8a, #88b7e6);
+      --company-blue-soft: light-dark(#e4edf6, #192a3c);
+      --company-green: light-dark(#326c57, #73c3a4);
+      --company-green-soft: light-dark(#e5f1eb, #162b24);
+      --company-amber: light-dark(#8d641f, #e4b86f);
+      --company-amber-soft: light-dark(#f6eedf, #302719);
+      --company-red: light-dark(#914d4a, #df9893);
+      --company-red-soft: light-dark(#f4e7e6, #311d1e);
+      color: var(--company-ink);
+      font-family: "Instrument Sans", sans-serif;
+      background: transparent;
+    }
+
+    #restless-company-control * { box-sizing: border-box; }
+    #restless-company-control button,
+    #restless-company-control textarea { font: inherit; }
+    #restless-company-control .company-window {
+      width: 100%;
+      min-height: 760px;
+      overflow: hidden;
+      background: var(--company-canvas);
+      border: 1px solid var(--company-line);
+      border-radius: 6px;
+      box-shadow: 0 18px 50px light-dark(rgba(38, 49, 63, .13), rgba(0, 0, 0, .38));
+    }
+    #restless-company-control .company-topbar {
+      min-height: 60px;
+      display: grid;
+      grid-template-columns: 230px 1fr auto;
+      align-items: center;
+      gap: 16px;
+      padding: 0 16px;
+      background: var(--company-surface);
+      border-bottom: 1px solid var(--company-line);
+    }
+    #restless-company-control .company-brand,
+    #restless-company-control .company-brand-name,
+    #restless-company-control .company-primary,
+    #restless-company-control .company-top-actions,
+    #restless-company-control .company-status-strip,
+    #restless-company-control .company-title-row,
+    #restless-company-control .company-sidebar-switch,
+    #restless-company-control .company-chat-head,
+    #restless-company-control .company-row,
+    #restless-company-control .company-history-row,
+    #restless-company-control .company-account-row,
+    #restless-company-control .company-budget-row,
+    #restless-company-control .company-runtime-row,
+    #restless-company-control .company-attention-actions,
+    #restless-company-control .company-revision-row {
+      display: flex;
+      align-items: center;
+    }
+    #restless-company-control .company-brand { gap: 12px; }
+    #restless-company-control .company-brand-name { gap: 9px; font-weight: 500; letter-spacing: .15em; }
+    #restless-company-control .company-mark {
+      width: 26px;
+      height: 26px;
+      display: grid;
+      place-items: center;
+      color: var(--company-blue);
+      font-family: "DM Mono", monospace;
+      font-size: 18px;
+      letter-spacing: 0;
+    }
+    #restless-company-control .company-picker {
+      border: 0;
+      background: transparent;
+      color: var(--company-muted);
+      padding: 8px 4px;
+      cursor: pointer;
+    }
+    #restless-company-control .company-primary { justify-content: center; gap: 3px; }
+    #restless-company-control .company-primary button,
+    #restless-company-control .company-top-actions button,
+    #restless-company-control .company-nav-button,
+    #restless-company-control .company-sidebar-switch button,
+    #restless-company-control .company-text-action,
+    #restless-company-control .company-secondary-action,
+    #restless-company-control .company-primary-action {
+      appearance: none;
+      cursor: pointer;
+    }
+    #restless-company-control .company-primary button {
+      border: 0;
+      border-radius: 6px;
+      padding: 9px 12px;
+      background: transparent;
+      color: var(--company-muted);
+    }
+    #restless-company-control .company-primary button.is-active {
+      background: var(--company-blue-soft);
+      color: var(--company-ink);
+      font-weight: 500;
+    }
+    #restless-company-control .company-top-actions { justify-content: flex-end; gap: 8px; }
+    #restless-company-control .company-top-actions button,
+    #restless-company-control .company-secondary-action {
+      border: 1px solid var(--company-line);
+      border-radius: 6px;
+      padding: 8px 11px;
+      background: var(--company-surface);
+      color: var(--company-ink);
+    }
+    #restless-company-control .company-status-strip {
+      min-height: 38px;
+      justify-content: space-between;
+      gap: 18px;
+      padding: 0 18px;
+      background: var(--company-surface-soft);
+      border-bottom: 1px solid var(--company-line);
+      color: var(--company-muted);
+    }
+    #restless-company-control .company-current-direction {
+      min-width: 0;
+      overflow: hidden;
+      white-space: nowrap;
+      text-overflow: ellipsis;
+    }
+    #restless-company-control .company-current-direction strong { color: var(--company-ink); font-weight: 500; }
+    #restless-company-control .company-strip-state {
+      display: flex;
+      gap: 16px;
+      white-space: nowrap;
+      font-family: "DM Mono", monospace;
+      font-size: .78rem;
+    }
+    #restless-company-control .company-strip-state span:first-child { color: var(--company-green); }
+    #restless-company-control .company-shell {
+      display: grid;
+      grid-template-columns: 190px minmax(0, 1fr) 280px;
+      min-height: 660px;
+    }
+    #restless-company-control .company-left-rail {
+      min-width: 0;
+      padding: 25px 14px 20px;
+      background: var(--company-sidebar);
+      border-right: 1px solid var(--company-line);
+    }
+    #restless-company-control .company-identity {
+      padding: 0 10px 22px;
+      border-bottom: 1px solid var(--company-line);
+      margin-bottom: 18px;
+    }
+    #restless-company-control .company-identity strong { display: block; font-size: 1.08rem; font-weight: 500; margin-bottom: 4px; }
+    #restless-company-control .company-identity span { display: block; color: var(--company-muted); line-height: 1.35; }
+    #restless-company-control .company-nav-group { margin-top: 17px; }
+    #restless-company-control .company-nav-label,
+    #restless-company-control .company-meta,
+    #restless-company-control .company-status,
+    #restless-company-control .company-chat-author,
+    #restless-company-control .company-date,
+    #restless-company-control .company-account-state,
+    #restless-company-control .company-budget-state {
+      font-family: "DM Mono", monospace;
+      font-size: .78rem;
+    }
+    #restless-company-control .company-nav-label {
+      color: var(--company-muted);
+      padding: 0 10px 7px;
+    }
+    #restless-company-control .company-nav-button {
+      width: 100%;
+      display: block;
+      border: 0;
+      border-radius: 5px;
+      padding: 9px 10px;
+      text-align: left;
+      background: transparent;
+      color: var(--company-muted);
+    }
+    #restless-company-control .company-nav-button:hover { color: var(--company-ink); background: var(--company-surface); }
+    #restless-company-control .company-nav-button.is-active {
+      color: var(--company-ink);
+      background: var(--company-surface);
+      box-shadow: inset 3px 0 0 var(--company-blue);
+      font-weight: 500;
+    }
+    #restless-company-control .company-main {
+      min-width: 0;
+      background: var(--company-surface);
+    }
+    #restless-company-control .company-page { display: none; padding: 34px 38px 48px; }
+    #restless-company-control .company-page.is-active { display: block; }
+    #restless-company-control .company-title-row { justify-content: space-between; gap: 22px; align-items: flex-start; }
+    #restless-company-control .company-title h1 {
+      margin: 0 0 7px;
+      font-size: 1.82rem;
+      letter-spacing: -.025em;
+      font-weight: 500;
+    }
+    #restless-company-control .company-title p { margin: 0; color: var(--company-muted); max-width: 620px; line-height: 1.45; }
+    #restless-company-control .company-status { color: var(--company-green); white-space: nowrap; padding-top: 8px; }
+    #restless-company-control .company-charter-statement {
+      margin: 30px 0 32px;
+      padding: 24px 0 27px;
+      border-top: 2px solid var(--company-ink);
+      border-bottom: 1px solid var(--company-line);
+      font-size: 1.48rem;
+      line-height: 1.43;
+      letter-spacing: -.017em;
+    }
+    #restless-company-control .company-charter-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 28px 38px;
+    }
+    #restless-company-control .company-charter-section h2,
+    #restless-company-control .company-section-heading {
+      margin: 0 0 9px;
+      font-size: .84rem;
+      font-family: "DM Mono", monospace;
+      font-weight: 500;
+      color: var(--company-muted);
+    }
+    #restless-company-control .company-charter-section p { margin: 0; line-height: 1.52; }
+    #restless-company-control .company-principles {
+      grid-column: 1 / -1;
+      border-top: 1px solid var(--company-line);
+      margin-top: 2px;
+    }
+    #restless-company-control .company-principle {
+      display: grid;
+      grid-template-columns: 28px 150px 1fr;
+      gap: 17px;
+      padding: 14px 0;
+      border-bottom: 1px solid var(--company-line);
+      align-items: start;
+    }
+    #restless-company-control .company-principle > span:first-child { color: var(--company-muted); font-family: "DM Mono", monospace; }
+    #restless-company-control .company-principle strong { font-weight: 500; }
+    #restless-company-control .company-principle > span:last-child { color: var(--company-muted); line-height: 1.45; }
+    #restless-company-control .company-direction-link {
+      margin-top: 30px;
+      padding: 15px 0;
+      border-top: 1px solid var(--company-line);
+      border-bottom: 1px solid var(--company-line);
+      display: grid;
+      grid-template-columns: 140px 1fr auto;
+      gap: 18px;
+      align-items: center;
+    }
+    #restless-company-control .company-direction-link > span:first-child { color: var(--company-muted); font-family: "DM Mono", monospace; font-size: .78rem; }
+    #restless-company-control .company-direction-link strong { font-weight: 500; }
+    #restless-company-control .company-text-action {
+      border: 0;
+      padding: 5px 0;
+      background: transparent;
+      color: var(--company-blue);
+      white-space: nowrap;
+    }
+    #restless-company-control .company-page-section { margin-top: 30px; }
+    #restless-company-control .company-page-section > h2 { margin: 0 0 11px; font-size: 1rem; font-weight: 500; }
+    #restless-company-control .company-rule-table,
+    #restless-company-control .company-account-list,
+    #restless-company-control .company-budget-list,
+    #restless-company-control .company-history-list,
+    #restless-company-control .company-runtime-list { border-top: 1px solid var(--company-line); }
+    #restless-company-control .company-rule-row {
+      display: grid;
+      grid-template-columns: 126px minmax(0, 1fr) 130px;
+      gap: 18px;
+      padding: 15px 0;
+      border-bottom: 1px solid var(--company-line);
+      align-items: start;
+    }
+    #restless-company-control .company-rule-row.company-table-head { padding: 10px 0; color: var(--company-muted); font-family: "DM Mono", monospace; font-size: .77rem; }
+    #restless-company-control .company-rule-area { font-weight: 500; }
+    #restless-company-control .company-rule-copy { color: var(--company-muted); line-height: 1.42; }
+    #restless-company-control .company-rule-state { font-family: "DM Mono", monospace; font-size: .78rem; }
+    #restless-company-control .company-rule-state.independent { color: var(--company-green); }
+    #restless-company-control .company-rule-state.approval { color: var(--company-amber); }
+    #restless-company-control .company-rule-state.blocked { color: var(--company-red); }
+    #restless-company-control .company-authority-note {
+      margin-top: 23px;
+      padding: 13px 0 13px 15px;
+      border-left: 3px solid var(--company-blue);
+      color: var(--company-muted);
+      line-height: 1.45;
+    }
+    #restless-company-control .company-account-row,
+    #restless-company-control .company-budget-row,
+    #restless-company-control .company-runtime-row {
+      justify-content: space-between;
+      gap: 20px;
+      padding: 15px 0;
+      border-bottom: 1px solid var(--company-line);
+      align-items: flex-start;
+    }
+    #restless-company-control .company-account-copy strong,
+    #restless-company-control .company-budget-copy strong,
+    #restless-company-control .company-runtime-copy strong { display: block; font-weight: 500; margin-bottom: 4px; }
+    #restless-company-control .company-account-copy span,
+    #restless-company-control .company-budget-copy span,
+    #restless-company-control .company-runtime-copy span { display: block; color: var(--company-muted); }
+    #restless-company-control .company-account-state,
+    #restless-company-control .company-budget-state { color: var(--company-green); white-space: nowrap; }
+    #restless-company-control .company-account-state.approval,
+    #restless-company-control .company-budget-state.approval { color: var(--company-amber); }
+    #restless-company-control .company-account-state.disabled,
+    #restless-company-control .company-budget-state.disabled { color: var(--company-muted); }
+    #restless-company-control .company-history-empty {
+      padding: 24px 0;
+      border-top: 2px solid var(--company-ink);
+      border-bottom: 1px solid var(--company-line);
+    }
+    #restless-company-control .company-history-empty strong { display: block; font-size: 1.22rem; font-weight: 500; margin-bottom: 7px; }
+    #restless-company-control .company-history-empty p { margin: 0; color: var(--company-muted); line-height: 1.5; }
+    #restless-company-control .company-history-row {
+      justify-content: space-between;
+      gap: 18px;
+      padding: 14px 0;
+      border-bottom: 1px solid var(--company-line);
+      align-items: flex-start;
+    }
+    #restless-company-control .company-history-copy strong { display: block; font-weight: 500; margin-bottom: 4px; }
+    #restless-company-control .company-history-copy span { color: var(--company-muted); }
+    #restless-company-control .company-date { color: var(--company-muted); white-space: nowrap; }
+    #restless-company-control .company-runtime-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 24px; }
+    #restless-company-control .company-primary-action {
+      border: 1px solid var(--company-blue);
+      border-radius: 6px;
+      padding: 9px 12px;
+      background: var(--company-blue);
+      color: light-dark(#ffffff, #07121d);
+    }
+    #restless-company-control .company-danger-action {
+      border: 1px solid var(--company-red);
+      border-radius: 6px;
+      padding: 9px 12px;
+      background: transparent;
+      color: var(--company-red);
+      cursor: pointer;
+    }
+    #restless-company-control .company-revision-list { margin-top: 30px; }
+    #restless-company-control .company-revision-row {
+      justify-content: space-between;
+      gap: 18px;
+      padding: 12px 0;
+      border-top: 1px solid var(--company-line);
+      color: var(--company-muted);
+    }
+    #restless-company-control .company-right-rail {
+      min-width: 0;
+      padding: 17px;
+      background: var(--company-surface);
+      border-left: 1px solid var(--company-line);
+    }
+    #restless-company-control .company-sidebar-switch {
+      padding: 3px;
+      margin-bottom: 18px;
+      background: var(--company-surface-soft);
+      border-radius: 7px;
+    }
+    #restless-company-control .company-sidebar-switch button {
+      flex: 1;
+      border: 0;
+      border-radius: 5px;
+      padding: 8px;
+      background: transparent;
+      color: var(--company-muted);
+    }
+    #restless-company-control .company-sidebar-switch button[aria-pressed="true"] {
+      background: var(--company-surface);
+      color: var(--company-ink);
+      box-shadow: 0 1px 4px light-dark(rgba(31, 42, 55, .13), rgba(0, 0, 0, .35));
+      font-weight: 500;
+    }
+    #restless-company-control .company-side-view { display: none; }
+    #restless-company-control .company-side-view.is-active { display: block; }
+    #restless-company-control .company-chat-head { justify-content: space-between; gap: 10px; margin-bottom: 16px; }
+    #restless-company-control .company-chat-head strong { font-weight: 500; }
+    #restless-company-control .company-chat-head span { color: var(--company-green); font-family: "DM Mono", monospace; font-size: .76rem; }
+    #restless-company-control .company-chat-context {
+      padding-bottom: 13px;
+      margin-bottom: 14px;
+      border-bottom: 1px solid var(--company-line);
+      color: var(--company-muted);
+      line-height: 1.42;
+    }
+    #restless-company-control .company-message {
+      margin-bottom: 10px;
+      padding: 11px 12px;
+      background: var(--company-surface-soft);
+      border-radius: 8px 8px 8px 2px;
+    }
+    #restless-company-control .company-message.owner {
+      margin-left: 24px;
+      background: var(--company-blue-soft);
+      border-radius: 8px 8px 2px 8px;
+    }
+    #restless-company-control .company-chat-author { color: var(--company-muted); margin-bottom: 6px; }
+    #restless-company-control .company-message p { margin: 0; line-height: 1.46; }
+    #restless-company-control .company-message-actions { margin-top: 7px; text-align: right; }
+    #restless-company-control .company-message-actions button {
+      border: 0;
+      background: transparent;
+      color: var(--company-muted);
+      padding: 2px 0;
+      cursor: pointer;
+      font-size: .82rem;
+    }
+    #restless-company-control .company-composer {
+      width: 100%;
+      min-height: 72px;
+      resize: none;
+      padding: 10px 11px;
+      border: 1px solid var(--company-line);
+      border-radius: 7px;
+      background: var(--company-surface);
+      color: var(--company-ink);
+    }
+    #restless-company-control .company-attention {
+      padding-top: 13px;
+      border-top: 3px solid var(--company-amber);
+    }
+    #restless-company-control .company-attention h2 { margin: 8px 0 9px; font-size: 1.13rem; font-weight: 500; }
+    #restless-company-control .company-attention p { margin: 0 0 13px; color: var(--company-muted); line-height: 1.48; }
+    #restless-company-control .company-causal-path {
+      margin: 16px 0;
+      border-top: 1px solid var(--company-line);
+      border-bottom: 1px solid var(--company-line);
+    }
+    #restless-company-control .company-causal-step {
+      display: grid;
+      grid-template-columns: 24px 1fr;
+      gap: 10px;
+      padding: 10px 0;
+    }
+    #restless-company-control .company-causal-step + .company-causal-step { border-top: 1px solid var(--company-line); }
+    #restless-company-control .company-causal-step span:first-child { color: var(--company-blue); font-family: "DM Mono", monospace; }
+    #restless-company-control .company-causal-step strong { display: block; font-weight: 500; margin-bottom: 2px; }
+    #restless-company-control .company-causal-step small { color: var(--company-muted); }
+    #restless-company-control .company-attention-actions { gap: 8px; flex-wrap: wrap; }
+    #restless-company-control .company-attention-actions button { flex: 1; }
+
+    @media (max-width: 840px) {
+      #restless-company-control .company-shell { grid-template-columns: 200px minmax(0, 1fr); }
+      #restless-company-control .company-right-rail { grid-column: 1 / -1; border-left: 0; border-top: 1px solid var(--company-line); }
+      #restless-company-control .company-side-view { max-width: 650px; }
+    }
+    @media (max-width: 720px) {
+      #restless-company-control .company-topbar { grid-template-columns: 1fr auto; padding-top: 9px; }
+      #restless-company-control .company-primary { grid-column: 1 / -1; grid-row: 2; justify-content: flex-start; overflow-x: auto; padding-bottom: 9px; }
+      #restless-company-control .company-status-strip { align-items: flex-start; padding-block: 9px; }
+      #restless-company-control .company-strip-state { display: none; }
+      #restless-company-control .company-shell { grid-template-columns: 1fr; }
+      #restless-company-control .company-left-rail { border-right: 0; border-bottom: 1px solid var(--company-line); padding: 14px; }
+      #restless-company-control .company-identity { padding-bottom: 13px; }
+      #restless-company-control .company-nav-group { display: flex; gap: 3px; overflow-x: auto; margin-top: 9px; }
+      #restless-company-control .company-nav-label { display: none; }
+      #restless-company-control .company-nav-button { width: auto; white-space: nowrap; }
+      #restless-company-control .company-nav-button.is-active { box-shadow: inset 0 -3px 0 var(--company-blue); }
+      #restless-company-control .company-page { padding: 27px 20px 36px; }
+      #restless-company-control .company-charter-grid { grid-template-columns: 1fr; }
+      #restless-company-control .company-principles { grid-column: auto; }
+      #restless-company-control .company-principle { grid-template-columns: 28px 1fr; }
+      #restless-company-control .company-principle > span:last-child { grid-column: 2; }
+      #restless-company-control .company-direction-link { grid-template-columns: 1fr; gap: 7px; }
+      #restless-company-control .company-rule-row { grid-template-columns: 1fr; gap: 5px; }
+      #restless-company-control .company-rule-row.company-table-head { display: none; }
+    }
+    @media (max-width: 460px) {
+      #restless-company-control .company-top-actions { display: none; }
+      #restless-company-control .company-title-row { display: grid; }
+      #restless-company-control .company-charter-statement { font-size: 1.25rem; }
+      #restless-company-control .company-account-row,
+      #restless-company-control .company-budget-row,
+      #restless-company-control .company-runtime-row,
+      #restless-company-control .company-history-row { display: grid; }
+    }
+  </style>
+
+  <div class="company-window">
+    <header class="company-topbar">
+      <div class="company-brand">
+        <div class="company-brand-name"><span class="company-mark">R</span><span>RESTLESS</span></div>
+        <button type="button" class="company-picker">Aris⌄</button>
+      </div>
+      <nav class="company-primary" aria-label="Primary navigation">
+        <button type="button">Attention</button>
+        <button type="button">Work</button>
+        <button type="button">People</button>
+        <button type="button" class="is-active">Company</button>
+      </nav>
+      <div class="company-top-actions"><button type="button" data-open-chat>Talk to Exec</button></div>
+    </header>
+
+    <div class="company-status-strip">
+      <div class="company-current-direction"><strong>Current direction:</strong> prepare the first tutoring-centre campaign</div>
+      <div class="company-strip-state"><span>● AUTHORITY ACTIVE</span><span>RUNTIME READY</span></div>
+    </div>
+
+    <div class="company-shell">
+      <aside class="company-left-rail">
+        <div class="company-identity"><strong>Aris</strong><span>Australian education publisher</span></div>
+        <nav aria-label="Company sections">
+          <div class="company-nav-group">
+            <div class="company-nav-label">COMPANY</div>
+            <button type="button" class="company-nav-button is-active" data-page-target="charter">Company charter</button>
+          </div>
+          <div class="company-nav-group">
+            <div class="company-nav-label">OPERATING CONTROLS</div>
+            <button type="button" class="company-nav-button" data-page-target="authority">Operating authority</button>
+            <button type="button" class="company-nav-button" data-page-target="access">Access &amp; accounts</button>
+            <button type="button" class="company-nav-button" data-page-target="budgets">Budgets</button>
+            <button type="button" class="company-nav-button" data-page-target="actions">External actions</button>
+            <button type="button" class="company-nav-button" data-page-target="runtime">Runtime &amp; recovery</button>
+          </div>
+        </nav>
+      </aside>
+
+      <main class="company-main">
+        <section class="company-page is-active" data-page="charter">
+          <div class="company-title-row">
+            <div class="company-title"><h1>Company charter</h1><p>The durable purpose and owner principles that guide Aris.</p></div>
+            <button type="button" class="company-secondary-action">Update charter</button>
+          </div>
+          <p class="company-charter-statement">Make excellent NSW Selective Test practice material easy for Australian tutoring centres to evaluate, license and use.</p>
+          <div class="company-charter-grid">
+            <section class="company-charter-section"><h2>WHO WE SERVE</h2><p>Tutoring-centre owners and academic managers who need credible, classroom-ready practice material.</p></section>
+            <section class="company-charter-section"><h2>WHAT WE OFFER</h2><p>A useful free sample that proves question quality, followed by a paid centre licence and repeat paper supply.</p></section>
+            <section class="company-principles"><h2 class="company-section-heading">OWNER PRINCIPLES</h2><div class="company-principle"><span>01</span><strong>Prove value first</strong><span>Let the sample demonstrate quality before asking a centre to buy.</span></div><div class="company-principle"><span>02</span><strong>Protect quality</strong><span>Use differentiated production and independent review before presenting an outcome.</span></div><div class="company-principle"><span>03</span><strong>Stay honest</strong><span>Never present an agent claim, simulated demand or internal confidence as observed evidence.</span></div><div class="company-principle"><span>04</span><strong>Prepare the last mile</strong><span>Only involve the owner after every machine-doable step is complete.</span></div></section>
+          </div>
+          <div class="company-direction-link"><span>CURRENT DIRECTION</span><strong>Prepare the first bounded tutoring-centre campaign</strong><button type="button" class="company-text-action">View in Work →</button></div>
+          <div class="company-revision-list"><div class="company-revision-row"><span>Effective 19 August 2026 · revision 3</span><button type="button" class="company-text-action">View revision history</button></div></div>
+        </section>
+
+        <section class="company-page" data-page="authority">
+          <div class="company-title-row"><div class="company-title"><h1>Operating authority</h1><p>The enforceable boundary around what Aris may do in the real world.</p></div><div class="company-status">● ACTIVE</div></div>
+          <section class="company-page-section"><div class="company-rule-table"><div class="company-rule-row company-table-head"><span>Area</span><span>Current rule</span><span>Authority</span></div><div class="company-rule-row"><span class="company-rule-area">Research</span><span class="company-rule-copy">Find and evaluate tutoring centres using public sources.</span><span class="company-rule-state independent">Independent</span></div><div class="company-rule-row"><span class="company-rule-area">Outreach</span><span class="company-rule-copy">Prepare messages freely. Sending requires approval of the exact campaign.</span><span class="company-rule-state approval">Owner approval</span></div><div class="company-rule-row"><span class="company-rule-area">Release</span><span class="company-rule-copy">Build, test and stage. Publishing to production requires approval.</span><span class="company-rule-state approval">Owner approval</span></div><div class="company-rule-row"><span class="company-rule-area">Purchases</span><span class="company-rule-copy">No standing purchasing authority is currently granted.</span><span class="company-rule-state blocked">Disabled</span></div><div class="company-rule-row"><span class="company-rule-area">Charter</span><span class="company-rule-copy">Aris cannot alter its own purpose, prohibitions, limits or owner controls.</span><span class="company-rule-state blocked">Owner only</span></div></div></section>
+          <p class="company-authority-note">Company purpose lives in the Charter. Current strategy lives in Work. This page contains only enforceable authority.</p>
+          <div class="company-runtime-actions"><button type="button" class="company-danger-action">Freeze external actions</button></div>
+        </section>
+
+        <section class="company-page" data-page="access">
+          <div class="company-title-row"><div class="company-title"><h1>Access &amp; accounts</h1><p>The productive tools Aris can use and the scope granted to each one.</p></div></div>
+          <section class="company-page-section"><div class="company-account-list"><div class="company-account-row"><div class="company-account-copy"><strong>Company computer</strong><span>Persistent development environment and browser</span></div><div class="company-account-state">READY</div></div><div class="company-account-row"><div class="company-account-copy"><strong>GitHub · study</strong><span>Repository-scoped development access</span></div><div class="company-account-state">CONNECTED</div></div><div class="company-account-row"><div class="company-account-copy"><strong>Company email</strong><span>Preparation allowed; sending governed per campaign</span></div><div class="company-account-state approval">ASK BEFORE SEND</div></div><div class="company-account-row"><div class="company-account-copy"><strong>Production release</strong><span>Build and staging allowed; publishing requires approval</span></div><div class="company-account-state approval">ASK BEFORE PUBLISH</div></div></div></section>
+        </section>
+
+        <section class="company-page" data-page="budgets">
+          <div class="company-title-row"><div class="company-title"><h1>Budgets</h1><p>Standing resource envelopes and the categories that remain owner-controlled.</p></div></div>
+          <section class="company-page-section"><div class="company-budget-list"><div class="company-budget-row"><div class="company-budget-copy"><strong>Model and compute</strong><span>Operating inside the current monthly envelope</span></div><div class="company-budget-state">WITHIN LIMIT</div></div><div class="company-budget-row"><div class="company-budget-copy"><strong>External services</strong><span>No provider charges have been recorded this period</span></div><div class="company-budget-state">NO SPEND</div></div><div class="company-budget-row"><div class="company-budget-copy"><strong>Purchases</strong><span>No standing purchasing authority</span></div><div class="company-budget-state disabled">DISABLED</div></div><div class="company-budget-row"><div class="company-budget-copy"><strong>Campaigns</strong><span>Every external send remains a bounded owner decision</span></div><div class="company-budget-state approval">PER CAMPAIGN</div></div></div></section>
+        </section>
+
+        <section class="company-page" data-page="actions">
+          <div class="company-title-row"><div class="company-title"><h1>External actions</h1><p>Consequential real-world actions and their authoritative outcomes.</p></div></div>
+          <section class="company-page-section"><div class="company-history-empty"><strong>No external actions recorded this period</strong><p>Four outreach messages are prepared, but preparation is not presented as a completed outcome.</p><button type="button" class="company-text-action" data-open-attention>Open the pending decision →</button></div><div class="company-history-list"><div class="company-history-row"><div class="company-history-copy"><strong>Routine commands are excluded</strong><span>Repository errors, builds and shell output stay with the related Work attempt.</span></div><div class="company-date">VIEW IN WORK</div></div><div class="company-history-row"><div class="company-history-copy"><strong>Only consequences appear here</strong><span>When an action occurs, its provider result and receipt will be shown in plain language.</span></div><div class="company-date">NO RECEIPTS</div></div></div></section>
+        </section>
+
+        <section class="company-page" data-page="runtime">
+          <div class="company-title-row"><div class="company-title"><h1>Runtime &amp; recovery</h1><p>The company computer’s current state and the owner’s recovery controls.</p></div><div class="company-status">● READY</div></div>
+          <section class="company-page-section"><div class="company-runtime-list"><div class="company-runtime-row"><div class="company-runtime-copy"><strong>Company computer</strong><span>Running normally; internal work can continue</span></div><div class="company-account-state">RUNNING</div></div><div class="company-runtime-row"><div class="company-runtime-copy"><strong>Browser session</strong><span>Persistent session available for prepared owner handoffs</span></div><div class="company-account-state">AVAILABLE</div></div><div class="company-runtime-row"><div class="company-runtime-copy"><strong>External authority</strong><span>New consequential actions are permitted within current limits</span></div><div class="company-account-state">ACTIVE</div></div></div><div class="company-runtime-actions"><button type="button" class="company-primary-action">Attach to company computer</button><button type="button" class="company-secondary-action">Restart runtime</button><button type="button" class="company-secondary-action">Restore…</button></div></section>
+        </section>
+      </main>
+
+      <aside class="company-right-rail">
+        <div class="company-sidebar-switch"><button type="button" data-side-target="chat" aria-pressed="true">Exec chat</button><button type="button" data-side-target="attention" aria-pressed="false">Attention · 1</button></div>
+        <section class="company-side-view is-active" data-side="chat">
+          <div class="company-chat-head"><strong>Exec</strong><span>● AVAILABLE</span></div>
+          <div class="company-chat-context">Ask about the selected company page or change the company’s direction.</div>
+          <div class="company-message"><div class="company-chat-author">EXEC · NOW</div><p>The charter now has its own page. Operating limits are separate, so changing strategy cannot silently change authority.</p><div class="company-message-actions"><button type="button">Copy</button></div></div>
+          <div class="company-message owner"><div class="company-chat-author">YOU</div><p>What happens after I approve the campaign?</p><div class="company-message-actions"><button type="button">Copy</button></div></div>
+          <textarea class="company-composer" aria-label="Message Exec" placeholder="Message Exec…"></textarea>
+        </section>
+        <section class="company-side-view" data-side="attention">
+          <div class="company-attention"><div class="company-meta">READY FOR YOUR DECISION</div><h2>Send four prepared outreach emails</h2><p>The recipients and messages have been reviewed. Approval authorises this campaign once.</p><div class="company-causal-path"><div class="company-causal-step"><span>1</span><div><strong>Your decision is recorded</strong><small>The exact campaign becomes authorised.</small></div></div><div class="company-causal-step"><span>2</span><div><strong>The lead resumes automatically</strong><small>site-validation-lead performs the bounded send.</small></div></div><div class="company-causal-step"><span>3</span><div><strong>The outcome returns here</strong><small>Delivered, failed or blocked, with provider evidence.</small></div></div></div><p>If you wait, nothing is sent and internal work continues.</p><div class="company-attention-actions"><button type="button" class="company-primary-action">Review and decide</button><button type="button" class="company-secondary-action" data-open-chat>Ask Exec</button></div></div>
+        </section>
+      </aside>
+    </div>
+  </div>
+
+  <script>
+    (() => {
+      const root = document.getElementById('restless-company-control');
+      if (!root) return;
+
+      const pageButtons = root.querySelectorAll('[data-page-target]');
+      pageButtons.forEach((button) => {
+        button.addEventListener('click', () => {
+          const target = button.dataset.pageTarget;
+          pageButtons.forEach((item) => item.classList.toggle('is-active', item === button));
+          root.querySelectorAll('[data-page]').forEach((page) => page.classList.toggle('is-active', page.dataset.page === target));
+        });
+      });
+
+      const setSide = (target) => {
+        root.querySelectorAll('[data-side-target]').forEach((button) => button.setAttribute('aria-pressed', String(button.dataset.sideTarget === target)));
+        root.querySelectorAll('[data-side]').forEach((panel) => panel.classList.toggle('is-active', panel.dataset.side === target));
+      };
+
+      root.querySelectorAll('[data-side-target]').forEach((button) => button.addEventListener('click', () => setSide(button.dataset.sideTarget)));
+      root.querySelectorAll('[data-open-attention]').forEach((button) => button.addEventListener('click', () => setSide('attention')));
+      root.querySelectorAll('[data-open-chat]').forEach((button) => button.addEventListener('click', () => setSide('chat')));
+    })();
+  </script>
+</div>

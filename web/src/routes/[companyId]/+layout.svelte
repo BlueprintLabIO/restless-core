@@ -4,8 +4,9 @@
 	import { onMount } from 'svelte';
 	import AppShell, { type ShellTab } from '$lib/components/AppShell.svelte';
 	import ExecutiveRail from '$lib/components/ExecutiveRail.svelte';
-	import { getActorConversation, reviewAction, sendActorMessage } from '$lib/model/attention';
+	import { cockpitContextPath, reviewAction } from '$lib/model/attention';
 	import { attentionSource } from '$lib/model/attentionSource.svelte';
+	import { conversationSource } from '$lib/model/conversationSource.svelte';
 	import {
 		actorCanReceive,
 		getCockpit,
@@ -13,16 +14,14 @@
 		type CockpitView,
 		type CompanyCatalogEntry
 	} from '$lib/model/cockpit';
-	import type { ThreadMessage } from '$lib/model/view';
 
 	let { children } = $props();
 
 	const companyId = $derived(page.params.companyId ?? 'aris');
 	let cockpit = $state<CockpitView | null>(null);
-	let railMessages = $state<ThreadMessage[]>([]);
 	let companies = $state<CompanyCatalogEntry[]>([]);
 	let execRailOpen = $state(true);
-	let conversationKey = $state('');
+	let focusRailRestore = $state<boolean | null>(null);
 
 	/* The shell and the Attention surface read one source rather than polling the
 	 * same endpoint on two clocks. The badge can no longer disagree with the
@@ -36,28 +35,41 @@
 	const focusedReview = $derived(
 		liveNeedsYou.find((item) => item.id === focusedReviewId && item.category === 'review') ?? null
 	);
-	const railActorId = $derived(focusedReview?.responsibleActor?.id ?? 'exec');
-	const railActorName = $derived(
-		focusedReview?.responsibleActor?.display ?? (railActorId === 'exec' ? 'Exec' : railActorId)
+	const focusedConversationId = $derived(page.url.searchParams.get('conversation'));
+	const focusedConversation = $derived(
+		liveNeedsYou.find((item) => item.id === focusedConversationId) ?? null
 	);
-	const railActorRole = $derived(focusedReview ? 'Responsible lead' : 'Executive');
+	const focusedAttention = $derived(focusedReview ?? focusedConversation);
+	const railActorId = $derived(focusedAttention?.responsibleActor?.id ?? 'exec');
+	const railConversation = $derived(
+		conversationSource(companyId, railActorId, focusedAttention?.workId)
+	);
+	const railActorName = $derived(
+		railActorId === 'exec'
+			? 'Exec'
+			: (focusedAttention?.responsibleActor?.display ??
+					railConversation.actor?.display ??
+					railActorId)
+	);
+	const railActorRole = $derived(focusedAttention ? 'Responsible lead' : 'Executive');
 	const railConnected = $derived(actorCanReceive(cockpit, railActorId));
-
+	const companyComputerSurface = $derived(page.url.pathname === `/${companyId}/company/computer`);
+	const immersiveComputer = $derived(
+		(companyComputerSurface && page.url.searchParams.get('focus') === 'desktop') ||
+			(page.url.pathname === `/${companyId}` && page.url.searchParams.has('computer'))
+	);
+	$effect(() => railConversation.attach());
 	$effect(() => {
-		const key = `${companyId}:${railActorId}:${focusedReview?.workId ?? ''}`;
-		if (conversationKey === key) return;
-		conversationKey = key;
-		railMessages = [];
-		if (focusedReview) execRailOpen = true;
-		void refreshConversation(railActorId, focusedReview?.workId);
+		if (focusedAttention) execRailOpen = true;
 	});
-
-	/* An unanswered session is the shell's business — the surfaces below it
-	 * cannot render anything truthful without one. */
 	$effect(() => {
-		if (attention.failure?.status !== 401) return;
-		const next = `${page.url.pathname}${page.url.search}`;
-		void goto(`/?next=${encodeURIComponent(next)}`, { replaceState: true });
+		if (companyComputerSurface && focusRailRestore === null) {
+			focusRailRestore = execRailOpen;
+			execRailOpen = false;
+		} else if (!companyComputerSurface && focusRailRestore !== null) {
+			execRailOpen = focusRailRestore;
+			focusRailRestore = null;
+		}
 	});
 
 	onMount(() => {
@@ -69,12 +81,9 @@
 				]);
 				cockpit = nextCockpit;
 				companies = nextCompanies;
-				if (actorCanReceive(nextCockpit, railActorId)) {
-					await refreshConversation(railActorId, focusedReview?.workId);
-				}
 			} catch {
-				/* The active page owns authentication and source errors. The shell
-				 * stays truthful instead of substituting fixture company data. */
+				/* The active page owns source errors. The shell stays truthful
+				 * instead of substituting fixture company data. */
 			}
 		}
 		void refreshShell();
@@ -82,47 +91,21 @@
 		return () => window.clearInterval(interval);
 	});
 
-	async function refreshConversation(actor = railActorId, workId = focusedReview?.workId) {
-		try {
-			const conversation = await getActorConversation(companyId, actor, workId);
-			const key = `${companyId}:${actor}:${workId ?? ''}`;
-			if (conversationKey && conversationKey !== key) return;
-			railMessages = conversation.messages.map((message) => ({
-				id: String(message.id),
-				from: message.from_actor === 'owner' ? 'you' : 'agent',
-				author: message.from_actor === 'owner' ? 'You' : conversation.actor.display,
-				text: message.body,
-				createdAt: message.created_at,
-				replyToMessageId: null,
-				assetId: null,
-				runId: null,
-				attachments: message.attachments ?? [],
-				intent: message.intent ?? null,
-				contextPath: message.context_path ?? null
-			}));
-		} catch {
-			/* Preserve the last observed transcript when the live source drops. */
-		}
-	}
-
 	async function askRail(
 		text: string,
 		files: File[],
 		includeContext: boolean
-	): Promise<string | null> {
+	): Promise<{ error?: string; notice?: string }> {
 		try {
-			await sendActorMessage(
-				companyId,
-				railActorId,
-				text,
-				focusedReview?.workId,
-				files,
-				includeContext ? `${page.url.pathname}${page.url.search}` : undefined
-			);
-			await refreshConversation(railActorId, focusedReview?.workId);
-			return null;
+			const contextPath = includeContext ? cockpitContextPath(companyId, page.url) : undefined;
+			const result = await railConversation.send(text, files, contextPath);
+			return includeContext && (!contextPath || result.contextOmitted)
+				? { notice: 'Message sent without the current-screen link.' }
+				: {};
 		} catch (cause) {
-			return cause instanceof Error ? cause.message : 'Your message was not delivered.';
+			return {
+				error: cause instanceof Error ? cause.message : 'Your message was not delivered.'
+			};
 		}
 	}
 
@@ -141,9 +124,9 @@
 		}
 	}
 
-	function closeFocusedReview() {
-		if (!focusedReview) return;
-		void goto(`/${companyId}?item=${encodeURIComponent(focusedReview.id)}`);
+	function closeFocusedContext() {
+		if (!focusedAttention) return;
+		void goto(`/${companyId}?item=${encodeURIComponent(focusedAttention.id)}`);
 	}
 
 	/* People holds its own conversation with the selected person, so a permanent
@@ -152,7 +135,11 @@
 	const railVisible = $derived.by(() => {
 		const path = page.url.pathname;
 		const people = `/${companyId}/people`;
-		return !(path === people || path.startsWith(`${people}/`));
+		return !(
+			path === people ||
+			path.startsWith(`${people}/`) ||
+			(path === `/${companyId}` && page.url.searchParams.has('computer'))
+		);
 	});
 
 	const currentContext = $derived.by(() => {
@@ -160,9 +147,9 @@
 		const root = `/${companyId}`;
 		if (path === `${root}/work` || path.startsWith(`${root}/work/`)) return 'Linked · Work';
 		if (path === `${root}/people` || path.startsWith(`${root}/people/`)) return 'Linked · People';
-		if (path === `${root}/authority` || path.startsWith(`${root}/authority/`))
-			return 'Linked · Authority';
-		return focusedReview ? 'Linked · Outcome review' : 'Linked · Attention';
+		if (path === `${root}/company` || path.startsWith(`${root}/company/`))
+			return 'Linked · Company';
+		return 'Linked · Attention';
 	});
 
 	const tabs = $derived.by((): ShellTab[] => {
@@ -192,10 +179,10 @@
 				on: path === `${root}/people` || path.startsWith(`${root}/people/`)
 			},
 			{
-				key: 'authority',
-				label: 'Authority',
-				href: `${root}/authority`,
-				on: path === `${root}/authority` || path.startsWith(`${root}/authority/`)
+				key: 'company',
+				label: 'Company',
+				href: `${root}/company`,
+				on: path === `${root}/company` || path.startsWith(`${root}/company/`)
 			}
 		];
 	});
@@ -203,9 +190,10 @@
 
 {#snippet executiveRail()}
 	<ExecutiveRail
-		messages={railMessages}
+		messages={railConversation.messages}
 		participantName={railActorName}
 		participantRole={railActorRole}
+		turn={railConversation.activeTurn}
 		{companyId}
 		membershipRole="owner"
 		connected={railConnected}
@@ -214,12 +202,12 @@
 		onask={askRail}
 		review={focusedReview
 			? {
-					title: focusedReview.title,
-					recommendation: focusedReview.recommendation,
-					onback: closeFocusedReview,
+					onback: closeFocusedContext,
 					ondecide: decideFocusedReview
 				}
 			: null}
+		workContext={focusedAttention ? { onback: closeFocusedContext } : null}
+		attention={focusedAttention}
 	/>
 {/snippet}
 
@@ -231,6 +219,7 @@
 	execName={railActorName}
 	execLive={railConnected}
 	railOpen={execRailOpen}
+	immersive={immersiveComputer}
 	onexectoggle={() => (execRailOpen = !execRailOpen)}
 	rail={railVisible ? executiveRail : null}
 >

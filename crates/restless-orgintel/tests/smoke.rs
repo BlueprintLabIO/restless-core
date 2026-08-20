@@ -6,10 +6,23 @@
 
 use chrono::Utc;
 use restless_orgintel::{
-    NewArtifactRef, NewGateRun, NewOwnerHandoff, NewWork, NewWorkGate, OrgIntel,
-    OwnerHandoffCategory, OwnerHandoffState, OwnerReviewDecision, WorkAttemptState, WorkEdgeKind,
-    WorkStatus, WorkspaceSpec,
+    NewArtifactRef, NewGateRun, NewOwnerHandoff, NewWork, NewWorkGate, OrgIntel, OwnerBrief,
+    OwnerBriefKind, OwnerHandoffCategory, OwnerHandoffState, OwnerReviewDecision, WorkAttemptState,
+    WorkEdgeKind, WorkStatus, WorkspaceSpec,
 };
+
+fn outcome_review_brief(headline: &str) -> OwnerBrief {
+    OwnerBrief {
+        kind: OwnerBriefKind::OutcomeReview,
+        headline: headline.into(),
+        situation: "The exact candidate is ready in its native review surface.".into(),
+        impact: "Acceptance completes this Work; changes start a source-linked revision.".into(),
+        recommendation: "Review the candidate and accept it if the evidence matches.".into(),
+        no_action: "The prepared candidate remains paused without shipping.".into(),
+        uncertainty: None,
+        deadline: None,
+    }
+}
 
 #[tokio::test]
 async fn company_schema_round_trip() {
@@ -25,12 +38,16 @@ async fn company_schema_round_trip() {
 
     // Every table gets written and read back — the T5 guard is that no table
     // exists that a company never writes to, so the smoke test writes to all.
-    org.add_actor("exec", "exec", "The Exec").await.unwrap();
-    org.add_actor("owner", "owner", "The Owner").await.unwrap();
-    org.add_actor("staff-builder", "staff", "Builder")
+    org.ensure_actor("exec", "exec", "exec", "The Exec")
         .await
         .unwrap();
-    org.add_actor("staff-verifier", "verifier", "Verifier")
+    org.ensure_actor("owner", "owner", "owner", "The Owner")
+        .await
+        .unwrap();
+    org.ensure_actor("delivery-build", "staff", "builder", "Builder")
+        .await
+        .unwrap();
+    org.ensure_actor("delivery-verify", "staff", "verifier", "Verifier")
         .await
         .unwrap();
 
@@ -44,7 +61,7 @@ async fn company_schema_round_trip() {
 
     let work = org
         .add_work(NewWork {
-            owner_id: "staff-builder",
+            owner_id: "delivery-build",
             title: "First slice",
             outcome: "prove the loop",
             goal_id: Some(goal),
@@ -58,16 +75,36 @@ async fn company_schema_round_trip() {
     let feedback = org
         .send_work_message(
             "owner",
-            "staff-builder",
+            "delivery-build",
             work,
             "Use the short human headline and keep the exact answer key.",
         )
         .await
         .unwrap();
+    let unpaired_review = org
+        .add_work_with_edges(
+            NewWork {
+                owner_id: "delivery-verify",
+                title: "Unsafe early review",
+                outcome: "must not start before the producer exists",
+                goal_id: Some(goal),
+                priority: 6,
+                expected_artifact: "",
+                workspace: WorkspaceSpec::default(),
+                attempt_limit: Some(1),
+            },
+            &[],
+            &[work],
+        )
+        .await
+        .unwrap_err();
+    assert!(unpaired_review
+        .to_string()
+        .contains("must require that same producer"));
     let review = org
         .add_work_with_edges(
             NewWork {
-                owner_id: "staff-verifier",
+                owner_id: "delivery-verify",
                 title: "Independent review",
                 outcome: "review the exact producer artifact",
                 goal_id: Some(goal),
@@ -90,7 +127,39 @@ async fn company_schema_round_trip() {
     assert!(initial_edges.iter().any(|edge| {
         edge.from_work_id == review && edge.to_work_id == work && edge.kind == WorkEdgeKind::Revises
     }));
+    let unpaired_repair = org
+        .add_work(NewWork {
+            owner_id: "delivery-verify",
+            title: "Unpaired graph repair",
+            outcome: "prove revision power cannot outrun its prerequisite",
+            goal_id: Some(goal),
+            priority: -100,
+            expected_artifact: "",
+            workspace: WorkspaceSpec::default(),
+            attempt_limit: Some(1),
+        })
+        .await
+        .unwrap();
+    assert!(org
+        .add_work_edge(unpaired_repair, work, WorkEdgeKind::Revises)
+        .await
+        .unwrap_err()
+        .to_string()
+        .contains("paired requires edge"));
+    org.abandon_work(
+        unpaired_repair,
+        "exec",
+        "the unsafe graph-repair probe was correctly refused",
+    )
+    .await
+    .unwrap();
     let attempt = org.claim_ready_work("smoke").await.unwrap().unwrap();
+    assert!(org
+        .add_work_edge(review, work, WorkEdgeKind::Requires)
+        .await
+        .unwrap_err()
+        .to_string()
+        .contains("after Work"));
     // The higher-level verifier exists, but the hard graph edge keeps it from
     // starting before the producer has accepted evidence.
     assert_eq!(attempt.work.id, work);
@@ -100,7 +169,7 @@ async fn company_schema_round_trip() {
         kind: "path",
         uri: "/company/outputs/demo/index.html",
         note: "first output",
-        created_by: "staff-builder",
+        created_by: "delivery-build",
         work_id: Some(work),
         attempt_id: Some(attempt.attempt_id),
         digest: Some("sha256:abc"),
@@ -190,7 +259,7 @@ async fn company_schema_round_trip() {
         second
             .feedback
             .iter()
-            .any(|message| message.from_actor == "staff-verifier"
+            .any(|message| message.from_actor == "delivery-verify"
                 && message.body == "fix the headline"),
         "critic feedback must be exact input to the next producer revision"
     );
@@ -199,7 +268,7 @@ async fn company_schema_round_trip() {
             .await
             .unwrap()
             .iter()
-            .filter(|actor| actor.id.starts_with("staff-"))
+            .filter(|actor| actor.kind == "staff")
             .count(),
         2,
         "producer and critic identities survive the revision; no v2 actors"
@@ -208,7 +277,7 @@ async fn company_schema_round_trip() {
         kind: "path",
         uri: "/company/outputs/demo/index.html",
         note: "corrected output",
-        created_by: "staff-builder",
+        created_by: "delivery-build",
         work_id: Some(work),
         attempt_id: Some(second.attempt_id),
         digest: Some("sha256:def"),
@@ -264,7 +333,7 @@ async fn company_schema_round_trip() {
     // again; the scheduler never burns attempts in a blind retry loop.
     let crash_work = org
         .add_work(NewWork {
-            owner_id: "staff-builder",
+            owner_id: "delivery-build",
             title: "Recover preserved worktree",
             outcome: "continue the same workspace after a process crash",
             goal_id: Some(goal),
@@ -320,7 +389,7 @@ async fn company_schema_round_trip() {
 
     let running_handoff_work = org
         .add_work(NewWork {
-            owner_id: "staff-builder",
+            owner_id: "delivery-build",
             title: "Prepare a bounded owner intervention",
             outcome: "attach the exact running Attempt before blocking on the owner",
             goal_id: Some(goal),
@@ -341,7 +410,7 @@ async fn company_schema_round_trip() {
         .request_owner_handoff(NewOwnerHandoff {
             work_id: running_handoff_work,
             attempt_id: None,
-            requested_by: "staff-builder",
+            requested_by: "delivery-build",
             category: OwnerHandoffCategory::Identity,
             requested_action: "sign in",
             prepared_state: "browser at login",
@@ -356,7 +425,7 @@ async fn company_schema_round_trip() {
         .request_owner_handoff(NewOwnerHandoff {
             work_id: running_handoff_work,
             attempt_id: Some(running_handoff_attempt.attempt_id),
-            requested_by: "staff-builder",
+            requested_by: "delivery-build",
             category: OwnerHandoffCategory::Identity,
             requested_action: "sign in",
             prepared_state: "browser at login",
@@ -364,17 +433,61 @@ async fn company_schema_round_trip() {
         })
         .await
         .unwrap();
+    assert_eq!(
+        org.list_work_attempts(Some(running_handoff_work))
+            .await
+            .unwrap()
+            .into_iter()
+            .find(|row| row.id == running_handoff_attempt.attempt_id)
+            .unwrap()
+            .state,
+        WorkAttemptState::Running,
+        "a handoff blocks Work without lying that its supervised process stopped"
+    );
+    assert_eq!(
+        org.get_work(running_handoff_work)
+            .await
+            .unwrap()
+            .unwrap()
+            .status,
+        WorkStatus::Blocked
+    );
     org.resolve_owner_handoff(
         running_handoff,
-        OwnerHandoffState::Declined,
-        "test intervention declined",
+        OwnerHandoffState::Resolved,
+        "sign-in observed",
     )
     .await
     .unwrap();
+    assert_eq!(
+        org.list_work_attempts(Some(running_handoff_work))
+            .await
+            .unwrap()
+            .into_iter()
+            .find(|row| row.id == running_handoff_attempt.attempt_id)
+            .unwrap()
+            .state,
+        WorkAttemptState::Running
+    );
+    org.finish_work_attempt(
+        running_handoff_attempt.attempt_id,
+        WorkAttemptState::Produced,
+        "the same supervised Attempt continued after the owner response",
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        org.get_work(running_handoff_work)
+            .await
+            .unwrap()
+            .unwrap()
+            .status,
+        WorkStatus::Completed
+    );
 
     let owner_work = org
         .add_work(NewWork {
-            owner_id: "staff-builder",
+            owner_id: "delivery-build",
             title: "Owner sign-in",
             outcome: "prepare sign-in",
             goal_id: Some(goal),
@@ -389,7 +502,7 @@ async fn company_schema_round_trip() {
         .request_owner_handoff(NewOwnerHandoff {
             work_id: owner_work,
             attempt_id: None,
-            requested_by: "staff-builder",
+            requested_by: "delivery-build",
             category: OwnerHandoffCategory::Identity,
             requested_action: "sign in",
             prepared_state: "browser at login",
@@ -403,7 +516,7 @@ async fn company_schema_round_trip() {
 
     let judgement_work = org
         .add_work(NewWork {
-            owner_id: "staff-builder",
+            owner_id: "delivery-build",
             title: "Choose the human headline",
             outcome: "apply the owner's copy judgement",
             goal_id: Some(goal),
@@ -418,7 +531,7 @@ async fn company_schema_round_trip() {
         .request_owner_handoff(NewOwnerHandoff {
             work_id: judgement_work,
             attempt_id: None,
-            requested_by: "staff-builder",
+            requested_by: "delivery-build",
             category: OwnerHandoffCategory::OwnerJudgement,
             requested_action: "choose the clearer headline",
             prepared_state: "both finished headlines are visible",
@@ -426,9 +539,23 @@ async fn company_schema_round_trip() {
         })
         .await
         .unwrap();
+    org.prepare_owner_brief(
+        judgement_handoff,
+        "delivery-build",
+        outcome_review_brief("Choose the clearer human headline"),
+    )
+    .await
+    .unwrap();
+    org.escalate_handoff(
+        judgement_handoff,
+        "exec",
+        "the owner must judge the final public voice",
+    )
+    .await
+    .unwrap();
     org.send_work_message(
         "owner",
-        "staff-builder",
+        "delivery-build",
         judgement_work,
         "Use the short headline. It sounds more human.",
     )
@@ -436,7 +563,7 @@ async fn company_schema_round_trip() {
     .unwrap();
     let lead_reply = org
         .send_work_message_to_owner(
-            "staff-builder",
+            "delivery-build",
             judgement_work,
             "I can make that change. Do you want the supporting line shorter too?",
         )
@@ -475,11 +602,11 @@ async fn company_schema_round_trip() {
         OwnerHandoffState::Declined
     );
     let review_conversation = org
-        .owner_work_conversation("staff-builder", judgement_work, 100)
+        .owner_work_conversation("delivery-build", judgement_work, 100)
         .await
         .unwrap();
     assert_eq!(review_conversation.len(), 2);
-    assert_eq!(review_conversation[1].from_actor, "staff-builder");
+    assert_eq!(review_conversation[1].from_actor, "delivery-build");
     org.resume_work(
         judgement_work,
         "exec",
@@ -499,7 +626,7 @@ async fn company_schema_round_trip() {
         .request_owner_handoff(NewOwnerHandoff {
             work_id: judgement_work,
             attempt_id: None,
-            requested_by: "staff-builder",
+            requested_by: "delivery-build",
             category: OwnerHandoffCategory::OwnerJudgement,
             requested_action: "accept or request another revision",
             prepared_state: "the revised outcome is open",
@@ -507,6 +634,20 @@ async fn company_schema_round_trip() {
         })
         .await
         .unwrap();
+    org.prepare_owner_brief(
+        accepted_handoff,
+        "delivery-build",
+        outcome_review_brief("Accept the revised human headline"),
+    )
+    .await
+    .unwrap();
+    org.escalate_handoff(
+        accepted_handoff,
+        "exec",
+        "the exact revised public voice needs owner acceptance",
+    )
+    .await
+    .unwrap();
     org.decide_owner_review(
         accepted_handoff,
         OwnerReviewDecision::Accepted,
@@ -519,7 +660,7 @@ async fn company_schema_round_trip() {
         WorkStatus::Completed
     );
     org.add_schedule(
-        "staff-builder",
+        "delivery-build",
         Some(owner_work),
         "wait for opening",
         Utc::now(),
@@ -541,20 +682,20 @@ async fn company_schema_round_trip() {
     // The owner handover surface is an ordinary two-party read over messages,
     // not a thread entity or a scripted workflow. Unrelated company mail must
     // never leak into the selected actor's conversation.
-    org.send_message("owner", Some("staff-builder"), "Please take another look")
+    org.send_message("owner", Some("delivery-build"), "Please take another look")
         .await
         .unwrap();
     org.send_message(
-        "staff-builder",
+        "delivery-build",
         None,
         "I need your judgement on the open page",
     )
     .await
     .unwrap();
-    org.send_message("exec", Some("staff-builder"), "internal coordination")
+    org.send_message("exec", Some("delivery-build"), "internal coordination")
         .await
         .unwrap();
-    let conversation = org.owner_conversation("staff-builder", 100).await.unwrap();
+    let conversation = org.owner_conversation("delivery-build", 100).await.unwrap();
     assert!(conversation
         .iter()
         .any(|message| message.body == "Please take another look"));
@@ -563,7 +704,7 @@ async fn company_schema_round_trip() {
         .any(|message| message.body == "I need your judgement on the open page"));
     assert!(conversation
         .iter()
-        .all(|message| matches!(message.from_actor.as_str(), "owner" | "staff-builder")));
+        .all(|message| matches!(message.from_actor.as_str(), "owner" | "delivery-build")));
     assert!(!conversation
         .iter()
         .any(|message| message.body == "internal coordination"));
@@ -607,7 +748,7 @@ async fn company_schema_round_trip() {
 
     // A second handle to the same company sees the same state (schema pin).
     let again = OrgIntel::ensure(&url, &company).await.unwrap();
-    assert_eq!(again.list_work().await.unwrap().len(), 6);
+    assert_eq!(again.list_work().await.unwrap().len(), 7);
     let graph = again.work_graph_snapshot().await.unwrap();
     assert_eq!(graph.attempt_feedback.len(), 3);
     assert!(graph
@@ -630,8 +771,10 @@ async fn goals_group_new_and_existing_work_without_becoming_a_workflow() {
     };
     let company = format!("goals{}", uuid::Uuid::new_v4().simple());
     let org = OrgIntel::ensure(&url, &company).await.unwrap();
-    org.add_actor("exec", "exec", "The Exec").await.unwrap();
-    org.add_actor("builder", "builder", "Builder")
+    org.ensure_actor("exec", "exec", "exec", "The Exec")
+        .await
+        .unwrap();
+    org.ensure_actor("delivery-build", "staff", "builder", "Builder")
         .await
         .unwrap();
 
@@ -654,7 +797,7 @@ async fn goals_group_new_and_existing_work_without_becoming_a_workflow() {
 
     let under_goal = org
         .add_work(NewWork {
-            owner_id: "builder",
+            owner_id: "delivery-build",
             title: "Prepare the offer",
             outcome: "one inspectable centre offer",
             goal_id: Some(launch),
@@ -672,7 +815,7 @@ async fn goals_group_new_and_existing_work_without_becoming_a_workflow() {
 
     let previously_unassigned = org
         .add_work(NewWork {
-            owner_id: "builder",
+            owner_id: "delivery-build",
             title: "Check the sample",
             outcome: "one checked sample",
             goal_id: None,
@@ -714,7 +857,7 @@ async fn goals_group_new_and_existing_work_without_becoming_a_workflow() {
         .contains("does not exist in this company"));
     assert!(org
         .add_work(NewWork {
-            owner_id: "builder",
+            owner_id: "delivery-build",
             title: "Misfiled Work",
             outcome: "must not be inserted",
             goal_id: Some(nonexistent),
@@ -770,12 +913,12 @@ async fn one_durable_actor_has_one_live_attempt() {
     };
     let company = format!("claim{}", std::process::id());
     let org = OrgIntel::ensure(&url, &company).await.unwrap();
-    org.add_actor("builder", "design-engineer", "Builder")
+    org.ensure_actor("delivery-build", "staff", "design-engineer", "Builder")
         .await
         .unwrap();
     for title in ["first surface", "second surface"] {
         org.add_work(NewWork {
-            owner_id: "builder",
+            owner_id: "delivery-build",
             title,
             outcome: "one bounded surface",
             goal_id: None,
@@ -812,16 +955,16 @@ async fn a_busy_conversation_actor_does_not_consume_ready_work() {
     };
     let company = format!("busyclaim{}", uuid::Uuid::new_v4().simple());
     let org = OrgIntel::ensure(&url, &company).await.unwrap();
-    org.add_actor("busy-lead", "lead", "Busy validation lead")
+    org.ensure_actor("validation-review", "staff", "lead", "Busy validation lead")
         .await
         .unwrap();
-    org.add_actor("free-builder", "builder", "Available builder")
+    org.ensure_actor("sample-build", "staff", "builder", "Available builder")
         .await
         .unwrap();
 
     let busy_work = org
         .add_work(NewWork {
-            owner_id: "busy-lead",
+            owner_id: "validation-review",
             title: "Validate the published site",
             outcome: "the deployed outcome is checked",
             goal_id: None,
@@ -834,7 +977,7 @@ async fn a_busy_conversation_actor_does_not_consume_ready_work() {
         .unwrap();
     let free_work = org
         .add_work(NewWork {
-            owner_id: "free-builder",
+            owner_id: "sample-build",
             title: "Prepare the next sample",
             outcome: "one ready sample exists",
             goal_id: None,
@@ -849,7 +992,7 @@ async fn a_busy_conversation_actor_does_not_consume_ready_work() {
     let claimed = org
         .claim_ready_work_excluding(
             "scheduler sees a conversation turn",
-            &["busy-lead".to_string()],
+            &["validation-review".to_string()],
         )
         .await
         .unwrap()
@@ -890,19 +1033,24 @@ async fn evidence_findings_complete_without_review_power_and_formal_review_still
     };
     let company = format!("reviewsem{}", uuid::Uuid::new_v4().simple());
     let org = OrgIntel::ensure(&url, &company).await.unwrap();
-    org.add_actor("producer", "builder", "Producer")
+    org.ensure_actor("candidate-build", "staff", "builder", "Producer")
         .await
         .unwrap();
-    org.add_actor("researcher", "researcher", "Evidence researcher")
-        .await
-        .unwrap();
-    org.add_actor("critic", "critic", "Final critic")
+    org.ensure_actor(
+        "evidence-research",
+        "staff",
+        "researcher",
+        "Evidence researcher",
+    )
+    .await
+    .unwrap();
+    org.ensure_actor("acceptance-review", "staff", "critic", "Final critic")
         .await
         .unwrap();
 
     let producer = org
         .add_work(NewWork {
-            owner_id: "producer",
+            owner_id: "candidate-build",
             title: "Build the candidate",
             outcome: "one candidate exists for review",
             goal_id: None,
@@ -915,7 +1063,7 @@ async fn evidence_findings_complete_without_review_power_and_formal_review_still
         .unwrap();
     let evidence = org
         .add_work(NewWork {
-            owner_id: "researcher",
+            owner_id: "evidence-research",
             title: "Research candidate evidence",
             outcome: "a report identifies issues for the final critic",
             goal_id: None,
@@ -929,7 +1077,7 @@ async fn evidence_findings_complete_without_review_power_and_formal_review_still
     let critic = org
         .add_work_with_edges(
             NewWork {
-                owner_id: "critic",
+                owner_id: "acceptance-review",
                 title: "Final acceptance review",
                 outcome: "judge the candidate using the evidence report",
                 goal_id: None,
@@ -954,7 +1102,7 @@ async fn evidence_findings_complete_without_review_power_and_formal_review_still
         kind: "path",
         uri: "/company/outputs/candidate.html",
         note: "candidate",
-        created_by: "producer",
+        created_by: "candidate-build",
         work_id: Some(producer),
         attempt_id: Some(producer_attempt.attempt_id),
         digest: Some("sha256:candidate"),
@@ -982,7 +1130,7 @@ async fn evidence_findings_complete_without_review_power_and_formal_review_still
         kind: "path",
         uri: "/company/outputs/evidence.md",
         note: "research findings",
-        created_by: "researcher",
+        created_by: "evidence-research",
         work_id: Some(evidence),
         attempt_id: Some(evidence_attempt.attempt_id),
         digest: Some("sha256:evidence"),
@@ -998,7 +1146,7 @@ async fn evidence_findings_complete_without_review_power_and_formal_review_still
             name: "report rendered",
             cwd: "/company",
             command: &["test".into(), "-s".into(), "outputs/evidence.md".into()],
-            created_by: "researcher",
+            created_by: "evidence-research",
         })
         .await
         .unwrap();
@@ -1077,7 +1225,7 @@ async fn evidence_findings_complete_without_review_power_and_formal_review_still
     // declared artifact or deterministic gate.
     let unproven = org
         .add_work(NewWork {
-            owner_id: "researcher",
+            owner_id: "evidence-research",
             title: "Unproven evidence",
             outcome: "must link its declared report",
             goal_id: None,
@@ -1114,7 +1262,7 @@ async fn evidence_findings_complete_without_review_power_and_formal_review_still
 
     let ungated = org
         .add_work(NewWork {
-            owner_id: "researcher",
+            owner_id: "evidence-research",
             title: "Ungated evidence",
             outcome: "must pass its declared check",
             goal_id: None,
@@ -1135,7 +1283,7 @@ async fn evidence_findings_complete_without_review_power_and_formal_review_still
         kind: "path",
         uri: "/company/outputs/unchecked.md",
         note: "not yet checked",
-        created_by: "researcher",
+        created_by: "evidence-research",
         work_id: Some(ungated),
         attempt_id: Some(ungated_attempt.attempt_id),
         digest: Some("sha256:unchecked"),
@@ -1150,7 +1298,7 @@ async fn evidence_findings_complete_without_review_power_and_formal_review_still
         name: "report check",
         cwd: "/company",
         command: &["test".into(), "-s".into(), "outputs/unchecked.md".into()],
-        created_by: "researcher",
+        created_by: "evidence-research",
     })
     .await
     .unwrap();
@@ -1183,15 +1331,19 @@ async fn superseded_work_is_abandoned_with_attribution_but_never_while_running()
     };
     let company = format!("abandon{}", uuid::Uuid::new_v4().simple());
     let org = OrgIntel::ensure(&url, &company).await.unwrap();
-    org.add_actor("owner", "owner", "The Owner").await.unwrap();
-    org.add_actor("exec", "exec", "The Exec").await.unwrap();
-    org.add_actor("builder", "builder", "Builder")
+    org.ensure_actor("owner", "owner", "owner", "The Owner")
+        .await
+        .unwrap();
+    org.ensure_actor("exec", "exec", "exec", "The Exec")
+        .await
+        .unwrap();
+    org.ensure_actor("delivery-build", "staff", "builder", "Builder")
         .await
         .unwrap();
 
     let proposed = org
         .add_work(NewWork {
-            owner_id: "builder",
+            owner_id: "delivery-build",
             title: "Superseded brief",
             outcome: "old target that must not run",
             goal_id: None,
@@ -1217,7 +1369,7 @@ async fn superseded_work_is_abandoned_with_attribution_but_never_while_running()
 
     let running = org
         .add_work(NewWork {
-            owner_id: "builder",
+            owner_id: "delivery-build",
             title: "Observed process",
             outcome: "finish or stop before retirement",
             goal_id: None,
@@ -1266,17 +1418,21 @@ async fn unsettled_work_reassignment_is_attributed_and_never_steals_a_running_at
     };
     let company = format!("assign{}", uuid::Uuid::new_v4().simple());
     let org = OrgIntel::ensure(&url, &company).await.unwrap();
-    org.add_actor("owner", "owner", "The Owner").await.unwrap();
-    org.add_actor("exec", "exec", "The Exec").await.unwrap();
-    org.add_actor("builder-a", "builder", "Builder A")
+    org.ensure_actor("owner", "owner", "owner", "The Owner")
         .await
         .unwrap();
-    org.add_actor("builder-b", "builder", "Builder B")
+    org.ensure_actor("exec", "exec", "exec", "The Exec")
+        .await
+        .unwrap();
+    org.ensure_actor("delivery-build", "staff", "builder", "Builder A")
+        .await
+        .unwrap();
+    org.ensure_actor("delivery-repair", "staff", "builder", "Builder B")
         .await
         .unwrap();
     let work = org
         .add_work(NewWork {
-            owner_id: "builder-a",
+            owner_id: "delivery-build",
             title: "Outcome with a new accountable owner",
             outcome: "the reassigned actor receives the same durable responsibility",
             goal_id: None,
@@ -1291,23 +1447,23 @@ async fn unsettled_work_reassignment_is_attributed_and_never_steals_a_running_at
     assert_eq!(
         org.reassign_work(
             work,
-            "builder-b",
+            "delivery-repair",
             "owner",
             "Builder B now leads this outcome"
         )
         .await
         .unwrap(),
-        "builder-a"
+        "delivery-build"
     );
     assert_eq!(
         org.get_work(work).await.unwrap().unwrap().owner_id,
-        "builder-b"
+        "delivery-repair"
     );
     assert!(org
         .reassign_work(
             work,
-            "builder-a",
-            "builder-b",
+            "delivery-build",
+            "delivery-repair",
             "take it back without a team"
         )
         .await
@@ -1320,9 +1476,14 @@ async fn unsettled_work_reassignment_is_attributed_and_never_steals_a_running_at
         .await
         .unwrap()
         .unwrap();
-    assert_eq!(attempt.work.owner_id, "builder-b");
+    assert_eq!(attempt.work.owner_id, "delivery-repair");
     assert!(org
-        .reassign_work(work, "builder-a", "owner", "do not steal a live process")
+        .reassign_work(
+            work,
+            "delivery-build",
+            "owner",
+            "do not steal a live process"
+        )
         .await
         .unwrap_err()
         .to_string()
@@ -1336,7 +1497,7 @@ async fn unsettled_work_reassignment_is_attributed_and_never_steals_a_running_at
     .unwrap();
     org.reassign_work(
         work,
-        "builder-a",
+        "delivery-build",
         "owner",
         "Builder A owns the repaired mechanism",
     )
@@ -1344,7 +1505,7 @@ async fn unsettled_work_reassignment_is_attributed_and_never_steals_a_running_at
     .unwrap();
     assert_eq!(
         org.get_work(work).await.unwrap().unwrap().owner_id,
-        "builder-a"
+        "delivery-build"
     );
     assert!(
         org.list_events(10)
@@ -1359,7 +1520,7 @@ async fn unsettled_work_reassignment_is_attributed_and_never_steals_a_running_at
         .request_owner_handoff(NewOwnerHandoff {
             work_id: work,
             attempt_id: None,
-            requested_by: "builder-a",
+            requested_by: "delivery-build",
             category: OwnerHandoffCategory::OwnerJudgement,
             requested_action: "Review the first candidate",
             prepared_state: "Candidate commit old is running",
@@ -1367,9 +1528,24 @@ async fn unsettled_work_reassignment_is_attributed_and_never_steals_a_running_at
         })
         .await
         .unwrap();
+    org.prepare_owner_brief(
+        handoff,
+        "delivery-build",
+        outcome_review_brief("Review the first candidate"),
+    )
+    .await
+    .unwrap();
+    let prepared = org
+        .list_owner_handoffs()
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|row| row.id == handoff)
+        .unwrap();
+    assert!(prepared.owner_brief_is_current(1));
     org.refresh_owner_handoff(
         handoff,
-        "builder-a",
+        "delivery-build",
         "Review the exact final candidate",
         "Candidate commit final is running and its gates passed",
         "Owner accepts this exact commit or requests exact changes",
@@ -1391,10 +1567,14 @@ async fn unsettled_work_reassignment_is_attributed_and_never_steals_a_running_at
         refreshed.prepared_state,
         "Candidate commit final is running and its gates passed"
     );
+    assert!(
+        !refreshed.owner_brief_is_current(1),
+        "material source refresh must make the older authored meaning stale"
+    );
     assert!(org
         .refresh_owner_handoff(
             handoff,
-            "builder-b",
+            "delivery-repair",
             "Replace another actor's review",
             "Unattributed replacement",
             "Owner decides",
@@ -1404,7 +1584,8 @@ async fn unsettled_work_reassignment_is_attributed_and_never_steals_a_running_at
         .to_string()
         .contains("only the Work owner"));
     assert!(org.list_events(10).await.unwrap().iter().any(|event| {
-        event.kind == "owner_handoff_refreshed" && event.actor_id.as_deref() == Some("builder-a")
+        event.kind == "owner_handoff_refreshed"
+            && event.actor_id.as_deref() == Some("delivery-build")
     }));
 
     org.drop_schema().await.unwrap();

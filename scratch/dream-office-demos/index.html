@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="UTF-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+		<title>Dream office floor studies</title>
+		<link rel="stylesheet" href="./styles.css" />
+	</head>
+	<body>
+		<main class="demo-shell">
+			<header class="demo-heading">
+				<div>
+					<p class="demo-context">Office floor studies</p>
+					<h1 id="concept-title">Tree Commons</h1>
+				</div>
+				<p id="concept-note" class="concept-note">
+					A living canopy makes the company centre feel restorative rather than ceremonial.
+				</p>
+			</header>
+
+			<section class="office-frame" aria-label="Animated dream office concept">
+				<canvas id="office" width="960" height="600"></canvas>
+				<div class="canvas-hint" aria-hidden="true">
+					<span class="live-dot"></span>
+					<span id="activity-label">12 colleagues · calm and busy</span>
+				</div>
+				<div id="person-card" class="person-card" hidden>
+					<button id="close-card" aria-label="Close colleague detail">×</button>
+					<strong id="person-name"></strong>
+					<span id="person-status"></span>
+				</div>
+			</section>
+
+			<nav class="concept-picker" aria-label="Choose office concept">
+				<button class="concept-button selected" data-concept="tree" aria-pressed="true">
+					<span class="concept-mark tree-mark"></span>
+					<span><strong>Tree Commons</strong><small>Radial · restorative</small></span>
+				</button>
+				<button class="concept-button" data-concept="hearth" aria-pressed="false">
+					<span class="concept-mark hearth-mark"></span>
+					<span><strong>Hearth Lounge</strong><small>Intimate · warm</small></span>
+				</button>
+				<button class="concept-button" data-concept="greenhouse" aria-pressed="false">
+					<span class="concept-mark greenhouse-mark"></span>
+					<span><strong>Greenhouse Café</strong><small>Social · nourishing</small></span>
+				</button>
+				<button class="concept-button" data-concept="garden" aria-pressed="false">
+					<span class="concept-mark garden-mark"></span>
+					<span><strong>Garden Court</strong><small>Meandering · playful</small></span>
+				</button>
+				<button class="concept-button" data-concept="library" aria-pressed="false">
+					<span class="concept-mark library-mark"></span>
+					<span><strong>Library Forum</strong><small>Focused · collective</small></span>
+				</button>
+				<button class="concept-button" data-concept="seasonal" aria-pressed="false">
+					<span class="concept-mark seasonal-mark"></span>
+					<span><strong>Seasonal Studio</strong><small>Flexible · surprising</small></span>
+				</button>
+			</nav>
+
+			<footer class="demo-footer">
+				<span>Click a colleague to inspect their current moment.</span>
+				<span>← → changes the floor study</span>
+			</footer>
+		</main>
+
+		<script src="./demo.js"></script>
+	</body>
+</html>

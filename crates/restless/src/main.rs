@@ -9,12 +9,16 @@
 //!   RESTLESS_COMPANY      — whose coordination state to touch
 //!   RESTLESS_ACTOR        — who "message send" is from
 //!   RESTLESS_COORDINATOR  — host:port; when set, TCP instead of unix socket
+//!   RESTLESS_OWNER_URL    — owner gateway probed by `doctor`
+//!   RESTLESS_COCKPIT_URL  — optional dev cockpit origin probed by `doctor`
 
 use std::io::{BufRead, BufReader, Read, Write};
+use std::net::{TcpStream, ToSocketAddrs};
 use std::os::unix::net::UnixStream;
 use std::path::PathBuf;
+use std::time::Duration;
 
-use anyhow::{bail, Context, Result};
+use anyhow::{anyhow, bail, Context, Result};
 use clap::{Parser, Subcommand};
 
 #[derive(Parser)]
@@ -36,13 +40,19 @@ enum Command {
         #[command(subcommand)]
         command: CredentialCommand,
     },
-    /// Generate or rotate the one-owner web credential (shown once).
-    OwnerToken {
-        #[arg(
-            long,
-            help = "Required acknowledgement: invalidates the previous web credential"
-        )]
-        rotate: bool,
+    /// Authority-owned legal identity safe for ordinary company use.
+    Legal {
+        #[arg(long, short = 'c', env = "RESTLESS_COMPANY", global = true)]
+        company: Option<String>,
+        #[command(subcommand)]
+        command: LegalCommand,
+    },
+    /// Bounded operating-money observation, preparation and provider submission.
+    Finance {
+        #[arg(long, short = 'c', env = "RESTLESS_COMPANY", global = true)]
+        company: Option<String>,
+        #[command(subcommand)]
+        command: FinanceCommand,
     },
     /// Bring a company environment up (create if absent, then start).
     Up {
@@ -73,7 +83,7 @@ enum Command {
         #[arg(long, short = 'c', env = "RESTLESS_COMPANY")]
         company: Option<String>,
     },
-    /// Probe the runtime image and in-container CLI for version skew.
+    /// Probe the complete local owner path and report an exact repair action.
     Doctor {
         #[arg(long, short = 'c', env = "RESTLESS_COMPANY")]
         company: Option<String>,
@@ -529,6 +539,7 @@ enum WorkCommand {
         #[arg(long)]
         attempt: Option<String>,
         #[arg(long)]
+        /// identity, captcha, mfa, legal-attestation, payment-confirmation, or owner-judgement
         category: String,
         #[arg(long)]
         action: String,
@@ -550,6 +561,33 @@ enum WorkCommand {
         prepared: String,
         #[arg(long)]
         resume_when: String,
+        #[arg(long = "as", env = "RESTLESS_ACTOR")]
+        as_actor: Option<String>,
+    },
+    /// Author the stable owner-altitude meaning of the current handoff source
+    /// snapshot. This prepares attention; it does not admit or resolve it.
+    PrepareOwnerBrief {
+        #[arg(long, short = 'c', env = "RESTLESS_COMPANY")]
+        company: Option<String>,
+        #[arg(long)]
+        handoff: String,
+        /// outcome_review, decision, blocker, opportunity, contradiction, human_step.
+        #[arg(long)]
+        kind: String,
+        #[arg(long)]
+        headline: String,
+        #[arg(long)]
+        situation: String,
+        #[arg(long)]
+        impact: String,
+        #[arg(long)]
+        recommendation: String,
+        #[arg(long)]
+        no_action: String,
+        #[arg(long)]
+        uncertainty: Option<String>,
+        #[arg(long)]
+        deadline: Option<String>,
         #[arg(long = "as", env = "RESTLESS_ACTOR")]
         as_actor: Option<String>,
     },
@@ -691,6 +729,119 @@ enum CredentialCommand {
 }
 
 #[derive(Subcommand)]
+enum LegalCommand {
+    /// Show the safe current profile and registry observation.
+    Show,
+    /// Live-probe the official Australian ABN Lookup service.
+    Probe,
+    /// Set one owner-confirmed safe legal profile. Restricted KYB documents
+    /// are intentionally not accepted by this command.
+    Set {
+        #[arg(long)]
+        legal_name: String,
+        #[arg(long)]
+        trading_name: Option<String>,
+        #[arg(long)]
+        entity_type: String,
+        #[arg(long)]
+        jurisdiction: String,
+        #[arg(long)]
+        registration_type: String,
+        #[arg(long)]
+        registration_value: String,
+        #[arg(long)]
+        business_address: String,
+        #[arg(long)]
+        invoice_email: Option<String>,
+    },
+}
+
+#[derive(Subcommand)]
+enum FinanceCommand {
+    /// Show envelopes, payments, provider metadata and last observed balances.
+    Show,
+    /// Owner-set deterministic loss envelope for one currency/account.
+    SetEnvelope {
+        #[arg(long)]
+        source_account: String,
+        #[arg(long)]
+        currency: String,
+        #[arg(long = "beneficiary", required = true)]
+        beneficiaries: Vec<String>,
+        #[arg(long)]
+        per_payment_minor: i64,
+        #[arg(long)]
+        aggregate_minor: i64,
+    },
+    /// Freeze or explicitly unfreeze new financial effects.
+    Freeze {
+        #[arg(long)]
+        currency: String,
+        #[arg(long)]
+        unfreeze: bool,
+    },
+    /// Record the exact live-probed Airwallex account/scopes and owner action.
+    ConnectAirwallex {
+        #[arg(long, value_parser = ["sandbox", "live"])]
+        environment: String,
+        /// Exact YYYY-MM-DD API version observed in the Airwallex account.
+        #[arg(long)]
+        api_version: String,
+        #[arg(long)]
+        client_id: String,
+        #[arg(long)]
+        account_ref: String,
+        #[arg(long)]
+        approval_url: String,
+        #[arg(long = "read-scope", required = true)]
+        read_scopes: Vec<String>,
+        #[arg(long = "submit-scope", required = true)]
+        submit_scopes: Vec<String>,
+        #[arg(long)]
+        approval_workflow_observed: bool,
+        #[arg(long, requires = "approval_workflow_observed")]
+        observed_at: Option<String>,
+    },
+    /// Live-observe current provider balances with the read-only key.
+    Balances,
+    /// Live-probe both scoped connections without moving money.
+    Probe,
+    /// Atomically reserve one exact payment inside the owner-set envelope.
+    Reserve {
+        /// OrgIntel Work whose accepted outcome requires this payment.
+        #[arg(long)]
+        work: String,
+        /// Pending payment-confirmation owner handoff for the provider step.
+        #[arg(long)]
+        handoff: String,
+        #[arg(long)]
+        source_account: String,
+        #[arg(long)]
+        beneficiary: String,
+        #[arg(long)]
+        amount_minor: i64,
+        #[arg(long)]
+        currency: String,
+        #[arg(long)]
+        purpose: String,
+        #[arg(long = "evidence")]
+        evidence_refs: Vec<String>,
+        #[arg(long)]
+        key: String,
+    },
+    /// Submit a reserved payment through the host-side adapter. This cannot approve it.
+    Submit {
+        #[arg(long)]
+        key: String,
+    },
+    /// Re-query authenticated provider state; required after ambiguity and approval.
+    Reconcile {
+        #[arg(long)]
+        key: String,
+    },
+}
+
+#[derive(Subcommand)]
 enum BrowserCommand {
     /// Probe desktop, Chromium, automation and controller state.
     Status {
@@ -811,6 +962,7 @@ fn main() -> Result<()> {
             let request = stamp(serde_json::json!({ "cmd": "watch", "company": name }));
             watch(&request.to_string())
         }
+        Command::Doctor { company } => doctor(company),
         other => {
             let request = stamp(request_json(other)?);
             let response = request_once(&request.to_string())?;
@@ -879,12 +1031,126 @@ fn request_json(command: Command) -> Result<serde_json::Value> {
                 serde_json::json!({ "cmd": "credential-check", "company": company })
             }
         },
-        Command::OwnerToken { rotate } => {
-            if !rotate {
-                bail!("pass --rotate to generate a new owner credential; only its digest will be stored");
-            }
-            serde_json::json!({ "cmd": "owner-token" })
-        }
+        Command::Legal { company, command } => match command {
+            LegalCommand::Show => serde_json::json!({
+                "cmd": "legal-show", "company": company,
+            }),
+            LegalCommand::Probe => serde_json::json!({
+                "cmd": "legal-probe", "company": company,
+            }),
+            LegalCommand::Set {
+                legal_name,
+                trading_name,
+                entity_type,
+                jurisdiction,
+                registration_type,
+                registration_value,
+                business_address,
+                invoice_email,
+            } => serde_json::json!({
+                "cmd": "legal-set", "company": company,
+                "body": serde_json::json!({
+                    "legal_name": legal_name,
+                    "trading_name": trading_name,
+                    "entity_type": entity_type,
+                    "jurisdiction": jurisdiction,
+                    "registration_identifier": {
+                        "kind": registration_type,
+                        "value": registration_value,
+                    },
+                    "approved_business_address": business_address,
+                    "invoice_email": invoice_email,
+                }).to_string(),
+            }),
+        },
+        Command::Finance { company, command } => match command {
+            FinanceCommand::Show => serde_json::json!({
+                "cmd": "finance-show", "company": company,
+            }),
+            FinanceCommand::SetEnvelope {
+                source_account,
+                currency,
+                beneficiaries,
+                per_payment_minor,
+                aggregate_minor,
+            } => serde_json::json!({
+                "cmd": "finance-envelope-set", "company": company,
+                "body": serde_json::json!({
+                    "source_account_ref": source_account,
+                    "currency": currency,
+                    "beneficiary_refs": beneficiaries,
+                    "per_payment_limit_minor": per_payment_minor,
+                    "aggregate_limit_minor": aggregate_minor,
+                    "frozen": false,
+                }).to_string(),
+            }),
+            FinanceCommand::Freeze { currency, unfreeze } => serde_json::json!({
+                "cmd": "finance-freeze", "company": company,
+                "state": currency, "apply": !unfreeze,
+            }),
+            FinanceCommand::ConnectAirwallex {
+                environment,
+                api_version,
+                client_id,
+                account_ref,
+                approval_url,
+                read_scopes,
+                submit_scopes,
+                approval_workflow_observed,
+                observed_at,
+            } => serde_json::json!({
+                "cmd": "finance-connect-airwallex", "company": company,
+                "body": serde_json::json!({
+                    "environment": environment,
+                    "api_version": api_version,
+                    "client_id": client_id,
+                    "account_ref": account_ref,
+                    "approval_url": approval_url,
+                    "read_scopes": read_scopes,
+                    "submit_scopes": submit_scopes,
+                    "approval_workflow_observed": approval_workflow_observed,
+                    "observed_at": observed_at,
+                }).to_string(),
+            }),
+            FinanceCommand::Balances => serde_json::json!({
+                "cmd": "finance-balances", "company": company,
+            }),
+            FinanceCommand::Probe => serde_json::json!({
+                "cmd": "finance-probe", "company": company,
+            }),
+            FinanceCommand::Reserve {
+                work,
+                handoff,
+                source_account,
+                beneficiary,
+                amount_minor,
+                currency,
+                purpose,
+                evidence_refs,
+                key,
+            } => serde_json::json!({
+                "cmd": "finance-reserve", "company": company,
+                "body": serde_json::json!({
+                    "work_id": work,
+                    "owner_handoff_id": handoff,
+                    "source_account_ref": source_account,
+                    "provider_beneficiary_ref": beneficiary,
+                    "amount_minor": amount_minor,
+                    "currency": currency,
+                    "purpose": purpose,
+                    "evidence_refs": evidence_refs,
+                    "idempotency_key": key,
+                    "requesting_actor": acting_actor(),
+                }).to_string(),
+                "actor": acting_actor(),
+            }),
+            FinanceCommand::Submit { key } => serde_json::json!({
+                "cmd": "finance-submit", "company": company, "key": key,
+            }),
+            FinanceCommand::Reconcile { key } => serde_json::json!({
+                "cmd": "finance-reconcile", "company": company, "key": key,
+            }),
+        },
         Command::Up {
             company: c,
             from,
@@ -905,9 +1171,6 @@ fn request_json(command: Command) -> Result<serde_json::Value> {
         }
         Command::Status { company: c } => {
             serde_json::json!({ "cmd": "status", "company": c })
-        }
-        Command::Doctor { company: c } => {
-            serde_json::json!({ "cmd": "doctor", "company": c })
         }
         Command::OrgintelInit { company: c } => {
             serde_json::json!({ "cmd": "orgintel-init", "company": c })
@@ -1160,6 +1423,26 @@ fn request_json(command: Command) -> Result<serde_json::Value> {
                 "as_actor": as_actor.or_else(|| std::env::var("RESTLESS_ACTOR").ok())
                     .unwrap_or_else(|| "owner".to_string()),
             }),
+            WorkCommand::PrepareOwnerBrief {
+                company,
+                handoff,
+                kind,
+                headline,
+                situation,
+                impact,
+                recommendation,
+                no_action,
+                uncertainty,
+                deadline,
+                as_actor,
+            } => serde_json::json!({
+                "cmd": "work-handoff-prepare-brief", "company": company, "id": handoff,
+                "owner_kind": kind, "headline": headline, "situation": situation,
+                "impact": impact, "recommendation": recommendation, "no_action": no_action,
+                "uncertainty": uncertainty, "deadline": deadline,
+                "as_actor": as_actor.or_else(|| std::env::var("RESTLESS_ACTOR").ok())
+                    .unwrap_or_else(|| "owner".to_string()),
+            }),
             WorkCommand::EscalateHandoff {
                 company,
                 handoff,
@@ -1303,7 +1586,10 @@ fn request_json(command: Command) -> Result<serde_json::Value> {
             "id": evidence_receipt,
             "actor": std::env::var("RESTLESS_ACTOR").unwrap_or_else(|_| "owner".to_string()),
         }),
-        Command::Watch { .. } | Command::Attach { .. } | Command::EffectChild => {
+        Command::Doctor { .. }
+        | Command::Watch { .. }
+        | Command::Attach { .. }
+        | Command::EffectChild => {
             unreachable!("handled above")
         }
     })
@@ -1325,15 +1611,284 @@ fn read_secret_source(source: &str) -> Result<String> {
 }
 
 fn print_response(response: &str) -> Result<()> {
+    let data = response_data(response)?;
+    match data {
+        serde_json::Value::String(message) => println!("{message}"),
+        other => println!("{}", serde_json::to_string_pretty(&other)?),
+    }
+    Ok(())
+}
+
+fn response_data(response: &str) -> Result<serde_json::Value> {
     let parsed: serde_json::Value = serde_json::from_str(response).context("parse response")?;
     if parsed["ok"].as_bool() == Some(true) {
-        match &parsed["data"] {
-            serde_json::Value::String(message) => println!("{message}"),
-            other => println!("{}", serde_json::to_string_pretty(other)?),
-        }
-        Ok(())
+        Ok(parsed["data"].clone())
     } else {
         bail!("{}", render_error(&parsed["error"]))
+    }
+}
+
+/// `doctor` is deliberately partly client-side. A diagnostic implemented only
+/// as a daemon RPC cannot distinguish a broken daemon from a broken company.
+/// The daemon remains authoritative for company state; this client probes the
+/// host boundaries needed to reach that state and combines both reports.
+fn doctor(company: Option<String>) -> Result<()> {
+    let company = company.context("no company: pass -c or set RESTLESS_COMPANY")?;
+    let runtime = daemon_request(serde_json::json!({
+        "cmd": "doctor",
+        "company": company,
+    }));
+
+    let orgintel = if runtime.is_ok() {
+        daemon_request(serde_json::json!({
+            "cmd": "attention",
+            "company": company,
+        }))
+    } else {
+        Err(anyhow!("coordinator unavailable"))
+    };
+
+    let owner_url =
+        std::env::var("RESTLESS_OWNER_URL").unwrap_or_else(|_| "http://127.0.0.1:7788".to_string());
+    let cockpit_url = std::env::var("RESTLESS_COCKPIT_URL").unwrap_or_else(|_| owner_url.clone());
+
+    let (owner_gateway, owner_gateway_ok) = http_check(
+        &owner_url,
+        "/api/companies",
+        &[200, 401],
+        "owner API must answer (an unauthenticated 401 is healthy)",
+    );
+    let (cockpit_shell, cockpit_shell_ok) = http_check(
+        &cockpit_url,
+        &format!("/{company}"),
+        &[200],
+        "cockpit shell must render",
+    );
+    let (cockpit_api, cockpit_api_ok) = http_check(
+        &cockpit_url,
+        "/api/companies",
+        &[200, 401],
+        "cockpit same-origin API path must reach the owner gateway",
+    );
+    let (storage, storage_ok) = storage_check();
+
+    let coordinator_ok = runtime.is_ok();
+    let orgintel_ok = orgintel.is_ok();
+    let runtime_ok = runtime.as_ref().is_ok_and(runtime_report_is_live);
+    let all_live = coordinator_ok
+        && orgintel_ok
+        && runtime_ok
+        && owner_gateway_ok
+        && cockpit_shell_ok
+        && cockpit_api_ok
+        && storage_ok;
+
+    let mut actions = Vec::new();
+    if !coordinator_ok || !owner_gateway_ok || !cockpit_shell_ok || !cockpit_api_ok {
+        actions.push(format!("restless-dev {company}"));
+    }
+    if !orgintel_ok {
+        actions.push(format!("restless up -c {company}"));
+    }
+    if let Ok(report) = &runtime {
+        if report.get("volume_exists").is_none() || report.get("volume_mounted").is_none() {
+            actions.push(format!(
+                "restart restlessd with the current build (stop the old stack, then run restless-dev {company})"
+            ));
+        }
+        if let Some(action) = report["action"].as_str() {
+            actions.push(action.to_string());
+        }
+        if report.get("supervisor").is_some()
+            && report["supervisor"]["status"].as_str() != Some("available")
+        {
+            actions.push(format!(
+                "restless attach -c {company} -- supervisorctl -c /etc/supervisor/conf.d/restless.conf status"
+            ));
+        }
+    } else {
+        actions.push("start restlessd".to_string());
+    }
+    if !storage_ok {
+        actions.push("follow docs/BUILD_STORAGE.md before another full build".to_string());
+    }
+    actions.sort();
+    actions.dedup();
+
+    let coordinator = match &runtime {
+        Ok(report) => serde_json::json!({
+            "status": "available",
+            "runtime": report,
+        }),
+        Err(error) => serde_json::json!({
+            "status": "unavailable",
+            "error": format!("{error:#}"),
+        }),
+    };
+    let orgintel = match orgintel {
+        Ok(_) => serde_json::json!({ "status": "available" }),
+        Err(error) => serde_json::json!({
+            "status": "unavailable",
+            "error": format!("{error:#}"),
+        }),
+    };
+    let report = serde_json::json!({
+        "company": company,
+        "status": if all_live { "live" } else { "degraded" },
+        "checks": {
+            "coordinator": coordinator,
+            "orgintel": orgintel,
+            "owner_gateway": owner_gateway,
+            "cockpit_shell": cockpit_shell,
+            "cockpit_api": cockpit_api,
+            "storage": storage,
+        },
+        "actions": actions,
+    });
+    println!("{}", serde_json::to_string_pretty(&report)?);
+    if all_live {
+        Ok(())
+    } else {
+        bail!("local stack is degraded; run the reported action(s)")
+    }
+}
+
+fn daemon_request(request: serde_json::Value) -> Result<serde_json::Value> {
+    let request = stamp(request);
+    let response = request_once(&request.to_string())?;
+    response_data(&response)
+}
+
+fn runtime_report_is_live(report: &serde_json::Value) -> bool {
+    report["container"].as_str() == Some("Running")
+        && report["reconciliation"].as_str() == Some("current")
+        && report["supervisor"]["status"].as_str() == Some("available")
+        && report["browser"]["status"].as_str() == Some("available")
+        && report["volume_exists"].as_bool() == Some(true)
+        && report["volume_mounted"].as_bool() == Some(true)
+}
+
+fn http_check(
+    base_url: &str,
+    path: &str,
+    accepted: &[u16],
+    expectation: &str,
+) -> (serde_json::Value, bool) {
+    match http_status(base_url, path) {
+        Ok(code) if accepted.contains(&code) => (
+            serde_json::json!({
+                "status": "available",
+                "url": format!("{}{}", base_url.trim_end_matches('/'), path),
+                "http_status": code,
+            }),
+            true,
+        ),
+        Ok(code) => (
+            serde_json::json!({
+                "status": "unavailable",
+                "url": format!("{}{}", base_url.trim_end_matches('/'), path),
+                "http_status": code,
+                "expected": expectation,
+            }),
+            false,
+        ),
+        Err(error) => (
+            serde_json::json!({
+                "status": "unavailable",
+                "url": format!("{}{}", base_url.trim_end_matches('/'), path),
+                "error": format!("{error:#}"),
+                "expected": expectation,
+            }),
+            false,
+        ),
+    }
+}
+
+fn http_status(base_url: &str, path: &str) -> Result<u16> {
+    let rest = base_url
+        .strip_prefix("http://")
+        .context("local health probes support only http:// URLs")?;
+    let (authority, prefix) = rest.split_once('/').unwrap_or((rest, ""));
+    let endpoint = if authority.contains(':') {
+        authority.to_string()
+    } else {
+        format!("{authority}:80")
+    };
+    let mut last_error = None;
+    let mut stream = None;
+    for address in endpoint
+        .to_socket_addrs()
+        .with_context(|| format!("resolve {endpoint}"))?
+    {
+        match TcpStream::connect_timeout(&address, Duration::from_secs(2)) {
+            Ok(connected) => {
+                stream = Some(connected);
+                break;
+            }
+            Err(error) => last_error = Some(error),
+        }
+    }
+    let mut stream = stream.ok_or_else(|| {
+        last_error
+            .map(anyhow::Error::from)
+            .unwrap_or_else(|| anyhow!("{endpoint} resolved to no addresses"))
+    })?;
+    stream.set_read_timeout(Some(Duration::from_secs(3)))?;
+    stream.set_write_timeout(Some(Duration::from_secs(3)))?;
+    let prefix = prefix.trim_matches('/');
+    let path = path.trim_start_matches('/');
+    let request_path = if prefix.is_empty() {
+        format!("/{path}")
+    } else {
+        format!("/{prefix}/{path}")
+    };
+    stream.write_all(
+        format!("GET {request_path} HTTP/1.1\r\nHost: {authority}\r\nConnection: close\r\n\r\n")
+            .as_bytes(),
+    )?;
+    let mut status_line = String::new();
+    BufReader::new(stream).read_line(&mut status_line)?;
+    status_line
+        .split_whitespace()
+        .nth(1)
+        .context("HTTP response had no status code")?
+        .parse::<u16>()
+        .context("parse HTTP status code")
+}
+
+fn storage_check() -> (serde_json::Value, bool) {
+    let output = std::process::Command::new("df")
+        .arg("-Pk")
+        .arg(state_root())
+        .output();
+    let available_kib = output
+        .ok()
+        .filter(|output| output.status.success())
+        .and_then(|output| String::from_utf8(output.stdout).ok())
+        .and_then(|stdout| {
+            stdout
+                .lines()
+                .last()
+                .and_then(|line| line.split_whitespace().nth(3))
+                .and_then(|value| value.parse::<u64>().ok())
+        });
+    let minimum_kib = 30 * 1024 * 1024;
+    match available_kib {
+        Some(value) => (
+            serde_json::json!({
+                "status": if value >= minimum_kib { "available" } else { "low" },
+                "available_gib": value / 1024 / 1024,
+                "minimum_gib": 30,
+            }),
+            value >= minimum_kib,
+        ),
+        None => (
+            serde_json::json!({
+                "status": "unknown",
+                "error": "could not read host disk headroom with df",
+            }),
+            false,
+        ),
     }
 }
 
@@ -1427,4 +1982,52 @@ fn request_once(line: &str) -> Result<String> {
     let mut response = String::new();
     reader.read_line(&mut response)?;
     Ok(response)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn runtime_health_fails_closed_when_volume_evidence_is_missing() {
+        let old_report = serde_json::json!({
+            "container": "Running",
+            "reconciliation": "current",
+            "supervisor": { "status": "available" },
+            "browser": { "status": "available" },
+        });
+        assert!(!runtime_report_is_live(&old_report));
+
+        let live_report = serde_json::json!({
+            "container": "Running",
+            "reconciliation": "current",
+            "supervisor": { "status": "available" },
+            "browser": { "status": "available" },
+            "volume_exists": true,
+            "volume_mounted": true,
+        });
+        assert!(runtime_report_is_live(&live_report));
+    }
+
+    #[test]
+    fn cockpit_probe_uses_the_exact_same_origin_path() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind probe server");
+        let address = listener.local_addr().expect("probe address");
+        let server = std::thread::spawn(move || {
+            let (stream, _) = listener.accept().expect("accept probe");
+            let mut reader = BufReader::new(stream);
+            let mut request_line = String::new();
+            reader.read_line(&mut request_line).expect("read request");
+            assert_eq!(request_line, "GET /api/companies HTTP/1.1\r\n");
+            reader
+                .get_mut()
+                .write_all(b"HTTP/1.1 401 Unauthorized\r\nContent-Length: 0\r\n\r\n")
+                .expect("write response");
+        });
+
+        let status =
+            http_status(&format!("http://{address}"), "/api/companies").expect("probe status");
+        assert_eq!(status, 401);
+        server.join().expect("probe server");
+    }
 }

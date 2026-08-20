@@ -128,10 +128,12 @@ async fn project_to_orgintel(
                 event.company
             )
         })?;
-        org.add_actor("world", "world", "The outside world")
+        org.ensure_actor("world", "system", "external-sender", "The outside world")
             .await
             .ok();
-        org.add_actor("exec", "exec", "The Exec").await.ok();
+        org.ensure_actor("exec", "exec", "exec", "The Exec")
+            .await
+            .ok();
         let body = format!(
             "REPLY from {}\nsubject: {}\n\n{}",
             from.as_deref().unwrap_or("(unknown sender)"),

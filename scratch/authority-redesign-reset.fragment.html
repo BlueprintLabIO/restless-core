@@ -1,0 +1,687 @@
+<div id="restless-authority-reset">
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500&family=Instrument+Sans:wght@400;500&family=Manrope:wght@400;500&display=swap');
+
+    #restless-authority-reset {
+      --restless-page: light-dark(#eef2f5, #0e1218);
+      --restless-ink: light-dark(#202733, #eef2f7);
+      --restless-muted: light-dark(#69717d, #9fa8b5);
+      --restless-line: light-dark(#cdd4dc, #313b49);
+      --restless-soft: light-dark(#f7f9fb, #171d26);
+      --restless-white: light-dark(#ffffff, #121821);
+      --restless-blue: light-dark(#2f64a3, #86b7f0);
+      --restless-blue-soft: light-dark(#e6eff9, #17283b);
+      --restless-green: light-dark(#2f725c, #72c7a7);
+      --restless-green-soft: light-dark(#e4f1eb, #142a24);
+      --restless-amber: light-dark(#91621f, #e8b86e);
+      --restless-amber-soft: light-dark(#f7eedb, #302617);
+      --restless-red: light-dark(#98504b, #e19a92);
+      --restless-red-soft: light-dark(#f5e7e5, #321c1d);
+      color: var(--restless-ink);
+      font-family: "IBM Plex Sans", sans-serif;
+      background: transparent;
+    }
+
+    #restless-authority-reset * { box-sizing: border-box; }
+    #restless-authority-reset button { font: inherit; }
+    #restless-authority-reset .reset-lab {
+      display: grid;
+      gap: 14px;
+    }
+    #restless-authority-reset .reset-picker {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      flex-wrap: wrap;
+      padding: 0 2px;
+    }
+    #restless-authority-reset .reset-picker-copy {
+      display: grid;
+      gap: 2px;
+    }
+    #restless-authority-reset .reset-picker-copy strong { font-weight: 500; }
+    #restless-authority-reset .reset-picker-copy span { color: var(--restless-muted); }
+    #restless-authority-reset .reset-directions {
+      display: flex;
+      gap: 4px;
+      padding: 4px;
+      background: var(--restless-white);
+      border: 1px solid var(--restless-line);
+      border-radius: 10px;
+    }
+    #restless-authority-reset .direction-choice {
+      appearance: none;
+      border: 0;
+      background: transparent;
+      color: var(--restless-muted);
+      padding: 8px 12px;
+      border-radius: 7px;
+      cursor: pointer;
+      font-weight: 500;
+    }
+    #restless-authority-reset .direction-choice[aria-pressed="true"] {
+      color: var(--restless-ink);
+      background: var(--restless-blue-soft);
+    }
+    #restless-authority-reset .direction { display: none; }
+    #restless-authority-reset .direction.is-current { display: block; }
+    #restless-authority-reset .product-window {
+      min-height: 690px;
+      background: var(--restless-page);
+      border: 1px solid var(--restless-line);
+      overflow: hidden;
+      box-shadow: 0 18px 50px light-dark(rgba(36, 47, 63, .12), rgba(0, 0, 0, .35));
+    }
+    #restless-authority-reset .app-topbar {
+      min-height: 64px;
+      display: grid;
+      grid-template-columns: minmax(210px, auto) 1fr auto;
+      align-items: center;
+      gap: 20px;
+      padding: 0 18px;
+      background: var(--restless-white);
+      border-bottom: 1px solid var(--restless-line);
+    }
+    #restless-authority-reset .app-brand-zone,
+    #restless-authority-reset .app-brand,
+    #restless-authority-reset .app-primary-nav,
+    #restless-authority-reset .app-actions,
+    #restless-authority-reset .sidebar-switch,
+    #restless-authority-reset .authority-heading-row,
+    #restless-authority-reset .charter-heading-row,
+    #restless-authority-reset .status-line,
+    #restless-authority-reset .compact-row,
+    #restless-authority-reset .history-main,
+    #restless-authority-reset .boundary-top,
+    #restless-authority-reset .ledger-row,
+    #restless-authority-reset .index-row,
+    #restless-authority-reset .decision-footer,
+    #restless-authority-reset .company-menu-button {
+      display: flex;
+      align-items: center;
+    }
+    #restless-authority-reset .app-brand-zone { position: relative; gap: 10px; }
+    #restless-authority-reset .app-brand { gap: 9px; font-weight: 500; letter-spacing: .16em; }
+    #restless-authority-reset .app-mark {
+      width: 25px;
+      height: 25px;
+      display: grid;
+      place-items: center;
+      color: var(--restless-blue);
+      font-family: "IBM Plex Mono", monospace;
+      letter-spacing: 0;
+      font-size: 18px;
+    }
+    #restless-authority-reset .company-menu-button {
+      gap: 7px;
+      border: 0;
+      background: transparent;
+      color: var(--restless-muted);
+      padding: 8px;
+      cursor: pointer;
+      border-radius: 7px;
+    }
+    #restless-authority-reset .company-menu-button:hover { background: var(--restless-soft); color: var(--restless-ink); }
+    #restless-authority-reset .company-menu {
+      display: none;
+      position: absolute;
+      z-index: 20;
+      top: 46px;
+      left: 118px;
+      width: 220px;
+      padding: 7px;
+      background: var(--restless-white);
+      border: 1px solid var(--restless-line);
+      box-shadow: 0 18px 40px light-dark(rgba(37, 46, 60, .18), rgba(0, 0, 0, .48));
+      border-radius: 10px;
+    }
+    #restless-authority-reset .company-menu.is-open { display: grid; }
+    #restless-authority-reset .company-menu button {
+      width: 100%;
+      border: 0;
+      text-align: left;
+      padding: 10px;
+      background: transparent;
+      color: var(--restless-ink);
+      border-radius: 7px;
+      cursor: pointer;
+    }
+    #restless-authority-reset .company-menu button:hover { background: var(--restless-blue-soft); }
+    #restless-authority-reset .company-menu small { display: block; color: var(--restless-muted); margin-top: 3px; }
+    #restless-authority-reset .app-primary-nav { justify-content: center; gap: 3px; }
+    #restless-authority-reset .app-primary-nav button,
+    #restless-authority-reset .app-actions button,
+    #restless-authority-reset .sidebar-switch button,
+    #restless-authority-reset .quiet-button,
+    #restless-authority-reset .text-button {
+      appearance: none;
+      border: 0;
+      background: transparent;
+      color: var(--restless-muted);
+      cursor: pointer;
+    }
+    #restless-authority-reset .app-primary-nav button {
+      padding: 10px 13px;
+      border-radius: 7px;
+    }
+    #restless-authority-reset .app-primary-nav button.is-active {
+      color: var(--restless-ink);
+      background: var(--restless-blue-soft);
+      font-weight: 500;
+    }
+    #restless-authority-reset .app-actions { justify-content: flex-end; gap: 8px; }
+    #restless-authority-reset .app-actions button,
+    #restless-authority-reset .quiet-button {
+      border: 1px solid var(--restless-line);
+      background: var(--restless-white);
+      color: var(--restless-ink);
+      padding: 9px 12px;
+      border-radius: 7px;
+    }
+    #restless-authority-reset .app-body {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 300px;
+      min-height: 625px;
+    }
+    #restless-authority-reset .main-view { min-width: 0; }
+    #restless-authority-reset .screen { display: none; }
+    #restless-authority-reset .screen.is-current { display: block; }
+    #restless-authority-reset .executive-sidebar {
+      min-width: 0;
+      background: var(--restless-white);
+      border-left: 1px solid var(--restless-line);
+      padding: 18px;
+    }
+    #restless-authority-reset .sidebar-switch {
+      background: var(--restless-soft);
+      padding: 3px;
+      border-radius: 8px;
+      margin-bottom: 18px;
+    }
+    #restless-authority-reset .sidebar-switch button {
+      flex: 1;
+      padding: 8px;
+      border-radius: 6px;
+    }
+    #restless-authority-reset .sidebar-switch button[aria-pressed="true"] {
+      color: var(--restless-ink);
+      background: var(--restless-white);
+      box-shadow: 0 1px 4px light-dark(rgba(36, 47, 63, .13), rgba(0, 0, 0, .32));
+    }
+    #restless-authority-reset .side-panel { display: none; }
+    #restless-authority-reset .side-panel.is-current { display: block; }
+    #restless-authority-reset .side-title { font-weight: 500; margin-bottom: 6px; }
+    #restless-authority-reset .side-copy { color: var(--restless-muted); margin: 0 0 18px; }
+    #restless-authority-reset .chat-bubble {
+      margin: 0 0 10px;
+      padding: 11px 12px;
+      background: var(--restless-soft);
+      border-radius: 8px 8px 8px 2px;
+    }
+    #restless-authority-reset .chat-bubble.owner {
+      margin-left: 24px;
+      background: var(--restless-blue-soft);
+      border-radius: 8px 8px 2px 8px;
+    }
+    #restless-authority-reset .chat-author,
+    #restless-authority-reset .micro-label,
+    #restless-authority-reset .meta,
+    #restless-authority-reset .status-tag,
+    #restless-authority-reset .band-name,
+    #restless-authority-reset .folio-number,
+    #restless-authority-reset .journal-date {
+      font-family: "IBM Plex Mono", monospace;
+      color: var(--restless-muted);
+      font-size: .78rem;
+    }
+    #restless-authority-reset .chat-author { margin-bottom: 6px; }
+    #restless-authority-reset .chat-bubble p { margin: 0; line-height: 1.45; }
+    #restless-authority-reset .composer {
+      width: 100%;
+      min-height: 68px;
+      resize: none;
+      padding: 10px;
+      color: var(--restless-ink);
+      background: var(--restless-white);
+      border: 1px solid var(--restless-line);
+      border-radius: 8px;
+      font: inherit;
+    }
+    #restless-authority-reset .attention-brief {
+      border-top: 3px solid var(--restless-amber);
+      padding-top: 14px;
+    }
+    #restless-authority-reset .attention-brief h3 { margin: 8px 0; font-size: 1.05rem; font-weight: 500; }
+    #restless-authority-reset .attention-brief p { color: var(--restless-muted); line-height: 1.5; }
+    #restless-authority-reset .attention-consequence {
+      padding: 11px 0;
+      margin: 12px 0;
+      border-top: 1px solid var(--restless-line);
+      border-bottom: 1px solid var(--restless-line);
+      color: var(--restless-ink) !important;
+    }
+    #restless-authority-reset .attention-actions { display: grid; gap: 8px; }
+    #restless-authority-reset .attention-actions button {
+      padding: 10px 12px;
+      border-radius: 7px;
+      border: 1px solid var(--restless-line);
+      background: var(--restless-white);
+      color: var(--restless-ink);
+      cursor: pointer;
+    }
+    #restless-authority-reset .attention-actions button:first-child {
+      background: var(--restless-blue);
+      border-color: var(--restless-blue);
+      color: light-dark(#ffffff, #08111b);
+    }
+
+    /* Direction one — semantic boundary bands. */
+    #restless-authority-reset .direction-one .product-window { border-radius: 12px; }
+    #restless-authority-reset .direction-one .authority-canvas,
+    #restless-authority-reset .direction-one .charter-canvas { padding: 34px 38px 44px; }
+    #restless-authority-reset .authority-heading-row,
+    #restless-authority-reset .charter-heading-row { justify-content: space-between; gap: 18px; align-items: flex-start; }
+    #restless-authority-reset .authority-title h1,
+    #restless-authority-reset .charter-title h1 {
+      margin: 0 0 8px;
+      font-size: 1.8rem;
+      font-weight: 500;
+      letter-spacing: -.025em;
+    }
+    #restless-authority-reset .authority-title p,
+    #restless-authority-reset .charter-title p { margin: 0; color: var(--restless-muted); max-width: 620px; }
+    #restless-authority-reset .status-tag { color: var(--restless-green); white-space: nowrap; padding-top: 7px; }
+    #restless-authority-reset .boundary-bands {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      margin: 32px 0 28px;
+      border-top: 1px solid var(--restless-line);
+      border-bottom: 1px solid var(--restless-line);
+    }
+    #restless-authority-reset .boundary-band { padding: 20px 19px 22px; min-width: 0; }
+    #restless-authority-reset .boundary-band + .boundary-band { border-left: 1px solid var(--restless-line); }
+    #restless-authority-reset .boundary-band.allowed { background: var(--restless-green-soft); }
+    #restless-authority-reset .boundary-band.ask { background: var(--restless-amber-soft); }
+    #restless-authority-reset .boundary-band.never { background: var(--restless-red-soft); }
+    #restless-authority-reset .band-name { color: var(--restless-ink); margin-bottom: 13px; font-weight: 500; }
+    #restless-authority-reset .boundary-band ul { list-style: none; padding: 0; margin: 0; }
+    #restless-authority-reset .boundary-band li { padding: 6px 0; line-height: 1.35; }
+    #restless-authority-reset .boundary-band li::before { content: "—"; color: var(--restless-muted); margin-right: 7px; }
+    #restless-authority-reset .authority-sections {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 30px;
+    }
+    #restless-authority-reset .authority-section h2 {
+      margin: 0 0 13px;
+      font-size: 1.02rem;
+      font-weight: 500;
+    }
+    #restless-authority-reset .compact-list { border-top: 1px solid var(--restless-line); }
+    #restless-authority-reset .compact-row { justify-content: space-between; gap: 12px; padding: 12px 0; border-bottom: 1px solid var(--restless-line); }
+    #restless-authority-reset .compact-row span:last-child { color: var(--restless-muted); text-align: right; }
+    #restless-authority-reset .history-entry { padding: 12px 0; border-top: 1px solid var(--restless-line); }
+    #restless-authority-reset .history-entry:last-child { border-bottom: 1px solid var(--restless-line); }
+    #restless-authority-reset .history-main { justify-content: space-between; gap: 12px; }
+    #restless-authority-reset .history-main span:first-child { font-weight: 500; }
+    #restless-authority-reset .history-main span:last-child { color: var(--restless-muted); white-space: nowrap; }
+    #restless-authority-reset .history-entry p { margin: 5px 0 0; color: var(--restless-muted); }
+    #restless-authority-reset .charter-sheet {
+      margin-top: 30px;
+      border-top: 1px solid var(--restless-line);
+      display: grid;
+      grid-template-columns: 145px 1fr;
+    }
+    #restless-authority-reset .charter-index { padding: 22px 22px 0 0; border-right: 1px solid var(--restless-line); }
+    #restless-authority-reset .charter-index div { padding: 7px 0; color: var(--restless-muted); }
+    #restless-authority-reset .charter-index div:first-child { color: var(--restless-ink); font-weight: 500; }
+    #restless-authority-reset .charter-document { padding: 24px 0 0 30px; max-width: 680px; }
+    #restless-authority-reset .charter-lede { font-size: 1.42rem; line-height: 1.38; margin: 0 0 26px; }
+    #restless-authority-reset .charter-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 25px 34px; }
+    #restless-authority-reset .charter-block h2 { font-size: .85rem; font-weight: 500; font-family: "IBM Plex Mono", monospace; color: var(--restless-muted); margin: 0 0 7px; }
+    #restless-authority-reset .charter-block p { line-height: 1.5; margin: 0; }
+
+    /* Direction two — indexed operating manual. */
+    #restless-authority-reset .direction-two {
+      --restless-blue: light-dark(#355d87, #88b2df);
+      --restless-blue-soft: light-dark(#e7edf4, #182434);
+      --restless-green: light-dark(#356a58, #78bca3);
+      font-family: "Instrument Sans", sans-serif;
+    }
+    #restless-authority-reset .direction-two .product-window { border-radius: 4px; }
+    #restless-authority-reset .direction-two .app-topbar { min-height: 58px; }
+    #restless-authority-reset .direction-two .app-brand,
+    #restless-authority-reset .direction-two .micro-label,
+    #restless-authority-reset .direction-two .meta,
+    #restless-authority-reset .direction-two .status-tag,
+    #restless-authority-reset .direction-two .chat-author,
+    #restless-authority-reset .direction-two .folio-number {
+      font-family: "DM Mono", monospace;
+    }
+    #restless-authority-reset .manual-layout { display: grid; grid-template-columns: 186px minmax(0, 1fr); min-height: 625px; }
+    #restless-authority-reset .manual-index { padding: 30px 18px; background: var(--restless-soft); border-right: 1px solid var(--restless-line); }
+    #restless-authority-reset .manual-index-title { font-weight: 500; margin-bottom: 18px; }
+    #restless-authority-reset .manual-index button {
+      width: 100%;
+      border: 0;
+      background: transparent;
+      color: var(--restless-muted);
+      text-align: left;
+      padding: 8px 9px;
+      border-radius: 5px;
+      cursor: pointer;
+    }
+    #restless-authority-reset .manual-index button.is-active { color: var(--restless-ink); background: var(--restless-white); font-weight: 500; }
+    #restless-authority-reset .manual-main { padding: 34px 38px; }
+    #restless-authority-reset .manual-heading { display: grid; grid-template-columns: 1fr auto; gap: 20px; align-items: start; padding-bottom: 25px; border-bottom: 2px solid var(--restless-ink); }
+    #restless-authority-reset .manual-heading h1 { margin: 0 0 8px; font-size: 1.75rem; font-weight: 500; }
+    #restless-authority-reset .manual-heading p { margin: 0; color: var(--restless-muted); max-width: 620px; }
+    #restless-authority-reset .manual-status { text-align: right; }
+    #restless-authority-reset .manual-status strong { display: block; color: var(--restless-green); font-weight: 500; }
+    #restless-authority-reset .manual-status span { color: var(--restless-muted); }
+    #restless-authority-reset .rule-table { margin-top: 7px; }
+    #restless-authority-reset .rule-row {
+      display: grid;
+      grid-template-columns: 130px minmax(0, 1fr) 150px;
+      gap: 20px;
+      padding: 16px 0;
+      border-bottom: 1px solid var(--restless-line);
+      align-items: start;
+    }
+    #restless-authority-reset .rule-row.header { padding: 11px 0; color: var(--restless-muted); font-family: "DM Mono", monospace; font-size: .77rem; }
+    #restless-authority-reset .rule-kind { font-weight: 500; }
+    #restless-authority-reset .rule-state { color: var(--restless-muted); }
+    #restless-authority-reset .rule-state.allowed { color: var(--restless-green); }
+    #restless-authority-reset .rule-state.ask { color: var(--restless-amber); }
+    #restless-authority-reset .manual-note { margin-top: 24px; padding-left: 14px; border-left: 3px solid var(--restless-blue); color: var(--restless-muted); }
+    #restless-authority-reset .folio {
+      max-width: 750px;
+      margin: 0 auto;
+      padding: 40px 45px;
+    }
+    #restless-authority-reset .folio-head { display: grid; grid-template-columns: 1fr auto; gap: 20px; padding-bottom: 24px; border-bottom: 2px solid var(--restless-ink); }
+    #restless-authority-reset .folio-head h1 { margin: 0; font-weight: 500; font-size: 2rem; }
+    #restless-authority-reset .folio-number { text-align: right; }
+    #restless-authority-reset .folio-purpose { font-size: 1.45rem; line-height: 1.45; margin: 32px 0; max-width: 650px; }
+    #restless-authority-reset .folio-section { display: grid; grid-template-columns: 140px 1fr; gap: 26px; padding: 20px 0; border-top: 1px solid var(--restless-line); }
+    #restless-authority-reset .folio-section h2 { margin: 0; font-size: .86rem; font-family: "DM Mono", monospace; color: var(--restless-muted); font-weight: 500; }
+    #restless-authority-reset .folio-section p { margin: 0; line-height: 1.55; }
+
+    /* Direction three — decision-led journal. */
+    #restless-authority-reset .direction-three {
+      --restless-page: light-dark(#f0f3f6, #10151b);
+      --restless-blue: light-dark(#3b6494, #8ab9e8);
+      --restless-blue-soft: light-dark(#e1ebf5, #172739);
+      font-family: "Manrope", sans-serif;
+    }
+    #restless-authority-reset .direction-three .product-window { border-radius: 16px; }
+    #restless-authority-reset .direction-three .app-topbar { background: var(--restless-page); }
+    #restless-authority-reset .direction-three .micro-label,
+    #restless-authority-reset .direction-three .meta,
+    #restless-authority-reset .direction-three .status-tag,
+    #restless-authority-reset .direction-three .chat-author,
+    #restless-authority-reset .direction-three .journal-date {
+      font-family: "DM Mono", monospace;
+    }
+    #restless-authority-reset .journal-canvas { padding: 34px 42px 44px; }
+    #restless-authority-reset .journal-head { display: flex; justify-content: space-between; gap: 20px; align-items: flex-start; }
+    #restless-authority-reset .journal-head h1 { margin: 0 0 8px; font-size: 1.9rem; font-weight: 500; }
+    #restless-authority-reset .journal-head p { margin: 0; color: var(--restless-muted); max-width: 600px; }
+    #restless-authority-reset .authority-sentence {
+      margin: 28px 0 30px;
+      padding: 22px 0;
+      border-top: 1px solid var(--restless-line);
+      border-bottom: 1px solid var(--restless-line);
+      font-size: 1.22rem;
+      line-height: 1.5;
+    }
+    #restless-authority-reset .authority-sentence strong { font-weight: 500; color: var(--restless-green); }
+    #restless-authority-reset .decision-banner {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 20px;
+      padding: 18px 20px;
+      background: var(--restless-amber-soft);
+      border-radius: 10px;
+      align-items: center;
+      margin-bottom: 30px;
+    }
+    #restless-authority-reset .decision-banner strong { display: block; font-weight: 500; margin-bottom: 4px; }
+    #restless-authority-reset .decision-banner span { color: var(--restless-muted); }
+    #restless-authority-reset .decision-banner button { border: 0; background: var(--restless-ink); color: var(--restless-white); padding: 10px 13px; border-radius: 7px; cursor: pointer; white-space: nowrap; }
+    #restless-authority-reset .journal-section { margin-top: 25px; }
+    #restless-authority-reset .journal-section h2 { margin: 0 0 8px; font-size: 1rem; font-weight: 500; }
+    #restless-authority-reset .journal-entry {
+      display: grid;
+      grid-template-columns: 96px minmax(0, 1fr) auto;
+      gap: 20px;
+      padding: 16px 0;
+      border-top: 1px solid var(--restless-line);
+      align-items: start;
+    }
+    #restless-authority-reset .journal-entry:last-child { border-bottom: 1px solid var(--restless-line); }
+    #restless-authority-reset .journal-event strong { display: block; font-weight: 500; margin-bottom: 4px; }
+    #restless-authority-reset .journal-event span { color: var(--restless-muted); }
+    #restless-authority-reset .journal-state { color: var(--restless-muted); white-space: nowrap; }
+    #restless-authority-reset .charter-manifesto { max-width: 760px; padding: 42px; }
+    #restless-authority-reset .charter-manifesto h1 { margin: 0; font-size: 2rem; font-weight: 500; }
+    #restless-authority-reset .manifesto-line { font-size: 1.55rem; line-height: 1.45; margin: 34px 0; }
+    #restless-authority-reset .manifesto-principles { counter-reset: principle; }
+    #restless-authority-reset .manifesto-principle {
+      counter-increment: principle;
+      display: grid;
+      grid-template-columns: 46px 1fr;
+      gap: 16px;
+      padding: 18px 0;
+      border-top: 1px solid var(--restless-line);
+    }
+    #restless-authority-reset .manifesto-principle::before { content: "0" counter(principle); color: var(--restless-muted); font-family: "DM Mono", monospace; }
+    #restless-authority-reset .manifesto-principle strong { display: block; font-weight: 500; margin-bottom: 5px; }
+    #restless-authority-reset .manifesto-principle span { color: var(--restless-muted); line-height: 1.5; }
+
+    @media (max-width: 880px) {
+      #restless-authority-reset .app-topbar { grid-template-columns: 1fr auto; }
+      #restless-authority-reset .app-primary-nav { grid-column: 1 / -1; grid-row: 2; order: 3; justify-content: flex-start; overflow-x: auto; padding-bottom: 9px; }
+      #restless-authority-reset .app-body { grid-template-columns: 1fr; }
+      #restless-authority-reset .executive-sidebar { border-left: 0; border-top: 1px solid var(--restless-line); }
+      #restless-authority-reset .boundary-bands { grid-template-columns: 1fr; }
+      #restless-authority-reset .boundary-band + .boundary-band { border-left: 0; border-top: 1px solid var(--restless-line); }
+      #restless-authority-reset .authority-sections { grid-template-columns: 1fr; }
+      #restless-authority-reset .manual-layout { grid-template-columns: 150px minmax(0, 1fr); }
+    }
+    @media (max-width: 600px) {
+      #restless-authority-reset .reset-picker { align-items: flex-start; }
+      #restless-authority-reset .reset-directions { width: 100%; }
+      #restless-authority-reset .direction-choice { flex: 1; padding-inline: 6px; }
+      #restless-authority-reset .product-window { min-height: 0; }
+      #restless-authority-reset .app-topbar { padding: 10px 12px 0; gap: 8px; }
+      #restless-authority-reset .app-actions { display: none; }
+      #restless-authority-reset .app-brand-zone { min-width: 0; }
+      #restless-authority-reset .app-brand { font-size: .88rem; }
+      #restless-authority-reset .app-primary-nav button { padding-inline: 9px; }
+      #restless-authority-reset .direction-one .authority-canvas,
+      #restless-authority-reset .direction-one .charter-canvas,
+      #restless-authority-reset .manual-main,
+      #restless-authority-reset .journal-canvas,
+      #restless-authority-reset .charter-manifesto { padding: 24px 18px 30px; }
+      #restless-authority-reset .authority-heading-row,
+      #restless-authority-reset .charter-heading-row,
+      #restless-authority-reset .journal-head { display: grid; }
+      #restless-authority-reset .charter-sheet { grid-template-columns: 1fr; }
+      #restless-authority-reset .charter-index { border-right: 0; border-bottom: 1px solid var(--restless-line); padding: 15px 0; display: flex; gap: 14px; overflow-x: auto; }
+      #restless-authority-reset .charter-document { padding: 22px 0 0; }
+      #restless-authority-reset .charter-grid { grid-template-columns: 1fr; }
+      #restless-authority-reset .manual-layout { grid-template-columns: 1fr; }
+      #restless-authority-reset .manual-index { display: flex; gap: 3px; overflow-x: auto; padding: 10px; border-right: 0; border-bottom: 1px solid var(--restless-line); }
+      #restless-authority-reset .manual-index-title { display: none; }
+      #restless-authority-reset .manual-index button { width: auto; white-space: nowrap; }
+      #restless-authority-reset .manual-heading { grid-template-columns: 1fr; }
+      #restless-authority-reset .manual-status { text-align: left; }
+      #restless-authority-reset .rule-row { grid-template-columns: 1fr; gap: 5px; }
+      #restless-authority-reset .rule-row.header { display: none; }
+      #restless-authority-reset .folio { padding: 28px 18px; }
+      #restless-authority-reset .folio-section { grid-template-columns: 1fr; gap: 8px; }
+      #restless-authority-reset .decision-banner { grid-template-columns: 1fr; }
+      #restless-authority-reset .journal-entry { grid-template-columns: 1fr; gap: 6px; }
+      #restless-authority-reset .manifesto-principle { grid-template-columns: 34px 1fr; }
+    }
+  </style>
+
+  <div class="reset-lab">
+    <div class="reset-picker">
+      <div class="reset-picker-copy">
+        <strong>Authority redesign — structural reset</strong>
+        <span>Each direction keeps the charter separate and removes raw execution logs.</span>
+      </div>
+      <div class="reset-directions" aria-label="Design direction">
+        <button type="button" class="direction-choice" data-direction="one" aria-pressed="true">1 · Boundary sheet</button>
+        <button type="button" class="direction-choice" data-direction="two" aria-pressed="false">2 · Operating manual</button>
+        <button type="button" class="direction-choice" data-direction="three" aria-pressed="false">3 · Decision journal</button>
+      </div>
+    </div>
+
+    <!-- Direction one -->
+    <section class="direction direction-one is-current" data-direction-panel="one">
+      <div class="product-window">
+        <header class="app-topbar">
+          <div class="app-brand-zone">
+            <div class="app-brand"><span class="app-mark">R</span><span>RESTLESS</span></div>
+            <button class="company-menu-button" type="button" aria-expanded="false">Aris <span aria-hidden="true">⌄</span></button>
+            <div class="company-menu">
+              <button type="button" data-show-screen="charter">Company charter<small>Purpose, offer and owner principles</small></button>
+            </div>
+          </div>
+          <nav class="app-primary-nav" aria-label="Primary">
+            <button type="button">Attention</button><button type="button">Work</button><button type="button">People</button><button type="button" class="is-active" data-show-screen="authority">Authority</button>
+          </nav>
+          <div class="app-actions"><button type="button">Talk to Exec</button></div>
+        </header>
+        <div class="app-body">
+          <main class="main-view">
+            <section class="screen is-current" data-screen="authority">
+              <div class="authority-canvas">
+                <div class="authority-heading-row">
+                  <div class="authority-title"><h1>Authority</h1><p>What Aris can do independently, where it must ask, and the boundaries it cannot cross.</p></div>
+                  <div class="status-tag">● ACTIVE</div>
+                </div>
+                <div class="boundary-bands">
+                  <section class="boundary-band allowed"><div class="band-name">CAN ACT</div><ul><li>Research tutoring centres</li><li>Prepare offers and outreach</li><li>Build and validate releases</li><li>Use connected development tools</li></ul></section>
+                  <section class="boundary-band ask"><div class="band-name">ASK YOU FIRST</div><ul><li>Send external outreach</li><li>Publish to production</li><li>Make purchases</li><li>Accept legal terms</li></ul></section>
+                  <section class="boundary-band never"><div class="band-name">CANNOT DO</div><ul><li>Change its own mandate</li><li>Exceed owner-set limits</li><li>Commit owner identity</li><li>Repeat an unknown effect</li></ul></section>
+                </div>
+                <div class="authority-sections">
+                  <section class="authority-section"><h2>Access and resources</h2><div class="compact-list"><div class="compact-row"><span>Company computer</span><span>Running normally</span></div><div class="compact-row"><span>GitHub · study</span><span>Connected</span></div><div class="compact-row"><span>Email account</span><span>Prepare only</span></div><div class="compact-row"><span>Production</span><span>Approval required</span></div></div></section>
+                  <section class="authority-section"><h2>Consequential history</h2><div class="history-entry"><div class="history-main"><span>No external actions yet</span><span>Current period</span></div><p>Four outreach messages are prepared but remain unsent.</p></div><div class="history-entry"><div class="history-main"><span>Routine work is excluded</span><span>View in Work</span></div><p>Builds, repository commands and research do not clutter this history.</p></div></section>
+                </div>
+              </div>
+            </section>
+            <section class="screen" data-screen="charter">
+              <div class="charter-canvas">
+                <div class="charter-heading-row"><div class="charter-title"><h1>Company charter</h1><p>The durable purpose and owner principles that guide Aris.</p></div><button class="quiet-button" type="button" data-show-screen="authority">Back to Authority</button></div>
+                <div class="charter-sheet"><aside class="charter-index"><div>Charter</div><div>Current direction</div><div>Revision history</div></aside><article class="charter-document"><p class="charter-lede">Aris brings high-quality NSW Selective Test practice materials to Australian tutoring centres through a useful free sample and an honest paid-centre offer.</p><div class="charter-grid"><section class="charter-block"><h2>WHO WE SERVE</h2><p>Tutoring-centre owners and academic managers looking for credible, classroom-ready material.</p></section><section class="charter-block"><h2>WHAT WE OFFER</h2><p>A free sample that proves quality, followed by a centre licence and repeat paper supply.</p></section><section class="charter-block"><h2>OWNER PRINCIPLES</h2><p>Be direct about the offer. Preserve quality. Never imply evidence or customer demand that has not been observed.</p></section><section class="charter-block"><h2>CURRENT DIRECTION</h2><p>Prepare the first centre campaign. External outreach remains subject to owner approval.</p></section></div></article></div>
+              </div>
+            </section>
+          </main>
+          <aside class="executive-sidebar">
+            <div class="sidebar-switch"><button type="button" data-side="chat" aria-pressed="true">Exec chat</button><button type="button" data-side="attention" aria-pressed="false">Attention · 1</button></div>
+            <section class="side-panel is-current" data-side-panel="chat"><div class="side-title">Exec</div><p class="side-copy">Ask about this authority or change company direction.</p><div class="chat-bubble"><div class="chat-author">EXEC · NOW</div><p>Aris can prepare the campaign, but it cannot send outreach until you approve the exact recipients and messages.</p></div><div class="chat-bubble owner"><div class="chat-author">YOU</div><p>What happens after I approve?</p></div><textarea class="composer" aria-label="Message Exec" placeholder="Message Exec…"></textarea></section>
+            <section class="side-panel" data-side-panel="attention"><div class="attention-brief"><div class="micro-label">READY FOR YOUR DECISION</div><h3>Send four prepared outreach emails</h3><p>The messages and recipients have been reviewed. Approval authorises one bounded send.</p><p class="attention-consequence"><strong>After approval:</strong> the lead sends them, observes provider receipts, and reports the outcome here.</p><div class="attention-actions"><button type="button">Review and decide</button><button type="button">Ask Exec</button></div></div></section>
+          </aside>
+        </div>
+      </div>
+    </section>
+
+    <!-- Direction two -->
+    <section class="direction direction-two" data-direction-panel="two">
+      <div class="product-window">
+        <header class="app-topbar">
+          <div class="app-brand-zone"><div class="app-brand"><span class="app-mark">R</span><span>RESTLESS</span></div><button class="company-menu-button" type="button" aria-expanded="false">Aris <span aria-hidden="true">⌄</span></button><div class="company-menu"><button type="button" data-show-screen="charter">Company charter<small>Purpose and owner principles</small></button></div></div>
+          <nav class="app-primary-nav" aria-label="Primary"><button type="button">Attention</button><button type="button">Work</button><button type="button">People</button><button type="button" class="is-active" data-show-screen="authority">Authority</button></nav>
+          <div class="app-actions"><button type="button">Exec</button></div>
+        </header>
+        <div class="app-body">
+          <main class="main-view">
+            <section class="screen is-current" data-screen="authority">
+              <div class="manual-layout">
+                <aside class="manual-index"><div class="manual-index-title">Authority</div><button type="button" class="is-active">Operating limits</button><button type="button">Access</button><button type="button">Budgets</button><button type="button">History</button><button type="button">Recovery</button></aside>
+                <div class="manual-main"><div class="manual-heading"><div><h1>Operating limits</h1><p>The enforceable boundaries around Aris. Company purpose and strategy live in the separate charter.</p></div><div class="manual-status"><strong>Active</strong><span>No restrictions</span></div></div><div class="rule-table"><div class="rule-row header"><span>Area</span><span>Current rule</span><span>Authority</span></div><div class="rule-row"><span class="rule-kind">Research</span><span>Find and evaluate tutoring centres using public sources.</span><span class="rule-state allowed">Independent</span></div><div class="rule-row"><span class="rule-kind">Outreach</span><span>Prepare messages freely. Sending requires the exact campaign to be approved.</span><span class="rule-state ask">Owner approval</span></div><div class="rule-row"><span class="rule-kind">Release</span><span>Build, test and stage. Publishing to production requires approval.</span><span class="rule-state ask">Owner approval</span></div><div class="rule-row"><span class="rule-kind">Purchases</span><span>No standing purchasing authority is currently granted.</span><span class="rule-state">Disabled</span></div><div class="rule-row"><span class="rule-kind">Mandate</span><span>Aris cannot alter its purpose, prohibitions, limits or owner controls.</span><span class="rule-state">Owner only</span></div></div><p class="manual-note">Routine Git and shell failures belong to the related Work attempt. Only consequential external actions appear in Authority history.</p></div>
+              </div>
+            </section>
+            <section class="screen" data-screen="charter"><article class="folio"><div class="folio-head"><h1>Aris company charter</h1><div class="folio-number">REVISION 03<br>19 AUG 2026</div></div><p class="folio-purpose">Commercialise the Study codebase by giving Australian tutoring centres a credible sample first, then a clear path to licensed practice papers.</p><section class="folio-section"><h2>Customer</h2><p>Tutoring-centre owners and academic managers who need high-quality NSW Selective Test material they can evaluate before buying.</p></section><section class="folio-section"><h2>Offer</h2><p>A useful free sample that demonstrates question quality, followed by a paid centre licence and repeat paper supply.</p></section><section class="folio-section"><h2>Principles</h2><p>Quality before volume. Evidence before claims. Honest scope. The company prepares every machine-doable last mile before involving the owner.</p></section><section class="folio-section"><h2>Current direction</h2><p>Complete the landing page and prepare the first bounded outreach campaign. Sending remains an Authority decision.</p></section><button class="quiet-button" type="button" data-show-screen="authority">Return to Authority</button></article></section>
+          </main>
+          <aside class="executive-sidebar"><div class="sidebar-switch"><button type="button" data-side="chat" aria-pressed="true">Exec</button><button type="button" data-side="attention" aria-pressed="false">Attention · 1</button></div><section class="side-panel is-current" data-side-panel="chat"><div class="side-title">About this page</div><p class="side-copy">These are owner-readable rules, not implementation policy.</p><div class="chat-bubble"><div class="chat-author">EXEC · NOW</div><p>Outreach is the only current action waiting on your authority. Everything else can continue.</p></div><textarea class="composer" aria-label="Message Exec" placeholder="Ask about a limit…"></textarea></section><section class="side-panel" data-side-panel="attention"><div class="attention-brief"><div class="micro-label">ONE DECISION</div><h3>Approve the prepared campaign</h3><p>Approval unlocks the send for the site-validation lead and preserves a provider receipt for each email.</p><p class="attention-consequence">If you wait, nothing is sent and internal work continues.</p><div class="attention-actions"><button type="button">Open decision</button><button type="button">Ask a question</button></div></div></section></aside>
+        </div>
+      </div>
+    </section>
+
+    <!-- Direction three -->
+    <section class="direction direction-three" data-direction-panel="three">
+      <div class="product-window">
+        <header class="app-topbar"><div class="app-brand-zone"><div class="app-brand"><span class="app-mark">R</span><span>RESTLESS</span></div><button class="company-menu-button" type="button" aria-expanded="false">Aris <span aria-hidden="true">⌄</span></button><div class="company-menu"><button type="button" data-show-screen="charter">Company charter<small>Purpose, offer and principles</small></button></div></div><nav class="app-primary-nav" aria-label="Primary"><button type="button">Attention</button><button type="button">Work</button><button type="button">People</button><button type="button" class="is-active" data-show-screen="authority">Authority</button></nav><div class="app-actions"><button type="button">Talk to Exec</button></div></header>
+        <div class="app-body">
+          <main class="main-view">
+            <section class="screen is-current" data-screen="authority"><div class="journal-canvas"><div class="journal-head"><div><h1>Authority</h1><p>A concise record of Aris’s freedom to act and the external consequences produced under it.</p></div><div class="status-tag">● OPERATING NORMALLY</div></div><p class="authority-sentence">Aris may <strong>research, prepare and build independently</strong>. It must ask before sending, publishing or spending. It can never widen those limits itself.</p><div class="decision-banner"><div><strong>One action is waiting in Attention</strong><span>Four reviewed outreach emails are prepared. No external action has occurred.</span></div><button type="button" data-open-attention>Open decision</button></div><section class="journal-section"><h2>Current access</h2><div class="journal-entry"><div class="journal-date">READY</div><div class="journal-event"><strong>Company computer and browser</strong><span>Persistent working environment is available.</span></div><div class="journal-state">Independent</div></div><div class="journal-entry"><div class="journal-date">CONNECTED</div><div class="journal-event"><strong>Study repository</strong><span>Scoped development access; operational errors remain in Work.</span></div><div class="journal-state">Independent</div></div><div class="journal-entry"><div class="journal-date">BOUNDED</div><div class="journal-event"><strong>Email and production</strong><span>Preparation allowed; external consequence requires your approval.</span></div><div class="journal-state">Ask first</div></div></section><section class="journal-section"><h2>Consequential history</h2><div class="journal-entry"><div class="journal-date">THIS PERIOD</div><div class="journal-event"><strong>No external effects recorded</strong><span>Prepared work is not presented as a completed outcome.</span></div><div class="journal-state">None</div></div></section></div></section>
+            <section class="screen" data-screen="charter"><article class="charter-manifesto"><div class="charter-heading-row"><div><h1>Company charter</h1><div class="meta">ARIS · REVISION 03</div></div><button class="quiet-button" type="button" data-show-screen="authority">Back to Authority</button></div><p class="manifesto-line">Make excellent selective-test practice material easy for Australian tutoring centres to evaluate, license and use.</p><div class="manifesto-principles"><div class="manifesto-principle"><div><strong>Prove value before asking for commitment</strong><span>Lead with a useful free sample, then make the paid-centre offer direct and understandable.</span></div></div><div class="manifesto-principle"><div><strong>Protect the quality of the material</strong><span>Use differentiated production and independent review before presenting an outcome.</span></div></div><div class="manifesto-principle"><div><strong>Be honest about what is known</strong><span>Never turn internal confidence, simulated demand or an agent claim into evidence.</span></div></div><div class="manifesto-principle"><div><strong>Bring the prepared last mile to the owner</strong><span>Only request judgement, identity or consequential approval after all machine-doable work is complete.</span></div></div></div></article></section>
+          </main>
+          <aside class="executive-sidebar"><div class="sidebar-switch"><button type="button" data-side="chat" aria-pressed="true">Exec chat</button><button type="button" data-side="attention" aria-pressed="false">Attention · 1</button></div><section class="side-panel is-current" data-side-panel="chat"><div class="side-title">Exec</div><p class="side-copy">The journal shows only owner-relevant authority and consequences.</p><div class="chat-bubble"><div class="chat-author">EXEC · NOW</div><p>The team has finished the preparation. If you approve the campaign, the lead will send it and track delivery receipts.</p></div><textarea class="composer" aria-label="Message Exec" placeholder="Message Exec…"></textarea></section><section class="side-panel" data-side-panel="attention"><div class="attention-brief"><div class="micro-label">AWAITING YOUR JUDGEMENT</div><h3>Release the outreach campaign</h3><p>Review four messages addressed to tutoring-centre owners.</p><p class="attention-consequence"><strong>Then:</strong> site-validation-lead sends once, observes the provider response, and reports delivered, failed or blocked.</p><div class="attention-actions"><button type="button">Review outcome</button><button type="button">Talk to lead</button></div></div></section></aside>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <script>
+    (() => {
+      const root = document.getElementById('restless-authority-reset');
+      if (!root) return;
+
+      const directions = root.querySelectorAll('.direction-choice');
+      directions.forEach((button) => {
+        button.addEventListener('click', () => {
+          directions.forEach((choice) => choice.setAttribute('aria-pressed', String(choice === button)));
+          root.querySelectorAll('.direction').forEach((panel) => panel.classList.toggle('is-current', panel.dataset.directionPanel === button.dataset.direction));
+        });
+      });
+
+      root.querySelectorAll('.company-menu-button').forEach((button) => {
+        button.addEventListener('click', () => {
+          const menu = button.parentElement.querySelector('.company-menu');
+          const next = !menu.classList.contains('is-open');
+          root.querySelectorAll('.company-menu').forEach((item) => item.classList.remove('is-open'));
+          root.querySelectorAll('.company-menu-button').forEach((item) => item.setAttribute('aria-expanded', 'false'));
+          menu.classList.toggle('is-open', next);
+          button.setAttribute('aria-expanded', String(next));
+        });
+      });
+
+      root.querySelectorAll('[data-show-screen]').forEach((button) => {
+        button.addEventListener('click', () => {
+          const direction = button.closest('.direction');
+          const target = button.dataset.showScreen;
+          direction.querySelectorAll('.screen').forEach((screen) => screen.classList.toggle('is-current', screen.dataset.screen === target));
+          direction.querySelectorAll('.company-menu').forEach((menu) => menu.classList.remove('is-open'));
+          direction.querySelectorAll('.company-menu-button').forEach((item) => item.setAttribute('aria-expanded', 'false'));
+          direction.querySelectorAll('.app-primary-nav button').forEach((nav) => nav.classList.toggle('is-active', target === 'authority' && nav.dataset.showScreen === 'authority'));
+        });
+      });
+
+      root.querySelectorAll('.sidebar-switch').forEach((switcher) => {
+        const direction = switcher.closest('.direction');
+        switcher.querySelectorAll('[data-side]').forEach((button) => {
+          button.addEventListener('click', () => {
+            switcher.querySelectorAll('[data-side]').forEach((choice) => choice.setAttribute('aria-pressed', String(choice === button)));
+            direction.querySelectorAll('[data-side-panel]').forEach((panel) => panel.classList.toggle('is-current', panel.dataset.sidePanel === button.dataset.side));
+          });
+        });
+      });
+
+      root.querySelectorAll('[data-open-attention]').forEach((button) => {
+        button.addEventListener('click', () => {
+          const direction = button.closest('.direction');
+          const target = direction.querySelector('[data-side="attention"]');
+          if (target) target.click();
+        });
+      });
+    })();
+  </script>
+</div>

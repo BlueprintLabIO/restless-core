@@ -39,7 +39,7 @@
 		height: 100%;
 		width: 40%;
 		background: #2f6ca8;
-		animation: slide 1.1s ease-in-out infinite;
+		animation: slide var(--motion-working) var(--ease-standard) infinite;
 	}
 	@keyframes slide {
 		0% {

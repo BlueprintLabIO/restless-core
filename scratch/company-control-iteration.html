@@ -1,0 +1,1761 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline' 'unsafe-eval' 'wasm-unsafe-eval' blob: data: https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://esm.sh https://fonts.bunny.net https://fonts.googleapis.com https://fonts.gstatic.com https://unpkg.com; style-src 'unsafe-inline' blob: data: https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://esm.sh https://fonts.bunny.net https://fonts.googleapis.com https://fonts.gstatic.com https://unpkg.com; img-src blob: data: https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://esm.sh https://fonts.bunny.net https://fonts.googleapis.com https://fonts.gstatic.com https://unpkg.com; font-src blob: data: https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://esm.sh https://fonts.bunny.net https://fonts.googleapis.com https://fonts.gstatic.com https://unpkg.com; media-src blob: data: https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://esm.sh https://fonts.bunny.net https://fonts.googleapis.com https://fonts.gstatic.com https://unpkg.com; worker-src blob:; connect-src blob: data:; frame-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
+<title>Company Control Iteration.Fragment</title>
+<style>:root{color-scheme:light dark;background:light-dark(rgb(255 255 255), rgb(24 24 24))}html,body{margin:0}body{box-sizing:border-box;padding:1rem;background:inherit}iframe{display:block;width:100%;height:calc(100vh - 2rem);margin:0 auto;border:0}</style>
+</head>
+<body>
+<iframe sandbox="allow-scripts" referrerpolicy="no-referrer" title="Company Control Iteration.Fragment" srcdoc="&lt;!doctype html&gt;
+&lt;html lang=&quot;en&quot;&gt;
+&lt;head&gt;
+&lt;meta charset=&quot;utf-8&quot;&gt;
+&lt;meta name=&quot;viewport&quot; content=&quot;width=device-width, initial-scale=1&quot;&gt;
+&lt;meta name=&quot;referrer&quot; content=&quot;no-referrer&quot;&gt;
+&lt;meta http-equiv=&quot;Content-Security-Policy&quot; content=&quot;default-src &#x27;none&#x27;; script-src &#x27;unsafe-inline&#x27; &#x27;unsafe-eval&#x27; &#x27;wasm-unsafe-eval&#x27; blob: data: https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://esm.sh https://fonts.bunny.net https://fonts.googleapis.com https://fonts.gstatic.com https://unpkg.com; style-src &#x27;unsafe-inline&#x27; blob: data: https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://esm.sh https://fonts.bunny.net https://fonts.googleapis.com https://fonts.gstatic.com https://unpkg.com; img-src blob: data: https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://esm.sh https://fonts.bunny.net https://fonts.googleapis.com https://fonts.gstatic.com https://unpkg.com; font-src blob: data: https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://esm.sh https://fonts.bunny.net https://fonts.googleapis.com https://fonts.gstatic.com https://unpkg.com; media-src blob: data: https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://esm.sh https://fonts.bunny.net https://fonts.googleapis.com https://fonts.gstatic.com https://unpkg.com; worker-src blob:; connect-src blob: data:; frame-src &#x27;none&#x27;; object-src &#x27;none&#x27;; base-uri &#x27;none&#x27;; form-action &#x27;none&#x27;&quot;&gt;
+&lt;title&gt;Company Control Iteration.Fragment&lt;/title&gt;
+&lt;style&gt;:root {
+  color-scheme: light dark;
+  background-color: var(
+    --background,
+    var(--color-background-primary, light-dark(rgb(255 255 255), rgb(24 24 24)))
+  ) !important;
+
+  /* Agent-facing contract; keep in sync with SKILL.md. */
+  --background: var(
+    --color-background-primary,
+    light-dark(rgb(255 255 255), rgb(24 24 24))
+  );
+  --foreground: var(
+    --color-text-primary,
+    light-dark(rgb(26 28 31), rgb(255 255 255))
+  );
+  --card: color-mix(in oklab, var(--foreground) 5%, var(--background));
+  --card-foreground: var(
+    --color-text-primary,
+    light-dark(rgb(26 28 31), rgb(255 255 255))
+  );
+  --popover: var(
+    --color-background-secondary,
+    light-dark(rgb(255 255 255), rgb(45 45 45))
+  );
+  --popover-foreground: var(
+    --color-text-primary,
+    light-dark(rgb(26 28 31), rgb(255 255 255))
+  );
+  --primary: var(
+    --color-text-info,
+    light-dark(rgb(51 156 255), rgb(131 195 255))
+  );
+  --primary-foreground: var(
+    --color-text-inverse,
+    light-dark(rgb(255 255 255), rgb(13 13 13))
+  );
+  --secondary: var(
+    --color-background-secondary,
+    light-dark(rgb(255 255 255 / 96%), rgb(54 54 54 / 96%))
+  );
+  --secondary-foreground: var(
+    --color-text-primary,
+    light-dark(rgb(26 28 31), rgb(255 255 255))
+  );
+  --muted: color-mix(in srgb, var(--foreground) 10%, transparent);
+  --muted-foreground: var(
+    --color-text-secondary,
+    light-dark(rgb(26 28 31 / 49.4%), rgb(255 255 255 / 49.8%))
+  );
+  --accent: var(
+    --color-background-info,
+    light-dark(rgb(229 242 255), rgb(13 39 63))
+  );
+  --accent-foreground: var(
+    --color-text-info,
+    light-dark(rgb(51 156 255), rgb(131 195 255))
+  );
+  --destructive: var(
+    --color-text-warning,
+    light-dark(rgb(226 85 7), rgb(255 133 73))
+  );
+  --border: var(
+    --color-border-secondary,
+    light-dark(rgb(26 28 31 / 8%), rgb(255 255 255 / 8.2%))
+  );
+  --input: var(
+    --color-border-primary,
+    light-dark(
+      rgb(26 28 31 / 11.8%),
+      color-mix(in oklab, rgb(0 0 0) 10%, transparent)
+    )
+  );
+  --ring: var(
+    --color-ring-primary,
+    light-dark(rgb(51 156 255), rgb(131 195 255 / 76%))
+  );
+  --font-size-base: var(--font-text-md-size, 14px);
+  --blue: light-dark(rgb(51 156 255), rgb(51 156 255));
+  --orange: light-dark(rgb(226 85 7), rgb(251 106 34));
+  --green: light-dark(rgb(0 162 64), rgb(64 201 119));
+  --red: light-dark(rgb(224 46 42), rgb(255 103 100));
+  --purple: light-dark(rgb(146 79 247), rgb(173 123 249));
+  --yellow: light-dark(rgb(255 195 0), rgb(255 210 64));
+  --viz-series-1: var(--primary);
+  --viz-series-2: light-dark(rgb(243 136 59), rgb(245 154 86));
+  --viz-series-3: light-dark(rgb(93 201 119), rgb(116 213 139));
+  --viz-series-4: light-dark(rgb(235 119 177), rgb(240 143 192));
+  --viz-series-5: light-dark(rgb(155 121 236), rgb(170 145 239));
+  --viz-series-6: light-dark(rgb(58 185 177), rgb(90 203 194));
+
+  /* Internal implementation variables; not part of the agent contract. */
+  --font-sans: -apple-system, system-ui, &quot;Segoe UI&quot;, sans-serif;
+  --font-mono:
+    ui-monospace, SFMono-Regular, &quot;SF Mono&quot;, Menlo, Consolas, &quot;Liberation Mono&quot;,
+    monospace;
+  --font-size-normal: max(11px, var(--font-size-base));
+  --font-size-tooltip: calc(var(--font-size-base) - 1px);
+  --font-size-small: max(11px, calc(var(--font-size-base) - 2px));
+  --font-size-h1: calc(var(--font-size-normal) * 1.7142857143);
+  --font-size-h2: calc(var(--font-size-normal) * 1.4285714286);
+  --font-size-h3: calc(var(--font-size-normal) * 1.2857142857);
+  --font-weight-normal: 430;
+  --font-weight-medium: 500;
+  --line-height-normal: calc(var(--font-size-normal) * 1.5);
+  --line-height-tooltip: calc(var(--font-size-tooltip) * 1.4285714286);
+  --line-height-small: calc(var(--font-size-small) + 4px);
+  --radius: var(--border-radius-lg, 12.5px);
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-2xl: calc(var(--radius) * 1.6);
+  --radius-full: 9999px;
+  --shadow-sm: 0 1px 2px -1px rgb(0 0 0 / 8%);
+  --checkmark-image: url(&quot;data:image/svg+xml,%3Csvg xmlns=&#x27;http://www.w3.org/2000/svg&#x27; viewBox=&#x27;0 0 17 17&#x27;%3E%3Cpath d=&#x27;M12.8961 3.64101C13.1297 3.41418 13.4984 3.37523 13.7779 3.56581C14.0571 3.75635 14.1554 4.11331 14.0299 4.41347L13.9615 4.53847L7.71151 13.7045C7.59411 13.8767 7.4063 13.9877 7.19881 14.0072C6.99136 14.0267 6.78564 13.9533 6.63826 13.806L2.88826 10.056L2.79842 9.9457C2.6192 9.67407 2.64927 9.30496 2.88826 9.06581C3.12738 8.82669 3.49647 8.79676 3.76815 8.97597L3.8785 9.06581L7.03084 12.2182L12.8053 3.74941L12.8961 3.64101Z&#x27;/%3E%3C/svg%3E&quot;);
+
+  /* Legacy aliases; not part of the current agent contract. */
+  --viz-bg: transparent;
+  --viz-panel: var(--card);
+  --viz-border: var(--border);
+  --viz-text: var(--foreground);
+  --viz-muted: var(--muted-foreground);
+  --viz-accent: var(--primary);
+  --viz-accent-text: var(--primary-foreground);
+  --viz-accent-bg: var(--accent);
+  --viz-font-size: var(--font-size-base);
+  --viz-warning: var(--destructive);
+}
+
+:root[data-theme=&quot;light&quot;] {
+  color-scheme: light;
+}
+
+:root[data-theme=&quot;dark&quot;] {
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html &gt; body {
+  /* Preserve MCP aliases for older inline renderers without creating :root cycles. */
+  --color-background-primary: var(
+    --background,
+    light-dark(rgb(255 255 255), rgb(24 24 24))
+  );
+  --color-text-primary: var(
+    --foreground,
+    light-dark(rgb(26 28 31), rgb(255 255 255))
+  );
+  --color-border-secondary: var(
+    --border,
+    light-dark(rgb(26 28 31 / 8%), rgb(255 255 255 / 8.2%))
+  );
+
+  margin: 0;
+  padding: 5px;
+  color: var(--foreground);
+  background: transparent !important;
+  font-family: var(--font-sans) !important;
+  font-size: var(--font-size-normal);
+  font-weight: var(--font-weight-normal);
+  line-height: var(--line-height-normal);
+}
+
+a {
+  color: color-mix(in srgb, var(--viz-accent) 80%, var(--viz-text) 20%);
+  cursor: pointer;
+  font-weight: var(--font-weight-medium, 500);
+  text-decoration: none;
+  text-underline-offset: 2px;
+}
+
+a:is(:hover, :focus-visible) {
+  text-decoration-line: underline;
+  text-decoration-style: dashed;
+  text-decoration-thickness: 0.5px;
+}
+
+h1,
+h2,
+h3,
+h4,
+h5,
+h6,
+p {
+  margin-block: 0;
+}
+
+h1 {
+  font-size: var(--font-size-h1);
+  font-weight: var(--font-weight-medium);
+  line-height: 1.25;
+}
+
+h2 {
+  font-size: var(--font-size-h2);
+  font-weight: var(--font-weight-medium);
+  line-height: 1.25;
+}
+
+h3,
+h4,
+h5,
+h6 {
+  font-size: var(--font-size-h3);
+  font-weight: var(--font-weight-medium);
+  line-height: 1.3;
+}
+
+b,
+strong,
+th {
+  font-weight: var(--font-weight-medium);
+}
+
+code:not(pre code) {
+  display: inline;
+  padding: 1px 6px;
+  border-radius: var(--radius-sm);
+  corner-shape: superellipse(1.5);
+  background: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 0.92em;
+  overflow-wrap: anywhere;
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
+  word-break: break-word;
+}
+
+.table-responsive {
+  width: 100%;
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  color: var(--foreground);
+  font: inherit;
+  text-align: start;
+}
+
+.table :is(th, td) {
+  padding-block: 10px;
+  padding-inline: 0 24px;
+  overflow-wrap: anywhere;
+  border-bottom: 1px solid var(--border);
+  text-align: start;
+  vertical-align: top;
+}
+
+.table-responsive &gt; .table :is(th, td) {
+  overflow-wrap: break-word;
+}
+
+.table :is(th, td):last-child {
+  padding-inline-end: 0;
+}
+
+.table :is(caption, thead th) {
+  font-weight: 600;
+}
+
+.table thead th {
+  padding-block: 8px;
+  border-bottom-color: color-mix(in srgb, var(--foreground) 16%, transparent);
+}
+
+.table tbody tr:last-child :is(th, td) {
+  border-bottom: 0;
+}
+
+.table.table-sm :is(th, td) {
+  padding-block: 6px;
+}
+
+.table.table-sm :is(th, td):not(:last-child) {
+  padding-inline-end: 16px;
+}
+
+.table :is(.text-end, [align=&quot;right&quot;]) {
+  text-align: end;
+  font-variant-numeric: tabular-nums;
+}
+
+.table :is(.text-center, [align=&quot;center&quot;]) {
+  text-align: center;
+}
+
+.table .text-nowrap {
+  white-space: nowrap;
+}
+
+#widget {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: 100%;
+  padding: 0;
+  background: transparent !important;
+}
+
+.card {
+  min-width: 0;
+  padding: 12px;
+  overflow: hidden;
+  overflow-wrap: break-word;
+  border-radius: var(--radius-2xl);
+  corner-shape: superellipse(1.5);
+  color: var(--card-foreground);
+  background: var(--card);
+}
+
+#widget &gt; :not(.card, .progress) {
+  width: 100% !important;
+  max-width: none !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.tooltip {
+  position: fixed;
+  z-index: 50;
+  top: 0;
+  left: 0;
+  width: max-content;
+  max-width: min(
+    20rem,
+    var(--tooltip-available-width, calc(100vw - 10px)),
+    calc(100vw - 10px)
+  );
+  max-height: min(
+    var(--tooltip-available-height, calc(100vh - 10px)),
+    calc(100vh - 10px)
+  );
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  corner-shape: superellipse(1.5);
+  color: var(--popover-foreground);
+  background: var(--popover);
+  box-shadow: none;
+  font-size: var(--font-size-tooltip);
+  line-height: var(--line-height-tooltip);
+  overflow-wrap: break-word;
+  white-space: normal;
+  pointer-events: none;
+  user-select: none;
+}
+
+.viz-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(max(180px, 24%), 1fr));
+  gap: 10px;
+}
+
+.viz-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.viz-stat-value {
+  font-size: var(--font-size-h2);
+  font-weight: var(--font-weight-medium);
+  line-height: 1.25;
+}
+
+.viz-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.progress {
+  display: flex;
+  height: 6px;
+  margin-block: calc((var(--line-height-normal, 1.5em) - 6px) / 2);
+  overflow: hidden;
+  border: 0;
+  border-radius: var(--radius-full);
+  background: var(--muted);
+}
+
+.progress-bar {
+  height: 100%;
+  flex-shrink: 0;
+  border: 0;
+  background: var(--viz-series-1);
+}
+
+.viz-badge {
+  padding: 3px 8px;
+  border-radius: var(--radius-full);
+  color: var(--accent-foreground);
+  background: var(--accent);
+  font-weight: var(--font-weight-medium);
+}
+
+small,
+.text-small,
+.viz-badge {
+  font-size: var(--font-size-small);
+  line-height: var(--line-height-small);
+}
+
+.text-muted {
+  color: var(--muted-foreground);
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.viz-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.viz-controls &gt; .form-label {
+  display: grid;
+  min-width: min(100%, 260px);
+  flex: 1 1 280px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: baseline;
+  gap: 2px 12px;
+  margin-bottom: 0;
+}
+
+.viz-controls &gt; .form-label &gt; :is(.form-control, .form-range, .form-select) {
+  grid-column: 1 / -1;
+}
+
+.btn,
+.form-check-input,
+.form-control,
+.form-range,
+.form-select {
+  font: inherit;
+}
+
+.btn {
+  appearance: button;
+  display: inline-flex;
+  inline-size: fit-content;
+  max-inline-size: 100%;
+  min-height: 28px;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  margin: 0;
+  padding: 0 8px;
+  -webkit-app-region: no-drag;
+  border: 1px solid var(--input);
+  border-radius: var(--radius-lg);
+  corner-shape: superellipse(1.5);
+  color: var(--secondary-foreground);
+  background: var(--secondary);
+  cursor: var(--cursor-interaction, pointer);
+  text-align: center;
+  text-decoration: none;
+  white-space: nowrap;
+  user-select: none;
+  -webkit-font-smoothing: antialiased;
+}
+
+.btn:is(.btn-block, .viz-tile) {
+  inline-size: 100%;
+}
+
+.btn.viz-tile {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+
+a.btn {
+  cursor: pointer;
+  text-decoration: none;
+}
+
+.btn:not(:disabled):hover {
+  background: color-mix(in srgb, var(--foreground) 6%, var(--secondary));
+}
+
+.btn-primary {
+  border-color: transparent;
+  color: var(--primary-foreground);
+  background: var(--foreground);
+  background-clip: padding-box;
+}
+
+.btn-primary .text-muted {
+  color: color-mix(in srgb, var(--primary-foreground) 50%, transparent);
+}
+
+.btn-primary:not(:disabled):hover {
+  background: color-mix(in srgb, var(--foreground) 80%, transparent);
+  background-clip: padding-box;
+}
+
+.btn-ghost {
+  border-color: transparent;
+  color: var(--muted-foreground);
+  background: transparent;
+}
+
+.btn-ghost:not(:disabled):hover {
+  color: var(--foreground);
+  background: color-mix(in srgb, var(--foreground) 6%, var(--secondary));
+}
+
+.btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.4;
+}
+
+[data-lucide] {
+  stroke-width: 1.6;
+}
+
+.form-label {
+  display: block;
+  margin-bottom: 6px;
+  color: var(--foreground);
+}
+
+.form-control {
+  display: block;
+  width: 100%;
+  min-height: 28px;
+  padding: 0 8px;
+  outline: none;
+  border: 1px solid var(--input);
+  border-radius: var(--radius-lg);
+  corner-shape: superellipse(1.5);
+  color: var(--foreground);
+  background: var(--secondary);
+}
+
+.form-control::placeholder {
+  color: var(--muted-foreground);
+}
+
+.form-control[type=&quot;file&quot;] {
+  padding: 0;
+  overflow: hidden;
+  cursor: var(--cursor-interaction, pointer);
+}
+
+.form-control[type=&quot;file&quot;]::file-selector-button {
+  min-height: 26px;
+  margin-right: 8px;
+  padding: 0 8px;
+  border: 0;
+  border-right: 1px solid var(--input);
+  color: var(--secondary-foreground);
+  background: var(--secondary);
+  cursor: inherit;
+  font: inherit;
+}
+
+.form-control[type=&quot;file&quot;]:not(:disabled):hover::file-selector-button {
+  background: color-mix(in srgb, var(--foreground) 6%, var(--secondary));
+}
+
+.form-control-color[type=&quot;color&quot;] {
+  width: 40px;
+  height: 28px;
+  padding: 3px;
+  cursor: var(--cursor-interaction, pointer);
+}
+
+.form-control-color[type=&quot;color&quot;]::-webkit-color-swatch-wrapper {
+  padding: 0;
+}
+
+.form-control-color[type=&quot;color&quot;]::-webkit-color-swatch {
+  border: 0;
+  border-radius: calc(var(--radius-lg) - 4px);
+  corner-shape: superellipse(1.5);
+}
+
+textarea.form-control {
+  height: auto;
+  min-height: 72px;
+  padding: 8px 10px;
+  resize: vertical;
+}
+
+.form-control:focus-visible {
+  border-color: var(--ring);
+  box-shadow: inset 0 0 0 1px var(--ring);
+}
+
+.form-control:disabled,
+.form-select:disabled {
+  cursor: not-allowed;
+  opacity: 0.4;
+}
+
+.form-select {
+  appearance: none;
+  display: block;
+  width: 100%;
+  min-height: 28px;
+  margin: 0;
+  padding: 0 32px 0 8px;
+  outline: none;
+  border: 1px solid var(--input);
+  border-radius: var(--radius-lg);
+  corner-shape: superellipse(1.5);
+  color: var(--foreground);
+  background-color: var(--secondary);
+  background-image:
+    linear-gradient(45deg, transparent 50%, var(--muted-foreground) 50%),
+    linear-gradient(135deg, var(--muted-foreground) 50%, transparent 50%);
+  background-position:
+    calc(100% - 14px) 50%,
+    calc(100% - 10px) 50%;
+  background-repeat: no-repeat;
+  background-size: 4px 4px;
+  cursor: var(--cursor-interaction, default);
+}
+
+.form-select:not(:disabled):hover {
+  background-color: color-mix(in srgb, var(--foreground) 6%, var(--secondary));
+}
+
+.form-select:focus-visible {
+  border-color: var(--ring);
+  box-shadow: inset 0 0 0 1px var(--ring);
+}
+
+.form-check {
+  display: flex;
+  min-height: 20px;
+  align-items: center;
+  gap: 6px;
+}
+
+.form-check-input {
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  flex: 0 0 auto;
+  margin: 0;
+  border: 1px solid var(--input);
+  color: var(--primary-foreground);
+  background-color: transparent;
+  cursor: var(--cursor-interaction, default);
+  transition:
+    background-color 150ms,
+    border-color 150ms,
+    box-shadow 150ms;
+}
+
+.form-check:not(.form-switch) .form-check-input[type=&quot;checkbox&quot;] {
+  border-color: var(--input);
+  border-radius: var(--radius-sm);
+  corner-shape: superellipse(1.5);
+  background-color: var(--secondary);
+  box-shadow: var(--shadow-sm);
+}
+
+.form-check:not(.form-switch)
+  .form-check-input:not(:disabled):not(:checked):hover {
+  background-color: var(--card);
+}
+
+.form-check:not(.form-switch) .form-check-input[type=&quot;checkbox&quot;]:checked {
+  border-color: var(--primary);
+  background-color: var(--primary);
+}
+
+.form-check:not(.form-switch)
+  .form-check-input[type=&quot;checkbox&quot;]:checked::before {
+  display: block;
+  width: 100%;
+  height: 100%;
+  background: var(--primary-foreground);
+  content: &quot;&quot;;
+  mask: var(--checkmark-image) center / 12px 12px no-repeat;
+}
+
+.form-check-input[type=&quot;radio&quot;] {
+  width: 14px;
+  height: 14px;
+  border-radius: var(--radius-full);
+}
+
+.form-check-input[type=&quot;radio&quot;]:checked {
+  border: 2px solid var(--primary);
+  background:
+    radial-gradient(circle, var(--primary-foreground) 0 2.5px, transparent 3px),
+    var(--primary);
+}
+
+.form-check:not(.form-switch) .form-check-input:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+.form-check:not(.form-switch) .form-check-input:disabled {
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+.form-check:not(.form-switch) .form-check-input:disabled + .form-check-label {
+  cursor: not-allowed;
+}
+
+.form-switch .form-check-input:disabled,
+.form-switch .form-check-input:disabled + .form-check-label {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.form-check-label {
+  color: var(--foreground);
+  cursor: var(--cursor-interaction, default);
+}
+
+.form-switch .form-check-input {
+  position: relative;
+  width: 32px;
+  height: 20px;
+  border: 0;
+  border-radius: var(--radius-full);
+  background: var(--muted);
+  box-shadow: none;
+  transition: background-color 200ms cubic-bezier(0, 0, 0.2, 1);
+}
+
+.form-switch .form-check-input::before {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  width: 16px;
+  height: 16px;
+  box-sizing: border-box;
+  border: 1px solid light-dark(var(--primary-foreground), var(--foreground));
+  border-radius: var(--radius-full);
+  background: light-dark(var(--primary-foreground), var(--foreground));
+  box-shadow: var(--shadow-sm);
+  content: &quot;&quot;;
+  transform: translate(2px, -50%);
+  transition: transform 200ms cubic-bezier(0, 0, 0.2, 1);
+}
+
+.form-switch .form-check-input:checked {
+  background: var(--primary);
+}
+
+.form-switch .form-check-input:checked::before {
+  transform: translate(14px, -50%);
+}
+
+.form-switch .form-check-input:focus-visible {
+  box-shadow: 0 0 0 2px var(--ring);
+}
+
+.form-range {
+  appearance: none;
+  display: block;
+  width: 100%;
+  height: 28px;
+  flex: 1;
+  margin: 0;
+  padding: 0;
+  outline: none;
+  border: 0;
+  accent-color: var(--primary);
+  background: linear-gradient(
+      color-mix(in srgb, var(--foreground) 7%, transparent),
+      color-mix(in srgb, var(--foreground) 7%, transparent)
+    )
+    center / 100% 2px no-repeat;
+}
+
+.form-range::-webkit-slider-runnable-track {
+  height: 28px;
+  background: transparent;
+}
+
+.form-range::-webkit-slider-thumb {
+  appearance: none;
+  width: 20px;
+  height: 20px;
+  margin-top: 4px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-full);
+  background: light-dark(var(--primary-foreground), var(--foreground));
+}
+
+.form-range:focus-visible::-webkit-slider-thumb {
+  border-color: var(--ring);
+  box-shadow: inset 0 0 0 1px var(--ring);
+}
+
+.form-range::-moz-range-track {
+  height: 28px;
+  background: transparent;
+}
+
+.form-range::-moz-range-thumb {
+  width: 20px;
+  height: 20px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-full);
+  background: light-dark(var(--primary-foreground), var(--foreground));
+}
+
+.form-range:focus-visible::-moz-range-thumb {
+  border-color: var(--ring);
+  box-shadow: inset 0 0 0 1px var(--ring);
+}
+
+.form-range:disabled {
+  cursor: not-allowed;
+  opacity: 0.4;
+}
+
+.btn:not(.btn-primary, .viz-tile):is(
+  [aria-pressed=&quot;true&quot;],
+  [aria-selected=&quot;true&quot;],
+  .is-selected
+) {
+  border-color: var(--primary);
+  color: var(--primary-foreground);
+  background: var(--primary);
+}
+
+.btn.viz-tile:is([aria-pressed=&quot;true&quot;], [aria-selected=&quot;true&quot;], .is-selected) {
+  border-color: var(--primary);
+  box-shadow: inset 0 0 0 1px var(--primary);
+}
+
+.btn:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+svg {
+  display: block;
+  max-width: 100%;
+  height: auto;
+}
+
+#widget &gt; svg {
+  width: 100%;
+}
+
+/* Model-authored chart rules can otherwise stretch icons after these styles load. */
+svg.lucide {
+  display: block;
+  width: 16px !important;
+  height: 16px !important;
+  flex: none;
+  margin: 0 !important;
+  stroke-width: 1.6;
+}
+
+.text-warning,
+.text-destructive {
+  color: var(--destructive);
+}
+
+html&gt;body{padding:0}&lt;/style&gt;
+&lt;/head&gt;
+&lt;body&gt;
+&lt;div id=&quot;restless-company-control&quot;&gt;
+  &lt;style&gt;
+    @import url(&#x27;https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&amp;family=Instrument+Sans:wght@400;500&amp;display=swap&#x27;);
+
+    #restless-company-control {
+      --company-canvas: light-dark(#edf1f4, #0e1319);
+      --company-surface: light-dark(#ffffff, #151b23);
+      --company-surface-soft: light-dark(#f5f7f9, #1b222c);
+      --company-sidebar: light-dark(#f1f4f6, #111820);
+      --company-ink: light-dark(#1e2530, #edf2f7);
+      --company-muted: light-dark(#68717d, #a3adba);
+      --company-line: light-dark(#cfd6dd, #34404e);
+      --company-blue: light-dark(#365f8a, #88b7e6);
+      --company-blue-soft: light-dark(#e4edf6, #192a3c);
+      --company-green: light-dark(#326c57, #73c3a4);
+      --company-green-soft: light-dark(#e5f1eb, #162b24);
+      --company-amber: light-dark(#8d641f, #e4b86f);
+      --company-amber-soft: light-dark(#f6eedf, #302719);
+      --company-red: light-dark(#914d4a, #df9893);
+      --company-red-soft: light-dark(#f4e7e6, #311d1e);
+      color: var(--company-ink);
+      font-family: &quot;Instrument Sans&quot;, sans-serif;
+      background: transparent;
+    }
+
+    #restless-company-control * { box-sizing: border-box; }
+    #restless-company-control button,
+    #restless-company-control textarea { font: inherit; }
+    #restless-company-control .company-window {
+      width: 100%;
+      min-height: 760px;
+      overflow: hidden;
+      background: var(--company-canvas);
+      border: 1px solid var(--company-line);
+      border-radius: 6px;
+      box-shadow: 0 18px 50px light-dark(rgba(38, 49, 63, .13), rgba(0, 0, 0, .38));
+    }
+    #restless-company-control .company-topbar {
+      min-height: 60px;
+      display: grid;
+      grid-template-columns: 230px 1fr auto;
+      align-items: center;
+      gap: 16px;
+      padding: 0 16px;
+      background: var(--company-surface);
+      border-bottom: 1px solid var(--company-line);
+    }
+    #restless-company-control .company-brand,
+    #restless-company-control .company-brand-name,
+    #restless-company-control .company-primary,
+    #restless-company-control .company-top-actions,
+    #restless-company-control .company-status-strip,
+    #restless-company-control .company-title-row,
+    #restless-company-control .company-sidebar-switch,
+    #restless-company-control .company-chat-head,
+    #restless-company-control .company-row,
+    #restless-company-control .company-history-row,
+    #restless-company-control .company-account-row,
+    #restless-company-control .company-budget-row,
+    #restless-company-control .company-runtime-row,
+    #restless-company-control .company-attention-actions,
+    #restless-company-control .company-revision-row {
+      display: flex;
+      align-items: center;
+    }
+    #restless-company-control .company-brand { gap: 12px; }
+    #restless-company-control .company-brand-name { gap: 9px; font-weight: 500; letter-spacing: .15em; }
+    #restless-company-control .company-mark {
+      width: 26px;
+      height: 26px;
+      display: grid;
+      place-items: center;
+      color: var(--company-blue);
+      font-family: &quot;DM Mono&quot;, monospace;
+      font-size: 18px;
+      letter-spacing: 0;
+    }
+    #restless-company-control .company-picker {
+      border: 0;
+      background: transparent;
+      color: var(--company-muted);
+      padding: 8px 4px;
+      cursor: pointer;
+    }
+    #restless-company-control .company-primary { justify-content: center; gap: 3px; }
+    #restless-company-control .company-primary button,
+    #restless-company-control .company-top-actions button,
+    #restless-company-control .company-nav-button,
+    #restless-company-control .company-sidebar-switch button,
+    #restless-company-control .company-text-action,
+    #restless-company-control .company-secondary-action,
+    #restless-company-control .company-primary-action {
+      appearance: none;
+      cursor: pointer;
+    }
+    #restless-company-control .company-primary button {
+      border: 0;
+      border-radius: 6px;
+      padding: 9px 12px;
+      background: transparent;
+      color: var(--company-muted);
+    }
+    #restless-company-control .company-primary button.is-active {
+      background: var(--company-blue-soft);
+      color: var(--company-ink);
+      font-weight: 500;
+    }
+    #restless-company-control .company-top-actions { justify-content: flex-end; gap: 8px; }
+    #restless-company-control .company-top-actions button,
+    #restless-company-control .company-secondary-action {
+      border: 1px solid var(--company-line);
+      border-radius: 6px;
+      padding: 8px 11px;
+      background: var(--company-surface);
+      color: var(--company-ink);
+    }
+    #restless-company-control .company-status-strip {
+      min-height: 38px;
+      justify-content: space-between;
+      gap: 18px;
+      padding: 0 18px;
+      background: var(--company-surface-soft);
+      border-bottom: 1px solid var(--company-line);
+      color: var(--company-muted);
+    }
+    #restless-company-control .company-current-direction {
+      min-width: 0;
+      overflow: hidden;
+      white-space: nowrap;
+      text-overflow: ellipsis;
+    }
+    #restless-company-control .company-current-direction strong { color: var(--company-ink); font-weight: 500; }
+    #restless-company-control .company-strip-state {
+      display: flex;
+      gap: 16px;
+      white-space: nowrap;
+      font-family: &quot;DM Mono&quot;, monospace;
+      font-size: .78rem;
+    }
+    #restless-company-control .company-strip-state span:first-child { color: var(--company-green); }
+    #restless-company-control .company-shell {
+      display: grid;
+      grid-template-columns: 190px minmax(0, 1fr) 280px;
+      min-height: 660px;
+    }
+    #restless-company-control .company-left-rail {
+      min-width: 0;
+      padding: 25px 14px 20px;
+      background: var(--company-sidebar);
+      border-right: 1px solid var(--company-line);
+    }
+    #restless-company-control .company-identity {
+      padding: 0 10px 22px;
+      border-bottom: 1px solid var(--company-line);
+      margin-bottom: 18px;
+    }
+    #restless-company-control .company-identity strong { display: block; font-size: 1.08rem; font-weight: 500; margin-bottom: 4px; }
+    #restless-company-control .company-identity span { display: block; color: var(--company-muted); line-height: 1.35; }
+    #restless-company-control .company-nav-group { margin-top: 17px; }
+    #restless-company-control .company-nav-label,
+    #restless-company-control .company-meta,
+    #restless-company-control .company-status,
+    #restless-company-control .company-chat-author,
+    #restless-company-control .company-date,
+    #restless-company-control .company-account-state,
+    #restless-company-control .company-budget-state {
+      font-family: &quot;DM Mono&quot;, monospace;
+      font-size: .78rem;
+    }
+    #restless-company-control .company-nav-label {
+      color: var(--company-muted);
+      padding: 0 10px 7px;
+    }
+    #restless-company-control .company-nav-button {
+      width: 100%;
+      display: block;
+      border: 0;
+      border-radius: 5px;
+      padding: 9px 10px;
+      text-align: left;
+      background: transparent;
+      color: var(--company-muted);
+    }
+    #restless-company-control .company-nav-button:hover { color: var(--company-ink); background: var(--company-surface); }
+    #restless-company-control .company-nav-button.is-active {
+      color: var(--company-ink);
+      background: var(--company-surface);
+      box-shadow: inset 3px 0 0 var(--company-blue);
+      font-weight: 500;
+    }
+    #restless-company-control .company-main {
+      min-width: 0;
+      background: var(--company-surface);
+    }
+    #restless-company-control .company-page { display: none; padding: 34px 38px 48px; }
+    #restless-company-control .company-page.is-active { display: block; }
+    #restless-company-control .company-title-row { justify-content: space-between; gap: 22px; align-items: flex-start; }
+    #restless-company-control .company-title h1 {
+      margin: 0 0 7px;
+      font-size: 1.82rem;
+      letter-spacing: -.025em;
+      font-weight: 500;
+    }
+    #restless-company-control .company-title p { margin: 0; color: var(--company-muted); max-width: 620px; line-height: 1.45; }
+    #restless-company-control .company-status { color: var(--company-green); white-space: nowrap; padding-top: 8px; }
+    #restless-company-control .company-charter-statement {
+      margin: 30px 0 32px;
+      padding: 24px 0 27px;
+      border-top: 2px solid var(--company-ink);
+      border-bottom: 1px solid var(--company-line);
+      font-size: 1.48rem;
+      line-height: 1.43;
+      letter-spacing: -.017em;
+    }
+    #restless-company-control .company-charter-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 28px 38px;
+    }
+    #restless-company-control .company-charter-section h2,
+    #restless-company-control .company-section-heading {
+      margin: 0 0 9px;
+      font-size: .84rem;
+      font-family: &quot;DM Mono&quot;, monospace;
+      font-weight: 500;
+      color: var(--company-muted);
+    }
+    #restless-company-control .company-charter-section p { margin: 0; line-height: 1.52; }
+    #restless-company-control .company-principles {
+      grid-column: 1 / -1;
+      border-top: 1px solid var(--company-line);
+      margin-top: 2px;
+    }
+    #restless-company-control .company-principle {
+      display: grid;
+      grid-template-columns: 28px 150px 1fr;
+      gap: 17px;
+      padding: 14px 0;
+      border-bottom: 1px solid var(--company-line);
+      align-items: start;
+    }
+    #restless-company-control .company-principle &gt; span:first-child { color: var(--company-muted); font-family: &quot;DM Mono&quot;, monospace; }
+    #restless-company-control .company-principle strong { font-weight: 500; }
+    #restless-company-control .company-principle &gt; span:last-child { color: var(--company-muted); line-height: 1.45; }
+    #restless-company-control .company-direction-link {
+      margin-top: 30px;
+      padding: 15px 0;
+      border-top: 1px solid var(--company-line);
+      border-bottom: 1px solid var(--company-line);
+      display: grid;
+      grid-template-columns: 140px 1fr auto;
+      gap: 18px;
+      align-items: center;
+    }
+    #restless-company-control .company-direction-link &gt; span:first-child { color: var(--company-muted); font-family: &quot;DM Mono&quot;, monospace; font-size: .78rem; }
+    #restless-company-control .company-direction-link strong { font-weight: 500; }
+    #restless-company-control .company-text-action {
+      border: 0;
+      padding: 5px 0;
+      background: transparent;
+      color: var(--company-blue);
+      white-space: nowrap;
+    }
+    #restless-company-control .company-page-section { margin-top: 30px; }
+    #restless-company-control .company-page-section &gt; h2 { margin: 0 0 11px; font-size: 1rem; font-weight: 500; }
+    #restless-company-control .company-rule-table,
+    #restless-company-control .company-account-list,
+    #restless-company-control .company-budget-list,
+    #restless-company-control .company-history-list,
+    #restless-company-control .company-runtime-list { border-top: 1px solid var(--company-line); }
+    #restless-company-control .company-rule-row {
+      display: grid;
+      grid-template-columns: 126px minmax(0, 1fr) 130px;
+      gap: 18px;
+      padding: 15px 0;
+      border-bottom: 1px solid var(--company-line);
+      align-items: start;
+    }
+    #restless-company-control .company-rule-row.company-table-head { padding: 10px 0; color: var(--company-muted); font-family: &quot;DM Mono&quot;, monospace; font-size: .77rem; }
+    #restless-company-control .company-rule-area { font-weight: 500; }
+    #restless-company-control .company-rule-copy { color: var(--company-muted); line-height: 1.42; }
+    #restless-company-control .company-rule-state { font-family: &quot;DM Mono&quot;, monospace; font-size: .78rem; }
+    #restless-company-control .company-rule-state.independent { color: var(--company-green); }
+    #restless-company-control .company-rule-state.approval { color: var(--company-amber); }
+    #restless-company-control .company-rule-state.blocked { color: var(--company-red); }
+    #restless-company-control .company-authority-note {
+      margin-top: 23px;
+      padding: 13px 0 13px 15px;
+      border-left: 3px solid var(--company-blue);
+      color: var(--company-muted);
+      line-height: 1.45;
+    }
+    #restless-company-control .company-account-row,
+    #restless-company-control .company-budget-row,
+    #restless-company-control .company-runtime-row {
+      justify-content: space-between;
+      gap: 20px;
+      padding: 15px 0;
+      border-bottom: 1px solid var(--company-line);
+      align-items: flex-start;
+    }
+    #restless-company-control .company-account-copy strong,
+    #restless-company-control .company-budget-copy strong,
+    #restless-company-control .company-runtime-copy strong { display: block; font-weight: 500; margin-bottom: 4px; }
+    #restless-company-control .company-account-copy span,
+    #restless-company-control .company-budget-copy span,
+    #restless-company-control .company-runtime-copy span { display: block; color: var(--company-muted); }
+    #restless-company-control .company-account-state,
+    #restless-company-control .company-budget-state { color: var(--company-green); white-space: nowrap; }
+    #restless-company-control .company-account-state.approval,
+    #restless-company-control .company-budget-state.approval { color: var(--company-amber); }
+    #restless-company-control .company-account-state.disabled,
+    #restless-company-control .company-budget-state.disabled { color: var(--company-muted); }
+    #restless-company-control .company-history-empty {
+      padding: 24px 0;
+      border-top: 2px solid var(--company-ink);
+      border-bottom: 1px solid var(--company-line);
+    }
+    #restless-company-control .company-history-empty strong { display: block; font-size: 1.22rem; font-weight: 500; margin-bottom: 7px; }
+    #restless-company-control .company-history-empty p { margin: 0; color: var(--company-muted); line-height: 1.5; }
+    #restless-company-control .company-history-row {
+      justify-content: space-between;
+      gap: 18px;
+      padding: 14px 0;
+      border-bottom: 1px solid var(--company-line);
+      align-items: flex-start;
+    }
+    #restless-company-control .company-history-copy strong { display: block; font-weight: 500; margin-bottom: 4px; }
+    #restless-company-control .company-history-copy span { color: var(--company-muted); }
+    #restless-company-control .company-date { color: var(--company-muted); white-space: nowrap; }
+    #restless-company-control .company-runtime-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 24px; }
+    #restless-company-control .company-primary-action {
+      border: 1px solid var(--company-blue);
+      border-radius: 6px;
+      padding: 9px 12px;
+      background: var(--company-blue);
+      color: light-dark(#ffffff, #07121d);
+    }
+    #restless-company-control .company-danger-action {
+      border: 1px solid var(--company-red);
+      border-radius: 6px;
+      padding: 9px 12px;
+      background: transparent;
+      color: var(--company-red);
+      cursor: pointer;
+    }
+    #restless-company-control .company-revision-list { margin-top: 30px; }
+    #restless-company-control .company-revision-row {
+      justify-content: space-between;
+      gap: 18px;
+      padding: 12px 0;
+      border-top: 1px solid var(--company-line);
+      color: var(--company-muted);
+    }
+    #restless-company-control .company-right-rail {
+      min-width: 0;
+      padding: 17px;
+      background: var(--company-surface);
+      border-left: 1px solid var(--company-line);
+    }
+    #restless-company-control .company-sidebar-switch {
+      padding: 3px;
+      margin-bottom: 18px;
+      background: var(--company-surface-soft);
+      border-radius: 7px;
+    }
+    #restless-company-control .company-sidebar-switch button {
+      flex: 1;
+      border: 0;
+      border-radius: 5px;
+      padding: 8px;
+      background: transparent;
+      color: var(--company-muted);
+    }
+    #restless-company-control .company-sidebar-switch button[aria-pressed=&quot;true&quot;] {
+      background: var(--company-surface);
+      color: var(--company-ink);
+      box-shadow: 0 1px 4px light-dark(rgba(31, 42, 55, .13), rgba(0, 0, 0, .35));
+      font-weight: 500;
+    }
+    #restless-company-control .company-side-view { display: none; }
+    #restless-company-control .company-side-view.is-active { display: block; }
+    #restless-company-control .company-chat-head { justify-content: space-between; gap: 10px; margin-bottom: 16px; }
+    #restless-company-control .company-chat-head strong { font-weight: 500; }
+    #restless-company-control .company-chat-head span { color: var(--company-green); font-family: &quot;DM Mono&quot;, monospace; font-size: .76rem; }
+    #restless-company-control .company-chat-context {
+      padding-bottom: 13px;
+      margin-bottom: 14px;
+      border-bottom: 1px solid var(--company-line);
+      color: var(--company-muted);
+      line-height: 1.42;
+    }
+    #restless-company-control .company-message {
+      margin-bottom: 10px;
+      padding: 11px 12px;
+      background: var(--company-surface-soft);
+      border-radius: 8px 8px 8px 2px;
+    }
+    #restless-company-control .company-message.owner {
+      margin-left: 24px;
+      background: var(--company-blue-soft);
+      border-radius: 8px 8px 2px 8px;
+    }
+    #restless-company-control .company-chat-author { color: var(--company-muted); margin-bottom: 6px; }
+    #restless-company-control .company-message p { margin: 0; line-height: 1.46; }
+    #restless-company-control .company-message-actions { margin-top: 7px; text-align: right; }
+    #restless-company-control .company-message-actions button {
+      border: 0;
+      background: transparent;
+      color: var(--company-muted);
+      padding: 2px 0;
+      cursor: pointer;
+      font-size: .82rem;
+    }
+    #restless-company-control .company-composer {
+      width: 100%;
+      min-height: 72px;
+      resize: none;
+      padding: 10px 11px;
+      border: 1px solid var(--company-line);
+      border-radius: 7px;
+      background: var(--company-surface);
+      color: var(--company-ink);
+    }
+    #restless-company-control .company-attention {
+      padding-top: 13px;
+      border-top: 3px solid var(--company-amber);
+    }
+    #restless-company-control .company-attention h2 { margin: 8px 0 9px; font-size: 1.13rem; font-weight: 500; }
+    #restless-company-control .company-attention p { margin: 0 0 13px; color: var(--company-muted); line-height: 1.48; }
+    #restless-company-control .company-causal-path {
+      margin: 16px 0;
+      border-top: 1px solid var(--company-line);
+      border-bottom: 1px solid var(--company-line);
+    }
+    #restless-company-control .company-causal-step {
+      display: grid;
+      grid-template-columns: 24px 1fr;
+      gap: 10px;
+      padding: 10px 0;
+    }
+    #restless-company-control .company-causal-step + .company-causal-step { border-top: 1px solid var(--company-line); }
+    #restless-company-control .company-causal-step span:first-child { color: var(--company-blue); font-family: &quot;DM Mono&quot;, monospace; }
+    #restless-company-control .company-causal-step strong { display: block; font-weight: 500; margin-bottom: 2px; }
+    #restless-company-control .company-causal-step small { color: var(--company-muted); }
+    #restless-company-control .company-attention-actions { gap: 8px; flex-wrap: wrap; }
+    #restless-company-control .company-attention-actions button { flex: 1; }
+
+    @media (max-width: 840px) {
+      #restless-company-control .company-shell { grid-template-columns: 200px minmax(0, 1fr); }
+      #restless-company-control .company-right-rail { grid-column: 1 / -1; border-left: 0; border-top: 1px solid var(--company-line); }
+      #restless-company-control .company-side-view { max-width: 650px; }
+    }
+    @media (max-width: 720px) {
+      #restless-company-control .company-topbar { grid-template-columns: 1fr auto; padding-top: 9px; }
+      #restless-company-control .company-primary { grid-column: 1 / -1; grid-row: 2; justify-content: flex-start; overflow-x: auto; padding-bottom: 9px; }
+      #restless-company-control .company-status-strip { align-items: flex-start; padding-block: 9px; }
+      #restless-company-control .company-strip-state { display: none; }
+      #restless-company-control .company-shell { grid-template-columns: 1fr; }
+      #restless-company-control .company-left-rail { border-right: 0; border-bottom: 1px solid var(--company-line); padding: 14px; }
+      #restless-company-control .company-identity { padding-bottom: 13px; }
+      #restless-company-control .company-nav-group { display: flex; gap: 3px; overflow-x: auto; margin-top: 9px; }
+      #restless-company-control .company-nav-label { display: none; }
+      #restless-company-control .company-nav-button { width: auto; white-space: nowrap; }
+      #restless-company-control .company-nav-button.is-active { box-shadow: inset 0 -3px 0 var(--company-blue); }
+      #restless-company-control .company-page { padding: 27px 20px 36px; }
+      #restless-company-control .company-charter-grid { grid-template-columns: 1fr; }
+      #restless-company-control .company-principles { grid-column: auto; }
+      #restless-company-control .company-principle { grid-template-columns: 28px 1fr; }
+      #restless-company-control .company-principle &gt; span:last-child { grid-column: 2; }
+      #restless-company-control .company-direction-link { grid-template-columns: 1fr; gap: 7px; }
+      #restless-company-control .company-rule-row { grid-template-columns: 1fr; gap: 5px; }
+      #restless-company-control .company-rule-row.company-table-head { display: none; }
+    }
+    @media (max-width: 460px) {
+      #restless-company-control .company-top-actions { display: none; }
+      #restless-company-control .company-title-row { display: grid; }
+      #restless-company-control .company-charter-statement { font-size: 1.25rem; }
+      #restless-company-control .company-account-row,
+      #restless-company-control .company-budget-row,
+      #restless-company-control .company-runtime-row,
+      #restless-company-control .company-history-row { display: grid; }
+    }
+  &lt;/style&gt;
+
+  &lt;div class=&quot;company-window&quot;&gt;
+    &lt;header class=&quot;company-topbar&quot;&gt;
+      &lt;div class=&quot;company-brand&quot;&gt;
+        &lt;div class=&quot;company-brand-name&quot;&gt;&lt;span class=&quot;company-mark&quot;&gt;R&lt;/span&gt;&lt;span&gt;RESTLESS&lt;/span&gt;&lt;/div&gt;
+        &lt;button type=&quot;button&quot; class=&quot;company-picker&quot;&gt;Aris⌄&lt;/button&gt;
+      &lt;/div&gt;
+      &lt;nav class=&quot;company-primary&quot; aria-label=&quot;Primary navigation&quot;&gt;
+        &lt;button type=&quot;button&quot;&gt;Attention&lt;/button&gt;
+        &lt;button type=&quot;button&quot;&gt;Work&lt;/button&gt;
+        &lt;button type=&quot;button&quot;&gt;People&lt;/button&gt;
+        &lt;button type=&quot;button&quot; class=&quot;is-active&quot;&gt;Company&lt;/button&gt;
+      &lt;/nav&gt;
+      &lt;div class=&quot;company-top-actions&quot;&gt;&lt;button type=&quot;button&quot; data-open-chat&gt;Talk to Exec&lt;/button&gt;&lt;/div&gt;
+    &lt;/header&gt;
+
+    &lt;div class=&quot;company-status-strip&quot;&gt;
+      &lt;div class=&quot;company-current-direction&quot;&gt;&lt;strong&gt;Current direction:&lt;/strong&gt; prepare the first tutoring-centre campaign&lt;/div&gt;
+      &lt;div class=&quot;company-strip-state&quot;&gt;&lt;span&gt;● AUTHORITY ACTIVE&lt;/span&gt;&lt;span&gt;RUNTIME READY&lt;/span&gt;&lt;/div&gt;
+    &lt;/div&gt;
+
+    &lt;div class=&quot;company-shell&quot;&gt;
+      &lt;aside class=&quot;company-left-rail&quot;&gt;
+        &lt;div class=&quot;company-identity&quot;&gt;&lt;strong&gt;Aris&lt;/strong&gt;&lt;span&gt;Australian education publisher&lt;/span&gt;&lt;/div&gt;
+        &lt;nav aria-label=&quot;Company sections&quot;&gt;
+          &lt;div class=&quot;company-nav-group&quot;&gt;
+            &lt;div class=&quot;company-nav-label&quot;&gt;COMPANY&lt;/div&gt;
+            &lt;button type=&quot;button&quot; class=&quot;company-nav-button is-active&quot; data-page-target=&quot;charter&quot;&gt;Company charter&lt;/button&gt;
+          &lt;/div&gt;
+          &lt;div class=&quot;company-nav-group&quot;&gt;
+            &lt;div class=&quot;company-nav-label&quot;&gt;OPERATING CONTROLS&lt;/div&gt;
+            &lt;button type=&quot;button&quot; class=&quot;company-nav-button&quot; data-page-target=&quot;authority&quot;&gt;Operating authority&lt;/button&gt;
+            &lt;button type=&quot;button&quot; class=&quot;company-nav-button&quot; data-page-target=&quot;access&quot;&gt;Access &amp;amp; accounts&lt;/button&gt;
+            &lt;button type=&quot;button&quot; class=&quot;company-nav-button&quot; data-page-target=&quot;budgets&quot;&gt;Budgets&lt;/button&gt;
+            &lt;button type=&quot;button&quot; class=&quot;company-nav-button&quot; data-page-target=&quot;actions&quot;&gt;External actions&lt;/button&gt;
+            &lt;button type=&quot;button&quot; class=&quot;company-nav-button&quot; data-page-target=&quot;runtime&quot;&gt;Runtime &amp;amp; recovery&lt;/button&gt;
+          &lt;/div&gt;
+        &lt;/nav&gt;
+      &lt;/aside&gt;
+
+      &lt;main class=&quot;company-main&quot;&gt;
+        &lt;section class=&quot;company-page is-active&quot; data-page=&quot;charter&quot;&gt;
+          &lt;div class=&quot;company-title-row&quot;&gt;
+            &lt;div class=&quot;company-title&quot;&gt;&lt;h1&gt;Company charter&lt;/h1&gt;&lt;p&gt;The durable purpose and owner principles that guide Aris.&lt;/p&gt;&lt;/div&gt;
+            &lt;button type=&quot;button&quot; class=&quot;company-secondary-action&quot;&gt;Update charter&lt;/button&gt;
+          &lt;/div&gt;
+          &lt;p class=&quot;company-charter-statement&quot;&gt;Make excellent NSW Selective Test practice material easy for Australian tutoring centres to evaluate, license and use.&lt;/p&gt;
+          &lt;div class=&quot;company-charter-grid&quot;&gt;
+            &lt;section class=&quot;company-charter-section&quot;&gt;&lt;h2&gt;WHO WE SERVE&lt;/h2&gt;&lt;p&gt;Tutoring-centre owners and academic managers who need credible, classroom-ready practice material.&lt;/p&gt;&lt;/section&gt;
+            &lt;section class=&quot;company-charter-section&quot;&gt;&lt;h2&gt;WHAT WE OFFER&lt;/h2&gt;&lt;p&gt;A useful free sample that proves question quality, followed by a paid centre licence and repeat paper supply.&lt;/p&gt;&lt;/section&gt;
+            &lt;section class=&quot;company-principles&quot;&gt;&lt;h2 class=&quot;company-section-heading&quot;&gt;OWNER PRINCIPLES&lt;/h2&gt;&lt;div class=&quot;company-principle&quot;&gt;&lt;span&gt;01&lt;/span&gt;&lt;strong&gt;Prove value first&lt;/strong&gt;&lt;span&gt;Let the sample demonstrate quality before asking a centre to buy.&lt;/span&gt;&lt;/div&gt;&lt;div class=&quot;company-principle&quot;&gt;&lt;span&gt;02&lt;/span&gt;&lt;strong&gt;Protect quality&lt;/strong&gt;&lt;span&gt;Use differentiated production and independent review before presenting an outcome.&lt;/span&gt;&lt;/div&gt;&lt;div class=&quot;company-principle&quot;&gt;&lt;span&gt;03&lt;/span&gt;&lt;strong&gt;Stay honest&lt;/strong&gt;&lt;span&gt;Never present an agent claim, simulated demand or internal confidence as observed evidence.&lt;/span&gt;&lt;/div&gt;&lt;div class=&quot;company-principle&quot;&gt;&lt;span&gt;04&lt;/span&gt;&lt;strong&gt;Prepare the last mile&lt;/strong&gt;&lt;span&gt;Only involve the owner after every machine-doable step is complete.&lt;/span&gt;&lt;/div&gt;&lt;/section&gt;
+          &lt;/div&gt;
+          &lt;div class=&quot;company-direction-link&quot;&gt;&lt;span&gt;CURRENT DIRECTION&lt;/span&gt;&lt;strong&gt;Prepare the first bounded tutoring-centre campaign&lt;/strong&gt;&lt;button type=&quot;button&quot; class=&quot;company-text-action&quot;&gt;View in Work →&lt;/button&gt;&lt;/div&gt;
+          &lt;div class=&quot;company-revision-list&quot;&gt;&lt;div class=&quot;company-revision-row&quot;&gt;&lt;span&gt;Effective 19 August 2026 · revision 3&lt;/span&gt;&lt;button type=&quot;button&quot; class=&quot;company-text-action&quot;&gt;View revision history&lt;/button&gt;&lt;/div&gt;&lt;/div&gt;
+        &lt;/section&gt;
+
+        &lt;section class=&quot;company-page&quot; data-page=&quot;authority&quot;&gt;
+          &lt;div class=&quot;company-title-row&quot;&gt;&lt;div class=&quot;company-title&quot;&gt;&lt;h1&gt;Operating authority&lt;/h1&gt;&lt;p&gt;The enforceable boundary around what Aris may do in the real world.&lt;/p&gt;&lt;/div&gt;&lt;div class=&quot;company-status&quot;&gt;● ACTIVE&lt;/div&gt;&lt;/div&gt;
+          &lt;section class=&quot;company-page-section&quot;&gt;&lt;div class=&quot;company-rule-table&quot;&gt;&lt;div class=&quot;company-rule-row company-table-head&quot;&gt;&lt;span&gt;Area&lt;/span&gt;&lt;span&gt;Current rule&lt;/span&gt;&lt;span&gt;Authority&lt;/span&gt;&lt;/div&gt;&lt;div class=&quot;company-rule-row&quot;&gt;&lt;span class=&quot;company-rule-area&quot;&gt;Research&lt;/span&gt;&lt;span class=&quot;company-rule-copy&quot;&gt;Find and evaluate tutoring centres using public sources.&lt;/span&gt;&lt;span class=&quot;company-rule-state independent&quot;&gt;Independent&lt;/span&gt;&lt;/div&gt;&lt;div class=&quot;company-rule-row&quot;&gt;&lt;span class=&quot;company-rule-area&quot;&gt;Outreach&lt;/span&gt;&lt;span class=&quot;company-rule-copy&quot;&gt;Prepare messages freely. Sending requires approval of the exact campaign.&lt;/span&gt;&lt;span class=&quot;company-rule-state approval&quot;&gt;Owner approval&lt;/span&gt;&lt;/div&gt;&lt;div class=&quot;company-rule-row&quot;&gt;&lt;span class=&quot;company-rule-area&quot;&gt;Release&lt;/span&gt;&lt;span class=&quot;company-rule-copy&quot;&gt;Build, test and stage. Publishing to production requires approval.&lt;/span&gt;&lt;span class=&quot;company-rule-state approval&quot;&gt;Owner approval&lt;/span&gt;&lt;/div&gt;&lt;div class=&quot;company-rule-row&quot;&gt;&lt;span class=&quot;company-rule-area&quot;&gt;Purchases&lt;/span&gt;&lt;span class=&quot;company-rule-copy&quot;&gt;No standing purchasing authority is currently granted.&lt;/span&gt;&lt;span class=&quot;company-rule-state blocked&quot;&gt;Disabled&lt;/span&gt;&lt;/div&gt;&lt;div class=&quot;company-rule-row&quot;&gt;&lt;span class=&quot;company-rule-area&quot;&gt;Charter&lt;/span&gt;&lt;span class=&quot;company-rule-copy&quot;&gt;Aris cannot alter its own purpose, prohibitions, limits or owner controls.&lt;/span&gt;&lt;span class=&quot;company-rule-state blocked&quot;&gt;Owner only&lt;/span&gt;&lt;/div&gt;&lt;/div&gt;&lt;/section&gt;
+          &lt;p class=&quot;company-authority-note&quot;&gt;Company purpose lives in the Charter. Current strategy lives in Work. This page contains only enforceable authority.&lt;/p&gt;
+          &lt;div class=&quot;company-runtime-actions&quot;&gt;&lt;button type=&quot;button&quot; class=&quot;company-danger-action&quot;&gt;Freeze external actions&lt;/button&gt;&lt;/div&gt;
+        &lt;/section&gt;
+
+        &lt;section class=&quot;company-page&quot; data-page=&quot;access&quot;&gt;
+          &lt;div class=&quot;company-title-row&quot;&gt;&lt;div class=&quot;company-title&quot;&gt;&lt;h1&gt;Access &amp;amp; accounts&lt;/h1&gt;&lt;p&gt;The productive tools Aris can use and the scope granted to each one.&lt;/p&gt;&lt;/div&gt;&lt;/div&gt;
+          &lt;section class=&quot;company-page-section&quot;&gt;&lt;div class=&quot;company-account-list&quot;&gt;&lt;div class=&quot;company-account-row&quot;&gt;&lt;div class=&quot;company-account-copy&quot;&gt;&lt;strong&gt;Company computer&lt;/strong&gt;&lt;span&gt;Persistent development environment and browser&lt;/span&gt;&lt;/div&gt;&lt;div class=&quot;company-account-state&quot;&gt;READY&lt;/div&gt;&lt;/div&gt;&lt;div class=&quot;company-account-row&quot;&gt;&lt;div class=&quot;company-account-copy&quot;&gt;&lt;strong&gt;GitHub · study&lt;/strong&gt;&lt;span&gt;Repository-scoped development access&lt;/span&gt;&lt;/div&gt;&lt;div class=&quot;company-account-state&quot;&gt;CONNECTED&lt;/div&gt;&lt;/div&gt;&lt;div class=&quot;company-account-row&quot;&gt;&lt;div class=&quot;company-account-copy&quot;&gt;&lt;strong&gt;Company email&lt;/strong&gt;&lt;span&gt;Preparation allowed; sending governed per campaign&lt;/span&gt;&lt;/div&gt;&lt;div class=&quot;company-account-state approval&quot;&gt;ASK BEFORE SEND&lt;/div&gt;&lt;/div&gt;&lt;div class=&quot;company-account-row&quot;&gt;&lt;div class=&quot;company-account-copy&quot;&gt;&lt;strong&gt;Production release&lt;/strong&gt;&lt;span&gt;Build and staging allowed; publishing requires approval&lt;/span&gt;&lt;/div&gt;&lt;div class=&quot;company-account-state approval&quot;&gt;ASK BEFORE PUBLISH&lt;/div&gt;&lt;/div&gt;&lt;/div&gt;&lt;/section&gt;
+        &lt;/section&gt;
+
+        &lt;section class=&quot;company-page&quot; data-page=&quot;budgets&quot;&gt;
+          &lt;div class=&quot;company-title-row&quot;&gt;&lt;div class=&quot;company-title&quot;&gt;&lt;h1&gt;Budgets&lt;/h1&gt;&lt;p&gt;Standing resource envelopes and the categories that remain owner-controlled.&lt;/p&gt;&lt;/div&gt;&lt;/div&gt;
+          &lt;section class=&quot;company-page-section&quot;&gt;&lt;div class=&quot;company-budget-list&quot;&gt;&lt;div class=&quot;company-budget-row&quot;&gt;&lt;div class=&quot;company-budget-copy&quot;&gt;&lt;strong&gt;Model and compute&lt;/strong&gt;&lt;span&gt;Operating inside the current monthly envelope&lt;/span&gt;&lt;/div&gt;&lt;div class=&quot;company-budget-state&quot;&gt;WITHIN LIMIT&lt;/div&gt;&lt;/div&gt;&lt;div class=&quot;company-budget-row&quot;&gt;&lt;div class=&quot;company-budget-copy&quot;&gt;&lt;strong&gt;External services&lt;/strong&gt;&lt;span&gt;No provider charges have been recorded this period&lt;/span&gt;&lt;/div&gt;&lt;div class=&quot;company-budget-state&quot;&gt;NO SPEND&lt;/div&gt;&lt;/div&gt;&lt;div class=&quot;company-budget-row&quot;&gt;&lt;div class=&quot;company-budget-copy&quot;&gt;&lt;strong&gt;Purchases&lt;/strong&gt;&lt;span&gt;No standing purchasing authority&lt;/span&gt;&lt;/div&gt;&lt;div class=&quot;company-budget-state disabled&quot;&gt;DISABLED&lt;/div&gt;&lt;/div&gt;&lt;div class=&quot;company-budget-row&quot;&gt;&lt;div class=&quot;company-budget-copy&quot;&gt;&lt;strong&gt;Campaigns&lt;/strong&gt;&lt;span&gt;Every external send remains a bounded owner decision&lt;/span&gt;&lt;/div&gt;&lt;div class=&quot;company-budget-state approval&quot;&gt;PER CAMPAIGN&lt;/div&gt;&lt;/div&gt;&lt;/div&gt;&lt;/section&gt;
+        &lt;/section&gt;
+
+        &lt;section class=&quot;company-page&quot; data-page=&quot;actions&quot;&gt;
+          &lt;div class=&quot;company-title-row&quot;&gt;&lt;div class=&quot;company-title&quot;&gt;&lt;h1&gt;External actions&lt;/h1&gt;&lt;p&gt;Consequential real-world actions and their authoritative outcomes.&lt;/p&gt;&lt;/div&gt;&lt;/div&gt;
+          &lt;section class=&quot;company-page-section&quot;&gt;&lt;div class=&quot;company-history-empty&quot;&gt;&lt;strong&gt;No external actions recorded this period&lt;/strong&gt;&lt;p&gt;Four outreach messages are prepared, but preparation is not presented as a completed outcome.&lt;/p&gt;&lt;button type=&quot;button&quot; class=&quot;company-text-action&quot; data-open-attention&gt;Open the pending decision →&lt;/button&gt;&lt;/div&gt;&lt;div class=&quot;company-history-list&quot;&gt;&lt;div class=&quot;company-history-row&quot;&gt;&lt;div class=&quot;company-history-copy&quot;&gt;&lt;strong&gt;Routine commands are excluded&lt;/strong&gt;&lt;span&gt;Repository errors, builds and shell output stay with the related Work attempt.&lt;/span&gt;&lt;/div&gt;&lt;div class=&quot;company-date&quot;&gt;VIEW IN WORK&lt;/div&gt;&lt;/div&gt;&lt;div class=&quot;company-history-row&quot;&gt;&lt;div class=&quot;company-history-copy&quot;&gt;&lt;strong&gt;Only consequences appear here&lt;/strong&gt;&lt;span&gt;When an action occurs, its provider result and receipt will be shown in plain language.&lt;/span&gt;&lt;/div&gt;&lt;div class=&quot;company-date&quot;&gt;NO RECEIPTS&lt;/div&gt;&lt;/div&gt;&lt;/div&gt;&lt;/section&gt;
+        &lt;/section&gt;
+
+        &lt;section class=&quot;company-page&quot; data-page=&quot;runtime&quot;&gt;
+          &lt;div class=&quot;company-title-row&quot;&gt;&lt;div class=&quot;company-title&quot;&gt;&lt;h1&gt;Runtime &amp;amp; recovery&lt;/h1&gt;&lt;p&gt;The company computer’s current state and the owner’s recovery controls.&lt;/p&gt;&lt;/div&gt;&lt;div class=&quot;company-status&quot;&gt;● READY&lt;/div&gt;&lt;/div&gt;
+          &lt;section class=&quot;company-page-section&quot;&gt;&lt;div class=&quot;company-runtime-list&quot;&gt;&lt;div class=&quot;company-runtime-row&quot;&gt;&lt;div class=&quot;company-runtime-copy&quot;&gt;&lt;strong&gt;Company computer&lt;/strong&gt;&lt;span&gt;Running normally; internal work can continue&lt;/span&gt;&lt;/div&gt;&lt;div class=&quot;company-account-state&quot;&gt;RUNNING&lt;/div&gt;&lt;/div&gt;&lt;div class=&quot;company-runtime-row&quot;&gt;&lt;div class=&quot;company-runtime-copy&quot;&gt;&lt;strong&gt;Browser session&lt;/strong&gt;&lt;span&gt;Persistent session available for prepared owner handoffs&lt;/span&gt;&lt;/div&gt;&lt;div class=&quot;company-account-state&quot;&gt;AVAILABLE&lt;/div&gt;&lt;/div&gt;&lt;div class=&quot;company-runtime-row&quot;&gt;&lt;div class=&quot;company-runtime-copy&quot;&gt;&lt;strong&gt;External authority&lt;/strong&gt;&lt;span&gt;New consequential actions are permitted within current limits&lt;/span&gt;&lt;/div&gt;&lt;div class=&quot;company-account-state&quot;&gt;ACTIVE&lt;/div&gt;&lt;/div&gt;&lt;/div&gt;&lt;div class=&quot;company-runtime-actions&quot;&gt;&lt;button type=&quot;button&quot; class=&quot;company-primary-action&quot;&gt;Attach to company computer&lt;/button&gt;&lt;button type=&quot;button&quot; class=&quot;company-secondary-action&quot;&gt;Restart runtime&lt;/button&gt;&lt;button type=&quot;button&quot; class=&quot;company-secondary-action&quot;&gt;Restore…&lt;/button&gt;&lt;/div&gt;&lt;/section&gt;
+        &lt;/section&gt;
+      &lt;/main&gt;
+
+      &lt;aside class=&quot;company-right-rail&quot;&gt;
+        &lt;div class=&quot;company-sidebar-switch&quot;&gt;&lt;button type=&quot;button&quot; data-side-target=&quot;chat&quot; aria-pressed=&quot;true&quot;&gt;Exec chat&lt;/button&gt;&lt;button type=&quot;button&quot; data-side-target=&quot;attention&quot; aria-pressed=&quot;false&quot;&gt;Attention · 1&lt;/button&gt;&lt;/div&gt;
+        &lt;section class=&quot;company-side-view is-active&quot; data-side=&quot;chat&quot;&gt;
+          &lt;div class=&quot;company-chat-head&quot;&gt;&lt;strong&gt;Exec&lt;/strong&gt;&lt;span&gt;● AVAILABLE&lt;/span&gt;&lt;/div&gt;
+          &lt;div class=&quot;company-chat-context&quot;&gt;Ask about the selected company page or change the company’s direction.&lt;/div&gt;
+          &lt;div class=&quot;company-message&quot;&gt;&lt;div class=&quot;company-chat-author&quot;&gt;EXEC · NOW&lt;/div&gt;&lt;p&gt;The charter now has its own page. Operating limits are separate, so changing strategy cannot silently change authority.&lt;/p&gt;&lt;div class=&quot;company-message-actions&quot;&gt;&lt;button type=&quot;button&quot;&gt;Copy&lt;/button&gt;&lt;/div&gt;&lt;/div&gt;
+          &lt;div class=&quot;company-message owner&quot;&gt;&lt;div class=&quot;company-chat-author&quot;&gt;YOU&lt;/div&gt;&lt;p&gt;What happens after I approve the campaign?&lt;/p&gt;&lt;div class=&quot;company-message-actions&quot;&gt;&lt;button type=&quot;button&quot;&gt;Copy&lt;/button&gt;&lt;/div&gt;&lt;/div&gt;
+          &lt;textarea class=&quot;company-composer&quot; aria-label=&quot;Message Exec&quot; placeholder=&quot;Message Exec…&quot;&gt;&lt;/textarea&gt;
+        &lt;/section&gt;
+        &lt;section class=&quot;company-side-view&quot; data-side=&quot;attention&quot;&gt;
+          &lt;div class=&quot;company-attention&quot;&gt;&lt;div class=&quot;company-meta&quot;&gt;READY FOR YOUR DECISION&lt;/div&gt;&lt;h2&gt;Send four prepared outreach emails&lt;/h2&gt;&lt;p&gt;The recipients and messages have been reviewed. Approval authorises this campaign once.&lt;/p&gt;&lt;div class=&quot;company-causal-path&quot;&gt;&lt;div class=&quot;company-causal-step&quot;&gt;&lt;span&gt;1&lt;/span&gt;&lt;div&gt;&lt;strong&gt;Your decision is recorded&lt;/strong&gt;&lt;small&gt;The exact campaign becomes authorised.&lt;/small&gt;&lt;/div&gt;&lt;/div&gt;&lt;div class=&quot;company-causal-step&quot;&gt;&lt;span&gt;2&lt;/span&gt;&lt;div&gt;&lt;strong&gt;The lead resumes automatically&lt;/strong&gt;&lt;small&gt;site-validation-lead performs the bounded send.&lt;/small&gt;&lt;/div&gt;&lt;/div&gt;&lt;div class=&quot;company-causal-step&quot;&gt;&lt;span&gt;3&lt;/span&gt;&lt;div&gt;&lt;strong&gt;The outcome returns here&lt;/strong&gt;&lt;small&gt;Delivered, failed or blocked, with provider evidence.&lt;/small&gt;&lt;/div&gt;&lt;/div&gt;&lt;/div&gt;&lt;p&gt;If you wait, nothing is sent and internal work continues.&lt;/p&gt;&lt;div class=&quot;company-attention-actions&quot;&gt;&lt;button type=&quot;button&quot; class=&quot;company-primary-action&quot;&gt;Review and decide&lt;/button&gt;&lt;button type=&quot;button&quot; class=&quot;company-secondary-action&quot; data-open-chat&gt;Ask Exec&lt;/button&gt;&lt;/div&gt;&lt;/div&gt;
+        &lt;/section&gt;
+      &lt;/aside&gt;
+    &lt;/div&gt;
+  &lt;/div&gt;
+
+  &lt;script&gt;
+    (() =&gt; {
+      const root = document.getElementById(&#x27;restless-company-control&#x27;);
+      if (!root) return;
+
+      const pageButtons = root.querySelectorAll(&#x27;[data-page-target]&#x27;);
+      pageButtons.forEach((button) =&gt; {
+        button.addEventListener(&#x27;click&#x27;, () =&gt; {
+          const target = button.dataset.pageTarget;
+          pageButtons.forEach((item) =&gt; item.classList.toggle(&#x27;is-active&#x27;, item === button));
+          root.querySelectorAll(&#x27;[data-page]&#x27;).forEach((page) =&gt; page.classList.toggle(&#x27;is-active&#x27;, page.dataset.page === target));
+        });
+      });
+
+      const setSide = (target) =&gt; {
+        root.querySelectorAll(&#x27;[data-side-target]&#x27;).forEach((button) =&gt; button.setAttribute(&#x27;aria-pressed&#x27;, String(button.dataset.sideTarget === target)));
+        root.querySelectorAll(&#x27;[data-side]&#x27;).forEach((panel) =&gt; panel.classList.toggle(&#x27;is-active&#x27;, panel.dataset.side === target));
+      };
+
+      root.querySelectorAll(&#x27;[data-side-target]&#x27;).forEach((button) =&gt; button.addEventListener(&#x27;click&#x27;, () =&gt; setSide(button.dataset.sideTarget)));
+      root.querySelectorAll(&#x27;[data-open-attention]&#x27;).forEach((button) =&gt; button.addEventListener(&#x27;click&#x27;, () =&gt; setSide(&#x27;attention&#x27;)));
+      root.querySelectorAll(&#x27;[data-open-chat]&#x27;).forEach((button) =&gt; button.addEventListener(&#x27;click&#x27;, () =&gt; setSide(&#x27;chat&#x27;)));
+    })();
+  &lt;/script&gt;
+&lt;/div&gt;
+
+&lt;script src=&quot;https://unpkg.com/@floating-ui/core@1.7.3/dist/floating-ui.core.umd.min.js&quot;&gt;&lt;/script&gt;
+&lt;script src=&quot;https://unpkg.com/@floating-ui/dom@1.7.4/dist/floating-ui.dom.umd.min.js&quot;&gt;&lt;/script&gt;
+&lt;script&gt;
+(() =&gt; {
+  if (window.FloatingUIDOM == null) {
+    return;
+  }
+  const { autoUpdate, computePosition, flip, offset, shift, size } =
+    window.FloatingUIDOM;
+  const tooltipPlacements = new Set([&quot;top&quot;, &quot;right&quot;, &quot;bottom&quot;, &quot;left&quot;]);
+  const tooltipId = `codex-visualization-tooltip-${
+    window.crypto?.randomUUID?.() ?? Date.now().toString(36)
+  }`;
+  const tooltipGap = 5;
+  const hoverDelay = 700;
+  const skipDelay = 300;
+  let activeTrigger = null;
+  let pendingTrigger = null;
+  let tooltip = null;
+  let openTimeout = null;
+  let autoUpdateCleanup = null;
+  let positionRequest = 0;
+  let skipDelayUntil = 0;
+
+  const getTrigger = (target) =&gt;
+    target?.nodeType === Node.ELEMENT_NODE
+      ? target.closest(&quot;[data-tooltip]&quot;)
+      : null;
+  const containsTarget = (trigger, target) =&gt;
+    target?.nodeType != null &amp;&amp; trigger.contains(target);
+  const getContent = (trigger) =&gt;
+    trigger.getAttribute(&quot;data-tooltip&quot;)?.trim() ?? &quot;&quot;;
+  const getPlacement = (trigger) =&gt; {
+    const placement = trigger.getAttribute(&quot;data-tooltip-placement&quot;);
+    return tooltipPlacements.has(placement) ? placement : &quot;top&quot;;
+  };
+  const getTooltip = () =&gt; {
+    if (tooltip == null) {
+      tooltip = document.createElement(&quot;div&quot;);
+      tooltip.id = tooltipId;
+      tooltip.className = &quot;tooltip&quot;;
+      tooltip.setAttribute(&quot;role&quot;, &quot;tooltip&quot;);
+    }
+    return tooltip;
+  };
+  const setDescribedBy = (trigger, described) =&gt; {
+    const ids = new Set(
+      (trigger.getAttribute(&quot;aria-describedby&quot;) ?? &quot;&quot;)
+        .split(/\s+/)
+        .filter(Boolean),
+    );
+    if (described) {
+      ids.add(tooltipId);
+    } else {
+      ids.delete(tooltipId);
+    }
+    if (ids.size === 0) {
+      trigger.removeAttribute(&quot;aria-describedby&quot;);
+    } else {
+      trigger.setAttribute(&quot;aria-describedby&quot;, [...ids].join(&quot; &quot;));
+    }
+  };
+  const clearOpenTimeout = () =&gt; {
+    if (openTimeout != null) {
+      window.clearTimeout(openTimeout);
+      openTimeout = null;
+    }
+    pendingTrigger = null;
+  };
+  const closeTooltip = (activateSkipDelay = true) =&gt; {
+    clearOpenTimeout();
+    positionRequest += 1;
+    autoUpdateCleanup?.();
+    autoUpdateCleanup = null;
+    if (activeTrigger == null) {
+      return;
+    }
+    setDescribedBy(activeTrigger, false);
+    activeTrigger = null;
+    tooltip?.remove();
+    if (activateSkipDelay) {
+      skipDelayUntil = Date.now() + skipDelay;
+    }
+  };
+  const updatePosition = (trigger, floating) =&gt; {
+    const request = ++positionRequest;
+    void computePosition(trigger, floating, {
+      middleware: [
+        offset(tooltipGap),
+        flip({ padding: tooltipGap }),
+        shift({ padding: tooltipGap }),
+        size({
+          padding: tooltipGap,
+          apply({ availableHeight, availableWidth, elements }) {
+            elements.floating.style.setProperty(
+              &quot;--tooltip-available-width&quot;,
+              `${Math.max(0, availableWidth)}px`,
+            );
+            elements.floating.style.setProperty(
+              &quot;--tooltip-available-height&quot;,
+              `${Math.max(0, availableHeight)}px`,
+            );
+          },
+        }),
+      ],
+      placement: getPlacement(trigger),
+      strategy: &quot;fixed&quot;,
+    })
+      .then(({ x, y }) =&gt; {
+        if (activeTrigger !== trigger || request !== positionRequest) {
+          return;
+        }
+        const scale = window.devicePixelRatio || 1;
+        floating.style.transform = `translate(${Math.round(x * scale) / scale}px, ${Math.round(y * scale) / scale}px)`;
+        floating.style.visibility = &quot;visible&quot;;
+      })
+      .catch(() =&gt; {
+        if (activeTrigger === trigger &amp;&amp; request === positionRequest) {
+          closeTooltip(false);
+        }
+      });
+  };
+  const openTooltip = (trigger) =&gt; {
+    const content = getContent(trigger);
+    if (!trigger.isConnected || content.length === 0) {
+      return;
+    }
+    clearOpenTimeout();
+    if (activeTrigger === trigger) {
+      return;
+    }
+    closeTooltip();
+    const floating = getTooltip();
+    floating.textContent = content;
+    floating.style.visibility = &quot;hidden&quot;;
+    floating.style.transform = &quot;translate(0, 0)&quot;;
+    document.body.appendChild(floating);
+    activeTrigger = trigger;
+    setDescribedBy(trigger, true);
+    autoUpdateCleanup = autoUpdate(trigger, floating, () =&gt; {
+      updatePosition(trigger, floating);
+    });
+  };
+  const requestOpen = (trigger, immediate = false) =&gt; {
+    if (
+      getContent(trigger).length === 0 ||
+      activeTrigger === trigger ||
+      pendingTrigger === trigger
+    ) {
+      return;
+    }
+    clearOpenTimeout();
+    pendingTrigger = trigger;
+    const delay =
+      immediate || activeTrigger != null || Date.now() &lt; skipDelayUntil
+        ? 0
+        : hoverDelay;
+    if (delay === 0) {
+      openTooltip(trigger);
+      return;
+    }
+    openTimeout = window.setTimeout(() =&gt; {
+      openTimeout = null;
+      pendingTrigger = null;
+      openTooltip(trigger);
+    }, delay);
+  };
+  const handlePointerOpen = (event) =&gt; {
+    if (event.pointerType === &quot;touch&quot;) {
+      return;
+    }
+    const trigger = getTrigger(event.target);
+    if (trigger == null || containsTarget(trigger, event.relatedTarget)) {
+      return;
+    }
+    requestOpen(trigger);
+  };
+  const handleLeave = (event) =&gt; {
+    const trigger = getTrigger(event.target);
+    if (trigger == null || containsTarget(trigger, event.relatedTarget)) {
+      return;
+    }
+    if (activeTrigger === trigger || pendingTrigger === trigger) {
+      closeTooltip();
+    }
+  };
+  const handleFocusIn = (event) =&gt; {
+    const trigger = getTrigger(event.target);
+    if (trigger?.matches(&quot;:focus-visible&quot;)) {
+      requestOpen(trigger, true);
+    }
+  };
+  const handleKeyDown = (event) =&gt; {
+    if (event.key === &quot;Escape&quot;) {
+      closeTooltip();
+    }
+  };
+  const handleContextMenu = (event) =&gt; {
+    const trigger = getTrigger(event.target);
+    if (activeTrigger === trigger || pendingTrigger === trigger) {
+      closeTooltip();
+    }
+  };
+  const destroy = () =&gt; {
+    closeTooltip(false);
+    document.removeEventListener(&quot;pointerover&quot;, handlePointerOpen);
+    document.removeEventListener(&quot;pointerout&quot;, handleLeave);
+    document.removeEventListener(&quot;focusin&quot;, handleFocusIn);
+    document.removeEventListener(&quot;focusout&quot;, handleLeave);
+    document.removeEventListener(&quot;keydown&quot;, handleKeyDown);
+    document.removeEventListener(&quot;contextmenu&quot;, handleContextMenu);
+    tooltip = null;
+  };
+
+  document.addEventListener(&quot;pointerover&quot;, handlePointerOpen);
+  document.addEventListener(&quot;pointerout&quot;, handleLeave);
+  document.addEventListener(&quot;focusin&quot;, handleFocusIn);
+  document.addEventListener(&quot;focusout&quot;, handleLeave);
+  document.addEventListener(&quot;keydown&quot;, handleKeyDown);
+  document.addEventListener(&quot;contextmenu&quot;, handleContextMenu);
+  window.addEventListener(&quot;pagehide&quot;, destroy, { once: true });
+})();
+&lt;/script&gt;
+&lt;script id=&quot;codex-visualization-lucide&quot; async src=&quot;https://unpkg.com/lucide@1.17.0/dist/umd/lucide.js&quot;&gt;&lt;/script&gt;
+&lt;script&gt;
+(() =&gt; {
+  const initialize = () =&gt; {
+    globalThis.lucide?.createIcons({ attrs: { width: 16, height: 16 } });
+  };
+  if (globalThis.lucide != null) {
+    initialize();
+    return;
+  }
+  document
+    .getElementById(&quot;codex-visualization-lucide&quot;)
+    ?.addEventListener(&quot;load&quot;, initialize, { once: true });
+})();
+&lt;/script&gt;
+
+&lt;/body&gt;
+&lt;/html&gt;
+"></iframe>
+</body>
+</html>

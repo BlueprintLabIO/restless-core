@@ -1,0 +1,207 @@
+#!/usr/bin/env bash
+# One foreground owner stack for local development. Durable company containers
+# and volumes outlive this process; only host processes started here are stopped
+# when the terminal closes.
+set -euo pipefail
+
+STACK_SCRIPT_PATH="$0"
+while [ -L "$STACK_SCRIPT_PATH" ]; do
+  STACK_LINK_DIR="$(cd "$(dirname "$STACK_SCRIPT_PATH")" && pwd)"
+  STACK_LINK_TARGET="$(readlink "$STACK_SCRIPT_PATH")"
+  case "$STACK_LINK_TARGET" in
+    /*) STACK_SCRIPT_PATH="$STACK_LINK_TARGET" ;;
+    *) STACK_SCRIPT_PATH="${STACK_LINK_DIR}/${STACK_LINK_TARGET}" ;;
+  esac
+done
+STACK_SCRIPT_DIR="$(cd "$(dirname "$STACK_SCRIPT_PATH")" && pwd)"
+STACK_REPO_ROOT="$(cd "${STACK_SCRIPT_DIR}/.." && pwd)"
+if [ "${1:-}" = "-h" ] || [ "${1:-}" = "--help" ] || [ "${1:-}" = "help" ]; then
+  STACK_ACTION="help"
+  STACK_COMPANY="aris"
+  STACK_RECONCILE=""
+elif [ "${1:-}" = "doctor" ]; then
+  STACK_ACTION="doctor"
+  STACK_COMPANY="${2:-aris}"
+  STACK_RECONCILE=""
+elif [ "${1:-}" = "dev" ]; then
+  # Keep the old spelling temporarily so an open terminal does not become a trap.
+  STACK_ACTION="dev"
+  STACK_COMPANY="${2:-aris}"
+  STACK_RECONCILE="${3:-}"
+else
+  STACK_ACTION="dev"
+  STACK_COMPANY="${1:-aris}"
+  STACK_RECONCILE="${2:-}"
+fi
+STACK_OWNER_URL="${RESTLESS_OWNER_URL:-http://127.0.0.1:7788}"
+STACK_WEB_PORT="${RESTLESS_WEB_PORT:-5173}"
+STACK_WEB_URL="http://127.0.0.1:${STACK_WEB_PORT}"
+STACK_TARGET_DIR="${STACK_REPO_ROOT}/target"
+STACK_DAEMON_PID=""
+STACK_WEB_PID=""
+
+usage() {
+  cat <<'EOF'
+usage:
+  restless-dev [company] [--reconcile]
+  restless-dev doctor [company]
+
+dev owns the foreground daemon and Vite processes it starts. Ctrl-C stops
+those host processes, while the company's persistent container and volume stay up.
+doctor is read-only and exits non-zero when any boundary is unavailable.
+EOF
+}
+
+pass() { printf 'PASS  %s\n' "$1"; }
+fail() { printf 'FAIL  %s\n' "$1" >&2; STACK_FAILURES=$((STACK_FAILURES + 1)); }
+
+require_command() {
+  if command -v "$1" >/dev/null 2>&1; then
+    pass "$1 is installed"
+  else
+    fail "$1 is not installed"
+  fi
+}
+
+http_status() {
+  curl --max-time 3 --silent --output /dev/null --write-out '%{http_code}' "$1" 2>/dev/null || true
+}
+
+gateway_is_live() {
+  local status
+  status="$(http_status "${STACK_OWNER_URL}/api/companies")"
+  [ "$status" = "200" ] || [ "$status" = "401" ]
+}
+
+web_proxy_is_live() {
+  local status
+  status="$(http_status "${STACK_WEB_URL}/api/companies")"
+  [ "$status" = "200" ] || [ "$status" = "401" ]
+}
+
+wait_for_gateway() {
+  local probe_attempt
+  for ((probe_attempt = 0; probe_attempt < 80; probe_attempt += 1)); do
+    gateway_is_live && return 0
+    sleep 0.25
+  done
+  return 1
+}
+
+wait_for_web_proxy() {
+  local probe_attempt
+  for ((probe_attempt = 0; probe_attempt < 80; probe_attempt += 1)); do
+    web_proxy_is_live && return 0
+    sleep 0.25
+  done
+  return 1
+}
+
+check_disk_headroom() {
+  local available_kb
+  available_kb="$(df -Pk "${STACK_REPO_ROOT}" | awk 'END {print $4}')"
+  if [ -n "$available_kb" ] && [ "$available_kb" -ge $((30 * 1024 * 1024)) ]; then
+    pass "host has at least 30 GiB free"
+  else
+    fail "host has less than 30 GiB free; clean build storage before a full build"
+  fi
+}
+
+doctor() {
+  if [ ! -x "${STACK_TARGET_DIR}/debug/restless" ]; then
+    printf 'restless is not built; run restless-dev %s first.\n' "$STACK_COMPANY" >&2
+    return 1
+  fi
+  RESTLESS_OWNER_URL="$STACK_OWNER_URL" \
+    RESTLESS_COCKPIT_URL="$STACK_WEB_URL" \
+    "${STACK_TARGET_DIR}/debug/restless" doctor -c "$STACK_COMPANY"
+}
+
+cleanup_children() {
+  local exit_code=$?
+  trap - EXIT INT TERM
+  if [ -n "$STACK_WEB_PID" ] && kill -0 "$STACK_WEB_PID" 2>/dev/null; then
+    kill "$STACK_WEB_PID" 2>/dev/null || true
+    wait "$STACK_WEB_PID" 2>/dev/null || true
+  fi
+  if [ -n "$STACK_DAEMON_PID" ] && kill -0 "$STACK_DAEMON_PID" 2>/dev/null; then
+    kill "$STACK_DAEMON_PID" 2>/dev/null || true
+    wait "$STACK_DAEMON_PID" 2>/dev/null || true
+  fi
+  exit "$exit_code"
+}
+
+dev() {
+  case "$STACK_RECONCILE" in
+    ""|--reconcile) ;;
+    *) usage >&2; exit 2 ;;
+  esac
+
+  STACK_FAILURES=0
+  require_command cargo
+  require_command curl
+  require_command docker
+  require_command npm
+  check_disk_headroom
+  [ "$STACK_FAILURES" -eq 0 ] || return 1
+
+  cargo build --quiet --manifest-path "${STACK_REPO_ROOT}/Cargo.toml" \
+    --target-dir "$STACK_TARGET_DIR" -p restlessd -p restless
+
+  if [ "$(http_status "${STACK_WEB_URL}/${STACK_COMPANY}")" = "200" ]; then
+    if [ "$STACK_RECONCILE" = "--reconcile" ]; then
+      "${STACK_TARGET_DIR}/debug/restless" up -c "$STACK_COMPANY" --reconcile
+    fi
+    if doctor; then
+      printf 'The local stack is already running; no second stack was started.\n'
+      return 0
+    fi
+    printf 'Port %s is occupied by an inconsistent web stack; stop it, then rerun this command.\n' "$STACK_WEB_PORT" >&2
+    return 1
+  fi
+
+  trap cleanup_children EXIT INT TERM
+  if ! gateway_is_live; then
+    (cd "$STACK_REPO_ROOT" && exec "${STACK_TARGET_DIR}/debug/restlessd") &
+    STACK_DAEMON_PID=$!
+    wait_for_gateway || {
+      printf 'Owner gateway did not become ready. See the daemon output above.\n' >&2
+      return 1
+    }
+  fi
+
+  local up_args=(up -c "$STACK_COMPANY")
+  [ "$STACK_RECONCILE" = "--reconcile" ] && up_args+=(--reconcile)
+  "${STACK_TARGET_DIR}/debug/restless" "${up_args[@]}"
+
+  if [ ! -d "${STACK_REPO_ROOT}/web/node_modules" ]; then
+    printf 'web/node_modules is absent; run npm --prefix web install first.\n' >&2
+    return 1
+  fi
+
+  (
+    cd "${STACK_REPO_ROOT}/web"
+    exec ./node_modules/.bin/vite dev --host 127.0.0.1 --port "$STACK_WEB_PORT" --strictPort
+  ) &
+  STACK_WEB_PID=$!
+  wait_for_web_proxy || {
+    printf 'Cockpit did not become ready. See the Vite output above.\n' >&2
+    return 1
+  }
+
+  doctor
+  printf '\nPress Ctrl-C to stop the host daemon and Vite processes started here.\n'
+  wait "$STACK_WEB_PID"
+}
+
+if ! [[ "$STACK_COMPANY" =~ ^[a-z][a-z0-9_]{0,62}$ ]]; then
+  printf 'invalid company name: %s\n' "$STACK_COMPANY" >&2
+  exit 2
+fi
+
+case "$STACK_ACTION" in
+  dev) dev ;;
+  doctor) doctor ;;
+  help) usage ;;
+  *) usage >&2; exit 2 ;;
+esac

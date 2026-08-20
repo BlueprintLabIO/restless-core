@@ -179,7 +179,8 @@ A company can be highly active while producing no economic value.
 
 The UI should make it easy to set direction and limits, then let the Exec operate.
 
-The owner can contact any employee, but ordinary organisational coordination remains the Exec’s responsibility.
+The owner can contact the Exec and accountable team leads directly. Other Staff remain inspectable
+through their Work and evidence, with the accountable lead or Exec as the owner-facing route.
 
 The cockpit should distinguish casual communication from durable operating change so that a conversational message does not silently rewrite the company plan.
 
@@ -265,14 +266,15 @@ The cockpit has four primary product areas:
 
 1. **Attention** — the priority stack requiring owner awareness or action.
 2. **Work** — goals, milestones, Work nodes, tasks, evidence, and outcomes.
-3. **People** — the employee directory and direct chat with every actor.
-4. **Authority** — mandate, budgets, capabilities, providers, resources, effects, and lifecycle controls.
+3. **People** — the durable organisation, accountable contacts, Staff Work and evidence.
+4. **Company** — the stable owner shell for charter, authority and limits, resources and access,
+   external actions, and the Company computer.
 
 ```text
 ┌─────────────────────────────────────────────────────────────┐
 │ Company · Phase · Health · Runtime · Spend · Authority      │
 ├────────────┬────────────┬────────────┬───────────────────────┤
-│ Attention  │ Work       │ People     │ Authority             │
+│ Attention  │ Work       │ People     │ Company               │
 └────────────┴────────────┴────────────┴───────────────────────┘
 ```
 
@@ -307,7 +309,8 @@ The global bar is a compact orientation aid, not another dashboard.
 
 V0 does not require a fifth “Dashboard” section.
 
-The Attention page plus the global company bar should provide the default overview. Work, People, and Authority provide deeper operational views.
+The Attention page plus the global company bar should provide the default overview. Work, People,
+and Company provide deeper operational views.
 
 Add a separate overview only if dogfood shows that owners repeatedly need a stable synthesis that does not belong in Attention.
 
@@ -319,29 +322,29 @@ Add a separate overview only if dogfood shows that owners repeatedly need a stab
 
 The cockpit should consistently use the following concepts:
 
-| Concept | Meaning | Authoritative owner |
-|---|---|---|
-| **Company** | The durable organisation | Authority Plane for identity/lifecycle; OrgIntel for operating state |
-| **Actor** | Persistent human, agent, or service identity | OrgIntel |
-| **Role** | Organisational responsibility and decision rights | OrgIntel |
-| **Session** | Temporary model/process execution | OrgIntel + Runtime Bridge |
-| **Goal** | Desired outcome at any abstraction level | OrgIntel |
-| **Work** | One actor’s durable outcome, expected artifact and exact workspace | OrgIntel |
-| **Attempt** | One claimed execution of one Work revision with exact inputs | OrgIntel |
-| **Work edge** | `requires` hard handover or `revises` review feedback | OrgIntel |
-| **Owner handoff** | Prepared browser/action state plus observable resume condition | OrgIntel |
-| **Task** | Owner-facing UI label for a Work or small goal | Projection only |
-| **Artifact reference** | Pointer to actual work | OrgIntel reference; Runtime owns artifact |
-| **Observation** | Directly measured, recorded, or witnessed information | OrgIntel or referenced source |
-| **Hypothesis** | Testable claim about what is true or will work | OrgIntel |
-| **Decision** | Named choice with owner and rationale | OrgIntel unless it changes root authority |
-| **Directive** | Durable owner instruction affecting company operation | OrgIntel; mandate changes also affect Authority Plane |
-| **Attention envelope** | Common UI shape for something requiring owner review | Projection over source-owned request |
-| **Operating phase** | Current economic/organisational mode | OrgIntel |
-| **Effect** | Discrete consequential external action | Authority Plane |
-| **Receipt** | Authoritative record of effect outcome | Authority Plane |
-| **Resource grant** | Bounded access to productive resource | Authority Plane |
-| **Artifact** | Code, document, build, asset, dataset, or external output | Company Runtime or external system |
+| Concept                | Meaning                                                            | Authoritative owner                                                  |
+| ---------------------- | ------------------------------------------------------------------ | -------------------------------------------------------------------- |
+| **Company**            | The durable organisation                                           | Authority Plane for identity/lifecycle; OrgIntel for operating state |
+| **Actor**              | Persistent human, agent, or service identity                       | OrgIntel                                                             |
+| **Role**               | Organisational responsibility and decision rights                  | OrgIntel                                                             |
+| **Session**            | Temporary model/process execution                                  | OrgIntel + Runtime Bridge                                            |
+| **Goal**               | Desired outcome at any abstraction level                           | OrgIntel                                                             |
+| **Work**               | One actor’s durable outcome, expected artifact and exact workspace | OrgIntel                                                             |
+| **Attempt**            | One claimed execution of one Work revision with exact inputs       | OrgIntel                                                             |
+| **Work edge**          | `requires` hard handover or `revises` review feedback              | OrgIntel                                                             |
+| **Owner handoff**      | Prepared browser/action state plus observable resume condition     | OrgIntel                                                             |
+| **Task**               | Owner-facing UI label for a Work or small goal                     | Projection only                                                      |
+| **Artifact reference** | Pointer to actual work                                             | OrgIntel reference; Runtime owns artifact                            |
+| **Observation**        | Directly measured, recorded, or witnessed information              | OrgIntel or referenced source                                        |
+| **Hypothesis**         | Testable claim about what is true or will work                     | OrgIntel                                                             |
+| **Decision**           | Named choice with owner and rationale                              | OrgIntel unless it changes root authority                            |
+| **Directive**          | Durable owner instruction affecting company operation              | OrgIntel; mandate changes also affect Authority Plane                |
+| **Attention envelope** | Common UI shape for something requiring owner review               | Projection over source-owned request                                 |
+| **Operating phase**    | Current economic/organisational mode                               | OrgIntel                                                             |
+| **Effect**             | Discrete consequential external action                             | Authority Plane                                                      |
+| **Receipt**            | Authoritative record of effect outcome                             | Authority Plane                                                      |
+| **Resource grant**     | Bounded access to productive resource                              | Authority Plane                                                      |
+| **Artifact**           | Code, document, build, asset, dataset, or external output          | Company Runtime or external system                                   |
 
 ## 4.2 Four different kinds of status
 
@@ -456,16 +459,16 @@ Examples:
 
 Initial categories:
 
-| Category | Example |
-|---|---|
-| **Decision** | Choose between two product directions |
-| **Approval** | Authorise spend or public deployment |
-| **Outcome review** | Review Cosmon’s playable prototype |
-| **Risk** | Aris campaign may breach an owner constraint |
-| **Failure/recovery** | Company Runtime restore is recommended |
-| **Opportunity** | A qualified partner offers distribution |
-| **Contradiction** | Real customer evidence weakens the current thesis |
-| **Information** | Important result requiring awareness but no immediate action |
+| Category             | Example                                                      |
+| -------------------- | ------------------------------------------------------------ |
+| **Decision**         | Choose between two product directions                        |
+| **Approval**         | Authorise spend or public deployment                         |
+| **Outcome review**   | Review Cosmon’s playable prototype                           |
+| **Risk**             | Aris campaign may breach an owner constraint                 |
+| **Failure/recovery** | Company Runtime restore is recommended                       |
+| **Opportunity**      | A qualified partner offers distribution                      |
+| **Contradiction**    | Real customer evidence weakens the current thesis            |
+| **Information**      | Important result requiring awareness but no immediate action |
 
 “Information” items should be rare and easy to dismiss or digest.
 
@@ -534,6 +537,49 @@ surface exception
 ```
 
 The system should not optimise merely for an empty inbox. It should optimise for **necessary, high-signal owner attention**.
+
+## 5.7 Decision continuation
+
+**Core contract**
+
+An observed owner action leaves the actionable queue, but its causal thread must not disappear. The
+Attention projection retains a small recent continuation under the same source reference showing:
+
+- the recorded decision or observed human step;
+- what it actually unlocked;
+- the accountable actor now holding the outcome;
+- current Work/Attempt or authenticated provider state;
+- the observed outcome or blocker;
+- an explicit statement when the Work completed and nothing follows.
+
+This is a read-only projection of source-owned handoffs, Work edges, Attempts, Authority intents and
+provider observations. It is not a history database or workflow lifecycle. A dependency is described
+as released only after its source Work is actually complete; resolving an owner handoff alone must not
+be narrated as progress. Provider reconciliation states that offer no owner action do not remain in
+“Needs your judgement.”
+
+## 5.8 Provider enrolment handoffs
+
+**Core contract**
+
+Signup, account connection, identity or business verification, CAPTCHA, MFA, initial credential
+issuance and provider-native approval are ordinary prepared owner handoffs. They do not create an
+onboarding entity, page or lifecycle. Attention projects the source Work or Authority request, the
+exact owner action and its immediate causal continuation.
+
+For financial accounts and provider-root administration, the primary action opens the exact
+provider-hosted flow in the owner's normal system browser, outside the agent-accessible Company
+Runtime. The item shows the provider domain, requested access, reason, consequences of declining and
+observable resume condition. Provider passwords, MFA factors and identity evidence never enter the
+cockpit; an issued API secret uses a dedicated owner-authenticated ingress to the Authority credential
+backend and is never placed in chat.
+
+Opening or returning from the page does not resolve the item. A provider callback, authenticated
+probe, reconciliation or other observable external condition does. Where no check exists, the item
+must say the connection is unverified rather than laundering an owner “done” click into evidence.
+
+The full decision and risk dispositions are in
+[`ADR 0002`](../adr/0002-owner-provider-authentication-handoffs.md).
 
 ---
 
@@ -684,7 +730,9 @@ The UI term may be **People** or **Employees**. The shared system concept is `Ac
 
 ## 7.2 Directory
 
-The directory should show every persistent employee with:
+The directory shows the Exec first, then teams with their accountable lead and Staff members. System
+principals used only for message provenance are absent from People by actor kind, not by an id list.
+It should show every persistent employee with:
 
 - name and role;
 - responsibilities and decision rights;
@@ -694,7 +742,12 @@ The directory should show every persistent employee with:
 - recent accepted outputs;
 - important competence evidence;
 - cost/usage summary where relevant;
-- direct chat entry point.
+- an accountable contact route.
+
+The Exec and team leads have direct conversation entry points. Staff member rows are denser,
+inspection-first views of current Work and accepted outputs; they route owner conversation through
+their current lead. Unassigned Staff route through the Exec. Lead status comes from the team
+relationship, never an id suffix or role string.
 
 The directory should distinguish:
 
@@ -725,9 +778,11 @@ Competence should be evidence-backed and revisable, not a permanent score based 
 
 **Core contract**
 
-The owner can chat freely with any employee. Conversation has no scripted three-state lifecycle.
-When a message is explicitly linked to Work, OrgIntel records it as exact feedback input for the next
-Attempt; otherwise it remains ordinary conversation.
+The owner can chat freely with the Exec and accountable team leads. Conversation has no scripted
+three-state lifecycle. Other Staff remain inspectable and reachable through their accountable route;
+the cockpit does not present a chat affordance it will later refuse. When a message is explicitly
+linked to Work, OrgIntel records it as exact feedback input for the next Attempt; otherwise it remains
+ordinary conversation.
 
 The interface should distinguish:
 
@@ -736,10 +791,10 @@ The interface should distinguish:
 Conversational communication, questions, clarification, or advice.
 
 A message does not silently alter goals, authority, the mandate, or a pending review. For an
-`owner_judgement` handoff, the owner surface presents separate **Accept outcome** and **Request
-changes** decisions. Only one of those explicit decisions resolves the handoff; free-form chat with
-the responsible Work owner remains discussion and exact Work-linked feedback. Identity, CAPTCHA,
-MFA, legal and payment handoffs require their actual external condition.
+`owner_judgement` handoff, the review-scoped composer remains free-form conversation with the
+responsible Work owner and records exact Work-linked feedback. Sending a message never resolves the
+handoff; only a separate explicit **Accept outcome** or **Request changes** decision may do that.
+Identity, CAPTCHA, MFA, legal and payment handoffs require their actual external condition.
 
 ### Feedback
 
@@ -766,9 +821,10 @@ An approval, denial, grant, revocation, or mandate change written to the Authori
 
 It is not merely a chat message.
 
-## 7.5 Direct worker contact
+## 7.5 Accountable contact
 
-The owner may contact a worker directly.
+The owner contacts the Exec for company-wide accountability and a team lead for team-owned Work.
+Member inspection promotes that exact route alongside the member's current Work and evidence.
 
 To avoid conflicting hidden instructions:
 
@@ -777,7 +833,8 @@ To avoid conflicting hidden instructions:
 - the UI should warn when a directive conflicts with active company strategy or another directive;
 - the actor may ask the owner to clarify scope or route the issue through the Exec.
 
-This preserves owner access without destroying organisational coherence.
+This preserves owner access and visibility without flattening the organisation into peer chat
+targets.
 
 ## 7.6 Chat context
 
@@ -792,27 +849,47 @@ Chat should show enough context to make the conversation useful:
 
 Do not automatically inject the entire company history into every chat.
 
+_Default pattern._ While a reply is in flight, the owner surface may show an ephemeral live
+projection of the actor's assistant text, thinking, and tool activity. Visible reply text is
+append-only: a later tool call, thought block, reconnect, or durable-message handoff must not make an
+earlier text block disappear. Thinking and tool activity are collapsed by default and never compete
+with the reply. Usage may show the exact generated-output token count when the runtime reports it;
+context/input usage must not be presented as reply tokens, and an estimate must be labelled as such.
+The completed OrgIntel message remains the conversation record.
+
 ---
 
-# 8. Authority
+# 8. Company
 
 ## 8.1 Purpose
 
-The Authority area gives the owner a complete, understandable inventory of what the company is allowed to do and what consequentially happened.
+The Company area gives the owner a stable, understandable home for the company charter, its operating
+limits and productive resources, consequential external actions, and the real Company computer.
 
-It should expose owner-facing settings from the Authority Plane without exposing raw secrets or forcing the owner to understand internal policy implementation.
+It composes source-owned projections without exposing raw secrets, copying source truth, or forcing
+the owner to understand internal policy and Runtime implementation. Pending owner decisions retain
+one canonical resolution path in Attention.
 
-## 8.2 Authority inventory
+## 8.2 Stable Company pages
 
-Initial sections:
+The secondary navigation remains stable across companies:
 
-### Mandate and constraints
+### Company charter
 
-- company purpose;
-- hard owner constraints;
-- prohibited activities;
-- current outer operating envelope;
-- effective date and revision history.
+- durable authorised purpose and safe company identity;
+- effective/revision context when the source provides it;
+- a clearly separate link to current OrgIntel direction.
+
+The charter may be edited only through a source-owned, versioned owner mandate action. The cockpit
+carries the revision it opened, preserves an unsaved draft on conflict, and never stores its own
+authoritative copy. Ordinary chat or Exec narration must not rewrite it.
+
+### Authority and limits
+
+- what the company may do independently;
+- what needs owner approval;
+- what it cannot do;
+- current budgets, ceilings, grants and freeze state.
 
 ### Budgets
 
@@ -824,66 +901,62 @@ Initial sections:
 - other company-specific categories;
 - current usage, remaining amount, and period.
 
-### Capabilities
+### Resources and access
 
-- what the company may do;
-- scope;
-- approval threshold;
-- delegability;
-- expiry or review date;
-- current state: active, restricted, or revoked.
-
-### Connected providers and accounts
-
-- provider/account name;
-- connection health;
-- granted scope;
-- credential delivery mode;
-- last successful use;
-- expiry/rotation status;
-- revoke or reconnect action.
+- productive resources and bounded grants;
+- connected providers and accounts;
+- model, compute and Runtime-observed service access;
+- live-probed or timestamped availability, scope, expiry and source.
 
 Raw credentials must never be shown.
 
-### Productive resources
-
-- fixed resources available to the company;
-- dynamic resource grants;
-- limits and expiry;
-- current usage;
-- resource status.
-
-### External effects and receipts
+### External actions
 
 - recent consequential actions;
 - actor/Exec attribution;
 - result: success, failure, or unknown;
 - receipt/provider reference;
 - cost;
-- reconciliation state.
+- confirmation, attestation and reconciliation state.
 
-### Runtime lifecycle
+Ordinary file edits, shell commands, builds and Git activity remain with their Work/Attempt unless
+they produced a governed external consequence.
 
-- current runtime generation;
-- start/stop state;
-- snapshots;
-- restore status;
+### Company computer
+
+- a full-canvas entrance to the persistent company desktop;
+- live browser/desktop availability and the current controller;
+- one explicit **Enter computer** action;
 - attach controls;
-- external-authority freeze state.
+- prepared owner handoffs.
+
+The entrance is a threshold, not a diagnostics dashboard or a thumbnail surrounded by cards.
+
+### Company doctor
+
+- current runtime generation and start/stop state;
+- persistent storage and image reconciliation;
+- supervisor, browser and desktop health;
+- independent Authority, OrgIntel and Runtime source checks;
+- the current controller;
+- a general company doctor with bounded recovery actions;
+
+Doctor is a separate Company destination so repair detail does not compete with entering the real
+computer. It composes source-owned observations and invokes only the current bounded repair.
 
 ## 8.3 High-level controls
 
-The owner should be able to:
+Source-owned Company actions may let the owner:
 
 - change budgets and ceilings;
 - grant, narrow, or revoke capabilities;
-- approve or deny pending requests;
+- open pending requests in Attention;
 - connect or disconnect providers;
 - freeze all consequential external effects;
 - resume authority;
-- stop or restore the Company Runtime;
+- start, restart or reconcile the Company Runtime;
 - inspect effect receipts and unknown outcomes;
-- revise the owner mandate.
+- inspect the owner mandate and prepare a future revision through its authoritative path.
 
 The UI should explain the practical consequence of each action.
 
@@ -925,12 +998,12 @@ They should not be the primary settings experience.
 
 A company should have a visible high-level operating phase:
 
-| Phase | Primary optimisation |
-|---|---|
-| **Exploration** | Discover promising directions and reduce existential uncertainty cheaply |
-| **Validation / pre-profit** | Prove real customer or product value and willingness to pay/use |
-| **Profit** | Make delivery repeatable, reliable, and economically sustainable |
-| **Scale** | Increase throughput and reach while preserving quality and unit economics |
+| Phase                       | Primary optimisation                                                      |
+| --------------------------- | ------------------------------------------------------------------------- |
+| **Exploration**             | Discover promising directions and reduce existential uncertainty cheaply  |
+| **Validation / pre-profit** | Prove real customer or product value and willingness to pay/use           |
+| **Profit**                  | Make delivery repeatable, reliable, and economically sustainable          |
+| **Scale**                   | Increase throughput and reach while preserving quality and unit economics |
 
 These are operating profiles, not rigid workflow gates.
 
@@ -1033,12 +1106,12 @@ The cockpit should show this contract in the Work view and use it when presentin
 
 Evaluation occurs at several levels:
 
-| Level | Question |
-|---|---|
-| **Artifact** | Does the build, document, analysis, or system meet its acceptance criteria? |
-| **Work/process** | Is execution stalled, duplicative, wasteful, or repeatedly failing? |
-| **Department** | Did the team produce its intended operational or economic result? |
-| **Company** | Is accepted output improving relative to owner attention, cost, time, and risk? |
+| Level                | Question                                                                         |
+| -------------------- | -------------------------------------------------------------------------------- |
+| **Artifact**         | Does the build, document, analysis, or system meet its acceptance criteria?      |
+| **Work/process**     | Is execution stalled, duplicative, wasteful, or repeatedly failing?              |
+| **Department**       | Did the team produce its intended operational or economic result?                |
+| **Company**          | Is accepted output improving relative to owner attention, cost, time, and risk?  |
 | **External reality** | Did customers buy, use, retain, reply, succeed, or otherwise validate the claim? |
 
 ## 10.3 Evidence presentation
@@ -1179,7 +1252,7 @@ Retain the existing Svelte SPA and shape it around:
 /attention
 /work
 /people
-/authority
+/company
 ```
 
 Useful detail routes may include:
@@ -1188,8 +1261,10 @@ Useful detail routes may include:
 /work/:goal_id
 /work/:work_id
 /people/:actor_id
-/authority/effects/:effect_id
-/authority/resources/:resource_id
+/company/actions/:effect_id
+/company/resources/:resource_id
+/company/computer
+/company/doctor
 ```
 
 The exact route names are not product invariants.
@@ -1233,22 +1308,23 @@ Required V0 elements:
 - session/availability state;
 - recent outputs;
 - actor profile;
-- direct chat;
+- direct chat for Exec and accountable leads;
+- member Work/evidence inspection with the exact accountable contact route;
+- system-principal filtering by actor kind;
 - explicit message versus directive action.
 
-## 12.5 Authority screen
+## 12.5 Company screens
 
 Required V0 elements:
 
-- mandate and constraints;
-- budget categories and usage;
-- capabilities and thresholds;
-- connected providers/accounts;
-- productive resources;
-- pending approvals;
-- effect/receipt history;
-- runtime lifecycle and snapshots;
-- freeze, revoke, stop, restore, and attach controls.
+- stable charter, authority and limits, resources and access, external actions, Company computer and
+  Company doctor destinations;
+- readable mandate and constraints with current direction clearly separated;
+- budget categories, usage, capabilities and thresholds;
+- generic connected provider/account and productive-resource projections;
+- pending approval counts linking to Attention;
+- consequence-focused effect/receipt history with evidence quality;
+- source-aware company doctor, runtime lifecycle, bounded recovery, and existing attach controls.
 
 ## 12.6 Global status bar
 
@@ -1379,11 +1455,50 @@ Do not stream every command or token into the primary UI.
 
 ## 14.5 Authentication
 
-V0 supports one owner principal.
+**Core contract**
+
+V0 supports one owner principal and a local-only owner cockpit. When all supported owner entry points
+are confined to loopback, the local operator is authenticated by the appliance boundary and the
+backend attributes requests directly to the stable `owner` principal. There is no owner-token field,
+bearer credential, or sign-in ceremony in this mode.
+
+Local mode must:
+
+- bind the owner gateway only to loopback;
+- reject cross-site browser requests using strict origin and host checks rather than trusting a
+  caller-supplied forwarding header;
+- attribute every read and write to the same explicit owner principal;
+- refuse startup or publication when a configured owner entry point is network-reachable.
+
+A non-loopback listener or any Restless-supported reverse proxy, tunnel or hosted endpoint is network
+exposure. Network access requires a real human authenticator and revocable session; it must never
+silently fall back to local-owner behavior or the former one-owner bearer token. An independently
+configured tunnel can impersonate a localhost client and is therefore unsupported rather than
+detectable by the daemon.
+
+**Explicitly deferred expansion**
+
+When real deployments require accounts, the authentication layer may add:
+
+- OpenID Connect over OAuth 2.0 Authorization Code with PKCE for delegated login and SSO;
+- first-party username or email plus password where evidence shows it is needed;
+- password verification, reset, recovery and email-verification flows;
+- revocable, expiring server-side sessions and CSRF protection;
+- passkeys/WebAuthn, multifactor authentication and recovery factors;
+- additional human roles only after repeated company use proves them necessary.
+
+OAuth 2.0 alone is an authorization framework; human sign-in through an OAuth provider uses OpenID
+Connect or an equivalent identity protocol. No provider catalogue, tenant model or human-role system
+is part of V0.
 
 All writes are attributed to that principal.
 
 Do not build invitations, presence, granular human roles, or multiplayer permissions now.
+
+The decision and risk dispositions are recorded in
+[`docs/adr/0001-local-owner-access.md`](../adr/0001-local-owner-access.md). It supersedes the
+generated owner credential described in the historical Sprint 05 ticket; the ticket remains unchanged
+as a record of what was built and observed at that time.
 
 ## 14.6 Stable cross-layer identifiers
 
@@ -1461,8 +1576,8 @@ Passing behaviour:
 
 1. The global bar shows Company Runtime unavailable.
 2. OrgIntel goals, actors, messages, and schedules remain visible.
-3. Authority receipts and freeze controls remain available.
-4. The owner freezes external authority, restores a snapshot, and watches reconciliation.
+3. Company charter, Authority receipts and freeze controls remain available.
+4. The owner runs the company doctor, uses the available bounded recovery and watches reconciliation.
 5. The Exec resumes with current organisational context.
 
 Passing behaviour:
@@ -1516,8 +1631,8 @@ Do not optimise for clicks, time in app, or notification volume.
 5. Goal detail with success contract, evidence, and artifacts.
 6. Persistent employee directory and actor profile.
 7. Direct chat with explicit message/feedback/directive semantics.
-8. Authority inventory, approvals, budgets, capabilities, providers, and effect receipts.
-9. Runtime state, freeze, restart/restore, and attach controls.
+8. Company charter, Authority inventory, resources and consequence-focused effect receipts.
+9. General company doctor plus Runtime state, freeze, bounded recovery, and attach controls.
 10. Meaningful live updates.
 11. Clear stale/degraded-state handling.
 12. Cosmon, Aris, and Thymelake acceptance scenarios.
@@ -1563,9 +1678,11 @@ Implement goal hierarchy, active Work nodes kanban, success contracts, evidence,
 
 Connect persistent actor identities, current sessions, outputs, and message/directive semantics.
 
-## Step 6: Build Authority
+## Step 6: Build Company
 
-Expose the permissive MVP envelope, approvals, budgets, providers, resources, effects, receipts, and rescue controls.
+Expose the read-only charter, permissive MVP envelope, resources, effects, receipts, the immersive
+Company-computer entrance, and separate doctor/recovery surface through the six stable Company
+destinations.
 
 ## Step 7: Run real dogfoods
 
@@ -1581,15 +1698,17 @@ Delete views, fields, and alerts that do not improve decisions, trust, outcomes,
 
 1. The initial cockpit serves one owner and one company.
 2. The existing Svelte SPA remains the frontend foundation.
-3. The product has four primary areas: Attention, Work, People, and Authority.
+3. The product has four primary areas: Attention, Work, People, and Company.
 4. Attention is the default home.
 5. A persistent global bar shows company phase, health, runtime, spend, and authority status.
 6. Work combines hierarchical goals with a compact deterministic Work graph; denser boards are optional projections.
 7. `Task` is a UI term; `Work` remains the OrgIntel primitive.
-8. The owner can chat with every employee.
+8. The owner can chat with the Exec and accountable leads and inspect every Staff member's Work and
+   evidence through the exact accountable route.
 9. Messages, feedback, directives, and authority decisions have distinct semantics.
 10. Durable directives are visible to the Exec and affect OrgIntel state.
-11. The Authority area exposes all owner-relevant Authority Plane settings without exposing raw secrets.
+11. The Company area composes owner-relevant Authority, OrgIntel and Runtime projections without
+    exposing raw secrets or becoming another writer.
 12. Operating phase is distinct from infrastructure lifecycle, project stage, and task status.
 13. Company phases are adaptive profiles, not hard workflow gates.
 14. Evaluation must ground work in success contracts and sources of trust.
@@ -1597,6 +1716,8 @@ Delete views, fields, and alerts that do not improve decisions, trust, outcomes,
 16. The cockpit is a projection and action surface, not a new source of truth.
 17. Multiplayer, shared hosting, and general collaboration features remain deferred.
 18. The cockpit should reduce owner attention, not maximise engagement.
+19. A loopback-only cockpit treats the local operator as the owner without a credential; any network
+    exposure requires proper human account authentication and revocable sessions.
 
 ---
 
@@ -1618,4 +1739,9 @@ These should be answered through dogfood rather than speculative design:
 
 # Working summary
 
-> **The Owner Cockpit is the calm operating surface for one owner to understand and steer a self-running company. It centres four areas: a high-signal Attention Inbox, a hierarchical and kanban Work view, a persistent People directory with direct chat, and a complete Authority view. It preserves stable cross-layer semantics, grounds company claims in external evidence, distinguishes operating phase from lifecycle and work status, and lets the owner govern outcomes and exceptions without babysitting daily execution.**
+> **The Owner Cockpit is the calm operating surface for one owner to understand and steer a
+> self-running company. It centres four areas: a high-signal Attention Inbox, causal and scanning
+> Work views, a persistent People directory with accountable contacts and Staff inspection, and a
+> stable Company view over the charter, limits, resources, actions and Company computer. It preserves stable cross-layer semantics, grounds company claims in
+> external evidence, distinguishes operating phase from lifecycle and Work status, and lets the owner
+> govern outcomes and exceptions without babysitting daily execution.**

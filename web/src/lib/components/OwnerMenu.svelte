@@ -1,10 +1,5 @@
 <script lang="ts">
-	import {
-		archiveCompany,
-		restoreCompany,
-		signOut,
-		type CompanyCatalogEntry
-	} from '$lib/model/cockpit';
+	import { archiveCompany, restoreCompany, type CompanyCatalogEntry } from '$lib/model/cockpit';
 
 	let {
 		companies,
@@ -51,18 +46,6 @@
 			busyCompany = null;
 		}
 	}
-
-	async function leaveOwnerSurface() {
-		if (busyCompany) return;
-		error = '';
-		try {
-			await signOut();
-			menu?.removeAttribute('open');
-			window.location.assign('/');
-		} catch (cause) {
-			error = cause instanceof Error ? cause.message : 'Sign out failed.';
-		}
-	}
 </script>
 
 <details class="owner-menu" bind:this={menu}>
@@ -72,7 +55,6 @@
 	<div class="owner-menu-panel">
 		<header>
 			<strong>Owner settings</strong>
-			<small>Archive keeps company files and history.</small>
 		</header>
 
 		<div class="owner-company-list">
@@ -81,6 +63,7 @@
 					<span><strong>{company.name}</strong><small>{company.runtime_status}</small></span>
 					<button
 						type="button"
+						title="Archive this company while keeping its files and history"
 						disabled={busyCompany !== null}
 						onclick={() => changeLifecycle(company)}
 					>
@@ -97,6 +80,7 @@
 					<span><strong>{company.name}</strong><small>Archived</small></span>
 					<button
 						type="button"
+						title="Restore this archived company"
 						disabled={busyCompany !== null}
 						onclick={() => changeLifecycle(company)}
 					>
@@ -110,9 +94,6 @@
 		</div>
 
 		{#if error}<p class="owner-menu-error" role="alert">{error}</p>{/if}
-		<footer>
-			<button type="button" class="owner-sign-out" onclick={leaveOwnerSurface}>Sign out</button>
-		</footer>
 	</div>
 </details>
 
@@ -135,6 +116,11 @@
 		color: var(--text-secondary);
 		cursor: pointer;
 		list-style: none;
+		transition:
+			border-color var(--motion-state) var(--ease-standard),
+			background-color var(--motion-state) var(--ease-standard),
+			color var(--motion-state) var(--ease-standard),
+			box-shadow var(--motion-state) var(--ease-standard);
 	}
 
 	.owner-menu summary::-webkit-details-marker {
@@ -156,7 +142,7 @@
 
 	.owner-chevron {
 		font-size: var(--t-body);
-		transition: transform 140ms ease;
+		transition: transform var(--motion-state) var(--ease-out);
 	}
 
 	.owner-menu[open] .owner-chevron {
@@ -176,6 +162,8 @@
 		box-shadow: var(--bevel), var(--shadow-lift);
 		backdrop-filter: blur(24px) saturate(1.16);
 		-webkit-backdrop-filter: blur(24px) saturate(1.16);
+		transform-origin: top right;
+		animation: bridge-popover-in var(--motion-disclosure) var(--ease-spring) both;
 	}
 
 	.owner-menu-panel > header {
@@ -184,7 +172,6 @@
 	}
 
 	.owner-menu-panel > header strong,
-	.owner-menu-panel > header small,
 	.owner-company-row span,
 	.owner-company-row strong,
 	.owner-company-row small {
@@ -195,7 +182,6 @@
 		font-size: var(--t-body);
 	}
 
-	.owner-menu-panel > header small,
 	.owner-company-row small {
 		margin-top: 3px;
 		font: var(--t-label) var(--font-mono);
@@ -232,8 +218,7 @@
 		white-space: nowrap;
 	}
 
-	.owner-company-row button,
-	.owner-sign-out {
+	.owner-company-row button {
 		border: 1px solid var(--border);
 		border-radius: var(--radius-control);
 		background: rgba(255, 255, 255, 0.7);
@@ -241,6 +226,12 @@
 		font: 600 var(--t-label) var(--font-mono);
 		color: var(--text-secondary);
 		cursor: pointer;
+		transition:
+			transform var(--motion-press) var(--ease-standard),
+			border-color var(--motion-state) var(--ease-standard),
+			background-color var(--motion-state) var(--ease-standard),
+			color var(--motion-state) var(--ease-standard),
+			box-shadow var(--motion-state) var(--ease-standard);
 	}
 
 	.owner-company-row button {
@@ -253,9 +244,8 @@
 	}
 
 	.owner-company-row button:hover,
-	.owner-company-row button:focus-visible,
-	.owner-sign-out:hover,
-	.owner-sign-out:focus-visible {
+	.owner-company-row button:focus-visible {
+		transform: translateY(-1px);
 		border-color: var(--border-strong);
 		background: var(--surface-raised);
 		color: var(--ink);
@@ -276,17 +266,6 @@
 
 	.owner-menu-error {
 		color: var(--state-danger);
-	}
-
-	.owner-menu-panel > footer {
-		padding: 7px;
-		border-top: 1px solid var(--border);
-	}
-
-	.owner-sign-out {
-		width: 100%;
-		padding: 7px 9px;
-		text-align: left;
 	}
 
 	@media (prefers-reduced-motion: reduce) {

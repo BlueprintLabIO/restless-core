@@ -37,10 +37,12 @@
 
 /* the language itself, in cascade order */
 @import './tokens.css'; /* light surfaces, geometry, intent and outcome tokens */
-@import './type.css'; /* mono, display, over-label, caption, headings */
+@import './motion.css'; /* one timing vocabulary and the few shared transitions that earn motion */
+@import './type.css'; /* mono, display, caption, headings */
 @import './chrome.css'; /* company identity, four tabs, presence, account mark */
 @import './primitives.css'; /* bounded buttons and hold-to-confirm */
 @import './chat.css'; /* transcript separators, attachments, the composer */
 @import './patterns.css'; /* company door */
 @import './surfaces.css'; /* focused evidence + persistent executive transcript */
 @import './cockpit.css'; /* Bridge Light four-surface cockpit + semantic colour */
+@import './company.css'; /* stable Company spine, source-aware projections and desktop focus */
