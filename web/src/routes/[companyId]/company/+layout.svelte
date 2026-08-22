@@ -3,6 +3,7 @@
 	import Activity from '@lucide/svelte/icons/activity';
 	import BookOpen from '@lucide/svelte/icons/book-open';
 	import KeyRound from '@lucide/svelte/icons/key-round';
+	import ListChecks from '@lucide/svelte/icons/list-checks';
 	import Monitor from '@lucide/svelte/icons/monitor';
 	import RadioTower from '@lucide/svelte/icons/radio-tower';
 	import ShieldCheck from '@lucide/svelte/icons/shield-check';
@@ -16,6 +17,7 @@
 	const computerSurface = $derived(page.url.pathname === `/${companyId}/company/computer`);
 	const routes = $derived([
 		{ label: 'Company charter', href: `/${companyId}/company`, exact: true, icon: BookOpen },
+		{ label: 'Decision history', href: `/${companyId}/company/decisions`, icon: ListChecks },
 		{
 			label: 'Authority & limits',
 			href: `/${companyId}/company/authority`,

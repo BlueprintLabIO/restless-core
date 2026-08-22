@@ -10,6 +10,7 @@
 use anyhow::{Context, Result};
 use restless_orgintel::OrgIntel;
 use serde::Serialize;
+use std::collections::HashSet;
 
 use crate::acp::{self, AgentSession};
 use crate::context::{self, ContextSnapshot};
@@ -24,6 +25,7 @@ use crate::spend::SpendLedger;
 /// company's scheduling — the same failure family as the work-turn timeout
 /// above exists to bound.
 const TERMINATION_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2 * 60);
+const CONTINUE_WAKE_DELAY_SECONDS: u32 = 60;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -44,7 +46,7 @@ pub struct WakeReport {
     pub failovers: Vec<ModelFailoverReport>,
     pub termination: Termination,
     pub reason: String,
-    /// Deterministic substrate retry delay. Model prose cannot set this.
+    /// Deterministic next-wake delay. Model prose cannot set this.
     pub retry_after_seconds: Option<u32>,
     /// Tool calls the Exec made this turn (observability).
     pub tool_calls: Vec<String>,
@@ -76,6 +78,7 @@ struct TerminationOutput {
 pub(crate) struct TerminationDecision {
     pub termination: Termination,
     pub reason: String,
+    pub retry_after_seconds: Option<u32>,
 }
 
 /// One Exec wake: rehydrate → work turn → termination decision → record.
@@ -94,6 +97,10 @@ pub async fn wake(
         .await?;
     org.ensure_actor("owner", "owner", "owner", "The Owner")
         .await?;
+    let exec_model = org
+        .active_actor("exec")
+        .await?
+        .and_then(|actor| actor.model);
 
     // Preflight: a company whose computer is stopped or whose disk is full
     // must not be woken. Nothing below this line is free — context assembly
@@ -123,7 +130,9 @@ pub async fn wake(
     )
     .await?;
     let package = context::assemble(&snapshot);
-    let candidates = crate::model_gateway::available_candidates(config, None, authority).await?;
+    let candidates =
+        crate::model_gateway::available_candidates(config, exec_model.as_deref(), authority)
+            .await?;
     org.emit_event(
         "wake",
         Some("exec"),
@@ -140,7 +149,10 @@ pub async fn wake(
     let mut continuity_note: Option<String> = None;
 
     for (index, model) in candidates.iter().enumerate() {
-        org.update_actor_model("exec", model).await?;
+        // `actors.model` is the next-wake preference set by company config or
+        // an explicit organisational change. The exact provider attempted is
+        // recorded below; failover must not silently make a fallback model
+        // the Exec's durable preference.
         org.emit_event(
             "model_attempt",
             Some("exec"),
@@ -493,21 +505,31 @@ async fn run_turn(
         // prose the parser then fails on, which is how a substrate failure
         // used to arrive dressed as an agent decision.
         health::Verdict::Ran => {
-            let decision = termination_decision(session).await?;
-            Ok((report(decision.termination, decision.reason, None), usage))
+            let decision = termination_decision(session).await;
+            Ok((
+                report(
+                    decision.termination,
+                    decision.reason,
+                    decision.retry_after_seconds,
+                ),
+                usage,
+            ))
         }
     }
 }
 
-/// The end-of-turn ask, shared by the Exec and staff: the decision itself is
-/// the model's judgement; the envelope is the daemon's deterministic read of
-/// it. Work kickoff is absent from this envelope because graph facts own it.
+/// The Exec end-of-turn ask: the decision itself is the model's judgement;
+/// the envelope is the daemon's deterministic read of it. Work kickoff is
+/// absent because graph facts own it. `waiting` is deliberately distinct from
+/// `continue`: a durable Staff completion/message will wake Exec, so polling
+/// would only spend money to rediscover that the job is still running.
 pub(crate) const TERMINATION_PROMPT: &str =
     "The turn is ending now. Based on everything above, decide how the \
     work stands and answer with JSON only, no prose:\n\
-    {\"decision\": \"continue\" | \"blocked\" | \"outcome_met\" | \"abandon\", \
+    {\"decision\": \"continue\" | \"waiting\" | \"blocked\" | \"outcome_met\" | \"abandon\", \
      \"reason\": \"<one line>\"}\n\
-    - continue: more machine-doable work remains\n\
+    - continue: more machine-doable executive work remains now; schedule a near-term continuation\n\
+    - waiting: delegated Work or an observable external process is already in flight and its durable completion/failure event will wake you; do not poll it\n\
     - blocked: the company cannot advance the active outcome until a human or external event acts; \
       use this even when this wake's narrower instruction is finished, and say exactly what is needed\n\
     - outcome_met: the active company milestone itself is fully achieved, with no remaining owner or \
@@ -515,12 +537,11 @@ pub(crate) const TERMINATION_PROMPT: &str =
       because the current wake's checklist is finished\n\
     - abandon: the work is not worth continuing — say why";
 
-/// Ask the Exec to end the turn explicitly. One retry on an unparseable
-/// envelope; a second failure is blocked-on-owner (surface, never spin). A
-/// timeout is neither: the work already happened and is on disk, so record
-/// Continue with no model-selected timer. Substrate recovery may set its own
-/// bounded retry; graph facts and real events drive ordinary continuation.
-async fn termination_decision(session: &AgentSession) -> Result<TerminationDecision> {
+/// Ask the Exec to end the turn explicitly. This small postflight must never
+/// erase a completed, metered work turn: transport loss, timeout, or malformed
+/// JSON records Continue plus a bounded substrate retry. Only a parsed model
+/// decision or a classified provider refusal may produce another state.
+async fn termination_decision(session: &AgentSession) -> TerminationDecision {
     for attempt in 0..2 {
         let prompted =
             tokio::time::timeout(TERMINATION_TIMEOUT, session.prompt(TERMINATION_PROMPT)).await;
@@ -530,18 +551,20 @@ async fn termination_decision(session: &AgentSession) -> Result<TerminationDecis
                 timeout_s = TERMINATION_TIMEOUT.as_secs(),
                 "termination decision timed out; continuing on the tick"
             );
-            return Ok(TerminationDecision {
-                termination: Termination::Continue,
-                reason: format!(
-                    "termination decision timed out after {}s",
-                    TERMINATION_TIMEOUT.as_secs()
-                ),
-            });
+            return retry_termination(format!(
+                "termination decision timed out after {}s",
+                TERMINATION_TIMEOUT.as_secs()
+            ));
         };
-        prompted?;
+        if let Err(error) = prompted {
+            tracing::warn!(%error, "termination decision transport failed; preserving work turn");
+            return retry_termination(format!(
+                "termination decision transport failed after the work turn: {error:#}"
+            ));
+        }
         let transcript = session.take_transcript();
         match parse_termination(&transcript.text) {
-            Some(parsed) => return Ok(parsed),
+            Some(parsed) => return parsed,
             None => {
                 // Before calling this the model's failure, check whether the
                 // model spoke at all. A provider error can arrive as message
@@ -557,10 +580,11 @@ async fn termination_decision(session: &AgentSession) -> Result<TerminationDecis
                 // status-class parser, and it is named for the text it reads so
                 // that the difference cannot be mistaken for the same check.
                 if let Some(blocked) = health::classify_provider_error(&transcript.text) {
-                    return Ok(TerminationDecision {
+                    return TerminationDecision {
                         termination: Termination::Blocked,
                         reason: blocked.message(),
-                    });
+                        retry_after_seconds: None,
+                    };
                 }
                 if attempt == 0 {
                     // The transcript carries the model's actual words — without
@@ -572,10 +596,9 @@ async fn termination_decision(session: &AgentSession) -> Result<TerminationDecis
                     );
                     continue;
                 }
-                return Ok(TerminationDecision {
-                    termination: Termination::Blocked,
-                    reason: "exec produced no parseable termination decision twice".to_string(),
-                });
+                return retry_termination(
+                    "exec produced no parseable termination decision twice; preserving the completed work turn",
+                );
             }
         }
     }
@@ -588,8 +611,10 @@ pub(crate) fn parse_termination(text: &str) -> Option<TerminationDecision> {
     let start = text.find('{')?;
     let end = text.rfind('}')?;
     let output: TerminationOutput = serde_json::from_str(&text[start..=end]).ok()?;
+    let waiting = output.decision == "waiting";
     let termination = match output.decision.as_str() {
         "continue" => Termination::Continue,
+        "waiting" => Termination::Continue,
         "blocked" | "blocked_on_owner" => Termination::Blocked,
         "changes_requested" => Termination::ChangesRequested,
         "outcome_met" => Termination::OutcomeMet,
@@ -599,7 +624,17 @@ pub(crate) fn parse_termination(text: &str) -> Option<TerminationDecision> {
     Some(TerminationDecision {
         termination,
         reason: output.reason,
+        retry_after_seconds: (termination == Termination::Continue && !waiting)
+            .then_some(CONTINUE_WAKE_DELAY_SECONDS),
     })
+}
+
+fn retry_termination(reason: impl Into<String>) -> TerminationDecision {
+    TerminationDecision {
+        termination: Termination::Continue,
+        reason: reason.into(),
+        retry_after_seconds: Some(CONTINUE_WAKE_DELAY_SECONDS),
+    }
 }
 
 /// Gather the wake's read-only snapshot (the only IO in context assembly;
@@ -628,6 +663,18 @@ async fn gather_snapshot(
         })
         .collect();
     let inbox = org.inbox(Some("exec")).await?;
+    let unread_owner_message_ids = inbox
+        .iter()
+        .filter(|message| message.from_actor == "owner")
+        .map(|message| message.id)
+        .collect::<HashSet<_>>();
+    let focus = org.owner_conversation_focus("exec").await?;
+    let recent_owner_conversation = org
+        .owner_conversation_since("exec", focus.after_message_id, 12)
+        .await?
+        .into_iter()
+        .filter(|message| !unread_owner_message_ids.contains(&message.id))
+        .collect();
     let owed_judgements = org.handoffs_assigned_to("exec").await?;
     Ok(ContextSnapshot {
         company: config.name.clone(),
@@ -637,6 +684,7 @@ async fn gather_snapshot(
         current_plan,
         latest_journal,
         open_work: open,
+        recent_owner_conversation,
         inbox,
         owed_judgements,
         wake_reason: reason.to_string(),
@@ -670,10 +718,45 @@ async fn record_outcome(org: &OrgIntel, report: &WakeReport) -> Result<()> {
     .await?;
     if let Some(seconds) = report.retry_after_seconds {
         let fire_at = chrono::Utc::now() + chrono::Duration::seconds(i64::from(seconds));
-        org.add_schedule("exec", None, "recover interrupted Exec substrate", fire_at)
+        let schedule_reason = if report.reason.starts_with("termination decision")
+            || report.reason.starts_with("[transport]")
+        {
+            "recover interrupted Exec substrate".to_string()
+        } else {
+            format!(
+                "continue active Exec milestone: {}",
+                report.reason.chars().take(240).collect::<String>()
+            )
+        };
+        org.add_schedule("exec", None, &schedule_reason, fire_at)
             .await?;
     }
     Ok(())
+}
+
+/// Best-effort terminal record for a wake that escaped the normal closed turn
+/// path. The caller first proves that the latest wake has no later wake_end,
+/// so this cannot manufacture duplicate terminal events.
+pub(crate) async fn record_interrupted_outcome(
+    org: &OrgIntel,
+    config: &CompanyConfig,
+    detail: &str,
+) -> Result<()> {
+    let report = WakeReport {
+        company: config.name.clone(),
+        model: config.model.clone(),
+        failovers: Vec::new(),
+        termination: Termination::Continue,
+        reason: format!(
+            "[transport] Exec wake ended outside the closed turn path: {}",
+            detail.chars().take(500).collect::<String>()
+        ),
+        retry_after_seconds: Some(CONTINUE_WAKE_DELAY_SECONDS),
+        tool_calls: Vec::new(),
+        said: String::new(),
+        owner_reply: None,
+    };
+    record_outcome(org, &report).await
 }
 
 async fn read_company_file(container: &str, path: &str) -> Result<String> {
@@ -723,7 +806,40 @@ mod tests {
         )
         .unwrap();
         assert_eq!(decision.termination, Termination::OutcomeMet);
+        assert_eq!(decision.retry_after_seconds, None);
         assert!(TERMINATION_PROMPT.contains("current wake's checklist"));
+    }
+
+    #[test]
+    fn a_continue_decision_schedules_the_next_exec_wake() {
+        let decision = parse_termination(
+            r#"{"decision":"continue","reason":"deployment still needs verification"}"#,
+        )
+        .unwrap();
+        assert_eq!(decision.termination, Termination::Continue);
+        assert_eq!(
+            decision.retry_after_seconds,
+            Some(CONTINUE_WAKE_DELAY_SECONDS)
+        );
+    }
+
+    #[test]
+    fn waiting_for_durable_delegated_work_does_not_poll() {
+        let decision = parse_termination(
+            r#"{"decision":"waiting","reason":"the delegated CI Attempt is running"}"#,
+        )
+        .unwrap();
+        assert_eq!(decision.termination, Termination::Continue);
+        assert_eq!(decision.retry_after_seconds, None);
+        assert!(TERMINATION_PROMPT.contains("do not poll it"));
+    }
+
+    #[test]
+    fn termination_postflight_failure_preserves_work_and_retries() {
+        let decision = retry_termination("ACP connection closed");
+        assert_eq!(decision.termination, Termination::Continue);
+        assert_eq!(decision.retry_after_seconds, Some(60));
+        assert_eq!(decision.reason, "ACP connection closed");
     }
 
     #[test]

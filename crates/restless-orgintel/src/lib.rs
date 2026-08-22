@@ -144,6 +144,14 @@ pub struct NewWork<'a> {
     pub attempt_limit: Option<i32>,
 }
 
+/// One deterministic check declared in the same transaction as its Work.
+/// It runs from the current Attempt workspace, so a revision cannot silently
+/// keep checking the prior revision's generated worktree.
+pub struct InitialWorkGate<'a> {
+    pub name: &'a str,
+    pub command: &'a [String],
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum OrgIntelError {
     #[error("invalid company schema name {0:?}")]
@@ -356,10 +364,11 @@ impl OrgIntel {
 
     /// S04-T9. The same insert, carrying what this actor thinks with.
     ///
-    /// `ON CONFLICT DO NOTHING` on the row, but the model is refreshed: an
-    /// actor persists across wakes (`orgintel §2.1`) while the model it is
-    /// given can change between them, and the owner asking "which model wrote
-    /// this" wants the one that ran, not the one it was first created with.
+    /// An explicitly supplied model seeds a missing preference but never
+    /// overwrites an existing one. The actor persists across wakes (`orgintel
+    /// §2.1`); explicit preference changes use `change_actor_model`, while
+    /// the exact model used by each run belongs on its Attempt and
+    /// model-attempt event.
     pub async fn ensure_actor_with_model(
         &self,
         id: &str,
@@ -390,7 +399,7 @@ impl OrgIntel {
         }
         let changed = sqlx::query(
             "INSERT INTO actors (id, kind, role, display, model) VALUES ($1, $2, $3, $4, $5) \
-             ON CONFLICT (id) DO UPDATE SET model = COALESCE(EXCLUDED.model, actors.model) \
+             ON CONFLICT (id) DO UPDATE SET model = COALESCE(actors.model, EXCLUDED.model) \
              WHERE actors.retired_at IS NULL AND actors.kind = EXCLUDED.kind \
                AND actors.role = EXCLUDED.role",
         )
@@ -409,8 +418,10 @@ impl OrgIntel {
         Ok(())
     }
 
-    /// Refresh the model used by a known active actor without re-creating or
-    /// reinterpreting its durable identity.
+    /// Set the model preference used by a known active actor without
+    /// re-creating or reinterpreting its durable identity. Runtime failover
+    /// must not call this: the attempted model belongs in Attempt/events,
+    /// while this field remains the actor's next-wake preference.
     pub async fn update_actor_model(&self, id: &str, model: &str) -> Result<()> {
         let changed = sqlx::query("UPDATE actors SET model=$2 WHERE id=$1 AND retired_at IS NULL")
             .bind(id)
@@ -425,9 +436,73 @@ impl OrgIntel {
         Ok(())
     }
 
-    /// Create one durable specialist identity. Runtime wakes use
-    /// `update_actor_model` to refresh a known active actor's session model;
-    /// this is the explicit organisational path for adding a person.
+    /// Explicitly evolve an actor's model preference. Unlike provider
+    /// failover, this is an organisational decision with a reason and author.
+    pub async fn change_actor_model(
+        &self,
+        actor_id: &str,
+        model: &str,
+        changed_by: &str,
+        reason: &str,
+    ) -> Result<()> {
+        let model = model.trim();
+        if model.is_empty() || reason.trim().is_empty() {
+            return Err(OrgIntelError::InvalidWork(
+                "changing an actor model needs a model and reason".into(),
+            ));
+        }
+        if matches!(actor_id, "owner" | "world" | "daemon") {
+            return Err(OrgIntelError::InvalidWork(format!(
+                "{actor_id} is not a model-backed company actor"
+            )));
+        }
+
+        let mut tx = self.pool.begin().await?;
+        let may_change: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM actors WHERE id=$1 AND retired_at IS NULL \
+             AND id IN ('owner','exec'))",
+        )
+        .bind(changed_by)
+        .fetch_one(&mut *tx)
+        .await?;
+        if !may_change {
+            return Err(OrgIntelError::InvalidWork(
+                "only the owner or Exec may change an actor's model preference".into(),
+            ));
+        }
+        let previous: Option<String> = sqlx::query_scalar(
+            "SELECT model FROM actors WHERE id=$1 AND retired_at IS NULL FOR UPDATE",
+        )
+        .bind(actor_id)
+        .fetch_optional(&mut *tx)
+        .await?
+        .ok_or_else(|| {
+            OrgIntelError::InvalidWork(format!("active actor {actor_id:?} does not exist"))
+        })?;
+        sqlx::query("UPDATE actors SET model=$2 WHERE id=$1")
+            .bind(actor_id)
+            .bind(model)
+            .execute(&mut *tx)
+            .await?;
+        sqlx::query(
+            "INSERT INTO events (kind, actor_id, body) VALUES ('actor_model_changed',$1,$2)",
+        )
+        .bind(changed_by)
+        .bind(serde_json::json!({
+            "actor_id": actor_id,
+            "previous_model": previous,
+            "model": model,
+            "reason": reason.trim(),
+        }))
+        .execute(&mut *tx)
+        .await?;
+        tx.commit().await?;
+        Ok(())
+    }
+
+    /// Create one durable specialist identity. Runtime attempts may fail over
+    /// without changing this actor-level preference; explicit evolution uses
+    /// `change_actor_model`.
     pub async fn create_actor(
         &self,
         id: &str,
@@ -1368,6 +1443,20 @@ impl OrgIntel {
         requires: &[Uuid],
         revises: &[Uuid],
     ) -> Result<Uuid> {
+        self.add_work_with_edges_and_gates(work, requires, revises, &[])
+            .await
+    }
+
+    /// Add a Work node, its initial graph edges, and deterministic acceptance
+    /// gates in one transaction. The scheduler observes the commit only after
+    /// all three exist, so an Attempt can never race ahead of its checks.
+    pub async fn add_work_with_edges_and_gates(
+        &self,
+        work: NewWork<'_>,
+        requires: &[Uuid],
+        revises: &[Uuid],
+        gates: &[InitialWorkGate<'_>],
+    ) -> Result<Uuid> {
         if work.title.trim().is_empty() || work.outcome.trim().is_empty() {
             return Err(OrgIntelError::InvalidWork(
                 "Work needs a title and outcome contract".into(),
@@ -1427,6 +1516,33 @@ impl OrgIntel {
             return Err(OrgIntelError::InvalidWork(
                 "base and integration branch must be bounded Git refs".into(),
             ));
+        }
+        if gates.len() > 32 {
+            return Err(OrgIntelError::InvalidWork(
+                "Work may declare at most 32 deterministic gates".into(),
+            ));
+        }
+        let mut gate_names = std::collections::HashSet::new();
+        for gate in gates {
+            let name = gate.name.trim();
+            if name.is_empty()
+                || name.chars().count() > 120
+                || gate.command.is_empty()
+                || gate.command.len() > 128
+                || gate
+                    .command
+                    .iter()
+                    .any(|part| part.contains('\0') || part.chars().count() > 8_192)
+            {
+                return Err(OrgIntelError::InvalidWork(
+                    "an initial Work gate needs a unique 1-120 character name and 1-128 bounded NUL-free argv values".into(),
+                ));
+            }
+            if !gate_names.insert(name) {
+                return Err(OrgIntelError::InvalidWork(format!(
+                    "initial Work gate name {name:?} is duplicated"
+                )));
+            }
         }
         let id = Uuid::new_v4();
         let mut initial_edges = std::collections::HashSet::new();
@@ -1494,6 +1610,28 @@ impl OrgIntel {
             .bind(from)
             .bind(to)
             .bind(kind)
+            .execute(&mut *tx)
+            .await?;
+        }
+        for (sequence_no, gate) in gates.iter().enumerate() {
+            sqlx::query(
+                "INSERT INTO work_gates \
+                 (id, work_id, name, cwd, command, created_by, sequence_no) \
+                 VALUES ($1,$2,$3,'@attempt',$4,$5,$6)",
+            )
+            .bind(Uuid::new_v4())
+            .bind(id)
+            .bind(gate.name.trim())
+            .bind(
+                serde_json::to_value(gate.command)
+                    .map_err(|error| OrgIntelError::Db(sqlx::Error::Protocol(error.to_string())))?,
+            )
+            .bind(work.owner_id)
+            .bind(
+                i32::try_from(sequence_no).map_err(|_| {
+                    OrgIntelError::InvalidWork("too many initial Work gates".into())
+                })?,
+            )
             .execute(&mut *tx)
             .await?;
         }
@@ -2322,9 +2460,18 @@ impl OrgIntel {
             ));
         }
         let id = Uuid::new_v4();
+        let mut tx = self.pool.begin().await?;
+        // Serialise appends for one Work node so two actors cannot claim the
+        // same next pipeline position.
+        sqlx::query("SELECT id FROM work WHERE id=$1 FOR UPDATE")
+            .bind(gate.work_id)
+            .fetch_one(&mut *tx)
+            .await?;
         sqlx::query(
-            "INSERT INTO work_gates (id, work_id, name, cwd, command, created_by) \
-             VALUES ($1,$2,$3,$4,$5,$6)",
+            "INSERT INTO work_gates \
+             (id, work_id, name, cwd, command, created_by, sequence_no) \
+             SELECT $1,$2,$3,$4,$5,$6,COALESCE(MAX(sequence_no), -1) + 1 \
+             FROM work_gates WHERE work_id=$2",
         )
         .bind(id)
         .bind(gate.work_id)
@@ -2335,15 +2482,16 @@ impl OrgIntel {
                 .map_err(|error| OrgIntelError::Db(sqlx::Error::Protocol(error.to_string())))?,
         )
         .bind(gate.created_by)
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await?;
+        tx.commit().await?;
         Ok(id)
     }
 
     pub async fn list_work_gates(&self, work_id: Uuid) -> Result<Vec<WorkGateRow>> {
         Ok(sqlx::query_as(
-            "SELECT id, work_id, name, cwd, command, created_by, created_at \
-             FROM work_gates WHERE work_id = $1 ORDER BY created_at, id",
+            "SELECT id, work_id, name, cwd, command, created_by, sequence_no, created_at \
+             FROM work_gates WHERE work_id = $1 ORDER BY sequence_no",
         )
         .bind(work_id)
         .fetch_all(&self.pool)
@@ -2397,8 +2545,8 @@ impl OrgIntel {
         .fetch_all(&mut *tx)
         .await?;
         let gates = sqlx::query_as(
-            "SELECT id, work_id, name, cwd, command, created_by, created_at \
-             FROM work_gates ORDER BY created_at, id",
+            "SELECT id, work_id, name, cwd, command, created_by, sequence_no, created_at \
+             FROM work_gates ORDER BY work_id, sequence_no",
         )
         .fetch_all(&mut *tx)
         .await?;
@@ -3208,6 +3356,66 @@ impl OrgIntel {
         Ok(row.get(0))
     }
 
+    /// Send ordinary owner conversation, optionally moving the actor's one
+    /// working-context cursor to the end of the existing transcript first.
+    /// The cursor changes what a future model wake carries, never what the
+    /// owner can read; no message or actor history is deleted.
+    pub async fn send_owner_conversation_message(
+        &self,
+        actor: &str,
+        body: &str,
+        new_focus: bool,
+    ) -> Result<(i64, ConversationFocusRow)> {
+        let mut tx = self.pool.begin().await?;
+        if new_focus {
+            let after_message_id: i64 = sqlx::query_scalar(
+                "SELECT COALESCE(MAX(id), 0) FROM messages \
+                 WHERE (from_actor='owner' AND to_actor=$1) \
+                    OR (from_actor=$1 AND to_actor IS NULL)",
+            )
+            .bind(actor)
+            .fetch_one(&mut *tx)
+            .await?;
+            let changed = sqlx::query(
+                "UPDATE actors SET conversation_focus_after_message_id=$2, \
+                         conversation_focus_started_at=now() \
+                 WHERE id=$1 AND retired_at IS NULL",
+            )
+            .bind(actor)
+            .bind(after_message_id)
+            .execute(&mut *tx)
+            .await?;
+            if changed.rows_affected() != 1 {
+                return Err(OrgIntelError::InvalidWork(format!(
+                    "active conversation actor {actor:?} does not exist"
+                )));
+            }
+        }
+        let id: i64 = sqlx::query_scalar(
+            "INSERT INTO messages (from_actor, to_actor, body) \
+             VALUES ('owner',$1,$2) RETURNING id",
+        )
+        .bind(actor)
+        .bind(body)
+        .fetch_one(&mut *tx)
+        .await?;
+        let focus = sqlx::query_as(
+            "SELECT conversation_focus_after_message_id AS after_message_id, \
+                    conversation_focus_started_at AS started_at \
+             FROM actors WHERE id=$1 AND retired_at IS NULL",
+        )
+        .bind(actor)
+        .fetch_optional(&mut *tx)
+        .await?
+        .ok_or_else(|| {
+            OrgIntelError::InvalidWork(format!(
+                "active conversation actor {actor:?} does not exist"
+            ))
+        })?;
+        tx.commit().await?;
+        Ok((id, focus))
+    }
+
     /// Send ordinary free-form conversation and link it to the Work it changes.
     /// The link is kickoff context, not a conversation lifecycle.
     pub async fn send_work_message(
@@ -3389,6 +3597,49 @@ impl OrgIntel {
         .await?)
     }
 
+    /// Current working-context boundary for the owner's conversation with one
+    /// actor. A zero cursor with no timestamp is the original uninterrupted
+    /// conversation; it is not an unknown state.
+    pub async fn owner_conversation_focus(&self, actor: &str) -> Result<ConversationFocusRow> {
+        sqlx::query_as(
+            "SELECT conversation_focus_after_message_id AS after_message_id, \
+                    conversation_focus_started_at AS started_at \
+             FROM actors WHERE id=$1 AND retired_at IS NULL",
+        )
+        .bind(actor)
+        .fetch_optional(&self.pool)
+        .await?
+        .ok_or_else(|| {
+            OrgIntelError::InvalidWork(format!(
+                "active conversation actor {actor:?} does not exist"
+            ))
+        })
+    }
+
+    /// The bounded owner/actor transcript newer than a known focus cursor.
+    /// This is input material for a wake, not a second conversation record.
+    pub async fn owner_conversation_since(
+        &self,
+        actor: &str,
+        after_message_id: i64,
+        limit: i64,
+    ) -> Result<Vec<MessageRow>> {
+        let limit = limit.clamp(1, 200);
+        Ok(sqlx::query_as(
+            "SELECT id,from_actor,to_actor,body,created_at,read_at FROM (\
+               SELECT id,from_actor,to_actor,body,created_at,read_at FROM messages \
+               WHERE id>$2 AND ((from_actor='owner' AND to_actor=$1) \
+                            OR (from_actor=$1 AND to_actor IS NULL)) \
+               ORDER BY id DESC LIMIT $3\
+             ) recent ORDER BY id",
+        )
+        .bind(actor)
+        .bind(after_message_id.max(0))
+        .bind(limit)
+        .fetch_all(&self.pool)
+        .await?)
+    }
+
     pub async fn mark_read(&self, message_id: i64) -> Result<()> {
         sqlx::query("UPDATE messages SET read_at = now() WHERE id = $1")
             .bind(message_id)
@@ -3499,6 +3750,18 @@ impl OrgIntel {
                 .fetch_optional(&self.pool)
                 .await?;
         Ok(row.map(|row| row.get(0)))
+    }
+
+    /// The most recent complete event row of one kind. Restart reconciliation
+    /// needs the wake id and original trigger, not only its timestamp.
+    pub async fn latest_event(&self, kind: &str) -> Result<Option<EventRow>> {
+        Ok(sqlx::query_as(
+            "SELECT id, kind, actor_id, body, created_at FROM events \
+             WHERE kind = $1 ORDER BY id DESC LIMIT 1",
+        )
+        .bind(kind)
+        .fetch_optional(&self.pool)
+        .await?)
     }
 }
 
@@ -3744,6 +4007,7 @@ pub struct WorkGateRow {
     pub cwd: String,
     pub command: serde_json::Value,
     pub created_by: String,
+    pub sequence_no: i32,
     pub created_at: DateTime<Utc>,
 }
 
@@ -3934,6 +4198,12 @@ pub struct MessageRow {
     pub body: String,
     pub created_at: DateTime<Utc>,
     pub read_at: Option<DateTime<Utc>>,
+}
+
+#[derive(Debug, Clone, Serialize, sqlx::FromRow)]
+pub struct ConversationFocusRow {
+    pub after_message_id: i64,
+    pub started_at: Option<DateTime<Utc>>,
 }
 
 #[derive(Debug, Serialize, sqlx::FromRow, ts_rs::TS)]

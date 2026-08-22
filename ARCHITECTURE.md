@@ -2,7 +2,7 @@
 
 **Status:** Working draft  
 **Version:** 0.9  
-**Date:** 12 August 2026  
+**Date:** 23 August 2026
 **Purpose:** Define the target architecture for a system that can run useful companies through autonomous agents while keeping consequential authority bounded and recoverable.
 
 ---
@@ -35,12 +35,15 @@ Owner
 │  │ 2. ORGINTEL PLANE       3. EXECUTION PLANE       │  │
 │  │ goals · Work graph ·    files · Git · browser     │  │
 │  │ messages · memory   ⇄   ACP workers · tools       │  │
-│  │ Exec · planners         project applications      │  │
+│  │ Exec · team leads       project applications      │  │
 │  └──────────────────────────────────────────────────┘  │
 └────────────────────────────────────────────────────────┘
 ```
 
-This is a responsibility and trust map, not a mandatory call chain. The Exec runs inside the company environment, coordinates through OrgIntel, works directly in the Linux runtime, and calls the kernel only when exercising real-world authority.
+This is a responsibility and trust map, not a mandatory call chain. The Exec runs inside the company
+environment, coordinates through OrgIntel, inspects prepared Runtime evidence, and calls the kernel
+only when exercising real-world authority. Productive work is owned by an accountable team lead, not
+by the Exec.
 
 The optimisation target is:
 
@@ -205,7 +208,8 @@ These are appropriate for code-level enforcement, database constraints and adver
 
 The Exec may operate across the whole company, but it does not receive host root.
 
-- In the runtime, it has broad access to files, Git, browser, tools and worker processes.
+- In the runtime, it can inspect files, Git, browser state, tools and worker processes for executive
+  judgement and recovery, but it is not the production actor or project integrator.
 - In OrgIntel, it is the accountable owner of priorities, teams, delegation and internal operating processes.
 - At the kernel boundary, it may use granted capabilities, allocate sub-budgets, delegate narrower permissions, revoke delegated authority and request additional authority.
 
@@ -286,9 +290,24 @@ A sensible initial topology is:
 
 ```text
 1 persistent Exec identity
-├── on-demand planner, critic and recovery sessions
-└── 1–4 task-focused ACP workers
+├── accountable lead: department or bounded outcome
+│   ├── on-demand planner, critic and recovery sessions
+│   └── 0–4 task-focused ACP workers
+└── other accountable leads running concurrently as demand requires
 ```
+
+The Exec is the continuously available company dispatcher, not a departmental producer. Every owner
+request that requires execution is routed to exactly one accountable team lead. The lead may be a
+standing department lead or a temporary outcome lead; if none exists, the Exec appoints one before
+productive work begins. For tightly coupled work the lead may execute alone. For separable work the
+lead may commission Staff and remains responsible for integration, review and completion judgement.
+
+After framing the company-level intent, choosing the lead and allocating an initial envelope, the Exec
+ends its dispatch wake so it remains available for the next owner request or department-level
+exception. Results and blockers return asynchronously. The Exec retains portfolio prioritisation,
+cross-department arbitration, company-wide resource allocation and escalation to the owner, but it
+does not retain a production workspace or become the normal integration bottleneck. See
+[`docs/adr/0005-exec-dispatches-through-accountable-leads.md`](docs/adr/0005-exec-dispatches-through-accountable-leads.md).
 
 OrgIntel combines two kinds of machinery:
 
@@ -671,7 +690,7 @@ Use one persistent Exec identity across three interfaces:
 
 | Surface | Exec authority |
 |---|---|
-| **Linux runtime** | Broad direct access to files, Git, browser, tools, processes and workers |
+| **Linux runtime** | Inspect prepared artifacts, process health and company evidence for executive judgement and recovery; no standing production ownership |
 | **OrgIntel** | Full authority over internal goals, teams, delegation, planning, review and operating processes |
 | **Kernel** | Capability-based requests inside the owner-granted envelope; no direct database or policy edits |
 
@@ -693,7 +712,11 @@ Most changes remain within one layer. Runtime changes do not normally reach OrgI
 
 ## 7.3 Single agent versus team
 
-- A single agent may make local, obvious and reversible changes.
+- The Exec always assigns executable owner work to an accountable team lead and returns to availability.
+- A team lead may work alone on coherent, tightly coupled work; “lead” names accountability, not a
+  minimum headcount.
+- A lead adds workers only when specialisation or parallel latency is expected to exceed communication,
+  integration and review cost.
 - A lead or maintainer decides changes to shared project state.
 - A builder plus independent reviewer is appropriate for company-wide coordination machinery or changes with subtle failure modes.
 - A small cross-functional team handles changes spanning several disciplines or materially changing company strategy.
@@ -864,7 +887,9 @@ Playtesting becomes valuable once this first playable artifact exists. The prima
 | **OrgIntel** | Milestones, teams, Work graph, Attempts, risk ordering, review, playtest cadence, blocker detection, reallocation and owner summaries |
 | **Runtime** | Game-engine project, source code, 3D assets, builds, playtest recordings, scripts, repositories, browsers and project tools |
 
-The Exec can operate across all three: it manages the studio through OrgIntel, works directly in the runtime, and invokes kernel capabilities within its granted envelope.
+The Exec can operate across all three: it manages the studio portfolio through OrgIntel, inspects
+prepared Runtime evidence, and invokes kernel capabilities within its granted envelope. The Game
+Product lead owns the production workspace, team and integrated outcome.
 
 ## 10.4 Organisational-intelligence principles
 
@@ -883,15 +908,16 @@ The owner directs Cosmon to prove whether the core space-creature experience des
 
 A passing run looks like this:
 
-1. Exec interprets the mandate and chooses a bounded risk-reduction milestone.
-2. OrgIntel forms a temporary cross-functional team and assigns clear outcomes.
+1. Exec interprets the mandate, selects an accountable Game Product lead and allocates an envelope.
+2. The lead chooses a bounded risk-reduction milestone and forms only the team it needs.
 3. Workers create the game project, assets, files and Git worktrees directly in Linux.
 4. OrgIntel claims ready Work and tracks Attempts and blockers without mediating ordinary edits.
 5. A disagreement or requirement change is resolved using design pillars, prototypes and expected economic value.
 6. A stalled or crashed worker is replaced without discarding useful files and commits.
 7. A playable build is tested by an independent critic or playtest function.
 8. Any purchase or public action crosses the kernel and produces a receipt or approval request.
-9. Exec integrates evidence and recommends continue, pivot or stop.
+9. The lead integrates evidence and reports the outcome; Exec decides company-level continuation,
+   pivot, stop or reallocation.
 
 The owner receives the build, important artifact links, playtest evidence, technical findings, cost, unresolved risks and only the decisions requiring owner judgement.
 
@@ -1111,6 +1137,9 @@ Restless should not attempt to:
     authentication in an owner-controlled browser outside the Company Runtime; deliver issued secrets
     through owner-only Authority ingress and resume from observed provider state rather than a “done”
     click.
+26. Keep the Exec continuously available by routing every executable owner request to one accountable
+    team lead. A lead may execute tightly coupled work alone or form a team; Exec retains portfolio and
+    cross-department judgement rather than production or integration ownership.
 
 ---
 
@@ -1139,7 +1168,8 @@ These require further design rather than immediate implementation:
 The next architecture should be tested with one end-to-end department rather than another broad framework expansion:
 
 1. Boot one durable company Linux environment.
-2. Run one human owner, one persistent Exec and multiple ACP workers.
+2. Run one human owner, one persistent dispatching Exec, at least one accountable lead and optional
+   ACP workers beneath that lead.
 3. Maintain goals, a deterministic Work graph, Attempts, messages and scheduled wakeups through a thin OrgIntel core.
 4. Produce real files and Git commits through ordinary tools.
 5. Recover from an agent crash without losing useful work.
@@ -1378,8 +1408,9 @@ Kernel decisions affecting authority, secrets, isolation or irreversible externa
 Create the smallest new path containing:
 
 - one durable Linux company environment;
-- one persistent Exec ACP process;
-- one or two worker ACP processes;
+- one persistent dispatching Exec ACP process;
+- one or more accountable lead ACP processes;
+- optional worker ACP processes commissioned by those leads;
 - files as the primary work substrate;
 - Git for meaningful checkpoints;
 - minimal OrgIntel messaging, Work graph, Attempts and wakeups;

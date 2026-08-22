@@ -62,7 +62,12 @@
 			attention = nextAttention;
 			error = '';
 			if (!nextCockpit.people.some((person) => person.actor_id === selectedId)) {
+				const requestedPerson = page.url.searchParams.get('person');
 				selectedId =
+					(requestedPerson &&
+					nextCockpit.people.some((person) => person.actor_id === requestedPerson)
+						? requestedPerson
+						: null) ??
 					nextCockpit.people.find((person) => person.kind === 'exec')?.actor_id ??
 					nextCockpit.people.find((person) => person.kind === 'staff')?.actor_id ??
 					'';

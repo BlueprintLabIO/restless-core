@@ -703,6 +703,45 @@
 	outline-offset: 2px;
 }
 
+.bridge-root .tb-new-focus {
+	min-height: 29px;
+	padding: 5px 9px;
+	border: 1px solid color-mix(in srgb, var(--intent-conversation) 14%, var(--control-edge));
+	border-radius: var(--radius-control);
+	background: rgba(255, 255, 255, 0.34);
+	box-shadow: var(--bevel-subtle);
+	color: var(--text-secondary);
+	font: 550 var(--t-label) var(--font-ui);
+	white-space: nowrap;
+	cursor: pointer;
+	transition:
+		border-color var(--motion-state) var(--ease-standard),
+		background-color var(--motion-state) var(--ease-standard),
+		color var(--motion-state) var(--ease-standard),
+		transform var(--motion-press) var(--ease-standard);
+}
+
+.bridge-root .tb-new-focus:hover:not(:disabled) {
+	transform: translateY(-1px);
+	border-color: color-mix(in srgb, var(--intent-conversation) 30%, var(--control-edge));
+	background: color-mix(in srgb, var(--intent-conversation-soft) 42%, white);
+	color: var(--ink);
+}
+
+.bridge-root .tb-new-focus:active:not(:disabled) {
+	transform: translateY(1px);
+}
+
+.bridge-root .tb-new-focus:disabled {
+	opacity: 0.42;
+	cursor: default;
+}
+
+.bridge-root .tb-new-focus:focus-visible {
+	outline: 3px solid color-mix(in srgb, var(--intent-conversation) 28%, transparent);
+	outline-offset: 2px;
+}
+
 .bridge-root .bridge-body {
 	min-height: 0;
 	height: 100%;
@@ -812,34 +851,28 @@
 	padding: 12px 0;
 }
 
-/* The Attention rail is stable context: actionable decisions first, then
- * recent owner history. The adjacent surface can change without moving it. */
+/* Attention owns space only while it has a queue. Once the source has proved
+ * that queue clear, the rail yields its width to the office and leaves one
+ * quiet, useful refresh control behind. Keeping both grid tracks during the
+ * change makes the move spatially continuous instead of swapping layouts. */
 .bridge-root .attention-screen {
 	display: grid;
-	grid-template-columns: clamp(280px, 24vw, 336px) minmax(0, 1fr);
+	grid-template-columns: minmax(0, 336px) minmax(0, 1fr);
 	gap: var(--pane-gap);
+	transition:
+		grid-template-columns 360ms cubic-bezier(0.22, 1, 0.36, 1),
+		grid-template-rows 360ms cubic-bezier(0.22, 1, 0.36, 1),
+		gap 300ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.bridge-root .attention-screen.queue-clear {
+	grid-template-columns: minmax(0, 0) minmax(0, 1fr);
+	gap: 0;
 }
 
 .bridge-root .attention-index,
 .bridge-root .attention-focus {
 	overflow: hidden;
-}
-
-.bridge-root .attention-pane-title {
-	min-height: 43px;
-	display: flex;
-	align-items: center;
-	gap: 9px;
-	padding: 0 14px;
-	border-bottom: 1px solid var(--border);
-}
-
-.bridge-root .attention-queue-title {
-	margin: 0;
-	font-size: var(--t-body);
-	font-weight: 600;
-	letter-spacing: -0.01em;
-	color: var(--text-secondary);
 }
 
 .bridge-root .attention-index-scroll {
@@ -851,16 +884,30 @@
 
 .bridge-root .attention-index {
 	display: grid;
-	grid-template-rows: 43px minmax(0, 1fr);
+	grid-template-rows: minmax(0, 1fr);
+	opacity: 1;
+	transform: translateX(0) scaleX(1);
+	transform-origin: left center;
+	transition:
+		opacity 180ms ease-out,
+		transform 360ms cubic-bezier(0.22, 1, 0.36, 1),
+		visibility 0s;
+	will-change: transform, opacity;
+}
+
+.bridge-root .attention-screen.queue-clear .attention-index {
+	visibility: hidden;
+	opacity: 0;
+	transform: translateX(-16px) scaleX(0.96);
+	pointer-events: none;
+	transition:
+		opacity 140ms ease-out,
+		transform 360ms cubic-bezier(0.22, 1, 0.36, 1),
+		visibility 0s 360ms;
 }
 
 .bridge-root .attention-list {
 	display: grid;
-}
-
-.bridge-root .attention-list.clear {
-	flex: 1 0 auto;
-	align-content: center;
 }
 
 .bridge-root .attention-item {
@@ -937,8 +984,7 @@
 	line-height: 1.35;
 }
 
-.bridge-root .attention-item-action,
-.bridge-root .decision-continuation-action {
+.bridge-root .attention-item-action {
 	justify-self: end;
 	font: 500 var(--t-label) var(--font-mono);
 	color: var(--text-secondary);
@@ -989,165 +1035,90 @@
 	.bridge-root .attention-list-waiting i {
 		animation: none;
 	}
+
+	.bridge-root .attention-screen,
+	.bridge-root .attention-index,
+	.bridge-root .attention-clear-control {
+		transition: none;
+	}
 }
 
-.bridge-root .attention-list-clear {
+.bridge-root .attention-clear-glyph {
+	width: 21px;
+	height: 21px;
 	display: grid;
-	grid-template-columns: 38px minmax(0, 1fr);
-	grid-template-rows: auto auto;
+	place-items: center;
+	border-radius: 50%;
+	background: color-mix(in srgb, var(--state-success-soft) 70%, transparent);
+	color: var(--state-success);
+}
+
+.bridge-root .attention-clear-control {
+	position: absolute;
+	z-index: 6;
+	top: 12px;
+	left: 12px;
+	min-height: 34px;
+	display: inline-flex;
 	align-items: center;
-	column-gap: 11px;
-	row-gap: 1px;
-	margin: 12px;
-	padding: 12px;
-	border: 1px solid color-mix(in srgb, var(--state-success) 17%, var(--border));
+	gap: 7px;
+	padding: 5px 10px 5px 6px;
+	border: 1px solid color-mix(in srgb, var(--state-success) 25%, rgba(255, 255, 255, 0.72));
 	border-radius: var(--radius-control);
-	background: color-mix(in srgb, var(--state-success-soft) 54%, rgba(255, 255, 255, 0.58));
-	box-shadow: var(--bevel-subtle);
-	color: var(--state-success);
-}
-
-.bridge-root .attention-clear-mark {
-	grid-row: 1 / 3;
-	width: 36px;
-	height: 36px;
-	display: grid;
-	place-items: center;
-	border: 1px solid color-mix(in srgb, var(--state-success) 22%, var(--border));
-	border-radius: 10px;
-	background: rgba(255, 255, 255, 0.48);
-	box-shadow: 0 2px 0 color-mix(in srgb, var(--state-success) 7%, transparent);
-}
-
-.bridge-root .attention-list-clear strong {
-	align-self: end;
-	font-size: var(--t-head);
-	line-height: 1.25;
-	letter-spacing: -0.015em;
-}
-
-.bridge-root .attention-list-clear small {
-	align-self: start;
-	font-size: var(--t-body);
-	line-height: 1.3;
-	color: var(--text-secondary);
-}
-
-.bridge-root .decision-continuations {
-	margin-top: auto;
-	border-top: 1px solid var(--border);
-}
-
-.bridge-root .decision-continuations > summary {
-	display: grid;
-	grid-template-columns: minmax(0, 1fr) auto auto;
-	align-items: center;
-	gap: 8px;
-	min-height: 42px;
-	padding: 0 14px;
-	list-style: none;
-	color: var(--text-secondary);
-	font: 500 var(--t-body) var(--font-mono);
+	background: color-mix(in srgb, var(--state-success-soft) 72%, rgba(255, 255, 255, 0.9));
+	box-shadow:
+		inset 0 1px 0 rgba(255, 255, 255, 0.72),
+		0 2px 0 rgba(35, 91, 65, 0.12),
+		0 6px 18px rgba(35, 91, 65, 0.07);
+	backdrop-filter: blur(7px);
+	color: color-mix(in srgb, var(--state-success) 82%, var(--ink));
+	font: 600 var(--t-label) var(--font-mono);
+	letter-spacing: -0.01em;
+	opacity: 0;
+	transform: translateX(-14px) scale(0.92);
+	transform-origin: left center;
+	pointer-events: none;
 	cursor: pointer;
+	transition:
+		opacity 140ms ease-out,
+		transform 280ms cubic-bezier(0.22, 1, 0.36, 1),
+		border-color var(--motion-state) var(--ease-standard),
+		background-color var(--motion-state) var(--ease-standard),
+		box-shadow var(--motion-state) var(--ease-standard);
+	will-change: transform, opacity;
 }
 
-.bridge-root .decision-continuations > summary::-webkit-details-marker {
-	display: none;
+.bridge-root .attention-clear-control.visible {
+	opacity: 1;
+	transform: translateX(0) scale(1);
+	pointer-events: auto;
+	transition-delay: 140ms, 100ms, 0s, 0s, 0s;
 }
 
-.bridge-root .decision-continuations > summary:hover {
-	background: var(--surface-alt);
-	color: var(--ink);
+.bridge-root .attention-clear-control.visible:hover {
+	transform: translateY(-1px);
+	border-color: color-mix(in srgb, var(--state-success) 38%, rgba(255, 255, 255, 0.72));
+	background: color-mix(in srgb, var(--state-success-soft) 82%, rgba(255, 255, 255, 0.94));
+	box-shadow:
+		inset 0 1px 0 rgba(255, 255, 255, 0.78),
+		0 3px 0 rgba(35, 91, 65, 0.12),
+		0 8px 22px rgba(35, 91, 65, 0.1);
 }
 
-.bridge-root .decision-continuations > summary:focus-visible {
+.bridge-root .attention-clear-control.visible:active {
+	transform: translateY(1px);
+	box-shadow:
+		inset 0 1px 0 rgba(255, 255, 255, 0.7),
+		0 1px 0 rgba(35, 91, 65, 0.14);
+}
+
+.bridge-root .attention-clear-control:focus-visible {
 	outline: 2px solid var(--state-success);
-	outline-offset: -3px;
-}
-
-.bridge-root .decision-continuations > summary small {
-	width: 24px;
-	height: 24px;
-	display: grid;
-	place-items: center;
-	padding: 0;
-	border-radius: 999px;
-	background: var(--surface-alt);
-	font: 500 var(--t-label)/1 var(--font-mono);
-	text-align: center;
-	color: var(--text-tertiary);
-}
-
-.bridge-root .decision-disclosure {
-	width: 8px;
-	height: 8px;
-	margin: -3px 3px 0 1px;
-	border-right: 2px solid currentColor;
-	border-bottom: 2px solid currentColor;
-	transform: rotate(45deg);
-	transition: transform var(--motion-disclosure) var(--ease-out);
-}
-
-.bridge-root .decision-continuations[open] .decision-disclosure {
-	margin-top: 3px;
-	transform: rotate(225deg);
-}
-
-.bridge-root .recent-decisions-list {
-	border-top: 1px solid var(--border);
-}
-
-.bridge-root .recent-decisions-list > a {
-	display: grid;
-	gap: 6px;
-	padding: 10px 14px;
-	color: var(--ink);
-	text-decoration: none;
-}
-
-.bridge-root .recent-decisions-list > a:hover,
-.bridge-root .recent-decisions-list > a.selected {
-	background: var(--state-success-soft);
-}
-
-.bridge-root .recent-decisions-list > a.selected {
-	box-shadow: inset 3px 0 0 var(--state-success);
-}
-
-.bridge-root .decision-continuation-meta,
-.bridge-root .decision-continuation-meta > span {
-	display: flex;
-	align-items: center;
-}
-
-.bridge-root .decision-continuation-meta {
-	min-width: 0;
-	justify-content: space-between;
-	gap: 10px;
-	font: 500 var(--t-label) var(--font-mono);
-	color: var(--state-success);
-}
-
-.bridge-root .decision-continuation-meta > span {
-	gap: 6px;
-}
-
-.bridge-root .recent-decisions-list strong {
-	display: -webkit-box;
-	overflow: hidden;
-	-webkit-box-orient: vertical;
-	-webkit-line-clamp: 2;
-	font-size: var(--t-body);
-	line-height: 1.35;
-}
-
-.bridge-root .recent-decisions-list time {
-	font: var(--t-label) var(--font-mono);
-	color: var(--text-tertiary);
-	white-space: nowrap;
+	outline-offset: 3px;
 }
 
 .bridge-root .attention-focus {
+	position: relative;
 	overflow: auto;
 	background:
 		radial-gradient(circle at 88% 2%, var(--surface-attention-soft), transparent 34%),
@@ -2505,7 +2476,7 @@
 		grid-template-columns: 220px minmax(0, 1fr);
 	}
 	.bridge-root .attention-screen {
-		grid-template-columns: 280px minmax(0, 1fr);
+		grid-template-columns: minmax(0, 280px) minmax(0, 1fr);
 	}
 	.bridge-root .people-screen {
 		grid-template-columns: 208px minmax(0, 1fr);
@@ -2598,10 +2569,19 @@
 	}
 	.bridge-root .attention-screen {
 		grid-template-columns: 1fr;
-		grid-template-rows: minmax(220px, 36vh) minmax(0, 1fr);
+		grid-template-rows: minmax(132px, 22vh) minmax(0, 1fr);
+	}
+	.bridge-root .attention-screen.queue-clear {
+		grid-template-columns: 1fr;
+		grid-template-rows: minmax(0, 0) minmax(0, 1fr);
+		gap: 0;
 	}
 	.bridge-root .attention-index {
 		display: grid;
+	}
+	.bridge-root .attention-clear-control {
+		top: 8px;
+		left: 8px;
 	}
 	.bridge-root .work-screen {
 		display: grid;

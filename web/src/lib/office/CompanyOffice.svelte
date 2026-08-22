@@ -6,6 +6,7 @@
 	import OfficeCanvas from './OfficeCanvas.svelte';
 	import {
 		DEFAULT_OFFICE_PREFERENCES,
+		MAX_VISIBLE_OFFICE_MEMBERS,
 		OFFICE_PLAN_VERSION,
 		type OfficePreferences
 	} from './officePlan';
@@ -27,33 +28,50 @@
 	let preferences = $state<OfficePreferences>({ ...DEFAULT_OFFICE_PREFERENCES });
 
 	const members = $derived(
-		cockpit && graph ? projectOfficeMembers(companyId, cockpit, graph) : ([] as OfficeMember[])
+		cockpit && graph
+			? projectOfficeMembers(companyId, cockpit, graph, {
+					runtimeStatus: error
+						? 'unavailable'
+						: (sourceHealth.runtime ?? cockpit.source_health.runtime),
+					orgintelStatus: sourceHealth.orgintel ?? cockpit.source_health.orgintel
+				}).slice(0, MAX_VISIBLE_OFFICE_MEMBERS)
+			: ([] as OfficeMember[])
 	);
 	const liveCount = $derived(members.filter((member) => member.sessionObserved).length);
 	const runtimeAvailable = $derived(
 		['available', 'running'].includes(sourceHealth.runtime ?? cockpit?.source_health.runtime ?? '')
 	);
+	const orgintelAvailable = $derived(
+		(sourceHealth.orgintel ?? cockpit?.source_health.orgintel ?? '') === 'available'
+	);
+	const signalUnavailable = $derived(!runtimeAvailable || !orgintelAvailable || !!error);
+	const signalTitle = $derived(
+		error ||
+			(!orgintelAvailable
+				? 'Company coordination is unavailable.'
+				: !runtimeAvailable
+					? 'Company runtime observation is unavailable.'
+					: '')
+	);
 
 	onMount(() => {
 		preferences = readPreferences();
 		void refresh();
-		const timer = window.setInterval(() => void refresh(false), 8_000);
+		const timer = window.setInterval(() => void refresh(), 8_000);
 		return () => window.clearInterval(timer);
 	});
 
-	async function refresh(showError = true) {
+	async function refresh() {
 		try {
 			cockpit = await getCockpit(companyId);
 			error = '';
 		} catch (cause) {
-			if (showError || !cockpit) {
-				error = cause instanceof Error ? cause.message : 'Live company status is unavailable.';
-			}
+			error = cause instanceof Error ? cause.message : 'Live company status is unavailable.';
 		}
 	}
 
 	function openMember(member: OfficeMember) {
-		if (member.workHref) void goto(member.workHref);
+		void goto(member.workHref ?? member.personHref);
 	}
 
 	function preferenceKey() {
@@ -98,9 +116,9 @@
 			onpreferenceschange={updatePreferences}
 		/>
 
-		{#if !runtimeAvailable || error}
-			<div class="office-signal unavailable" role="status" title={error || undefined}>
-				<i></i>Live signal unavailable
+		{#if signalUnavailable}
+			<div class="office-signal unavailable" role="status" title={signalTitle || undefined}>
+				<i></i>Source signal unavailable
 			</div>
 		{/if}
 	</div>
@@ -113,7 +131,7 @@
 		height: 100%;
 		min-height: 0;
 		overflow: hidden;
-		background: #dcebea;
+		background: #94c78a;
 	}
 
 	.office-stage {
@@ -134,7 +152,7 @@
 		padding: 5px 8px;
 		border: 1px solid rgba(23, 36, 51, 0.62);
 		border-radius: var(--radius-control);
-		background: rgba(255, 250, 240, 0.9);
+		background: rgba(239, 248, 244, 0.92);
 		box-shadow: 0 2px 0 rgba(23, 36, 51, 0.28);
 		color: #172433;
 		font: 600 var(--t-label) var(--font-mono);

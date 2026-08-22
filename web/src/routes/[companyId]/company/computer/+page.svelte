@@ -47,6 +47,7 @@
 				? `${control.requesting_actor} controls`
 				: 'A company actor controls';
 		}
+		if (browserStatus) return 'Ready for control';
 		return runtimeBrowser?.controller === 'unclaimed'
 			? 'Ready for control'
 			: (runtimeBrowser?.controller ?? 'Controller unknown');

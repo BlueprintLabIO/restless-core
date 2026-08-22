@@ -117,6 +117,20 @@ doctor() {
     "${STACK_TARGET_DIR}/debug/restless" doctor -c "$STACK_COMPANY"
 }
 
+wait_for_doctor() {
+  local probe_attempt
+  for ((probe_attempt = 0; probe_attempt < 40; probe_attempt += 1)); do
+    if RESTLESS_OWNER_URL="$STACK_OWNER_URL" \
+      RESTLESS_COCKPIT_URL="$STACK_WEB_URL" \
+      "${STACK_TARGET_DIR}/debug/restless" doctor -c "$STACK_COMPANY" \
+      >/dev/null 2>&1; then
+      return 0
+    fi
+    sleep 0.5
+  done
+  return 1
+}
+
 cleanup_children() {
   local exit_code=$?
   trap - EXIT INT TERM
@@ -152,7 +166,7 @@ dev() {
     if [ "$STACK_RECONCILE" = "--reconcile" ]; then
       "${STACK_TARGET_DIR}/debug/restless" up -c "$STACK_COMPANY" --reconcile
     fi
-    if doctor; then
+    if wait_for_doctor && doctor; then
       printf 'The local stack is already running; no second stack was started.\n'
       return 0
     fi
@@ -189,6 +203,10 @@ dev() {
     return 1
   }
 
+  if ! wait_for_doctor; then
+    doctor
+    return 1
+  fi
   doctor
   printf '\nPress Ctrl-C to stop the host daemon and Vite processes started here.\n'
   wait "$STACK_WEB_PID"

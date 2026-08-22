@@ -245,6 +245,132 @@ also fixed and covered: sentence-ending semicolons no longer become part of the 
 The Work remains blocked on the owner by design. No implementation or verification step accepted or
 rejected the outcome on the founder's behalf.
 
+## 20 August follow-up: branch experiment after a communication regression
+
+The founder then supplied a second genuine Aris capture. The item had again reached Attention as a
+technical status report: the headline contained a commit and CI state; the situation inventoried
+components, i18n messages, test counts, vulnerability counts, deployment integrations and historic
+release mechanics; and the recommendation embedded Markdown, evidence and three implementation
+options in the primary reading path. Its recommendation label also occupied a fixed left column while
+the copy wrapped in the remaining space. This showed that the Sprint 07 mechanism was present but the
+editorial judgement remained under-specified. The prior fix could transport authored owner meaning;
+it did not yet make the accountable actor reliably select owner meaning.
+
+The follow-up used real product actors in `sprint07_test`, with no synthetic capability exercised in
+Aris. The genuine Aris handoff was read only as a source case. A second explicitly scripted `_test`
+case supplied a bounded two-versus-ten-centre launch decision so the approaches also had to produce a
+real recommendation rather than merely withdraw an unready interruption.
+
+Four prompt branches were exercised:
+
+| Branch | Editorial stance | Observed result |
+|---|---|---|
+| A | fixed semantic fields | Withdrew the unprobed deployment item, but produced a dense mini-report and an abstract owner ask on the launch case. |
+| B | work backwards from the action | Produced the shortest exact owner ask, but the inexpensive run invented claims about interest and proving unit economics. |
+| C | rehearse the owner's ten-second account | Stayed compact and supported, but returned the launch choice upward instead of recommending a course. |
+| D | action-first plus clause-by-clause source audit | Withdrew the unprobed deployment item and produced a decisive, supported launch recommendation with preserved uncertainty. |
+
+All four branches independently concluded that the genuine deployment interruption should be
+**withdrawn**: the manual path, current credential state and material relevance of the inherited CI
+failures could still be live-probed by the company. The user did not need to choose among deployment
+methods yet. That agreement is more consequential than the wording score: the most CEO-friendly
+version of this specific item is no item until the preparation is complete.
+
+On the bounded launch decision, B and D were the viable branches. Two adversarial comparisons both
+rejected C and agreed that the final brief must recommend one course and ask for the smallest exact
+answer. They differed narrowly on canon: one preferred B's shorter ask, while the other preferred D's
+explicit source audit and conditional uncertainty. The first D run also invented “released cash” and
+“lost momentum”; that failure was preserved rather than averaged away. A production-parity Sonnet
+4.5 rerun under D removed those unsupported clauses and produced:
+
+> Launch with two confirmed centres or commit support for ten including eight unconfirmed.
+>
+> Recommendation: Launch with the two confirmed centres.
+>
+> Owner ask: Launch with two centres or commit support for ten?
+
+That production run removed the invented claims but still framed its headline and ask as a choice.
+The shipped canon is therefore D's preparation method with B's minimal-ask discipline, including an
+explicit final check that the headline is not a menu and that the owner approves or adjusts the
+recommended course instead of comparing the alternatives again. The shared
+prompt now requires every remaining machine probe first, an action-led headline, one recommendation,
+a private factual audit, source-supported no-action consequences, preserved uncertainty and a final
+ten-second deletion pass. It explicitly forbids Markdown in the authored brief because the cockpit,
+not actor punctuation, owns visual hierarchy.
+
+The exact final prompt was then re-run through the production-parity Sonnet 4.5 actor. It produced
+the direct headline “Launch pilot with two confirmed centres, expand when demand is observed,” the
+recommendation “Launch the pilot with the two confirmed centres,” and the smallest ask “Approve the
+two-centre pilot launch or adjust the scope.” Its uncertainty named only the two source-exposed
+unknowns—unconfirmed demand and unobserved use patterns—and added no delay harm, invented customer
+state or Markdown.
+
+The preferred different-model critic route was not available: the configured Kimi provider returned
+a membership/quota refusal and fell back to Haiku. The two critiques are independent through withheld
+branch instructions and an adversarial role, but they are not evidence of cross-model agreement. That
+mechanism limitation remains explicit.
+
+### Cockpit follow-up
+
+The polish pass compared the live folio with the restrained control and card composition in
+[Origin UI Svelte](https://github.com/max-got/originui-svelte) and the source-visible component
+craft in [Cult UI](https://github.com/nolly-studio/cult-ui), then retained Restless's own tokens and
+visual identity. The same change removes the decorative category eyebrow from the folio and moves
+category/source context into a keyboard-reachable tooltip. The title uses one restrained title token.
+Situation,
+impact, recommendation and requested action share one main prose size and normal weight; section
+headings provide the only additional weight. Markdown emphasis inside the two owner-action sections
+cannot create arbitrary bold islands. `Recommendation` is now a full-width heading above full-width
+copy rather than a fixed left label column.
+
+The first browser capture was rejected because it showed loading skeletons and an unavailable Exec,
+not the folio. A loopback-only forward was then used inside `sprint07_test` so the isolated company
+browser could satisfy the owner boundary without weakening it. The valid 1440×900 capture showed the
+real long Aris item with the new typography and recommendation geometry. It also deliberately exposed
+that the persisted brief remains implementation-dense: layout no longer amplifies the problem, but
+the cockpit does not silently rewrite or truncate authored company meaning. A source-owned actor must
+withdraw and re-prepare that handoff after completing the remaining probes.
+
+The visual critic marked evidence as expanded after measuring the hidden evidence body's intrinsic
+height. That finding is rejected: the body remains inside a native `<details>` with no `open`
+attribute, and it is absent from the rendered primary viewport. The critic also failed to link its
+expected report artifact, so its prose is advisory rather than accepted Work evidence. No second
+disclosure mechanism was added to repair this false positive.
+
+At 390×844 the Exec rail initially covers the workspace by design. The valid folio check explicitly
+closed that overlay before capture. The rendered title was 22 px at weight 600; all main prose was
+16 px at weight 400 with a 24.8 px line height; and the folio measured 348 px for both client and
+scroll width. A second scrolled capture showed `Recommendation` above one full-width text column.
+Actor-authored Markdown emphasis rendered without literal markers or arbitrary bold islands. The
+long options list still visible there belongs to the persisted Aris brief and is the semantic defect
+the new preparation prompt prevents; the cockpit correctly does not delete it on read.
+
+A redundant rehearsal actor later overwrote the shared recommendation filename with an Exec-overlay
+capture while claiming PASS. That pair is rejected. The already-inspected original bytes were
+preserved separately as
+`/company/outputs/owner-brief-ui-mobile-recommendation-valid-semantic.png` with SHA-256
+`96918995f37b771824b3d57c325642b0726f128c349b3fa98e67df30c6ac89cd`. This run therefore relies on
+the opened artifact and measurements, not the contradictory rehearsal prose.
+
+The closing read-only doctor probes found the owner gateway, cockpit shell, OrgIntel, browser and all
+supervised Runtime services available, with 167 GiB free. Their aggregate status was nevertheless
+`degraded` because the concurrently changing worktree source digest is ahead of the running company
+image. The reported repair is an image reconciliation. This follow-up did not reconcile live Aris or
+claim that stale-image status as green; the page and API used for the captures were probed directly.
+
+### Follow-up risks and dispositions
+
+| Risk | Disposition |
+|---|---|
+| The platform developer could make the current Aris item look fixed by rewriting live company state. | **Guarded:** no Aris handoff or Work state was mutated. Its accountable actor retains authorship and must refresh or withdraw it. |
+| Brevity could remove counter-evidence or create false urgency. | **Guarded:** the factual audit and preserved-uncertainty steps precede the ten-second deletion pass. |
+| A static field or character limit could score well on one fixture and fail another domain. | **Accepted:** no new length gate, enum or UI truncation was added; judgement remains with the accountable model actor. |
+| The critic comparison could be misreported as cross-model validation. | **Guarded:** the Kimi refusal and actual Haiku fallback are recorded above. |
+| One stress-case screenshot could hide mobile defects. | **Guarded:** the folio and the scrolled recommendation were separately captured at 390×844 after closing the Exec overlay; neither had horizontal overflow. |
+
+This follow-up does not mark Sprint 07 T5 complete. The founder's ten-second account and the
+source-owned handling of the genuine Aris item remain the real acceptance boundary.
+
 ## Deterministic verification
 
 - `cargo test --workspace`: 89 tests passed (2 CLI, 12 model-gateway, 1 actors/teams, 1 bindings,

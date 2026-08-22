@@ -803,6 +803,18 @@ export class OfficeState {
 		}
 	}
 
+	/** Bound autonomous ambience independently from semantic activity. */
+	setAgentAmbient(id: number, allowed: boolean): void {
+		const ch = this.characters.get(id);
+		if (!ch) return;
+		const changed = ch.ambientAllowed !== allowed;
+		ch.ambientAllowed = allowed;
+		if (changed && !allowed && !ch.isActive) {
+			ch.path = [];
+			ch.moveProgress = 0;
+		}
+	}
+
 	/** Rebuild furniture instances with auto-state applied (active agents turn electronics ON) */
 	private rebuildFurnitureInstances(): void {
 		// Collect tiles where active agents face desks

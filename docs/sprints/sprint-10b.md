@@ -1,6 +1,6 @@
 # Sprint 10b — A cared-for company floor that stays honest
 
-**Status:** Draft for founder alignment
+**Status:** Complete; founder visually accepted the retained campus and requested production integration
 
 **Date:** 20 August 2026
 
@@ -49,8 +49,9 @@ second production engine and not evidence that one layout has won.
 > move between reachable work and restorative interaction points using the vendored engine. Current
 > Work cues appear only from observed source state; ambient life remains visibly non-semantic.
 > Clicking a person reveals one compact current summary and leads to the canonical Work or People
-> detail. The office remains the experience itself, with only the persistent Attention rail and
-> minimal in-canvas controls around it.**
+> detail. The office remains the experience itself. An active Attention queue keeps its left rail;
+> a proved-clear queue smoothly yields that space to the office and leaves only a quiet top-left
+> `All clear` refresh control.**
 
 Sprint 10b selects a spatial grammar, not one compulsory centrepiece. A tree, garden, café, hearth,
 forum or changing installation may win or be combined after the comparison run. A fountain has no
@@ -101,8 +102,10 @@ The sprint passes only when all of the following are observed:
     and environmental ambience share consistent timing and sprite scale. Semantic and ambient
     animation are distinguishable without relying on colour alone.
 13. **The office respects the rest of the product.** It uses the sunlit owner-cockpit palette and
-    quiet framing. Attention remains a persistent left rail; recent decisions remain collapsed by
-    default; the clear state is subtle and vertically centred rather than a competing hero card.
+    quiet framing. The left Attention rail exists only for an active queue; once the source proves
+    the queue clear, it smoothly collapses and the office reclaims the width. A subtle top-left
+    `All clear` control refreshes the source. Decision history stays on the Company surface rather
+    than consuming Attention space.
 14. **Reduced motion is complete.** Reduced-motion users receive a stable, attractive floor with the
     same truth and selection affordances. Ambient loops and autonomous walking stop while the
     document is hidden; returning does not fast-forward a large simulation delta.
@@ -125,18 +128,35 @@ The sprint passes only when all of the following are observed:
 
 The first wave is a balanced baseline, not a catalogue-completion exercise.
 
-| Care need | Production vocabulary | First behaviour | Truth boundary |
-|---|---|---|---|
-| Nourishment | stocked tea/snack and hydration point, communal table | an available person may take a short tea route | no hunger, break compliance or productivity claim |
-| Focus | team desks, low-screen focus nook, nearby whiteboard | fresh observed work prefers the accountable team/work zone | a lit monitor is semantic only when driven by fresh observation |
-| Recovery | planted quiet nook with stretch mat or comfortable chair | an available person may choose one restorative point | no inferred stress, health or happiness state |
-| Reading | small library shelf and reading seat | an available person may pause and read | no claim about the document or research being performed |
-| Social | open pair/commons seating | compatible available people may briefly share the area | proximity is ambience, not evidence of collaboration |
-| Practical care | coat/storage point, waste/recycling and clear circulation | static in this wave | no inventory, facilities or booking model |
-| Belonging | pet bed/bowl when enabled, personal plants and one whimsical landmark | pet idle/wander and optional available-person visit | pets and décor never function as liveness signals |
+| Care need      | Production vocabulary                                                 | First behaviour                                            | Truth boundary                                                  |
+| -------------- | --------------------------------------------------------------------- | ---------------------------------------------------------- | --------------------------------------------------------------- |
+| Nourishment    | stocked tea/snack and hydration point, communal table                 | an available person may take a short tea route             | no hunger, break compliance or productivity claim               |
+| Focus          | team desks, low-screen focus nook, nearby whiteboard                  | fresh observed work prefers the accountable team/work zone | a lit monitor is semantic only when driven by fresh observation |
+| Recovery       | planted quiet nook with stretch mat or comfortable chair              | an available person may choose one restorative point       | no inferred stress, health or happiness state                   |
+| Reading        | small library shelf and reading seat                                  | an available person may pause and read                     | no claim about the document or research being performed         |
+| Social         | open pair/commons seating                                             | compatible available people may briefly share the area     | proximity is ambience, not evidence of collaboration            |
+| Practical care | coat/storage point, waste/recycling and clear circulation             | static in this wave                                        | no inventory, facilities or booking model                       |
+| Belonging      | pet bed/bowl when enabled, personal plants and one whimsical landmark | pet idle/wander and optional available-person visit        | pets and décor never function as liveness signals               |
 
 The exact visual objects are chosen in T0/T1. Every row need not become a unique engine interaction
 verb; several may share `walk → face → bounded idle → release`.
+
+### Retained enrichment wave
+
+The post-baseline founder direction retains one forest-and-mountain campus rather than a theme
+system. The production exterior is a soft mountain ridge, lake, pine and meadow middle ground, and
+warm garden terrace/path around the office. It replaces the infinite implementation grid without
+changing the office's source model or vendored renderer.
+
+The authored activity catalogue now spans reading, sofa conversation, pool, cards/puzzles,
+sketching, co-op arcade, garden lunch, hammock rest, records/headphones, aquarium, pet and unicorn
+moments. Scene definitions contain only presentation labels and reachable poses; no leisure event,
+mood, happiness, schedule or amenity ownership is persisted.
+
+The retained calmness contract is four animated interior scenes, three temporary amenity visitors,
+one ambient bubble and three slow exterior channels. A small completion celebration is source-gated
+by an actual Work transition or recent completion timestamp. Reduced motion freezes all ambient
+channels and all source-state changes remain immediately interruptible.
 
 ## Behaviour grammar
 
@@ -144,8 +164,9 @@ Sprint 10b implements the smallest useful presentation grammar:
 
 ```text
 fresh observed work  → route to work/team point → work idle → release when source changes
+active unobserved    → neutral desk treatment; no current-step claim
 source-owned waiting → route/stay at waiting point → waiting cue → canonical detail
-available            → choose reachable restorative point → ambient idle → return/wander
+available            → leave desk → authored lounge scene → optional amenity visit → lounge
 stale                 → neutral retained presence + explicit stale cue; no semantic work animation
 unknown/unavailable   → neutral or unavailable presence; never infer idle or working
 ```
@@ -153,7 +174,8 @@ unknown/unavailable   → neutral or unavailable presence; never infer idle or w
 The grammar is interruptible. A new source projection replaces an ambient choice; an ambient
 animation never delays a Work, waiting or selection update. Interaction reservations are local and
 ephemeral so two people do not occupy the same chair or appliance, but they are not durable locks or
-OrgIntel leases.
+OrgIntel leases. Lounge activities such as sitting, conversation, pool and table games are
+presentation choices, never claims that those activities occurred in company truth.
 
 ## Animation and interaction wave
 
@@ -299,19 +321,19 @@ winning office.
 
 ## Risks and dispositions
 
-| Risk | Disposition | Sprint treatment |
-|---|---|---|
-| Delightful animation invents liveness | **Invariant** | Fresh source observation gates semantic current-work cues; ambient life has no Work meaning. |
-| The sprint turns into a general game or life simulation | **Invariant** | One disposable behaviour grammar; no needs, moods, schedules, inventory, rooms or persistent world state. |
-| Amenities make the floor cluttered and reduce comprehension | **Guarded** | Commit care categories, not every object; founder review must name and remove the least useful accessory. |
-| A fixed signature makes dynamic teams fit poorly | **Guarded** | Compare representative team shapes and permit a compositional family around one spatial grammar. |
-| Scratch alternatives become permanent product modes | **Invariant** | One production canon and no shipped layout switcher at sprint exit. |
-| Vendor modifications make upstream provenance unclear | **Guarded** | Product changes remain outside vendor; any necessary vendor patch names its limitation and base. |
-| Pathfinding passes simple rooms but fails dense layouts | **Guarded** | Component reachability and 20-person runs cover furniture and interaction points before visual acceptance. |
-| Available people socialising looks like fake collaboration | **Guarded** | Ambient actions are sparse and carry no current-step or Work claim; founder truth review includes this misread. |
-| Unknown/stale people make the cheerful office feel broken | **Accepted** | Honest degraded state matters more than uninterrupted charm; art direction should make uncertainty calm, not hide it. |
-| Mobile cannot show a useful explorable map and a full rail | **Accepted for this sprint** | Preserve truth, person selection and canonical detail access; do not build a second mobile game layout without observed owner need. |
-| Asset creation dominates the sprint | **Guarded** | Recolour/recombine the licensed base where appropriate and author only the small winning first-wave pack. |
+| Risk                                                        | Disposition                  | Sprint treatment                                                                                                                    |
+| ----------------------------------------------------------- | ---------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| Delightful animation invents liveness                       | **Invariant**                | Fresh source observation gates semantic current-work cues; ambient life has no Work meaning.                                        |
+| The sprint turns into a general game or life simulation     | **Invariant**                | One disposable behaviour grammar; no needs, moods, schedules, inventory, rooms or persistent world state.                           |
+| Amenities make the floor cluttered and reduce comprehension | **Guarded**                  | Commit care categories, not every object; founder review must name and remove the least useful accessory.                           |
+| A fixed signature makes dynamic teams fit poorly            | **Guarded**                  | Compare representative team shapes and permit a compositional family around one spatial grammar.                                    |
+| Scratch alternatives become permanent product modes         | **Invariant**                | One production canon and no shipped layout switcher at sprint exit.                                                                 |
+| Vendor modifications make upstream provenance unclear       | **Guarded**                  | Product changes remain outside vendor; any necessary vendor patch names its limitation and base.                                    |
+| Pathfinding passes simple rooms but fails dense layouts     | **Guarded**                  | Component reachability and 20-person runs cover furniture and interaction points before visual acceptance.                          |
+| Available people socialising looks like fake collaboration  | **Guarded**                  | Ambient actions are sparse and carry no current-step or Work claim; founder truth review includes this misread.                     |
+| Unknown/stale people make the cheerful office feel broken   | **Accepted**                 | Honest degraded state matters more than uninterrupted charm; art direction should make uncertainty calm, not hide it.               |
+| Mobile cannot show a useful explorable map and a full rail  | **Accepted for this sprint** | Preserve truth, person selection and canonical detail access; do not build a second mobile game layout without observed owner need. |
+| Asset creation dominates the sprint                         | **Guarded**                  | Recolour/recombine the licensed base where appropriate and author only the small winning first-wave pack.                           |
 
 ## Explicitly out of scope
 
@@ -332,14 +354,14 @@ winning office.
 
 ## Tickets
 
-| ✓ | Ticket | Layer | Evidence served | Depends |
-|---|---|---|---|---|
-| [ ] | [**S10b-T0 · Select one cared-for spatial grammar**](sprint-10b/t00-select-office-canon.md) | Owner surface research | Six runnable concepts exist, but no representative rendered comparison has chosen a production canon | — |
-| [ ] | [**S10b-T1 · Author the first-wave amenity kit**](sprint-10b/t01-amenity-kit.md) | Owner presentation/assets | The current furniture pack does not communicate nourishment, focus, recovery, practical care and belonging | T0 |
-| [ ] | [**S10b-T2 · Generate a walkable office from real Teams and People**](sprint-10b/t02-dynamic-office-plan.md) | Owner projection over OrgIntel | Current placement has not proved amenity reachability or representative 0–8-Team shapes | T0, T1 |
-| [ ] | [**S10b-T3 · Give people a small honest behaviour grammar**](sprint-10b/t03-honest-behaviour-grammar.md) | Owner projection + OrgIntel/Runtime reads | Movement exists, but working, waiting, restoring and degraded truth are not yet one tested grammar | T2 |
-| [ ] | [**S10b-T4 · Polish animation, bubbles and inspection**](sprint-10b/t04-animation-and-interaction.md) | Owner surface | Sprite interaction and cues do not yet meet product-level anchoring, restraint, accessibility or responsive quality | T1–T3 |
-| [ ] | [**S10b-T5 · Dogfood the clear Attention floor and purge**](sprint-10b/t05-dogfood-and-purge.md) | Full owner-facing slice | A charming demo is not evidence that the office is truthful, calm, performant or better than the prior clear state | T0–T4 |
+| ✓   | Ticket                                                                                                       | Layer                                     | Evidence served                                                                                                    | Depends |
+| --- | ------------------------------------------------------------------------------------------------------------ | ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------ | ------- |
+| [x] | [**S10b-T0 · Select one cared-for spatial grammar**](sprint-10b/t00-select-office-canon.md)                  | Owner surface research                    | Six runnable concepts exist, but no representative rendered comparison has chosen a production canon               | —       |
+| [x] | [**S10b-T1 · Author the first-wave amenity kit**](sprint-10b/t01-amenity-kit.md)                             | Owner presentation/assets                 | The current furniture pack does not communicate nourishment, focus, recovery, practical care and belonging         | T0      |
+| [x] | [**S10b-T2 · Generate a walkable office from real Teams and People**](sprint-10b/t02-dynamic-office-plan.md) | Owner projection over OrgIntel            | Current placement has not proved amenity reachability or representative 0–8-Team shapes                            | T0, T1  |
+| [x] | [**S10b-T3 · Give people a small honest behaviour grammar**](sprint-10b/t03-honest-behaviour-grammar.md)     | Owner projection + OrgIntel/Runtime reads | Movement exists, but working, waiting, restoring and degraded truth are not yet one tested grammar                 | T2      |
+| [x] | [**S10b-T4 · Polish animation, bubbles and inspection**](sprint-10b/t04-animation-and-interaction.md)        | Owner surface                             | Production and Chrome DevTools prove restrained cues and the active-queue rail → clear control transition          | T1–T3   |
+| [x] | [**S10b-T5 · Dogfood the clear Attention floor and purge**](sprint-10b/t05-dogfood-and-purge.md)             | Full owner-facing slice                   | A charming demo is not evidence that the office is truthful, calm, performant or better than the prior clear state | T0–T4   |
 
 Ticket status lives only in this checklist.
 

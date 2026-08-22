@@ -64,9 +64,9 @@ adaptations.
 Code outside the vendor subtree owns:
 
 - projecting actual Teams, People, Work, Attempts and runtime observations into one office view;
-- generating a legible open-plan floor with team neighbourhoods and shared circulation;
+- generating a legible irregular open campus with team neighbourhoods and shared circulation;
 - choosing and placing amenities, restorative spaces and whimsical landmarks;
-- Restless-authored asset packs, themes, animation overlays and interaction affordances;
+- Restless-authored assets, the retained visual language, animation overlays and interaction affordances;
 - click-through to the canonical People or Work detail rather than a second task system;
 - owner preferences that are already presentation state, without promoting office objects into
   OrgIntel or Authority entities;
@@ -95,6 +95,41 @@ Amenity use and walking state remain in-memory, disposable presentation state. R
 rebuilding the projection may choose another safe restorative action; no durable office simulation,
 event history or scheduling protocol is introduced.
 
+### Canonical campus and authored scenes
+
+The retained exterior is one **sunlit top-down lakeside campus**. Team pavilions, quiet care spaces
+and a south activity terrace form an irregular C around a central zen court; a glass conservatory,
+open project table and dock face the lake. The floor is a real tile mask containing voids, not a
+rectangle covered by scenic paint. The Restless-owned backdrop uses the same overworld perspective
+and the same camera projection as the office for meadow, topographic tree contours, shoreline,
+water, rocks and planting, and is clipped through the voids between pavilions. It is world geometry,
+not a viewport-anchored wallpaper: pan and zoom move the campus and office together. There is no
+theme selector, beach mode, weather state or second renderer. Real Team count controls which north
+and south pavilion plates exist, so a small company does not inherit a huge empty floor.
+
+The cared-for `lush` density is the versioned production default. The smaller `calm` density and
+owner-placed decoration list remain local presentation preferences only; neither creates another
+layout canon or company record. A standalone `/office-demo` route is retained strictly as a visual
+harness over the same renderer. Company ids always resolve through the real owner shell and source
+APIs; no fixed demo route may shadow a company route.
+
+Downtime is composed from authored presentation scenes. A scene contains fixed reachable approach
+and pose points around an amenity; the existing engine still performs every route and interruption.
+The retained catalogue covers reading, sofa conversation, pool, cards/puzzles, sketching, co-op
+arcade, garden lunch, hammock rest, music, aquarium, greenhouse tending, open-table collaboration,
+dock birdwatching, pet and unicorn-zen moments. Small companies receive one pose from different
+scenes before large companies fill another seat in the same scene.
+
+The calmness budget is explicit: at most four interior amenity scenes animate, at most three people
+temporarily leave their authored resting scene for another amenity, and at most one ambient speech
+bubble appears. The exterior has exactly three slow channels—water, leaves and one butterfly—and
+reduced motion freezes all of them. Amenity selection avoids immediately repeating the person's last
+visit where another reachable kind exists.
+
+A tiny celebration may appear only when source-owned Work changes to `completed`, or on first load
+when that completion's source timestamp is less than two minutes old. It never follows elapsed
+office time, character proximity or an inferred mood.
+
 ### Branch, run and purge
 
 Non-obvious layout, art and interaction choices are compared in scratch against representative team
@@ -104,17 +139,19 @@ the product does not ship a permanent theme laboratory merely because several ca
 
 ## Risk dispositions
 
-| Risk | Disposition | Reason |
-|---|---|---|
-| Attractive motion implies work that was never observed | **Invariant** | Semantic activity requires a source observation and time; ambient behaviour is explicitly non-semantic. |
-| Restless drifts into an undocumented Pixel Agents fork | **Guarded** | Pin provenance, keep product work outside the vendor subtree and require a demonstrated engine limitation for vendor edits. |
-| Upstream stops maintaining the engine | **Accepted** | The pinned MIT snapshot already contains the small mechanics Restless needs. Revisit only when an observed browser or platform defect cannot be repaired narrowly. |
-| A new upstream version overwrites local behaviour | **Guarded** | Refresh through an inspected diff and repeat asset, pathfinding, interaction and owner-surface probes. |
-| Amenities become first-class OrgIntel entities or a durable game simulation | **Invariant** | Office state remains a disposable read projection; Work, People and runtime sources remain authoritative. |
-| Richer art becomes visually inconsistent with the owner cockpit | **Guarded** | Restless owns one sunlit art contract and accepts assets only through rendered comparison at owner sizes. |
-| Pathfinding and amenity interactions expand without limit | **Guarded** | Add one interaction verb after a representative run needs it; reuse engine movement and authored interaction points. |
-| Scratch alternatives accumulate into permanent production modes | **Guarded** | Sprint exit chooses one canon and deletes losing runtime code and dependencies. |
-| The office consumes excessive CPU while hidden or for reduced-motion users | **Guarded** | Pause ambient work while the document is hidden, bound entity count and provide a stable reduced-motion rendering. |
+| Risk                                                                        | Disposition   | Reason                                                                                                                                                             |
+| --------------------------------------------------------------------------- | ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Attractive motion implies work that was never observed                      | **Invariant** | Semantic activity requires a source observation and time; ambient behaviour is explicitly non-semantic.                                                            |
+| Restless drifts into an undocumented Pixel Agents fork                      | **Guarded**   | Pin provenance, keep product work outside the vendor subtree and require a demonstrated engine limitation for vendor edits.                                        |
+| Upstream stops maintaining the engine                                       | **Accepted**  | The pinned MIT snapshot already contains the small mechanics Restless needs. Revisit only when an observed browser or platform defect cannot be repaired narrowly. |
+| A new upstream version overwrites local behaviour                           | **Guarded**   | Refresh through an inspected diff and repeat asset, pathfinding, interaction and owner-surface probes.                                                             |
+| Amenities become first-class OrgIntel entities or a durable game simulation | **Invariant** | Office state remains a disposable read projection; Work, People and runtime sources remain authoritative.                                                          |
+| Richer art becomes visually inconsistent with the owner cockpit             | **Guarded**   | Restless owns one cool, sunlit top-down art contract and accepts assets only through rendered comparison at owner sizes.                                           |
+| Pathfinding and amenity interactions expand without limit                   | **Guarded**   | Add one interaction verb after a representative run needs it; reuse engine movement and authored interaction points.                                               |
+| Scratch alternatives accumulate into permanent production modes             | **Guarded**   | Sprint exit chooses one canon and deletes losing runtime code and dependencies.                                                                                    |
+| The office consumes excessive CPU while hidden or for reduced-motion users  | **Guarded**   | Pause ambient work while the document is hidden, bound entity count and provide a stable reduced-motion rendering.                                                 |
+| A scenic exterior competes with Work and people                             | **Guarded**   | One softer, lower-contrast top-down campus surrounds and passes through the floor voids; three slow environmental channels are the hard ambience budget.           |
+| A completion celebration launders ambience into progress                    | **Invariant** | It is gated by a source-owned Work completion transition or a recent source timestamp and has no ambient trigger.                                                  |
 
 ## Consequences
 

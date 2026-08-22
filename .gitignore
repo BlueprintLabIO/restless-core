@@ -18,6 +18,10 @@
 .vscode/
 *.swp
 
+# Python generated state
+__pycache__/
+*.py[cod]
+
 # Web app
 node_modules/
 /web/.svelte-kit

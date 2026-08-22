@@ -2,7 +2,9 @@
 //! (S06-T3/T4). Runs against a scratch Postgres company when
 //! `RESTLESS_TEST_DATABASE_URL` is available.
 
-use restless_orgintel::{NewWork, OrgIntel, WorkAttemptState, WorkspaceSpec};
+use restless_orgintel::{
+    InitialWorkGate, NewWork, NewWorkGate, OrgIntel, WorkAttemptState, WorkspaceSpec,
+};
 
 async fn create_actor(org: &OrgIntel, id: &str, role: &str) {
     let display = format!("{} colleague", id.replace('-', " "));
@@ -16,6 +18,115 @@ async fn create_actor(org: &OrgIntel, id: &str, role: &str) {
     )
     .await
     .unwrap();
+}
+
+#[tokio::test]
+async fn initial_work_gates_commit_atomically_and_follow_the_attempt_workspace() {
+    let Ok(url) = std::env::var("RESTLESS_TEST_DATABASE_URL") else {
+        eprintln!("RESTLESS_TEST_DATABASE_URL unset; skipping atomic gate scenario");
+        return;
+    };
+    let company = format!("gates{}", uuid::Uuid::new_v4().simple());
+    let org = OrgIntel::ensure(&url, &company)
+        .await
+        .expect("ensure scratch company schema");
+    org.ensure_actor("exec", "exec", "exec", "The Exec")
+        .await
+        .unwrap();
+    create_actor(&org, "release-build", "engineer").await;
+
+    let check = vec!["pnpm".to_string(), "check".to_string()];
+    let build = vec!["pnpm".to_string(), "build".to_string()];
+    let work = org
+        .add_work_with_edges_and_gates(
+            NewWork {
+                owner_id: "release-build",
+                title: "Produce a gate-checked release",
+                outcome: "typecheck and build both exit zero",
+                goal_id: None,
+                priority: 0,
+                expected_artifact: "commit",
+                workspace: WorkspaceSpec {
+                    repo: Some("study".into()),
+                    base_ref: Some("main".into()),
+                    ..WorkspaceSpec::default()
+                },
+                attempt_limit: Some(2),
+            },
+            &[],
+            &[],
+            &[
+                InitialWorkGate {
+                    name: "typecheck",
+                    command: &check,
+                },
+                InitialWorkGate {
+                    name: "build",
+                    command: &build,
+                },
+            ],
+        )
+        .await
+        .unwrap();
+
+    let gates = org.list_work_gates(work).await.unwrap();
+    assert_eq!(gates.len(), 2);
+    assert!(gates.iter().all(|gate| gate.cwd == "@attempt"));
+    let ordered = gates
+        .iter()
+        .map(|gate| (gate.sequence_no, gate.name.as_str()))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        ordered,
+        vec![(0, "typecheck"), (1, "build")],
+        "atomic gates retain the caller's declared pipeline order"
+    );
+    org.add_work_gate(NewWorkGate {
+        work_id: work,
+        name: "smoke",
+        cwd: "/company",
+        command: &check,
+        created_by: "release-build",
+    })
+    .await
+    .unwrap();
+    let appended = org.list_work_gates(work).await.unwrap();
+    assert_eq!(
+        appended
+            .iter()
+            .map(|gate| (gate.sequence_no, gate.name.as_str()))
+            .collect::<Vec<_>>(),
+        vec![(0, "typecheck"), (1, "build"), (2, "smoke")],
+        "a later gate appends after the atomic pipeline"
+    );
+
+    let duplicate = org
+        .add_work_with_edges_and_gates(
+            NewWork {
+                owner_id: "release-build",
+                title: "Reject an ambiguous gate contract",
+                outcome: "duplicate gate names do not enter the graph",
+                goal_id: None,
+                priority: 0,
+                expected_artifact: "",
+                workspace: WorkspaceSpec::default(),
+                attempt_limit: None,
+            },
+            &[],
+            &[],
+            &[
+                InitialWorkGate {
+                    name: "verify",
+                    command: &check,
+                },
+                InitialWorkGate {
+                    name: "verify",
+                    command: &build,
+                },
+            ],
+        )
+        .await;
+    assert!(duplicate.is_err());
 }
 
 #[tokio::test]
@@ -57,6 +168,54 @@ async fn durable_people_and_one_level_rosters_refuse_ghosts_and_poaching() {
     ] {
         create_actor(&org, id, role).await;
     }
+
+    org.change_actor_model(
+        "centre-copy",
+        "anthropic/claude-sonnet-4-5",
+        "exec",
+        "try the stronger model on the next assignment",
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        org.active_actor("centre-copy")
+            .await
+            .unwrap()
+            .unwrap()
+            .model
+            .as_deref(),
+        Some("anthropic/claude-sonnet-4-5")
+    );
+    org.ensure_actor_with_model(
+        "centre-copy",
+        "staff",
+        "copywriter",
+        "Mira",
+        Some("anthropic/claude-haiku-4-5"),
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        org.active_actor("centre-copy")
+            .await
+            .unwrap()
+            .unwrap()
+            .model
+            .as_deref(),
+        Some("anthropic/claude-sonnet-4-5"),
+        "lifecycle ensure must not overwrite an explicit actor preference"
+    );
+    assert!(
+        org.change_actor_model(
+            "centre-copy",
+            "anthropic/claude-haiku-4-5",
+            "centre-copy",
+            "silently rewrite my own model",
+        )
+        .await
+        .is_err(),
+        "ordinary Staff cannot rewrite their own model preference"
+    );
 
     for invalid in [
         "staff-centre-critic",
@@ -501,6 +660,13 @@ async fn durable_people_and_one_level_rosters_refuse_ghosts_and_poaching() {
     assert!(actor_events.iter().any(|event| {
         event.body["actor_id"] == "centre-critique"
             && event.body["reason"] == "critic provides a distinct contribution"
+    }));
+    let model_events = org.events_of_kind("actor_model_changed").await.unwrap();
+    assert!(model_events.iter().any(|event| {
+        event.actor_id.as_deref() == Some("exec")
+            && event.body["actor_id"] == "centre-copy"
+            && event.body["model"] == "anthropic/claude-sonnet-4-5"
+            && event.body["reason"] == "try the stronger model on the next assignment"
     }));
 
     org.retire_actor(

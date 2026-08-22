@@ -153,7 +153,12 @@ pub async fn dispatch_claimed_work(
         let first_model = candidates
             .first()
             .context("staff model policy has no candidates")?;
-        org.update_actor_model(&actor, first_model).await?;
+        // A missing preference adopts the company's first available model.
+        // A temporary cooldown must not overwrite an explicit preference;
+        // actual models used remain visible on Attempt and model events.
+        if actor_row.model.is_none() {
+            org.update_actor_model(&actor, first_model).await?;
+        }
         org.set_attempt_model(claimed.attempt_id, first_model)
             .await?;
         let workdir = if claimed.work.repo.is_some() {
@@ -615,7 +620,6 @@ async fn run_staff_with_failover(run: StaffRun) -> Result<StaffOutcome> {
     let mut continuity_note: Option<String> = None;
 
     for (index, model) in run.candidates.iter().enumerate() {
-        run.org.update_actor_model(&run.actor, model).await?;
         run.org
             .emit_event(
                 "model_attempt",
@@ -959,11 +963,7 @@ async fn run_staff(
     } else {
         "assigned one claimed Work Attempt"
     };
-    let workspace = if conversation {
-        "Your working directory is /company. Use the existing company files and ordinary Restless CLI; do not create a second plan or workflow."
-    } else {
-        "Your working directory is {workdir} — it is YOURS: a dedicated git worktree. Commit meaningful checkpoints there with clear messages; do not touch other worktrees or the main checkout."
-    };
+    let workspace = workspace_instruction(workdir, conversation);
     let system_prompt = format!(
         "# Company operating rules [authoritative — applies to every actor]\n{}\n\n\
          You are {name}, the {role} of {company}, {assignment}. Your stable OrgIntel actor id is `{actor}`.\n\
@@ -976,7 +976,7 @@ async fn run_staff(
          # Trusted assignment context [OrgIntel decision]\n{task}\n\n\
          Work until the task is done or you are stuck. {ending}",
         crate::context::COMPANY_OPERATING_RULES.trim(),
-        workspace = workspace.replace("{workdir}", workdir),
+        workspace = workspace,
         ending = if conversation {
             "After using any tools you need, end with the complete owner-facing reply and its required intent marker. Do not narrate private reasoning in that reply."
         } else {
@@ -1116,6 +1116,20 @@ async fn run_staff(
     .await
 }
 
+fn workspace_instruction(workdir: &str, conversation: bool) -> String {
+    if conversation {
+        return "Your working directory is /company. Use the existing company files and ordinary Restless CLI; do not create a second plan or workflow."
+            .to_string();
+    }
+    if workdir == "/company" {
+        return "Your working directory is /company, the persistent company Runtime. This Work has no repository or isolated worktree bound to it. Work in ordinary company files only; if the outcome actually requires repository edits, tell your accountable coordinator to replace this node with Work carrying explicit `--repo` and `--base-ref` coordinates rather than discovering a repo or creating a worktree yourself."
+            .to_string();
+    }
+    format!(
+        "Your working directory is {workdir} — it is YOURS: a dedicated git worktree. Commit meaningful checkpoints there with clear messages; do not touch other worktrees or the main checkout."
+    )
+}
+
 /// Close the exact Attempt that launched this process. Completion is accepted
 /// only after its declared artifact and deterministic gates are observed.
 struct StaffAttemptContext<'a> {
@@ -1148,6 +1162,7 @@ async fn record_staff_outcome(
                     container,
                     work_id,
                     attempt_id,
+                    workdir,
                     Termination::OutcomeMet,
                     &summary,
                 )
@@ -1176,6 +1191,7 @@ async fn record_staff_outcome(
                     container,
                     work_id,
                     attempt_id,
+                    workdir,
                     Termination::ChangesRequested,
                     &summary,
                 )
@@ -1244,6 +1260,7 @@ pub async fn finish_claimed_attempt(
     container: &str,
     work_id: uuid::Uuid,
     attempt_id: uuid::Uuid,
+    workdir: &str,
     termination: Termination,
     summary: &str,
 ) -> Result<()> {
@@ -1269,7 +1286,7 @@ pub async fn finish_claimed_attempt(
                     ),
                 )
                 .await?;
-            } else if run_gates(org, container, work_id, attempt_id).await? {
+            } else if run_gates(org, container, work_id, attempt_id, workdir).await? {
                 org.finish_work_attempt(attempt_id, WorkAttemptState::Produced, summary)
                     .await?;
             } else {
@@ -1306,14 +1323,16 @@ async fn run_gates(
     container: &str,
     work_id: uuid::Uuid,
     attempt_id: uuid::Uuid,
+    workdir: &str,
 ) -> Result<bool> {
     let gates = org.list_work_gates(work_id).await?;
     for gate in gates {
         let argv: Vec<String> = serde_json::from_value(gate.command.clone())
             .with_context(|| format!("gate {} has invalid argv", gate.name))?;
         let (program, args) = argv.split_first().context("gate command is empty")?;
+        let cwd = gate_cwd(&gate.cwd, workdir);
         let output = tokio::process::Command::new("docker")
-            .args(["exec", "-u", "company", "-w", &gate.cwd, container, program])
+            .args(["exec", "-u", "company", "-w", cwd, container, program])
             .args(args)
             .output()
             .await
@@ -1335,6 +1354,14 @@ async fn run_gates(
         .await?;
     }
     Ok(org.gates_passed(work_id, attempt_id).await?)
+}
+
+fn gate_cwd<'a>(declared: &'a str, attempt_workdir: &'a str) -> &'a str {
+    if declared == "@attempt" {
+        attempt_workdir
+    } else {
+        declared
+    }
 }
 
 /// Create or reuse the workspace recorded on Work. Git remains the source of
@@ -1495,10 +1522,38 @@ pub async fn sweep_orphans(root: &std::path::Path, orgintel: &crate::OrgIntelReg
 
 #[cfg(test)]
 mod tests {
-    use super::record_final_staff_spend;
+    use super::{gate_cwd, record_final_staff_spend, workspace_instruction};
     use crate::acp::TurnUsage;
     use crate::model_gateway::ModelBilling;
     use crate::spend::SpendLedger;
+
+    #[test]
+    fn staff_workspace_prompt_never_calls_the_company_root_an_isolated_worktree() {
+        let repo = workspace_instruction("/company/worktrees/work-123-r1", false);
+        assert!(repo.contains("dedicated git worktree"));
+        assert!(repo.contains("/company/worktrees/work-123-r1"));
+
+        let files = workspace_instruction("/company", false);
+        assert!(files.contains("persistent company Runtime"));
+        assert!(files.contains("no repository or isolated worktree"));
+        assert!(!files.contains("it is YOURS: a dedicated git worktree"));
+
+        let conversation = workspace_instruction("/company", true);
+        assert!(conversation.contains("do not create a second plan"));
+        assert!(!conversation.contains("dedicated git worktree"));
+    }
+
+    #[test]
+    fn atomic_gates_follow_each_attempt_revision_worktree() {
+        assert_eq!(
+            gate_cwd("@attempt", "/company/worktrees/work-abc-r2"),
+            "/company/worktrees/work-abc-r2"
+        );
+        assert_eq!(
+            gate_cwd("/company/outputs", "/company/worktrees/work-abc-r2"),
+            "/company/outputs"
+        );
+    }
 
     #[test]
     fn cumulative_acp_snapshots_charge_one_final_session_total() {

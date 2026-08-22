@@ -30,6 +30,7 @@
 		disabled = false,
 		minlength = 2,
 		flareKey = 0,
+		focusKey = 0,
 		controls
 	}: {
 		value?: string;
@@ -41,6 +42,8 @@
 		minlength?: number;
 		/** Increment to play the one-shot semantic-light acknowledgement. */
 		flareKey?: number;
+		/** Increment to return keyboard focus without reaching into this component's DOM. */
+		focusKey?: number;
 		/** Optional compact, per-surface control rendered in the bottom action row. */
 		controls?: Snippet;
 	} = $props();
@@ -133,6 +136,11 @@
 	$effect(() => {
 		void value;
 		autosize();
+	});
+
+	$effect(() => {
+		void focusKey;
+		if (focusKey > 0) queueMicrotask(() => inputEl?.focus());
 	});
 
 	function onKeydown(event: KeyboardEvent) {

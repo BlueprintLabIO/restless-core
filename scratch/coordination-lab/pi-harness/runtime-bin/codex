@@ -1,0 +1,3 @@
+#!/bin/sh
+echo 'Nested model execution is disabled; commission visible Work instead.' >&2
+exit 126

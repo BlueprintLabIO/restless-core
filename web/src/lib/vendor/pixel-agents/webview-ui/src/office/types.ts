@@ -198,6 +198,8 @@ export interface Character {
 	wanderLimit: number;
 	/** Whether the agent is actively working */
 	isActive: boolean;
+	/** Host policy: whether an inactive character may choose autonomous wander targets. */
+	ambientAllowed: boolean;
 	/** Assigned seat uid, or null if no seat */
 	seatId: string | null;
 	/** Active speech bubble type, or null if none showing */

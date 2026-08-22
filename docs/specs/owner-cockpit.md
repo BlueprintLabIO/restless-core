@@ -543,7 +543,7 @@ The system should not optimise merely for an empty inbox. It should optimise for
 **Core contract**
 
 An observed owner action leaves the actionable queue, but its causal thread must not disappear. The
-Attention projection retains a small recent continuation under the same source reference showing:
+owner projection retains a small continuation under the same source reference showing:
 
 - the recorded decision or observed human step;
 - what it actually unlocked;
@@ -556,7 +556,8 @@ This is a read-only projection of source-owned handoffs, Work edges, Attempts, A
 provider observations. It is not a history database or workflow lifecycle. A dependency is described
 as released only after its source Work is actually complete; resolving an owner handoff alone must not
 be narrated as progress. Provider reconciliation states that offer no owner action do not remain in
-“Needs your judgement.”
+“Needs your judgement.” Decision continuations belong in Company decision history after they leave
+the actionable queue; they do not occupy or preserve an empty Attention rail.
 
 ## 5.8 Provider enrolment handoffs
 
@@ -1281,8 +1282,7 @@ Required V0 elements:
 - requested action;
 - evidence/artifact links;
 - deadline and no-response behaviour;
-- actions: accept, reject, ask, direct, defer, dismiss;
-- resolved history.
+- actions: accept, reject, ask, direct, defer, dismiss.
 
 ## 12.3 Work screen
 
@@ -1323,6 +1323,7 @@ Required V0 elements:
 - budget categories, usage, capabilities and thresholds;
 - generic connected provider/account and productive-resource projections;
 - pending approval counts linking to Attention;
+- decision continuation history showing what owner action unlocked and the current observed outcome;
 - consequence-focused effect/receipt history with evidence quality;
 - source-aware company doctor, runtime lifecycle, bounded recovery, and existing attach controls.
 

@@ -22,6 +22,7 @@
 	let companies = $state<CompanyCatalogEntry[]>([]);
 	let execRailOpen = $state(true);
 	let focusRailRestore = $state<boolean | null>(null);
+	let newFocusRequest = $state(0);
 
 	/* The shell and the Attention surface read one source rather than polling the
 	 * same endpoint on two clocks. The badge can no longer disagree with the
@@ -73,6 +74,13 @@
 	});
 
 	onMount(() => {
+		/* The executive is a persistent sibling on desktop, but its small-screen
+		 * presentation is a full workspace overlay. Start that overlay closed unless
+		 * a focused Attention item explicitly needs it. */
+		if (window.matchMedia('(max-width: 980px)').matches && !focusedAttention) {
+			execRailOpen = false;
+		}
+
 		async function refreshShell() {
 			try {
 				const [nextCockpit, nextCompanies] = await Promise.all([
@@ -94,11 +102,12 @@
 	async function askRail(
 		text: string,
 		files: File[],
-		includeContext: boolean
+		includeContext: boolean,
+		newFocus: boolean
 	): Promise<{ error?: string; notice?: string }> {
 		try {
 			const contextPath = includeContext ? cockpitContextPath(companyId, page.url) : undefined;
-			const result = await railConversation.send(text, files, contextPath);
+			const result = await railConversation.send(text, files, contextPath, newFocus);
 			return includeContext && (!contextPath || result.contextOmitted)
 				? { notice: 'Message sent without the current-screen link.' }
 				: {};
@@ -107,6 +116,12 @@
 				error: cause instanceof Error ? cause.message : 'Your message was not delivered.'
 			};
 		}
+	}
+
+	function beginNewFocus() {
+		if (railActorId !== 'exec' || !railConnected || railConversation.activeTurn) return;
+		execRailOpen = true;
+		newFocusRequest += 1;
 	}
 
 	async function decideFocusedReview(
@@ -198,6 +213,9 @@
 		membershipRole="owner"
 		connected={railConnected}
 		contextLabel={currentContext}
+		focusAfterMessageId={railConversation.focusAfterMessageId}
+		focusStartedAt={railConversation.focusStartedAt}
+		{newFocusRequest}
 		open={execRailOpen}
 		onask={askRail}
 		review={focusedReview
@@ -219,8 +237,11 @@
 	execName={railActorName}
 	execLive={railConnected}
 	railOpen={execRailOpen}
+	newFocusAvailable={railVisible && railActorId === 'exec' && !focusedAttention}
+	newFocusDisabled={!railConnected || !!railConversation.activeTurn}
 	immersive={immersiveComputer}
 	onexectoggle={() => (execRailOpen = !execRailOpen)}
+	onnewfocus={beginNewFocus}
 	rail={railVisible ? executiveRail : null}
 >
 	{@render children()}

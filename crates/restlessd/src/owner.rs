@@ -106,6 +106,7 @@ struct PartyAction {
 struct OwnerMessageInput {
     body: String,
     work_id: Option<Uuid>,
+    new_focus: bool,
     context_requested: bool,
     context_path: Option<String>,
     attachments: Vec<PendingAttachment>,
@@ -761,6 +762,7 @@ async fn cockpit_view(
         Ok(config) => config,
         Err(error) => return api_error(StatusCode::NOT_FOUND, "company", format!("{error:#}")),
     };
+    let observed_at = Utc::now();
 
     let mut source_health = serde_json::Map::new();
     let org = match state.daemon.orgintel.get(&company).await {
@@ -836,6 +838,7 @@ async fn cockpit_view(
                 "team_id": actor.team_id,
                 "spent_usd": round_owner_usd(spent),
                 "session_running": session_running,
+                "session_observed_at": session_running.then_some(observed_at),
                 "model_cooldown": actor.model.as_deref().and_then(|model| {
                     cooldowns.iter().find(|cooldown| cooldown.model == model)
                 }),
@@ -1050,7 +1053,7 @@ async fn cockpit_view(
             "finance": finance_state,
         },
         "receipts": receipts,
-        "refreshed_at": Utc::now(),
+        "refreshed_at": observed_at,
     }))
     .into_response()
 }
@@ -1096,44 +1099,64 @@ async fn actor_conversation(
             "requesting actor no longer exists",
         );
     };
-    let messages = match query.work_id {
+    let messages = match match query.work_id {
         Some(work_id) => org.owner_work_conversation(&actor, work_id, 100).await,
         None => org.owner_conversation(&actor, 100).await,
+    } {
+        Ok(messages) => messages,
+        Err(error) => {
+            return api_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "orgintel",
+                format!("{error:#}"),
+            )
+        }
     };
-    match messages {
-        Ok(messages) => Json(serde_json::json!({
-            "actor": {
-                "id": actor_row.id,
-                "display": actor_row.display,
-                "kind": actor_row.kind,
-                "role": actor_row.role,
-            },
-            "messages": messages.into_iter().map(|message| {
-                let (body, intent) = split_intent_receipt(&message.body);
-                let (body, details) = split_message_details(body);
-                let (body, attachments) = split_attachment_block(body);
-                let (body, context_path) = split_context_marker(body);
-                serde_json::json!({
-                    "id": message.id,
-                    "from_actor": message.from_actor,
-                    "to_actor": message.to_actor,
-                    "body": body,
-                    "attachments": attachments,
-                    "intent": intent,
-                    "details": details,
-                    "context_path": context_path,
-                    "created_at": message.created_at,
-                    "read_at": message.read_at,
-                })
-            }).collect::<Vec<_>>(),
-        }))
-        .into_response(),
-        Err(error) => api_error(
-            StatusCode::SERVICE_UNAVAILABLE,
-            "orgintel",
-            format!("{error:#}"),
-        ),
-    }
+    let focus = if query.work_id.is_none() {
+        match org.owner_conversation_focus(&actor).await {
+            Ok(focus) => Some(focus),
+            Err(error) => {
+                return api_error(
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    "orgintel",
+                    format!("{error:#}"),
+                )
+            }
+        }
+    } else {
+        None
+    };
+    Json(serde_json::json!({
+        "actor": {
+            "id": actor_row.id,
+            "display": actor_row.display,
+            "kind": actor_row.kind,
+            "role": actor_row.role,
+        },
+        "focus": focus.map(|focus| serde_json::json!({
+            "after_message_id": focus.after_message_id,
+            "started_at": focus.started_at,
+        })),
+        "messages": messages.into_iter().map(|message| {
+            let (body, intent) = split_intent_receipt(&message.body);
+            let (body, details) = split_message_details(body);
+            let (body, attachments) = split_attachment_block(body);
+            let (body, context_path) = split_context_marker(body);
+            serde_json::json!({
+                "id": message.id,
+                "from_actor": message.from_actor,
+                "to_actor": message.to_actor,
+                "body": body,
+                "attachments": attachments,
+                "intent": intent,
+                "details": details,
+                "context_path": context_path,
+                "created_at": message.created_at,
+                "read_at": message.read_at,
+            })
+        }).collect::<Vec<_>>(),
+    }))
+    .into_response()
 }
 
 /// Reconnectable live projection for one recorded owner message. This endpoint
@@ -1297,6 +1320,13 @@ async fn send_actor_message(
             "message must contain between 1 and 20,000 characters",
         );
     }
+    if input.new_focus && (actor != "exec" || input.work_id.is_some()) {
+        return api_error(
+            StatusCode::BAD_REQUEST,
+            "conversation_focus",
+            "New focus is available only for ordinary Exec conversation",
+        );
+    }
     // Context is useful navigation metadata, not part of message delivery. Parse
     // it as a URL so a root screen with query state (for example
     // `/aris?item=...`) remains company-scoped. A malformed or cross-company
@@ -1381,17 +1411,17 @@ async fn send_actor_message(
     let recorded_body = message_with_context(body, context_path.as_deref());
     let recorded_body = message_with_attachments(&recorded_body, &stored);
     let sent = match input.work_id {
-        Some(work_id) => {
-            org.send_work_message("owner", &actor, work_id, &recorded_body)
-                .await
-        }
-        None => {
-            org.send_message("owner", Some(&actor), &recorded_body)
-                .await
-        }
+        Some(work_id) => org
+            .send_work_message("owner", &actor, work_id, &recorded_body)
+            .await
+            .map(|message_id| (message_id, None)),
+        None => org
+            .send_owner_conversation_message(&actor, &recorded_body, input.new_focus)
+            .await
+            .map(|(message_id, focus)| (message_id, Some(focus))),
     };
     match sent {
-        Ok(message_id) => {
+        Ok((message_id, focus)) => {
             state
                 .daemon
                 .conversations
@@ -1400,6 +1430,10 @@ async fn send_actor_message(
                 "message_id": message_id,
                 "context_attached": context_path.is_some(),
                 "context_omitted": context_omitted,
+                "focus": focus.map(|focus| serde_json::json!({
+                    "after_message_id": focus.after_message_id,
+                    "started_at": focus.started_at,
+                })),
             }))
             .into_response()
         }
@@ -1441,6 +1475,17 @@ async fn parse_owner_message(
                             .map_err(|error| format!("invalid Work reference: {error}"))?,
                     );
                 }
+            }
+            Some("new_focus") => {
+                let value = field
+                    .text()
+                    .await
+                    .map_err(|error| format!("read conversation focus: {error}"))?;
+                input.new_focus = match value.trim() {
+                    "true" => true,
+                    "false" | "" => false,
+                    _ => return Err("new_focus must be true or false".into()),
+                };
             }
             Some("context_path") => {
                 let value = field

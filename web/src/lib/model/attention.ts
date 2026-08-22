@@ -18,6 +18,10 @@ export interface AttentionView {
 
 export interface ActorConversation {
 	actor: { id: string; display: string; role: string };
+	focus?: {
+		after_message_id: number;
+		started_at: string | null;
+	} | null;
 	messages: Array<{
 		id: number;
 		from_actor: string;
@@ -40,6 +44,7 @@ export interface ConversationLiveActivity {
 	label: string;
 	detail: string;
 	status: string;
+	replyOffset: number;
 }
 
 export interface ConversationLiveState {
@@ -63,6 +68,10 @@ export interface MessageSendResult {
 	messageId: number;
 	contextAttached: boolean;
 	contextOmitted: boolean;
+	focus?: {
+		afterMessageId: number;
+		startedAt: string | null;
+	} | null;
 }
 
 type WireItem = {
@@ -281,12 +290,14 @@ export async function sendActorMessage(
 	body: string,
 	workId?: string,
 	files: File[] = [],
-	contextPath?: string
+	contextPath?: string,
+	newFocus = false
 ): Promise<MessageSendResult> {
 	const form = new FormData();
 	form.set('body', body);
 	if (workId) form.set('work_id', workId);
 	if (contextPath) form.set('context_path', contextPath);
+	if (newFocus) form.set('new_focus', 'true');
 	for (const file of files) form.append('attachments', file, file.name);
 	const response = await fetch(
 		`/api/companies/${encodeURIComponent(company)}/actors/${encodeURIComponent(actor)}/conversation`,
@@ -301,11 +312,18 @@ export async function sendActorMessage(
 		message_id: number;
 		context_attached?: boolean;
 		context_omitted?: boolean;
+		focus?: { after_message_id: number; started_at: string | null } | null;
 	};
 	return {
 		messageId: result.message_id,
 		contextAttached: result.context_attached ?? false,
-		contextOmitted: result.context_omitted ?? false
+		contextOmitted: result.context_omitted ?? false,
+		focus: result.focus
+			? {
+					afterMessageId: result.focus.after_message_id,
+					startedAt: result.focus.started_at
+				}
+			: result.focus
 	};
 }
 

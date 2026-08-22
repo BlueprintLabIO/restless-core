@@ -1,0 +1,3 @@
+#!/bin/sh
+echo 'Nested model execution is disabled; use the current Restless harness session.' >&2
+exit 126

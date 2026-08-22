@@ -75,6 +75,7 @@ export function createCharacter(
 		wanderCount: 0,
 		wanderLimit: randomInt(WANDER_MOVES_BEFORE_REST_MIN, WANDER_MOVES_BEFORE_REST_MAX),
 		isActive: true,
+		ambientAllowed: true,
 		seatId,
 		bubbleType: null,
 		bubbleTimer: 0,
@@ -161,6 +162,7 @@ export function updateCharacter(
 				}
 				break;
 			}
+			if (!ch.ambientAllowed) break;
 			// Countdown wander timer
 			ch.wanderTimer -= dt;
 			if (ch.wanderTimer <= 0) {

@@ -121,17 +121,29 @@ export interface ThreadMessage {
 /** Collapse an uninterrupted run from the same company actor into one reading
  * block. This is a presentation projection only: the source messages remain
  * separate in the company record. Day boundaries stay visible. */
-export function mergeAdjacentAgentMessages(messages: ThreadMessage[]): ThreadMessage[] {
+export function mergeAdjacentAgentMessages(
+	messages: ThreadMessage[],
+	breakAfterMessageId?: number
+): ThreadMessage[] {
 	const merged: ThreadMessage[] = [];
 
 	for (const message of messages) {
 		const previous = merged.at(-1);
 		const sameDay = previous && dayKey(previous.createdAt) === dayKey(message.createdAt);
+		const previousLastId = Number(previous?.id.split(':').at(-1));
+		const messageFirstId = Number(message.id.split(':')[0]);
+		const crossesBreak =
+			breakAfterMessageId !== undefined &&
+			Number.isFinite(previousLastId) &&
+			Number.isFinite(messageFirstId) &&
+			previousLastId <= breakAfterMessageId &&
+			messageFirstId > breakAfterMessageId;
 		if (
 			previous?.from === 'agent' &&
 			message.from === 'agent' &&
 			previous.author === message.author &&
-			sameDay
+			sameDay &&
+			!crossesBreak
 		) {
 			previous.id = `${previous.id}:${message.id}`;
 			previous.text = [previous.text, message.text].filter(Boolean).join('\n\n');

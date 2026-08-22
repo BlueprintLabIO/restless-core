@@ -33,15 +33,9 @@ import { setCarpetSprites } from '$lib/vendor/pixel-agents/webview-ui/src/office
 import { setPetTemplates } from '$lib/vendor/pixel-agents/webview-ui/src/office/sprites/petSpriteData.js';
 import { setCharacterTemplates } from '$lib/vendor/pixel-agents/webview-ui/src/office/sprites/spriteData.js';
 import { setWallSprites } from '$lib/vendor/pixel-agents/webview-ui/src/office/wallTiles.js';
-import { FOUNTAIN_TYPE, UNICORN_TYPE } from './officePlan';
+import { AMENITY_CATALOG, AMENITY_FRAMES, AMENITY_SPRITES } from './amenities';
 
 const ASSET_BASE = '/vendor/pixel-agents/assets/';
-const FOUNTAIN_PATH = '/office/fountain-atrium-frames.png';
-const FOUNTAIN_FRAME_COUNT = 4;
-const FOUNTAIN_SIZE = 64;
-const UNICORN_PATH = '/office/unicorn-statue-frames.png';
-const UNICORN_FRAME_COUNT = 4;
-const UNICORN_SIZE = 32;
 
 interface RuntimeCatalog {
 	index: AssetIndex;
@@ -55,8 +49,7 @@ interface DecodedPng {
 }
 
 export interface PixelOfficeAssets {
-	fountainFrames: string[][][];
-	unicornFrames: string[][][];
+	amenityFrames: Record<string, string[][][]>;
 }
 
 let assetLoad: Promise<PixelOfficeAssets> | null = null;
@@ -86,48 +79,6 @@ function readSprite(
 			row.push(rgbaToHex(red, green, blue, alpha));
 		}
 		sprite.push(row);
-	}
-	return sprite;
-}
-
-function readContainedSprite(
-	png: DecodedPng,
-	frameStart: number,
-	frameEnd: number,
-	targetSize: number
-): string[][] {
-	let minX = frameEnd;
-	let minY = png.height;
-	let maxX = frameStart;
-	let maxY = 0;
-	for (let y = 0; y < png.height; y += 1) {
-		for (let x = frameStart; x < frameEnd; x += 1) {
-			if (getPixel(png.data, png.width, x, y)[3] < 12) continue;
-			minX = Math.min(minX, x);
-			minY = Math.min(minY, y);
-			maxX = Math.max(maxX, x);
-			maxY = Math.max(maxY, y);
-		}
-	}
-	if (maxX < minX || maxY < minY) {
-		return Array.from({ length: targetSize }, () => new Array<string>(targetSize).fill(''));
-	}
-
-	const sourceWidth = maxX - minX + 1;
-	const sourceHeight = maxY - minY + 1;
-	const scale = Math.min((targetSize - 2) / sourceWidth, (targetSize - 2) / sourceHeight);
-	const drawWidth = Math.max(1, Math.round(sourceWidth * scale));
-	const drawHeight = Math.max(1, Math.round(sourceHeight * scale));
-	const offsetX = Math.floor((targetSize - drawWidth) / 2);
-	const offsetY = Math.floor((targetSize - drawHeight) / 2);
-	const sprite = Array.from({ length: targetSize }, () => new Array<string>(targetSize).fill(''));
-	for (let y = 0; y < drawHeight; y += 1) {
-		for (let x = 0; x < drawWidth; x += 1) {
-			const sourceX = minX + Math.min(sourceWidth - 1, Math.floor(x / scale));
-			const sourceY = minY + Math.min(sourceHeight - 1, Math.floor(y / scale));
-			const [red, green, blue, alpha] = getPixel(png.data, png.width, sourceX, sourceY);
-			sprite[offsetY + y][offsetX + x] = rgbaToHex(red, green, blue, alpha);
-		}
 	}
 	return sprite;
 }
@@ -263,72 +214,18 @@ async function decodePets(): Promise<{ frames: PetSpriteFrames[]; names: string[
 	return { frames, names: pets.map((pet) => pet.name) };
 }
 
-async function decodeFountain(): Promise<string[][][]> {
-	const png = await decodePng(FOUNTAIN_PATH, '');
-	return Array.from({ length: FOUNTAIN_FRAME_COUNT }, (_, frame) => {
-		const start = Math.floor((frame * png.width) / FOUNTAIN_FRAME_COUNT);
-		const end = Math.floor(((frame + 1) * png.width) / FOUNTAIN_FRAME_COUNT);
-		return readContainedSprite(png, start, end, FOUNTAIN_SIZE);
-	});
-}
-
-async function decodeUnicorn(): Promise<string[][][]> {
-	const png = await decodePng(UNICORN_PATH, '');
-	return Array.from({ length: UNICORN_FRAME_COUNT }, (_, frame) => {
-		const start = Math.floor((frame * png.width) / UNICORN_FRAME_COUNT);
-		const end = Math.floor(((frame + 1) * png.width) / UNICORN_FRAME_COUNT);
-		return readContainedSprite(png, start, end, UNICORN_SIZE);
-	});
-}
-
 async function initializePixelAssets(): Promise<PixelOfficeAssets> {
 	const catalogResponse = await fetch(`${ASSET_BASE}runtime-catalog.json`);
 	if (!catalogResponse.ok) throw new Error('The office asset catalogue is unavailable.');
 	const { index, catalog } = (await catalogResponse.json()) as RuntimeCatalog;
-	const [characters, floors, walls, furniture, carpets, pets, fountainFrames, unicornFrames] =
-		await Promise.all([
-			decodeCharacters(index),
-			decodeFloors(index),
-			decodeWalls(index),
-			decodeFurniture(catalog),
-			decodeCarpets(),
-			decodePets(),
-			decodeFountain(),
-			decodeUnicorn()
-		]);
-
-	const fountainEntry: CatalogEntry = {
-		id: FOUNTAIN_TYPE,
-		name: 'Atrium fountain',
-		label: 'Atrium fountain',
-		category: 'decor',
-		file: 'fountain-atrium-frames.png',
-		furniturePath: FOUNTAIN_PATH,
-		width: FOUNTAIN_SIZE,
-		height: FOUNTAIN_SIZE,
-		footprintW: 4,
-		footprintH: 4,
-		isDesk: false,
-		canPlaceOnWalls: false,
-		backgroundTiles: 0,
-		groupId: FOUNTAIN_TYPE
-	};
-	const unicornEntry: CatalogEntry = {
-		id: UNICORN_TYPE,
-		name: 'Unicorn statue',
-		label: 'Unicorn statue',
-		category: 'decor',
-		file: 'unicorn-statue-frames.png',
-		furniturePath: UNICORN_PATH,
-		width: UNICORN_SIZE,
-		height: UNICORN_SIZE,
-		footprintW: 2,
-		footprintH: 2,
-		isDesk: false,
-		canPlaceOnWalls: false,
-		backgroundTiles: 0,
-		groupId: UNICORN_TYPE
-	};
+	const [characters, floors, walls, furniture, carpets, pets] = await Promise.all([
+		decodeCharacters(index),
+		decodeFloors(index),
+		decodeWalls(index),
+		decodeFurniture(catalog),
+		decodeCarpets(),
+		decodePets()
+	]);
 
 	setCharacterTemplates(characters);
 	setFloorSprites(floors);
@@ -337,17 +234,16 @@ async function initializePixelAssets(): Promise<PixelOfficeAssets> {
 	setPetTemplates(pets.frames, pets.names);
 	if (
 		!buildDynamicCatalog({
-			catalog: [...catalog, fountainEntry, unicornEntry],
+			catalog: [...catalog, ...AMENITY_CATALOG],
 			sprites: {
 				...furniture,
-				[FOUNTAIN_TYPE]: fountainFrames[0],
-				[UNICORN_TYPE]: unicornFrames[0]
+				...AMENITY_SPRITES
 			}
 		})
 	) {
 		throw new Error('The office furniture catalogue could not be loaded.');
 	}
-	return { fountainFrames, unicornFrames };
+	return { amenityFrames: AMENITY_FRAMES };
 }
 
 /** Decode and register the upstream pack once per browser session. */

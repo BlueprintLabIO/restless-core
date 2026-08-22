@@ -9,6 +9,7 @@ export interface CockpitPerson {
 	team_id: string | null;
 	spent_usd: number;
 	session_running: boolean;
+	session_observed_at: string | null;
 	model_cooldown: {
 		model: string;
 		kind: string;

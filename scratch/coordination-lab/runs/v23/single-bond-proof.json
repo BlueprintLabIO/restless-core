@@ -1,0 +1,14 @@
+{
+  "candidate_commit": "7e08c2ee899cae56dc2ee2ce42fd9c23d05c483a",
+  "passed": true,
+  "result": {
+    "weakenedBondOpened": true,
+    "mode": "play",
+    "unlocked": true,
+    "guardianCaptured": true,
+    "guardianHidden": true,
+    "barrierHidden": true,
+    "status": "The guardian is calm. The north Prism gate is now open."
+  },
+  "errors": []
+}

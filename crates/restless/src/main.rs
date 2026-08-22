@@ -329,6 +329,16 @@ enum PeopleCommand {
         #[arg(long)]
         reason: String,
     },
+    /// Change an actor's next-wake model preference explicitly.
+    Model {
+        #[arg(long)]
+        actor: String,
+        #[arg(long)]
+        model: String,
+        /// Why this model is a better fit than the current preference.
+        #[arg(long)]
+        reason: String,
+    },
     /// Retire an unused actor without deleting its Work or attribution.
     Retire {
         #[arg(long)]
@@ -466,6 +476,11 @@ enum WorkCommand {
         /// than one; committed atomically with the node.
         #[arg(long)]
         revises: Vec<String>,
+        /// Deterministic acceptance gate, as JSON with `name` and argv
+        /// `command`. Repeat for more than one. Gates run in the current
+        /// Attempt workspace and commit atomically with the Work node.
+        #[arg(long)]
+        gate: Vec<String>,
     },
     /// Move unsettled Work to another durable actor.
     Assign {
@@ -1215,6 +1230,14 @@ fn request_json(command: Command) -> Result<serde_json::Value> {
                 "name": display, "model": model, "reason": reason,
                 "actor": acting_actor(),
             }),
+            Some(PeopleCommand::Model {
+                actor,
+                model,
+                reason,
+            }) => serde_json::json!({
+                "cmd": "actor-model", "company": c, "as_actor": actor,
+                "model": model, "reason": reason, "actor": acting_actor(),
+            }),
             Some(PeopleCommand::Retire { actor, reason }) => serde_json::json!({
                 "cmd": "actor-retire", "company": c, "as_actor": actor, "reason": reason,
                 "actor": acting_actor(),
@@ -1338,14 +1361,24 @@ fn request_json(command: Command) -> Result<serde_json::Value> {
                 goal,
                 requires,
                 revises,
-            } => serde_json::json!({
-                "cmd": "work-add", "company": company, "actor": owner, "role": role,
-                "model": model, "title": title, "body": outcome, "priority": priority,
-                "expected_artifact": expected_artifact, "repo": repo, "base_ref": base_ref,
-                "integration_branch": integration_branch, "worktree": worktree,
-                "attempt_limit": attempt_limit, "goal": goal,
-                "requires": requires, "revises": revises,
-            }),
+                gate,
+            } => {
+                let gates = gate
+                    .iter()
+                    .map(|value| {
+                        serde_json::from_str::<serde_json::Value>(value)
+                            .with_context(|| format!("invalid --gate JSON {value:?}"))
+                    })
+                    .collect::<Result<Vec<_>>>()?;
+                serde_json::json!({
+                    "cmd": "work-add", "company": company, "actor": owner, "role": role,
+                    "model": model, "title": title, "body": outcome, "priority": priority,
+                    "expected_artifact": expected_artifact, "repo": repo, "base_ref": base_ref,
+                    "integration_branch": integration_branch, "worktree": worktree,
+                    "attempt_limit": attempt_limit, "goal": goal,
+                    "requires": requires, "revises": revises, "gates": gates,
+                })
+            }
             WorkCommand::Assign {
                 company,
                 work,

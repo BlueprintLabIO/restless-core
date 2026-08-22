@@ -1,0 +1,14 @@
+name = "sprint10b_office_test"
+mission = """
+# Sprint 10b office verification
+
+Synthetic company used only to verify the responsive company-floor projection at twenty people,
+eight teams, and zero live work. It must never wake an actor, contact a provider, create live
+evidence, or produce an external effect.
+"""
+spend_ceiling_usd = 0.0
+model = "moonshot/kimi-k3"
+model_failover = []
+approved_parties = []
+
+[credentials]

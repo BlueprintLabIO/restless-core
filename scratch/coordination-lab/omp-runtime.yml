@@ -1,0 +1,12 @@
+disabledExtensions:
+  - agent-plugins
+  - claude
+  - codex
+  - mcp-json
+  - omp-plugins
+mcp:
+  enableProjectConfig: false
+skills:
+  enabled: false
+autolearn:
+  enabled: false

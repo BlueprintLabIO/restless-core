@@ -39,6 +39,8 @@ export class ConversationSource {
 	status = $state<ConversationSourceStatus>('unknown');
 	transport = $state<ConversationTransport>('idle');
 	failure = $state<(Error & { status?: number }) | null>(null);
+	focusAfterMessageId = $state(0);
+	focusStartedAt = $state<string | null>(null);
 	triggerMessageId = $state<number | null>(null);
 	pendingSince = $state<Date | string | null>(null);
 
@@ -75,6 +77,8 @@ export class ConversationSource {
 			const conversation = await getActorConversation(this.companyId, this.actorId, this.workId);
 			const actorDisplay = conversation.actor.id === 'exec' ? 'Exec' : conversation.actor.display;
 			this.actor = { ...conversation.actor, display: actorDisplay };
+			this.focusAfterMessageId = conversation.focus?.after_message_id ?? 0;
+			this.focusStartedAt = conversation.focus?.started_at ?? null;
 			this.messages = conversation.messages.map((message) => ({
 				id: String(message.id),
 				from: message.from_actor === 'owner' ? 'you' : 'agent',
@@ -100,15 +104,25 @@ export class ConversationSource {
 		}
 	}
 
-	async send(body: string, files: File[] = [], contextPath?: string): Promise<MessageSendResult> {
+	async send(
+		body: string,
+		files: File[] = [],
+		contextPath?: string,
+		newFocus = false
+	): Promise<MessageSendResult> {
 		const result = await sendActorMessage(
 			this.companyId,
 			this.actorId,
 			body,
 			this.workId,
 			files,
-			contextPath
+			contextPath,
+			newFocus
 		);
+		if (result.focus) {
+			this.focusAfterMessageId = result.focus.afterMessageId;
+			this.focusStartedAt = result.focus.startedAt;
+		}
 		const sentAt = new Date();
 		if (!this.messages.some((message) => message.id === String(result.messageId))) {
 			this.messages = [

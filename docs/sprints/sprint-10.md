@@ -1,7 +1,8 @@
 # Sprint 10 — The Company computer becomes a prepared working surface
 
-**Status:** Active. Founder-authorised for specification and implementation on 20 August 2026.  
+**Status:** Technical acceptance complete; the separate owner outcome review remains pending.
 **Date:** 20 August 2026  
+**Evidence:** [Sprint 10 run report](./sprint-10/run-report.md) — all 15 technical success criteria are proved; no transport replacement gate was crossed.
 **Spec refs:** `ARCHITECTURE.md` §2.1 / §5 / §9.2 / §16,
 `owner-cockpit` §2 / §3 / §8 / §12.5 / §14,
 `company-runtime` §2 / §3 / §5 / §12 / §14,
@@ -180,10 +181,10 @@ or application-integration behaviour that these components cannot provide.
 
 ## Tickets
 
-- [ ] [S10-T1 — Make desktop focus immersive and centralise display policy](./sprint-10/t01-immersive-desktop.md)
-- [ ] [S10-T2 — Keep the prepared action attached to the live computer](./sprint-10/t02-prepared-handoff.md)
-- [ ] [S10-T3 — Add the smallest coherent persistent desktop shell](./sprint-10/t03-minimal-desktop.md)
-- [ ] [S10-T4 — Dogfood, compare against the baseline and purge](./sprint-10/t04-dogfood-and-purge.md)
+- [x] [S10-T1 — Make desktop focus immersive and centralise display policy](./sprint-10/t01-immersive-desktop.md)
+- [x] [S10-T2 — Keep the prepared action attached to the live computer](./sprint-10/t02-prepared-handoff.md)
+- [x] [S10-T3 — Add the smallest coherent persistent desktop shell](./sprint-10/t03-minimal-desktop.md)
+- [x] [S10-T4 — Dogfood, compare against the baseline and purge](./sprint-10/t04-dogfood-and-purge.md)
 
 Ticket status lives only in this checklist. A ticket is checked only after its stated evidence has
 been observed; code presence alone is insufficient.

@@ -44,6 +44,10 @@ pub struct ConversationActivity {
     pub label: String,
     pub detail: String,
     pub status: String,
+    /// Unicode-scalar offset into `reply` at which this activity began. The
+    /// owner surface uses it to preserve ACP chronology instead of rendering
+    /// all tools before one accumulated reply block.
+    pub reply_offset: usize,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -149,6 +153,7 @@ impl ConversationLiveState {
                     label: title.clone(),
                     detail: kind.clone(),
                     status: "active".into(),
+                    reply_offset: self.reply.chars().count(),
                 });
             }
             LiveSessionEvent::ToolUpdated { id, title, status } => {
@@ -179,8 +184,8 @@ impl ConversationLiveState {
 
     fn complete(&mut self, message_id: i64, output_tokens: Option<u64>) {
         if !self.suppress_reply_tail && !self.reply_pending.is_empty() {
-            append_bounded(&mut self.reply, &self.reply_pending, MAX_REPLY_CHARS);
-            self.reply_pending.clear();
+            let pending = std::mem::take(&mut self.reply_pending);
+            self.append_visible_reply(&pending);
         }
         self.phase = ConversationPhase::Complete;
         self.completed_message_id = Some(message_id);
@@ -204,12 +209,12 @@ impl ConversationLiveState {
     fn begin_reply_message(&mut self) {
         if !self.suppress_reply_tail && !self.reply_pending.is_empty() {
             let pending = std::mem::take(&mut self.reply_pending);
-            append_bounded(&mut self.reply, &pending, MAX_REPLY_CHARS);
+            self.append_visible_reply(&pending);
         }
         self.reply_pending.clear();
         self.suppress_reply_tail = false;
         if !self.reply.is_empty() && !self.reply.ends_with("\n\n") {
-            append_bounded(&mut self.reply, "\n\n", MAX_REPLY_CHARS);
+            self.append_visible_reply("\n\n");
         }
     }
 
@@ -223,11 +228,8 @@ impl ConversationLiveState {
             .filter_map(|marker| self.reply_pending.find(marker))
             .min()
         {
-            append_bounded(
-                &mut self.reply,
-                &self.reply_pending[..marker],
-                MAX_REPLY_CHARS,
-            );
+            let visible = self.reply_pending[..marker].to_string();
+            self.append_visible_reply(&visible);
             while self.reply.ends_with('\n')
                 || self.reply.ends_with(' ')
                 || self.reply.ends_with('\t')
@@ -251,12 +253,23 @@ impl ConversationLiveState {
             .unwrap_or(0);
         let ready = self.reply_pending.len().saturating_sub(held);
         if ready > 0 {
-            append_bounded(
-                &mut self.reply,
-                &self.reply_pending[..ready],
-                MAX_REPLY_CHARS,
-            );
+            let visible = self.reply_pending[..ready].to_string();
+            self.append_visible_reply(&visible);
             self.reply_pending.drain(..ready);
+        }
+    }
+
+    fn append_visible_reply(&mut self, addition: &str) {
+        self.reply.push_str(addition);
+        let length = self.reply.chars().count();
+        if length <= MAX_REPLY_CHARS {
+            return;
+        }
+
+        let removed = length - MAX_REPLY_CHARS;
+        self.reply = self.reply.chars().skip(removed).collect();
+        for activity in &mut self.activity {
+            activity.reply_offset = activity.reply_offset.saturating_sub(removed);
         }
     }
 }
@@ -383,20 +396,6 @@ impl ConversationTurn {
     }
 }
 
-fn append_bounded(target: &mut String, addition: &str, max_chars: usize) {
-    target.push_str(addition);
-    if target.chars().count() > max_chars {
-        *target = target
-            .chars()
-            .rev()
-            .take(max_chars)
-            .collect::<String>()
-            .chars()
-            .rev()
-            .collect();
-    }
-}
-
 fn bounded(value: &str, max_chars: usize) -> String {
     value.chars().take(max_chars).collect()
 }
@@ -442,6 +441,7 @@ mod tests {
         assert_eq!(state.activity.len(), 1);
         assert_eq!(state.activity[0].kind, "tool");
         assert_eq!(state.activity[0].status, "completed");
+        assert_eq!(state.activity[0].reply_offset, 0);
 
         let reconnected = streams.subscribe("company_test", "lead", 42);
         assert_eq!(reconnected.borrow().sequence, state.sequence);
@@ -509,6 +509,42 @@ mod tests {
         let state = receiver.borrow().clone();
         assert_eq!(state.reply, "I have the first finding.");
         assert_eq!(state.activity.len(), 1);
+        assert_eq!(
+            state.activity[0].reply_offset,
+            "I have the first finding.".chars().count()
+        );
+    }
+
+    #[test]
+    fn tool_offsets_preserve_text_tool_text_order_in_unicode_characters() {
+        let streams = ConversationStreams::default();
+        streams.expect("company_test", "exec", 11, None);
+        let receiver = streams.subscribe("company_test", "exec", 11);
+        let turn = streams.start("company_test", "exec", &[11]);
+
+        turn.apply(LiveSessionEvent::ReplyDelta {
+            message_id: Some("reply-1".into()),
+            text: "Ready 🚀".into(),
+        });
+        turn.apply(LiveSessionEvent::ToolStarted {
+            id: "call-1".into(),
+            title: "Inspect deployment".into(),
+            kind: "read".into(),
+        });
+        turn.apply(LiveSessionEvent::ReplyDelta {
+            message_id: Some("reply-1".into()),
+            text: " and verified.".into(),
+        });
+        turn.apply(LiveSessionEvent::ToolStarted {
+            id: "call-2".into(),
+            title: "Publish deployment".into(),
+            kind: "bash".into(),
+        });
+
+        let state = receiver.borrow().clone();
+        assert_eq!(state.reply, "Ready 🚀 and verified.");
+        assert_eq!(state.activity[0].reply_offset, 7);
+        assert_eq!(state.activity[1].reply_offset, 21);
     }
 
     #[test]

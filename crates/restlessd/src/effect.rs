@@ -984,6 +984,8 @@ fn valid_company_path(value: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io::Write as _;
+    use std::process::{Command, Stdio};
 
     #[test]
     fn governance_identifiers_and_paths_are_bounded() {
@@ -1014,5 +1016,50 @@ mod tests {
             redact("before secret-value after", secrets.values()),
             "before [REDACTED] after"
         );
+    }
+
+    #[test]
+    fn git_helper_reads_ephemeral_password_without_persisting_it() {
+        let helper = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../infra/company-image/git-credential-restless");
+        let mut child = Command::new("sh")
+            .arg(&helper)
+            .arg("get")
+            .env("RESTLESS_GIT_PASSWORD", "sentinel-password")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .spawn()
+            .expect("start credential helper");
+        child
+            .stdin
+            .as_mut()
+            .expect("helper stdin")
+            .write_all(b"protocol=https\nhost=example.test\n\n")
+            .expect("write credential request");
+        let output = child.wait_with_output().expect("credential helper output");
+        assert!(output.status.success());
+        assert_eq!(
+            String::from_utf8_lossy(&output.stdout),
+            "password=sentinel-password\n\n"
+        );
+
+        let store = Command::new("sh")
+            .arg(&helper)
+            .arg("store")
+            .env("RESTLESS_GIT_PASSWORD", "sentinel-password")
+            .output()
+            .expect("store is a no-op");
+        assert!(store.status.success());
+        assert!(store.stdout.is_empty());
+        assert!(store.stderr.is_empty());
+
+        let absent = Command::new("sh")
+            .arg(helper)
+            .arg("get")
+            .output()
+            .expect("missing credential probe");
+        assert!(absent.status.success());
+        assert!(!String::from_utf8_lossy(&absent.stdout).contains("password="));
+        assert!(absent.stderr.is_empty());
     }
 }

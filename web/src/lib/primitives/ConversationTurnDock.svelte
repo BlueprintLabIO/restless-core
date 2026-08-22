@@ -1,7 +1,12 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import type { ActiveConversationTurn } from '$lib/model/conversationSource.svelte';
+	import type { ConversationLiveActivity } from '$lib/model/attention';
 	import Markdown from './Markdown.svelte';
+
+	type TimelineItem =
+		| { kind: 'text'; id: string; text: string }
+		| { kind: 'activity'; id: string; activity: ConversationLiveActivity };
 
 	let {
 		participantName,
@@ -25,6 +30,32 @@
 	const visibleActivity = $derived(
 		(turn.live?.activity ?? []).filter((item) => item.kind !== 'thinking')
 	);
+	const timeline = $derived.by((): TimelineItem[] => {
+		const characters = Array.from(reply);
+		const items: TimelineItem[] = [];
+		let cursor = 0;
+		for (const [index, activity] of visibleActivity.entries()) {
+			const requested = Number.isFinite(activity.replyOffset) ? activity.replyOffset : 0;
+			const offset = Math.max(cursor, Math.min(characters.length, requested));
+			if (offset > cursor) {
+				items.push({
+					kind: 'text',
+					id: `text-${index}-${cursor}`,
+					text: characters.slice(cursor, offset).join('')
+				});
+			}
+			items.push({ kind: 'activity', id: activity.id, activity });
+			cursor = offset;
+		}
+		if (cursor < characters.length) {
+			items.push({
+				kind: 'text',
+				id: `text-tail-${cursor}`,
+				text: characters.slice(cursor).join('')
+			});
+		}
+		return items;
+	});
 	const startedAt = $derived(new Date(turn.live?.startedAt ?? turn.since).getTime());
 	const elapsedSeconds = $derived(
 		Number.isNaN(startedAt) ? 0 : Math.max(0, Math.floor((now - startedAt) / 1_000))
@@ -134,26 +165,27 @@
 	<div id={`turn-${turn.triggerMessageId}`} class="turn-disclosure" aria-hidden={!expanded}>
 		<div class="turn-clip">
 			<div class="turn-body" bind:this={replyScroll}>
-				{#if visibleActivity.length}
-					<div class="activity-trace" aria-label="Live activity">
-						<span class="trace-line" aria-hidden="true"></span>
-						{#each visibleActivity as item (item.id)}
-							<div class="trace-row" class:active={item.status === 'active'}>
-								<span class="trace-state" aria-hidden="true"></span>
-								<span class="trace-copy">
-									<strong>{item.label}</strong>
-									{#if item.detail && item.detail !== item.label}<small>{item.detail}</small>{/if}
-								</span>
-								<small class="trace-status">{activityStatus(item.status)}</small>
-							</div>
-						{/each}
-					</div>
-				{/if}
-
-				{#if reply}
+				{#if timeline.length}
 					<article class="streamed-reply" data-live={working}>
 						<header><strong>{participantName}</strong><span>live notes</span></header>
-						<div class="streamed-copy"><Markdown text={reply} /></div>
+						<div class="live-sequence" aria-label="Chronological live activity">
+							{#each timeline as item (item.id)}
+								{#if item.kind === 'text'}
+									<div class="streamed-copy"><Markdown text={item.text} /></div>
+								{:else}
+									<div class="trace-row" class:active={item.activity.status === 'active'}>
+										<span class="trace-state" aria-hidden="true"></span>
+										<span class="trace-copy">
+											<strong>{item.activity.label}</strong>
+											{#if item.activity.detail && item.activity.detail !== item.activity.label}
+												<small>{item.activity.detail}</small>
+											{/if}
+										</span>
+										<small class="trace-status">{activityStatus(item.activity.status)}</small>
+									</div>
+								{/if}
+							{/each}
+						</div>
 						{#if working}<span class="stream-caret" aria-hidden="true"></span>{/if}
 					</article>
 				{:else if visibleActivity.length === 0 && phase !== 'failed'}
@@ -297,20 +329,9 @@
 		border-top: 1px solid color-mix(in srgb, var(--intent-conversation) 13%, var(--border));
 	}
 
-	.activity-trace {
-		position: relative;
+	.live-sequence {
 		display: grid;
-		gap: 2px;
-		padding: 8px 13px 7px 20px;
-	}
-
-	.trace-line {
-		position: absolute;
-		top: 8px;
-		bottom: 8px;
-		left: 26px;
-		width: 1px;
-		background: color-mix(in srgb, var(--intent-conversation) 20%, var(--border));
+		gap: 7px;
 	}
 
 	.trace-row {
@@ -320,8 +341,10 @@
 		align-items: start;
 		gap: 7px;
 		min-height: 27px;
-		padding: 4px 3px;
+		padding: 5px 7px;
+		border: 1px solid color-mix(in srgb, var(--intent-conversation) 12%, var(--border));
 		border-radius: var(--radius-control);
+		background: color-mix(in srgb, var(--surface-alt) 58%, transparent);
 		animation: bridge-disclosure-in var(--motion-disclosure) var(--ease-out) both;
 	}
 

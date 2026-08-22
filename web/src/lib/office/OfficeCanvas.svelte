@@ -15,16 +15,26 @@
 	import { renderFrame } from '$lib/vendor/pixel-agents/webview-ui/src/office/engine/renderer.js';
 	import { getCatalogEntry } from '$lib/vendor/pixel-agents/webview-ui/src/office/layout/furnitureCatalog.js';
 	import { mapOffset } from '$lib/vendor/pixel-agents/webview-ui/src/office/projection.js';
-	import { TILE_SIZE } from '$lib/vendor/pixel-agents/webview-ui/src/office/types.js';
+	import {
+		CharacterState,
+		TILE_SIZE
+	} from '$lib/vendor/pixel-agents/webview-ui/src/office/types.js';
 	import {
 		createCompanyOfficePlan,
 		isDecorationPlacementValid,
 		type DecorationType,
 		type OfficePlan,
 		type OfficePreferences,
-		type OfficeTheme
+		type OfficeRestingSpot
 	} from './officePlan';
 	import type { OfficeMember } from './projection';
+	import { chooseBubblePlacement, type BubbleRect } from './bubblePlacement';
+	import { CAMPUS_MOTION_CHANNELS, campusWildlifeAt, drawCampusBackdrop } from './campusBackdrop';
+	import {
+		MAX_AMBIENT_VISITORS,
+		MAX_ANIMATED_ACTIVITY_SCENES,
+		shouldCelebrateWorkCompletion
+	} from './officeBehaviour';
 	import { loadPixelOfficeAssets, type PixelOfficeAssets } from './pixelAssets';
 
 	let {
@@ -74,12 +84,9 @@
 			src: '/vendor/pixel-agents/assets/furniture/DOUBLE_BOOKSHELF/DOUBLE_BOOKSHELF.png'
 		}
 	];
-	const themes: Array<{ key: OfficeTheme; label: string; color: string }> = [
-		{ key: 'daylight', label: 'Sunlit company floor', color: '#b8d6d1' },
-		{ key: 'garden', label: 'Garden office', color: '#86b99e' },
-		{ key: 'midnight', label: 'Midnight field office', color: '#456f91' }
-	];
-
+	const ZOOM_STEP = 0.25;
+	const MAX_CLOSE_ZOOM = 3;
+	const ZOOM_EPSILON = 0.001;
 	let shell: HTMLDivElement;
 	let canvas: HTMLCanvasElement;
 	let office = $state<OfficeState | null>(null);
@@ -91,18 +98,36 @@
 	let decorating = $state(false);
 	let selectedDecoration = $state<DecorationType | 'erase'>('PLANT_2');
 	let decorationMessage = $state('');
-	let documentVisible = true;
-	let reducedMotion = false;
+	let documentVisible = $state(true);
+	let reducedMotion = $state(false);
 	let devicePixelRatio = 2;
-	let zoomCss = 2.5;
+	let zoomCss = $state(2.5);
+	let minZoomCss = $state(0.5);
+	let maxZoomCss = $state(1);
 	let cameraPan = { x: 0, y: 0 };
 	let lastOffset = { x: 0, y: 0 };
 	let lastZoom = 5;
 	let lastPresence = new Map<string, OfficeMember['presence']>();
-	let restorativeTimer = 0;
-	let restorativeCursor = 0;
+	let lastSemantic = new Map<string, boolean>();
+	let simulationClock = 0;
+	let behaviourTimer = 0;
+	let ambientCursor = 0;
+	let ambientReservations = new Map<string, string>();
+	let reservedPoints = new Map<string, string>();
+	let ambientDwell = new Map<string, number>();
+	let ambientCooldown = new Map<string, number>();
+	let lastAmbientKind = new Map<string, string>();
+	let lastChatBeat = -1;
+	let chatSpeakerId: number | null = null;
+	let chatBubbleUntil = 0;
 	let planSignature = '';
 	let worldShape = '';
+	let layoutRebuildCount = 0;
+	let renderedFrameCount = 0;
+	let longFrameCount = 0;
+	let longestFrameMs = 0;
+	let lastWorkStatus = new Map<string, string | null>();
+	let completionCelebrations = new Map<number, number>();
 	let pointer = $state<{
 		id: number;
 		startX: number;
@@ -116,6 +141,8 @@
 		members.find((member) => member.actorId === selectedActorId) ?? null
 	);
 	const memberByNumericId = $derived(new Map(members.map((member) => [member.numericId, member])));
+	const canZoomOut = $derived(zoomCss > minZoomCss + ZOOM_EPSILON);
+	const canZoomIn = $derived(zoomCss < maxZoomCss - ZOOM_EPSILON);
 
 	$effect(() => {
 		if (!assets) return;
@@ -126,8 +153,19 @@
 		let destroyed = false;
 		let stopLoop: (() => void) | undefined;
 		const media = window.matchMedia('(prefers-reduced-motion: reduce)');
-		const readMotion = () => (reducedMotion = media.matches);
-		const readVisibility = () => (documentVisible = document.visibilityState === 'visible');
+		const readMotion = () => {
+			reducedMotion = media.matches;
+			if (reducedMotion) {
+				chatSpeakerId = null;
+				chatBubbleUntil = 0;
+			}
+			if (shell) shell.dataset.motion = reducedMotion ? 'reduced' : 'full';
+			if (reducedMotion && office && plan) synchronizeMembers(office, members, plan);
+		};
+		const readVisibility = () => {
+			documentVisible = document.visibilityState === 'visible';
+			if (shell) shell.dataset.documentVisible = documentVisible ? 'true' : 'false';
+		};
 		const wheel = (event: WheelEvent) => handleWheel(event);
 		readMotion();
 		readVisibility();
@@ -144,6 +182,7 @@
 				assets = loadedAssets;
 				rebuildOffice(teams, members, preferences);
 				sizeCanvas();
+				homeCamera();
 				stopLoop = startGameLoop(canvas, {
 					update: (delta) => {
 						if (documentVisible && !reducedMotion) updateOffice(delta);
@@ -183,12 +222,20 @@
 			.sort()
 			.join(',')}`;
 		if (office) {
+			ambientReservations.clear();
+			reservedPoints.clear();
+			ambientDwell.clear();
+			lastChatBeat = -1;
+			chatSpeakerId = null;
+			chatBubbleUntil = 0;
 			office.setAreaMappings(nextPlan.areaMappings);
 			office.rebuildFromLayout(nextPlan.layout);
 		} else {
 			office = new OfficeState(nextPlan.layout);
 			office.setAreaMappings(nextPlan.areaMappings);
 		}
+		layoutRebuildCount += 1;
+		if (shell) shell.dataset.layoutRebuilds = String(layoutRebuildCount);
 		plan = nextPlan;
 		planSignature = nextPlan.signature;
 		synchronizeMembers(office, nextMembers, nextPlan);
@@ -201,20 +248,242 @@
 	function updateOffice(delta: number) {
 		if (!office || !plan) return;
 		office.update(delta);
-		restorativeTimer += delta;
-		if (restorativeTimer < 14) return;
-		restorativeTimer = 0;
+		simulationClock += delta;
+		behaviourTimer += delta;
+		settleAvailableMembers();
+		animateLoungeChat();
 
-		const availableMembers = members.filter((member) => {
-			if (member.presence !== 'available') return false;
+		for (const [actorId, pointId] of [...ambientReservations]) {
+			const member = members.find((candidate) => candidate.actorId === actorId);
+			const character = member ? office.characters.get(member.numericId) : null;
+			const point = plan.interactionPoints.find((candidate) => candidate.id === pointId);
+			if (!member || member.presence !== 'available' || !character || !point) {
+				releaseAmbient(actorId, false);
+				continue;
+			}
+			if (character.path.length > 0) continue;
+			if (!ambientDwell.has(actorId)) {
+				ambientDwell.set(actorId, 4 + (member.numericId % 4));
+				character.dir = point.facing;
+				continue;
+			}
+			const remaining = (ambientDwell.get(actorId) ?? 0) - delta;
+			if (remaining > 0) ambientDwell.set(actorId, remaining);
+			else releaseAmbient(actorId, true);
+		}
+
+		if (behaviourTimer < 3) return;
+		behaviourTimer = 0;
+		const maximumAmbient = Math.min(
+			MAX_AMBIENT_VISITORS,
+			Math.max(1, Math.ceil(members.length / 8))
+		);
+		if (ambientReservations.size >= maximumAmbient || !plan.interactionPoints.length) return;
+		const eligible = members.filter((member) => {
 			const character = office?.characters.get(member.numericId);
-			return character && character.path.length === 0;
+			return (
+				member.presence === 'available' &&
+				!ambientReservations.has(member.actorId) &&
+				(ambientCooldown.get(member.actorId) ?? 0) <= simulationClock &&
+				character?.path.length === 0
+			);
 		});
-		if (!availableMembers.length || !plan.restorativeSpots.length) return;
+		if (!eligible.length) return;
+		const member = eligible[ambientCursor % eligible.length];
+		const occupied = new Set(
+			[...office.characters.values()].map((character) => {
+				const destination = character.path.at(-1);
+				return `${destination?.col ?? character.tileCol},${destination?.row ?? character.tileRow}`;
+			})
+		);
+		const points = plan.interactionPoints.filter(
+			(point) =>
+				(!point.exclusive || !reservedPoints.has(point.id)) &&
+				!occupied.has(`${point.col},${point.row}`)
+		);
+		if (!points.length) return;
+		const freshPoints = points.filter(
+			(point) => point.kind !== lastAmbientKind.get(member.actorId)
+		);
+		const candidates = freshPoints.length ? freshPoints : points;
+		const point = candidates[(ambientCursor + member.numericId) % candidates.length];
+		if (office.walkToTile(member.numericId, point.col, point.row)) {
+			if (chatSpeakerId === member.numericId) chatSpeakerId = null;
+			ambientReservations.set(member.actorId, point.id);
+			if (point.exclusive) reservedPoints.set(point.id, member.actorId);
+			ambientCursor += 1;
+		}
+	}
 
-		const member = availableMembers[restorativeCursor % availableMembers.length];
-		const spot = plan.restorativeSpots[restorativeCursor % plan.restorativeSpots.length];
-		if (office.walkToTile(member.numericId, spot.col, spot.row)) restorativeCursor += 1;
+	function releaseAmbient(actorId: string, returnToCommons: boolean) {
+		const pointId = ambientReservations.get(actorId);
+		const point = plan?.interactionPoints.find((candidate) => candidate.id === pointId);
+		if (point) lastAmbientKind.set(actorId, point.kind);
+		if (pointId) reservedPoints.delete(pointId);
+		ambientReservations.delete(actorId);
+		ambientDwell.delete(actorId);
+		ambientCooldown.set(actorId, simulationClock + 16);
+		const member = members.find((candidate) => candidate.actorId === actorId);
+		if (returnToCommons && member && office && plan)
+			sendToRestingSpot(office, member, members, plan);
+	}
+
+	function sendToRestingSpot(
+		state: OfficeState,
+		member: OfficeMember,
+		roster: OfficeMember[],
+		nextPlan: OfficePlan
+	) {
+		const spot = restingSpotFor(member, roster, nextPlan);
+		const character = state.characters.get(member.numericId);
+		if (!spot || !character) return;
+		if (reducedMotion) {
+			poseAtRestingSpot(character, spot);
+			return;
+		}
+		const destination = character.path.at(-1);
+		const atPose =
+			character.tileCol === (spot.poseCol ?? spot.col) &&
+			character.tileRow === (spot.poseRow ?? spot.row) &&
+			!character.path.length;
+		if (
+			atPose ||
+			(character.tileCol === spot.col &&
+				character.tileRow === spot.row &&
+				!character.path.length) ||
+			(destination?.col === spot.col && destination.row === spot.row)
+		) {
+			if (!character.path.length) poseAtRestingSpot(character, spot);
+			return;
+		}
+		state.walkToTile(member.numericId, spot.col, spot.row);
+	}
+
+	function restingSpotFor(
+		member: OfficeMember,
+		roster: OfficeMember[],
+		nextPlan: OfficePlan
+	): OfficeRestingSpot | null {
+		const memberIndex = roster.findIndex((candidate) => candidate.actorId === member.actorId);
+		return memberIndex >= 0 ? (nextPlan.restingSpots[memberIndex] ?? null) : null;
+	}
+
+	function isAtRestingSpot(
+		character: NonNullable<ReturnType<OfficeState['characters']['get']>>,
+		spot: OfficeRestingSpot
+	): boolean {
+		return (
+			!character.path.length &&
+			character.tileCol === (spot.poseCol ?? spot.col) &&
+			character.tileRow === (spot.poseRow ?? spot.row)
+		);
+	}
+
+	function poseAtRestingSpot(
+		character: NonNullable<ReturnType<OfficeState['characters']['get']>>,
+		spot: OfficeRestingSpot
+	) {
+		const col = spot.poseCol ?? spot.col;
+		const row = spot.poseRow ?? spot.row;
+		const state = spot.posture === 'sit' ? CharacterState.TYPE : CharacterState.IDLE;
+		if (character.tileCol !== col || character.tileRow !== row) {
+			snapCharacter(character, col, row, spot.facing, state);
+		} else {
+			character.dir = spot.facing;
+			if (character.state !== state) {
+				character.state = state;
+				character.frame = 0;
+				character.frameTimer = 0;
+			}
+		}
+		if (spot.posture === 'sit') character.seatTimer = 60;
+		character.currentTool =
+			spot.activity === 'reading' || spot.activity === 'sketching' ? 'Read' : null;
+	}
+
+	function settleAvailableMembers() {
+		if (!office || !plan) return;
+		for (const member of members) {
+			if (member.presence !== 'available' || ambientReservations.has(member.actorId)) continue;
+			const character = office.characters.get(member.numericId);
+			const spot = restingSpotFor(member, members, plan);
+			if (!character || !spot || character.path.length) continue;
+			const atApproach = character.tileCol === spot.col && character.tileRow === spot.row;
+			if (atApproach || isAtRestingSpot(character, spot)) poseAtRestingSpot(character, spot);
+		}
+	}
+
+	function animateLoungeChat() {
+		if (!office || !plan || reducedMotion) return;
+		if (simulationClock >= chatBubbleUntil) chatSpeakerId = null;
+		const beat = Math.floor(simulationClock / 2.8);
+		if (beat === lastChatBeat) return;
+		lastChatBeat = beat;
+		const settled = members.flatMap((member) => {
+			if (member.presence !== 'available' || ambientReservations.has(member.actorId)) return [];
+			const character = office?.characters.get(member.numericId);
+			const spot = plan?.restingSpots[members.indexOf(member)];
+			return character && spot && isAtRestingSpot(character, spot) ? [{ member, spot }] : [];
+		});
+		const groups = [...new Set(settled.map(({ spot }) => spot.groupId))].filter(
+			(groupId) => settled.filter(({ spot }) => spot.groupId === groupId).length > 1
+		);
+		if (!groups.length) return;
+		const groupId = groups[beat % groups.length];
+		const group = settled.filter(({ spot }) => spot.groupId === groupId);
+		const speaker = group[beat % group.length];
+		chatSpeakerId = speaker.member.numericId;
+		chatBubbleUntil = simulationClock + 2.4;
+	}
+
+	function sendToWaitingSpot(
+		state: OfficeState,
+		member: OfficeMember,
+		spot: { col: number; row: number }
+	) {
+		const character = state.characters.get(member.numericId);
+		if (!character) return;
+		if (reducedMotion) {
+			snapCharacter(character, spot.col, spot.row, character.dir, CharacterState.IDLE);
+			return;
+		}
+		state.walkToTile(member.numericId, spot.col, spot.row);
+	}
+
+	function sendToWorkstation(state: OfficeState, member: OfficeMember) {
+		const character = state.characters.get(member.numericId);
+		const seat = character?.seatId ? state.seats.get(character.seatId) : null;
+		if (!character || !seat) return;
+		if (reducedMotion) {
+			snapCharacter(
+				character,
+				seat.seatCol,
+				seat.seatRow,
+				seat.facingDir,
+				member.semanticActivity ? CharacterState.TYPE : CharacterState.IDLE
+			);
+			return;
+		}
+		state.sendToSeat(member.numericId);
+	}
+
+	function snapCharacter(
+		character: NonNullable<ReturnType<OfficeState['characters']['get']>>,
+		col: number,
+		row: number,
+		facing: (typeof character)['dir'],
+		state: CharacterState
+	) {
+		character.tileCol = col;
+		character.tileRow = row;
+		character.x = col * TILE_SIZE + TILE_SIZE / 2;
+		character.y = row * TILE_SIZE + TILE_SIZE / 2;
+		character.path = [];
+		character.moveProgress = 0;
+		character.state = state;
+		character.dir = facing;
+		character.frame = 0;
+		character.frameTimer = 0;
 	}
 
 	function sizeCanvas() {
@@ -223,7 +492,8 @@
 		devicePixelRatio = Math.max(2, Math.min(window.devicePixelRatio || 1, 2));
 		canvas.width = Math.max(1, Math.round(rectangle.width * devicePixelRatio));
 		canvas.height = Math.max(1, Math.round(rectangle.height * devicePixelRatio));
-		lastZoom = Math.max(devicePixelRatio, Math.round(zoomCss * devicePixelRatio));
+		updateZoomBounds();
+		lastZoom = Math.max(1, Math.round(zoomCss * devicePixelRatio));
 	}
 
 	function synchronizeMembers(
@@ -234,7 +504,11 @@
 		state.setAreaMappings(nextPlan.areaMappings);
 		const nextIds = new Set(nextMembers.map((member) => member.numericId));
 		for (const character of state.characters.values()) {
-			if (!nextIds.has(character.id)) state.removeAgent(character.id);
+			if (!nextIds.has(character.id)) {
+				const member = members.find((candidate) => candidate.numericId === character.id);
+				if (member) releaseAmbient(member.actorId, false);
+				state.removeAgent(character.id);
+			}
 		}
 
 		for (const member of nextMembers) {
@@ -257,51 +531,75 @@
 				member.isTeamLead,
 				lead && lead.actorId !== member.actorId ? lead.numericId : undefined
 			);
-			state.setAgentActive(member.numericId, member.sessionObserved);
+			const previousSemantic = lastSemantic.get(member.actorId);
+			if (previousSemantic !== member.semanticActivity) {
+				state.setAgentActive(member.numericId, member.semanticActivity);
+				lastSemantic.set(member.actorId, member.semanticActivity);
+			}
+			state.setAgentAmbient(member.numericId, false);
 			state.setAgentTool(member.numericId, null);
 			if (member.presence === 'waiting') state.showPermissionBubble(member.numericId);
 			else state.clearPermissionBubble(member.numericId);
+			if (member.presence !== 'available' && chatSpeakerId === member.numericId)
+				chatSpeakerId = null;
 
 			const previous = lastPresence.get(member.actorId);
-			if (previous === 'observed' && member.presence !== 'observed') {
-				state.showWaitingBubble(member.numericId);
-			}
+			const workStatus = member.work?.status ?? null;
+			const previousWorkStatus = lastWorkStatus.get(member.actorId);
+			if (
+				!reducedMotion &&
+				shouldCelebrateWorkCompletion({
+					previousStatus: previousWorkStatus,
+					currentStatus: workStatus,
+					updatedAt: member.work?.updated_at ?? null,
+					now: Date.now()
+				})
+			)
+				completionCelebrations.set(member.numericId, performance.now() + 5_000);
+			lastWorkStatus.set(member.actorId, workStatus);
+			if (previous && previous !== member.presence) releaseAmbient(member.actorId, false);
 			if (member.presence === 'waiting' && previous !== 'waiting') {
 				const waitingSpot =
 					nextPlan.waitingSpots[
 						Math.abs(member.numericId) % Math.max(1, nextPlan.waitingSpots.length)
 					];
-				if (waitingSpot) state.walkToTile(member.numericId, waitingSpot.col, waitingSpot.row);
+				if (waitingSpot) sendToWaitingSpot(state, member, waitingSpot);
 			} else if (
-				previous === 'waiting' &&
-				(member.sessionObserved || member.presence === 'in-motion')
+				(member.semanticActivity || member.presence === 'in-motion') &&
+				previous !== member.presence
 			) {
-				state.sendToSeat(member.numericId);
+				sendToWorkstation(state, member);
+			} else if (member.presence === 'available' && !ambientReservations.has(member.actorId)) {
+				sendToRestingSpot(state, member, nextMembers, nextPlan);
 			}
 			lastPresence.set(member.actorId, member.presence);
 		}
 		for (const actorId of [...lastPresence.keys()]) {
 			if (!nextMembers.some((member) => member.actorId === actorId)) {
 				lastPresence.delete(actorId);
+				lastSemantic.delete(actorId);
+				lastWorkStatus.delete(actorId);
+				releaseAmbient(actorId, false);
 			}
 		}
-
-		if (!selectedActorId && nextMembers.length) {
-			selectedActorId =
-				nextMembers.find((member) => member.sessionObserved)?.actorId ?? nextMembers[0].actorId;
-		}
+		if (selectedActorId && !nextMembers.some((member) => member.actorId === selectedActorId))
+			selectedActorId = null;
 	}
 
 	function render(context: CanvasRenderingContext2D, now: number) {
 		if (!office || !plan || !canvas.width || !canvas.height) return;
+		const frameStartedAt = performance.now();
 		const hoveredMember = hoveredActorId
 			? (members.find((member) => member.actorId === hoveredActorId) ?? null)
 			: null;
-		const bubbleMember =
-			hoveredMember ?? (document.activeElement === canvas ? selectedMember : null);
-		office.selectedAgentId = bubbleMember?.numericId ?? null;
+		const bubbleMember = hoveredMember;
+		if (!bubbleMember && shell) {
+			delete shell.dataset.bubbleTail;
+			delete shell.dataset.bubbleOverlap;
+		}
+		office.selectedAgentId = selectedMember?.numericId ?? null;
 		context.imageSmoothingEnabled = false;
-		lastZoom = Math.max(devicePixelRatio, Math.round(zoomCss * devicePixelRatio));
+		lastZoom = Math.max(1, Math.round(zoomCss * devicePixelRatio));
 		animateRestorativeDecor(now);
 		const frame = renderFrame(
 			context,
@@ -332,29 +630,188 @@
 			office.pets
 		);
 		lastOffset = { x: frame.offsetX, y: frame.offsetY };
+		drawCampusBackdrop(context, {
+			canvasWidth: canvas.width,
+			canvasHeight: canvas.height,
+			officeLeft: frame.offsetX,
+			officeTop: frame.offsetY,
+			officeTiles: plan.layout.tiles,
+			officeCols: plan.layout.cols,
+			officeRows: plan.layout.rows,
+			tilePixelSize: TILE_SIZE * lastZoom,
+			now,
+			motion: !reducedMotion && documentVisible
+		});
+		drawFishingActivities(context, now);
 		drawZonePlaques(context);
+		drawChatBubble(context);
 		drawPresence(context, now, bubbleMember);
+		drawCompletionCelebrations(context, now);
+		const frameMs = performance.now() - frameStartedAt;
+		renderedFrameCount += 1;
+		longestFrameMs = Math.max(longestFrameMs, frameMs);
+		if (frameMs > 32) longFrameCount += 1;
+		if (renderedFrameCount % 60 === 0 && shell) {
+			const currentPlan = plan;
+			const availableAtDesks = members.filter((member) => {
+				if (member.presence !== 'available') return false;
+				const character = office?.characters.get(member.numericId);
+				const seat = character?.seatId ? office?.seats.get(character.seatId) : null;
+				return !!(
+					character &&
+					seat &&
+					character.tileCol === seat.seatCol &&
+					character.tileRow === seat.seatRow
+				);
+			}).length;
+			const leisure = members.flatMap((member) => {
+				if (member.presence !== 'available') return [];
+				const character = office?.characters.get(member.numericId);
+				const spot = restingSpotFor(member, members, currentPlan);
+				return character && spot && isAtRestingSpot(character, spot) ? [spot] : [];
+			});
+			shell.dataset.renderedFrames = String(renderedFrameCount);
+			shell.dataset.longFrames = String(longFrameCount);
+			shell.dataset.longestFrameMs = longestFrameMs.toFixed(2);
+			shell.dataset.renderZoom = String(lastZoom);
+			shell.dataset.worldShape = `${plan.layout.cols}x${plan.layout.rows}`;
+			shell.dataset.ambientCount = String(ambientReservations.size);
+			shell.dataset.availableAtDesks = String(availableAtDesks);
+			shell.dataset.leisureSeated = String(leisure.filter((spot) => spot.posture === 'sit').length);
+			shell.dataset.leisurePlaying = String(
+				leisure.filter((spot) => spot.activity === 'pool' || spot.activity === 'table-game').length
+			);
+			shell.dataset.chatBubbles = String(
+				chatSpeakerId !== null && simulationClock < chatBubbleUntil ? 1 : 0
+			);
+			shell.dataset.activityKinds = String(new Set(leisure.map((spot) => spot.activity)).size);
+			shell.dataset.activityTones = String(new Set(leisure.map((spot) => spot.tone)).size);
+			shell.dataset.campus = 'lakeside-courtyard';
+			shell.dataset.environmentMotion = String(CAMPUS_MOTION_CHANNELS.length);
+			shell.dataset.wildlife =
+				!reducedMotion && documentVisible
+					? (campusWildlifeAt(Date.now())?.kind ?? 'none')
+					: 'paused';
+			shell.dataset.celebrations = String(
+				[...completionCelebrations.values()].filter((until) => now < until).length
+			);
+		}
+	}
+
+	function drawFishingActivities(context: CanvasRenderingContext2D, now: number) {
+		if (!office || !plan) return;
+		let visibleFishers = 0;
+		for (const member of members) {
+			if (member.presence !== 'available' || ambientReservations.has(member.actorId)) continue;
+			const character = office.characters.get(member.numericId);
+			const spot = restingSpotFor(member, members, plan);
+			if (!character || spot?.activity !== 'fishing' || !isAtRestingSpot(character, spot)) continue;
+			visibleFishers += 1;
+			const pixel = lastZoom;
+			const bob = reducedMotion || !documentVisible ? 0 : Math.floor(now / 620) % 2;
+			const anchorX = lastOffset.x + (character.x + 4) * lastZoom;
+			const anchorY = lastOffset.y + (character.y - 8) * lastZoom;
+			const tipX = anchorX + 12 * pixel;
+			const tipY = anchorY - 10 * pixel;
+			const floatX = anchorX + 20 * pixel;
+			const floatY = anchorY + (8 + bob) * pixel;
+
+			context.save();
+			context.imageSmoothingEnabled = false;
+			context.fillStyle = '#7b5139';
+			for (let step = 0; step < 7; step += 1)
+				context.fillRect(
+					Math.round(anchorX + step * 2 * pixel),
+					Math.round(anchorY - step * 1.5 * pixel),
+					pixel,
+					2 * pixel
+				);
+			context.strokeStyle = '#d8e3e7';
+			context.lineWidth = Math.max(1, pixel);
+			context.beginPath();
+			context.moveTo(Math.round(tipX), Math.round(tipY));
+			context.lineTo(Math.round(floatX), Math.round(floatY));
+			context.stroke();
+			context.fillStyle = '#f4efe2';
+			context.fillRect(Math.round(floatX - pixel), Math.round(floatY), 3 * pixel, pixel);
+			context.fillStyle = '#d76558';
+			context.fillRect(Math.round(floatX), Math.round(floatY + pixel), pixel, 2 * pixel);
+			context.fillStyle = '#cfeaec';
+			context.fillRect(
+				Math.round(floatX - 5 * pixel),
+				Math.round(floatY + 4 * pixel),
+				4 * pixel,
+				pixel
+			);
+			context.fillRect(
+				Math.round(floatX + 3 * pixel),
+				Math.round(floatY + 4 * pixel),
+				5 * pixel,
+				pixel
+			);
+			context.restore();
+		}
+		if (shell) shell.dataset.fishing = String(visibleFishers);
 	}
 
 	function animateRestorativeDecor(now: number) {
 		if (!assets || !plan || !office) return;
-		const fountainFrame = reducedMotion ? 0 : Math.floor(now / 520) % assets.fountainFrames.length;
-		const fountain = office.furniture.find(
-			(instance) =>
-				instance.x === plan!.fountain.col * TILE_SIZE &&
-				instance.y === plan!.fountain.row * TILE_SIZE &&
-				instance.sprite.length === TILE_SIZE * 4
+		const loadedAssets = assets;
+		const currentPlan = plan;
+		const currentOffice = office;
+		const paused = reducedMotion || !documentVisible;
+		const animationBudget = Math.min(
+			MAX_ANIMATED_ACTIVITY_SCENES,
+			currentPlan.animatedAmenities.length
 		);
-		if (fountain) fountain.sprite = assets.fountainFrames[fountainFrame];
+		const activeStart = paused
+			? 0
+			: Math.floor(now / 8_000) % Math.max(1, currentPlan.animatedAmenities.length);
+		currentPlan.animatedAmenities.forEach((amenity, index) => {
+			const frames = loadedAssets.amenityFrames[amenity.type];
+			if (!frames?.length) return;
+			const activeDistance =
+				(index - activeStart + currentPlan.animatedAmenities.length) %
+				currentPlan.animatedAmenities.length;
+			const frameIndex =
+				!paused && activeDistance < animationBudget ? Math.floor(now / 720) % frames.length : 0;
+			const instance = currentOffice.furniture.find(
+				(candidate) =>
+					candidate.x === amenity.col * TILE_SIZE && candidate.y === amenity.row * TILE_SIZE
+			);
+			if (instance) instance.sprite = frames[frameIndex];
+		});
+		if (shell) shell.dataset.animatedScenes = String(paused ? 0 : animationBudget);
+	}
 
-		const unicornFrame = reducedMotion ? 0 : Math.floor(now / 680) % assets.unicornFrames.length;
-		const unicorn = office.furniture.find(
-			(instance) =>
-				instance.x === plan!.unicorn.col * TILE_SIZE &&
-				instance.y === plan!.unicorn.row * TILE_SIZE &&
-				instance.sprite.length === TILE_SIZE * 2
-		);
-		if (unicorn) unicorn.sprite = assets.unicornFrames[unicornFrame];
+	function drawCompletionCelebrations(context: CanvasRenderingContext2D, now: number) {
+		if (!office || reducedMotion) return;
+		const colors = ['#efc653', '#e77f76', '#70ad83', '#79a7cc'];
+		for (const [numericId, until] of [...completionCelebrations]) {
+			if (now >= until) {
+				completionCelebrations.delete(numericId);
+				continue;
+			}
+			const character = office.characters.get(numericId);
+			if (!character) continue;
+			const elapsed = 5_000 - (until - now);
+			const beat = Math.floor(elapsed / 180);
+			context.save();
+			for (let index = 0; index < 8; index += 1) {
+				const direction = index % 2 ? -1 : 1;
+				const x =
+					lastOffset.x +
+					character.x * lastZoom +
+					direction * (5 + ((index * 5 + beat * 2) % 17)) * devicePixelRatio;
+				const y =
+					lastOffset.y +
+					(character.y - 18) * lastZoom +
+					(((index * 7 + beat * 3) % 22) - 11) * devicePixelRatio;
+				context.fillStyle = colors[index % colors.length];
+				context.fillRect(Math.round(x), Math.round(y), 2 * devicePixelRatio, 2 * devicePixelRatio);
+			}
+			context.restore();
+		}
 	}
 
 	function drawZonePlaques(context: CanvasRenderingContext2D) {
@@ -372,11 +829,38 @@
 			const label = zone.label;
 			const width = Math.ceil(context.measureText(label).width) + 10 * scale;
 			const height = 16 * scale;
-			context.fillStyle = 'rgba(255, 248, 232, 0.9)';
+			context.fillStyle = 'rgba(239, 248, 244, 0.92)';
 			context.fillRect(Math.round(x), Math.round(y - height / 2), width, height);
-			context.fillStyle = zone.kind === 'team' ? '#2b6660' : '#765d35';
+			context.fillStyle = zone.kind === 'team' ? '#2b6660' : '#6d5da8';
 			context.fillText(label, Math.round(x + 5 * scale), Math.round(y));
 		}
+		context.restore();
+	}
+
+	function drawChatBubble(context: CanvasRenderingContext2D) {
+		if (!office || chatSpeakerId === null || reducedMotion || simulationClock >= chatBubbleUntil)
+			return;
+		const character = office.characters.get(chatSpeakerId);
+		const member = memberByNumericId.get(chatSpeakerId);
+		if (!character || member?.presence !== 'available') return;
+		const pixel = lastZoom;
+		const width = 11 * pixel;
+		const height = 10 * pixel;
+		const x = Math.round(lastOffset.x + character.x * lastZoom - width / 2);
+		const y = Math.round(lastOffset.y + (character.y - 24) * lastZoom - height);
+		const remaining = chatBubbleUntil - simulationClock;
+		context.save();
+		context.globalAlpha = remaining < 0.35 ? remaining / 0.35 : 1;
+		context.fillStyle = '#4c5f61';
+		context.fillRect(x, y, width, height);
+		context.fillStyle = '#fff9ea';
+		context.fillRect(x + pixel, y + pixel, width - 2 * pixel, height - 2 * pixel);
+		context.fillStyle = '#4c5f61';
+		context.fillRect(x + 4 * pixel, y + height, 3 * pixel, pixel);
+		context.fillRect(x + 5 * pixel, y + height + pixel, pixel, pixel);
+		context.fillStyle = '#4c9b91';
+		for (const offset of [3, 5, 7])
+			context.fillRect(x + offset * pixel, y + 5 * pixel, pixel, pixel);
 		context.restore();
 	}
 
@@ -392,7 +876,7 @@
 			const x = lastOffset.x + character.x * lastZoom;
 			const y = lastOffset.y + (character.y + 8) * lastZoom;
 			if (member.sessionObserved) {
-				const pulse = reducedMotion ? 0.78 : 0.62 + Math.sin(now / 280) * 0.16;
+				const pulse = reducedMotion || !documentVisible ? 0.78 : 0.62 + Math.sin(now / 280) * 0.16;
 				context.save();
 				context.globalAlpha = pulse;
 				context.strokeStyle = '#d8f2cf';
@@ -401,22 +885,23 @@
 				context.ellipse(x, y, 7 * lastZoom, 3 * lastZoom, 0, 0, Math.PI * 2);
 				context.stroke();
 				context.restore();
-			} else if (member.presence === 'in-motion') {
-				context.fillStyle = '#78b8c3';
-				context.fillRect(
-					Math.round(x - 2 * devicePixelRatio),
-					Math.round(y + 2 * lastZoom),
-					4 * devicePixelRatio,
-					2 * devicePixelRatio
-				);
-			} else if (member.presence === 'waiting') {
-				context.fillStyle = '#e0a43b';
-				context.fillRect(
-					Math.round(x - 2 * devicePixelRatio),
-					Math.round(y + 2 * lastZoom),
-					4 * devicePixelRatio,
-					2 * devicePixelRatio
-				);
+			} else if (member.presence !== 'available') {
+				const cue =
+					member.presence === 'waiting'
+						? '!'
+						: member.presence === 'stale'
+							? '~'
+							: member.presence === 'unknown'
+								? '?'
+								: member.presence === 'unavailable'
+									? '×'
+									: '·';
+				context.save();
+				context.fillStyle = member.presence === 'waiting' ? '#a56820' : '#526673';
+				context.font = `400 ${8 * devicePixelRatio}px Silkscreen, monospace`;
+				context.textAlign = 'center';
+				context.fillText(cue, Math.round(x), Math.round(y + 3 * lastZoom));
+				context.restore();
 			}
 		}
 
@@ -432,24 +917,53 @@
 		worldY: number,
 		member: OfficeMember
 	) {
+		if (!office) return;
 		const scale = devicePixelRatio;
 		const name = member.display;
 		const detail = member.presenceLabel;
 		context.save();
 		context.font = `400 ${10 * scale}px Silkscreen, monospace`;
-		const width =
+		const width = Math.max(
+			1,
 			Math.min(
 				canvas.width - 20 * scale,
 				Math.max(context.measureText(name).width, context.measureText(detail).width) + 20 * scale
-			) || 1;
+			)
+		);
 		const height = 40 * scale;
 		const anchorX = lastOffset.x + worldX * lastZoom;
 		const anchorY = lastOffset.y + (worldY - 29) * lastZoom;
-		const left = Math.max(
-			8 * scale,
-			Math.min(canvas.width - width - 8 * scale, anchorX - width / 2)
-		);
-		const top = Math.max(8 * scale, anchorY - height);
+		const obstaclePadding = 2 * scale;
+		const obstacles: BubbleRect[] = office.furniture.map((item) => ({
+			left: lastOffset.x + item.x * lastZoom - obstaclePadding,
+			top: lastOffset.y + item.y * lastZoom - obstaclePadding,
+			width: (item.sprite[0]?.length ?? 1) * lastZoom + obstaclePadding * 2,
+			height: item.sprite.length * lastZoom + obstaclePadding * 2
+		}));
+		for (const other of office.characters.values()) {
+			if (other.id === member.numericId) continue;
+			obstacles.push({
+				left: lastOffset.x + (other.x - 8) * lastZoom,
+				top: lastOffset.y + (other.y - 24) * lastZoom,
+				width: 16 * lastZoom,
+				height: 24 * lastZoom
+			});
+		}
+		const placement = chooseBubblePlacement({
+			canvasWidth: canvas.width,
+			canvasHeight: canvas.height,
+			anchorX,
+			anchorY,
+			width,
+			height,
+			scale,
+			obstacles
+		});
+		const { left, top } = placement;
+		if (shell) {
+			shell.dataset.bubbleTail = placement.tail;
+			shell.dataset.bubbleOverlap = placement.overlapArea.toFixed(0);
+		}
 
 		context.shadowColor = 'rgba(23, 36, 51, 0.3)';
 		context.shadowOffsetY = 3 * scale;
@@ -461,20 +975,46 @@
 		context.lineWidth = scale;
 		context.strokeRect(left + scale / 2, top + scale / 2, width - scale, height - scale);
 
-		const tailX = Math.max(left + 12 * scale, Math.min(left + width - 12 * scale, anchorX));
 		context.fillStyle = '#fff8e8';
-		context.fillRect(tailX - 4 * scale, top + height - scale, 8 * scale, 5 * scale);
-		context.fillRect(tailX - 2 * scale, top + height + 4 * scale, 4 * scale, 4 * scale);
 		context.strokeStyle = '#172433';
 		context.beginPath();
-		context.moveTo(tailX - 4 * scale, top + height);
-		context.lineTo(tailX - 4 * scale, top + height + 4 * scale);
-		context.lineTo(tailX - 2 * scale, top + height + 4 * scale);
-		context.lineTo(tailX - 2 * scale, top + height + 8 * scale);
-		context.lineTo(tailX + 2 * scale, top + height + 8 * scale);
-		context.lineTo(tailX + 2 * scale, top + height + 4 * scale);
-		context.lineTo(tailX + 4 * scale, top + height + 4 * scale);
-		context.lineTo(tailX + 4 * scale, top + height);
+		if (placement.tail === 'bottom') {
+			const tailX = Math.max(left + 12 * scale, Math.min(left + width - 12 * scale, anchorX));
+			context.fillRect(tailX - 4 * scale, top + height - scale, 8 * scale, 5 * scale);
+			context.fillRect(tailX - 2 * scale, top + height + 4 * scale, 4 * scale, 4 * scale);
+			context.moveTo(tailX - 4 * scale, top + height);
+			context.lineTo(tailX - 4 * scale, top + height + 4 * scale);
+			context.lineTo(tailX - 2 * scale, top + height + 4 * scale);
+			context.lineTo(tailX - 2 * scale, top + height + 8 * scale);
+			context.lineTo(tailX + 2 * scale, top + height + 8 * scale);
+			context.lineTo(tailX + 2 * scale, top + height + 4 * scale);
+			context.lineTo(tailX + 4 * scale, top + height + 4 * scale);
+			context.lineTo(tailX + 4 * scale, top + height);
+		} else {
+			const tailY = Math.max(top + 12 * scale, Math.min(top + height - 12 * scale, anchorY));
+			const direction = placement.tail === 'right' ? 1 : -1;
+			const edgeX = placement.tail === 'right' ? left + width : left;
+			context.fillRect(
+				placement.tail === 'right' ? edgeX - scale : edgeX - 4 * scale,
+				tailY - 4 * scale,
+				5 * scale,
+				8 * scale
+			);
+			context.fillRect(
+				edgeX + direction * 4 * scale - (direction < 0 ? 4 * scale : 0),
+				tailY - 2 * scale,
+				4 * scale,
+				4 * scale
+			);
+			context.moveTo(edgeX, tailY - 4 * scale);
+			context.lineTo(edgeX + direction * 4 * scale, tailY - 4 * scale);
+			context.lineTo(edgeX + direction * 4 * scale, tailY - 2 * scale);
+			context.lineTo(edgeX + direction * 8 * scale, tailY - 2 * scale);
+			context.lineTo(edgeX + direction * 8 * scale, tailY + 2 * scale);
+			context.lineTo(edgeX + direction * 4 * scale, tailY + 2 * scale);
+			context.lineTo(edgeX + direction * 4 * scale, tailY + 4 * scale);
+			context.lineTo(edgeX, tailY + 4 * scale);
+		}
 		context.stroke();
 
 		context.fillStyle = '#172433';
@@ -550,7 +1090,6 @@
 		const member = numericId == null ? null : memberByNumericId.get(numericId);
 		hoveredActorId = member?.actorId ?? null;
 		office.hoveredAgentId = member?.numericId ?? null;
-		if (member) selectedActorId = member.actorId;
 	}
 
 	function handlePointerUp(event: PointerEvent) {
@@ -568,11 +1107,11 @@
 		const member = numericId == null ? null : memberByNumericId.get(numericId);
 		if (member) {
 			selectedActorId = member.actorId;
-			onopen?.(member);
 			return;
 		}
 		const petId = office.getPetAt(world.x, world.y);
 		if (petId) office.showPetBubble(petId);
+		else selectedActorId = null;
 	}
 
 	function handlePointerCancel(event: PointerEvent) {
@@ -589,13 +1128,13 @@
 	function handleWheel(event: WheelEvent) {
 		if (!office || !plan) return;
 		event.preventDefault();
-		const next = Math.max(1.25, Math.min(5, zoomCss + (event.deltaY < 0 ? 0.25 : -0.25)));
-		if (next === zoomCss) return;
+		const next = clampZoom(zoomCss + (event.deltaY < 0 ? ZOOM_STEP : -ZOOM_STEP));
+		if (Math.abs(next - zoomCss) < ZOOM_EPSILON) return;
 		const point = eventPoint(event);
 		const oldZoom = lastZoom;
 		const worldX = (point.x - lastOffset.x) / oldZoom;
 		const worldY = (point.y - lastOffset.y) / oldZoom;
-		const nextZoom = Math.max(devicePixelRatio, Math.round(next * devicePixelRatio));
+		const nextZoom = Math.max(1, Math.round(next * devicePixelRatio));
 		const centered = mapOffset(
 			canvas.width,
 			canvas.height,
@@ -614,8 +1153,8 @@
 
 	function changeZoom(delta: number) {
 		if (!plan) return;
-		const next = Math.max(1.25, Math.min(5, zoomCss + delta));
-		if (next === zoomCss) return;
+		const next = clampZoom(zoomCss + delta);
+		if (Math.abs(next - zoomCss) < ZOOM_EPSILON) return;
 		const center = {
 			clientX: canvas.getBoundingClientRect().left + canvas.clientWidth / 2,
 			clientY: canvas.getBoundingClientRect().top + canvas.clientHeight / 2
@@ -627,9 +1166,35 @@
 		} as WheelEvent);
 	}
 
+	function fittedZoom(): number {
+		if (!shell || !plan) return 1;
+		const campusMargin = plan.layout.cols >= 60 ? 40 : 88;
+		const fit = Math.min(
+			(shell.clientWidth - campusMargin) / (plan.layout.cols * TILE_SIZE),
+			(shell.clientHeight - campusMargin) / (plan.layout.rows * TILE_SIZE)
+		);
+		return Math.max(0.5, Math.min(2.5, fit));
+	}
+
+	function updateZoomBounds(clampCurrent = true) {
+		const fit = fittedZoom();
+		minZoomCss = fit;
+		maxZoomCss = Math.max(fit, Math.min(MAX_CLOSE_ZOOM, fit * 2));
+		if (clampCurrent) zoomCss = clampZoom(zoomCss);
+	}
+
+	function clampZoom(value: number): number {
+		return Math.max(minZoomCss, Math.min(maxZoomCss, value));
+	}
+
 	function homeCamera() {
 		cameraPan = { x: 0, y: 0 };
-		zoomCss = shell?.clientWidth && shell.clientWidth < 700 ? 2 : 2.5;
+		if (!shell || !plan) {
+			zoomCss = 1;
+			return;
+		}
+		updateZoomBounds(false);
+		zoomCss = minZoomCss;
 	}
 
 	function editAt(col: number, row: number) {
@@ -655,8 +1220,18 @@
 			decorationMessage = 'Decoration removed.';
 			return;
 		}
-		if (!isDecorationPlacementValid(plan.layout, selectedDecoration, col, row)) {
-			decorationMessage = 'That space needs a clear floor.';
+		if (
+			!isDecorationPlacementValid(plan.layout, selectedDecoration, col, row, {
+				home: plan.home,
+				requiredPoints: [
+					...plan.interactionPoints,
+					...plan.restingSpots,
+					...plan.waitingSpots,
+					...plan.protectedPath
+				]
+			})
+		) {
+			decorationMessage = 'That space needs to stay clear for people.';
 			return;
 		}
 		updatePreferences({
@@ -685,6 +1260,10 @@
 
 	function selectOffset(offset: number) {
 		if (!members.length) return;
+		if (!selectedActorId) {
+			selectedActorId = offset < 0 ? members.at(-1)!.actorId : members[0].actorId;
+			return;
+		}
 		const index = Math.max(
 			0,
 			members.findIndex((member) => member.actorId === selectedActorId)
@@ -692,16 +1271,24 @@
 		selectedActorId = members[(index + offset + members.length) % members.length].actorId;
 	}
 
+	function observationLabel(value: string | null): string | null {
+		if (!value) return null;
+		const date = new Date(value);
+		if (Number.isNaN(date.getTime())) return null;
+		return `Observed ${date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`;
+	}
+
 	function handleKeydown(event: KeyboardEvent) {
-		if (event.key === 'Escape' && decorating) {
+		if (event.key === 'Escape') {
 			event.preventDefault();
-			decorating = false;
+			if (selectedActorId) selectedActorId = null;
+			else decorating = false;
 		} else if (event.key === '+' || event.key === '=') {
 			event.preventDefault();
-			changeZoom(0.25);
+			changeZoom(ZOOM_STEP);
 		} else if (event.key === '-') {
 			event.preventDefault();
-			changeZoom(-0.25);
+			changeZoom(-ZOOM_STEP);
 		} else if (event.key === '0') {
 			event.preventDefault();
 			homeCamera();
@@ -740,6 +1327,13 @@
 	bind:this={shell}
 	data-office-ready={ready ? 'true' : 'false'}
 	data-member-count={members.length}
+	data-selected-actor={selectedActorId ?? ''}
+	data-presences={members.map((member) => `${member.actorId}:${member.presence}`).join(',')}
+	data-motion={reducedMotion ? 'reduced' : 'full'}
+	data-document-visible={documentVisible ? 'true' : 'false'}
+	data-zoom={zoomCss.toFixed(3)}
+	data-zoom-min={minZoomCss.toFixed(3)}
+	data-zoom-max={maxZoomCss.toFixed(3)}
 >
 	<canvas
 		bind:this={canvas}
@@ -753,19 +1347,72 @@
 		onkeydown={handleKeydown}
 	></canvas>
 
+	{#if selectedMember}
+		<aside
+			class="person-detail"
+			aria-label={`${selectedMember.display} office detail`}
+			data-presence={selectedMember.presence}
+		>
+			<button
+				type="button"
+				class="person-detail-close"
+				aria-label="Close person detail"
+				onclick={() => (selectedActorId = null)}>×</button
+			>
+			<div class="person-detail-heading">
+				<strong>{selectedMember.display}</strong>
+				<span>{selectedMember.teamName ?? selectedMember.role}</span>
+			</div>
+			<div class="person-detail-state">
+				<i class={`presence-${selectedMember.presence}`}></i>
+				<span>{selectedMember.presenceLabel}</span>
+				{#if observationLabel(selectedMember.presenceObservedAt)}
+					<time datetime={selectedMember.presenceObservedAt ?? undefined}
+						>{observationLabel(selectedMember.presenceObservedAt)}</time
+					>
+				{/if}
+			</div>
+			{#if selectedMember.work}
+				<p class="person-detail-outcome">{selectedMember.work.title}</p>
+			{/if}
+			{#if selectedMember.currentStep}
+				<p class="person-detail-step">{selectedMember.currentStep}</p>
+			{:else if !selectedMember.work}
+				<p class="person-detail-step">{selectedMember.activityDetail}</p>
+			{/if}
+			{#if onopen}
+				<button type="button" class="person-detail-action" onclick={() => onopen(selectedMember)}>
+					{selectedMember.workHref ? 'Open Work' : 'Open person'} <span>→</span>
+				</button>
+			{/if}
+		</aside>
+	{/if}
+
 	<div class="office-camera-controls" aria-label="Office camera">
-		<button type="button" title="Zoom out" aria-label="Zoom out" onclick={() => changeZoom(-0.25)}>
+		<button
+			type="button"
+			title={canZoomOut ? 'Zoom out' : 'The whole office is already in view'}
+			aria-label={canZoomOut ? 'Zoom out' : 'Zoom out unavailable; the whole office is in view'}
+			disabled={!canZoomOut}
+			onclick={() => changeZoom(-ZOOM_STEP)}
+		>
 			<Minus size={14} strokeWidth={2.25} />
 		</button>
 		<button
 			type="button"
-			title="Return to the fountain"
-			aria-label="Return to the fountain"
+			title="Centre the office"
+			aria-label="Centre the office"
 			onclick={homeCamera}
 		>
 			<Focus size={14} strokeWidth={2.25} />
 		</button>
-		<button type="button" title="Zoom in" aria-label="Zoom in" onclick={() => changeZoom(0.25)}>
+		<button
+			type="button"
+			title={canZoomIn ? 'Zoom in' : 'Maximum detail reached'}
+			aria-label={canZoomIn ? 'Zoom in' : 'Zoom in unavailable; maximum detail reached'}
+			disabled={!canZoomIn}
+			onclick={() => changeZoom(ZOOM_STEP)}
+		>
 			<Plus size={14} strokeWidth={2.25} />
 		</button>
 	</div>
@@ -773,20 +1420,6 @@
 	<div class="office-decorate">
 		{#if decorating}
 			<div class="decor-tray" aria-label="Decorate the office">
-				<div class="decor-section decor-themes" aria-label="Office atmosphere">
-					{#each themes as theme (theme.key)}
-						<button
-							type="button"
-							class:active={preferences.theme === theme.key}
-							title={theme.label}
-							aria-label={theme.label}
-							aria-pressed={preferences.theme === theme.key}
-							style:--theme-color={theme.color}
-							onclick={() => updatePreferences({ theme: theme.key })}><span></span></button
-						>
-					{/each}
-				</div>
-				<div class="decor-rule"></div>
 				<div class="decor-section decor-props" aria-label="Furniture">
 					{#each decorationOptions as decoration (decoration.type)}
 						<button
@@ -878,10 +1511,7 @@
 		min-height: 0;
 		overflow: hidden;
 		isolation: isolate;
-		background:
-			linear-gradient(rgba(79, 137, 132, 0.13) 1px, transparent 1px),
-			linear-gradient(90deg, rgba(79, 137, 132, 0.13) 1px, transparent 1px), #dcebea;
-		background-size: 32px 32px;
+		background: #94c78a;
 		border: 0;
 		border-radius: 0;
 	}
@@ -914,11 +1544,117 @@
 		cursor: crosshair;
 	}
 
+	.person-detail {
+		position: absolute;
+		right: 12px;
+		bottom: 58px;
+		z-index: 4;
+		display: grid;
+		width: min(292px, calc(100% - 24px));
+		gap: 9px;
+		padding: 15px;
+		border: 1px solid rgba(23, 36, 51, 0.76);
+		background: rgba(239, 248, 244, 0.96);
+		box-shadow: 0 4px 0 rgba(23, 36, 51, 0.28);
+		color: #172433;
+		backdrop-filter: blur(6px);
+	}
+
+	.person-detail-close {
+		position: absolute;
+		top: 5px;
+		right: 6px;
+		width: 28px;
+		height: 28px;
+		padding: 0;
+		border: 0;
+		background: transparent;
+		color: #526673;
+		font: 600 var(--t-head)/1 var(--font-sans);
+		cursor: pointer;
+	}
+
+	.person-detail-heading {
+		display: grid;
+		gap: 2px;
+		padding-right: 24px;
+	}
+
+	.person-detail-heading strong {
+		font: 700 var(--t-head)/1.2 var(--font-sans);
+	}
+
+	.person-detail-heading span,
+	.person-detail-state time {
+		color: #69747a;
+		font: 500 var(--t-label)/1.35 var(--font-mono);
+	}
+
+	.person-detail-state {
+		display: flex;
+		align-items: center;
+		gap: 7px;
+		font: 600 var(--t-label)/1.2 var(--font-mono);
+	}
+
+	.person-detail-state i {
+		width: 8px;
+		height: 8px;
+		background: #748790;
+	}
+
+	.person-detail-state i.presence-observed {
+		border-radius: 50%;
+		background: #4a9b66;
+		box-shadow: 0 0 0 3px rgba(74, 155, 102, 0.17);
+	}
+
+	.person-detail-state i.presence-waiting {
+		background: #d99a35;
+		transform: rotate(45deg);
+	}
+
+	.person-detail-state time {
+		margin-left: auto;
+	}
+
+	.person-detail-outcome,
+	.person-detail-step {
+		margin: 0;
+	}
+
+	.person-detail-outcome {
+		font: 650 var(--t-body)/1.35 var(--font-sans);
+	}
+
+	.person-detail-step {
+		color: #53636a;
+		font: 500 var(--t-body)/1.4 var(--font-sans);
+	}
+
+	.person-detail-action {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		min-height: 34px;
+		padding: 7px 10px;
+		border: 1px solid rgba(23, 36, 51, 0.5);
+		background: #173d3b;
+		color: #eff8f4;
+		font: 650 var(--t-body)/1 var(--font-sans);
+		cursor: pointer;
+	}
+
+	.person-detail button:focus-visible {
+		outline: 2px solid #4fa6a0;
+		outline-offset: 2px;
+	}
+
 	.office-camera-controls,
 	.decorate-trigger,
 	.decor-tray {
 		border: 1px solid rgba(23, 36, 51, 0.76);
-		background: rgba(255, 248, 232, 0.94);
+		background: rgba(239, 248, 244, 0.94);
 		box-shadow:
 			0 3px 0 rgba(23, 36, 51, 0.34),
 			inset 0 1px rgba(255, 255, 255, 0.8);
@@ -952,7 +1688,7 @@
 		border-right: 0;
 	}
 
-	.office-camera-controls button:hover,
+	.office-camera-controls button:not(:disabled):hover,
 	.decor-tray button:hover,
 	.decorate-trigger:hover,
 	.decor-tray button.active {
@@ -1012,6 +1748,11 @@
 		cursor: default;
 	}
 
+	.office-camera-controls button:disabled {
+		opacity: 0.38;
+		cursor: default;
+	}
+
 	.decor-tray button.done {
 		color: #2f7752;
 	}
@@ -1023,22 +1764,10 @@
 		image-rendering: pixelated;
 	}
 
-	.decor-themes button span {
-		width: 15px;
-		height: 15px;
-		border: 2px solid #fff8e8;
-		outline: 1px solid rgba(23, 36, 51, 0.42);
-		background: var(--theme-color);
-	}
-
-	.decor-themes button.active span {
-		outline: 2px solid #172433;
-	}
-
 	.decor-message {
 		max-width: 180px;
 		padding: 4px 6px;
-		color: rgba(255, 248, 232, 0.86);
+		color: rgba(239, 248, 244, 0.9);
 		font:
 			400 var(--t-label)/1.35 Silkscreen,
 			var(--font-mono);
@@ -1057,11 +1786,7 @@
 		padding: var(--space-6);
 		text-align: center;
 		color: #172433;
-		background:
-			linear-gradient(rgba(79, 137, 132, 0.13) 1px, transparent 1px),
-			linear-gradient(90deg, rgba(79, 137, 132, 0.13) 1px, transparent 1px),
-			rgba(220, 235, 234, 0.96);
-		background-size: 32px 32px;
+		background: rgba(223, 241, 235, 0.96);
 	}
 
 	.office-loading span {

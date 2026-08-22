@@ -35,6 +35,10 @@ pub struct ContextSnapshot {
     /// Filename + content of the most recent journal entry, if any.
     pub latest_journal: Option<String>,
     pub open_work: Vec<WorkRow>,
+    /// Bounded owner/Exec history newer than the owner's current focus cursor.
+    /// The current unread owner input remains in `inbox` and is never duplicated
+    /// here.
+    pub recent_owner_conversation: Vec<MessageRow>,
     pub inbox: Vec<MessageRow>,
     /// Ordinary organisational judgement currently owed by the Exec. The
     /// five irreducible human categories never appear here.
@@ -113,6 +117,19 @@ pub fn assemble(snapshot: &ContextSnapshot) -> ContextPackage {
             ));
         }
     }
+    let mut recent_conversation = String::new();
+    for message in &snapshot.recent_owner_conversation {
+        let speaker = if message.from_actor == "owner" {
+            "owner"
+        } else {
+            "you"
+        };
+        let mut body = message.body.chars().take(2_000).collect::<String>();
+        if message.body.chars().count() > 2_000 {
+            body.push('…');
+        }
+        recent_conversation.push_str(&format!("- {speaker} message {}: {body}\n", message.id));
+    }
     let mut judgements = String::new();
     for handoff in &snapshot.owed_judgements {
         let brief = match (&handoff.owner_brief, handoff.briefed_by.as_deref()) {
@@ -179,7 +196,9 @@ pub fn assemble(snapshot: &ContextSnapshot) -> ContextPackage {
          `restless people create --id <stable-id> --role <role> --display <name> [--model <model>] \
          --reason <difference this buys>`. The id must be exactly `<durable-domain>-<craft>`; the \
          display is a separate colleague identity. Never encode Staff, team position, environment, \
-         revision, stage, retry or implementation mechanism in the id.\n\
+         revision, stage, retry or implementation mechanism in the id. Change an actor's next-wake \
+         model preference explicitly with `restless people model --actor <id> --model <model> \
+         --reason <why>`; a temporary provider failover does not rewrite that organisational choice.\n\
          You commission an outcome by creating a team charter and appointing one accountable lead. \
          The lead assembles and reshapes the smallest differentiated roster; you do not choose every \
          member or relay ordinary handoffs. A cross-team staffing need comes back to you rather than \
@@ -192,19 +211,33 @@ pub fn assemble(snapshot: &ContextSnapshot) -> ContextPackage {
          For substantive domain or multi-step production, normally commission one accountable lead \
          and exact Work, then let the scheduler launch the Attempt. Do not privately implement a \
          delegated outcome inside the Exec turn, and do not merely narrate delegation: make it true \
-         in the Work graph. For an owner-directed request, acknowledge the interpretation and \
+         in the Work graph. Repository inspection sufficient to scope a release is executive work; \
+         editing application source, repairing dependencies, remediating test/build failures, and \
+         multi-step CI repair are Staff Work. Commission them to an existing suitable actor (or \
+         create durable capacity when none exists), then resume release judgement from the linked \
+         artifact. For an owner-directed request, acknowledge the interpretation and \
          commissioned next step promptly rather than keeping the owner conversation open while \
          performing Staff work.\n\
          Delegated machine work has one form: `restless work add`. Give each node a stable outcome, \
          existing owner role/model, expected artifact and exact workspace. Declare its initial \
+         repository coordinates with `--repo <name> --base-ref <ref>` whenever the outcome edits or \
+         tests a repository; those fields let the Runtime create and launch the Attempt inside the \
+         owned worktree. Do not ask Staff to discover a repository or manufacture its own worktree. \
+         Repo-less Work runs from the persistent `/company` Runtime and must not be described as \
+         isolated. Declare its initial \
          dependencies in that same command with repeatable `--requires <prerequisite-work-id>` and \
          `--revises <producer-work-id>` flags; they commit atomically so the scheduler cannot claim a \
          half-built node. `work edge` is for a later graph repair. For requires, `--from` is the \
          prerequisite and `--to` is the dependent; revises runs reviewer to producer. Remove a \
          mistaken edge with `--remove --as <actor> --reason <evidence>`. The \
          scheduler starts ready nodes itself. Messages and process commands never own work.\n\
-         Producers link exact outputs with restless work artifact; deterministic checks belong \
-         in restless work gate. A review result of changes_requested invalidates its producer \
+         Any exact deterministic acceptance command must be declared atomically on `work add` \
+         with repeatable `--gate '{{\"name\":\"typecheck\",\"command\":[\"pnpm\",\"check\"]}}'`; \
+         repeating an exit-code requirement only in outcome prose does not enforce it, and adding \
+         a gate afterward races the scheduler. These gates run in every revision's current Attempt \
+         workspace and in the order declared. `restless work gate` remains for repairing \
+         already-existing Work. Producers \
+         link exact outputs with restless work artifact. A review result of changes_requested invalidates its producer \
          and hard descendants into a new revision. Conversations stay free-form; the graph owns \
          kickoff, handover and input versions. A failed Attempt or rejected review stays blocked: \
          the accountable lead changes the smallest failed mechanism and records it with \
@@ -299,11 +332,18 @@ pub fn assemble(snapshot: &ContextSnapshot) -> ContextPackage {
         },
     );
     let user_prompt = format!(
-        "# This wake\n{}\n\n# Owner input [authoritative in source; classify before applying]\n{}\n\
+        "# This wake\n{}\n\n\
+         # Recent conversation in this focus [historical context; owner lines are owner-authored, your lines are prior claims]\n{}\n\n\
+         # Owner input [authoritative in source; classify before applying]\n{}\n\
          Work this turn using the actor contract and current company state in your system context. \
          If the owner wrote, interpret and reply through the stated conversation contract. Stop when \
          this Exec wake's coordination or bounded executive work is done.",
         snapshot.wake_reason.trim(),
+        if recent_conversation.is_empty() {
+            "(none in this focus)"
+        } else {
+            recent_conversation.trim_end()
+        },
         if owner_input.is_empty() {
             "(none)"
         } else {
@@ -339,6 +379,7 @@ mod tests {
             legal_identity: None,
             current_plan: "# plan\nstep 1".into(),
             latest_journal: Some("== 0001.md ==\ndid step 0".into()),
+            recent_owner_conversation: vec![],
             open_work: vec![WorkRow {
                 id: uuid::Uuid::nil(),
                 goal_id: None,
@@ -398,6 +439,57 @@ mod tests {
         assert!(!third.system_prompt.contains("prioritise the red one"));
         assert!(third.system_prompt.contains("You are the Exec of probe"));
         assert!(!third.user_prompt.contains("You are the Exec of probe"));
+    }
+
+    #[test]
+    fn recent_conversation_is_bounded_working_context_not_current_owner_input() {
+        let now = chrono::Utc::now();
+        let mut with_conversation = snapshot();
+        with_conversation.recent_owner_conversation = vec![
+            MessageRow {
+                id: 7,
+                from_actor: "owner".into(),
+                to_actor: Some("exec".into()),
+                body: "Compare the two launch paths.".into(),
+                created_at: now,
+                read_at: Some(now),
+            },
+            MessageRow {
+                id: 8,
+                from_actor: "exec".into(),
+                to_actor: None,
+                body: "Path B preserves the prepared review.".into(),
+                created_at: now,
+                read_at: None,
+            },
+        ];
+        with_conversation.inbox.push(MessageRow {
+            id: 9,
+            from_actor: "owner".into(),
+            to_actor: Some("exec".into()),
+            body: "What would change your mind?".into(),
+            created_at: now,
+            read_at: None,
+        });
+
+        let package = assemble(&with_conversation);
+        assert!(package
+            .user_prompt
+            .contains("# Recent conversation in this focus"));
+        assert!(package
+            .user_prompt
+            .contains("owner message 7: Compare the two launch paths."));
+        assert!(package
+            .user_prompt
+            .contains("you message 8: Path B preserves the prepared review."));
+        assert_eq!(
+            package
+                .user_prompt
+                .matches("What would change your mind?")
+                .count(),
+            1,
+            "the current unread owner input must not be duplicated as history"
+        );
     }
 
     #[test]
@@ -477,5 +569,45 @@ mod tests {
         assert!(package
             .system_prompt
             .contains("do not merely narrate delegation: make it true in the Work graph"));
+        assert!(package
+            .system_prompt
+            .contains("editing application source, repairing dependencies"));
+        assert!(package
+            .system_prompt
+            .contains("multi-step CI repair are Staff Work"));
+        assert!(package
+            .system_prompt
+            .contains("--repo <name> --base-ref <ref>"));
+        assert!(package
+            .system_prompt
+            .contains("Do not ask Staff to discover a repository"));
+        assert!(package
+            .system_prompt
+            .contains("Any exact deterministic acceptance command must be declared atomically"));
+        assert!(package
+            .system_prompt
+            .contains("adding a gate afterward races the scheduler"));
+    }
+
+    #[test]
+    fn canonical_runtime_rules_distinguish_commands_from_tools_and_network_from_effects() {
+        let mut with_canonical_rules = snapshot();
+        with_canonical_rules.operating_rules = COMPANY_OPERATING_RULES.into();
+
+        let package = assemble(&with_canonical_rules);
+        assert!(package.system_prompt.contains(
+            "ACP native-tool list and the Linux command inventory are different surfaces"
+        ));
+        assert!(package.system_prompt.contains("command -v <command>"));
+        assert!(package
+            .system_prompt
+            .contains("The boundary is consequence, not network access"));
+        assert!(package.system_prompt.contains("A public `git fetch`"));
+        assert!(package
+            .system_prompt
+            .contains("local merge is ordinary work"));
+        assert!(package
+            .system_prompt
+            .contains("A `git push` that publishes a branch is an effect"));
     }
 }

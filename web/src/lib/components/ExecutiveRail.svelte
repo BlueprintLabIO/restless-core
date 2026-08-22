@@ -31,6 +31,9 @@
 		membershipRole,
 		connected = false,
 		contextLabel = 'Current screen',
+		focusAfterMessageId = 0,
+		focusStartedAt = null,
+		newFocusRequest = 0,
 		open = true,
 		onask = null,
 		review = null,
@@ -51,13 +54,17 @@
 		 */
 		connected?: boolean;
 		contextLabel?: string;
+		focusAfterMessageId?: number;
+		focusStartedAt?: string | null;
+		newFocusRequest?: number;
 		open?: boolean;
 		/** Returns delivery feedback. Unwired ordinary chat is inert. */
 		onask?:
 			| ((
 					text: string,
 					files: File[],
-					includeContext: boolean
+					includeContext: boolean,
+					newFocus: boolean
 			  ) => Promise<{ error?: string; notice?: string }>)
 			| null;
 		review?: {
@@ -72,7 +79,6 @@
 	} = $props();
 
 	const canOperate = $derived(['owner', 'operator'].includes(membershipRole ?? ''));
-	const visibleMessages = $derived(mergeAdjacentAgentMessages(messages));
 
 	/* Day separators, same as the thread — computed from the record, so the
 	 * rail and the page group the same way. */
@@ -133,6 +139,64 @@
 	let initiallyScrolledFor = $state('');
 	let railView = $state<'chat' | 'attention'>('chat');
 	let attentionId = $state('');
+	let newFocusPending = $state(false);
+	let pendingFocusAfterMessageId = $state(0);
+	let handledNewFocusRequest = 0;
+	let composerFocusKey = $state(0);
+
+	const activeFocusAfterMessageId = $derived(
+		newFocusPending ? pendingFocusAfterMessageId : focusAfterMessageId
+	);
+	const focusActive = $derived(newFocusPending || focusStartedAt !== null);
+	const visibleMessages = $derived(
+		mergeAdjacentAgentMessages(messages, focusActive ? activeFocusAfterMessageId : undefined)
+	);
+	const hasMessagesAfterFocus = $derived(
+		focusActive &&
+			messages.some((message) => messageNumericId(message.id) > activeFocusAfterMessageId)
+	);
+	const capabilityHint = $derived.by(() => {
+		if (contextLabel.includes('Work')) return 'Exec can inspect current Work before answering.';
+		if (contextLabel.includes('People'))
+			return 'Exec can route a question through the accountable lead.';
+		if (contextLabel.includes('Company'))
+			return 'Exec can compare a proposal with current company direction.';
+		return 'Exec can inspect Work, compare options, or bring in a fresh critic.';
+	});
+
+	function messageNumericId(messageId: string): number {
+		const value = Number(messageId.split(':').at(-1));
+		return Number.isFinite(value) ? value : 0;
+	}
+
+	function firstMessageNumericId(messageId: string): number {
+		const value = Number(messageId.split(':')[0]);
+		return Number.isFinite(value) ? value : 0;
+	}
+
+	function focusDividerBefore(index: number): boolean {
+		if (!focusActive) return false;
+		const current = visibleMessages[index];
+		if (!current || firstMessageNumericId(current.id) <= activeFocusAfterMessageId) return false;
+		const previous = visibleMessages[index - 1];
+		return !previous || messageNumericId(previous.id) <= activeFocusAfterMessageId;
+	}
+
+	$effect(() => {
+		if (newFocusRequest <= handledNewFocusRequest) return;
+		handledNewFocusRequest = newFocusRequest;
+		if (review || workContext) return;
+		pendingFocusAfterMessageId = messages.reduce(
+			(maximum, message) => Math.max(maximum, messageNumericId(message.id)),
+			0
+		);
+		newFocusPending = true;
+		askError = '';
+		askNotice = '';
+		transcriptTailHeight = 0;
+		composerFocusKey += 1;
+		void tick().then(() => scrollEl?.scrollTo({ top: scrollEl.scrollHeight, behavior: 'smooth' }));
+	});
 
 	function toggleContext() {
 		includeContext = !includeContext;
@@ -206,12 +270,13 @@
 		const files = composerFiles;
 		composer = '';
 		try {
-			const outcome = await onask(text, files, includeContext);
+			const outcome = await onask(text, files, includeContext, newFocusPending);
 			if (outcome.error) {
 				composer = sent;
 				askError = outcome.error;
 			} else {
 				composerFiles = [];
+				newFocusPending = false;
 				askNotice = outcome.notice ?? '';
 			}
 		} catch (cause) {
@@ -332,6 +397,13 @@
 				<div class="exr-chat" inert={!connected}>
 					<div class="exr-msgs" bind:this={scrollEl}>
 						{#each visibleMessages as message, i (message.id)}
+							{#if focusDividerBefore(i)}
+								<div class="conversation-focus-boundary">
+									<span>New focus</span><i aria-hidden="true"></i><span
+										>Company memory retained</span
+									>
+								</div>
+							{/if}
 							{#if i === 0 || dayOf(message.createdAt) !== dayOf(visibleMessages[i - 1].createdAt)}
 								<div class="day-sep" aria-hidden="true">
 									<span>{dayLabel(message.createdAt)}</span>
@@ -348,7 +420,9 @@
 								hrefFor={attachmentHref}
 							/>
 						{:else}
-							{#if review || workContext}
+							{#if focusActive}
+								<!-- The focus boundary below is the empty transcript state. -->
+							{:else if review || workContext}
 								<div class="exr-empty review-empty">
 									<div class="review-empty-card">
 										<span class="review-empty-mark">
@@ -363,13 +437,21 @@
 							{:else}
 								<div class="exr-empty">
 									<p class="exr-empty-h">Ask anything.</p>
-									<p class="exr-empty-p">
-										The executive reads the whole company record before it answers — goals, staff,
-										work in flight, and what needs your word.
-									</p>
+									<p class="exr-empty-p">{capabilityHint}</p>
 								</div>
 							{/if}
 						{/each}
+						{#if focusActive && !hasMessagesAfterFocus}
+							<div
+								class="conversation-focus-boundary"
+								role={newFocusPending ? 'status' : undefined}
+							>
+								<span>New focus</span><i aria-hidden="true"></i><span>Company memory retained</span>
+							</div>
+							{#if !composer.trim() && !turn}
+								<p class="conversation-capability-hint">{capabilityHint}</p>
+							{/if}
+						{/if}
 						{#if turn}<ConversationTurnDock {participantName} {turn} />{/if}
 						{#if anchoredTurnId !== null}
 							<div
@@ -393,6 +475,7 @@
 								? `Message ${participantName}`
 								: `Ask ${participantName}`}
 							flareKey={contextFlare}
+							focusKey={composerFocusKey}
 						>
 							{#snippet controls()}
 								{#if !review && !workContext}
@@ -463,6 +546,47 @@
 		width: 1px;
 		flex: 0 0 auto;
 		pointer-events: none;
+	}
+	.conversation-focus-boundary {
+		width: calc(100% - 28px);
+		display: grid;
+		grid-template-columns: auto minmax(16px, 1fr) auto;
+		align-items: center;
+		gap: 8px;
+		margin: 18px 14px 8px;
+		color: color-mix(in srgb, var(--intent-conversation) 58%, var(--text-tertiary));
+		font: 500 var(--t-label) var(--font-mono);
+		animation: focus-arrive var(--motion-disclosure) var(--ease-spring) both;
+	}
+	.conversation-focus-boundary i {
+		height: 1px;
+		background: linear-gradient(
+			90deg,
+			color-mix(in srgb, var(--intent-conversation) 35%, transparent),
+			color-mix(in srgb, var(--intent-conversation) 10%, transparent)
+		);
+	}
+	.conversation-capability-hint {
+		max-width: 270px;
+		margin: 3px auto 20px;
+		padding-inline: 18px;
+		color: var(--text-tertiary);
+		font-size: var(--t-label);
+		line-height: 1.55;
+		text-align: center;
+		animation: focus-arrive var(--motion-disclosure) var(--ease-standard) both;
+	}
+	@keyframes focus-arrive {
+		from {
+			opacity: 0;
+			transform: translateY(5px);
+		}
+	}
+	@media (prefers-reduced-motion: reduce) {
+		.conversation-focus-boundary,
+		.conversation-capability-hint {
+			animation: none;
+		}
 	}
 	.exr-panel > .exr-lock {
 		width: 100%;

@@ -219,6 +219,15 @@ async fn scan_company(daemon: &Arc<Daemon>, in_flight: &InFlight, company: &str)
         return;
     };
 
+    // A daemon/process restart can cut a direct CLI wake after the durable
+    // `wake` event but before `wake_end`. That work is still owed even when no
+    // unread owner message remains. Recover it before claiming new schedules
+    // or Work so the singleton Exec resumes one company-level thread at a
+    // time. During a healthy live turn the in-flight claim suppresses this.
+    if recover_interrupted_exec_wake(daemon, in_flight, &org, company).await {
+        return;
+    }
+
     if let Ok(schedules) = org.claim_due_schedules().await {
         for schedule in schedules {
             if schedule.actor_id == "exec" {
@@ -389,6 +398,58 @@ async fn recover_exec_conversation(
     }
 }
 
+async fn recover_interrupted_exec_wake(
+    daemon: &Arc<Daemon>,
+    in_flight: &InFlight,
+    org: &OrgIntel,
+    company: &str,
+) -> bool {
+    if in_flight
+        .lock()
+        .expect("in-flight guard")
+        .is_active(company)
+    {
+        return false;
+    }
+    let Ok(latest_wake) = org.latest_event("wake").await else {
+        return false;
+    };
+    let Ok(latest_wake_end) = org.latest_event("wake_end").await else {
+        return false;
+    };
+    if !exec_wake_is_interrupted(
+        latest_wake.as_ref().map(|event| event.id),
+        latest_wake_end.as_ref().map(|event| event.id),
+    ) {
+        return false;
+    }
+
+    let original = latest_wake
+        .as_ref()
+        .and_then(|event| event.body.get("reason"))
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("unknown trigger")
+        .chars()
+        .take(500)
+        .collect::<String>();
+    fire_exec(
+        daemon,
+        in_flight,
+        company,
+        &format!(
+            "recovering an interrupted Exec wake after Runtime Bridge restart; \
+             rehydrate durable work and reconcile any material effect before retrying. \
+             Original trigger: {original}"
+        ),
+    )
+    .await;
+    true
+}
+
+fn exec_wake_is_interrupted(latest_wake_id: Option<i64>, latest_wake_end_id: Option<i64>) -> bool {
+    latest_wake_id.is_some_and(|wake| latest_wake_end_id.is_none_or(|end| wake > end))
+}
+
 fn exec_conversation_is_owed(
     message_created_at: DateTime<Utc>,
     latest_wake: Option<DateTime<Utc>>,
@@ -492,8 +553,18 @@ pub(crate) async fn run_exec_turn(
                 let _ = org.mark_read(message_id).await;
             }
         }
-        Err(error) if !owner_message_ids.is_empty() => {
-            live_turn.fail(&format!("Exec reply failed: {error:#}"));
+        Err(error) => {
+            if !owner_message_ids.is_empty() {
+                live_turn.fail(&format!("Exec reply failed: {error:#}"));
+            }
+            let latest_wake = org.latest_event("wake").await.ok().flatten();
+            let latest_wake_end = org.latest_event("wake_end").await.ok().flatten();
+            if exec_wake_is_interrupted(
+                latest_wake.as_ref().map(|event| event.id),
+                latest_wake_end.as_ref().map(|event| event.id),
+            ) {
+                let _ = exec::record_interrupted_outcome(org, config, &format!("{error:#}")).await;
+            }
         }
         _ => {}
     }
@@ -545,7 +616,10 @@ async fn fire_pending(daemon: &Arc<Daemon>, in_flight: &InFlight) {
 mod tests {
     use chrono::{TimeZone, Utc};
 
-    use super::{actor_exclusions, exec_conversation_is_owed, is_exec_self_message, WakeClaims};
+    use super::{
+        actor_exclusions, exec_conversation_is_owed, exec_wake_is_interrupted,
+        is_exec_self_message, WakeClaims,
+    };
 
     #[test]
     fn trigger_during_active_wake_becomes_one_follow_up() {
@@ -616,5 +690,13 @@ mod tests {
             Some(at(10)),
             Some(at(21))
         ));
+    }
+
+    #[test]
+    fn restart_recovery_covers_direct_wakes_without_unread_mail() {
+        assert!(!exec_wake_is_interrupted(None, None));
+        assert!(exec_wake_is_interrupted(Some(41), None));
+        assert!(exec_wake_is_interrupted(Some(41), Some(40)));
+        assert!(!exec_wake_is_interrupted(Some(41), Some(42)));
     }
 }

@@ -2,7 +2,7 @@
 
 **Status:** Working source of truth  
 **Version:** 0.3  
-**Date:** 13 August 2026  
+**Date:** 23 August 2026
 **Parent:** ARCHITECTURE.md — Restless Architecture Source of Truth v0.9  
 **Supersedes:** OrgIntel Core Specification for core product and implementation direction
 
@@ -73,7 +73,8 @@ Serious dogfoods should compare:
 
 - **A. Single agent:** one strong agent with Linux and tools.
 - **B. Loose team:** several agents with minimal coordination.
-- **C. OrgIntel:** one accountable Exec, focused workers, adaptive loops, explicit ownership, concrete artifacts, and proportionate review.
+- **C. OrgIntel:** one available Exec routing work through accountable team leads, focused workers,
+  adaptive loops, explicit ownership, concrete artifacts, and proportionate review.
 
 If C does not improve outcomes or owner attention enough to justify its overhead, OrgIntel is not yet differentiated.
 
@@ -168,8 +169,8 @@ Start with:
 ```text
 one owner
 one persistent Exec identity
-zero to two persistent leads when justified
-one to four concurrent task workers
+one or more standing or temporary accountable leads
+zero to four concurrent task workers per active lead when justified
 on-demand planners, critics, and recovery sessions
 ```
 
@@ -193,6 +194,17 @@ The Exec is accountable for internal company coherence. It may:
 - escalate decisions that exceed its authority.
 
 It cannot increase total company authority, approve its own expansion, rewrite kernel policy, or alter authoritative receipts.
+
+The Exec is a continuously available dispatcher across parallel departments. Every owner request that
+requires productive execution is delegated to exactly one accountable team lead. The lead may be a
+standing department lead or be appointed for that outcome; the Exec never substitutes itself as the
+producer or integrator when no lead already exists. The lead owns decomposition, direct production or
+Staff delegation, canonical integration, native review preparation and completion judgement.
+
+After dispatch the Exec quiesces rather than waiting, polling or joining production. It wakes for a
+new owner request or a material callback requiring portfolio prioritisation, cross-department
+arbitration, resource reallocation, authority escalation or company-level judgement. This preserves
+executive availability while departments continue concurrently.
 
 ## 2.3 How change works
 
@@ -586,6 +598,8 @@ Local depth:
 Context by function:
 
 - **Exec:** outcomes, resources, weak assumptions, exceptions, and summaries.
+- **Team lead:** owned outcome, canonical artifact, whole-project causal model, team contributions,
+  integration seams, review evidence and completion contract.
 - **Worker:** local task depth, files, dependencies, standards, and handoff.
 - **Critic:** objective, rubric, and artifact; preserve independence where useful.
 - **Recovery:** original brief, attempts, artifacts, failure evidence, and remaining options.
@@ -727,7 +741,7 @@ Initial library:
 
 | Pattern | Best fit |
 |---|---|
-| **Single accountable owner** | Coherent or tightly coupled work |
+| **Single accountable lead** | Coherent or tightly coupled work; the lead may execute alone |
 | **Parallel exploration** | Independent hypotheses or search spaces |
 | **Producer–critic** | Hidden errors, subjective quality, external-facing output |
 | **Specialist pipeline** | Genuine sequential specialties |
@@ -961,7 +975,7 @@ Rules:
 
 | ID | Hypothesis | Failure signal |
 |---|---|---|
-| **H1** | One accountable Exec beats a flat swarm on long-horizon company work | Single-agent or loose-team baseline wins |
+| **H1** | One available Exec routing through accountable leads beats both Exec-as-producer and a flat swarm on long-horizon company work | Exec-as-producer, single-agent or loose-team baseline wins |
 | **H2** | Durable actor identity improves style, judgment, and continuity | Identity packages add cost without consistency |
 | **H3** | Shared spine plus local depth beats full shared transcripts | Summaries distort critical state or miss dependencies |
 | **H4** | Task-shaped teams beat fixed multi-agent structures | Fixed topology performs as well at lower cost |
@@ -1105,13 +1119,13 @@ Do not build in V0:
 V0 demonstrates that:
 
 - the owner gives an ambiguous goal;
-- the Exec frames assumptions and unknowns;
-- it chooses one main approach and at most a bounded alternative;
-- it forms a small task-shaped team;
+- the Exec frames the company-level intent, chooses an accountable lead and returns to availability;
+- the lead chooses one main approach and at most a bounded alternative;
+- the lead works alone or forms a small task-shaped team according to coupling and expected coordination cost;
 - workers perform real Linux work and produce inspectable artifacts;
 - a worker blocks or fails;
 - OrgIntel preserves work and applies a local repair;
-- the Exec evaluates actual output rather than task status;
+- the lead evaluates actual output rather than task status and Exec evaluates the portfolio consequence;
 - the organisation records one useful learning that changes a later choice;
 - one external effect crosses the Authority Kernel with a receipt;
 - restart preserves identity, responsibilities, artifacts, and follow-up;
@@ -1158,6 +1172,10 @@ For every proposed feature:
 - OrgIntel is one logical layer, but its durable service and store live outside the writable work sandbox inside the per-company deployment.
 - The Exec and other cognitive OrgIntel actors run inside the Company Runtime against real files and tools.
 - The Exec is the primary persistent organisational actor.
+- The Exec delegates every executable owner request to one accountable team lead and returns to
+  availability; it does not own production or integration work.
+- A team lead may execute coherent work alone. Staff are optional and are added when the lead judges
+  that specialisation or parallelism will repay coordination cost.
 - Actor identity persists independently of model sessions and runtime replacement.
 - A thin runtime bridge connects OrgIntel to ACP processes; ACP over local stdio is the initial agent transport.
 - Productive work uses normal Linux files, Git, browsers, and applications.

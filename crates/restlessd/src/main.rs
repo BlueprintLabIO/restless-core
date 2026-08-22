@@ -41,6 +41,12 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::UnixListener;
 
 #[derive(Debug, Deserialize)]
+struct InitialWorkGateRequest {
+    name: String,
+    command: Vec<String>,
+}
+
+#[derive(Debug, Deserialize)]
 struct Request {
     cmd: String,
     company: Option<String>,
@@ -132,6 +138,8 @@ struct Request {
     requires: Vec<String>,
     #[serde(default)]
     revises: Vec<String>,
+    #[serde(default)]
+    gates: Vec<InitialWorkGateRequest>,
     #[serde(default)]
     kind: Option<String>,
     #[serde(default)]
@@ -683,14 +691,66 @@ async fn main() -> Result<()> {
         }
     });
 
+    // `restless-dev` stops the daemon with SIGTERM. Observe it inside the
+    // runtime so owned model-broker/gateway child handles are dropped and
+    // killed before the process exits; an abrupt default signal exit leaves
+    // those children holding 7789/7790 and the next daemon half-attached to
+    // stale supervision.
+    let shutdown = shutdown_signal();
+    tokio::pin!(shutdown);
     loop {
-        let (stream, _) = listener.accept().await?;
-        let daemon = std::sync::Arc::clone(&daemon);
-        tokio::spawn(async move {
-            if let Err(error) = serve(stream, &daemon).await {
-                tracing::warn!("connection error: {error:#}");
+        tokio::select! {
+            accepted = listener.accept() => {
+                let (stream, _) = accepted?;
+                let daemon = std::sync::Arc::clone(&daemon);
+                tokio::spawn(async move {
+                    if let Err(error) = serve(stream, &daemon).await {
+                        tracing::warn!("connection error: {error:#}");
+                    }
+                });
             }
-        });
+            () = &mut shutdown => {
+                tracing::info!("shutdown requested; stopping supervised daemon children");
+                break;
+            }
+        }
+    }
+    Ok(())
+}
+
+async fn shutdown_signal() {
+    let interrupt = tokio::signal::ctrl_c();
+    #[cfg(unix)]
+    {
+        let mut terminate =
+            tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+                .expect("install SIGTERM handler");
+        tokio::select! {
+            _ = interrupt => {}
+            _ = terminate.recv() => {}
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = interrupt.await;
+    }
+}
+
+async fn await_stopped_company_idle(daemon: &Daemon, company: &str) -> bool {
+    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(30);
+    loop {
+        let exec_active = daemon
+            .in_flight
+            .lock()
+            .map(|claims| claims.is_active(company))
+            .unwrap_or(true);
+        if !exec_active && daemon.staff.running_actors(company).is_empty() {
+            return true;
+        }
+        if tokio::time::Instant::now() >= deadline {
+            return false;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
     }
 }
 
@@ -862,6 +922,24 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
         "up" => match runtime::CompanyConfig::load(&daemon.root, company) {
             Ok(mut config) => {
                 let _reconcile_guard = if request.reconcile {
+                    // An explicit `down` is the owner's instruction to stop
+                    // supervised work before replacement. Docker can stop
+                    // slightly before the ACP task observes transport close
+                    // and releases its in-memory claim. Await that observable
+                    // release for a stopped container; otherwise the documented
+                    // down -> up --reconcile sequence races itself.
+                    if matches!(
+                        runtime::status(company).await,
+                        Ok(runtime::ContainerStatus::Stopped | runtime::ContainerStatus::Absent)
+                    ) && !await_stopped_company_idle(daemon, company).await
+                    {
+                        return Response::err_kind(
+                            "conflict",
+                            format!(
+                                "{company} is stopped, but supervised actor shutdown did not settle within 30 seconds; inspect the daemon before reconciling"
+                            ),
+                        );
+                    }
                     // Claim the same company-wide slot as an Exec wake before
                     // the image build starts. The build awaits Docker; without
                     // this claim the scheduler could start an Exec in that
@@ -1507,6 +1585,31 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
                 "actor create needs --id, --role, --display, --reason, and an acting actor",
             ),
         },
+        "actor-model" => match (
+            request.as_actor.as_deref(),
+            request.model.as_deref(),
+            request.actor.as_deref(),
+            request.reason.as_deref(),
+        ) {
+            (Some(actor_id), Some(model), Some(changed_by), Some(reason)) => {
+                match daemon.orgintel.get(company).await {
+                    Ok(org) => match org
+                        .change_actor_model(actor_id, model, changed_by, reason)
+                        .await
+                    {
+                        Ok(()) => Response::ok(serde_json::json!({
+                            "actor_id": actor_id,
+                            "model": model,
+                        })),
+                        Err(error) => Response::err(format!("{error:#}")),
+                    },
+                    Err(error) => Response::err(format!("{error:#}")),
+                }
+            }
+            _ => Response::err(
+                "actor model needs --actor, --model, --reason, and an acting actor",
+            ),
+        },
         "actor-retire" => match (
             request.as_actor.as_deref(),
             request.actor.as_deref(),
@@ -2046,7 +2149,18 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
                             Ok(values) => values,
                             Err(error) => return Response::err(error),
                         };
-                        match org.add_work_with_edges(work, &requires, &revises).await {
+                        let gates = request
+                            .gates
+                            .iter()
+                            .map(|gate| restless_orgintel::InitialWorkGate {
+                                name: &gate.name,
+                                command: &gate.command,
+                            })
+                            .collect::<Vec<_>>();
+                        match org
+                            .add_work_with_edges_and_gates(work, &requires, &revises, &gates)
+                            .await
+                        {
                             Ok(id) => Response::ok(serde_json::json!({ "work_id": id })),
                             Err(error) => Response::err(format!("{error:#}")),
                         }

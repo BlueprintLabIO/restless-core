@@ -29,8 +29,11 @@
 		execName = 'Exec',
 		execLive = false,
 		railOpen = true,
+		newFocusAvailable = false,
+		newFocusDisabled = false,
 		immersive = false,
 		onexectoggle = null,
+		onnewfocus = null,
 		rail = null,
 		children
 	}: {
@@ -41,10 +44,14 @@
 		execName?: string;
 		execLive?: boolean;
 		railOpen?: boolean;
+		newFocusAvailable?: boolean;
+		newFocusDisabled?: boolean;
 		/** Gives a prepared live outcome the full browser window while preserving one bounded Exec control. */
 		immersive?: boolean;
 		/** The one control for the rail: presence lamp and open/close in a single stable button. */
 		onexectoggle?: (() => void) | null;
+		/** Begins a clean working context without replacing the durable Exec relationship. */
+		onnewfocus?: (() => void) | null;
 		/**
 		 * The persistent executive transcript. Omitted on surfaces that already
 		 * hold a conversation with a specific actor — People carries its own, and
@@ -139,6 +146,19 @@
 					<MessageSquare size={13} strokeWidth={2} aria-hidden="true" />
 					{execName}
 				</button>
+				{#if newFocusAvailable}
+					<button
+						class="tb-new-focus"
+						type="button"
+						disabled={newFocusDisabled}
+						title={newFocusDisabled
+							? 'Start a new focus when Exec finishes the current reply'
+							: 'Begin with fresh working context; company memory is retained'}
+						onclick={() => onnewfocus?.()}
+					>
+						New focus
+					</button>
+				{/if}
 			{/if}
 		</div>
 	</header>

@@ -68,14 +68,26 @@ tool accepts it or that an external account is usable. Probe that with the insta
 `help`, `doctor`, `dry-run`, or status command; wrap the probe in `restless effect` only when it is a
 material or credentialed external operation.
 
+The ACP native-tool list and the Linux command inventory are different surfaces. `bash` makes
+installed commands such as `restless`, `git`, and project CLIs reachable; they do not also appear as
+separate ACP tools. Before claiming a command or Restless capability is unavailable, run
+`command -v <command>` and its `--help` or equivalent probe. A failed uncredentialed direct command
+does not prove its governed `restless effect` path is absent.
+
 ## 5. Three kinds of action
 
-- **Observe** — read or measure, and keep what you saw. Not free: observation can cost money and
-  expose information.
-- **Change the record** — update the company's own coordination state.
-- **Affect the world** — anything reaching outside the company. Record the intent, get authority,
-  run the installed tool through `restless effect`, keep the generic receipt, and reconcile what
-  actually happened against what you asked for.
+- **Ordinary work** — read, measure, browse, research, fetch public data, build, test, and change the
+  company's own files or coordination state. Run these directly in the Company Runtime, even when
+  they use the network. Keep evidence appropriate to the claim.
+- **Consequential external effect** — publish, send, charge, delete, contract, or otherwise create a
+  meaningful external consequence. Record the intent, get authority, run the installed tool through
+  `restless effect`, keep the generic receipt, and reconcile what actually happened against what you
+  asked for.
+- **Prepared human last mile** — identity, CAPTCHA, MFA, legal attestation, payment confirmation, or
+  irreducible owner judgement after every machine-doable surrounding step is complete.
+
+The boundary is consequence, not network access. A public `git fetch`, package download, provider
+status read, or local merge is ordinary work. A `git push` that publishes a branch is an effect.
 
 Tool or provider acceptance is evidence, not outcome. "The command exited 0" is not "the customer
 was emailed"; reconciliation against the provider's own state establishes the business result.
@@ -86,6 +98,13 @@ Create Work before Staff starts. `requires` is a hard acyclic dependency; `revis
 feedback and may cycle. The scheduler claims ready Work and records an Attempt with its exact
 artifact versions and linked feedback. Messages are free-form context, never a second assignment,
 kickoff, or handover path. Do not invent a timer to approximate a dependency.
+
+If acceptance names an exact deterministic command or exit code, declare it in the same `work add`
+with repeatable `--gate` JSON. Initial gates, dependencies, and the Work node commit atomically; a
+prose requirement or a gate added after creation can race the scheduler and does not constrain the
+first Attempt. Atomic gates run from the current Attempt workspace on every revision.
+They run in the order declared, so a generated-code, migration, build, or test step can deliberately
+prepare the state observed by the next check without relying on timestamp or UUID ordering.
 
 `blocked` names an explicit condition that prevents the Work from advancing. An **owner handoff** is
 the narrower human boundary: identity, CAPTCHA, MFA, legal attestation, payment confirmation, or

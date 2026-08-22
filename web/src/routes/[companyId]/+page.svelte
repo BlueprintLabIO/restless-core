@@ -3,19 +3,15 @@
 	import { page } from '$app/state';
 	import { goto } from '$app/navigation';
 	import DesktopViewport from '$lib/components/DesktopViewport.svelte';
+	import InfoTip from '$lib/components/InfoTip.svelte';
 	import Composer from '$lib/primitives/Composer.svelte';
 	import ConversationMessage from '$lib/primitives/ConversationMessage.svelte';
 	import HoldApprove from '$lib/primitives/HoldApprove.svelte';
 	import Markdown from '$lib/primitives/Markdown.svelte';
 	import MatrixGlyph, { GLYPHS } from '$lib/primitives/MatrixGlyph.svelte';
-	import SemanticMark from '$lib/primitives/SemanticMark.svelte';
 	import ConversationTurnDock from '$lib/primitives/ConversationTurnDock.svelte';
 	import CompanyOffice from '$lib/office/CompanyOffice.svelte';
-	import {
-		mergeAdjacentAgentMessages,
-		type AttentionItem,
-		type DecisionContinuation
-	} from '$lib/model/view';
+	import { mergeAdjacentAgentMessages, type AttentionItem } from '$lib/model/view';
 	import { attentionSource } from '$lib/model/attentionSource.svelte';
 	import { conversationSource } from '$lib/model/conversationSource.svelte';
 	import { browserTabClientId } from '$lib/model/browserTab';
@@ -53,22 +49,15 @@
 	let reviewError = $state('');
 	let reviewRequestKey = $state('');
 	let decisionDraft = $state('');
-	let recentDecisionsOpen = $state(false);
 	let focusAttachKey = $state('');
 
 	const items = $derived(view?.items ?? []);
-	const continuations = $derived(view?.continuations ?? []);
 	const graph = $derived(view?.workGraph ?? null);
 	const selectedItemId = $derived(page.url.searchParams.get('item'));
+	const queueClear = $derived(loaded && items.length === 0);
 	const selectedItem = $derived(
 		items.find((item) => item.id === selectedItemId) ?? (selectedItemId ? null : (items[0] ?? null))
 	);
-	const selectedContinuation = $derived(
-		continuations.find((continuation) => continuation.id === selectedItemId) ?? null
-	);
-	$effect(() => {
-		recentDecisionsOpen = Boolean(selectedContinuation);
-	});
 	const focusedReviewId = $derived(page.url.searchParams.get('review'));
 	const focusedReview = $derived(
 		items.find((item) => item.id === focusedReviewId && item.category === 'review') ?? null
@@ -519,19 +508,11 @@
 		</div>
 	</div>
 {:else}
-	<div class="cockpit-screen attention-screen">
+	<div class="cockpit-screen attention-screen" class:queue-clear={queueClear}>
 		{#if error}<div class="cockpit-error attention-error">{error}</div>{/if}
-		<aside class="cockpit-pane attention-index">
-			<!-- No mark and no count. The mark rendered GLYPHS.ring, which means
-			     "waiting" everywhere else in the vocabulary and read here as a
-			     stray letter O; the count is already on the Attention tab, where
-			     it is useful from the other three surfaces. What is left is the
-			     label, and the queue below says the rest. -->
-			<header class="attention-pane-title">
-				<h1 class="attention-queue-title">Needs your judgement</h1>
-			</header>
+		<aside class="cockpit-pane attention-index" aria-hidden={queueClear} inert={queueClear}>
 			<div class="attention-index-scroll">
-				<div class="attention-list" class:clear={loaded && items.length === 0}>
+				<div class="attention-list">
 					{#each items as item (item.id)}
 						<a
 							class="attention-item category-{item.category}"
@@ -552,15 +533,7 @@
 							</span>
 						</a>
 					{:else}
-						{#if loaded}
-							<div class="attention-list-clear">
-								<span class="attention-clear-mark" title="No owner action is required">
-									<MatrixGlyph rows={GLYPHS.check} size={7} />
-								</span>
-								<strong>All clear</strong>
-								<small>Nothing needs your judgement.</small>
-							</div>
-						{:else}
+						{#if !loaded}
 							<!-- The source has not answered yet. Three placeholder rows
 							     hold the shape of the queue without asserting that it is
 							     empty — "Queue clear" here would be a claim we cannot
@@ -571,47 +544,26 @@
 						{/if}
 					{/each}
 				</div>
-				{#if continuations.length}
-					<details class="decision-continuations" bind:open={recentDecisionsOpen}>
-						<summary>
-							<span>Recent decisions</span>
-							<small>{continuations.length}</small>
-							<span class="decision-disclosure" aria-hidden="true"></span>
-						</summary>
-						<div class="recent-decisions-list">
-							{#each continuations as continuation (continuation.id)}
-								<a
-									class:selected={selectedContinuation?.id === continuation.id}
-									href={itemHref(continuation.id)}
-									aria-current={selectedContinuation?.id === continuation.id ? 'true' : undefined}
-								>
-									<span class="decision-continuation-meta">
-										<span title="The owner decision was recorded">
-											<SemanticMark meaning="success" size="small" />
-											Decision observed
-										</span>
-										<time>{when(continuation.observedAt)}</time>
-									</span>
-									<strong>{workTitle(continuation.workId, continuation.title)}</strong>
-									<span class="decision-continuation-action" title={continuation.whatItUnlocked}>
-										Inspect <span aria-hidden="true">→</span>
-									</span>
-								</a>
-							{/each}
-						</div>
-					</details>
-				{/if}
 			</div>
 		</aside>
 
-		<section
-			class="cockpit-pane attention-focus"
-			class:office-focus={!selectedItem && !selectedContinuation && loaded}
-		>
+		<section class="cockpit-pane attention-focus" class:office-focus={!selectedItem && loaded}>
+			<button
+				class="attention-clear-control"
+				class:visible={queueClear}
+				type="button"
+				aria-hidden={!queueClear}
+				tabindex={queueClear ? 0 : -1}
+				title="No owner action is required. Check again now."
+				onclick={() => void refresh()}
+			>
+				<span class="attention-clear-glyph" aria-hidden="true">
+					<MatrixGlyph rows={GLYPHS.check} size={7} />
+				</span>
+				<span>All clear</span>
+			</button>
 			{#if selectedItem}
 				{@render attentionDetail(selectedItem)}
-			{:else if selectedContinuation}
-				{@render continuationDetail(selectedContinuation)}
 			{:else if !loaded}
 				<!-- Deliberately nothing until the source answers. An empty pane for
 				     one round trip reads as loading; the zero-state hero reads as a
@@ -628,31 +580,37 @@
 		<article class="owner-folio category-{item.category}">
 			<div class="folio-edge" aria-hidden="true"></div>
 			<header class="folio-opening">
-				<div class="folio-meta">
-					<span>{attentionKind(item.category)}</span>
-					{#if item.deadline}<strong>By {item.deadline}</strong>{/if}
+				<div class="folio-heading">
+					<h1>{item.title}</h1>
+					<div class="folio-context">
+						<InfoTip
+							text={`${attentionKind(item.category)} from ${item.source.plane.replaceAll('_', ' ')}. Supporting source detail is available below.`}
+						/>
+						{#if item.deadline}<time>Decision needed by {item.deadline}</time>{/if}
+					</div>
 				</div>
-				<h1>{item.title}</h1>
-				<p class="folio-situation">{item.whatHappened}</p>
-				<p class="folio-impact">{item.whyItMatters}</p>
+				<div class="folio-narrative">
+					<p>{item.whatHappened}</p>
+					<p>{item.whyItMatters}</p>
+				</div>
 				{#if item.uncertainty}
-					<p class="folio-uncertainty">
-						<strong>What remains uncertain:</strong>
-						{item.uncertainty}
-					</p>
+					<div class="folio-uncertainty">
+						<InfoTip text="Material uncertainty that could change the recommendation." />
+						<p>{item.uncertainty}</p>
+					</div>
 				{/if}
 			</header>
 
 			<section class="folio-recommendation" aria-label="Recommendation">
-				<span>Recommendation</span>
-				<p>{item.recommendation}</p>
+				<h2>Recommendation</h2>
+				<Markdown text={item.recommendation} />
 			</section>
 
 			<section class="folio-move" aria-label="Your next move">
 				<div class="folio-move-copy">
-					<span>Your next move</span>
+					<h2>Your next move</h2>
 					<Markdown text={item.requestedAction} />
-					<small>If you wait: {item.ifNoAction}</small>
+					<p class="folio-wait"><span>If you wait:</span> {item.ifNoAction}</p>
 				</div>
 				<div class="nc-actions">
 					{#each item.actions.filter((action) => action.href) as action (action.id)}
@@ -730,22 +688,28 @@
 			</section>
 
 			<footer class="folio-provenance">
-				<div>
+				<div class="folio-credit">
 					<span>Prepared by</span>
 					<strong
 						>{item.briefAuthor?.display ??
 							item.responsibleActor?.display ??
 							'Source record'}</strong
 					>
-					{#if item.briefedAt}<time>{when(item.briefedAt)}</time>{/if}
+					{#if item.briefedAt}
+						<span class="folio-credit-separator" aria-hidden="true">·</span>
+						<time>{when(item.briefedAt)}</time>
+					{/if}
 				</div>
-				<span class="brief-state">{item.briefStatus.replaceAll('-', ' ')}</span>
+				<InfoTip
+					text={`Brief status: ${item.briefStatus.replaceAll('-', ' ')}. The wording was prepared by the named accountable actor.`}
+				/>
 			</footer>
 
 			<details class="folio-evidence">
-				<summary>
-					<span>Evidence and source detail</span>
-					<small>{item.evidence.length} item{item.evidence.length === 1 ? '' : 's'}</small>
+				<summary title="Supporting evidence and source references">
+					<span class="evidence-chevron" aria-hidden="true">›</span>
+					<span>Evidence</span>
+					<small>· {item.evidence.length} item{item.evidence.length === 1 ? '' : 's'}</small>
 				</summary>
 				<div class="folio-evidence-body">
 					{#each item.evidence as evidence (`${evidence.kind}:${evidence.label}`)}
@@ -771,159 +735,7 @@
 	</div>
 {/snippet}
 
-{#snippet continuationDetail(continuation: DecisionContinuation)}
-	<div class="continuation-pane">
-		<div class="continuation-frame">
-			<a class="continuation-back" href={baseHref}>
-				<span aria-hidden="true">←</span> Back to company floor
-			</a>
-			<article class="continuation-folio">
-				<header>
-					<div class="continuation-folio-meta">
-						<span title="The owner decision was recorded">
-							<SemanticMark meaning="success" size="small" />
-							Decision observed
-						</span>
-						<time>{when(continuation.observedAt)}</time>
-					</div>
-					<h1>{workTitle(continuation.workId, continuation.title)}</h1>
-				</header>
-				<dl>
-					<div>
-						<dt>Recorded decision</dt>
-						<dd>{continuation.recordedDecision}</dd>
-					</div>
-					<div>
-						<dt>What it unlocked</dt>
-						<dd>{continuation.whatItUnlocked}</dd>
-					</div>
-					<div>
-						<dt>Current observed state</dt>
-						<dd>{continuation.currentState}</dd>
-					</div>
-					<div>
-						<dt>Observed outcome</dt>
-						<dd>{continuation.observedOutcome}</dd>
-					</div>
-				</dl>
-				<footer>
-					<div>
-						<span>Responsible now</span>
-						<strong>{continuation.responsibleActor?.display ?? 'No further owner'}</strong>
-					</div>
-					<a class="btn small" href={`/${companyId}/work/${continuation.workId}`}>Inspect Work</a>
-				</footer>
-			</article>
-		</div>
-	</div>
-{/snippet}
-
 <style>
-	.continuation-pane {
-		width: 100%;
-		min-height: 100%;
-		display: grid;
-		place-items: center;
-		padding: clamp(24px, 4vw, 56px);
-	}
-	.continuation-frame {
-		width: min(720px, 100%);
-		display: grid;
-		gap: 12px;
-	}
-	.continuation-back {
-		justify-self: start;
-		display: inline-flex;
-		align-items: center;
-		gap: 7px;
-		padding: 7px 9px;
-		border-radius: var(--radius-control);
-		color: var(--text-secondary);
-		font: 600 var(--t-label) var(--font-mono);
-		text-decoration: none;
-	}
-	.continuation-back:hover {
-		background: var(--surface-alt);
-		color: var(--ink);
-	}
-	.continuation-back:focus-visible {
-		outline: 2px solid var(--state-success);
-		outline-offset: 2px;
-	}
-	.continuation-folio {
-		width: 100%;
-		border: 1px solid color-mix(in srgb, var(--state-success) 24%, var(--border-strong));
-		border-radius: var(--radius-lg);
-		background: var(--surface-pane);
-		box-shadow:
-			var(--bevel),
-			0 18px 38px rgba(43, 51, 66, 0.1);
-		overflow: hidden;
-	}
-	.continuation-folio header {
-		display: grid;
-		gap: 10px;
-		padding: clamp(24px, 4vw, 38px);
-		background: linear-gradient(135deg, var(--state-success-soft), rgba(255, 255, 255, 0.35));
-	}
-	.continuation-folio-meta,
-	.continuation-folio dt,
-	.continuation-folio footer span {
-		font: 600 var(--t-label) var(--font-mono);
-		letter-spacing: var(--track-label);
-		text-transform: uppercase;
-		color: var(--text-tertiary);
-	}
-	.continuation-folio-meta,
-	.continuation-folio-meta > span {
-		display: flex;
-		align-items: center;
-	}
-	.continuation-folio-meta {
-		justify-content: space-between;
-		gap: 16px;
-	}
-	.continuation-folio-meta > span {
-		gap: 6px;
-	}
-	.continuation-folio h1 {
-		margin: 0;
-		font-size: var(--t-hero);
-		line-height: 1.08;
-		letter-spacing: -0.035em;
-	}
-	.continuation-folio time {
-		font: var(--t-label) var(--font-mono);
-		color: var(--text-secondary);
-	}
-	.continuation-folio dl {
-		margin: 0;
-	}
-	.continuation-folio dl > div {
-		display: grid;
-		grid-template-columns: 150px minmax(0, 1fr);
-		gap: 18px;
-		padding: 17px clamp(24px, 4vw, 38px);
-		border-top: 1px solid var(--border);
-	}
-	.continuation-folio dd {
-		margin: 0;
-		line-height: 1.5;
-		color: var(--ink);
-	}
-	.continuation-folio footer {
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		gap: 18px;
-		padding: 14px clamp(24px, 4vw, 38px);
-		border-top: 1px solid var(--border);
-		background: var(--surface-alt);
-	}
-	.continuation-folio footer > div {
-		display: grid;
-		gap: 4px;
-	}
 	.review-canvas {
 		width: 100%;
 		height: 100%;
@@ -1024,66 +836,75 @@
 	.folio-opening {
 		padding: clamp(26px, 4vw, 42px) clamp(26px, 4vw, 46px) clamp(22px, 3vw, 32px);
 	}
-	.folio-meta,
 	.folio-provenance,
-	.folio-move,
-	.folio-recommendation {
+	.folio-move {
 		display: flex;
 		align-items: flex-start;
 		justify-content: space-between;
 		gap: 18px;
 	}
-	.folio-meta {
+	.folio-heading {
+		display: grid;
+		grid-template-columns: minmax(0, 1fr) auto;
+		align-items: start;
+		gap: var(--space-4);
+	}
+	.folio-context {
+		display: flex;
 		align-items: center;
-		margin-bottom: 15px;
-		font: 600 var(--t-label) var(--font-mono);
-		letter-spacing: var(--track-label);
-		text-transform: uppercase;
-		color: var(--folio-tone);
+		justify-content: flex-end;
+		gap: var(--space-2);
+		color: var(--text-secondary);
+		font-size: var(--t-body);
 	}
-	.folio-meta strong {
-		padding: 4px 7px;
-		border: 1px solid color-mix(in srgb, var(--folio-tone) 25%, var(--border));
-		border-radius: var(--radius-control);
-		background: color-mix(in srgb, var(--folio-tone) 7%, white);
-		font-weight: 500;
+	.folio-context time {
+		white-space: nowrap;
 	}
-	.folio-opening h1 {
+	.folio-heading h1 {
 		max-width: 720px;
 		margin: 0;
-		font-size: var(--t-hero);
+		font-size: var(--t-title);
 		font-weight: 600;
-		line-height: 1.08;
-		letter-spacing: -0.038em;
+		line-height: 1.16;
+		letter-spacing: -0.03em;
 		text-wrap: balance;
 	}
-	.folio-situation {
+	.folio-narrative {
 		max-width: 700px;
-		margin: 18px 0 0;
+		margin-top: var(--space-5);
+	}
+	.folio-narrative p {
+		margin: 0;
 		font-size: var(--t-head);
-		line-height: 1.45;
+		font-weight: 400;
+		line-height: 1.55;
 		color: var(--text-secondary);
 	}
-	.folio-impact {
-		max-width: 700px;
-		margin: 12px 0 0;
-		font-size: var(--t-body);
-		line-height: 1.58;
+	.folio-narrative p + p {
+		margin-top: var(--space-3);
 		color: var(--ink);
 	}
 	.folio-uncertainty {
 		max-width: 700px;
-		margin: 15px 0 0;
-		padding: 10px 12px;
+		display: grid;
+		grid-template-columns: auto minmax(0, 1fr);
+		align-items: start;
+		gap: var(--space-2);
+		margin-top: var(--space-4);
+		padding: var(--space-3);
 		border-left: 3px solid var(--intent-authority);
 		background: var(--intent-authority-soft);
-		font-size: var(--t-body);
-		line-height: 1.5;
+		font-size: var(--t-head);
+		line-height: 1.55;
 		color: var(--text-secondary);
 	}
+	.folio-uncertainty p {
+		margin: 0;
+	}
 	.folio-recommendation {
-		justify-content: flex-start;
-		padding: 19px clamp(26px, 4vw, 46px);
+		display: grid;
+		gap: var(--space-2);
+		padding: var(--space-5) clamp(26px, 4vw, 46px) var(--space-6);
 		border-block: 1px solid color-mix(in srgb, var(--intent-feedback) 16%, var(--border));
 		background: linear-gradient(
 			100deg,
@@ -1091,25 +912,52 @@
 			color-mix(in srgb, var(--intent-feedback-soft) 34%, white)
 		);
 	}
-	.folio-recommendation > span,
-	.folio-move-copy > span,
-	.folio-provenance span {
-		flex: 0 0 118px;
-		font: 600 var(--t-label) var(--font-mono);
-		letter-spacing: var(--track-label);
-		text-transform: uppercase;
-		color: var(--text-tertiary);
-	}
-	.folio-recommendation > span {
-		color: var(--intent-feedback);
-	}
-	.folio-recommendation p {
-		max-width: 590px;
+	.folio-recommendation h2,
+	.folio-move-copy h2 {
 		margin: 0;
 		font-size: var(--t-head);
-		font-weight: 500;
-		line-height: 1.45;
+		font-weight: 600;
+		line-height: 1.4;
+	}
+	.folio-recommendation h2 {
+		color: var(--intent-feedback);
+	}
+	.folio-recommendation :global(.md),
+	.folio-move-copy :global(.md) {
+		max-width: 700px;
+		font-size: var(--t-head);
+		font-weight: 400;
+		line-height: 1.55;
 		color: var(--ink);
+	}
+	.folio-recommendation :global(.md strong),
+	.folio-move-copy :global(.md strong) {
+		font-weight: inherit;
+	}
+	.folio-recommendation :global(.md h1),
+	.folio-recommendation :global(.md h2),
+	.folio-recommendation :global(.md h3),
+	.folio-recommendation :global(.md h4),
+	.folio-recommendation :global(.md h5),
+	.folio-recommendation :global(.md h6),
+	.folio-move-copy :global(.md h1),
+	.folio-move-copy :global(.md h2),
+	.folio-move-copy :global(.md h3),
+	.folio-move-copy :global(.md h4),
+	.folio-move-copy :global(.md h5),
+	.folio-move-copy :global(.md h6) {
+		font-size: inherit;
+		font-weight: 600;
+	}
+	.folio-recommendation :global(.md p),
+	.folio-move-copy :global(.md p) {
+		margin: 0;
+	}
+	.folio-recommendation :global(.md p + p),
+	.folio-recommendation :global(.md :is(ul, ol)),
+	.folio-move-copy :global(.md p + p),
+	.folio-move-copy :global(.md :is(ul, ol)) {
+		margin-top: var(--space-2);
 	}
 	.folio-move {
 		display: grid;
@@ -1120,20 +968,20 @@
 	}
 	.folio-move-copy {
 		min-width: 0;
-		max-width: 520px;
+		max-width: 620px;
 	}
-	.folio-move-copy :global(p) {
-		margin: 6px 0 0;
-		font-size: var(--t-head);
-		font-weight: 600;
-		line-height: 1.4;
+	.folio-move-copy :global(.md) {
+		margin-top: var(--space-2);
 	}
-	.folio-move-copy small {
-		display: block;
-		margin-top: 9px;
+	.folio-wait {
+		margin: var(--space-3) 0 0;
 		font-size: var(--t-body);
-		line-height: 1.45;
+		font-weight: 400;
+		line-height: 1.5;
 		color: var(--text-secondary);
+	}
+	.folio-wait span {
+		color: var(--ink);
 	}
 	.owner-folio .nc-actions {
 		width: 100%;
@@ -1167,27 +1015,35 @@
 		outline-offset: 2px;
 	}
 	.folio-provenance {
+		display: flex;
 		align-items: center;
+		justify-content: space-between;
+		gap: var(--space-3);
 		padding: 11px clamp(26px, 4vw, 46px);
 		border-top: 1px solid var(--border);
 		background: color-mix(in srgb, var(--surface-alt) 72%, white);
 	}
-	.folio-provenance > div {
+	.folio-credit {
+		min-width: 0;
 		display: flex;
+		flex-wrap: wrap;
 		align-items: baseline;
-		gap: 8px;
+		gap: 0 var(--space-1);
+		font-size: var(--t-body);
+		font-weight: 400;
+		line-height: 1.45;
+		color: var(--text-secondary);
 	}
-	.folio-provenance strong,
-	.folio-provenance time,
-	.brief-state {
-		font-size: var(--t-label);
+	.folio-credit strong {
+		font-weight: 500;
+		color: var(--ink);
 	}
-	.folio-provenance time {
+	.folio-credit time {
+		white-space: nowrap;
 		color: var(--text-tertiary);
 	}
-	.folio-provenance .brief-state {
-		flex: none;
-		color: var(--folio-tone);
+	.folio-credit-separator {
+		color: var(--border-strong);
 	}
 	.folio-evidence {
 		border-top: 1px solid var(--border);
@@ -1196,12 +1052,15 @@
 	.folio-evidence summary {
 		display: flex;
 		align-items: center;
-		justify-content: space-between;
-		gap: 12px;
-		padding: 13px clamp(26px, 4vw, 46px);
+		gap: var(--space-1);
+		padding: 11px clamp(26px, 4vw, 46px);
 		cursor: pointer;
-		font: 500 var(--t-body) var(--font-mono);
+		list-style: none;
+		font: 500 var(--t-body) var(--font-ui);
 		color: var(--text-secondary);
+	}
+	.folio-evidence summary::-webkit-details-marker {
+		display: none;
 	}
 	.folio-evidence summary:hover {
 		background: rgba(255, 255, 255, 0.5);
@@ -1211,8 +1070,21 @@
 		outline-offset: -3px;
 	}
 	.folio-evidence summary small {
-		font: var(--t-label) var(--font-mono);
+		font: inherit;
+		font-weight: 400;
 		color: var(--text-tertiary);
+	}
+	.evidence-chevron {
+		width: var(--space-3);
+		flex: 0 0 var(--space-3);
+		font-size: var(--t-head);
+		line-height: 1;
+		color: var(--text-tertiary);
+		transform-origin: center;
+		transition: transform 120ms ease;
+	}
+	.folio-evidence[open] .evidence-chevron {
+		transform: rotate(90deg);
 	}
 	.folio-evidence-body {
 		padding: 2px clamp(26px, 4vw, 46px) 22px;
@@ -1461,18 +1333,17 @@
 			width: calc(100% - 24px);
 			margin-block: 12px;
 		}
-		.folio-recommendation,
-		.folio-provenance,
-		.folio-provenance > div {
-			flex-direction: column;
+		.folio-heading {
+			grid-template-columns: 1fr;
 		}
-		.folio-recommendation > span,
-		.folio-move-copy > span,
-		.folio-provenance span {
-			flex-basis: auto;
+		.folio-context {
+			justify-content: flex-start;
 		}
 	}
 	@media (prefers-reduced-motion: reduce) {
+		.evidence-chevron {
+			transition: none;
+		}
 		.live-mark.owner {
 			box-shadow: none;
 		}
