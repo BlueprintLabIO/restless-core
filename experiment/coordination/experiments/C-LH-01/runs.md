@@ -1,6 +1,6 @@
 # C-LH-01 run index
 
-Status: resumed under GPT-5.6-only owner decision; no counted arm yet
+Status: paused for founder review of Experiment Sprint 01; no counted arm yet
 
 ## Frozen allocation
 
@@ -93,4 +93,23 @@ The OpenRouter-specific sustained-route and visible-retry gates remain required 
 can be evaluated again. They do not gate this first-party GPT-5.6 matched set. Artifact recovery remains
 a production requirement and an attribution rule: a missing callback is `unknown`, never success.
 
-Native evidence and the matched interpretation will be appended without rewriting frozen hashes.
+## Founder-stopped GPT-5.6 diagnostic
+
+`v28-clh01-b1-terra` started under the GPT-5.6 routing policy and was stopped by the founder before the
+lead integrated both seams, made a final decision or submitted the candidate to the external evaluator.
+It is preserved as diagnostic evidence and is not a counted B1 arm.
+
+- Sol commissioned the Terra producer after 17 seconds.
+- Terra's first Attempt, `attempt-184ce149e6`, ran for 160.4 seconds and produced clean Field Atlas
+  commit `926c3ca`, but ended without a terminal callback. Its semantic result therefore remained
+  `unknown` even though the workspace evidence survived.
+- Sol used one bounded recovery. The second Terra Attempt, `attempt-8a21f4e2aa`, reported the preserved
+  commit `926c3ca` successfully after 28.3 seconds with clean gates and the verifier present.
+- Sol independently produced Squad Workshop commit `c45526c`.
+- The stop occurred before canonical integration, final lead judgement, native evaluation and the
+  matched B0 arm. No comparison result can be inferred.
+
+No replacement Run ID is allocated until
+[`exp-sprint-01-coordination-frontier.md`](../../../exp-sprints/exp-sprint-01-coordination-frontier.md)
+is founder-approved. Native evidence and any future matched interpretation will be appended without
+rewriting the frozen hashes above.

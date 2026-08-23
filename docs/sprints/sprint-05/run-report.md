@@ -352,7 +352,7 @@ The evidence critic opened the sample PDF and found questions with QR-linked onl
 than full answers in the PDF, confirmed the centre page still returns 404, and found no published
 delivery SLA or release schedule. Copy therefore passed as the intended offer while product
 send-readiness failed. The review copy is preserved at
-[`scratch/aris-tutoring-centre-emails-simple.md`](../../../scratch/aris-tutoring-centre-emails-simple.md).
+[`experiment/aris-tutoring-centre-emails-simple.md`](../../../experiment/aris-tutoring-centre-emails-simple.md).
 
 The run also exposed and closed an Exec wake-custody gap. Twice, an owner rejection arrived while Exec
 was already inside a long wake; the message persisted, but its notification lost the in-flight race and
@@ -441,7 +441,7 @@ Authority/config evidence:
 - both the legacy class and new `customer-contact.email` class have **zero** receipts for the four centres.
 
 The full drafts remain reviewable in
-[`scratch/aris-tutoring-centre-emails-simple.md`](../../../scratch/aris-tutoring-centre-emails-simple.md).
+[`experiment/aris-tutoring-centre-emails-simple.md`](../../../experiment/aris-tutoring-centre-emails-simple.md).
 
 ## Remaining acceptance gates
 

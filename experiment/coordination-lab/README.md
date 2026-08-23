@@ -12,10 +12,10 @@ from both the macOS host and the Linux container is unsafe, and concurrent proce
 the direct JSONL trace. The report describes the single-writer replacement to test next.
 
 ```sh
-cargo build --release --manifest-path scratch/coordination-lab/Cargo.toml
-scratch/coordination-lab/run-lab.sh preflight
-scratch/coordination-lab/run-lab.sh prepare v0
-scratch/coordination-lab/run-lab.sh run v0
+cargo build --release --manifest-path experiment/coordination-lab/Cargo.toml
+experiment/coordination-lab/run-lab.sh preflight
+experiment/coordination-lab/run-lab.sh prepare v0
+experiment/coordination-lab/run-lab.sh run v0
 ```
 
 The runner exposes seven typed mutations (`send`, `commission`, `redirect`, `report`,

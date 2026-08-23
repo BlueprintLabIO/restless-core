@@ -16,15 +16,15 @@ V2 keeps the seven model-facing commands and replaces the failed substrate:
 Run deterministic substrate faults before any model scenario:
 
 ```sh
-cargo build --release --manifest-path scratch/coordination-lab/Cargo.toml
-bash scratch/coordination-lab/v2/run.sh fault-test faults
+cargo build --release --manifest-path experiment/coordination-lab/Cargo.toml
+bash experiment/coordination-lab/v2/run.sh fault-test faults
 ```
 
 Then prepare and run the same fixed-seed scenario:
 
 ```sh
-bash scratch/coordination-lab/v2/run.sh prepare v2
-bash scratch/coordination-lab/v2/run.sh run v2
+bash experiment/coordination-lab/v2/run.sh prepare v2
+bash experiment/coordination-lab/v2/run.sh run v2
 ```
 
 Generated databases, cells, workspaces, prompts, and traces live under ignored `v2/workdir/`.
@@ -46,8 +46,8 @@ relevant upstream artifacts.
 First prove those seams without model inference:
 
 ```sh
-cargo build --release --manifest-path scratch/coordination-lab/Cargo.toml
-bash scratch/coordination-lab/v2/run.sh architecture-test v21-architecture
+cargo build --release --manifest-path experiment/coordination-lab/Cargo.toml
+bash experiment/coordination-lab/v2/run.sh architecture-test v21-architecture
 ```
 
 Prepare the matched three-arm smoke experiment. Pin the exact Sonnet model and worker pool. Before a
@@ -57,13 +57,13 @@ refresh its model registry and complete a tiny inference through the credential 
 gateway. Catalogue-only availability is not treated as connectability.
 
 ```sh
-bash scratch/coordination-lab/v2/run.sh experiment-prepare v21-smoke \
+bash experiment/coordination-lab/v2/run.sh experiment-prepare v21-smoke \
   --lead-model anthropic/claude-sonnet-4-5 \
   --worker-pool cohere/north-mini-code:free,poolside/laguna-s-2.1:free \
   --spend-ceiling 6 \
   --wall-clock-seconds 1800
 
-bash scratch/coordination-lab/v2/run.sh experiment-run v21-smoke
+bash experiment/coordination-lab/v2/run.sh experiment-run v21-smoke
 ```
 
 The per-arm spend ceiling applies independently. The experiment is not a success unless the

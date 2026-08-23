@@ -27,8 +27,8 @@ node_modules/
 /web/.svelte-kit
 /web/build
 
-# Scratch spikes
-scratch/**/node_modules/
-scratch/**/target/
-scratch/**/workdir/
-scratch/**/codex-home/
+# Experiment operating state
+experiment/**/node_modules/
+experiment/**/target/
+experiment/**/workdir/
+experiment/**/codex-home/

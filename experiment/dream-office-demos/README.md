@@ -23,4 +23,4 @@ From the repository root:
 python3 -m http.server 4188
 ```
 
-Then open <http://127.0.0.1:4188/scratch/dream-office-demos/>.
+Then open <http://127.0.0.1:4188/experiment/dream-office-demos/>.

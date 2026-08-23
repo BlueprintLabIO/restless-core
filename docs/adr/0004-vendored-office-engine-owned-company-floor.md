@@ -23,7 +23,7 @@ Restless already owns a meaningful layer above that engine:
 - `pixelAssets.ts` adapts browser assets and registers Restless-authored additions;
 - Work and runtime observations determine whether a person is observed working, waiting, available,
   stale or unavailable;
-- custom visual studies in `scratch/dream-office-demos/` explore materially different office hearts,
+- custom visual studies in `experiment/dream-office-demos/` explore materially different office hearts,
   amenities and movement patterns without changing production architecture.
 
 The alternatives are unattractive at opposite ends. Consuming an opaque package would make local

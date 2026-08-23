@@ -166,7 +166,7 @@ def prove_actor_host_command() -> dict[str, Any]:
     if not executable or not os.access(executable, os.X_OK):
         raise RuntimeError(
             "actor-host command is unavailable or not executable: "
-            f"{command!r}; build scratch/coordination-lab before launching a live arm"
+            f"{command!r}; build experiment/coordination-lab before launching a live arm"
         )
     capability = subprocess.run(
         [executable, "--capabilities"],

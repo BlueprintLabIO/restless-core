@@ -75,7 +75,7 @@ After repair:
 - the original worker catalogue entries were observed at zero prompt/completion price with text and
   tool support immediately before launch.
 
-Evidence lives under `scratch/coordination-lab/v2/workdir/v21-r3-arch`,
+Evidence lives under `experiment/coordination-lab/v2/workdir/v21-r3-arch`,
 `v21-r3-fault`, `v21-r3-double-cancel-probe`, and each run directory named below.
 
 ## Results

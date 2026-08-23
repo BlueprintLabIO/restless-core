@@ -352,7 +352,7 @@ Removed from the production path:
 - three generic gallery pictures whose footprints intruded into the protected garden ribbon under
   compact topology; the cared-for amenities carry more meaning and the removal improves circulation.
 
-Scratch concept demos remain quarantined under `scratch/` as comparison evidence and are not imported
+Concept demos remain quarantined under `experiment/` as comparison evidence and are not imported
 by production.
 
 ## Success-contract disposition

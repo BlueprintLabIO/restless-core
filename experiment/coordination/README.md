@@ -27,8 +27,9 @@ synthesis needed to make the next organisational decision.
 
 Do not create one directory per speculative idea. Create `experiments/<id>/` only when its first
 executable probe begins. A live experiment directory may hold its frozen contract, scenario locator,
-run indexes and small analysis artifacts. Large/generated traces remain under `scratch/` or the
-Company Runtime and are linked rather than copied.
+run indexes and small analysis artifacts. Large/generated traces remain under the ignored
+`experiment/coordination-lab/*/workdir/` operating directories or the Company Runtime and are linked
+rather than copied.
 
 ## Evidence flow
 
@@ -73,7 +74,7 @@ it. “Accepted” never means universal.
 
 ## Relationship to existing evidence
 
-The completed v01–v23 scratch programme remains the historical evidence base at
-[`scratch/coordination-lab`](../../../scratch/coordination-lab). Its reports are not rewritten. This
-folder corrects or promotes their interpretation through linked claims. The evaluation rules in
-[`docs/specs/evaluation-dogfood.md`](../../specs/evaluation-dogfood.md) remain authoritative.
+The completed v01–v23 programme remains the historical evidence base at
+[`experiment/coordination-lab`](../coordination-lab). Its reports are not rewritten. This folder
+corrects or promotes their interpretation through linked claims. The evaluation rules in
+[`docs/specs/evaluation-dogfood.md`](../../docs/specs/evaluation-dogfood.md) remain authoritative.
