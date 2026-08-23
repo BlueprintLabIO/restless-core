@@ -1,6 +1,6 @@
 import { chromium } from '/usr/local/lib/node_modules/playwright/index.mjs';
 
-const URL = 'http://127.0.0.1:8133/index.html';
+const REVIEW_URL = 'http://127.0.0.1:8133/index.html';
 const WEBGL_ARGS = [
   '--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader',
   '--ignore-gpu-blocklist', '--no-sandbox', '--enable-webgl', '--disable-setuid-sandbox',
@@ -25,7 +25,8 @@ function sorted(values) { return [...values].sort(); }
 function sameValues(a, b) { return JSON.stringify(sorted(a)) === JSON.stringify(sorted(b)); }
 function sameOrder(a, b) { return JSON.stringify(a) === JSON.stringify(b); }
 function absolute(href) {
-  try { return new URL(href, URL).href; } catch { return null; }
+  if (!href) return null;
+  try { return new URL(href, REVIEW_URL).href; } catch { return null; }
 }
 
 function watch(page, label) {
@@ -134,7 +135,7 @@ const browser = await chromium.launch({
 const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
 watch(page, 'main');
 
-await page.goto(URL, { waitUntil: 'domcontentloaded' });
+await page.goto(REVIEW_URL, { waitUntil: 'domcontentloaded' });
 await page.waitForFunction(() => window.__game && document.querySelector('#intro'), null, { timeout: 20000 });
 await sleep(400);
 
@@ -165,8 +166,8 @@ ok('the starter experience links a clearly named Squad Workshop', !!workshopLink
   /(squad|workshop)/i.test(workshopLink.name), JSON.stringify(workshopLink));
 ok('both companion links stay inside the reviewable product origin',
   !!absolute(atlasLink?.href) && !!absolute(workshopLink?.href) &&
-  new URL(absolute(atlasLink.href)).origin === new URL(URL).origin &&
-  new URL(absolute(workshopLink.href)).origin === new URL(URL).origin,
+  new URL(absolute(atlasLink.href)).origin === new URL(REVIEW_URL).origin &&
+  new URL(absolute(workshopLink.href)).origin === new URL(REVIEW_URL).origin,
   JSON.stringify({ atlas: atlasLink?.href, workshop: workshopLink?.href }));
 
 const atlasTests = [
@@ -302,7 +303,7 @@ if (!atlasLink?.href) {
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.locator('[data-return-to-survey]').first().click();
   await page.waitForFunction(() => window.__game && document.querySelector('#intro'), null, { timeout: 10000 });
-  ok('Field Atlas returns through its native survey link', page.url().startsWith(new URL(URL).origin) &&
+  ok('Field Atlas returns through its native survey link', page.url().startsWith(new URL(REVIEW_URL).origin) &&
     await page.locator('.starter-card').count() === 3, page.url());
   } catch (error) {
     fillSuiteRemainder(atlasTests, atlasStartedAt, error);
@@ -514,7 +515,7 @@ if (!workshopLink?.href) {
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.locator('[data-return-to-survey]').first().click();
   await page.waitForFunction(() => window.__game && document.querySelector('#intro'), null, { timeout: 10000 });
-  ok('Squad Workshop returns through its native survey link', page.url().startsWith(new URL(URL).origin) &&
+  ok('Squad Workshop returns through its native survey link', page.url().startsWith(new URL(REVIEW_URL).origin) &&
     await page.locator('.starter-card').count() === 3, page.url());
   } catch (error) {
     fillSuiteRemainder(workshopTests, workshopStartedAt, error);
@@ -529,7 +530,7 @@ const coreTests = [
 ];
 const coreStartedAt = step;
 try {
-  await page.goto(URL, { waitUntil: 'domcontentloaded' });
+  await page.goto(REVIEW_URL, { waitUntil: 'domcontentloaded' });
   await page.waitForFunction(() => window.__game && document.querySelector('#intro'), null, { timeout: 20000 });
   const pureRules = await page.evaluate(async () => {
     const { elementMult } = await import('./js/config.js');

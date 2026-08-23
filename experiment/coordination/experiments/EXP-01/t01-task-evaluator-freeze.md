@@ -8,8 +8,14 @@
 The existing Field Atlas + Squad Workshop contract remains unchanged:
 
 - scenario `bfda2c7d47285c794a9d4284f22164a42fbb5810870894b90c2a00e2de916c12`;
-- evaluator `dba9e9ff15047b4c20f43562efa9e6dc29d699fe7fb4ff0fcd913f9de1bda5d8`;
+- evaluator `61be8b04fd6cfb0727d565442bbe5e580c61b0c9ecfbffde86d09842e610c0e1`;
 - untouched seed: 7/53 pass, 46 intended absent-feature failures, zero browser errors.
+
+The first attempted E01 arm exposed a frozen-evaluator implementation defect before a matched result
+was claimed: the constant named `URL` shadowed the platform URL constructor, and an absent link was
+incorrectly resolvable as a literal `undefined` path. The arm is evaluator-invalid. The two static
+defects were corrected, the complete negative control was rerun without an evaluator exception, and
+the affected matched set was restarted under fresh IDs as required by the sprint protocol.
 
 Fresh independent Sol/Terra judges both classified saturation and separability high and the robust
 outcome credibly beyond one effective lead session. Both selected the Field Atlas vertical slice as

@@ -10,7 +10,7 @@ directory only when execution begins.
 | **C-SL** | Coding/product | Small, high coupling | B0/B1 | provisional-loss | B0 won 11/11 vs B1 10/11; retain as first boundary point |
 | **C-SH** | Coding/product | Small, highly separable | B0/B1 | provisional-loss | B0 wins repeat at outcome parity: 29% faster, 23% fewer tokens, 62% fewer tools |
 | **C-LL** | Coding/product | Broad, high coupling; below lead saturation | B0/B1 | provisional-loss | B0 won quality and cost; retain as below-saturation point, then test a genuinely lead-saturating case |
-| **C-LH** | Coding/product | Large, highly separable | B0/B1 | running | T1 frozen first-party B1 → B0 allocation; run `exp01-e01-b1-terra` |
+| **C-LH** | Coding/product | Large, highly separable | B0/B1 | running | First attempt evaluator-invalid; corrected frozen pair restarts at `exp01-e01r1-b1-terra` → `exp01-e01r1-b0-sol` |
 | **C-MM** | Coding/product | Medium, mixed | B0/B1/B2 | queued | Reserve only if the lead-saturating and research sentinels leave a boundary ambiguity |
 | **R-SL** | Sourced research | Small, high coherence | B0/B1 | queued | Reserve; three below-saturation coding losses already establish the simple-region prior |
 | **R-SH** | Sourced research | Small, independent evidence | B0/B1 | queued | Reserve; prefer the more discriminating large parallel-breadth sentinel |

@@ -126,3 +126,20 @@ v28 diagnostic cannot be repaired into evidence.
 - First counted Run ID: `exp01-e01-b1-terra`.
 - Matched Run ID after structurally valid B1: `exp01-e01-b0-sol`.
 - Sol lead and Terra producer use the frozen first-party allocation; no OpenRouter actor participates.
+
+## Evaluator-invalid first attempt and clean restart
+
+`exp01-e01-b1-terra` completed a structurally valid ordinary handoff and produced clean candidate
+`2f1c5ac`, but is not a counted arm. The separately invoked frozen evaluator crashed because its
+`URL` constant shadowed the platform constructor. Once that static defect was repaired, a post-hoc
+diagnostic of the artifact also found real contract mismatches that producer-authored checks had
+missed; this is useful diagnostic evidence, not a score.
+
+The corrected evaluator is frozen at
+`61be8b04fd6cfb0727d565442bbe5e580c61b0c9ecfbffde86d09842e610c0e1`. Its untouched-seed control
+finishes all 53 checks with 7 preserved-behaviour passes and 46 intended absent-outcome failures,
+without an evaluator exception. Per the predeclared invalid-run rule, both affected arms restart:
+
+- counted B1: `exp01-e01r1-b1-terra`;
+- matched B0: `exp01-e01r1-b0-sol`;
+- order, task bytes, seed, models and envelope remain unchanged.
