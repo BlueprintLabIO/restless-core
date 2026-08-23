@@ -10,7 +10,7 @@ directory only when execution begins.
 | **C-SL** | Coding/product | Small, high coupling | B0/B1 | provisional-loss | B0 won 11/11 vs B1 10/11; retain as first boundary point |
 | **C-SH** | Coding/product | Small, highly separable | B0/B1 | provisional-loss | B0 wins repeat at outcome parity: 29% faster, 23% fewer tokens, 62% fewer tools |
 | **C-LL** | Coding/product | Broad, high coupling; below lead saturation | B0/B1 | provisional-loss | B0 won quality and cost; retain as below-saturation point, then test a genuinely lead-saturating case |
-| **C-LH** | Coding/product | Large, highly separable | B0/B1 | running | First attempt evaluator-invalid; corrected frozen pair restarts at `exp01-e01r1-b1-terra` → `exp01-e01r1-b0-sol` |
+| **C-LH** | Coding/product | Large, highly separable | B0/B1 | provisional-loss | Both failed the same owner gate; B1 blind quality was modestly better but cost 95.7% more wall time and 246% more tokens; `S2`/`E5` activate W04 screening |
 | **C-MM** | Coding/product | Medium, mixed | B0/B1/B2 | queued | Reserve only if the lead-saturating and research sentinels leave a boundary ambiguity |
 | **R-SL** | Sourced research | Small, high coherence | B0/B1 | queued | Reserve; three below-saturation coding losses already establish the simple-region prior |
 | **R-SH** | Sourced research | Small, independent evidence | B0/B1 | queued | Reserve; prefer the more discriminating large parallel-breadth sentinel |
@@ -27,7 +27,7 @@ Historical v23 remains indexed in `EVIDENCE.md` and does not change a cell above
 | **W01** | Session mitosis | Shared history | Baseline B0/B1 | queued | Activate only if a valid sentinel records briefing/reintegration `C1` or `C4`; then prove exact common-prefix fork and role/tool divergence |
 | **W02** | Fork–work–reunite cycles | Shared history | W01 | queued | One fork, artifact-only reunion and second fork |
 | **W03** | Exec-to-lead lineage fork | Shared history | W01 + redaction audit | queued | Neutral request capsule without executive authority leakage |
-| **W04** | One brain, many hands | Cognitive topology | Baseline B0 | queued | Activate if autonomous Staff loses through cognitive duplication/integration `I3` or `E5` despite usable parallel work |
+| **W04** | One brain, many hands | Cognitive topology | Baseline B0 | designing | Activated by E01 `E5`: useful CSS handoff did not repay allocation, repair and integration tax; screen after E02 |
 | **W05** | Shared semantic blackboard | Shared state | Baseline B1 | queued | Patchable bounded situation model with provenance |
 | **W06** | Causal context deltas | Communication compression | W05 or stable checkpoint | queued | Reconstruct exact relevant changes from base hash |
 | **W07** | Proof-carrying handoffs | Artifact boundary | Baseline B1 | queued | First candidate only if a valid run records callback/acceptance `V3`; artifact + native proof + semantic diff |

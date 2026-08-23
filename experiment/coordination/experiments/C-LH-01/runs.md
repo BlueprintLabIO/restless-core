@@ -143,3 +143,20 @@ without an evaluator exception. Per the predeclared invalid-run rule, both affec
 - counted B1: `exp01-e01r1-b1-terra`;
 - matched B0: `exp01-e01r1-b0-sol`;
 - order, task bytes, seed, models and envelope remain unchanged.
+
+## Counted EXP-01 result
+
+The corrected matched pair closed:
+
+- B1 `exp01-e01r1-b1-terra`: structurally valid; one Work, one unknown first Attempt, one successful
+  evidence-based repair, observed CSS commit `8a18cf0`, candidate `36e11b3`; 1,216.4 seconds,
+  5,491,039 summed turn tokens and 76 tools.
+- B0 `exp01-e01r1-b0-sol`: structurally valid; no Staff Work, candidate `20d5440`; 621.7 seconds,
+  1,587,803 tokens and 26 tools.
+- Frozen external result: both 10/53, failing the same fresh-navigation review path.
+- Blind review: B0 8.4/10, B1 9.1/10; modest B1 preference, explicitly insufficient to outweigh the
+  identical failed owner gate.
+
+The ordinary-team arm is a loss: it produced no accepted outcome advantage and cost materially more.
+Attribution is `S2`, `E5` and shared `V4`; the callback omission was correctly classified and recovered,
+so it is not `V3`. Full interpretation: [`EXP-01 E01 result`](../EXP-01/e01-ordinary-frontier.md).
