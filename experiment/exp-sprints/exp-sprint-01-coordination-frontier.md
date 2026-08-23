@@ -1,10 +1,10 @@
 # Experiment Sprint 01 — GPT-5.6 coordination frontier
 
-**Status:** Draft for founder confirmation. All experiment execution is paused.
+**Status:** Ready for founder start signal. All experiment execution is paused.
 
 **Decision owner:** Founder.
 
-**Execution authority after approval:** the current Codex session may prepare and run only the isolated
+**Execution authority after the start signal:** the current Codex session may prepare and run only the isolated
 experiments described here, update their evidence, and commit/push those experiment changes to `dev`.
 Any material change to tasks, models, effects, evaluation or production architecture returns for
 founder judgement.
@@ -104,6 +104,21 @@ Before activation, each task receives its own immutable scenario, seed locator, 
 evaluator and negative control. The founder approves this portfolio, not unseen task wording: scenario
 bytes may refine detail but may not change the structural role above without returning for approval.
 
+Each experiment card also records the work shape below. Breadth comes from covering unresolved shapes,
+not from running every task:
+
+| Dimension | Recorded levels |
+|---|---|
+| Lead saturation | below, near or credibly beyond one effective lead session |
+| Artifact separability | one coupled outcome, stable independent seams or parallel evidence breadth |
+| Shared-state coupling | low, bounded interface or high shared causal state |
+| Interface volatility | stable or one material dependency change |
+| Epistemic uncertainty | explicit acceptance, open-ended synthesis or independent criticism |
+| Tool/runtime density | low, environment-discovery-heavy or latency-overlappable |
+
+A new task runs only when it resolves a live uncertainty on these dimensions or provides a required
+cross-shape replication. Variety by itself is not evidence.
+
 ## 7. Ordinary crossover experiments
 
 ### E01 — Complete C-LH on G-UX
@@ -136,10 +151,15 @@ independent seams, not additional requirements.
 
 ## 8. Wildcard mechanism programme
 
-Every wildcard receives a cheapest bounded conformance/mechanism probe. If mechanically viable, it
-receives one live GPT-5.6 matched comparison on the named task family. A failed mechanism stops before
-an expensive live pair; a first live loss stops before replication. This gives every promised idea an
-empirical disposition without running the full Cartesian search space.
+Every wildcard receives a final registry disposition, but not an automatic live run. An observed
+failure code or unresolved routing question must activate it first. An activated wildcard receives the
+cheapest bounded conformance/mechanism probe and, if mechanically viable, one live GPT-5.6 matched
+comparison on the named task family. A failed mechanism stops before an expensive live pair; a first
+live loss stops before replication. Absence of the trigger is recorded as `not-activated`, not dressed
+up as a failed experiment.
+
+At most two competing mechanisms may be screened for one measured bottleneck before an intermediate
+choice. Broad coverage comes from work shapes and failure families, not from maximising mechanism count.
 
 | ID | Mechanism | First task family | What it must beat |
 |---|---|---|---|
@@ -174,12 +194,12 @@ unchanged.
 |---|---|---|
 | 0 | Path/harness verification; E01 and E02 scenario freeze | Exact commands, hashes, negative controls and blind-review plan exist |
 | 1 | E01 C-LH and E02 R-LH matched pairs | Ordinary frontier updated; provider/harness-invalid runs excluded |
-| 2 | W07, W04, W01 and W09 probes/live screens | Each has `provisional-win`, `provisional-loss` or `blocked` |
-| 3 | W02, W05, W06 and W08 | Same disposition; only viable dependencies advance |
-| 4 | W10, W11, W12 and W13 | Independence/allocation/redundancy evidence compiled |
-| 5 | W14, W16, W03 and W15 | Adaptive, temporal, authority and runtime-feasibility evidence compiled |
+| 2 | Diagnose E01/E02 churn; activate at most two primary candidates from W07/W04/W01/W09 | Selection cites observed failure codes; all unselected candidates remain unimplemented |
+| 3 | Probe and live-screen the activated primary candidate(s) | Each activated candidate has `provisional-win`, `provisional-loss` or `blocked` |
+| 4 | Select at most two dependent/secondary candidates from W02/W05/W06/W08/W10–W16 only if residual evidence demands them | Selection cites a remaining bottleneck that the primary screen did not resolve |
+| 5 | Probe and live-screen only those activated dependent/secondary candidates | Same disposition; first losses stop and losing machinery is purged |
 | 6 | Three-work-shape replication of provisional winners; E03/E04 only when triggered | Scoped winner and team-size evidence, or truthful absence of one |
-| 7 | Routing synthesis, simplification and deletion | Final audit passes and no queued experiment lacks a recorded disposition |
+| 7 | Routing synthesis, remaining wildcard dispositions, simplification and deletion | Final audit passes and no queued experiment lacks a recorded disposition |
 
 Within a wave, arm order is frozen and randomised. Independent experiments may run concurrently only
 when they do not share a mutable candidate, evaluator fixture, gateway or host resource whose
@@ -229,6 +249,20 @@ contention could alter the result.
 - integration diff, conflicts, regression repair and lead replay;
 - owner attention and Exec occupied time.
 
+### Churn vector
+
+- actor artifacts abandoned, discarded or substantially rewritten;
+- lead work that duplicates Staff discovery or implementation;
+- repeated reads, environment discovery and tool setup;
+- messages, wakes and status turns that cause no material state change;
+- retries, repairs and callback recovery attempts;
+- integration rework, regression repair and evaluator reruns;
+- completed useful work waiting unused for another actor.
+
+Churn remains a vector with attributed failure codes, not one synthetic score. A mechanism must reduce
+the relevant components without shifting equal or greater churn into quality loss, harness complexity
+or owner attention.
+
 No aggregate score may hide a materially worse outcome. Speed wins count only at non-inferior accepted
 quality.
 
@@ -244,6 +278,11 @@ quality.
 - Catastrophic authority, provenance or epistemic failure attributable to a mechanism: reject it even
   if it was fast.
 - No B1 win: do not test larger teams.
+- No observed trigger for a wildcard: mark it `not-activated`; do not build or run it.
+- Neither E01 nor E02 shows credible unused parallel value or a coordination bottleneck: stop live
+  wildcard work and retain the strong-lead prior.
+- More than two plausible mechanisms for one bottleneck: rank by cheapest falsifier and screen no more
+  than two before returning to the evidence.
 
 The outer run envelope protects host resources. It does not decide whether an actor or Work has
 semantically failed.
@@ -262,6 +301,7 @@ semantically failed.
 | Experimental game code leaks into product history | Invariant: isolated seed worktrees and no product promotion |
 | Test volume consumes excessive compute | Guarded: one smallest falsifying probe, one live screen, replication only for winners |
 | Interrupted run is narrated into a result | Invariant: only closed matched arms with native evaluation count |
+| The wildcard catalogue becomes an execution checklist | Guarded: observed failure activation, at most two candidates per bottleneck, and `not-activated` as a valid final disposition |
 
 ## 14. Sprint acceptance criteria
 
@@ -269,12 +309,13 @@ The sprint is complete only when all are true:
 
 1. E01 and E02 have valid matched B0/B1 results, or a specific external feasibility block is recorded.
 2. E03 and E04 have run exactly when their trigger fired, and otherwise record why they did not.
-3. Every W01–W16 row has a committed mechanism result and final disposition; every mechanically viable
-   wildcard has one live matched GPT-5.6 comparison.
+3. Every W01–W16 row has a committed final disposition. Every evidence-activated and mechanically
+   viable wildcard has one live matched GPT-5.6 comparison; absent triggers are `not-activated`.
 4. Every provisional winner has three order-randomised replications across distinct work shapes,
    including one non-coding task and one independent model session for review.
 5. Team size is measured only on an ordinary or wildcard team winner.
-6. At least G-SYS/G-PROG, G-WORLD, G-UX, R-BREADTH and one D-CLEAN/O-TRACE task contribute evidence.
+6. Evidence spans G-UX, R-BREADTH and at least one materially different G-SYS/G-WORLD/G-PROG task;
+   D-CLEAN/O-TRACE runs only when it resolves an untested work-shape or replication requirement.
 7. Exec dispatch/availability remains proved and unchanged in every organisation.
 8. The final routing policy states “use when / avoid when,” confidence, counterevidence and falsifier.
 9. Losing mechanism code and duplicate communication paths are deleted; reusable probes remain.
@@ -293,25 +334,26 @@ No ticket files are created until the founders align on this spec.
 | T0 — Experiment area and harness verification | Renamed paths, ignored state and exact commands work from a clean checkout |
 | T1 — Task/evaluator catalogue | Frozen scenarios and audited native evaluators for the approved portfolio |
 | T2 — Ordinary frontier | E01/E02 reports and any triggered E03/E04 decision |
-| T3 — Handoff/cognitive/shared-history screen | W07, W04, W01 and W09 dispositions |
-| T4 — State/event/reunion screen | W02, W05, W06 and W08 dispositions |
-| T5 — Independence/allocation/redundancy screen | W10–W13 dispositions |
-| T6 — Adaptive/authority/runtime screen | W14, W16, W03 and W15 dispositions |
+| T3 — Primary bottleneck screen | Diagnose ordinary-run churn and activate at most two of W07/W04/W01/W09 |
+| T4 — Dependent mechanism screen | Activate at most two of W02/W05/W06/W08 only when primary evidence requires them |
+| T5 — Independence/allocation/redundancy screen | Consider W10–W13 only when their named trigger is observed |
+| T6 — Adaptive/authority/runtime screen | Consider W14/W16/W03/W15 only when their named trigger is observed |
 | T7 — Replication and team size | Cross-shape winner trials and marginal-team-size curve |
 | T8 — Synthesis and purge | Routing policy, canon, evidence audit and deletion report |
 
-## 16. Founder confirmation requested
+## 16. Founder start signal requested
 
 Please confirm or amend:
 
 - [ ] GPT-5.6 Sol lead and GPT-5.6 Terra Staff/critic for every cognitive experiment.
 - [ ] The eight work families and rotation across different game areas/non-coding tasks.
-- [ ] Every wildcard receives a bounded mechanism probe and, when viable, one live matched comparison.
+- [ ] Every wildcard receives a final evidence-backed disposition; only activated candidates receive
+  a bounded probe and, when viable, one live matched comparison.
 - [ ] Only provisional winners receive expensive cross-shape replication.
 - [ ] The eight execution waves and autonomous progression inside this frozen scope.
 - [ ] No live-company effects and no promotion of experimental game candidates.
-- [ ] Completion means a disposition for all sixteen wildcards plus the routing/purge audit—not merely
-  a few successful runs.
+- [ ] Completion means a disposition for all sixteen wildcards plus the routing/purge audit—not a live
+  run of all sixteen.
 
 **Stop point:** no experiment execution, harness implementation or ticket breakdown proceeds until the
-founder confirms this document.
+founder gives the start signal.

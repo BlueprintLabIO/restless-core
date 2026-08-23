@@ -1,6 +1,6 @@
 # C-SL-01 — late guard
 
-Status: running
+Status: matched pair closed; B0 lead-alone win
 
 This is the first counted ordinary-team crossover cell: small coding/product work with low useful
 producer parallelism and high whole-artifact coupling.

@@ -10,7 +10,7 @@ directory only when execution begins.
 | **C-SL** | Coding/product | Small, high coupling | B0/B1 | provisional-loss | B0 won 11/11 vs B1 10/11; retain as first boundary point |
 | **C-SH** | Coding/product | Small, highly separable | B0/B1 | provisional-loss | B0 wins repeat at outcome parity: 29% faster, 23% fewer tokens, 62% fewer tools |
 | **C-LL** | Coding/product | Broad, high coupling; below lead saturation | B0/B1 | provisional-loss | B0 won quality and cost; retain as below-saturation point, then test a genuinely lead-saturating case |
-| **C-LH** | Coding/product | Large, highly separable | B0/B1 | blocked | `v28-clh01-b1-terra` was founder-stopped before integration/evaluation and is uncounted; await approval of Experiment Sprint 01 before allocating a fresh matched pair |
+| **C-LH** | Coding/product | Large, highly separable | B0/B1 | blocked | `v28-clh01-b1-terra` was founder-stopped before integration/evaluation and is uncounted; await the Experiment Sprint 01 founder start signal before allocating a fresh matched pair |
 | **C-MM** | Coding/product | Medium, mixed | B0/B1/B2 | queued | Reserve only if the lead-saturating and research sentinels leave a boundary ambiguity |
 | **R-SL** | Sourced research | Small, high coherence | B0/B1 | queued | Reserve; three below-saturation coding losses already establish the simple-region prior |
 | **R-SH** | Sourced research | Small, independent evidence | B0/B1 | queued | Reserve; prefer the more discriminating large parallel-breadth sentinel |
@@ -42,4 +42,5 @@ Historical v23 remains indexed in `EVIDENCE.md` and does not change a cell above
 | **W16** | Common room, private offices | Temporal topology | W01/W02 | queued | Scheduled artifact-bound rendezvous without continuous chat |
 
 Allowed statuses: `queued`, `designing`, `running`, `provisional-win`, `provisional-loss`, `blocked`,
-`replicating`, `accepted`, `rejected`, `superseded`.
+`replicating`, `accepted`, `rejected`, `superseded`, `not-activated`. `not-activated` is a final
+disposition meaning the evidence trigger never appeared; it is not a failed run.

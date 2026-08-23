@@ -39,4 +39,4 @@ disposable company-local exploration. That runtime convention is distinct from t
 
 Experiment execution is paused. The interrupted `v28-clh01-b1-terra` run is preserved as uncounted
 diagnostic evidence. No next run, ticket breakdown or harness change is authorised until the founder
-confirms or amends the active experiment-sprint spec.
+gives the start signal for the active experiment-sprint spec.

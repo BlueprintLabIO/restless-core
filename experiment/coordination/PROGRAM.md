@@ -108,12 +108,14 @@ comparison.
 ### Current sparse frontier — 23 August 2026
 
 The completed ordinary cells answer one region consistently: below strong-lead saturation, adding an
-autonomous producer has not repaid its handoff tax, even with a clean separable seam. C-LH is paused on
-provider/runtime gates and has no counted result.
+autonomous producer has not repaid its handoff tax, even with a clean separable seam. C-LH has no
+counted result: its first-party GPT-5.6 diagnostic was founder-stopped before integration and native
+evaluation, after successfully recovering one preserved Terra artifact through a second callback.
 
 The remaining sequence is therefore:
 
-1. prove one sustained Staff route with observable back-pressure and terminal delivery;
+1. verify the renamed harness and one clean first-party Staff terminal handoff without turning that
+   feasibility check into a counted organisational arm;
 2. run at most one genuinely lead-saturating separable coding sentinel and one parallel-breadth
    sourced-research sentinel;
 3. if B1 loses despite credible unused parallel value, select exactly one wildcard from its measured
@@ -122,7 +124,8 @@ The remaining sequence is therefore:
    - cognitive duplication/integration (`I3`, `E5`) → **W04 one brain, many hands**;
    - briefing/reintegration context (`C1`, `C4`) → **W01 session mitosis**;
    - late material interface delivery (`M3`, `M5`) after W07 → **W08 ambient coordination**;
-4. retain W09 and the other cards in reserve unless their named failure is actually observed;
+4. retain W09 and the other cards in reserve unless their named failure is actually observed; record
+   `not-activated` as their final sprint disposition when the trigger never appears;
 5. replicate only a provisional winner. If neither sentinel shows credible unused parallel value,
    stop wildcard execution and retain B0 as the scoped prior.
 
@@ -134,8 +137,9 @@ Provisional winners receive at least three order-randomised matched trials acros
 - **parallel breadth:** sourced research with several independent evidence regions;
 - **clean components:** a document, data or product outcome with explicit native sub-artifacts.
 
-At least one trial uses a different model/provider pairing. Model choice is recorded separately from
-the organisational mechanism.
+All trials use the frozen GPT-5.6 Sol/Terra role allocation, but each trial and blind review uses fresh
+independent sessions. Provider/model generalisation is explicitly outside this sprint so it cannot
+reintroduce runtime availability as a coordination variable.
 
 ### Stage 3 — Cross-domain generalisation
 

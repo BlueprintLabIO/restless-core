@@ -1,6 +1,6 @@
 # C-LH-01 run index
 
-Status: paused for founder review of Experiment Sprint 01; no counted arm yet
+Status: paused for the Experiment Sprint 01 founder start signal; no counted arm yet
 
 ## Frozen allocation
 
@@ -109,7 +109,7 @@ It is preserved as diagnostic evidence and is not a counted B1 arm.
 - The stop occurred before canonical integration, final lead judgement, native evaluation and the
   matched B0 arm. No comparison result can be inferred.
 
-No replacement Run ID is allocated until
-[`exp-sprint-01-coordination-frontier.md`](../../../exp-sprints/exp-sprint-01-coordination-frontier.md)
-is founder-approved. Native evidence and any future matched interpretation will be appended without
+No replacement Run ID is allocated until the founder gives the start signal for
+[`exp-sprint-01-coordination-frontier.md`](../../../exp-sprints/exp-sprint-01-coordination-frontier.md).
+Native evidence and any future matched interpretation will be appended without
 rewriting the frozen hashes above.
