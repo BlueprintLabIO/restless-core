@@ -1,6 +1,6 @@
 # C-LH-01 run index
 
-Status: paused; no counted arm, restart gates frozen
+Status: resumed under GPT-5.6-only owner decision; no counted arm yet
 
 ## Frozen allocation
 
@@ -74,5 +74,23 @@ C-LH may resume only after all of the following are true:
    become the counted model until gate 1 passes on the exact current route.
 5. Only a structurally valid B1 is followed by the frozen B0. Provider-invalid diagnostics remain
    immutable and excluded rather than repaired into evidence by narration.
+
+## GPT-5.6 matched-set restart
+
+The owner subsequently removed free OpenRouter workers from all coordination experiments. This does
+not reinterpret the GLM diagnostics; it removes their provider/runtime variable from future arms.
+
+- Accountable lead: `gpt-5.6-sol`, medium reasoning.
+- Ordinary Staff: `gpt-5.6-terra`, runtime-default reasoning.
+- Direct first-party Terra probe: exact `GPT56_TERRA_READY` response in 4.5 seconds with a normal
+  terminal turn and token telemetry.
+- Frozen arm order remains **B1 → B0**.
+- Fresh matched-set Run IDs: `v28-clh01-b1-terra` then `v28-clh01-b0-sol`.
+- The scenario and evaluator hashes remain unchanged. If the first-party actor fails to produce an
+  observable terminal handoff, the arm remains invalid rather than being narrated into evidence.
+
+The OpenRouter-specific sustained-route and visible-retry gates remain required before free providers
+can be evaluated again. They do not gate this first-party GPT-5.6 matched set. Artifact recovery remains
+a production requirement and an attribution rule: a missing callback is `unknown`, never success.
 
 Native evidence and the matched interpretation will be appended without rewriting frozen hashes.

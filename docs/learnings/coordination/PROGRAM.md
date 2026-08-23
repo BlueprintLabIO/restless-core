@@ -31,6 +31,18 @@ uses Exec as the strong-singleton producer. The main production baselines are:
 Each wildcard changes one important mechanism below the lead and is compared with the relevant
 baseline in the same harness.
 
+### Current model envelope — owner decision, 23 August 2026
+
+All remaining live cognitive comparisons use first-party GPT-5.6 sessions:
+
+- `gpt-5.6-sol` is the accountable lead in every matched arm;
+- `gpt-5.6-terra` is every ordinary Staff producer and independent critic;
+- a wildcard may change context or topology, never this role/model allocation inside its matched set.
+
+Free-provider capability and routing remain useful product questions, but they are no longer mixed
+into coordination experiments. A provider benchmark may measure availability separately; it cannot
+invalidate or stand in for an organisational arm.
+
 ## 2. Questions
 
 1. Can shared history remove briefing and reintegration cost without amplifying correlated mistakes?
