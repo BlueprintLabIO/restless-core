@@ -1,6 +1,6 @@
 # C-LH-01 run index
 
-Status: frozen; B1 infrastructure corrected, counted arm queued first
+Status: paused; no counted arm, restart gates frozen
 
 ## Frozen allocation
 
@@ -42,7 +42,37 @@ Status: frozen; B1 infrastructure corrected, counted arm queued first
   minutes. Completion is still callback/process-exit driven; the global run envelope remains the only
   outer bound. A wrong token cannot renew a lease. Fault/recovery verification passed 39 checks and
   baseline-isolation verification passed 39 checks after the change.
-- Counted B1 Run ID: `v27-clh01-b1-glm-r3` — queued first after the liveness repair.
-- B0 Run ID: `v27-clh01-b0-sol` — queued second after B1 closes.
+- `v27-clh01-b1-glm-r3` is a second infrastructure-invalid diagnostic, not an arm. The exact GLM
+  route passed the stronger admission probe in 13.081 seconds, the lead commissioned one Work after
+  19 seconds, and the live supervisor renewed its lease after five minutes. That is direct runtime
+  proof that the lease repair works. The Staff ACP session nevertheless accumulated 14 observed
+  OpenRouter 429 responses in 511 seconds, made no workspace change and produced no callback. It was
+  stopped after the repeated provider error evidence, not because a semantic task timer expired. The
+  lead's uncounted canonical commit `73a9cfd` was already doing the whole outcome independently when
+  the diagnostic was stopped.
+- Across r2 and r3, the Staff ACP sessions recorded 65 provider 429 responses. This is `R1` provider
+  back-pressure plus `R4` hidden retry telemetry. It is neither evidence that B1 loses nor a reason to
+  retry GLM until a lucky run appears.
+- No counted B1 Run ID is allocated while the cell is paused. The frozen random order remains
+  **B1 → B0**; B0 was not started because doing the second arm without a valid first arm would spend
+  matched-comparison compute without closing the cell.
+
+## Restart gates
+
+C-LH may resume only after all of the following are true:
+
+1. The exact candidate Staff route completes a multi-step tool-and-terminal-callback probe. A catalogue
+   listing or one-token readiness response is insufficient evidence of sustained availability.
+2. Provider rejection and retry state is observable to the supervisor and attributed separately from
+   actor reasoning or organisational delay. A provider-saturated turn must reach an explicit circuit-
+   breaker outcome without pretending elapsed time semantically completes the Work.
+3. When a process ends without callback, the lead receives the observed workspace HEAD/status/diff or
+   exact commit handle as recovery evidence. Physical preservation without an exposed handle is not an
+   artifact handoff.
+4. A replacement provider/model is frozen before a fresh B1 run. `stealth/ox-alpha` is the next
+   candidate because it was explicitly requested and previously passed a live write probe; it does not
+   become the counted model until gate 1 passes on the exact current route.
+5. Only a structurally valid B1 is followed by the frozen B0. Provider-invalid diagnostics remain
+   immutable and excluded rather than repaired into evidence by narration.
 
 Native evidence and the matched interpretation will be appended without rewriting frozen hashes.
