@@ -9,8 +9,8 @@ directory only when execution begins.
 |---|---|---|---|---|---|
 | **C-SL** | Coding/product | Small, high coupling | B0/B1 | provisional-loss | B0 won 11/11 vs B1 10/11; retain as first boundary point |
 | **C-SH** | Coding/product | Small, highly separable | B0/B1 | provisional-loss | B0 wins repeat at outcome parity: 29% faster, 23% fewer tokens, 62% fewer tools |
-| **C-LL** | Coding/product | Large, high coupling | B0/B1 | queued | Design next coding corner under r2 runtime capsule |
-| **C-LH** | Coding/product | Large, highly separable | B0/B1 | queued | Small-arm comparability |
+| **C-LL** | Coding/product | Broad, high coupling; below lead saturation | B0/B1 | provisional-loss | B0 won quality and cost; retain as below-saturation point, then test a genuinely lead-saturating case |
+| **C-LH** | Coding/product | Large, highly separable | B0/B1 | queued | Freeze independently acceptable seams and confirm lead saturation with B0 pilot |
 | **C-MM** | Coding/product | Medium, mixed | B0/B1/B2 | queued | First four corners |
 | **R-SL** | Sourced research | Small, high coherence | B0/B1 | queued | Research corpus and rubric frozen |
 | **R-SH** | Sourced research | Small, independent evidence | B0/B1 | queued | Research corpus and rubric frozen |
