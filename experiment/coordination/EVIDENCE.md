@@ -26,6 +26,12 @@ This index maps current claims to inspectable evidence. It does not copy raw tra
 | [`C-LH-01 run index`](experiments/C-LH-01/runs.md) | Large/high-separability cell has no counted arm. Preflight found an obsolete admission cutoff; r2 found a non-renewable 15-minute lease and preserved an unreported clean commit; r3 proved the renewable supervisor heartbeat, then exposed 14 more hidden GLM provider 429s and no worker diff. Across r2/r3, 65 provider rejections are attributed to `R1`/`R4`, not team performance. Restart gates prevent lucky-retry evidence. |
 | `v24-baseline-architecture-r5` (38/38) + `v24-artifact-architecture-r5` (22/22) | Actors receive observed host/container browser capabilities; the lead's first-party adapter executed a native proof against the live mounted working tree and supplied its missing static fixture without host Playwright/CDP rediscovery. |
 
+## Experiment Sprint 01
+
+| Evidence | What it supports or challenges |
+|---|---|
+| [`T0 harness verification`](experiments/EXP-01/t00-harness-verification.md) | After the `experiment/` rename, 39/39 fault checks, 39/39 baseline-isolation checks and 22/22 artifact-architecture checks passed. A real Terra producer returned an exact gated commit and terminal callback in 50.75 seconds, woke the lead, and left Exec available for an independent request. Two focused-probe wrapper bugs were fixed before counted arms. |
+
 ## External research priors
 
 These guide experiment selection but do not count as Restless product evidence.

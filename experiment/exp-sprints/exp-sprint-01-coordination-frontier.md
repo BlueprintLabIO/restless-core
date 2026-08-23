@@ -329,7 +329,7 @@ The sprint is complete only when all are true:
 
 Ticket status lives only here. Ticket details are under [`exp-sprint-01/`](exp-sprint-01/).
 
-- [ ] [T0 — Experiment area and harness verification](exp-sprint-01/t00-harness-verification.md)
+- [x] [T0 — Experiment area and harness verification](exp-sprint-01/t00-harness-verification.md)
 - [ ] [T1 — Task and evaluator catalogue](exp-sprint-01/t01-task-evaluator-catalogue.md)
 - [ ] [T2 — Ordinary frontier](exp-sprint-01/t02-ordinary-frontier.md)
 - [ ] [T3 — Primary bottleneck screen](exp-sprint-01/t03-primary-bottleneck.md)

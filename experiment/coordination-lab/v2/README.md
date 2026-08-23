@@ -29,6 +29,13 @@ bash experiment/coordination-lab/v2/run.sh run v2
 
 Generated databases, cells, workspaces, prompts, and traces live under ignored `v2/workdir/`.
 
+Before a GPT-5.6 coordination comparison, prove one real Terra producer can return an exact commit and
+terminal callback without treating the probe as an organisational arm:
+
+```sh
+bash experiment/coordination-lab/v2/run.sh first-party-callback-probe exp01-terra-handoff
+```
+
 ## V21 artifact-led comparison
 
 V21 keeps the v2 execution substrate and changes only the coordination architecture. It compares:

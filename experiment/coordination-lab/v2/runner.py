@@ -2608,6 +2608,15 @@ async def positive_callback_probe(run_id: str) -> dict[str, Any]:
     lab = LabRun(run_id)
     await lab.coordinator.start_server()
     try:
+        coordination_cell = lab.coordinator.workspaces.ensure_coordination_cell(
+            lab.lead_actor, read_only=False
+        )
+        lab.native_review_proof = await asyncio.to_thread(
+            prove_native_review_runtime, coordination_cell
+        )
+        (lab.run_dir / "native-review-proof.json").write_text(
+            json.dumps(lab.native_review_proof, indent=2, sort_keys=True)
+        )
         commissioned = lab.coordinator.command(
             command_payload(
                 "exec",
@@ -2646,6 +2655,116 @@ async def positive_callback_probe(run_id: str) -> dict[str, Any]:
             },
         )
         (run_dir / "summary.json").write_text(json.dumps(summary, indent=2, sort_keys=True))
+        return summary
+    finally:
+        await lab.coordinator.stop_server()
+        lab.coordinator.close()
+
+
+async def first_party_callback_probe(run_id: str) -> dict[str, Any]:
+    """Prove one GPT-5.6 Terra artifact handoff without counting an organisation arm."""
+    expected = "RESTLESS_EXP01_TERRA_HANDOFF_READY\n"
+    artifact_path = "docs/exp01-terra-handoff.md"
+    prepare(
+        run_id,
+        mode=MODE_TEAM,
+        lead_model="gpt-5.6-sol",
+        worker_pool=["gpt-5.6-terra"],
+        spend_ceiling_usd=3.0,
+        wall_clock_seconds=900,
+        team_worker_actor="experience-presentation",
+        actor_max_time="none",
+    )
+    lab = LabRun(run_id)
+    await lab.coordinator.start_server()
+    try:
+        coordination_cell = lab.coordinator.workspaces.ensure_coordination_cell(
+            lab.lead_actor, read_only=False
+        )
+        lab.native_review_proof = await asyncio.to_thread(
+            prove_native_review_runtime, coordination_cell
+        )
+        (lab.run_dir / "native-review-proof.json").write_text(
+            json.dumps(lab.native_review_proof, indent=2, sort_keys=True)
+        )
+        commissioned = lab.coordinator.command(
+            command_payload(
+                lab.lead_actor,
+                "commission",
+                "exp01-first-party-terra-callback",
+                {
+                    "owner": "experience-presentation",
+                    "outcome": (
+                        f"Create {artifact_path} containing only the exact line {expected.strip()}. "
+                        "Commit the file, verify its exact bytes, and call terminal report(outcome_met) "
+                        "in this same actor process. Do not inspect or change unrelated files."
+                    ),
+                    "expected_artifact": f"a clean commit containing {artifact_path}",
+                    "gates": [
+                        {
+                            "name": "exact-first-party-handoff",
+                            "argv": [
+                                "python3",
+                                "-c",
+                                (
+                                    "from pathlib import Path; "
+                                    f"assert Path({artifact_path!r}).read_text() == {expected!r}"
+                                ),
+                            ],
+                        }
+                    ],
+                },
+            )
+        )
+        claimed = lab.coordinator.claim_ready(1, lease_seconds=ATTEMPT_LEASE_SECONDS)
+        if len(claimed) != 1 or claimed[0]["id"] != commissioned["work"]:
+            raise RuntimeError(f"first-party probe did not claim its one Work: {claimed}")
+        result = await lab.staff_turn(claimed[0])
+        attempt = lab.coordinator.conn.execute(
+            "SELECT state,summary,started_at,ended_at FROM attempts WHERE id=?",
+            (claimed[0]["attempt"],),
+        ).fetchone()
+        artifacts = [
+            dict(row)
+            for row in lab.coordinator.conn.execute(
+                "SELECT kind,reference FROM artifacts WHERE work_id=? ORDER BY created_at",
+                (commissioned["work"],),
+            ).fetchall()
+        ]
+        causes = lab.coordinator.pending_causes(lab.lead_actor)
+        valid = (
+            attempt is not None
+            and attempt["state"] == "produced"
+            and any(artifact["kind"] == "commit" for artifact in artifacts)
+            and any(cause["cause"] == "attempt_terminal" for cause in causes)
+        )
+        if not valid:
+            raise RuntimeError(
+                "first-party Terra probe lacked produced Attempt, commit artifact, or lead wake: "
+                f"attempt={dict(attempt) if attempt else None} artifacts={artifacts} causes={causes}"
+            )
+        summary = lab.coordinator.summary()
+        summary.update(
+            {
+                "actor_result": result,
+                "run": run_id,
+                "focused_probe": "first_party_terra_callback",
+                "model": "gpt-5.6-terra",
+                "attempt": dict(attempt),
+                "artifacts": artifacts,
+                "lead_wakes": causes,
+                "valid": True,
+            }
+        )
+        lab.coordinator.emit(
+            "run_terminal",
+            {
+                "cost_usd": lab.coordinator.cost(),
+                "decision_complete": False,
+                "focused_probe": "first_party_terra_callback",
+            },
+        )
+        (lab.run_dir / "summary.json").write_text(json.dumps(summary, indent=2, sort_keys=True))
         return summary
     finally:
         await lab.coordinator.stop_server()
@@ -3361,6 +3480,8 @@ def main() -> None:
     fault_parser.add_argument("run_id", nargs="?", default="faults")
     positive_parser = sub.add_parser("positive-probe")
     positive_parser.add_argument("run_id", nargs="?", default="positive")
+    first_party_positive_parser = sub.add_parser("first-party-callback-probe")
+    first_party_positive_parser.add_argument("run_id")
     positive_repair_parser = sub.add_parser("positive-repair-probe")
     positive_repair_parser.add_argument("run_id", nargs="?", default="positive")
     architecture_parser = sub.add_parser("architecture-test")
@@ -3418,6 +3539,8 @@ def main() -> None:
         print(json.dumps(asyncio.run(fault_test(args.run_id)), indent=2))
     elif args.command == "positive-probe":
         print(json.dumps(asyncio.run(positive_callback_probe(args.run_id)), indent=2))
+    elif args.command == "first-party-callback-probe":
+        print(json.dumps(asyncio.run(first_party_callback_probe(args.run_id)), indent=2))
     elif args.command == "positive-repair-probe":
         print(json.dumps(asyncio.run(positive_callback_repair_probe(args.run_id)), indent=2))
     elif args.command == "architecture-test":
