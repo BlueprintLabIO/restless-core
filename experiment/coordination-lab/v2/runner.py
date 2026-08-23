@@ -58,16 +58,26 @@ MODE_ARTIFACT = "artifact_led"
 MODE_SINGLE = "single_agent"
 MODE_LEAD = "lead_alone"
 MODE_TEAM = "ordinary_team"
+MODE_NATURAL = "natural_team"
 MODE_CRITIC = "lead_critic"
-MODES = (MODE_GRAPH, MODE_ARTIFACT, MODE_SINGLE, MODE_LEAD, MODE_TEAM, MODE_CRITIC)
+MODES = (
+    MODE_GRAPH,
+    MODE_ARTIFACT,
+    MODE_SINGLE,
+    MODE_LEAD,
+    MODE_TEAM,
+    MODE_NATURAL,
+    MODE_CRITIC,
+)
 WRITABLE_CANDIDATE_MODES = {
     MODE_ARTIFACT,
     MODE_SINGLE,
     MODE_LEAD,
     MODE_TEAM,
+    MODE_NATURAL,
     MODE_CRITIC,
 }
-WORKER_MODES = {MODE_GRAPH, MODE_ARTIFACT, MODE_TEAM, MODE_CRITIC}
+WORKER_MODES = {MODE_GRAPH, MODE_ARTIFACT, MODE_TEAM, MODE_NATURAL, MODE_CRITIC}
 PRODUCER_ACTORS = (
     "gameplay-systems",
     "world-content",
@@ -131,10 +141,10 @@ def actors_for_mode(
         return {"single-agent": ACTORS["single-agent"]}
     if mode == MODE_LEAD:
         return {"studio-lead": ACTORS["studio-lead"]}
-    if mode == MODE_TEAM:
+    if mode in (MODE_TEAM, MODE_NATURAL):
         if team_worker_actor not in PRODUCER_ACTORS:
             raise ValueError(
-                f"ordinary-team worker must be one of {PRODUCER_ACTORS}, got {team_worker_actor!r}"
+                f"team worker must be one of {PRODUCER_ACTORS}, got {team_worker_actor!r}"
             )
         return {
             "studio-lead": ACTORS["studio-lead"],
@@ -155,6 +165,7 @@ def coordination_actor_for_mode(mode: str) -> str:
         MODE_SINGLE: "single-agent",
         MODE_LEAD: "studio-lead",
         MODE_TEAM: "studio-lead",
+        MODE_NATURAL: "studio-lead",
         MODE_CRITIC: "studio-lead",
     }[mode]
 
@@ -542,7 +553,7 @@ def prepare(
     actors = actors_for_mode(mode, team_worker_actor)
     coordination_actor = coordination_actor_for_mode(mode)
     if max_staff_concurrency is None:
-        if mode in (MODE_TEAM, MODE_CRITIC):
+        if mode in (MODE_TEAM, MODE_NATURAL, MODE_CRITIC):
             selected_max_staff = 1
         elif mode_has_workers(mode):
             selected_max_staff = MAX_STAFF
@@ -552,7 +563,7 @@ def prepare(
         selected_max_staff = max_staff_concurrency
     if selected_max_staff < 0:
         raise ValueError("max Staff concurrency must not be negative")
-    if mode in (MODE_TEAM, MODE_CRITIC) and selected_max_staff != 1:
+    if mode in (MODE_TEAM, MODE_NATURAL, MODE_CRITIC) and selected_max_staff != 1:
         raise ValueError(f"{mode} requires exactly one available Staff slot")
     cleanup_cells(run_id)
     run_dir = WORK_ROOT / run_id
@@ -744,6 +755,41 @@ workspace evidence or a narrower correction changes the next Attempt. Do not iss
 repair after the same runtime outcome with the same actor/model and no new hypothesis; leave the Work
 truthfully unresolved instead of manufacturing retry churn.
 """
+    elif mode == MODE_NATURAL:
+        coordination_system = f"""# Coordination lab v24 — natural accountable team lead (N1)
+
+The company Exec has delegated this exact owner outcome to you and returned to owner availability. You
+own the outcome: understand it, produce it, integrate it, prove it in its native form, and make the final
+quality judgement from the writable canonical `candidate`.
+
+One Staff colleague is available:
+{roster}
+
+First build a causal understanding of the product and outcome. Then use judgement to choose the effective
+team size. Working alone is valid. Involve the colleague only when genuine ownership of a bounded part is
+likely to improve the result or free you to do valuable complementary work; never delegate merely to
+satisfy a topology or demonstrate teamwork.
+
+If you collaborate, communicate as a strong human lead would. Explain the purpose, your current
+understanding, important unknowns, the stable ownership seam, and what observable result would make the
+contribution useful. Invite material challenge. Communicate again only when new information changes the
+other person's work. There is no required handoff template, shared-state document, message cadence,
+polling loop, critic, or prescribed first action.
+
+Collaboration is a real cross-actor event, not a story: if you choose it, actually call OrgIntel's
+`commission` tool before representing Staff as working. Only the resulting Work → Attempt → artifact
+callback is evidence that Staff contributed. Never invent, simulate, or role-play a Staff handoff. If no
+Work exists, say truthfully that you worked alone.
+
+Continue useful complementary work while Staff owns their contribution. Their report and commit are
+claims, not acceptance: inspect the exact result in the whole product, integrate it only if useful, repair
+coherence where warranted, and run native proof yourself. You retain accountability regardless of who
+typed which change.
+
+Use at most one genuine Staff responsibility in this bounded screen. There is no mid-run owner help.
+Record `decide(subject=run, choice=complete)` only when one clean, advanced, executable candidate meets
+the exact outcome. In the final evidence, briefly state why the chosen team size was appropriate.
+"""
     elif mode == MODE_CRITIC:
         coordination_system = f"""# Coordination lab v24 — accountable lead plus fresh artifact critic (B2)
 
@@ -796,7 +842,7 @@ Commands require a caller-chosen `idempotency_key`; reuse it only for an exact r
             if mode == MODE_ARTIFACT
             else (
                 "Your accountable lead has already metabolised the owner directive into this exact bounded Work. Complete only this responsibility and hand back one clean commit; do not reopen the whole mission or create a parallel plan.\n\n"
-                if mode in (MODE_TEAM, MODE_CRITIC)
+                if mode in (MODE_TEAM, MODE_NATURAL, MODE_CRITIC)
                 else ""
             )
         )
@@ -837,7 +883,7 @@ Commands require a caller-chosen `idempotency_key`; reuse it only for an exact r
                 "spend_ceiling_usd": spend_ceiling_usd,
                 "turn_reservation_usd": RESERVATION_USD,
                 "max_staff_concurrency": selected_max_staff,
-                "team_worker_actor": team_worker_actor if mode == MODE_TEAM else None,
+                "team_worker_actor": team_worker_actor if mode in (MODE_TEAM, MODE_NATURAL) else None,
                 "declared_evaluators": declared_evaluators,
                 "actors": {actor: {"role": role, "brief": brief} for actor, (role, brief) in actors.items()},
             },
@@ -1454,13 +1500,16 @@ coherent playable advance, verify it, commit it cleanly, and truthfully close or
 Continue direct outcome work from this exact candidate. Inspect and run what judgement requires,
 produce one coherent advance, verify it natively, commit it cleanly, and close only on observed proof.
 """
-        if self.mode in (MODE_TEAM, MODE_CRITIC):
-            baseline_name = "ordinary team — B1" if self.mode == MODE_TEAM else "fresh critic — B2"
-            action = (
-                "If no producer Work exists yet, your first cross-system action before any candidate edit is to commission exactly one bounded contribution now. Then continue complementary direct work. Your own commits never count as producer artifacts. On callback, inspect and integrate only the worker's exact useful commit."
-                if self.mode == MODE_TEAM
-                else "If the direct candidate is not yet coherently implemented and committed, continue producing it yourself. Once it is, commission exactly one artifact-only critique; on callback, consume and judge its exact review artifact."
-            )
+        if self.mode in (MODE_TEAM, MODE_NATURAL, MODE_CRITIC):
+            if self.mode == MODE_TEAM:
+                baseline_name = "ordinary team — B1"
+                action = "If no producer Work exists yet, your first cross-system action before any candidate edit is to commission exactly one bounded contribution now. Then continue complementary direct work. Your own commits never count as producer artifacts. On callback, inspect and integrate only the worker's exact useful commit."
+            elif self.mode == MODE_NATURAL:
+                baseline_name = "natural team — N1"
+                action = "Choose whether this outcome benefits from the available colleague. Commission at most one genuine bounded responsibility if it does; zero is valid. Lead through rich, purposeful communication rather than protocol ceremony, continue complementary work, and personally judge any returned contribution in the whole candidate."
+            else:
+                baseline_name = "fresh critic — B2"
+                action = "If the direct candidate is not yet coherently implemented and committed, continue producing it yourself. Once it is, commission exactly one artifact-only critique; on callback, consume and judge its exact review artifact."
             return f"""# Accountable lead outcome wake — {baseline_name}
 
 ## Exec-delegated owner outcome
@@ -1788,6 +1837,14 @@ integration-lead consumes the required commit references above.
         elif self.mode == MODE_TEAM:
             required = "exactly one ordinary producer Work with a produced commit artifact"
             valid = (
+                len(work) == 1
+                and work[0]["owner"] != self.lead_actor
+                and work[0]["id"] in produced_work
+                and work[0]["id"] in commit_work
+            )
+        elif self.mode == MODE_NATURAL:
+            required = "zero Staff Work, or one genuine producer Work with a produced commit artifact"
+            valid = not work or (
                 len(work) == 1
                 and work[0]["owner"] != self.lead_actor
                 and work[0]["id"] in produced_work
@@ -3080,6 +3137,7 @@ def baseline_architecture_test(run_id: str) -> dict[str, Any]:
     arm_specs = (
         ("b0", MODE_LEAD, [], "gameplay-systems"),
         ("b1", MODE_TEAM, ["test/free-worker"], "world-content"),
+        ("n1", MODE_NATURAL, ["test/free-worker"], "world-content"),
         ("b2", MODE_CRITIC, ["test/free-critic"], "gameplay-systems"),
     )
     for arm, mode, workers, worker_actor in arm_specs:
@@ -3155,6 +3213,31 @@ def baseline_architecture_test(run_id: str) -> dict[str, Any]:
                     "/usr/bin/chromium" in worker_capsule
                     and "/usr/local/lib/node_modules/playwright/index.mjs" in worker_capsule
                     and "optional stronger checks must not delay" in worker_capsule,
+                    worker_capsule,
+                )
+            elif mode == MODE_NATURAL:
+                check("N1 exposes exactly one optional producer", actor_ids == {"studio-lead", "world-content"}, sorted(actor_ids))
+                check("N1 pins exactly one worker model", manifest["worker_model_pool"] == workers, manifest)
+                check("N1 permits exactly one Staff turn at once", manifest["max_staff_concurrency"] == 1, manifest)
+                check(
+                    "N1 makes zero Staff a valid lead judgement",
+                    "Working alone is valid" in system_flat
+                    and "never delegate merely to satisfy a topology" in system_flat
+                    and lab.protocol_evidence()["valid"] is True,
+                    system_flat,
+                )
+                check(
+                    "N1 encourages rich communication without adding a protocol",
+                    "current understanding" in system_flat
+                    and "Invite material challenge" in system_flat
+                    and "There is no required handoff template" in system_flat,
+                    system_flat,
+                )
+                worker_capsule = lab.runtime_capability_capsule("world-content", cell)
+                check(
+                    "N1 worker receives the same Company Runtime capability as B1",
+                    "/usr/bin/chromium" in worker_capsule
+                    and "/usr/local/lib/node_modules/playwright/index.mjs" in worker_capsule,
                     worker_capsule,
                 )
             else:

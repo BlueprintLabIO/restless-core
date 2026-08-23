@@ -20,6 +20,12 @@ directory only when execution begins.
 
 Historical v23 remains indexed in `EVIDENCE.md` and does not change a cell above to complete.
 
+## Behavioural leadership screens
+
+| ID | Domain | Manipulation | Status | Next gate |
+|---|---|---|---|---|
+| **N1-G-WORLD** | Coding/product | Strong lead chooses zero or one Staff; causal free-form brief over factual Work events | replicating | Provisional 8.2 blind win versus forced B1 6.4 and fresh B0 4.5; replicate on one tight-coupling and one uncertainty/breadth workload |
+
 ## Wildcards
 
 | ID | Wildcard | Family | Dependency | Status | Next gate |

@@ -68,6 +68,7 @@ def main() -> None:
     parser.add_argument("run_id")
     parser.add_argument("--scenario-file", required=True)
     parser.add_argument("--evaluator-file", required=True)
+    parser.add_argument("--producer-role", default="bounded-producer")
     args = parser.parse_args()
     scenario_path = Path(args.scenario_file).resolve()
     evaluator_path = Path(args.evaluator_file).resolve()
@@ -86,7 +87,7 @@ def main() -> None:
         wall_clock_seconds=14_400,
         drain_grace_seconds=120,
         scenario_text=scenario_path.read_text(),
-        team_worker_actor="world-content",
+        team_worker_actor=args.producer_role,
         evaluator_files=[],
         actor_max_time="none",
     )
@@ -112,10 +113,10 @@ The company Exec delegated the owner outcome and immediately returned to availab
 one accountable lead plus one bounded producer below it. Read `context/scenario.md` completely and
 inspect the exact seed in `canonical/`. The identical seed in `worker/` is the future producer branch.
 
-Do not edit or commit anything in this kickoff. Build one shared causal model of the current game,
-identify the smallest independently useful pure cavern-scene seam for the producer, and reserve runtime
-integration, input, HUD, battle return, native proof and final judgement for the lead. Name exact files,
-interfaces, coordinate/state risks and verification obligations. The frozen task hash is
+Do not edit or commit anything in this kickoff. Build one shared causal model of the frozen outcome and
+identify the smallest independently useful, reviewable seam for the producer. Reserve canonical
+integration, cross-artifact synthesis, acceptance proof and final judgement for the lead. Name exact
+files or artifacts, interfaces, causal/state risks and verification obligations. The frozen task hash is
 `{scenario_hash}`. End with `COMMON_KICKOFF_COMPLETE`.
 """
     kickoff_last = run_dir / "kickoff-last.md"
@@ -136,20 +137,20 @@ interfaces, coordinate/state risks and verification obligations. The frozen task
     lead_prompt = f"""# W01 lead child
 
 You are the accountable Sol lead forked from the completed shared kickoff. Work only in `canonical/`.
-Retain the whole product model and implement the runtime integration, input/HUD state, battle/return
-coherence, snapshot truth and focused native proof. The Terra producer simultaneously owns the pure
-cavern scene-builder seam agreed in shared history on `worker/`; do not edit that module or poll the
-producer. It is acceptable for your first-phase branch to await that exact module. Make complementary
-progress, commit your lead-owned work cleanly, and end `LEAD_PHASE_COMPLETE`. The hidden evaluator is
-not present. Prepared native checks can be run with `{HERE / 'native_check.py'} {cell} {canonical} <file>`.
+Retain the whole outcome model and implement the lead-owned integration, synthesis, dependent artifacts
+and focused acceptance proof. The Terra producer simultaneously owns the bounded seam agreed in shared
+history on `worker/`; do not duplicate that seam or poll the producer. It is acceptable for your
+first-phase branch to await that exact artifact. Make complementary progress, commit your lead-owned
+work cleanly, and end `LEAD_PHASE_COMPLETE`. The hidden evaluator is not present. For browser-native
+checks, the prepared path is `{HERE / 'native_check.py'} {cell} {canonical} <file>`.
 """
     worker_prompt = """# W01 bounded producer child
 
 You are the Terra producer forked from the completed shared kickoff. Work only in `worker/`. Implement
-the independently useful pure cavern scene-builder seam agreed in shared history: cohesive primitive
-geometry/material roles and semantic handles/state operations needed by the lead, without taking over
-Game input, HUD, battle lifecycle, canonical integration or final product judgement. Add a focused
-module-level proof if useful. Leave exactly one clean meaningful commit ahead of the seed and end
+the independently useful bounded seam agreed in shared history, including the exact artifact/interface
+and evidence obligations already named. Do not take over the lead's dependent artifacts, canonical
+integration, cross-artifact synthesis, acceptance judgement or final decision. Add a focused local
+proof if useful. Leave exactly one clean meaningful commit ahead of the seed and end
 `WORKER_CHILD_COMPLETE` with the SHA. Do not inspect or touch `canonical/`.
 """
     fork_handles = {
@@ -169,8 +170,8 @@ module-level proof if useful. Leave exactly one clean meaningful commit ahead of
 The bounded producer child reached terminal process state. Its exact workspace is `{worker}` and exact
 HEAD is `{worker_commit}`; clean={str(worker_clean).lower()}, commits-ahead={worker_advance}. Inspect the
 actual diff and treat its narration as a claim. Fetch/cherry-pick or reject it by product judgement,
-then finish the entire frozen owner outcome in `canonical/`. Resolve all coordinate/state interfaces,
-run the combined native proof and unchanged regression suites, and leave exactly one clean meaningful
+then finish the entire frozen owner outcome in `canonical/`. Resolve all artifact/state interfaces,
+run the combined task-native proof and unchanged regression suites, and leave exactly one clean meaningful
 candidate commit ahead of `{SEED}` (squash experiment commits if needed). Do not seek owner help. End
 with `W01_RUN_COMPLETE`, candidate SHA, and explicit `producer=accepted|repaired|rejected`. The hidden
 external evaluator remains unavailable.
