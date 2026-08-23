@@ -54,6 +54,9 @@ cross-source weighting, recommendation, release sequence, final ledger and memo.
 - Both arms receive identical scenario/evaluator bytes, seed, tools, 14,400-second envelope,
   120-second drain, no actor timeout and USD 6 nominal ceiling.
 
-## Post-run correction
+## Post-run result
 
-Pending.
+The structural hypothesis was falsified in the ordinary B1 implementation. Although the ledger was an
+independent artifact seam and 136.4 actor-seconds overlapped, the Work context carried the identifiers
+but not the frozen corpus. The worker substituted unrelated repository evidence, and the lead rejected
+and rebuilt the whole ledger. Both arms then failed the external evaluator. See `runs.md`.

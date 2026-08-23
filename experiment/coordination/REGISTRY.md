@@ -15,7 +15,7 @@ directory only when execution begins.
 | **R-SL** | Sourced research | Small, high coherence | B0/B1 | queued | Reserve; three below-saturation coding losses already establish the simple-region prior |
 | **R-SH** | Sourced research | Small, independent evidence | B0/B1 | queued | Reserve; prefer the more discriminating large parallel-breadth sentinel |
 | **R-LL** | Sourced research | Large, high coherence | B0/B1 | queued | Reserve unless domain versus coupling remains confounded after R-LH |
-| **R-LH** | Sourced research | Large, independent evidence | B0/B1 | running | Revised four-dossier pack independently passed the work-shape gate; run `exp01-e02-b1-terra` |
+| **R-LH** | Sourced research | Large, independent evidence | B0/B1 | provisional-loss | Both failed the owner gate; B1 was narrowly preferred blind but its missing-corpus handoff was rejected and rebuilt; B0 was 12.1% faster with 57.8% fewer tokens |
 | **R-MM** | Sourced research | Medium, mixed | B0/B1/B2 | queued | Reserve only if a mixed integration point can change routing |
 
 Historical v23 remains indexed in `EVIDENCE.md` and does not change a cell above to complete.
@@ -24,7 +24,7 @@ Historical v23 remains indexed in `EVIDENCE.md` and does not change a cell above
 
 | ID | Wildcard | Family | Dependency | Status | Next gate |
 |---|---|---|---|---|---|
-| **W01** | Session mitosis | Shared history | Baseline B0/B1 | queued | Activate only if a valid sentinel records briefing/reintegration `C1` or `C4`; then prove exact common-prefix fork and role/tool divergence |
+| **W01** | Session mitosis | Shared history | Baseline B0/B1 | designing | Activated by E02 `C1`/`I3`: the Work carried IDs but not the frozen corpus; prove an exact first-party common-prefix fork and role/tool divergence |
 | **W02** | Fork–work–reunite cycles | Shared history | W01 | queued | One fork, artifact-only reunion and second fork |
 | **W03** | Exec-to-lead lineage fork | Shared history | W01 + redaction audit | queued | Neutral request capsule without executive authority leakage |
 | **W04** | One brain, many hands | Cognitive topology | Baseline B0 | designing | Activated by E01 `E5`: useful CSS handoff did not repay allocation, repair and integration tax; screen after E02 |
