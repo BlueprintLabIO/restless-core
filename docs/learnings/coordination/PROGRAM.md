@@ -71,17 +71,20 @@ and a missing callback remains `unknown` while observable artifacts survive.
 
 ### Stage 0.5 — Ordinary-team crossover
 
-Run the sparse coding/research size × parallelisability calibration in `BASELINES.md`, refine only the
-observed decision boundary, and test larger teams only where one worker already adds value. Record the
-ordinary frontier before implementing W01–W16.
+Run only the decision-relevant coding/research sentinels in `BASELINES.md`, refine the observed
+decision boundary, and test larger teams only where one worker already adds value. The ten-cell map is
+not a completion checklist. Record enough of the ordinary frontier to choose one measured bottleneck
+before implementing a wildcard.
 
 ### Stage 1 — Mechanism probes
 
-Exercise every wildcard on the smallest scenario capable of falsifying its mechanism. A probe may be
-deterministic when testing context reconstruction, event delivery or runtime state cloning. Cognitive
-claims require a live model and native artifact.
+Select a wildcard only when an ordinary run exposed the bottleneck it claims to remove. Exercise the
+selected wildcard on the smallest scenario capable of falsifying its mechanism. The sixteen cards are
+a hypothesis library, not sixteen execution obligations. A probe may be deterministic when testing
+context reconstruction, event delivery or runtime state cloning. Cognitive claims require a live
+model and native artifact.
 
-Each wildcard gets:
+Each activated wildcard gets:
 
 1. one deterministic/conformance probe where applicable;
 2. one live matched pair against B0 or B1;
@@ -89,6 +92,27 @@ Each wildcard gets:
 
 Do not run three expensive replicas of an idea that cannot pass its basic mechanism or first outcome
 comparison.
+
+### Current sparse frontier — 23 August 2026
+
+The completed ordinary cells answer one region consistently: below strong-lead saturation, adding an
+autonomous producer has not repaid its handoff tax, even with a clean separable seam. C-LH is paused on
+provider/runtime gates and has no counted result.
+
+The remaining sequence is therefore:
+
+1. prove one sustained Staff route with observable back-pressure and terminal delivery;
+2. run at most one genuinely lead-saturating separable coding sentinel and one parallel-breadth
+   sourced-research sentinel;
+3. if B1 loses despite credible unused parallel value, select exactly one wildcard from its measured
+   failure codes:
+   - `V3`/artifact ceremony or expensive acceptance → **W07 proof-carrying handoff**;
+   - cognitive duplication/integration (`I3`, `E5`) → **W04 one brain, many hands**;
+   - briefing/reintegration context (`C1`, `C4`) → **W01 session mitosis**;
+   - late material interface delivery (`M3`, `M5`) after W07 → **W08 ambient coordination**;
+4. retain W09 and the other cards in reserve unless their named failure is actually observed;
+5. replicate only a provisional winner. If neither sentinel shows credible unused parallel value,
+   stop wildcard execution and retain B0 as the scoped prior.
 
 ### Stage 2 — Replication on different work shapes
 
@@ -382,20 +406,22 @@ Promote only when the mechanism:
 
 Otherwise keep it scoped, reject it or record it as blocked. Do not ship sixteen modes.
 
-## 8. Execution order
+## 8. Candidate order
 
-| Wave | Experiments | Reason |
+This is a dependency and selection order, not a promise to execute every row.
+
+| Wave | Candidates | Activation signal |
 |---|---|---|
-| **0** | B0/B1/B2 and Exec→lead concurrency | Establish corrected architecture and fair baseline |
-| **1** | W01, W07, W09, W04 | Highest expected information and lowest dependency |
-| **2** | W02, W05, W06, W08 | Shared checkpoints, state and event communication |
-| **3** | W10, W11, W12, W13 | Independence, transferability, allocation and redundancy |
-| **4** | W14, W16 | Adaptive/temporal policies require earlier signals |
-| **5** | W03, W15 | Highest authority/runtime feasibility risk; test after fork semantics are understood |
-| **6** | Cross-domain replication and router | Generalise only the survivors |
+| **0** | Remaining B0/B1 sentinel(s) | Establish the ordinary frontier on a dependable Staff route |
+| **1** | W07, W04 or W01 | Select one from observed `V3`, `I3`/`E5` or `C1`/`C4` evidence |
+| **2** | W08, W02, W05 or W06 | Only if the selected mechanism reveals an event/checkpoint/state bottleneck |
+| **3** | W09–W14 or W16 | Only when a run records the corresponding communication, independence, allocation or temporal failure |
+| **4** | W03 or W15 | Only after authority-safe fork semantics or provider/runtime feasibility is independently proved |
+| **5** | Cross-domain replication and router | Generalise only a provisional winner |
 
 Within a wave, run the cheapest discriminating probe first. Stop a losing branch; do not finish the
-table merely for completeness.
+table merely for completeness. Completing the programme means resolving the routing decision, not
+changing every registry row from `queued`.
 
 ## 9. Knowledge-base update after every run
 

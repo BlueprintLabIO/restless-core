@@ -58,7 +58,8 @@ recorded separately.
 
 ## Sparse calibration design
 
-Start with two domains and the four most discriminating corners, then one centre point:
+The grid below is a candidate map, not an execution quota. Start with the most discriminating corners
+and stop adding cells when another result cannot change routing:
 
 | Cell suffix | Size | Potential parallelism / coupling |
 |---|---|---|
@@ -74,16 +75,31 @@ Initial domains:
 - **R — sourced research:** a frozen inspectable source corpus and decision memo, with no synthetic
   market fact entering a live company.
 
-This creates ten cells. Each receives one matched B0/B1 pair: twenty initial counted runs. Arm order is
-randomised within each cell. B0 pilot evidence may recalibrate a workload's realised size before the
-paired result is interpreted, but the scenario is never silently edited.
+The full map contains ten possible cells, but it does **not** require twenty initial counted runs. Arm
+order is randomised within an activated cell. B0 pilot evidence may recalibrate a workload's realised
+size before the paired result is interpreted, but the scenario is never silently edited.
+
+### Current frontier after C-SL, C-SH and C-LL
+
+All three completed coding cells favour B0. C-SH proved that a clean independently accepted seam is
+not enough; C-LL proved that nominal breadth is not strong-lead saturation. The remaining high-value
+questions therefore need at most two sentinel cells:
+
+1. **one genuinely lead-saturating, highly separable outcome** — C-LH or a replacement whose B0 pilot
+   cannot fit comfortably inside one effective lead session;
+2. **one non-coding parallel-breadth outcome** — prefer R-LH, where independent sourced evidence is
+   a plausible intrinsic advantage rather than a decomposition invented by the harness.
+
+C-MM, R-SL, R-SH, R-LL and R-MM are reserve locations. Activate one only if the two sentinels disagree
+or leave a routing ambiguity that the reserve cell can actually resolve. Do not finish the grid for
+coverage.
 
 The existing v23 pair is historical evidence for medium-to-large tightly coupled coding. It is not a
 substitute for B1 because that team arm used two producers plus a critic.
 
 ## Sequential selection
 
-After the ten cells:
+Apply these rules after every counted pair, not after completing the grid:
 
 1. Replicate surprising reversals immediately.
 2. Add points between clear wins and losses to locate the boundary.
@@ -151,7 +167,7 @@ remain comparable. A larger team does not earn credit for doing a larger task.
 
 ## Output
 
-The crossover programme produces scoped curves and a routing explanation across size, coupling and
-domain. It must not collapse into a universal “delegate above N minutes” threshold. Wildcards begin
-only after an ordinary team loses in a region with credible unused parallel value or another observed
-communication bottleneck.
+The crossover programme produces the smallest set of scoped boundary points needed for a routing
+explanation across lead saturation, coupling and domain. It must not collapse into a universal
+“delegate above N minutes” threshold. Wildcards begin only after an ordinary team loses in a region
+with credible unused parallel value or another observed communication bottleneck.

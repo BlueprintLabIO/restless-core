@@ -15,7 +15,7 @@ synthesis needed to make the next organisational decision.
 | File | Purpose |
 |---|---|
 | [`CANON.md`](CANON.md) | The current compact set of supported beliefs, counterevidence and expiry conditions |
-| [`PROGRAM.md`](PROGRAM.md) | Full staged plan for testing the sixteen communication wildcards |
+| [`PROGRAM.md`](PROGRAM.md) | Adaptive plan for selecting from the sixteen-wildcard hypothesis library |
 | [`BASELINES.md`](BASELINES.md) | Sparse ordinary-team crossover design that must run before wildcards |
 | [`REGISTRY.md`](REGISTRY.md) | One status row per experiment; the only experiment-status source of truth |
 | [`EVIDENCE.md`](EVIDENCE.md) | Index from claims to raw runs and research priors |

@@ -11,12 +11,12 @@ directory only when execution begins.
 | **C-SH** | Coding/product | Small, highly separable | B0/B1 | provisional-loss | B0 wins repeat at outcome parity: 29% faster, 23% fewer tokens, 62% fewer tools |
 | **C-LL** | Coding/product | Broad, high coupling; below lead saturation | B0/B1 | provisional-loss | B0 won quality and cost; retain as below-saturation point, then test a genuinely lead-saturating case |
 | **C-LH** | Coding/product | Large, highly separable | B0/B1 | blocked | No counted arm: lease heartbeat is proved, but GLM r2/r3 recorded 65 provider 429s; satisfy the frozen sustained-route, visible-retry and artifact-recovery gates before B1 → B0 |
-| **C-MM** | Coding/product | Medium, mixed | B0/B1/B2 | queued | First four corners |
-| **R-SL** | Sourced research | Small, high coherence | B0/B1 | queued | Research corpus and rubric frozen |
-| **R-SH** | Sourced research | Small, independent evidence | B0/B1 | queued | Research corpus and rubric frozen |
-| **R-LL** | Sourced research | Large, high coherence | B0/B1 | queued | Small research comparison |
-| **R-LH** | Sourced research | Large, independent evidence | B0/B1 | queued | Small research comparison |
-| **R-MM** | Sourced research | Medium, mixed | B0/B1/B2 | queued | First four corners |
+| **C-MM** | Coding/product | Medium, mixed | B0/B1/B2 | queued | Reserve only if the lead-saturating and research sentinels leave a boundary ambiguity |
+| **R-SL** | Sourced research | Small, high coherence | B0/B1 | queued | Reserve; three below-saturation coding losses already establish the simple-region prior |
+| **R-SH** | Sourced research | Small, independent evidence | B0/B1 | queued | Reserve; prefer the more discriminating large parallel-breadth sentinel |
+| **R-LL** | Sourced research | Large, high coherence | B0/B1 | queued | Reserve unless domain versus coupling remains confounded after R-LH |
+| **R-LH** | Sourced research | Large, independent evidence | B0/B1 | queued | Highest-value non-coding sentinel after a sustained Staff route is proved |
+| **R-MM** | Sourced research | Medium, mixed | B0/B1/B2 | queued | Reserve only if a mixed integration point can change routing |
 
 Historical v23 remains indexed in `EVIDENCE.md` and does not change a cell above to complete.
 
@@ -24,15 +24,15 @@ Historical v23 remains indexed in `EVIDENCE.md` and does not change a cell above
 
 | ID | Wildcard | Family | Dependency | Status | Next gate |
 |---|---|---|---|---|---|
-| **W01** | Session mitosis | Shared history | Baseline B0/B1 | queued | Prove exact common-prefix fork and role/tool divergence |
+| **W01** | Session mitosis | Shared history | Baseline B0/B1 | queued | Activate only if a valid sentinel records briefing/reintegration `C1` or `C4`; then prove exact common-prefix fork and role/tool divergence |
 | **W02** | Fork–work–reunite cycles | Shared history | W01 | queued | One fork, artifact-only reunion and second fork |
 | **W03** | Exec-to-lead lineage fork | Shared history | W01 + redaction audit | queued | Neutral request capsule without executive authority leakage |
-| **W04** | One brain, many hands | Cognitive topology | Baseline B0 | queued | Parallel bounded executors under one lead session |
+| **W04** | One brain, many hands | Cognitive topology | Baseline B0 | queued | Activate if autonomous Staff loses through cognitive duplication/integration `I3` or `E5` despite usable parallel work |
 | **W05** | Shared semantic blackboard | Shared state | Baseline B1 | queued | Patchable bounded situation model with provenance |
 | **W06** | Causal context deltas | Communication compression | W05 or stable checkpoint | queued | Reconstruct exact relevant changes from base hash |
-| **W07** | Proof-carrying handoffs | Artifact boundary | Baseline B1 | queued | Artifact + native proof + semantic diff, no narrative required |
-| **W08** | Ambient coordination | Event routing | W07 | queued | Subscribe actor to material artifact/interface events |
-| **W09** | Questions-only communication | Communication discipline | Baseline B1 | queued | Enforce blocker/question/interface/result-only channel |
+| **W07** | Proof-carrying handoffs | Artifact boundary | Baseline B1 | queued | First candidate only if a valid run records callback/acceptance `V3`; artifact + native proof + semantic diff |
+| **W08** | Ambient coordination | Event routing | W07 | queued | Activate after W07 only if late material delivery `M3`/`M5` remains |
+| **W09** | Questions-only communication | Communication discipline | Baseline B1 | queued | Reserve unless a valid run measures narration/status `M1`; ordinary B1 traffic is already sparse |
 | **W10** | Blind sibling diversification | Independence | W01 | queued | Same prefix plus private evidence shards and blind review |
 | **W11** | Cross-finish experiment | Transferability | W01 | queued | Swap branches at midpoint and measure recovery/rework |
 | **W12** | Micro-audition before ownership | Allocation | Fork primitive | queued | Two bounded probes, evidence-based lead selection |

@@ -27,7 +27,7 @@ Owner request
 → available Exec chooses one accountable lead and an envelope
 → lead owns the complete outcome
 → lead works alone when coupling is high
-→ lead adds Staff for separable evidence/artifact branches
+→ lead adds Staff only for a stable seam with credible unused parallel value
 → independent critic when hidden error or subjective quality warrants it
 → material exception returns to Exec only at portfolio altitude
 ```
