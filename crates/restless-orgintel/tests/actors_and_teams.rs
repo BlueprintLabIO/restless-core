@@ -21,6 +21,93 @@ async fn create_actor(org: &OrgIntel, id: &str, role: &str) {
 }
 
 #[tokio::test]
+async fn exec_can_dispatch_a_second_department_while_the_first_lead_attempt_runs() {
+    let Ok(url) = std::env::var("RESTLESS_TEST_DATABASE_URL") else {
+        eprintln!("RESTLESS_TEST_DATABASE_URL unset; skipping Exec availability scenario");
+        return;
+    };
+    let company = format!("dispatch{}", uuid::Uuid::new_v4().simple());
+    let org = OrgIntel::ensure(&url, &company)
+        .await
+        .expect("ensure scratch company schema");
+    org.ensure_actor("exec", "exec", "exec", "The Exec")
+        .await
+        .unwrap();
+    create_actor(&org, "product-direction", "lead").await;
+
+    org.create_team(
+        "Product direction",
+        "Advance the playable product outcome",
+        "product-direction",
+        "exec",
+    )
+    .await
+    .unwrap();
+    let product = org
+        .add_work(NewWork {
+            owner_id: "product-direction",
+            title: "Advance product",
+            outcome: "one accepted playable candidate",
+            goal_id: None,
+            priority: 10,
+            expected_artifact: "commit",
+            workspace: WorkspaceSpec::default(),
+            attempt_limit: Some(1),
+        })
+        .await
+        .unwrap();
+    let product_attempt = org
+        .claim_ready_work("product-runtime")
+        .await
+        .unwrap()
+        .expect("first lead Work should be claimable");
+    assert_eq!(product_attempt.work.id, product);
+    assert_eq!(product_attempt.work.owner_id, "product-direction");
+
+    // The first department is still running. Exec is not its Work owner and
+    // can commission an unrelated owner request through a second lead.
+    create_actor(&org, "research-direction", "lead").await;
+    org.create_team(
+        "Research direction",
+        "Produce a sourced decision memo",
+        "research-direction",
+        "exec",
+    )
+    .await
+    .unwrap();
+    let research = org
+        .add_work(NewWork {
+            owner_id: "research-direction",
+            title: "Research decision",
+            outcome: "one accepted sourced recommendation",
+            goal_id: None,
+            priority: 9,
+            expected_artifact: "memo",
+            workspace: WorkspaceSpec::default(),
+            attempt_limit: Some(1),
+        })
+        .await
+        .unwrap();
+    let research_attempt = org
+        .claim_ready_work("research-runtime")
+        .await
+        .unwrap()
+        .expect("second lead Work should run while the first remains claimed");
+    assert_eq!(research_attempt.work.id, research);
+    assert_eq!(research_attempt.work.owner_id, "research-direction");
+    assert_ne!(product_attempt.attempt_id, research_attempt.attempt_id);
+    let attempts = org.list_work_attempts(None).await.unwrap();
+    assert_eq!(
+        attempts
+            .iter()
+            .filter(|attempt| attempt.state == WorkAttemptState::Running)
+            .count(),
+        2,
+        "two departments run while Exec owns neither Attempt"
+    );
+}
+
+#[tokio::test]
 async fn initial_work_gates_commit_atomically_and_follow_the_attempt_workspace() {
     let Ok(url) = std::env::var("RESTLESS_TEST_DATABASE_URL") else {
         eprintln!("RESTLESS_TEST_DATABASE_URL unset; skipping atomic gate scenario");

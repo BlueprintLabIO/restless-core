@@ -7,6 +7,10 @@ Status: approved experimental direction; no wildcard is a production default
 Find whether new context, communication and cognitive topologies can move the point at which an
 accountable team lead benefits from adding other minds.
 
+Before any wildcard, execute the ordinary-team crossover in [`BASELINES.md`](BASELINES.md). Wildcards
+target measured communication bottlenecks; they are not the first attempt to discover whether normal
+delegation works.
+
 The programme preserves the settled company structure in every arm:
 
 ```text
@@ -64,6 +68,12 @@ Before counting wildcard outcomes:
 
 Exit: the same starting state produces inspectable reports in all three arms, Exec remains available,
 and a missing callback remains `unknown` while observable artifacts survive.
+
+### Stage 0.5 — Ordinary-team crossover
+
+Run the sparse coding/research size × parallelisability calibration in `BASELINES.md`, refine only the
+observed decision boundary, and test larger teams only where one worker already adds value. Record the
+ordinary frontier before implementing W01–W16.
 
 ### Stage 1 — Mechanism probes
 

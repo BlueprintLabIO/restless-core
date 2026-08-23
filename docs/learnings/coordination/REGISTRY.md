@@ -3,6 +3,25 @@
 Status in this table is authoritative. Detailed plans live in `PROGRAM.md`; create an experiment
 directory only when execution begins.
 
+## Ordinary-team calibration — runs before wildcards
+
+| Cell | Domain | Size / structure | Arms | Status | Next gate |
+|---|---|---|---|---|---|
+| **C-SL** | Coding/product | Small, high coupling | B0/B1 | provisional-loss | B0 won 11/11 vs B1 10/11; retain as first boundary point |
+| **C-SH** | Coding/product | Small, highly separable | B0/B1 | provisional-loss | B0 wins repeat at outcome parity: 29% faster, 23% fewer tokens, 62% fewer tools |
+| **C-LL** | Coding/product | Large, high coupling | B0/B1 | queued | Design next coding corner under r2 runtime capsule |
+| **C-LH** | Coding/product | Large, highly separable | B0/B1 | queued | Small-arm comparability |
+| **C-MM** | Coding/product | Medium, mixed | B0/B1/B2 | queued | First four corners |
+| **R-SL** | Sourced research | Small, high coherence | B0/B1 | queued | Research corpus and rubric frozen |
+| **R-SH** | Sourced research | Small, independent evidence | B0/B1 | queued | Research corpus and rubric frozen |
+| **R-LL** | Sourced research | Large, high coherence | B0/B1 | queued | Small research comparison |
+| **R-LH** | Sourced research | Large, independent evidence | B0/B1 | queued | Small research comparison |
+| **R-MM** | Sourced research | Medium, mixed | B0/B1/B2 | queued | First four corners |
+
+Historical v23 remains indexed in `EVIDENCE.md` and does not change a cell above to complete.
+
+## Wildcards
+
 | ID | Wildcard | Family | Dependency | Status | Next gate |
 |---|---|---|---|---|---|
 | **W01** | Session mitosis | Shared history | Baseline B0/B1 | queued | Prove exact common-prefix fork and role/tool divergence |

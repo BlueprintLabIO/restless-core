@@ -79,6 +79,17 @@ fn chrono_like_now() -> String {
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    if std::env::args().nth(1).as_deref() == Some("--capabilities") {
+        println!(
+            "{}",
+            serde_json::json!({
+                "protocol": 24,
+                "optional_actor_max_time": true,
+                "completion": "actor_callback_or_process_exit"
+            })
+        );
+        return Ok(());
+    }
     let actor = required("COORD_ACTOR")?;
     let model = required("COORD_MODEL")?;
     let prompt_path = required("COORD_PROMPT_PATH")?;
@@ -109,7 +120,7 @@ async fn main() -> Result<()> {
         .unwrap_or_else(|_| format!("/lab/{run_id}/agent-home/{actor}"));
     let runtime_bin =
         std::env::var("COORD_RUNTIME_BIN").unwrap_or_else(|_| format!("/lab/{run_id}/runtime-bin"));
-    let max_time = std::env::var("COORD_MAX_TIME").unwrap_or_else(|_| "8m".to_string());
+    let max_time = std::env::var("COORD_MAX_TIME").unwrap_or_else(|_| "none".to_string());
     let mcp_server_path =
         std::env::var("COORD_MCP_SERVER").unwrap_or_else(|_| "/harness/mcp_server.py".to_string());
     let mut args = vec![
@@ -144,9 +155,11 @@ async fn main() -> Result<()> {
         "--no-rules".to_string(),
         "--tools".to_string(),
         native_tools.to_string(),
-        "--max-time".to_string(),
-        max_time,
     ];
+    if max_time != "none" {
+        args.push("--max-time".to_string());
+        args.push(max_time);
+    }
 
     let mut child = tokio::process::Command::new("docker")
         .env("RESTLESS_MODEL_GATEWAY_TOKEN", gateway_token)

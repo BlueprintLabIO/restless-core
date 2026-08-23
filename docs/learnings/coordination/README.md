@@ -16,12 +16,14 @@ synthesis needed to make the next organisational decision.
 |---|---|
 | [`CANON.md`](CANON.md) | The current compact set of supported beliefs, counterevidence and expiry conditions |
 | [`PROGRAM.md`](PROGRAM.md) | Full staged plan for testing the sixteen communication wildcards |
+| [`BASELINES.md`](BASELINES.md) | Sparse ordinary-team crossover design that must run before wildcards |
 | [`REGISTRY.md`](REGISTRY.md) | One status row per experiment; the only experiment-status source of truth |
 | [`EVIDENCE.md`](EVIDENCE.md) | Index from claims to raw runs and research priors |
 | [`FAILURES.md`](FAILURES.md) | Stable failure vocabulary for comparing runs without inventing a new label each time |
 | [`templates/experiment.md`](templates/experiment.md) | Contract completed before a new experiment runs |
 | [`templates/run-report.md`](templates/run-report.md) | Comparable evidence report completed after a run |
 | [`templates/learning.md`](templates/learning.md) | Claim format used when evidence changes the canon |
+| [`templates/workload.md`](templates/workload.md) | Pre-run feature card separating work type, size and parallelisability |
 
 Do not create one directory per speculative idea. Create `experiments/<id>/` only when its first
 executable probe begins. A live experiment directory may hold its frozen contract, scenario locator,

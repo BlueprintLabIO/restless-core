@@ -150,6 +150,8 @@ CREATE TABLE IF NOT EXISTS turns (
   cost_usd REAL,
   used_tokens INTEGER,
   output_tokens INTEGER,
+  cached_input_tokens INTEGER,
+  reasoning_output_tokens INTEGER,
   tool_calls INTEGER,
   end_kind TEXT,
   transcript TEXT
@@ -169,6 +171,12 @@ def connect(path: Path) -> sqlite3.Connection:
 def initialize(path: Path) -> None:
     conn = connect(path)
     conn.executescript(SCHEMA)
+    turn_columns = {
+        row["name"] for row in conn.execute("PRAGMA table_info(turns)").fetchall()
+    }
+    for name in ("cached_input_tokens", "reasoning_output_tokens"):
+        if name not in turn_columns:
+            conn.execute(f"ALTER TABLE turns ADD COLUMN {name} INTEGER")
     conn.close()
 
 

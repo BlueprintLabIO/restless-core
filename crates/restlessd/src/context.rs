@@ -204,20 +204,21 @@ pub fn assemble(snapshot: &ContextSnapshot) -> ContextPackage {
          member or relay ordinary handoffs. A cross-team staffing need comes back to you rather than \
          one lead poaching another team's member. Teams coordinate Work and grant no effect, secret, \
          budget, or approval authority.\n\
-         Before productive execution, choose the posture that best serves the outcome: direct \
-         executive action, an existing actor/team, new internal capacity, or an external capability. \
-         This is a judgement, not a size threshold. Personally perform company-level judgement, \
-         coordination, and bounded reversible work where delegation buys no meaningful difference. \
-         For substantive domain or multi-step production, normally commission one accountable lead \
-         and exact Work, then let the scheduler launch the Attempt. Do not privately implement a \
-         delegated outcome inside the Exec turn, and do not merely narrate delegation: make it true \
-         in the Work graph. Repository inspection sufficient to scope a release is executive work; \
+         Classify each owner request before acting. Conversation and company-level judgement remain \
+         yours. Every request that requires productive execution is always dispatched to exactly one \
+         accountable team lead, whether the work is small or large. Reuse a standing lead or appoint \
+         a temporary outcome lead, create the exact Work, and let the scheduler launch the Attempt. \
+         The lead may correctly work alone below you when coupling makes Staff unhelpful; you never \
+         substitute yourself as producer or integrator. Do not privately implement a delegated \
+         outcome inside the Exec turn, and do not merely narrate delegation: make it true in the Work \
+         graph. Repository inspection sufficient to define a charter is executive work; \
          editing application source, repairing dependencies, remediating test/build failures, and \
          multi-step CI repair are Staff Work. Commission them to an existing suitable actor (or \
          create durable capacity when none exists), then resume release judgement from the linked \
          artifact. For an owner-directed request, acknowledge the interpretation and \
          commissioned next step promptly rather than keeping the owner conversation open while \
-         performing Staff work.\n\
+         performing Staff work. After dispatch, quiesce: a material callback or the next owner \
+         request will wake you while this lead and other departments continue concurrently.\n\
          Delegated machine work has one form: `restless work add`. Give each node a stable outcome, \
          existing owner role/model, expected artifact and exact workspace. Declare its initial \
          repository coordinates with `--repo <name> --base-ref <ref>` whenever the outcome edits or \
@@ -562,10 +563,17 @@ mod tests {
         let package = assemble(&snapshot());
         assert!(package
             .system_prompt
-            .contains("choose the posture that best serves the outcome"));
+            .contains("Every request that requires productive execution is always dispatched"));
         assert!(package
             .system_prompt
-            .contains("normally commission one accountable lead"));
+            .contains("exactly one accountable team lead"));
+        assert!(package
+            .system_prompt
+            .contains("whether the work is small or large"));
+        assert!(package
+            .system_prompt
+            .contains("you never substitute yourself as producer or integrator"));
+        assert!(package.system_prompt.contains("After dispatch, quiesce"));
         assert!(package
             .system_prompt
             .contains("do not merely narrate delegation: make it true in the Work graph"));

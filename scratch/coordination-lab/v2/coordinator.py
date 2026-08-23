@@ -363,8 +363,14 @@ class Coordinator:
         if line["kind"] == "model_usage" and line["turn_id"]:
             payload = line["payload"]
             self.conn.execute(
-                "UPDATE turns SET cost_usd=COALESCE(?,cost_usd), used_tokens=COALESCE(?,used_tokens) WHERE id=? AND ended_at IS NULL",
-                (payload.get("cost_usd"), payload.get("used_tokens"), line["turn_id"]),
+                "UPDATE turns SET cost_usd=COALESCE(?,cost_usd), used_tokens=COALESCE(?,used_tokens), cached_input_tokens=COALESCE(?,cached_input_tokens), reasoning_output_tokens=COALESCE(?,reasoning_output_tokens) WHERE id=? AND ended_at IS NULL",
+                (
+                    payload.get("cost_usd"),
+                    payload.get("used_tokens"),
+                    payload.get("cached_input_tokens"),
+                    payload.get("reasoning_output_tokens"),
+                    line["turn_id"],
+                ),
             )
         return {"recorded": True}
 
@@ -1036,12 +1042,14 @@ class Coordinator:
 
     def finish_turn(self, turn_id: str, result: dict[str, Any]) -> None:
         self.conn.execute(
-            "UPDATE turns SET ended_at=?,cost_usd=COALESCE(?,cost_usd),used_tokens=COALESCE(?,used_tokens),output_tokens=?,tool_calls=?,end_kind=?,transcript=? WHERE id=?",
+            "UPDATE turns SET ended_at=?,cost_usd=COALESCE(?,cost_usd),used_tokens=COALESCE(?,used_tokens),output_tokens=?,cached_input_tokens=COALESCE(?,cached_input_tokens),reasoning_output_tokens=COALESCE(?,reasoning_output_tokens),tool_calls=?,end_kind=?,transcript=? WHERE id=?",
             (
                 time.time(),
                 result.get("cost_usd"),
                 result.get("used_tokens"),
                 result.get("output_tokens"),
+                result.get("cached_input_tokens"),
+                result.get("reasoning_output_tokens"),
                 len(result.get("tool_calls", [])),
                 result.get("stop_reason"),
                 (result.get("text") or result.get("error") or "")[-20000:],
@@ -1070,7 +1078,7 @@ class Coordinator:
         return {
             "turns": json_rows(
                 self.conn.execute(
-                    "SELECT actor,attempt_id,started_at,ended_at,cost_usd,used_tokens,output_tokens,tool_calls,end_kind FROM turns ORDER BY started_at"
+                    "SELECT actor,attempt_id,started_at,ended_at,cost_usd,used_tokens,output_tokens,cached_input_tokens,reasoning_output_tokens,tool_calls,end_kind FROM turns ORDER BY started_at"
                 ).fetchall()
             ),
             "work": json_rows(self.conn.execute("SELECT * FROM work ORDER BY created_at").fetchall()),

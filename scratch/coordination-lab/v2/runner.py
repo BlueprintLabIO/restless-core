@@ -49,11 +49,24 @@ RESERVATION_USD = 1.5
 CEILING_USD = 6.0
 MAX_STAFF = int(os.environ.get("COORD_MAX_STAFF", "3"))
 DRAIN_GRACE_SECONDS = int(os.environ.get("COORD_DRAIN_GRACE_SECONDS", "120"))
+DEFAULT_ACTOR_MAX_TIME = os.environ.get("COORD_ACTOR_MAX_TIME", "none")
 
 MODE_GRAPH = "graph_control"
 MODE_ARTIFACT = "artifact_led"
 MODE_SINGLE = "single_agent"
-MODES = (MODE_GRAPH, MODE_ARTIFACT, MODE_SINGLE)
+MODE_LEAD = "lead_alone"
+MODE_TEAM = "ordinary_team"
+MODE_CRITIC = "lead_critic"
+MODES = (MODE_GRAPH, MODE_ARTIFACT, MODE_SINGLE, MODE_LEAD, MODE_TEAM, MODE_CRITIC)
+WRITABLE_CANDIDATE_MODES = {
+    MODE_ARTIFACT,
+    MODE_SINGLE,
+    MODE_LEAD,
+    MODE_TEAM,
+    MODE_CRITIC,
+}
+WORKER_MODES = {MODE_GRAPH, MODE_ARTIFACT, MODE_TEAM, MODE_CRITIC}
+PRODUCER_ACTORS = ("gameplay-systems", "world-content", "experience-presentation")
 
 ACTORS = {
     "exec": (
@@ -91,7 +104,10 @@ ACTORS = {
 }
 
 
-def actors_for_mode(mode: str) -> dict[str, tuple[str, str]]:
+def actors_for_mode(
+    mode: str,
+    team_worker_actor: str = "gameplay-systems",
+) -> dict[str, tuple[str, str]]:
     specialists = {
         actor: ACTORS[actor]
         for actor in ("gameplay-systems", "world-content", "experience-presentation", "artifact-critic")
@@ -102,6 +118,22 @@ def actors_for_mode(mode: str) -> dict[str, tuple[str, str]]:
         return {"studio-lead": ACTORS["studio-lead"], **specialists}
     if mode == MODE_SINGLE:
         return {"single-agent": ACTORS["single-agent"]}
+    if mode == MODE_LEAD:
+        return {"studio-lead": ACTORS["studio-lead"]}
+    if mode == MODE_TEAM:
+        if team_worker_actor not in PRODUCER_ACTORS:
+            raise ValueError(
+                f"ordinary-team worker must be one of {PRODUCER_ACTORS}, got {team_worker_actor!r}"
+            )
+        return {
+            "studio-lead": ACTORS["studio-lead"],
+            team_worker_actor: ACTORS[team_worker_actor],
+        }
+    if mode == MODE_CRITIC:
+        return {
+            "studio-lead": ACTORS["studio-lead"],
+            "artifact-critic": ACTORS["artifact-critic"],
+        }
     raise ValueError(f"unknown experiment mode {mode!r}")
 
 
@@ -110,7 +142,83 @@ def coordination_actor_for_mode(mode: str) -> str:
         MODE_GRAPH: "exec",
         MODE_ARTIFACT: "studio-lead",
         MODE_SINGLE: "single-agent",
+        MODE_LEAD: "studio-lead",
+        MODE_TEAM: "studio-lead",
+        MODE_CRITIC: "studio-lead",
     }[mode]
+
+
+def mode_has_workers(mode: str) -> bool:
+    return mode in WORKER_MODES
+
+
+def mode_has_writable_candidate(mode: str) -> bool:
+    return mode in WRITABLE_CANDIDATE_MODES
+
+
+def prove_actor_host_command() -> dict[str, Any]:
+    """Fail before a run envelope if the local actor-host executable is absent."""
+    command = TURN_COMMAND[0]
+    resolved = Path(command).expanduser() if "/" in command else None
+    executable = str(resolved.resolve()) if resolved and resolved.is_file() else shutil.which(command)
+    if not executable or not os.access(executable, os.X_OK):
+        raise RuntimeError(
+            "actor-host command is unavailable or not executable: "
+            f"{command!r}; build scratch/coordination-lab before launching a live arm"
+        )
+    capability = subprocess.run(
+        [executable, "--capabilities"],
+        text=True,
+        capture_output=True,
+        timeout=10,
+    )
+    if capability.returncode:
+        raise RuntimeError(
+            "actor-host capability handshake failed: "
+            + (capability.stderr or capability.stdout)[-2_000:]
+        )
+    try:
+        advertised = json.loads(capability.stdout)
+    except json.JSONDecodeError as exc:
+        raise RuntimeError(f"actor-host capability handshake was not JSON: {exc}") from exc
+    if (
+        advertised.get("protocol") != 24
+        or advertised.get("optional_actor_max_time") is not True
+        or advertised.get("completion") != "actor_callback_or_process_exit"
+    ):
+        raise RuntimeError(f"actor-host capabilities are stale or incompatible: {advertised}")
+    return {"argv": TURN_COMMAND, "executable": executable, "capabilities": advertised}
+
+
+def turn_command_for_model(model: str) -> list[str]:
+    if model.startswith("gpt-"):
+        return [sys.executable, str(HERE / "codex_turn.py")]
+    return TURN_COMMAND
+
+
+def prove_runtime_launchers(
+    lead_model: str,
+    worker_pool: list[str],
+    *,
+    uses_workers: bool,
+) -> list[dict[str, Any]]:
+    models = [lead_model, *(worker_pool if uses_workers else [])]
+    proofs: list[dict[str, Any]] = []
+    if any(model.startswith("gpt-") for model in models):
+        codex = shutil.which("codex")
+        adapter = HERE / "codex_turn.py"
+        if not codex or not adapter.is_file():
+            raise RuntimeError("GPT runtime requires the Codex CLI and v2/codex_turn.py adapter")
+        proofs.append(
+            {
+                "kind": "codex",
+                "executable": codex,
+                "adapter": str(adapter),
+            }
+        )
+    if any(not model.startswith("gpt-") for model in models):
+        proofs.append({"kind": "acp", **prove_actor_host_command()})
+    return proofs
 
 
 def mission() -> str:
@@ -261,6 +369,44 @@ def prove_worker_runtime(cell: str, models: list[str]) -> list[dict[str, Any]]:
     return proofs
 
 
+def prove_native_review_runtime(cell: str) -> dict[str, Any]:
+    """Fail fast unless the prepared Company Runtime can execute native browser proofs."""
+    helper = HERE / "native_check.py"
+    if not helper.is_file():
+        raise RuntimeError(f"native review adapter is missing: {helper}")
+    probe = subprocess.run(
+        [
+            "docker",
+            "exec",
+            "-u",
+            "company",
+            "-w",
+            "/workspace",
+            cell,
+            "sh",
+            "-lc",
+            "test -x /usr/bin/chromium && "
+            "test -f /usr/local/lib/node_modules/playwright/index.mjs && "
+            "node --input-type=module -e \"import('/usr/local/lib/node_modules/playwright/index.mjs').then(() => console.log('NATIVE_REVIEW_READY'))\"",
+        ],
+        text=True,
+        capture_output=True,
+        timeout=30,
+    )
+    if probe.returncode or "NATIVE_REVIEW_READY" not in probe.stdout:
+        raise RuntimeError(
+            "Company Runtime native review capability failed: "
+            + (probe.stderr or probe.stdout)[-2_000:]
+        )
+    return {
+        "company_runtime": True,
+        "chromium": "/usr/bin/chromium",
+        "playwright": "/usr/local/lib/node_modules/playwright/index.mjs",
+        "adapter": str(helper),
+        "probe": "NATIVE_REVIEW_READY",
+    }
+
+
 def initial_project_state(scenario: str) -> str:
     return f"""# Current product state
 
@@ -359,11 +505,17 @@ def prepare(
     wall_clock_seconds: int = 1800,
     drain_grace_seconds: int = DRAIN_GRACE_SECONDS,
     scenario_text: str | None = None,
+    team_worker_actor: str = "gameplay-systems",
+    max_staff_concurrency: int | None = None,
+    evaluator_files: list[str] | None = None,
+    actor_max_time: str = DEFAULT_ACTOR_MAX_TIME,
 ) -> Path:
     if mode not in MODES:
         raise ValueError(f"mode must be one of {MODES}")
     selected_workers = list(DEFAULT_WORKER_POOL if worker_pool is None else worker_pool)
-    if mode != MODE_SINGLE and not selected_workers:
+    if not mode_has_workers(mode):
+        selected_workers = []
+    if mode_has_workers(mode) and not selected_workers:
         raise ValueError("team modes require a non-empty free worker model pool")
     if spend_ceiling_usd <= 0:
         raise ValueError("spend ceiling must be positive")
@@ -371,8 +523,23 @@ def prepare(
         raise ValueError("wall-clock envelope must be at least 60 seconds")
     if not 15 <= drain_grace_seconds <= 300:
         raise ValueError("drain grace must be between 15 and 300 seconds")
-    actors = actors_for_mode(mode)
+    if actor_max_time != "none" and not re.fullmatch(r"[1-9][0-9]*[smh]", actor_max_time):
+        raise ValueError("actor max time must be 'none' or a positive duration such as 8m")
+    actors = actors_for_mode(mode, team_worker_actor)
     coordination_actor = coordination_actor_for_mode(mode)
+    if max_staff_concurrency is None:
+        if mode in (MODE_TEAM, MODE_CRITIC):
+            selected_max_staff = 1
+        elif mode_has_workers(mode):
+            selected_max_staff = MAX_STAFF
+        else:
+            selected_max_staff = 0
+    else:
+        selected_max_staff = max_staff_concurrency
+    if selected_max_staff < 0:
+        raise ValueError("max Staff concurrency must not be negative")
+    if mode in (MODE_TEAM, MODE_CRITIC) and selected_max_staff != 1:
+        raise ValueError(f"{mode} requires exactly one available Staff slot")
     cleanup_cells(run_id)
     run_dir = WORK_ROOT / run_id
     safe_reset(run_dir)
@@ -381,7 +548,7 @@ def prepare(
     canonical = run_dir / "canonical"
     run(["docker", "cp", f"{SOURCE_CONTAINER}:{SOURCE_REPO}", str(seed_source)])
     run(["git", "clone", "--no-local", str(seed_source), str(canonical)])
-    if mode in (MODE_ARTIFACT, MODE_SINGLE):
+    if mode_has_writable_candidate(mode):
         run(["git", "-C", str(canonical), "checkout", "-B", "candidate", SEED])
     else:
         run(["git", "-C", str(canonical), "checkout", "--detach", SEED])
@@ -412,6 +579,24 @@ def prepare(
     if not scenario.strip():
         raise ValueError("scenario must not be empty")
     (context / "scenario.md").write_text(scenario)
+    evaluation_dir = run_dir / "evaluation"
+    evaluation_dir.mkdir()
+    declared_evaluators: list[dict[str, str]] = []
+    seen_evaluator_names: set[str] = set()
+    for raw_path in evaluator_files or []:
+        source = Path(raw_path).expanduser().resolve()
+        if not source.is_file():
+            raise ValueError(f"declared evaluator is not a file: {source}")
+        name = safe_name(source.name)
+        if name in seen_evaluator_names:
+            raise ValueError(f"duplicate declared evaluator name {name!r}")
+        seen_evaluator_names.add(name)
+        body = source.read_bytes()
+        destination = evaluation_dir / name
+        shutil.copyfile(source, destination)
+        declared_evaluators.append(
+            {"name": name, "sha256": hashlib.sha256(body).hexdigest()}
+        )
     if mode == MODE_ARTIFACT:
         lead_home = run_dir / "homes" / coordination_actor
         lead_home.mkdir(parents=True)
@@ -498,7 +683,74 @@ There is no mid-run owner help. Make reversible product and engineering decision
 `decide(subject=run, choice=complete)` only after one clean, advanced, executable candidate has combined
 at least two delegated contributions, passed its checks, and received independent native-artifact review.
 """
-    else:
+    elif mode == MODE_LEAD:
+        coordination_system = """# Coordination lab v24 — accountable lead alone (B0)
+
+The company Exec has delegated this exact owner outcome to you and returned to owner availability. You
+are the accountable team lead for the outcome. Work directly in the writable canonical `candidate`
+branch: inspect the current product, make the smallest coherent advance that satisfies the directive,
+run native checks, judge the result, and leave one clean meaningful commit.
+
+This arm gives you no Staff. Do not create Work or simulate delegation. You remain a team lead even
+when the correct team size below you is zero. Prefer the working outcome over management prose. There
+is no mid-run owner help. Record `decide(subject=run, choice=complete)` only when the exact candidate is
+advanced, clean, and executable; otherwise leave truthful continuation evidence.
+"""
+    elif mode == MODE_TEAM:
+        coordination_system = f"""# Coordination lab v24 — accountable lead plus one ordinary producer (B1)
+
+The company Exec has delegated this exact owner outcome to you and returned to owner availability. You
+are the accountable team lead and own product judgement, the writable canonical `candidate`, native
+verification, integration, and the final decision.
+
+Exactly one ordinary producer is available:
+{roster}
+
+This is a controlled ordinary-handoff arm. Your **first cross-system action, before editing or committing
+the candidate, is to call `commission` exactly once** for a bounded producer contribution at an extension
+seam that can be completed without rediscovering the whole product. After that command succeeds, continue
+complementary direct work on the candidate while the asynchronous Work runs; do not poll or wait for
+status. When its terminal callback arrives, inspect the exact commit, integrate it only if useful,
+resolve it against the whole, and run the combined native proof. The producer report is a claim, not
+acceptance.
+
+A commit made in your canonical checkout is lead work. It is not commissioned, delegated or a producer
+artifact. Only an observable Work → Attempt → artifact callback from the available producer counts as the
+ordinary handoff. Never describe your own commit as a producer contribution. If you judge that no bounded
+contribution exists, end truthfully without completing the run; that is protocol evidence for this cell.
+
+This is the ordinary-team baseline: no shared project-state document, no shared hidden reasoning, no
+mandatory critic, no graph ceremony, and no second worker. Work exists only for the one real cross-actor
+responsibility and artifact handoff. There is no mid-run owner help. Record
+`decide(subject=run, choice=complete)` only after the clean candidate has advanced and the one commissioned
+contribution has been judged; if it is rejected, record why in the final decision evidence.
+
+Runtime recovery must be evidence-driven. One repair of the same Work is reasonable when preserved
+workspace evidence or a narrower correction changes the next Attempt. Do not issue a third identical
+repair after the same runtime outcome with the same actor/model and no new hypothesis; leave the Work
+truthfully unresolved instead of manufacturing retry churn.
+"""
+    elif mode == MODE_CRITIC:
+        coordination_system = f"""# Coordination lab v24 — accountable lead plus fresh artifact critic (B2)
+
+The company Exec has delegated this exact owner outcome to you and returned to owner availability. You
+are the accountable team lead and sole producer. Work directly in the writable canonical `candidate`,
+implement a coherent outcome, run native checks, and commit the candidate before requesting review.
+
+Exactly one fresh critic is available:
+{roster}
+
+After the candidate exists, commission exactly one bounded review of the runnable artifact and observable
+success contract. Give the critic no producer reasoning and no request to implement. Do not poll. On its
+terminal callback, inspect the exact review artifact, reproduce material findings, make any warranted
+repairs yourself, rerun native proof, and decide. The critic informs your judgement but does not own it.
+
+This isolates review value from production parallelism: no producer Staff, no shared project-state
+document, no shared hidden reasoning, and no second critic. There is no mid-run owner help. Record
+`decide(subject=run, choice=complete)` only after fresh artifact review has been consumed and the final
+candidate is clean and executable.
+"""
+    elif mode == MODE_SINGLE:
         coordination_system = """# Coordination lab v21 — strong single-agent baseline
 
 You own this Cosmon milestone end to end. Work directly in the writable canonical `candidate` branch:
@@ -508,6 +760,8 @@ not create Work or simulate delegation. Prefer a working integrated product incr
 management prose. There is no mid-run owner help. Record `decide(subject=run, choice=complete)` only
 when the exact candidate is advanced, clean, and executable; otherwise leave a truthful continuation.
 """
+    else:
+        raise AssertionError(f"unhandled experiment mode {mode!r}")
     (context / "system" / f"{coordination_actor}.md").write_text(coordination_system)
     shared = """You are durable Staff working inside one persistent Work workspace. Your current working directory is the only project workspace available and is bound to your claimed actor, Work revision, Attempt, and lease. Do not seek the company integration checkout or another Work workspace.
 
@@ -526,7 +780,11 @@ Commands require a caller-chosen `idempotency_key`; reuse it only for an exact r
         team_context = (
             "Your accountable product lead maintains the milestone and current product judgement in the project-state context supplied with each Attempt. Fit your contribution into that evolving whole; do not create a parallel product plan.\n\n"
             if mode == MODE_ARTIFACT
-            else ""
+            else (
+                "Your accountable lead has already metabolised the owner directive into this exact bounded Work. Complete only this responsibility and hand back one clean commit; do not reopen the whole mission or create a parallel plan.\n\n"
+                if mode in (MODE_TEAM, MODE_CRITIC)
+                else ""
+            )
         )
         (context / "system" / f"{actor}.md").write_text(
             f"# {role}\n\n{shared}{extra}{team_context}{brief}\n"
@@ -545,7 +803,7 @@ Commands require a caller-chosen `idempotency_key`; reuse it only for an exact r
             "mode": mode,
             "lead_model": lead_model,
             "worker_pool": selected_workers,
-            "harness": "v21",
+            "harness": "v24",
         },
     )
     conn.close()
@@ -560,10 +818,13 @@ Commands require a caller-chosen `idempotency_key`; reuse it only for an exact r
                 "worker_model_pool": selected_workers,
                 "wall_clock_seconds": wall_clock_seconds,
                 "drain_grace_seconds": drain_grace_seconds,
+                "actor_max_time": actor_max_time,
                 "scenario_sha256": hashlib.sha256(scenario.encode()).hexdigest(),
                 "spend_ceiling_usd": spend_ceiling_usd,
                 "turn_reservation_usd": RESERVATION_USD,
-                "max_staff_concurrency": MAX_STAFF,
+                "max_staff_concurrency": selected_max_staff,
+                "team_worker_actor": team_worker_actor if mode == MODE_TEAM else None,
+                "declared_evaluators": declared_evaluators,
                 "actors": {actor: {"role": role, "brief": brief} for actor, (role, brief) in actors.items()},
             },
             indent=2,
@@ -595,6 +856,7 @@ class LabRun:
         self.spend_ceiling = float(self.manifest.get("spend_ceiling_usd", CEILING_USD))
         self.turn_reservation = float(self.manifest.get("turn_reservation_usd", RESERVATION_USD))
         self.max_staff = int(self.manifest.get("max_staff_concurrency", MAX_STAFF))
+        self.actor_max_time = str(self.manifest.get("actor_max_time", DEFAULT_ACTOR_MAX_TIME))
         self.queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
         self.coordinator = Coordinator(self.run_dir, run_id, self.queue)
         self.coordinator.reconcile_orphaned_attempts()
@@ -607,6 +869,7 @@ class LabRun:
         self.idle_wakes = 0
         self.envelope_warned = False
         self.stopping = False
+        self.native_review_proof: dict[str, Any] | None = None
 
     def remaining(self) -> float:
         return max(0.0, self.deadline - time.monotonic())
@@ -652,7 +915,7 @@ class LabRun:
         cell: str,
         attempt: str | None = None,
         lease_token: str = "",
-        max_time: str = "8m",
+        max_time: str | None = None,
         read_only: bool = False,
     ) -> dict[str, Any]:
         turn_id = f"{int(time.time() * 1000)}-{uid('turn')}"
@@ -673,7 +936,7 @@ class LabRun:
         else:
             host_workdir = str(self.run_dir / "canonical")
             work_id = ""
-            expected_branch = "candidate" if self.mode in (MODE_ARTIFACT, MODE_SINGLE) else ""
+            expected_branch = "candidate" if mode_has_writable_candidate(self.mode) else ""
         selected_model = self.select_model(actor, attempt)
         runtime_model = (
             selected_model
@@ -731,11 +994,11 @@ class LabRun:
                     "COORD_LEAD_REASONING" if actor == self.lead_actor else "COORD_WORKER_REASONING",
                     "medium" if actor == self.lead_actor else "low",
                 ),
-                "COORD_MAX_TIME": max_time,
+                "COORD_MAX_TIME": max_time or self.actor_max_time,
             }
         )
         process = await asyncio.create_subprocess_exec(
-            *TURN_COMMAND,
+            *turn_command_for_model(selected_model),
             env=env,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
@@ -854,6 +1117,7 @@ class LabRun:
         canonical: Path,
         check_file: str,
         candidate: str | None = None,
+        source_text: str | None = None,
     ) -> tuple[Any, str]:
         """Run one native proof in an isolated commit export.
 
@@ -884,11 +1148,14 @@ node "$check_file"
         combined = f"{process.stdout}\n{process.stderr}"
         if process.returncode == 0 or not re.search(r"ERR_CONNECTION_REFUSED|ECONNREFUSED", combined, re.I):
             return process, "self_owned"
-        source_result = run(
-            ["git", "-C", str(canonical), "show", f"{candidate}:{check_file}"],
-            check=False,
-        )
-        source = source_result.stdout if source_result.returncode == 0 else ""
+        if source_text is None:
+            source_result = run(
+                ["git", "-C", str(canonical), "show", f"{candidate}:{check_file}"],
+                check=False,
+            )
+            source = source_result.stdout if source_result.returncode == 0 else ""
+        else:
+            source = source_text
         ports = sorted(set(re.findall(r"127\.0\.0\.1:(\d+)", source)))
         if not ports:
             return process, "self_owned"
@@ -1008,6 +1275,74 @@ node "$check_file"
         (evidence_dir / f"{evidence_key}.json").write_text(json.dumps(evidence, indent=2, sort_keys=True))
         return evidence
 
+    def declared_evaluator_evidence(self, cell: str) -> dict[str, Any]:
+        """Run frozen, non-mounted evaluators against an isolated candidate export."""
+        canonical = self.run_dir / "canonical"
+        candidate = run(["git", "-C", str(canonical), "rev-parse", "candidate"]).stdout.strip()
+        results: list[dict[str, Any]] = []
+        for evaluator in self.manifest.get("declared_evaluators", []):
+            name = evaluator["name"]
+            host_path = self.run_dir / "evaluation" / name
+            body = host_path.read_bytes()
+            observed_sha = hashlib.sha256(body).hexdigest()
+            if observed_sha != evaluator["sha256"]:
+                raise RuntimeError(
+                    f"declared evaluator {name!r} changed: expected {evaluator['sha256']}, got {observed_sha}"
+                )
+            container_path = f"/tmp/restless-declared-evaluator-{evaluator['sha256'][:16]}-{name}"
+            run(["docker", "cp", str(host_path), f"{cell}:{container_path}"])
+            try:
+                process, fixture_mode = self.run_candidate_check(
+                    cell,
+                    canonical,
+                    container_path,
+                    candidate,
+                    source_text=body.decode(errors="replace"),
+                )
+            finally:
+                self.coordinator.workspaces.cell_exec(
+                    cell,
+                    ["rm", "-f", container_path],
+                    timeout=30,
+                    check=False,
+                )
+            combined_output = f"{process.stdout}\n{process.stderr}"
+            observed_errors = [
+                int(match)
+                for match in re.findall(
+                    r"errors observed:\s*(\d+)", combined_output, flags=re.IGNORECASE
+                )
+            ]
+            failure_markers = len(re.findall(r"(?m)^\[FAIL\]", combined_output))
+            passed = (
+                process.returncode == 0
+                and failure_markers == 0
+                and all(count == 0 for count in observed_errors)
+            )
+            results.append(
+                {
+                    "file": name,
+                    "sha256": observed_sha,
+                    "fixture_mode": fixture_mode,
+                    "exit": process.returncode,
+                    "passed": passed,
+                    "failure_markers": failure_markers,
+                    "errors_observed": observed_errors,
+                    "stdout": process.stdout[-8_000:],
+                    "stderr": process.stderr[-8_000:],
+                }
+            )
+        evidence = {
+            "run": self.run_id,
+            "candidate_commit": candidate,
+            "evaluators": results,
+            "passed": bool(results) and all(result["passed"] for result in results),
+        }
+        (self.run_dir / "declared-evaluator-evidence.json").write_text(
+            json.dumps(evidence, indent=2, sort_keys=True)
+        )
+        return evidence
+
     def lead_projection(self) -> dict[str, Any]:
         snapshot = self.coordinator.snapshot(self.lead_actor)
         latest_attempts: dict[str, dict[str, Any]] = {}
@@ -1042,6 +1377,7 @@ node "$check_file"
 
     def coordination_prompt(self, causes: list[dict[str, Any]], cell: str) -> str:
         candidate_evidence = self.candidate_evidence(cell, run_checks=self.mode != MODE_GRAPH)
+        runtime_capsule = self.runtime_capability_capsule(self.lead_actor, cell)
         if self.mode == MODE_GRAPH:
             return (
             "# Event-driven Exec wake\n\n"
@@ -1064,6 +1400,8 @@ node "$check_file"
 
 {(self.run_dir / 'context' / 'scenario.md').read_text()}
 
+{runtime_capsule}
+
 ## Exact native candidate evidence
 
 ```json
@@ -1078,11 +1416,75 @@ Wake causes:
 Continue directly from the exact candidate. Inspect and run whatever you need, produce the smallest
 coherent playable advance, verify it, commit it cleanly, and truthfully close or leave continuation.
 """
+        if self.mode == MODE_LEAD:
+            return f"""# Accountable lead outcome wake — B0
+
+## Exec-delegated owner outcome
+
+{(self.run_dir / 'context' / 'scenario.md').read_text()}
+
+{runtime_capsule}
+
+## Exact native candidate evidence
+
+```json
+{json.dumps(candidate_evidence, indent=2)}
+```
+
+## New event causes
+
+```json
+{json.dumps(causes, indent=2)}
+```
+
+Continue direct outcome work from this exact candidate. Inspect and run what judgement requires,
+produce one coherent advance, verify it natively, commit it cleanly, and close only on observed proof.
+"""
+        if self.mode in (MODE_TEAM, MODE_CRITIC):
+            baseline_name = "ordinary team — B1" if self.mode == MODE_TEAM else "fresh critic — B2"
+            action = (
+                "If no producer Work exists yet, your first cross-system action before any candidate edit is to commission exactly one bounded contribution now. Then continue complementary direct work. Your own commits never count as producer artifacts. On callback, inspect and integrate only the worker's exact useful commit."
+                if self.mode == MODE_TEAM
+                else "If the direct candidate is not yet coherently implemented and committed, continue producing it yourself. Once it is, commission exactly one artifact-only critique; on callback, consume and judge its exact review artifact."
+            )
+            return f"""# Accountable lead outcome wake — {baseline_name}
+
+## Exec-delegated owner outcome
+
+{(self.run_dir / 'context' / 'scenario.md').read_text()}
+
+{runtime_capsule}
+
+## Exact native candidate evidence
+
+```json
+{json.dumps(candidate_evidence, indent=2)}
+```
+
+## New event causes
+
+```json
+{json.dumps(causes, indent=2)}
+```
+
+## Sparse responsibility and artifact map
+
+```json
+{json.dumps(self.lead_projection(), indent=2)}
+```
+
+{action}
+
+Do not poll. Lead from the candidate and observable callback evidence, keep the canonical checkout
+clean at wake boundaries, run the combined native proof, and retain final accountability.
+"""
         return f"""# Artifact-triggered Game Product Lead wake
 
 ## Owner directive
 
 {(self.run_dir / 'context' / 'scenario.md').read_text()}
+
+{runtime_capsule}
 
 ## Persistent shared project state
 
@@ -1111,6 +1513,41 @@ coherent playable advance, verify it, commit it cleanly, and truthfully close or
 Lead from the evolving product, not the map. Inspect or run the candidate where judgement requires it;
 integrate exact useful commits; repair incoherence; commission only genuine cross-actor responsibility;
 and update `/company/project-state.md` before quiescing.
+"""
+
+    def runtime_capability_capsule(self, actor: str, cell: str) -> str:
+        if not self.native_review_proof:
+            raise RuntimeError("native review capability was not proved before actor prompt assembly")
+        if actor == self.lead_actor:
+            canonical = self.run_dir / "canonical"
+            command = (
+                f"python3 {self.native_review_proof['adapter']} {cell} {canonical} "
+                "<relative-check.mjs>"
+            )
+            return f"""## Probed native review runtime
+
+These are observed capabilities, not guesses. Your model session runs on the host, while the prepared
+Company Runtime for this exact candidate contains Chromium at
+`{self.native_review_proof['chromium']}` and Playwright at
+`{self.native_review_proof['playwright']}`. Do not search for a host Playwright installation or build a
+new Chrome DevTools adapter. Run a repository-native browser proof against the current working tree with:
+
+```text
+{command}
+```
+
+The first-party adapter uses the already-mounted current workspace and supplies a temporary static
+server only when the proof reports a refused local connection. Native proof is evidence for judgement,
+not a reason to invent a stricter acceptance target than the owner outcome.
+"""
+        return f"""## Probed native review runtime
+
+This Work runs inside the prepared Company Runtime. Chromium is available at
+`{self.native_review_proof['chromium']}` and Playwright at
+`{self.native_review_proof['playwright']}`; the current Work workspace is `/workspace`. Use the
+repository's bounded verifier directly with `node <relative-check.mjs>` and start only the local static
+fixture it names if needed. Do not rediscover host browser paths. Once the exact Work outcome and its
+declared proof pass, optional stronger checks must not delay the terminal artifact handoff.
 """
 
     async def coordination_turn(self, causes: list[dict[str, Any]], cell: str) -> dict[str, Any]:
@@ -1196,6 +1633,7 @@ your exact Work. Do not reopen the whole product mission or perform broad reposi
 from the named extension seam and inspect only the files needed for this bounded contribution. The Work
 outcome remains your responsibility; do not replace it with a new project plan.
 """
+        runtime_capsule = self.runtime_capability_capsule(item["owner"], item["cell"])
         return f"""# Claimed Work execution lease
 
 Work: {item['id']}
@@ -1207,6 +1645,8 @@ Expected artifact: {item['expected_artifact']}
 Workspace: your current working directory
 Branch: {item['branch']}
 Feedback: {item.get('feedback') or 'none'}
+
+{runtime_capsule}
 
 {shared_product_context}
 
@@ -1281,11 +1721,77 @@ integration-lead consumes the required commit references above.
             task.cancel()
         await asyncio.gather(*terminal_tasks, return_exceptions=True)
 
+    def protocol_evidence(self) -> dict[str, Any]:
+        work = [
+            dict(row)
+            for row in self.coordinator.conn.execute(
+                "SELECT id,owner,status,revision FROM work ORDER BY created_at"
+            ).fetchall()
+        ]
+        attempts = [
+            dict(row)
+            for row in self.coordinator.conn.execute(
+                "SELECT id,work_id,actor,state,revision FROM attempts ORDER BY started_at"
+            ).fetchall()
+        ]
+        artifacts = [
+            dict(row)
+            for row in self.coordinator.conn.execute(
+                "SELECT work_id,attempt_id,kind,reference FROM artifacts ORDER BY created_at"
+            ).fetchall()
+        ]
+        produced_work = {
+            attempt["work_id"]
+            for attempt in attempts
+            if attempt["state"] == "produced"
+        }
+        commit_work = {
+            artifact["work_id"]
+            for artifact in artifacts
+            if artifact["kind"] == "commit"
+        }
+        if self.mode == MODE_LEAD:
+            required = "zero Staff Work below the accountable lead"
+            valid = not work
+        elif self.mode == MODE_TEAM:
+            required = "exactly one ordinary producer Work with a produced commit artifact"
+            valid = (
+                len(work) == 1
+                and work[0]["owner"] != self.lead_actor
+                and work[0]["id"] in produced_work
+                and work[0]["id"] in commit_work
+            )
+        elif self.mode == MODE_CRITIC:
+            required = "exactly one artifact-critic Work with a produced review commit"
+            valid = (
+                len(work) == 1
+                and work[0]["owner"] == "artifact-critic"
+                and work[0]["id"] in produced_work
+                and work[0]["id"] in commit_work
+            )
+        else:
+            required = "legacy mode; not part of the B0/B1/B2 manipulation check"
+            valid = None
+        return {
+            "required": required,
+            "valid": valid,
+            "work": work,
+            "attempts": attempts,
+            "artifacts": artifacts,
+        }
+
     async def execute(self) -> dict[str, Any]:
-        codex_pool = self.mode != MODE_SINGLE and all(
+        uses_workers = mode_has_workers(self.mode)
+        runtime_launchers = prove_runtime_launchers(
+            self.lead_model,
+            self.worker_pool,
+            uses_workers=uses_workers,
+        )
+        self.coordinator.emit("runtime_launchers_proved", {"launchers": runtime_launchers})
+        codex_pool = uses_workers and all(
             model.startswith("gpt-") for model in self.worker_pool
         )
-        if self.mode != MODE_SINGLE and not codex_pool:
+        if uses_workers and not codex_pool:
             proofs = await asyncio.to_thread(prove_free_worker_pool, self.worker_pool)
             (self.run_dir / "free-worker-proof.json").write_text(json.dumps(proofs, indent=2, sort_keys=True))
             self.coordinator.emit("free_worker_pool_proved", {"models": proofs})
@@ -1293,7 +1799,14 @@ integration-lead consumes the required commit references above.
         coordination_cell = self.coordinator.workspaces.ensure_coordination_cell(
             self.lead_actor, read_only=self.mode == MODE_GRAPH
         )
-        if self.mode != MODE_SINGLE and not codex_pool:
+        self.native_review_proof = await asyncio.to_thread(
+            prove_native_review_runtime, coordination_cell
+        )
+        (self.run_dir / "native-review-proof.json").write_text(
+            json.dumps(self.native_review_proof, indent=2, sort_keys=True)
+        )
+        self.coordinator.emit("native_review_runtime_proved", self.native_review_proof)
+        if uses_workers and not codex_pool:
             runtime_proofs = await asyncio.to_thread(
                 prove_worker_runtime, coordination_cell, self.worker_pool
             )
@@ -1409,6 +1922,7 @@ integration-lead consumes the required commit references above.
         summary["lead_actor"] = self.lead_actor
         summary["lead_model"] = self.lead_model
         summary["worker_model_pool"] = self.worker_pool
+        summary["protocol"] = self.protocol_evidence()
         summary["candidate_evidence"] = self.candidate_evidence(
             coordination_cell, run_checks=self.mode != MODE_GRAPH
         )
@@ -2115,10 +2629,18 @@ async def artifact_architecture_test(run_id: str) -> dict[str, Any]:
     project_state.write_text(lab.project_state() + f"\n- {marker}\n")
 
     lead_cell = coordinator.workspaces.ensure_coordination_cell("studio-lead", read_only=False)
+    lab.native_review_proof = prove_native_review_runtime(lead_cell)
     mounts = json.loads(run(["docker", "inspect", lead_cell]).stdout)[0]["Mounts"]
     destinations = {mount["Destination"]: mount["RW"] for mount in mounts}
     check("product lead owns one writable canonical candidate", destinations.get("/workspace") is True, destinations)
     check("product state lives in the lead's persistent home", destinations.get("/company") is True, destinations)
+    lead_capsule = lab.runtime_capability_capsule("studio-lead", lead_cell)
+    check(
+        "lead receives the proved first-party native review path",
+        "native_check.py" in lead_capsule
+        and "Do not search for a host Playwright installation" in lead_capsule,
+        lead_capsule,
+    )
 
     self_commission_rejected = False
     try:
@@ -2257,6 +2779,24 @@ async def artifact_architecture_test(run_id: str) -> dict[str, Any]:
         and "FIXTURE_OWNERSHIP_READY" in fixture_result.stdout,
         {"mode": fixture_mode, "stdout": fixture_result.stdout, "stderr": fixture_result.stderr},
     )
+    actor_native_result = subprocess.run(
+        [
+            sys.executable,
+            str(HERE / "native_check.py"),
+            lead_cell,
+            str(canonical),
+            fixture_probe.name,
+        ],
+        text=True,
+        capture_output=True,
+        timeout=210,
+    )
+    check(
+        "actor-facing native adapter verifies the current mounted workspace",
+        actor_native_result.returncode == 0
+        and "FIXTURE_OWNERSHIP_READY" in actor_native_result.stdout,
+        {"stdout": actor_native_result.stdout, "stderr": actor_native_result.stderr},
+    )
 
     evidence = lab.candidate_evidence(lead_cell, run_checks=False)
     check("native candidate evidence names the integrated commit", evidence["candidate_commit"] == integrated, evidence)
@@ -2329,6 +2869,156 @@ async def artifact_architecture_test(run_id: str) -> dict[str, Any]:
     (run_dir / "architecture-results.json").write_text(json.dumps(result, indent=2, sort_keys=True))
     coordinator.close()
     return result
+
+
+def baseline_architecture_test(run_id: str) -> dict[str, Any]:
+    """Prove that B0/B1/B2 isolate the intended coordination variables."""
+    root_id = safe_name(run_id)
+    checks: list[dict[str, Any]] = []
+    arm_results: dict[str, Any] = {}
+
+    def check(name: str, condition: bool, detail: Any = None) -> None:
+        checks.append({"name": name, "pass": bool(condition), "detail": detail})
+        if not condition:
+            raise AssertionError(f"{name}: {detail}")
+
+    legacy_db = WORK_ROOT / f"{root_id}-legacy-turns.sqlite3"
+    legacy_db.unlink(missing_ok=True)
+    with sqlite3.connect(legacy_db) as legacy_conn:
+        legacy_conn.execute(
+            "CREATE TABLE turns (id TEXT PRIMARY KEY, actor TEXT NOT NULL, "
+            "started_at REAL NOT NULL, output_tokens INTEGER)"
+        )
+    initialize(legacy_db)
+    with connect(legacy_db) as migrated_conn:
+        migrated_columns = {
+            row["name"] for row in migrated_conn.execute("PRAGMA table_info(turns)").fetchall()
+        }
+    legacy_db.unlink()
+    check(
+        "legacy run databases gain the current token telemetry columns",
+        {"cached_input_tokens", "reasoning_output_tokens"} <= migrated_columns,
+        sorted(migrated_columns),
+    )
+
+    arm_specs = (
+        ("b0", MODE_LEAD, [], "gameplay-systems"),
+        ("b1", MODE_TEAM, ["test/free-worker"], "world-content"),
+        ("b2", MODE_CRITIC, ["test/free-critic"], "gameplay-systems"),
+    )
+    for arm, mode, workers, worker_actor in arm_specs:
+        arm_id = f"{root_id}-{arm}"
+        run_dir = prepare(
+            arm_id,
+            mode=mode,
+            lead_model="test/strong-lead",
+            worker_pool=workers,
+            spend_ceiling_usd=1.0,
+            team_worker_actor=worker_actor,
+        )
+        lab = LabRun(arm_id)
+        try:
+            manifest = lab.manifest
+            actor_ids = set(manifest["actors"])
+            system = (run_dir / "context" / "system" / "studio-lead.md").read_text()
+            system_flat = " ".join(system.split())
+            project_state = run_dir / "homes" / "studio-lead" / "project-state.md"
+            candidate_branch = run(
+                ["git", "-C", str(run_dir / "canonical"), "branch", "--show-current"]
+            ).stdout.strip()
+            cell = lab.coordinator.workspaces.ensure_coordination_cell(
+                "studio-lead", read_only=False
+            )
+            lab.native_review_proof = prove_native_review_runtime(cell)
+            mounts = json.loads(run(["docker", "inspect", cell]).stdout)[0]["Mounts"]
+            destinations = {mount["Destination"]: mount["RW"] for mount in mounts}
+            check(f"{arm} is led below Exec by the accountable studio lead", lab.lead_actor == "studio-lead")
+            check(f"{arm} owns one writable canonical candidate", destinations.get("/workspace") is True, destinations)
+            check(f"{arm} starts from the frozen candidate branch", candidate_branch == "candidate", candidate_branch)
+            check(f"{arm} has no artifact-led shared project-state confound", not project_state.exists())
+            lead_capsule = lab.runtime_capability_capsule("studio-lead", cell)
+            check(
+                f"{arm} lead receives a proved first-party native review path",
+                "native_check.py" in lead_capsule
+                and "Do not search for a host Playwright installation" in lead_capsule,
+                lead_capsule,
+            )
+
+            if mode == MODE_LEAD:
+                check("B0 exposes no Staff actors", actor_ids == {"studio-lead"}, sorted(actor_ids))
+                check("B0 exposes no worker model pool", manifest["worker_model_pool"] == [], manifest)
+                check("B0 has zero Staff concurrency", manifest["max_staff_concurrency"] == 0, manifest)
+                check("B0 explicitly preserves lead accountability without delegation", "team size below you is zero" in system_flat)
+                check("B0 manipulation evidence accepts observed zero-Staff execution", lab.protocol_evidence()["valid"] is True)
+            elif mode == MODE_TEAM:
+                check("B1 exposes exactly one ordinary producer", actor_ids == {"studio-lead", "world-content"}, sorted(actor_ids))
+                check("B1 pins exactly one worker model", manifest["worker_model_pool"] == workers, manifest)
+                check("B1 permits exactly one Staff turn at once", manifest["max_staff_concurrency"] == 1, manifest)
+                check("B1 excludes the mandatory-critic and shared-memory wildcards", "no mandatory critic" in system_flat and "no shared project-state document" in system_flat)
+                invalid_critic = False
+                try:
+                    lab.coordinator.command(
+                        command_payload(
+                            "studio-lead",
+                            "commission",
+                            "b1-invalid-critic",
+                            {
+                                "owner": "artifact-critic",
+                                "outcome": "Invalid critic in the ordinary-team baseline",
+                                "expected_artifact": "none",
+                            },
+                        )
+                    )
+                except ValueError:
+                    invalid_critic = True
+                check("B1 cannot silently recruit a critic or second specialist", invalid_critic)
+                check("B1 manipulation evidence rejects narration without producer Work", lab.protocol_evidence()["valid"] is False)
+                worker_capsule = lab.runtime_capability_capsule("world-content", cell)
+                check(
+                    "B1 worker receives exact Company Runtime browser capabilities and stop guidance",
+                    "/usr/bin/chromium" in worker_capsule
+                    and "/usr/local/lib/node_modules/playwright/index.mjs" in worker_capsule
+                    and "optional stronger checks must not delay" in worker_capsule,
+                    worker_capsule,
+                )
+            else:
+                check("B2 exposes exactly one fresh critic", actor_ids == {"studio-lead", "artifact-critic"}, sorted(actor_ids))
+                check("B2 pins exactly one critic model", manifest["worker_model_pool"] == workers, manifest)
+                check("B2 permits exactly one Staff turn at once", manifest["max_staff_concurrency"] == 1, manifest)
+                check("B2 excludes producer Staff and shared hidden reasoning", "no producer Staff" in system_flat and "no shared hidden reasoning" in system_flat)
+                check("B2 manipulation evidence rejects narration without critic Work", lab.protocol_evidence()["valid"] is False)
+
+            launchers = prove_runtime_launchers(
+                "gpt-5.6-sol",
+                ["stealth/ox-alpha"] if mode_has_workers(mode) else [],
+                uses_workers=mode_has_workers(mode),
+            )
+            launcher_kinds = [launcher["kind"] for launcher in launchers]
+            expected_launchers = ["codex", "acp"] if mode_has_workers(mode) else ["codex"]
+            check(f"{arm} routes GPT lead and any OpenRouter Staff through distinct launchers", launcher_kinds == expected_launchers, launcher_kinds)
+
+            check(f"{arm} coordination database is healthy", lab.coordinator.conn.execute("PRAGMA quick_check").fetchone()[0] == "ok")
+            arm_results[arm] = {
+                "run": arm_id,
+                "mode": mode,
+                "actors": sorted(actor_ids),
+                "worker_model_pool": manifest["worker_model_pool"],
+                "max_staff_concurrency": manifest["max_staff_concurrency"],
+            }
+        finally:
+            lab.coordinator.close()
+            cleanup_cells(arm_id)
+
+    result = {
+        "run": root_id,
+        "checks": checks,
+        "passed": len(checks),
+        "arms": arm_results,
+        "quick_check": "ok",
+    }
+    result_path = WORK_ROOT / f"{root_id}-baseline-architecture-results.json"
+    result_path.write_text(json.dumps(result, indent=2, sort_keys=True))
+    return {**result, "result_path": str(result_path)}
 
 
 async def positive_callback_repair_probe(run_id: str) -> dict[str, Any]:
@@ -2458,7 +3148,7 @@ async def run_experiment(experiment_id: str) -> dict[str, Any]:
 def worker_runtime_probe(run_id: str) -> dict[str, Any]:
     """Run the two live worker preconditions without spending a lead wake."""
     lab = LabRun(run_id)
-    if lab.mode == MODE_SINGLE:
+    if not mode_has_workers(lab.mode):
         lab.coordinator.close()
         raise RuntimeError("worker runtime probe requires a team-mode run")
     try:
@@ -2484,7 +3174,7 @@ def worker_runtime_probe(run_id: str) -> dict[str, Any]:
 def worker_capability_probe(run_id: str) -> dict[str, Any]:
     """Prove tool use and exact artifact production in an isolated scratch path."""
     lab = LabRun(run_id)
-    if lab.mode == MODE_SINGLE:
+    if not mode_has_workers(lab.mode):
         lab.coordinator.close()
         raise RuntimeError("worker capability probe requires a team-mode run")
     try:
@@ -2611,8 +3301,14 @@ def main() -> None:
     prepare_parser.add_argument("--wall-clock-seconds", type=int, default=1800)
     prepare_parser.add_argument("--drain-grace-seconds", type=int, default=DRAIN_GRACE_SECONDS)
     prepare_parser.add_argument("--scenario-file")
+    prepare_parser.add_argument("--team-worker-actor", choices=PRODUCER_ACTORS, default="gameplay-systems")
+    prepare_parser.add_argument("--max-staff-concurrency", type=int)
+    prepare_parser.add_argument("--evaluator-file", action="append", default=[])
+    prepare_parser.add_argument("--actor-max-time", default=DEFAULT_ACTOR_MAX_TIME)
     run_parser = sub.add_parser("run")
     run_parser.add_argument("run_id")
+    evaluate_parser = sub.add_parser("evaluate")
+    evaluate_parser.add_argument("run_id")
     fault_parser = sub.add_parser("fault-test")
     fault_parser.add_argument("run_id", nargs="?", default="faults")
     positive_parser = sub.add_parser("positive-probe")
@@ -2621,6 +3317,8 @@ def main() -> None:
     positive_repair_parser.add_argument("run_id", nargs="?", default="positive")
     architecture_parser = sub.add_parser("architecture-test")
     architecture_parser.add_argument("run_id", nargs="?", default="v21-architecture")
+    baseline_architecture_parser = sub.add_parser("baseline-architecture-test")
+    baseline_architecture_parser.add_argument("run_id", nargs="?", default="v24-baseline-architecture")
     experiment_prepare_parser = sub.add_parser("experiment-prepare")
     experiment_prepare_parser.add_argument("experiment_id", nargs="?", default="v21-smoke")
     experiment_prepare_parser.add_argument("--lead-model", default=LEAD_MODEL)
@@ -2650,10 +3348,24 @@ def main() -> None:
                 wall_clock_seconds=args.wall_clock_seconds,
                 drain_grace_seconds=args.drain_grace_seconds,
                 scenario_text=scenario_text,
+                team_worker_actor=args.team_worker_actor,
+                max_staff_concurrency=args.max_staff_concurrency,
+                evaluator_files=args.evaluator_file,
+                actor_max_time=args.actor_max_time,
             )
         )
     elif args.command == "run":
         print(json.dumps(asyncio.run(LabRun(args.run_id).execute()), indent=2))
+    elif args.command == "evaluate":
+        lab = LabRun(args.run_id)
+        try:
+            cell = lab.coordinator.workspaces.ensure_coordination_cell(
+                lab.lead_actor, read_only=lab.mode == MODE_GRAPH
+            )
+            print(json.dumps(lab.declared_evaluator_evidence(cell), indent=2))
+        finally:
+            lab.coordinator.close()
+            cleanup_cells(args.run_id)
     elif args.command == "fault-test":
         print(json.dumps(asyncio.run(fault_test(args.run_id)), indent=2))
     elif args.command == "positive-probe":
@@ -2662,6 +3374,8 @@ def main() -> None:
         print(json.dumps(asyncio.run(positive_callback_repair_probe(args.run_id)), indent=2))
     elif args.command == "architecture-test":
         print(json.dumps(asyncio.run(artifact_architecture_test(args.run_id)), indent=2))
+    elif args.command == "baseline-architecture-test":
+        print(json.dumps(baseline_architecture_test(args.run_id), indent=2))
     elif args.command == "experiment-prepare":
         worker_pool = [model.strip() for model in args.worker_pool.split(",") if model.strip()]
         print(
