@@ -68,7 +68,12 @@ WRITABLE_CANDIDATE_MODES = {
     MODE_CRITIC,
 }
 WORKER_MODES = {MODE_GRAPH, MODE_ARTIFACT, MODE_TEAM, MODE_CRITIC}
-PRODUCER_ACTORS = ("gameplay-systems", "world-content", "experience-presentation")
+PRODUCER_ACTORS = (
+    "gameplay-systems",
+    "world-content",
+    "experience-presentation",
+    "research-analyst",
+)
 
 ACTORS = {
     "exec": (
@@ -86,6 +91,10 @@ ACTORS = {
     "experience-presentation": (
         "Experience and presentation engineer",
         "Own interface, visual readability, creature personality presentation, spacecraft/home experience, and review-state preparation when commissioned.",
+    ),
+    "research-analyst": (
+        "Research analyst",
+        "Own bounded synthesis of frozen source regions, exact citations, contradiction analysis, and decision evidence when commissioned.",
     ),
     "artifact-critic": (
         "Independent playable-build critic",

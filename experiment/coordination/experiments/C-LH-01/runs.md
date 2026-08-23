@@ -113,3 +113,16 @@ No replacement Run ID is allocated until the founder gives the start signal for
 [`exp-sprint-01-coordination-frontier.md`](../../../exp-sprints/exp-sprint-01-coordination-frontier.md).
 Native evidence and any future matched interpretation will be appended without
 rewriting the frozen hashes above.
+
+## Experiment Sprint 01 allocation
+
+The start signal was received after T0 first-party feasibility passed. The scenario/evaluator bytes and
+seed remain unchanged, but the matched allocation uses a fresh order seed and Run IDs so the stopped
+v28 diagnostic cannot be repaired into evidence.
+
+- Order seed: `EXP-01:E01:C-LH-01:gpt56:2026-08-23`.
+- Order SHA-256: `b0a88b7d6fb85ce3a5fda1eb7ec6039dd2430f649bf27cccfc889667980db5cc`.
+- Odd first-32-bit parity selects **B1 → B0**.
+- First counted Run ID: `exp01-e01-b1-terra`.
+- Matched Run ID after structurally valid B1: `exp01-e01-b0-sol`.
+- Sol lead and Terra producer use the frozen first-party allocation; no OpenRouter actor participates.

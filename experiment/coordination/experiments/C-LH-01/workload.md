@@ -1,6 +1,6 @@
 # Workload C-LH-01 — Lumaara field-research desk
 
-Status: frozen for matched run
+Status: re-frozen for Experiment Sprint 01 matched run
 
 ## Frozen success contract and native review target
 
@@ -74,6 +74,26 @@ Order seed: `C-LH-01:v27:ordinary-crossover:2026-08-23`; SHA-256
 selects **B1 → B0**. Both arms receive the same seed, scenario bytes, Sol lead, tools, 14,400-second
 outer envelope, 120-second drain, no actor timeout, USD 6 nominal ceiling and evaluator hash. B1 alone
 receives one `experience-presentation` producer on pinned `z-ai/glm-5.2:free` and one Staff slot.
+
+### Experiment Sprint 01 fresh allocation
+
+The owner removed the free-provider variable. Two new independent read-only judges saw only the exact
+scenario and seed. GPT-5.6 Sol estimated 6–10 focused hours and 35–70 meaningful iterations; GPT-5.6
+Terra estimated 8–14 hours and 40–80 calls. Both classified lead saturation and artifact separability
+high, interface volatility low-to-medium, and the Atlas vertical slice as the fairest one-worker seam.
+Both judged the robust release-quality outcome credibly beyond one effective strong-lead session while
+retaining a narrower single-lead implementation as the strongest alternative.
+
+Fresh order seed: `EXP-01:E01:C-LH-01:gpt56:2026-08-23`; SHA-256
+`b0a88b7d6fb85ce3a5fda1eb7ec6039dd2430f649bf27cccfc889667980db5cc`. Odd first-32-bit parity
+selects **B1 → B0**.
+
+- Accountable lead in both arms: `gpt-5.6-sol`, medium reasoning.
+- B1 producer: `experience-presentation` on `gpt-5.6-terra`, low/runtime-default reasoning.
+- Same seed, scenario/evaluator bytes, tools, 14,400-second outer envelope, 120-second drain, no actor
+  timeout and USD 6 nominal ceiling.
+- B1's one fair seam is the complete Field Atlas vertical slice; the lead retains Workshop, shared
+  launch/domain conventions, integration and combined native proof.
 
 ## Evaluator and blind-review contract
 

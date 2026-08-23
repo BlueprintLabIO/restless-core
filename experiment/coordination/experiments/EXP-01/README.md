@@ -6,3 +6,5 @@ ignored `experiment/coordination-lab/v2/workdir/` tree.
 
 - [`t00-harness-verification.md`](t00-harness-verification.md) — Wave 0 substrate and first-party
   callback proof.
+- [`t01-task-evaluator-freeze.md`](t01-task-evaluator-freeze.md) — frozen E01/E02 work shapes,
+  evaluators, negative controls and allocations.

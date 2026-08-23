@@ -31,6 +31,7 @@ This index maps current claims to inspectable evidence. It does not copy raw tra
 | Evidence | What it supports or challenges |
 |---|---|
 | [`T0 harness verification`](experiments/EXP-01/t00-harness-verification.md) | After the `experiment/` rename, 39/39 fault checks, 39/39 baseline-isolation checks and 22/22 artifact-architecture checks passed. A real Terra producer returned an exact gated commit and terminal callback in 50.75 seconds, woke the lead, and left Exec available for an independent request. Two focused-probe wrapper bugs were fixed before counted arms. |
+| [`T1 task/evaluator freeze`](experiments/EXP-01/t01-task-evaluator-freeze.md) | E01 retained its high-saturation/high-separability game contract. The first E02 memo was rejected as below lead saturation; the revised four-dossier research pack was independently reclassified as genuinely separable and lead-saturating. Both external evaluators fail untouched seeds for the intended absent outcomes, and both fresh allocations randomised B1 first. |
 
 ## External research priors
 
