@@ -100,6 +100,17 @@ fn valid_slug(slug: &str) -> bool {
             .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
 }
 
+/// A durable actor keeps one organisational posture across every wake. Before
+/// this distinction, a lead's conversation wake called it accountable while
+/// its productive Work wake called the same actor a mere specialist.
+fn actor_posture(accountable_lead: bool) -> &'static str {
+    if accountable_lead {
+        "You are the ACCOUNTABLE LEAD for this team's whole outcome, not a relay and not a smaller Exec. Apply the natural accountable-team rules above on productive Work and conversation wakes alike. Direct execution is valid; Staff are optional. You retain integration, native review, completion judgement, and truthful attribution of every real contribution."
+    } else {
+        "You are a SPECIALIST, not a smaller Exec. Own the bounded responsibility your role names, surface material contradictions early, and say plainly when something falls outside it. Do not quietly take over the whole team outcome: a specialist who does every job is a generalist with a job title."
+    }
+}
+
 async fn mail_exec(org: &restless_orgintel::OrgIntel, body: &str) {
     if let Err(error) = org
         .ensure_actor("daemon", "system", "system-sender", "The daemon")
@@ -166,10 +177,15 @@ pub async fn dispatch_claimed_work(
         } else {
             "/company".to_string()
         };
-        anyhow::Ok((actor_row, candidates, workdir))
+        let accountable_lead = org
+            .list_teams()
+            .await?
+            .iter()
+            .any(|team| team.lead_actor_id == actor);
+        anyhow::Ok((actor_row, candidates, workdir, accountable_lead))
     }
     .await;
-    let (actor_row, candidates, workdir) = match setup {
+    let (actor_row, candidates, workdir, accountable_lead) = match setup {
         Ok(setup) => setup,
         Err(error) => {
             registry.release(&config.name, &actor);
@@ -177,7 +193,7 @@ pub async fn dispatch_claimed_work(
         }
     };
 
-    let spine = shared_spine(config, org, &actor).await;
+    let spine = shared_spine(config, org, &actor, accountable_lead).await;
     let company = config.name.clone();
     let name = actor_row.display;
     let task = format!(
@@ -233,6 +249,7 @@ pub async fn dispatch_claimed_work(
             meter,
             authority,
             conversation: false,
+            accountable_lead,
             observer: None,
         })
         .await;
@@ -412,11 +429,11 @@ pub async fn dispatch_actor_conversation(
     };
     let task = format!(
         "# Team charter\n{}\n\n# Roster\n{}\n\n# Team Work\n{}\n\n# Team Work edges\n{}\n\n# Addressed internal messages\n{}\n\n# Judgement you owe\n{}\n\n\
-         You are accountable for this team's outcome, not a relay. Resolve local blockers by changing the smallest relevant mechanism: roster, brief, context, skill, model, tool, dependency, or Work graph. The scheduler starts ready Work; do not narrate handoffs manually.\n\n\
-         Assemble the smallest differentiated roster. Inspect `restless people` before adding anyone. New Staff is one possible sourcing posture, not the automatic answer to a missing capability. If evidence calls for new internal capacity, use `restless people create --id <durable-domain>-<craft> --role <role> --display <colleague-name> [--model <model>] --reason <difference>`; then `restless teams assign --actor <id> --team <this team> --reason <difference or repair>`. Reuse those actors across Work and revisions; never encode Staff, team position, environment, stage, implementation or retry in the id.\n\n\
+         Resolve local blockers by changing the smallest relevant mechanism: roster, brief, context, skill, model, tool, dependency, or Work graph. The scheduler starts ready Work; do not narrate handoffs manually.\n\n\
+         The roster is available capacity, not a headcount target. Inspect `restless people` before adding anyone. New Staff is one possible sourcing posture, not the automatic answer to a missing capability. If evidence calls for new internal capacity, use `restless people create --id <durable-domain>-<craft> --role <role> --display <colleague-name> [--model <model>] --reason <difference>`; then `restless teams assign --actor <id> --team <this team> --reason <difference or repair>`. Reuse those actors across Work and revisions; never encode Staff, team position, environment, stage, implementation or retry in the id.\n\n\
          # Sourcing a missing capability [shared skill]\n{}\n\n\
          When creating dependent Work, declare every initial dependency in the same `restless work add` with repeatable `--requires <prerequisite-work-id>` and `--revises <producer-work-id>` flags. Those commit atomically. Use `restless work edge` only to repair an existing graph: for requires, `--from` is the prerequisite and `--to` is the dependent; revises runs reviewer to producer. Remove a mistaken local edge with `--remove --as {actor} --reason <evidence>`. Adding edges after node creation can let the scheduler start a half-built node.\n\n\
-         Graph state outranks prose. Only completed final-acceptance Work makes acceptance canonical. Evidence and research Work are inputs to that judgement; a free-form status message may report them but must not declare the outcome accepted, canonical, or shipped while a dependency or final-acceptance Work remains open.\n\n\
+         Keep Work sparse and factual. Your current lead-owned Work already carries the whole charter; do not mirror your own plan or checklist as child nodes. Add child Work only when another actor will own a real bounded responsibility. Work and artifacts prove what crossed actors, while whole-outcome acceptance remains your judgement after native inspection. Never claim a Staff contribution that has no Work → Attempt → observed result.\n\n\
          For a pending judgement you can settle, use `restless work resolve-handoff --handoff <id> --state resolved --resolution <answer>`. If it is genuinely outside the charter, use `restless work escalate-handoff --handoff <id> --as {actor} --reason <evidence and smallest decision>`; it goes to the Exec, not directly to the owner. Resume repaired failed Work with `restless work resume --work <id> --as {actor} --reason <what changed>`.\n\n\
          If the owner wrote, your final assistant response is the reply the owner will receive. Do not use `restless message` to reply to the owner. Speak for the whole team. If the owner directed a change, make the Work graph change before claiming it did. Follow the shared conversation contract below and end with exactly one intent marker: `<!--restless-intent:{{\"kind\":\"conversation|work_feedback|direction|authority\",\"summary\":\"one short interpretation\"}}-->` using one real kind.\n\n\
          Ask the Exec only for cross-team resources, company priority, strategy, or charter guidance. Authority and irreducible human last miles remain owner boundaries.\n\n# Presenting to the owner [shared skill]\n{}\n\n# Conversing with the owner [shared contract]\n{}",
@@ -480,6 +497,7 @@ pub async fn dispatch_actor_conversation(
             meter,
             authority,
             conversation: true,
+            accountable_lead: true,
             observer,
         })
         .await;
@@ -545,6 +563,7 @@ async fn shared_spine(
     config: &CompanyConfig,
     org: &restless_orgintel::OrgIntel,
     actor: &str,
+    accountable_lead: bool,
 ) -> String {
     let mut spine = format!("\n# The company you work for\n{}\n", config.mission.trim());
     match org.list_work().await {
@@ -573,6 +592,10 @@ async fn shared_spine(
     if actor == "exec" {
         spine.push_str(
             "\nYou are the accountable coordinator for this Work; do not message yourself. Use the Work CLI to link the exact artifact version you produced. An owner handoff is only for identity, CAPTCHA, MFA, legal attestation, payment confirmation, or irreducible owner judgement.\n",
+        );
+    } else if accountable_lead {
+        spine.push_str(
+            "\nYou are the accountable coordinator for this team's outcome. Resolve ordinary uncertainty and local blockers inside the charter; message Exec only for cross-team resources, company priority, strategy, charter scope, or authority escalation. Use the Work CLI to make every real cross-actor contribution and its exact artifact observable.\n",
         );
     } else {
         let coordinator = org
@@ -607,6 +630,9 @@ struct StaffRun {
     meter: crate::spend::TurnMeter,
     authority: crate::authority::AuthorityStore,
     conversation: bool,
+    /// One durable actor keeps the same accountable posture whether Work or
+    /// conversation woke it.
+    accountable_lead: bool,
     observer: Option<acp::SessionObserver>,
 }
 
@@ -687,6 +713,7 @@ async fn run_staff_with_failover(run: StaffRun) -> Result<StaffOutcome> {
             role: run.role.clone(),
             spine,
             conversation: run.conversation,
+            accountable_lead: run.accountable_lead,
             observer: run.observer.clone(),
         })
         .await;
@@ -908,6 +935,7 @@ struct StaffBrief {
     /// same process, model, failover and supervision path with a team-scoped
     /// brief rather than inventing a second runtime class.
     conversation: bool,
+    accountable_lead: bool,
     observer: Option<acp::SessionObserver>,
 }
 
@@ -928,7 +956,7 @@ fn staff_halt(end: &acp::TurnEnd) -> Option<String> {
 /// complete review report `blocked` merely because another critic or a later
 /// revision still remained. That destroys the meaning of the Work
 /// state and makes successful handoffs look like failures.
-const STAFF_TERMINATION_PROMPT: &str =
+const SPECIALIST_TERMINATION_PROMPT: &str =
     "Your assigned specialist task is ending now. Based on the task you were given, answer with JSON only, no prose:\n\
     {\"decision\": \"continue\" | \"blocked\" | \"changes_requested\" | \"outcome_met\" | \"abandon\", \
      \"reason\": \"<one line>\"}\n\
@@ -938,6 +966,25 @@ const STAFF_TERMINATION_PROMPT: &str =
     - outcome_met: your assigned task and its requested outputs are complete\n\
     - abandon: your assigned task is not worth continuing; say why\n\
     Judge only your assignment. Other company work, later review, or another actor's task does not make your completed task blocked.";
+
+const LEAD_TERMINATION_PROMPT: &str =
+    "Your accountable outcome Work is ending now. Based on the complete charter you own, answer with JSON only, no prose:\n\
+    {\"decision\": \"continue\" | \"blocked\" | \"changes_requested\" | \"outcome_met\" | \"abandon\", \
+     \"reason\": \"<one line>\"}\n\
+    - continue: more machine-doable outcome, integration, native review, or Staff-result work remains\n\
+    - blocked: the outcome cannot advance until a human or external event acts; say exactly what is needed\n\
+    - changes_requested: this Work is a review responsibility and concrete changes are required\n\
+    - outcome_met: the whole assigned outcome is complete, natively inspected, and every claimed Staff contribution is observable\n\
+    - abandon: the assigned outcome is not worth continuing; say why\n\
+    Judge this lead-owned outcome, not the company portfolio. Unrelated company work does not make a completed outcome blocked.";
+
+fn termination_prompt(accountable_lead: bool) -> &'static str {
+    if accountable_lead {
+        LEAD_TERMINATION_PROMPT
+    } else {
+        SPECIALIST_TERMINATION_PROMPT
+    }
+}
 
 async fn run_staff(
     brief: StaffBrief,
@@ -954,6 +1001,7 @@ async fn run_staff(
         role,
         spine,
         conversation,
+        accountable_lead,
         observer,
     } = brief;
     let (container, auth, workdir, actor) =
@@ -963,19 +1011,19 @@ async fn run_staff(
     } else {
         "assigned one claimed Work Attempt"
     };
+    let posture = actor_posture(accountable_lead);
+    let termination_prompt = termination_prompt(accountable_lead);
     let workspace = workspace_instruction(workdir, conversation);
     let system_prompt = format!(
         "# Company operating rules [authoritative — applies to every actor]\n{}\n\n\
          You are {name}, the {role} of {company}, {assignment}. Your stable OrgIntel actor id is `{actor}`.\n\
-         You are a SPECIALIST, not a smaller Exec. Do the job your role names and \
-         say so plainly when something falls outside it — a specialist who quietly \
-         does everything is a generalist with a job title, and the reason you exist \
-         is that one actor doing every job did one of them badly.\n\
+         {posture}\n\
          {workspace}\n\
          {spine}\n\
          # Trusted assignment context [OrgIntel decision]\n{task}\n\n\
          Work until the task is done or you are stuck. {ending}",
         crate::context::COMPANY_OPERATING_RULES.trim(),
+        posture = posture,
         workspace = workspace,
         ending = if conversation {
             "After using any tools you need, end with the complete owner-facing reply and its required intent marker. Do not narrate private reasoning in that reply."
@@ -1055,9 +1103,7 @@ async fn run_staff(
                         ));
                     }
 
-                    let end = session
-                        .prompt_live(STAFF_TERMINATION_PROMPT, |_| false)
-                        .await;
+                    let end = session.prompt_live(termination_prompt, |_| false).await;
                     if let Some(usage) = end.usage() {
                         spent.push(usage);
                     }
@@ -1522,7 +1568,10 @@ pub async fn sweep_orphans(root: &std::path::Path, orgintel: &crate::OrgIntelReg
 
 #[cfg(test)]
 mod tests {
-    use super::{gate_cwd, record_final_staff_spend, workspace_instruction};
+    use super::{
+        actor_posture, gate_cwd, record_final_staff_spend, termination_prompt,
+        workspace_instruction,
+    };
     use crate::acp::TurnUsage;
     use crate::model_gateway::ModelBilling;
     use crate::spend::SpendLedger;
@@ -1541,6 +1590,39 @@ mod tests {
         let conversation = workspace_instruction("/company", true);
         assert!(conversation.contains("do not create a second plan"));
         assert!(!conversation.contains("dedicated git worktree"));
+    }
+
+    #[test]
+    fn one_actor_keeps_one_organisational_posture_across_wake_types() {
+        let rules = crate::context::COMPANY_OPERATING_RULES;
+        assert!(rules.contains("causal understanding of the outcome"));
+        assert!(rules.contains("Working alone is valid"));
+        assert!(rules.contains("There is no required handoff template"));
+        assert!(rules.contains("scheduler-created"));
+        assert!(rules.contains("prove that another actor contributed"));
+        assert!(rules.contains("not the lead's plan, reasoning, checklist"));
+
+        let lead = actor_posture(true);
+        assert!(lead.contains("ACCOUNTABLE LEAD"));
+        assert!(lead.contains("productive Work and conversation wakes alike"));
+        assert!(lead.contains("Direct execution is valid; Staff are optional"));
+        assert!(lead.contains("truthful attribution"));
+        assert!(!lead.contains("You are a SPECIALIST"));
+
+        let specialist = actor_posture(false);
+        assert!(specialist.contains("You are a SPECIALIST"));
+        assert!(specialist.contains("bounded responsibility"));
+        assert!(!specialist.contains("ACCOUNTABLE LEAD"));
+
+        let lead_end = termination_prompt(true);
+        assert!(lead_end.contains("accountable outcome Work"));
+        assert!(lead_end.contains("integration, native review, or Staff-result work"));
+        assert!(lead_end.contains("every claimed Staff contribution is observable"));
+        assert!(!lead_end.contains("specialist task"));
+
+        let specialist_end = termination_prompt(false);
+        assert!(specialist_end.contains("assigned specialist task"));
+        assert!(!specialist_end.contains("accountable outcome Work"));
     }
 
     #[test]

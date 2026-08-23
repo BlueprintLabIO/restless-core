@@ -201,6 +201,12 @@ standing department lead or be appointed for that outcome; the Exec never substi
 producer or integrator when no lead already exists. The lead owns decomposition, direct production or
 Staff delegation, canonical integration, native review preparation and completion judgement.
 
+The lead first understands the outcome, then chooses the smallest effective team, including itself
+alone. Staff are useful only when a stable ownership seam offers quality, independent evidence,
+specialisation or parallel value that can repay communication, integration and review cost. Work
+records the factual responsibility boundary; it does not decide the topology or encode the lead's
+thinking process.
+
 After dispatch the Exec quiesces rather than waiting, polling or joining production. It wakes for a
 new owner request or a material callback requiring portfolio prioritisation, cross-department
 arbitration, resource reallocation, authority escalation or company-level judgement. This preserves
@@ -670,6 +676,12 @@ expected artifact or decision
 relevant links
 ```
 
+Keep this graph sparse. The Exec-to-lead responsibility is Work. Below the lead, create Work when a
+real responsibility crosses to another actor or a durable recovery boundary is needed; do not copy the
+lead's direct plan, private checklist, reasoning or every file edit into nodes. Another actor's claimed
+contribution is real only when OrgIntel created its Attempt and can observe the resulting artifact or
+terminal state. Messages can enrich the collaboration but cannot manufacture it.
+
 The scheduler atomically claims only ready Work and creates the Attempt before Staff starts. Initial
 dependencies are immutable once that Work has an Attempt; graph repair must not retrofit inputs after
 execution has begun. The
@@ -731,25 +743,41 @@ resumes only when the owner explicitly accepts the outcome or requests changes; 
 chat stays open for questions and feedback. Other handoff categories resume only when their external
 condition is observed.
 
-## 6.3 Teamwork patterns
+## 6.3 Natural accountable teamwork
 
 **Core contract**
 
-Templates are strong, explainable, overridable defaults. They describe when a pattern fits, roles, owner, brief, outputs, communication, decision rights, health signals, and exit conditions—not every action.
+The accountable lead owns the complete outcome. It first forms a causal understanding and then chooses
+the smallest effective team; zero Staff is a valid judgement. It commissions another actor only for a
+stable, independently useful responsibility whose expected quality, evidence, specialisation or
+parallel value can repay communication, integration and review cost. The lead continues complementary
+work, observes rather than trusts returned artifacts, integrates the whole result, prepares its native
+review target and makes the completion judgement.
 
-Initial library:
+The deterministic substrate stays deliberately small: Work and Attempts prove real cross-actor
+responsibility, inputs, artifacts, terminal state and recovery. They do not encode the lead's plan,
+reasoning, meeting rhythm or a teamwork protocol. OrgIntel does not ship a topology router or teamwork-
+pattern recommender in V0. Repeated useful strategies may become ordinary playbooks later; the model
+may adapt or ignore them.
 
-| Pattern | Best fit |
-|---|---|
-| **Single accountable lead** | Coherent or tightly coupled work; the lead may execute alone |
-| **Parallel exploration** | Independent hypotheses or search spaces |
-| **Producer–critic** | Hidden errors, subjective quality, external-facing output |
-| **Specialist pipeline** | Genuine sequential specialties |
-| **Recovery huddle** | Blocked, contradictory, or repeatedly failing work |
+### 6.3.1 Natural communication
 
-OrgIntel should recommend and explain a pattern, allow override, observe health, suggest repair, and learn from the result. It should normally warn rather than freeze work.
+**Default pattern**
 
-### 6.3.1 A team requires difference, or it is not a team
+When collaboration is useful, the lead communicates purpose, current understanding, important
+unknowns, the stable ownership seam and observable proof in ordinary language. It invites material
+challenge and sends another update only when changed information affects the colleague's work. Staff
+own their bounded responsibility, surface contradictions early and return inspectable evidence rather
+than status theatre. No handoff template, message cadence, common-room document or deterministic
+conversation lifecycle is required.
+
+One observed G-WORLD screen supports this default but does not prove universal team superiority:
+natural one-Staff leadership won blind artifact quality while remaining slower than solo. The first
+run also narrated a Staff contribution that never happened; zero Work and Attempts exposed it. The
+minimal factual `commission` boundary fixed the manipulation without adding a workflow. See
+[`experiment/coordination/experiments/EXP-01/natural-lead-result.md`](../../experiment/coordination/experiments/EXP-01/natural-lead-result.md).
+
+### 6.3.2 A team requires difference, or it is not a team
 
 **Core contract.** Added 15 August 2026 from three sprints of evidence.
 
@@ -983,7 +1011,7 @@ Rules:
 | **H6** | Bounded exploration improves strategic and product choices | Branching adds cost without better convergence |
 | **H7** | Local repair reduces owner rescue and preserves work | Mess accumulates faster than repair can handle |
 | **H8** | Evidence-driven evolution improves repeated performance | Debriefs produce prose but no better outcomes |
-| **H9** | Overridable templates beat rigid workflows and pure improvisation | Templates become ceremony or are ignored |
+| **H9** | Evidence-earned optional playbooks beat rigid workflows and repeated reinvention | Playbooks become ceremony or are ignored |
 | **H10** | Proactive cadence reduces dormancy | Wakeups create activity without output |
 
 H1–H4 and H6–H8 are the core thesis.
@@ -995,7 +1023,7 @@ These are useful starting hypotheses from human teamwork and agent engineering, 
 - shared mental models → compact common operating picture;
 - transactive memory → know who knows what and where artifacts live;
 - task interdependence → form teams around work shape;
-- brief, huddle, debrief, and check-back → coordinate at meaningful moments;
+- causal briefs, questions, material updates, and debriefs → communicate when information changes work;
 - after-action review → learn from actual outcomes;
 - independent critique → preserve judgment where hidden errors matter;
 - concrete artifacts → make long-running work inspectable and recoverable.
@@ -1079,7 +1107,8 @@ V0 includes:
 9. Shared-spine/local-depth context assembly.
 10. Durable scheduled and event-driven wakeups.
 11. Basic health signals for dormancy, stale work, repeated failure, missing artifacts, and cost anomalies.
-12. Initial teamwork patterns: single owner, parallel exploration, producer–critic, specialist pipeline, and recovery huddle.
+12. Natural accountable-lead behaviour over sparse factual Work: adaptive team size, causal briefs,
+    observable Staff contributions, complementary execution and whole-outcome judgement.
 13. Authority Kernel request and receipt integration.
 14. Runtime and OrgIntel restart/restore reconciliation.
 15. One real dogfood vertical slice.
@@ -1175,7 +1204,8 @@ For every proposed feature:
 - The Exec delegates every executable owner request to one accountable team lead and returns to
   availability; it does not own production or integration work.
 - A team lead may execute coherent work alone. Staff are optional and are added when the lead judges
-  that specialisation or parallelism will repay coordination cost.
+  that quality, evidence, specialisation or parallel value from a stable ownership seam will repay
+  coordination cost.
 - Actor identity persists independently of model sessions and runtime replacement.
 - A thin runtime bridge connects OrgIntel to ACP processes; ACP over local stdio is the initial agent transport.
 - Productive work uses normal Linux files, Git, browsers, and applications.
@@ -1185,7 +1215,8 @@ For every proposed feature:
 - Exploration, local repair, and evidence-driven evolution are the core intelligence.
 - Epistemic distinctions are shared semantics, not a large database ontology.
 - Evidence burden scales with consequence and reversibility.
-- Teamwork and process templates are strong, explainable, overridable defaults.
+- Natural accountable leadership is the default; playbooks are optional evidence-earned aids, not a
+  topology router or teamwork protocol.
 - Multiplayer, shared hosting, and broad platform features remain out of scope until proven necessary.
 
 ---
@@ -1223,21 +1254,6 @@ For every proposed feature:
 ## Result
 ## Adopt, revise, or revert
 ## Follow-up date
-```
-
-## Teamwork pattern
-
-```markdown
-# Pattern: <name>
-
-## Use when / avoid when
-## Accountable owner and roles
-## Shared brief and expected artifacts
-## Communication and handoffs
-## Decision rights
-## Health signals and exit conditions
-## Common failure modes
-## Allowed adaptations
 ```
 
 ---

@@ -236,6 +236,15 @@ cheaper named alternative does not change behaviour.
 added rule dilutes the ones already there. This is why the cure is three frames rather than fifteen
 rules — and why adding a fourth should be resisted unless it retires one.
 
+**Natural-language collaboration without a factual affordance.** An accountable lead was encouraged
+to coordinate like a strong human team and produced a convincing account of commissioning and
+accepting a colleague. The trace contained zero Work, Attempts, Staff turns or callbacks; the lead had
+done everything itself. More handoff structure was not the cure. One checkable interface fact was:
+real collaboration begins with `commission`, and only its Work → Attempt → observed result proves that
+another actor contributed. The repaired run then produced genuine complementary work and the best
+blind artifact. Keep intelligent, free-form behaviour above the boundary; make only actor existence,
+responsibility and evidence factual below it.
+
 **Asking the same context to reconsider.** It produces rationalisation of the existing design, not
 simplification. Reconsideration needs a context that does not own the decision.
 

@@ -239,8 +239,9 @@ pub fn assemble(snapshot: &ContextSnapshot) -> ContextPackage {
          workspace and in the order declared. `restless work gate` remains for repairing \
          already-existing Work. Producers \
          link exact outputs with restless work artifact. A review result of changes_requested invalidates its producer \
-         and hard descendants into a new revision. Conversations stay free-form; the graph owns \
-         kickoff, handover and input versions. A failed Attempt or rejected review stays blocked: \
+         and hard descendants into a new revision. Conversations stay free-form. Work proves only \
+         real cross-actor responsibility, kickoff and input versions; it is not the lead's plan, \
+         reasoning or checklist. A failed Attempt or rejected review stays blocked: \
          the accountable lead changes the smallest failed mechanism and records it with \
          `restless work resume --work <id> --reason <what changed>` before another Attempt starts.\n\
          restless work handoff is only for identity, CAPTCHA, MFA, legal attestation, payment \

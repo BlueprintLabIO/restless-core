@@ -302,6 +302,14 @@ standing department lead or a temporary outcome lead; if none exists, the Exec a
 productive work begins. For tightly coupled work the lead may execute alone. For separable work the
 lead may commission Staff and remains responsible for integration, review and completion judgement.
 
+The lead first forms a causal understanding of the outcome, then chooses the smallest effective team,
+including a team of one. When another actor can own a stable, independently useful seam, the lead
+communicates purpose, current understanding, important unknowns and observable proof in ordinary
+language, continues complementary work, and treats the returned artifact as a claim until inspecting
+it in the whole outcome. This is model-driven judgement, not a topology router or handoff workflow.
+The deterministic Work substrate proves only that cross-actor responsibility and its evidence were
+real; it does not represent the lead's private plan, reasoning or checklist.
+
 After framing the company-level intent, choosing the lead and allocating an initial envelope, the Exec
 ends its dispatch wake so it remains available for the next owner request or department-level
 exception. Results and blockers return asynchronously. The Exec retains portfolio prioritisation,
@@ -339,6 +347,12 @@ A deliberately small ontology:
 - **Actor** — the person, agent or service responsible.
 - **Artifact reference** — where the output lives.
 - **Decision** — a consequential internal choice and its rationale.
+
+The Work graph stays sparse. Work is created when responsibility crosses an actor boundary or when a
+durable recovery boundary is genuinely needed; it does not mirror every step in an accountable
+lead's direct execution plan. A claimed colleague contribution exists only when the scheduler created
+its Attempt and OrgIntel can observe its artifact or terminal result. Free-form narration can never
+substitute for that event.
 
 Work should have only a few states, such as proposed, active, blocked, completed and abandoned. A
 `requires` edge is a hard acyclic dependency. A `revises` edge returns review feedback to a producer
@@ -512,7 +526,10 @@ ad hoc solution
 
 The reverse path matters too: rules that no longer help should be weakened or removed.
 
-OrgIntel should version process templates and record which version a run began from, but it should not require every action to match that template. Deterministic software handles reminders, schedules, outputs and control points. Model-driven agents choose strategy, handle exceptions and improve the process.
+OrgIntel may version an evidence-earned process playbook when repeated runs show that it helps, but it
+does not need a process-template registry or pattern recommender in advance. Deterministic software
+handles reminders, schedules, outputs and control points. Model-driven agents choose strategy, handle
+exceptions and improve the process.
 
 # 5. Layer 3: Company Linux Runtime
 
@@ -715,8 +732,12 @@ Most changes remain within one layer. Runtime changes do not normally reach OrgI
 - The Exec always assigns executable owner work to an accountable team lead and returns to availability.
 - A team lead may work alone on coherent, tightly coupled work; “lead” names accountability, not a
   minimum headcount.
-- A lead adds workers only when specialisation or parallel latency is expected to exceed communication,
-  integration and review cost.
+- A lead first understands the outcome, then adds workers only when a stable ownership seam offers
+  expected quality, independent evidence, specialisation or parallel value that can exceed
+  communication, integration and review cost.
+- Collaboration stays natural and consequential: communicate the causal model and material unknowns,
+  invite challenge, update when information changes another actor's work, and personally inspect the
+  combined native outcome. Do not impose a handoff template, message cadence or teamwork state machine.
 - A lead or maintainer decides changes to shared project state.
 - A builder plus independent reviewer is appropriate for company-wide coordination machinery or changes with subtle failure modes.
 - A small cross-functional team handles changes spanning several disciplines or materially changing company strategy.

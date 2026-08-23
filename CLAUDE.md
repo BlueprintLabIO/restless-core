@@ -157,12 +157,13 @@ failure as building before evidence, wearing a citation.
 Both defects previously listed here — the old _"Helm Architecture Source of Truth v0.9"_ parent name
 and versions in filenames — are **fixed**. Neither appears in the set any more.
 
-The live risk is now the opposite one: **the specs are ahead of the code, and silently.** `orgintel`
-§6.3 (teamwork patterns) was labelled _Core contract_, sat in the §10.1 V0 acceptance list, and went
-unimplemented for two sprints while a comparison harness was built and run four times to measure its
-absence. Nothing in this repo checks Core-contract coverage. Until something does, a spec section
-labelled _Core contract_ is a claim about intent, not about the build — check the code before
-believing it.
+The live risk is now the opposite one: **the specs can get ahead of the code, and silently.** The old
+`orgintel` §6.3 teamwork-pattern recommender did exactly that: it was labelled _Core contract_, sat in
+the V0 acceptance list, and went unimplemented while experiments measured its absence. That specific
+split brain is purged: §6.3 now specifies natural accountable leadership over sparse factual Work, and
+the same contract reaches productive and conversational lead wakes. Nothing general checks Core-
+contract coverage, however. A section labelled _Core contract_ is still a claim about intent until the
+code and a real run support it — inspect both before believing it.
 
 ## How we decide
 

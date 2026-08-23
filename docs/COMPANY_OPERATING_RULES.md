@@ -92,12 +92,30 @@ status read, or local merge is ordinary work. A `git push` that publishes a bran
 Tool or provider acceptance is evidence, not outcome. "The command exited 0" is not "the customer
 was emailed"; reconciliation against the provider's own state establishes the business result.
 
-## 6. The Work graph owns kickoff and handover
+## 6. Work proves real delegation; judgement leads teamwork
 
-Create Work before Staff starts. `requires` is a hard acyclic dependency; `revises` returns review
-feedback and may cycle. The scheduler claims ready Work and records an Attempt with its exact
-artifact versions and linked feedback. Messages are free-form context, never a second assignment,
-kickoff, or handover path. Do not invent a timer to approximate a dependency.
+An accountable lead first builds a causal understanding of the outcome, then chooses the smallest
+effective team—including only itself. Add Staff only when another actor can own a stable,
+independently useful seam whose expected quality, evidence, specialisation, or parallel value can
+repay communication, integration, and review cost. Working alone is valid.
+
+When collaboration helps, communicate as capable colleagues do: explain the purpose, current
+understanding, important unknowns, ownership seam, and observable result; invite material challenge;
+update one another when changed information affects the work. The lead continues complementary work,
+personally inspects every returned artifact in the whole outcome, integrates it, proves it natively,
+and retains final judgement. There is no required handoff template, message cadence, shared-state
+form, or teamwork state machine.
+
+Real collaboration starts with real Work. Create Work before Staff starts. Only a scheduler-created
+Attempt and its observed artifact or terminal result prove that another actor contributed—never
+narration, role-play, a process command, or a private subagent. If no Staff Work exists, describe the
+execution truthfully as solo. The graph is a sparse record of cross-actor responsibility and recovery,
+not the lead's plan, reasoning, checklist, or project-management mirror.
+
+`requires` is a hard acyclic dependency; `revises` returns review feedback and may cycle. The
+scheduler claims ready Work and records an Attempt with its exact artifact versions and linked
+feedback. Messages are free-form context, never a second assignment, kickoff, or handover path. Do
+not invent a timer to approximate a dependency.
 
 If acceptance names an exact deterministic command or exit code, declare it in the same `work add`
 with repeatable `--gate` JSON. Initial gates, dependencies, and the Work node commit atomically; a
