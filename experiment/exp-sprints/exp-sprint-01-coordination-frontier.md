@@ -1,6 +1,6 @@
 # Experiment Sprint 01 — GPT-5.6 coordination frontier
 
-**Status:** Ready for founder start signal. All experiment execution is paused.
+**Status:** Running. Founder start signal received 23 August 2026.
 
 **Decision owner:** Founder.
 
@@ -325,23 +325,21 @@ The sprint is complete only when all are true:
 12. `dev` is clean, pushed and contains no generated run databases, model homes, credentials or
     candidate worktrees.
 
-## 15. Proposed ticket decomposition after approval
+## 15. Ticket checklist
 
-No ticket files are created until the founders align on this spec.
+Ticket status lives only here. Ticket details are under [`exp-sprint-01/`](exp-sprint-01/).
 
-| Proposed ticket | Outcome |
-|---|---|
-| T0 — Experiment area and harness verification | Renamed paths, ignored state and exact commands work from a clean checkout |
-| T1 — Task/evaluator catalogue | Frozen scenarios and audited native evaluators for the approved portfolio |
-| T2 — Ordinary frontier | E01/E02 reports and any triggered E03/E04 decision |
-| T3 — Primary bottleneck screen | Diagnose ordinary-run churn and activate at most two of W07/W04/W01/W09 |
-| T4 — Dependent mechanism screen | Activate at most two of W02/W05/W06/W08 only when primary evidence requires them |
-| T5 — Independence/allocation/redundancy screen | Consider W10–W13 only when their named trigger is observed |
-| T6 — Adaptive/authority/runtime screen | Consider W14/W16/W03/W15 only when their named trigger is observed |
-| T7 — Replication and team size | Cross-shape winner trials and marginal-team-size curve |
-| T8 — Synthesis and purge | Routing policy, canon, evidence audit and deletion report |
+- [ ] [T0 — Experiment area and harness verification](exp-sprint-01/t00-harness-verification.md)
+- [ ] [T1 — Task and evaluator catalogue](exp-sprint-01/t01-task-evaluator-catalogue.md)
+- [ ] [T2 — Ordinary frontier](exp-sprint-01/t02-ordinary-frontier.md)
+- [ ] [T3 — Primary bottleneck screen](exp-sprint-01/t03-primary-bottleneck.md)
+- [ ] [T4 — Dependent mechanism screen](exp-sprint-01/t04-dependent-mechanisms.md)
+- [ ] [T5 — Independence, allocation and redundancy](exp-sprint-01/t05-independence-allocation.md)
+- [ ] [T6 — Adaptive, authority and runtime candidates](exp-sprint-01/t06-adaptive-authority-runtime.md)
+- [ ] [T7 — Replication and team size](exp-sprint-01/t07-replication-team-size.md)
+- [ ] [T8 — Synthesis and purge](exp-sprint-01/t08-synthesis-purge.md)
 
-## 16. Founder start signal requested
+## 16. Founder decisions
 
 Please confirm or amend:
 
@@ -355,5 +353,5 @@ Please confirm or amend:
 - [ ] Completion means a disposition for all sixteen wildcards plus the routing/purge audit—not a live
   run of all sixteen.
 
-**Stop point:** no experiment execution, harness implementation or ticket breakdown proceeds until the
-founder gives the start signal.
+The founder gave the start signal and requested completion of the entire sprint. The execution gates,
+invalid-run rules and sparse activation limits above remain binding throughout autonomous execution.

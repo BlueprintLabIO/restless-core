@@ -35,8 +35,8 @@ The active founder-review document is
 The persistent Company Linux Runtime may still contain an ordinary `/company/scratch` directory for
 disposable company-local exploration. That runtime convention is distinct from this repository area.
 
-## Current pause
+## Current sprint
 
-Experiment execution is paused. The interrupted `v28-clh01-b1-terra` run is preserved as uncounted
-diagnostic evidence. No next run, ticket breakdown or harness change is authorised until the founder
-gives the start signal for the active experiment-sprint spec.
+Experiment Sprint 01 is running after the founder start signal. The interrupted
+`v28-clh01-b1-terra` run remains preserved as uncounted diagnostic evidence; new work follows the
+fresh-run and sparse activation gates in the active experiment-sprint spec.
