@@ -50,6 +50,8 @@ CEILING_USD = 6.0
 MAX_STAFF = int(os.environ.get("COORD_MAX_STAFF", "3"))
 DRAIN_GRACE_SECONDS = int(os.environ.get("COORD_DRAIN_GRACE_SECONDS", "120"))
 DEFAULT_ACTOR_MAX_TIME = os.environ.get("COORD_ACTOR_MAX_TIME", "none")
+ATTEMPT_LEASE_SECONDS = 900
+ATTEMPT_HEARTBEAT_SECONDS = 300
 
 MODE_GRAPH = "graph_control"
 MODE_ARTIFACT = "artifact_led"
@@ -316,7 +318,10 @@ def prove_worker_runtime(cell: str, models: list[str]) -> list[dict[str, Any]]:
 
     proofs: list[dict[str, Any]] = []
     probe_thinking = os.environ.get("COORD_WORKER_PROBE_THINKING", "").strip()
-    probe_max_seconds = int(os.environ.get("COORD_WORKER_PROBE_MAX_SECONDS", "90"))
+    # This is a bounded admission probe, not an actor-completion rule. Slow free providers have
+    # repeatedly produced valid tool-capable results after 90 seconds, so keep the default outside
+    # that observed tail while ordinary Attempts remain callback/process-exit driven.
+    probe_max_seconds = int(os.environ.get("COORD_WORKER_PROBE_MAX_SECONDS", "240"))
     if probe_max_seconds < 10 or probe_max_seconds > 600:
         raise RuntimeError("COORD_WORKER_PROBE_MAX_SECONDS must be between 10 and 600")
     for model in models:
@@ -1639,7 +1644,7 @@ outcome remains your responsibility; do not replace it with a new project plan.
 Work: {item['id']}
 Revision: {item['revision']}
 Attempt: {item['attempt']}
-Lease expires: {item['lease_expires_at']}
+Initial lease expires: {item['lease_expires_at']} (the Runtime supervisor renews this while this exact Attempt process remains live)
 Outcome: {item['outcome']}
 Expected artifact: {item['expected_artifact']}
 Workspace: your current working directory
@@ -1683,14 +1688,32 @@ artifact-led mode, the accountable lead consumes your exact commit directly; in 
 integration-lead consumes the required commit references above.
 """
 
+    async def keep_attempt_lease_alive(self, item: dict[str, Any]) -> None:
+        """Renew liveness from the observable Runtime process, never from model progress claims."""
+        while True:
+            await asyncio.sleep(ATTEMPT_HEARTBEAT_SECONDS)
+            renewed = self.coordinator.renew_attempt_lease(
+                item["attempt"],
+                item["owner"],
+                item["lease_token"],
+                lease_seconds=ATTEMPT_LEASE_SECONDS,
+            )
+            if not renewed:
+                return
+
     async def staff_turn(self, item: dict[str, Any]) -> dict[str, Any]:
-        result = await self.run_turn(
-            item["owner"],
-            self.staff_prompt(item),
-            cell=item["cell"],
-            attempt=item["attempt"],
-            lease_token=item["lease_token"],
-        )
+        heartbeat = asyncio.create_task(self.keep_attempt_lease_alive(item))
+        try:
+            result = await self.run_turn(
+                item["owner"],
+                self.staff_prompt(item),
+                cell=item["cell"],
+                attempt=item["attempt"],
+                lease_token=item["lease_token"],
+            )
+        finally:
+            heartbeat.cancel()
+            await asyncio.gather(heartbeat, return_exceptions=True)
         attempt = self.coordinator.attempt(item["attempt"])
         if self.stopping or self.coordinator.cost() >= self.spend_ceiling or self.remaining() <= 1:
             if attempt and attempt["state"] == "running":
@@ -1837,7 +1860,10 @@ integration-lead consumes the required commit references above.
                 int(max(0.0, (self.spend_ceiling - self.reserved_cost()) // self.turn_reservation)),
             )
             if available > 0:
-                for item in self.coordinator.claim_ready(available, lease_seconds=900):
+                for item in self.coordinator.claim_ready(
+                    available,
+                    lease_seconds=ATTEMPT_LEASE_SECONDS,
+                ):
                     task = asyncio.create_task(self.staff_turn(item))
                     self.tasks[item["owner"]] = ActiveTurn(item["owner"], task, item["attempt"])
 
@@ -2016,6 +2042,28 @@ async def fault_test(run_id: str) -> dict[str, Any]:
     claimed = coordinator.claim_ready(1, lease_seconds=900)
     check("producer Work claims exactly one Attempt", len(claimed) == 1, claimed)
     item = claimed[0]
+    initial_lease_expiry = item["lease_expires_at"]
+    check(
+        "live Attempt lease renews from its exact supervisor identity",
+        coordinator.renew_attempt_lease(
+            item["attempt"],
+            item["owner"],
+            item["lease_token"],
+            lease_seconds=ATTEMPT_LEASE_SECONDS,
+        )
+        and coordinator.attempt(item["attempt"])["lease_expires_at"] > initial_lease_expiry,
+    )
+    try:
+        coordinator.renew_attempt_lease(
+            item["attempt"],
+            item["owner"],
+            "wrong-token",
+            lease_seconds=ATTEMPT_LEASE_SECONDS,
+        )
+        wrong_lease_rejected = False
+    except ValueError:
+        wrong_lease_rejected = True
+    check("Attempt lease renewal rejects the wrong token", wrong_lease_rejected)
     mounts = json.loads(run(["docker", "inspect", item["cell"]]).stdout)[0]["Mounts"]
     destinations = {mount["Destination"]: mount["RW"] for mount in mounts}
     check("Work cell mounts only scoped project workspace", destinations.get("/workspace") is True, destinations)

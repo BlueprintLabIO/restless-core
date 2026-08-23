@@ -972,6 +972,40 @@ class Coordinator:
             self.emit("attempt_terminal", {"attempt": attempt_id, "work": work["id"], "state": "unknown"})
             self.wake(work["created_by"], "attempt_terminal", {"attempt": attempt_id, "work": work["id"], "state": "unknown"})
 
+    def renew_attempt_lease(
+        self,
+        attempt_id: str,
+        actor: str,
+        lease_token: str,
+        *,
+        lease_seconds: int = 900,
+    ) -> bool:
+        """Renew the lease only while the supervisor still owns the exact live Attempt."""
+        if lease_seconds < 60:
+            raise ValueError("Attempt lease renewal must be at least 60 seconds")
+        with transaction(self.conn):
+            attempt = self.conn.execute("SELECT * FROM attempts WHERE id=?", (attempt_id,)).fetchone()
+            if not attempt or attempt["state"] != "running":
+                return False
+            work = self.conn.execute("SELECT * FROM work WHERE id=?", (attempt["work_id"],)).fetchone()
+            if attempt["actor"] != actor or work["owner"] != actor:
+                raise ValueError("Attempt lease actor does not own Work")
+            if attempt["lease_token"] != lease_token:
+                raise ValueError("invalid Attempt lease token")
+            if attempt["revision"] != work["revision"] or attempt["cancel_requested_at"]:
+                return False
+            expires_at = time.time() + lease_seconds
+            self.conn.execute(
+                "UPDATE attempts SET lease_expires_at=? WHERE id=?",
+                (expires_at, attempt_id),
+            )
+            self.emit(
+                "attempt_lease_renewed",
+                {"attempt": attempt_id, "work": work["id"], "lease_expires_at": expires_at},
+                actor,
+            )
+            return True
+
     def reconcile_orphaned_attempts(self) -> list[str]:
         reconciled: list[str] = []
         rows = self.conn.execute(
