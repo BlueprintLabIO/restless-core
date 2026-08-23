@@ -1,6 +1,7 @@
 # Reserve G-WORLD task — Prism Expedition
 
-Status: candidate structural family; not activated
+Status: activated by W01 live-screen and three-shape sprint evidence; exact task frozen in
+`../../W01-G-WORLD-01/`
 
 ## Candidate outcome
 
@@ -16,8 +17,8 @@ one discoverable objective and a clean return to the existing survey loop.
 - Native review must exercise the interaction and encounter in the rendered world; geometry counts or
   static DOM proxies cannot stand in for the experience.
 
-## Activation gate
+## Activation
 
-Freeze the exact scenario and evaluator only when E01/E02 disagreement, winner replication or the
-sprint's different-game-shape acceptance criterion requires this evidence. Until then this is not Work,
-a queued run or an implementation obligation.
+E02's missing-corpus `C1`/`I3` activated W01, whose first task family is G-WORLD. The sprint also
+requires evidence beyond G-UX and R-BREADTH. `W01-G-WORLD-01` now owns the frozen scenario, evaluator,
+classification, arm allocation and result; this catalogue entry is no longer a second specification.

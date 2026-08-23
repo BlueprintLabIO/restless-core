@@ -24,10 +24,10 @@ Historical v23 remains indexed in `EVIDENCE.md` and does not change a cell above
 
 | ID | Wildcard | Family | Dependency | Status | Next gate |
 |---|---|---|---|---|---|
-| **W01** | Session mitosis | Shared history | Baseline B0/B1 | designing | Activated by E02 `C1`/`I3`: the Work carried IDs but not the frozen corpus; prove an exact first-party common-prefix fork and role/tool divergence |
+| **W01** | Session mitosis | Shared history | Baseline B0/B1 | running | Corrected conformance passed exact parent→Sol/Terra forks and clean role branches; frozen G-WORLD arm order is ordinary B1 → W01 |
 | **W02** | Fork–work–reunite cycles | Shared history | W01 | queued | One fork, artifact-only reunion and second fork |
 | **W03** | Exec-to-lead lineage fork | Shared history | W01 + redaction audit | queued | Neutral request capsule without executive authority leakage |
-| **W04** | One brain, many hands | Cognitive topology | Baseline B0 | designing | Activated by E01 `E5`; first prove a bounded asynchronous executor is distinct from B0 shell concurrency and autonomous B1 Work |
+| **W04** | One brain, many hands | Cognitive topology | Baseline B0 | blocked | Conformance showed B0 already has process concurrency, while the only extra dispatch is autonomous Work; no distinct bounded executor exists to compare without building speculative machinery |
 | **W05** | Shared semantic blackboard | Shared state | Baseline B1 | queued | Patchable bounded situation model with provenance |
 | **W06** | Causal context deltas | Communication compression | W05 or stable checkpoint | queued | Reconstruct exact relevant changes from base hash |
 | **W07** | Proof-carrying handoffs | Artifact boundary | Baseline B1 | queued | First candidate only if a valid run records callback/acceptance `V3`; artifact + native proof + semantic diff |

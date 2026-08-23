@@ -1,6 +1,6 @@
 # EXP-01 W04 — one brain, many hands screen
 
-**Status:** activated; identifiability probe pending
+**Status:** blocked — no distinct manipulation in the current harness
 
 ## Trigger and hypothesis
 
@@ -29,3 +29,18 @@ ordinary B1, charging the adapter and all executor work.
 At equal accepted quality, W04 must reduce B0 wall time through real latency overlap and reduce B1's
 briefing/integration/replay vector. One live loss stops the branch. A mechanism that transfers project
 theory or edit authority to a second model is ordinary Staff under another name and fails conformance.
+
+## Probe result
+
+`experiment/coordination-lab/v2/probe_w04.py` passed all five audit checks:
+
+- B0 has zero Staff and already receives writable `bash`/process tools;
+- nested model launches are denied by both the runtime path and permission reviewer;
+- `commission` creates durable autonomous Work, not an operation executor; and
+- the MCP surface has no bounded asynchronous operation primitive.
+
+The only immediately implementable candidate is a wrapper around shell backgrounding already available
+to B0. That is not an organisational manipulation and cannot support a causal live comparison. W04 is
+therefore `blocked`, not a provisional loss. A future screen requires a real operation-executor boundary
+that returns observations/artifacts without receiving project theory or canonical authority; building
+that production-like subsystem solely for this sprint would violate the smallest-falsifier gate.

@@ -1,6 +1,6 @@
 # EXP-01 W01 — session mitosis screen
 
-**Status:** activated; mechanism probe pending
+**Status:** running — conformance passed; G-WORLD pair frozen
 
 ## Trigger and hypothesis
 
@@ -43,3 +43,21 @@ accepted for the isolated experiment but is a production-authority risk, not a p
 The screen charges the kickoff model turn, fork orchestration, two child transcripts, branch setup,
 reunion turn, lineage hashing and authority audit. Transcript replay or ordinary prompt duplication
 does not count as session mitosis.
+
+## Conformance result
+
+`exp01-w01-conformance-r2` passed the bounded probe using the installed first-party fork primitive:
+
+- common parent `01a02d40-76d5-7e80-b8c9-4e58a2c8eaaa`;
+- distinct Sol lead and Terra worker child sessions;
+- both retained the exact shared nonce after its source file was removed;
+- each wrote and committed only its role-specific sentinel on a clean separate repository; and
+- kickoff plus both children completed in 27.95 wall seconds with 5 tool calls.
+
+The first probe attempt is infrastructure-invalid: fork children defaulted to read-only. The corrected
+probe explicitly set the child sandbox under a fresh ID. Both children still inherit the common run-root
+write boundary, so branch separation is observable/audited rather than capability-enforced. That is
+acceptable only for this isolated no-effect screen and remains a production blocker until per-child
+authority can be narrowed.
+
+The frozen live comparison is [`../W01-G-WORLD-01/workload.md`](../W01-G-WORLD-01/workload.md).
