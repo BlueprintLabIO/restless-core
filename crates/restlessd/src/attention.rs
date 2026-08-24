@@ -385,6 +385,12 @@ pub async fn project(
         let mut evidence = Vec::new();
         let mut seen = HashSet::new();
         let mut runtime_review_url = None;
+        // Treat an externally hosted URL in a prepared human handoff as a
+        // normal-browser step. This preserves the owner-only boundary for
+        // provider-root enrolment, verification and credential issuance; do
+        // not also offer the agent-accessible Company Runtime browser.
+        let external_human_step_url =
+            external_human_step_url(handoff.category, &handoff.prepared_state);
         for artifact in work_graph
             .as_ref()
             .into_iter()
@@ -500,7 +506,10 @@ pub async fn project(
             .as_ref()
             .map(|actor| actor.id.as_str())
             .unwrap_or(&item.owner_id);
-        let runtime_attach = attach_for(Some(responsible_id));
+        let runtime_attach = external_human_step_url
+            .is_none()
+            .then(|| attach_for(Some(responsible_id)))
+            .flatten();
         let outcome_review = brief
             .is_some_and(|brief| brief.kind == restless_orgintel::OwnerBriefKind::OutcomeReview);
         let review_target = if outcome_review {
@@ -579,6 +588,11 @@ pub async fn project(
                     .into(),
                 href: None,
             });
+        }
+        if payment.is_none() {
+            if let Some(href) = external_human_step_url {
+                actions.insert(0, normal_browser_action(href));
+            }
         }
         if payment.is_none()
             && (review_target.is_some() || (!judgement && runtime_attach.is_some()))
@@ -1007,6 +1021,36 @@ fn is_runtime_local_url(value: &str) -> bool {
         || value.starts_with("https://localhost:")
 }
 
+/// An external URL in a non-judgement prepared handoff is a normal-browser
+/// human step. This keeps provider-root cookies out of the persistent Company
+/// Runtime, where they could otherwise become available to company agents.
+fn external_human_step_url(
+    category: restless_orgintel::OwnerHandoffCategory,
+    prepared_state: &str,
+) -> Option<String> {
+    (category != restless_orgintel::OwnerHandoffCategory::OwnerJudgement)
+        .then(|| {
+            extract_urls(prepared_state)
+                .into_iter()
+                .find(|uri| !is_runtime_local_url(uri))
+        })
+        .flatten()
+}
+
+fn normal_browser_action(href: String) -> AttentionAction {
+    let label = url::Url::parse(&href)
+        .ok()
+        .and_then(|url| url.host_str().map(str::to_owned))
+        .map(|host| format!("Open {host} in normal browser"))
+        .unwrap_or_else(|| "Open external page in normal browser".into());
+    AttentionAction {
+        id: "open-external-human-step".into(),
+        label,
+        consequence: "Opens the exact external provider page in your normal browser. It does not share cookies with the company browser, decide anything, or complete this handoff.".into(),
+        href: Some(href),
+    }
+}
+
 fn evidence_label(uri: &str) -> String {
     if uri.contains("compare") {
         "Review code change".into()
@@ -1029,6 +1073,34 @@ mod tests {
                 "http://127.0.0.1:4173/for-tutoring-centres",
                 "https://example.com/report.pdf",
             ]
+        );
+    }
+
+    #[test]
+    fn external_provider_handoff_opens_in_normal_browser_not_company_runtime() {
+        let href = external_human_step_url(
+            restless_orgintel::OwnerHandoffCategory::LegalAttestation,
+            "Read the terms at https://massive.com/business-stocks, then decide.",
+        );
+        assert_eq!(href.as_deref(), Some("https://massive.com/business-stocks"));
+        let action = normal_browser_action(href.expect("external provider URL"));
+        assert_eq!(action.id, "open-external-human-step");
+        assert_eq!(action.label, "Open massive.com in normal browser");
+        assert_eq!(
+            action.href.as_deref(),
+            Some("https://massive.com/business-stocks")
+        );
+        assert!(action.consequence.contains("does not share cookies"));
+    }
+
+    #[test]
+    fn outcome_judgement_never_uses_an_external_human_step() {
+        assert_eq!(
+            external_human_step_url(
+                restless_orgintel::OwnerHandoffCategory::OwnerJudgement,
+                "Review https://example.com/outcome",
+            ),
+            None
         );
     }
 

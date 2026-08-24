@@ -713,8 +713,9 @@ struct MeteredRequest {
 }
 
 /// The relay forwards chunks unchanged but observes enough pi-native SSE to
-/// make the terminal charged usage a host-side record. If a metered request
-/// ends without that evidence, Drop and EOF both poison the company.
+/// make the terminal charged usage a host-side record. A provider error is a
+/// valid terminal only when its canonical error message carries an exact cost
+/// (including zero); an ambiguous error, Drop and EOF still poison the company.
 struct MeteredStream {
     inner: Pin<Box<dyn Stream<Item = std::result::Result<Bytes, reqwest::Error>> + Send>>,
     meter: crate::spend::TurnMeter,
@@ -768,15 +769,24 @@ impl MeteredStream {
                 self.failed = true;
                 return;
             };
-            if event.get("type").and_then(serde_json::Value::as_str) == Some("done") {
-                self.record_terminal(&event);
-                return;
+            match event.get("type").and_then(serde_json::Value::as_str) {
+                Some("done") => {
+                    self.record_terminal_usage(event.pointer("/message/usage"));
+                    return;
+                }
+                Some("error") => {
+                    // pi-native error events are terminal messages too. A
+                    // provider refusal may legitimately cost $0, but accepting
+                    // it requires the same exact usage envelope as a success.
+                    self.record_terminal_usage(event.pointer("/error/usage"));
+                    return;
+                }
+                _ => {}
             }
         }
     }
 
-    fn record_terminal(&mut self, event: &serde_json::Value) {
-        let usage = event.pointer("/message/usage");
+    fn record_terminal_usage(&mut self, usage: Option<&serde_json::Value>) {
         let tokens = usage.map(total_tokens).unwrap_or_default();
         let micro_usd = match self.request.billing {
             ModelBilling::MeteredApi => usage
@@ -1339,6 +1349,77 @@ mod tests {
             ),
             0,
             "a metered stream without terminal charged usage blocks further requests"
+        );
+
+        drop(ledger);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn relay_accepts_an_explicitly_accounted_provider_error_but_not_an_ambiguous_one() {
+        let root = test_root();
+        let (_issuer, ledger, _state) = test_relay_state(&root);
+        let explicit_zero_cost_error = serde_json::json!({
+            "type": "error",
+            "reason": "error",
+            "error": {
+                "usage": {
+                    "input": 0,
+                    "output": 0,
+                    "cost": { "total": 0 }
+                }
+            }
+        });
+        {
+            let inner = futures_util::stream::empty::<std::result::Result<Bytes, reqwest::Error>>();
+            let mut stream = MeteredStream::new(
+                inner,
+                ledger.meter(),
+                MeteredRequest {
+                    company: "acme_test".into(),
+                    actor: "delivery-lead".into(),
+                    session: "provider_error_with_zero_cost".into(),
+                    model: "moonshot/kimi-k3".into(),
+                    billing: ModelBilling::MeteredApi,
+                },
+            );
+            stream.observe(&Bytes::from(format!(
+                "data: {explicit_zero_cost_error}\n\n"
+            )));
+        }
+        assert_eq!(
+            ledger.remaining_micro_usd_for(
+                "acme_test",
+                crate::runtime::SpendCeiling::from_micro_usd(2)
+            ),
+            2,
+            "an error with an exact $0 usage envelope does not create unknown spend"
+        );
+
+        {
+            let inner = futures_util::stream::empty::<std::result::Result<Bytes, reqwest::Error>>();
+            let mut stream = MeteredStream::new(
+                inner,
+                ledger.meter(),
+                MeteredRequest {
+                    company: "acme_test".into(),
+                    actor: "delivery-lead".into(),
+                    session: "ambiguous_provider_error".into(),
+                    model: "moonshot/kimi-k3".into(),
+                    billing: ModelBilling::MeteredApi,
+                },
+            );
+            stream.observe(&Bytes::from_static(
+                b"data: {\"type\":\"error\",\"reason\":\"error\"}\n\n",
+            ));
+        }
+        assert_eq!(
+            ledger.remaining_micro_usd_for(
+                "acme_test",
+                crate::runtime::SpendCeiling::from_micro_usd(2)
+            ),
+            0,
+            "an error with no exact usage remains fail-closed"
         );
 
         drop(ledger);
