@@ -715,16 +715,17 @@ struct MeteredRequest {
 /// The relay forwards chunks unchanged but observes enough pi-native SSE to
 /// make the terminal charged usage a host-side record. A provider error is a
 /// valid terminal only when its canonical error message carries an exact cost
-/// (including zero). Some pi-native tool-use completions carry that final
-/// usage in a completed partial immediately before the explicit `[DONE]`
-/// sentinel. An ambiguous error, partial, Drop and EOF still poison the
-/// company.
+/// (including zero). Pi-native tool-use completions expose their final exact
+/// usage in a completed partial. The Runtime client is allowed to close the
+/// response body as soon as it receives that completed tool-use message, so
+/// that partial is the accounting boundary; its later `done` / `[DONE]`
+/// acknowledgement is transport cleanup, not a second billable outcome. An
+/// ambiguous error, incomplete partial, Drop and EOF still poison the company.
 struct MeteredStream {
     inner: Pin<Box<dyn Stream<Item = std::result::Result<Bytes, reqwest::Error>> + Send>>,
     meter: crate::spend::TurnMeter,
     request: MeteredRequest,
     frame_buffer: Vec<u8>,
-    complete_partial_usage: Option<serde_json::Value>,
     settled: bool,
     failed: bool,
 }
@@ -739,7 +740,6 @@ impl MeteredStream {
             meter,
             request,
             frame_buffer: Vec::new(),
-            complete_partial_usage: None,
             settled: false,
             failed: false,
         }
@@ -791,11 +791,10 @@ impl MeteredStream {
             return;
         }
         if data == "[DONE]" {
-            // The pi-native server has explicitly finished the wire stream.
-            // Some tool-use transports expose final exact usage on the
-            // completed rolling partial rather than a semantic `done` event.
-            let usage = self.complete_partial_usage.take();
-            self.record_terminal_usage(usage.as_ref());
+            // A normal semantic `done` or completed terminal partial should
+            // already have settled the request. A bare sentinel cannot prove
+            // spend and remains fail-closed.
+            self.record_terminal_usage(None);
             return;
         }
         let Ok(event) = serde_json::from_str::<serde_json::Value>(&data) else {
@@ -803,6 +802,9 @@ impl MeteredStream {
             return;
         };
         self.observe_complete_partial(&event);
+        if self.settled || self.failed {
+            return;
+        }
         match event.get("type").and_then(serde_json::Value::as_str) {
             Some("done") => self.record_terminal_usage(event.pointer("/message/usage")),
             Some("error") => {
@@ -826,11 +828,18 @@ impl MeteredStream {
             Some("stop" | "length" | "toolUse")
         );
         if complete {
-            self.complete_partial_usage = partial.get("usage").cloned();
+            // This is a complete assistant message, not an arbitrary rolling
+            // delta: pi-ai sets stopReason only when a turn has ended. It is
+            // the only exact-cost terminal evidence guaranteed to reach a
+            // client that begins executing a tool immediately.
+            self.record_terminal_usage(partial.get("usage"));
         }
     }
 
     fn record_terminal_usage(&mut self, usage: Option<&serde_json::Value>) {
+        if self.settled || self.failed {
+            return;
+        }
         let tokens = usage.map(total_tokens).unwrap_or_default();
         let micro_usd = match self.request.billing {
             ModelBilling::MeteredApi => usage
@@ -1472,7 +1481,7 @@ mod tests {
     }
 
     #[test]
-    fn relay_accounts_for_a_completed_partial_only_after_the_wire_done_sentinel() {
+    fn relay_accounts_for_a_completed_terminal_partial_before_wire_cleanup() {
         let root = test_root();
         let (_issuer, ledger, _state) = test_relay_state(&root);
         {
@@ -1505,8 +1514,8 @@ mod tests {
                     "acme_test",
                     crate::runtime::SpendCeiling::from_micro_usd(2)
                 ),
-                2,
-                "a partial never settles a metered request by itself"
+                1,
+                "a completed terminal partial records exact spend even if the Runtime client closes before [DONE]"
             );
             stream.observe(&Bytes::from_static(b"data: [DONE]\n\n"));
         }
@@ -1516,7 +1525,7 @@ mod tests {
                 crate::runtime::SpendCeiling::from_micro_usd(2)
             ),
             1,
-            "a completed partial plus the explicit wire terminator records exact spend"
+            "trailing wire cleanup does not duplicate the terminal charge"
         );
 
         drop(ledger);
