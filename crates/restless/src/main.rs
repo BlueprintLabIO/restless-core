@@ -1213,7 +1213,6 @@ fn request_json(command: Command) -> Result<serde_json::Value> {
                     "idempotency_key": key,
                     "requesting_actor": acting_actor(),
                 }).to_string(),
-                "actor": acting_actor(),
             }),
             FinanceCommand::Submit { key } => serde_json::json!({
                 "cmd": "finance-submit", "company": company, "key": key,

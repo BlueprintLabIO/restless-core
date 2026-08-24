@@ -1,0 +1,42 @@
+{
+  "experiment": "EXP-03",
+  "task": "T2",
+  "arm": "S2-four-primitives",
+  "run": "exp03-t2-s2-primitives-glm53-r1",
+  "comparison_run": "exp03-t2-s2-glm53-r1",
+  "model": "zai/glm-5.3",
+  "scenario_sha256": "f61e2d6c4e9522f9926070c398a21b8cb7125b478455bd241ca44bead79d2d88",
+  "evaluator_sha256": "3d9dd62683a2d2c583cfbb43814412f8b25119c4813d13d9046ae3a86e08edb0",
+  "candidate_commit": "a17f320e7073278037a73bfb06063af370db5676",
+  "decision_complete": true,
+  "protocol_valid": true,
+  "elapsed_seconds": 2321.7410787502304,
+  "cost_usd": 2.2992734799999996,
+  "turns": 5,
+  "supervisor_turns": 3,
+  "attempts": 2,
+  "used_tokens": 280932,
+  "output_tokens": 148456,
+  "native_checks_passed": 4,
+  "native_checks_total": 4,
+  "frozen_evaluator_checks_passed": 15,
+  "frozen_evaluator_checks_total": 19,
+  "frozen_evaluator_valid_for_semantic_ranking": false,
+  "pre_patch": {
+    "elapsed_seconds": 4650.4799339999445,
+    "cost_usd": 4.37356316,
+    "turns": 14,
+    "supervisor_turns": 9,
+    "attempts": 5,
+    "used_tokens": 682015,
+    "output_tokens": 287229,
+    "decision_complete": false,
+    "frozen_evaluator_checks_passed": 14
+  },
+  "primitive_evidence": {
+    "attempt_identity": "live_pass",
+    "explicit_completion": "live_pass",
+    "archive_native_review": "live_pass",
+    "judgement_resumes_work": "deterministic_pass_plus_prepatch_real_model_failure_trace"
+  }
+}

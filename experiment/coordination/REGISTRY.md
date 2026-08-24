@@ -42,7 +42,7 @@ Historical v23 remains indexed in `EVIDENCE.md` and does not change a cell above
 
 | ID | Question | Shapes | Status | Next gate |
 |---|---|---|---|---|
-| **EXP-03** | Where should responsibility remain direct, become a bounded hand, cross to semantic Staff, close under a separate lead, preserve a supervisor or replicate across a queue? | D0 / H1 / S1 / M1 / L2 plus staged Q1/Q2/Q4/Q8 across coding, research, document/operations and sales-like throughput | designing | Founder confirms the frozen sprint before Wave 0; at least two counted workflows are non-coding, H1 must be distinct, M1 cannot perform planned production and queue scale advances only through positive marginal gates |
+| **EXP-03** | What is the smallest powerful operating design for a non-producing accountable lead supervising real economic work? | S1/S2/S3 plus staged Q1/Q2/Q4/Q8 across product, marketing, sales, customer operations and research | running | Four recovery primitives pass 13/13 conformance and one live GLM-5.3 T2 S2 run; finish the matched T2 S1 comparison, then test replicated sales capacity and independent-evidence research. Split brittle deterministic scoring from blinded semantic judgement before ranking quality. |
 
 ## Wildcards
 

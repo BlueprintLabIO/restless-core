@@ -51,5 +51,9 @@ hard green requirement.
   native owner evidence.
 - [`sprint-12.md`](./sprint-12.md) — implementation evidenced: recoverable natural-team execution,
   including a real Cosmon outcome; connected-browser owner-surface visual sign-off remains open.
-- [`sprint-14.md`](./sprint-14.md) — active: pre-release Rust consolidation, evidence integrity, and
-  hardening of the model-spend boundary.
+- [`sprint-14.md`](./sprint-14.md) — completed Rust consolidation, evidence integrity, and model-spend
+  hardening; Sprint 12's connected-browser sign-off remains open.
+- [`sprint-15.md`](./sprint-15.md) — active: trusted Runtime capability boundary, scoped model access
+  and release-evidence repair.
+- [`sprint-16.md`](./sprint-16.md) — draft: one research evidence-to-decision loop, a falsifiable
+  alpha-candidate test in _test, and Dogfood 2 as its real acceptance run.

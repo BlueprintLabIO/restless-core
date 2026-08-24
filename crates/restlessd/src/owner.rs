@@ -4,7 +4,7 @@
 //! approval actions, and browser attach/lease transport. It is not a generic
 //! REST facade over the company computer.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::convert::Infallible;
 use std::net::{IpAddr, SocketAddr};
 use std::sync::{Arc, Mutex};
@@ -247,6 +247,359 @@ struct CompanyCatalogEntry {
     spend_ceiling_usd: f64,
     runtime_status: &'static str,
     lifecycle_status: &'static str,
+}
+
+/// The one high-value owner read model. This remains a projection: every
+/// field is assembled from its authoritative plane immediately before the
+/// response is encoded. Naming it makes the browser contract checkable rather
+/// than letting a JSON macro silently grow a second, unreviewed schema.
+#[derive(Debug, Serialize, ts_rs::TS)]
+struct CockpitView {
+    company: CockpitCompany,
+    source_health: BTreeMap<String, String>,
+    people: Vec<CockpitPerson>,
+    teams: Vec<CockpitTeam>,
+    goals: Vec<CockpitGoal>,
+    spend: CockpitSpend,
+    authority: CockpitAuthority,
+    receipts: Vec<CockpitEffectReceipt>,
+    refreshed_at: chrono::DateTime<Utc>,
+}
+
+#[derive(Debug, Serialize, ts_rs::TS)]
+struct CockpitCompany {
+    id: String,
+    name: String,
+    mission: String,
+    model: String,
+}
+
+#[derive(Debug, Serialize, ts_rs::TS)]
+struct CockpitPerson {
+    actor_id: String,
+    kind: String,
+    role: String,
+    display: String,
+    model: Option<String>,
+    team_id: Option<Uuid>,
+    spent_usd: f64,
+    session_running: bool,
+    session_observed_at: Option<chrono::DateTime<Utc>>,
+    model_cooldown: Option<CockpitModelCooldown>,
+}
+
+#[derive(Debug, Serialize, ts_rs::TS)]
+struct CockpitModelCooldown {
+    model: String,
+    kind: String,
+    reason: String,
+    retry_at: chrono::DateTime<Utc>,
+}
+
+#[derive(Debug, Serialize, ts_rs::TS)]
+struct CockpitTeam {
+    id: Uuid,
+    name: String,
+    brief: String,
+    lead_actor_id: String,
+    created_by: String,
+    created_at: chrono::DateTime<Utc>,
+    member_count: usize,
+    in_motion_count: usize,
+    blocked_count: usize,
+}
+
+#[derive(Debug, Serialize, ts_rs::TS)]
+struct CockpitGoal {
+    id: Uuid,
+    title: String,
+    body: String,
+    created_by: String,
+    created_at: chrono::DateTime<Utc>,
+    closed_at: Option<chrono::DateTime<Utc>>,
+}
+
+#[derive(Debug, Serialize, ts_rs::TS)]
+struct CockpitSpend {
+    accounted_usd: f64,
+    ceiling_usd: f64,
+    remaining_usd: Option<f64>,
+    poisoned: bool,
+}
+
+#[derive(Debug, Serialize, ts_rs::TS)]
+struct CockpitAuthority {
+    approved_parties: Vec<String>,
+    credentials: Vec<CockpitCredential>,
+    legal: CockpitLegal,
+    provider: CockpitProvider,
+    finance: CockpitFinance,
+}
+
+#[derive(Debug, Serialize, ts_rs::TS)]
+struct CockpitCredential {
+    binding: String,
+    status: String,
+    detail: Option<String>,
+}
+
+#[derive(Debug, Serialize, ts_rs::TS)]
+struct CockpitLegal {
+    status: String,
+    profile: Option<CockpitLegalProfile>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    detail: Option<String>,
+}
+
+#[derive(Debug, Serialize, ts_rs::TS)]
+struct CockpitLegalProfile {
+    legal_name: String,
+    trading_name: Option<String>,
+    entity_type: String,
+    jurisdiction: String,
+    registration_identifier: CockpitRegistrationIdentifier,
+    approved_business_address: String,
+    invoice_email: Option<String>,
+    owner_asserted_by: String,
+    owner_asserted_at: chrono::DateTime<Utc>,
+    registry_observation: Option<CockpitRegistryObservation>,
+}
+
+#[derive(Debug, Serialize, ts_rs::TS)]
+struct CockpitRegistrationIdentifier {
+    kind: String,
+    value: String,
+}
+
+#[derive(Debug, Serialize, ts_rs::TS)]
+struct CockpitRegistryObservation {
+    source: String,
+    status: String,
+    observed_at: chrono::DateTime<Utc>,
+    legal_name: Option<String>,
+    entity_type: Option<String>,
+    jurisdiction: Option<String>,
+    registration_identifier: Option<CockpitRegistrationIdentifier>,
+    detail: Option<String>,
+}
+
+#[derive(Debug, Serialize, ts_rs::TS)]
+struct CockpitProvider {
+    status: String,
+    connection: Option<CockpitProviderConnection>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    detail: Option<String>,
+}
+
+#[derive(Debug, Serialize, ts_rs::TS)]
+struct CockpitProviderConnection {
+    environment: String,
+    account_ref: String,
+    api_version: String,
+    read_scopes: Vec<String>,
+    submit_scopes: Vec<String>,
+    approval_workflow_observed: bool,
+    observed_at: Option<chrono::DateTime<Utc>>,
+    updated_at: chrono::DateTime<Utc>,
+}
+
+#[derive(Debug, Serialize, ts_rs::TS)]
+struct CockpitFinance {
+    status: String,
+    envelopes: Vec<CockpitMoneyEnvelope>,
+    payments: Vec<CockpitPaymentIntent>,
+    last_balance_observation: Option<CockpitBalanceObservation>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    detail: Option<String>,
+}
+
+#[derive(Debug, Serialize, ts_rs::TS)]
+struct CockpitMoneyEnvelope {
+    source_account_ref: String,
+    currency: String,
+    beneficiary_refs: Vec<String>,
+    per_payment_limit_minor: i64,
+    aggregate_limit_minor: i64,
+    frozen: bool,
+    period_started_at: chrono::DateTime<Utc>,
+    updated_by: String,
+    updated_at: chrono::DateTime<Utc>,
+}
+
+#[derive(Debug, Serialize, ts_rs::TS)]
+struct CockpitPaymentIntent {
+    work_id: Uuid,
+    owner_handoff_id: Uuid,
+    source_account_ref: String,
+    provider_beneficiary_ref: String,
+    amount_minor: i64,
+    currency: String,
+    purpose: String,
+    evidence_refs: Vec<String>,
+    idempotency_key: String,
+    requesting_actor: String,
+    state: String,
+    provider: String,
+    provider_transfer_id: Option<String>,
+    raw_provider_status: Option<String>,
+    provider_approval_url: Option<String>,
+    settled_at: Option<chrono::DateTime<Utc>>,
+    created_at: chrono::DateTime<Utc>,
+    updated_at: chrono::DateTime<Utc>,
+}
+
+#[derive(Debug, Serialize, ts_rs::TS)]
+struct CockpitBalanceObservation {
+    observed_at: chrono::DateTime<Utc>,
+    body: serde_json::Value,
+}
+
+#[derive(Debug, Serialize, ts_rs::TS)]
+struct CockpitEffectReceipt {
+    id: i64,
+    effect_class: Option<serde_json::Value>,
+    tool: Option<serde_json::Value>,
+    success: Option<serde_json::Value>,
+    party: Option<serde_json::Value>,
+    actor: Option<serde_json::Value>,
+    outcome: Option<serde_json::Value>,
+    evidence_quality: CockpitEvidenceQuality,
+    at: chrono::DateTime<Utc>,
+}
+
+#[derive(Debug, Serialize, ts_rs::TS)]
+#[serde(rename_all = "snake_case")]
+enum CockpitEvidenceQuality {
+    Governed,
+    LegacyUnverified,
+}
+
+fn cockpit_legal_profile(profile: legal::LegalProfile) -> CockpitLegalProfile {
+    let legal::LegalProfile {
+        safe,
+        owner_asserted_by,
+        owner_asserted_at,
+        registry_observation,
+    } = profile;
+    let legal::LegalProfileInput {
+        legal_name,
+        trading_name,
+        entity_type,
+        jurisdiction,
+        registration_identifier,
+        approved_business_address,
+        invoice_email,
+    } = safe;
+    CockpitLegalProfile {
+        legal_name,
+        trading_name,
+        entity_type,
+        jurisdiction,
+        registration_identifier: CockpitRegistrationIdentifier {
+            kind: registration_identifier.kind,
+            value: registration_identifier.value,
+        },
+        approved_business_address,
+        invoice_email,
+        owner_asserted_by,
+        owner_asserted_at,
+        registry_observation: registry_observation.map(|observation| CockpitRegistryObservation {
+            source: observation.source,
+            status: match observation.status {
+                legal::RegistryObservationStatus::Observed => "observed",
+                legal::RegistryObservationStatus::Unavailable => "unavailable",
+            }
+            .into(),
+            observed_at: observation.observed_at,
+            legal_name: observation.legal_name,
+            entity_type: observation.entity_type,
+            jurisdiction: observation.jurisdiction,
+            registration_identifier: observation.registration_identifier.map(|identifier| {
+                CockpitRegistrationIdentifier {
+                    kind: identifier.kind,
+                    value: identifier.value,
+                }
+            }),
+            detail: observation.detail,
+        }),
+    }
+}
+
+fn cockpit_provider_connection(connection: airwallex::Connection) -> CockpitProviderConnection {
+    let airwallex::Connection {
+        configured,
+        updated_at,
+        ..
+    } = connection;
+    CockpitProviderConnection {
+        environment: match configured.environment {
+            airwallex::Environment::Sandbox => "sandbox",
+            airwallex::Environment::Live => "live",
+        }
+        .into(),
+        account_ref: configured.account_ref,
+        api_version: configured.api_version,
+        read_scopes: configured.read_scopes,
+        submit_scopes: configured.submit_scopes,
+        approval_workflow_observed: configured.approval_workflow_observed,
+        observed_at: configured.observed_at,
+        updated_at,
+    }
+}
+
+fn cockpit_money_envelope(envelope: finance::MoneyEnvelope) -> CockpitMoneyEnvelope {
+    let finance::MoneyEnvelope {
+        limits,
+        period_started_at,
+        updated_by,
+        updated_at,
+    } = envelope;
+    CockpitMoneyEnvelope {
+        source_account_ref: limits.source_account_ref,
+        currency: limits.currency,
+        beneficiary_refs: limits.beneficiary_refs,
+        per_payment_limit_minor: limits.per_payment_limit_minor,
+        aggregate_limit_minor: limits.aggregate_limit_minor,
+        frozen: limits.frozen,
+        period_started_at,
+        updated_by,
+        updated_at,
+    }
+}
+
+fn cockpit_payment_intent(payment: finance::PaymentIntent) -> CockpitPaymentIntent {
+    let state = payment.state.as_str().to_string();
+    let finance::PaymentIntent {
+        request,
+        provider,
+        provider_transfer_id,
+        raw_provider_status,
+        provider_approval_url,
+        settled_at,
+        created_at,
+        updated_at,
+        ..
+    } = payment;
+    CockpitPaymentIntent {
+        work_id: request.work_id,
+        owner_handoff_id: request.owner_handoff_id,
+        source_account_ref: request.source_account_ref,
+        provider_beneficiary_ref: request.provider_beneficiary_ref,
+        amount_minor: request.amount_minor,
+        currency: request.currency,
+        purpose: request.purpose,
+        evidence_refs: request.evidence_refs,
+        idempotency_key: request.idempotency_key,
+        requesting_actor: request.requesting_actor,
+        state,
+        provider,
+        provider_transfer_id,
+        raw_provider_status,
+        provider_approval_url,
+        settled_at,
+        created_at,
+        updated_at,
+    }
 }
 
 impl OwnerConfig {
@@ -764,17 +1117,14 @@ async fn cockpit_view(
     };
     let observed_at = Utc::now();
 
-    let mut source_health = serde_json::Map::new();
+    let mut source_health = BTreeMap::new();
     let org = match state.daemon.orgintel.get(&company).await {
         Ok(org) => {
-            source_health.insert("orgintel".into(), serde_json::json!("available"));
+            source_health.insert("orgintel".into(), "available".into());
             Some(org)
         }
         Err(error) => {
-            source_health.insert(
-                "orgintel".into(),
-                serde_json::json!(format!("unavailable: {error}")),
-            );
+            source_health.insert("orgintel".into(), format!("unavailable: {error}"));
             None
         }
     };
@@ -788,10 +1138,7 @@ async fn cockpit_view(
         ) {
             Ok((actors, teams, goals, work)) => (actors, teams, goals, work),
             Err(error) => {
-                source_health.insert(
-                    "orgintel".into(),
-                    serde_json::json!(format!("unavailable: {error}")),
-                );
+                source_health.insert("orgintel".into(), format!("unavailable: {error}"));
                 (Vec::new(), Vec::new(), Vec::new(), Vec::new())
             }
         }
@@ -829,20 +1176,27 @@ async fn cockpit_view(
             // but either is observed activity on People.
             let session_running =
                 conversation_running || state.daemon.staff.is_actor_running(&company, &actor.id);
-            serde_json::json!({
-                "actor_id": actor.id,
-                "kind": actor.kind,
-                "role": actor.role,
-                "display": actor.display,
-                "model": actor.model,
-                "team_id": actor.team_id,
-                "spent_usd": round_owner_usd(spent),
-                "session_running": session_running,
-                "session_observed_at": session_running.then_some(observed_at),
-                "model_cooldown": actor.model.as_deref().and_then(|model| {
-                    cooldowns.iter().find(|cooldown| cooldown.model == model)
-                }),
-            })
+            CockpitPerson {
+                actor_id: actor.id.clone(),
+                kind: actor.kind.clone(),
+                role: actor.role.clone(),
+                display: actor.display.clone(),
+                model: actor.model.clone(),
+                team_id: actor.team_id,
+                spent_usd: round_owner_usd(spent),
+                session_running,
+                session_observed_at: session_running.then_some(observed_at),
+                model_cooldown: actor
+                    .model
+                    .as_deref()
+                    .and_then(|model| cooldowns.iter().find(|cooldown| cooldown.model == model))
+                    .map(|cooldown| CockpitModelCooldown {
+                        model: cooldown.model.clone(),
+                        kind: cooldown.kind.clone(),
+                        reason: cooldown.reason.clone(),
+                        retry_at: cooldown.retry_at,
+                    }),
+            }
         })
         .collect::<Vec<_>>();
 
@@ -875,31 +1229,28 @@ async fn cockpit_view(
                         && actor_teams.get(item.owner_id.as_str()) == Some(&team.id)
                 })
                 .count();
-            serde_json::json!({
-                "id": team.id,
-                "name": team.name,
-                "brief": team.brief,
-                "lead_actor_id": team.lead_actor_id,
-                "created_by": team.created_by,
-                "created_at": team.created_at,
-                "member_count": member_count,
-                "in_motion_count": in_motion_count,
-                "blocked_count": blocked_count,
-            })
+            CockpitTeam {
+                id: team.id,
+                name: team.name.clone(),
+                brief: team.brief.clone(),
+                lead_actor_id: team.lead_actor_id.clone(),
+                created_by: team.created_by.clone(),
+                created_at: team.created_at,
+                member_count,
+                in_motion_count,
+                blocked_count,
+            }
         })
         .collect::<Vec<_>>();
 
     let approved_parties = match approval::approved_parties(&state.daemon.authority, &company).await
     {
         Ok(parties) => {
-            source_health.insert("authority".into(), serde_json::json!("available"));
+            source_health.insert("authority".into(), "available".into());
             parties
         }
         Err(error) => {
-            source_health.insert(
-                "authority".into(),
-                serde_json::json!(format!("unavailable: {error}")),
-            );
+            source_health.insert("authority".into(), format!("unavailable: {error}"));
             Vec::new()
         }
     };
@@ -914,29 +1265,32 @@ async fn cockpit_view(
             .iter()
             .rev()
             .take(50)
-            .map(|event| {
-                serde_json::json!({
-                    "id": event.id,
-                    "effect_class": event.body.get("effect_class").or_else(|| event.body.get("capability")),
-                    "tool": event.body.get("tool"),
-                    "success": event.body.get("success"),
-                    "party": event.body.get("party"),
-                    "actor": event.body.get("actor").cloned().or_else(|| event.actor_id.clone().map(serde_json::Value::String)),
-                    "outcome": event.body.get("outcome"),
-                    "evidence_quality": if reconcile::is_governed_receipt(&event.body) {
-                        "governed"
-                    } else {
-                        "legacy_unverified"
-                    },
-                    "at": event.created_at,
-                })
+            .map(|event| CockpitEffectReceipt {
+                id: event.id,
+                effect_class: event
+                    .body
+                    .get("effect_class")
+                    .or_else(|| event.body.get("capability"))
+                    .cloned(),
+                tool: event.body.get("tool").cloned(),
+                success: event.body.get("success").cloned(),
+                party: event.body.get("party").cloned(),
+                actor: event
+                    .body
+                    .get("actor")
+                    .cloned()
+                    .or_else(|| event.actor_id.clone().map(serde_json::Value::String)),
+                outcome: event.body.get("outcome").cloned(),
+                evidence_quality: if reconcile::is_governed_receipt(&event.body) {
+                    CockpitEvidenceQuality::Governed
+                } else {
+                    CockpitEvidenceQuality::LegacyUnverified
+                },
+                at: event.created_at,
             })
             .collect::<Vec<_>>(),
         Err(error) => {
-            source_health.insert(
-                "authority".into(),
-                serde_json::json!(format!("unavailable: {error}")),
-            );
+            source_health.insert("authority".into(), format!("unavailable: {error}"));
             Vec::new()
         }
     };
@@ -945,50 +1299,46 @@ async fn cockpit_view(
     for (binding, reference) in &config.credentials {
         if query.probe_credentials {
             let probe = credential::probe_reference(reference).await;
-            credentials.push(serde_json::json!({
-                "binding": binding,
-                "status": probe.status.as_str(),
-                "detail": probe.detail,
-            }));
+            credentials.push(CockpitCredential {
+                binding: binding.clone(),
+                status: probe.status.as_str().into(),
+                detail: probe.detail,
+            });
         } else {
-            credentials.push(serde_json::json!({
-                "binding": binding,
-                "status": "configured_unprobed",
-                "detail": "A governed reference is configured. Availability was not probed by this read.",
-            }));
+            credentials.push(CockpitCredential {
+                binding: binding.clone(),
+                status: "configured_unprobed".into(),
+                detail: Some(
+                    "A governed reference is configured. Availability was not probed by this read."
+                        .into(),
+                ),
+            });
         }
     }
 
     let legal_profile = match legal::get_profile(&state.daemon.authority, &company).await {
-        Ok(profile) => serde_json::json!({
-            "status": "available",
-            "profile": profile,
-        }),
-        Err(error) => serde_json::json!({
-            "status": "unavailable",
-            "detail": format!("{error:#}"),
-            "profile": null,
-        }),
+        Ok(profile) => CockpitLegal {
+            status: "available".into(),
+            profile: profile.map(cockpit_legal_profile),
+            detail: None,
+        },
+        Err(error) => CockpitLegal {
+            status: "unavailable".into(),
+            profile: None,
+            detail: Some(format!("{error:#}")),
+        },
     };
     let provider = match airwallex::connection(&state.daemon.authority, &company).await {
-        Ok(connection) => serde_json::json!({
-            "status": "available",
-            "connection": connection.map(|connection| serde_json::json!({
-                "environment": connection.configured.environment,
-                "account_ref": connection.configured.account_ref,
-                "api_version": connection.configured.api_version,
-                "read_scopes": connection.configured.read_scopes,
-                "submit_scopes": connection.configured.submit_scopes,
-                "approval_workflow_observed": connection.configured.approval_workflow_observed,
-                "observed_at": connection.configured.observed_at,
-                "updated_at": connection.updated_at,
-            })),
-        }),
-        Err(error) => serde_json::json!({
-            "status": "unavailable",
-            "detail": format!("{error:#}"),
-            "connection": null,
-        }),
+        Ok(connection) => CockpitProvider {
+            status: "available".into(),
+            connection: connection.map(cockpit_provider_connection),
+            detail: None,
+        },
+        Err(error) => CockpitProvider {
+            status: "unavailable".into(),
+            connection: None,
+            detail: Some(format!("{error:#}")),
+        },
     };
     let finance_state = match tokio::try_join!(
         finance::envelopes(&state.daemon.authority, &company),
@@ -998,22 +1348,23 @@ async fn cockpit_view(
             .authority
             .records_of_kind(&company, "finance_balance_observed")
     ) {
-        Ok((envelopes, payments, balances)) => serde_json::json!({
-            "status": "available",
-            "envelopes": envelopes,
-            "payments": payments,
-            "last_balance_observation": balances.last().map(|row| serde_json::json!({
-                "observed_at": row.created_at,
-                "body": row.body,
-            })),
-        }),
-        Err(error) => serde_json::json!({
-            "status": "unavailable",
-            "detail": format!("{error:#}"),
-            "envelopes": [],
-            "payments": [],
-            "last_balance_observation": null,
-        }),
+        Ok((envelopes, payments, balances)) => CockpitFinance {
+            status: "available".into(),
+            envelopes: envelopes.into_iter().map(cockpit_money_envelope).collect(),
+            payments: payments.into_iter().map(cockpit_payment_intent).collect(),
+            last_balance_observation: balances.last().map(|row| CockpitBalanceObservation {
+                observed_at: row.created_at,
+                body: row.body.clone(),
+            }),
+            detail: None,
+        },
+        Err(error) => CockpitFinance {
+            status: "unavailable".into(),
+            envelopes: Vec::new(),
+            payments: Vec::new(),
+            last_balance_observation: None,
+            detail: Some(format!("{error:#}")),
+        },
     };
 
     let runtime_status = match runtime::status(&company).await {
@@ -1022,39 +1373,47 @@ async fn cockpit_view(
         Ok(runtime::ContainerStatus::Absent) => "absent",
         Err(_) => "unavailable",
     };
-    source_health.insert("runtime".into(), serde_json::json!(runtime_status));
+    source_health.insert("runtime".into(), runtime_status.into());
 
-    Json(serde_json::json!({
-        "company": {
-            "id": company,
-            "name": config.name,
-            "mission": config.mission,
-            "model": config.model,
+    let remaining_usd =
+        (!poisoned).then(|| round_owner_usd(state.daemon.spend.remaining_usd(&config)));
+    Json(CockpitView {
+        company: CockpitCompany {
+            id: company,
+            name: config.name,
+            mission: config.mission,
+            model: config.model,
         },
-        "source_health": source_health,
-        "people": people,
-        "teams": team_rows,
-        "goals": goals,
-        "spend": {
-            "accounted_usd": round_owner_usd(accounted_usd),
-            "ceiling_usd": config.spend_ceiling_usd.as_usd(),
-            "remaining_usd": if poisoned {
-                serde_json::Value::Null
-            } else {
-                serde_json::json!(round_owner_usd(state.daemon.spend.remaining_usd(&config)))
-            },
-            "poisoned": poisoned,
+        source_health,
+        people,
+        teams: team_rows,
+        goals: goals
+            .into_iter()
+            .map(|goal| CockpitGoal {
+                id: goal.id,
+                title: goal.title,
+                body: goal.body,
+                created_by: goal.created_by,
+                created_at: goal.created_at,
+                closed_at: goal.closed_at,
+            })
+            .collect(),
+        spend: CockpitSpend {
+            accounted_usd: round_owner_usd(accounted_usd),
+            ceiling_usd: config.spend_ceiling_usd.as_usd(),
+            remaining_usd,
+            poisoned,
         },
-        "authority": {
-            "approved_parties": approved_parties,
-            "credentials": credentials,
-            "legal": legal_profile,
-            "provider": provider,
-            "finance": finance_state,
+        authority: CockpitAuthority {
+            approved_parties,
+            credentials,
+            legal: legal_profile,
+            provider,
+            finance: finance_state,
         },
-        "receipts": receipts,
-        "refreshed_at": observed_at,
-    }))
+        receipts,
+        refreshed_at: observed_at,
+    })
     .into_response()
 }
 
@@ -1065,6 +1424,56 @@ fn round_owner_usd(usd: f64) -> f64 {
     } else {
         rounded
     }
+}
+
+#[cfg(test)]
+fn render_cockpit_bindings() -> String {
+    use ts_rs::TS;
+
+    let config = ts_rs::Config::new().with_large_int("number");
+    let mut rendered = String::from(
+        "// GENERATED — do not edit.\n\
+         //\n\
+         // Source: crates/restlessd/src/owner.rs (the owner projection writer).\n\
+         // Regenerate: RESTLESS_WRITE_COCKPIT_BINDINGS=1 cargo test -p restlessd cockpit_typescript_bindings_match\n\
+         //\n\
+         // This is the cockpit response contract, not a client-side view-model.\n\
+         \n",
+    );
+    for declaration in [
+        serde_json::Value::decl(&config),
+        CockpitCompany::decl(&config),
+        CockpitModelCooldown::decl(&config),
+        CockpitPerson::decl(&config),
+        CockpitTeam::decl(&config),
+        CockpitGoal::decl(&config),
+        CockpitSpend::decl(&config),
+        CockpitCredential::decl(&config),
+        CockpitRegistrationIdentifier::decl(&config),
+        CockpitRegistryObservation::decl(&config),
+        CockpitLegalProfile::decl(&config),
+        CockpitLegal::decl(&config),
+        CockpitProviderConnection::decl(&config),
+        CockpitProvider::decl(&config),
+        CockpitMoneyEnvelope::decl(&config),
+        CockpitPaymentIntent::decl(&config),
+        CockpitBalanceObservation::decl(&config),
+        CockpitFinance::decl(&config),
+        CockpitEvidenceQuality::decl(&config),
+        CockpitEffectReceipt::decl(&config),
+        CockpitAuthority::decl(&config),
+        CockpitView::decl(&config),
+    ] {
+        rendered.push_str("export ");
+        for (index, line) in declaration.lines().enumerate() {
+            if index > 0 {
+                rendered.push('\n');
+            }
+            rendered.push_str(line.trim_end());
+        }
+        rendered.push_str("\n\n");
+    }
+    rendered
 }
 
 async fn actor_conversation(
@@ -2562,6 +2971,36 @@ async fn api_not_found() -> Response<Body> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn cockpit_typescript_bindings_match() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../web/src/lib/model/generated/cockpit.ts");
+        let rendered = render_cockpit_bindings();
+
+        if std::env::var_os("RESTLESS_PRINT_COCKPIT_BINDINGS").is_some() {
+            println!("{rendered}");
+            return;
+        }
+        if std::env::var_os("RESTLESS_WRITE_COCKPIT_BINDINGS").is_some() {
+            if let Some(directory) = path.parent() {
+                std::fs::create_dir_all(directory).expect("create cockpit bindings directory");
+            }
+            std::fs::write(&path, rendered).expect("write cockpit bindings");
+            return;
+        }
+
+        let committed = std::fs::read_to_string(&path).unwrap_or_else(|error| {
+            panic!(
+                "{}: {error}\nRegenerate with: RESTLESS_WRITE_COCKPIT_BINDINGS=1 cargo test -p restlessd cockpit_typescript_bindings_match",
+                path.display()
+            )
+        });
+        assert_eq!(
+            committed, rendered,
+            "cockpit TypeScript bindings drifted; regenerate with RESTLESS_WRITE_COCKPIT_BINDINGS=1 cargo test -p restlessd cockpit_typescript_bindings_match"
+        );
+    }
 
     #[test]
     fn network_owner_bindings_are_refused_until_real_auth_exists() {

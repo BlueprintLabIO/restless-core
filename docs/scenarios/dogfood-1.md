@@ -1,14 +1,16 @@
 # Dogfood 1 — Robotics & AI public-equity research
 
-**Status:** Draft for founder alignment
+**Status:** Run 1 evidence recorded; owner outcome review pending
 
-**Version:** 0.1
+**Version:** 0.2
 
 **Type:** Live dogfood / outcome smoke — not a mechanical integration smoke
 
 **Operating phase:** Exploration
 
 **Company shape:** Research
+
+**Run report:** [`dogfood-1-after-action.md`](./dogfood-1-after-action.md)
 
 ## Why this run exists
 

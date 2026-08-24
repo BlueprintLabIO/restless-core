@@ -282,6 +282,24 @@ A wall-clock envelope is a budget and operator safety stop, not an inference tha
 completed. Attempt leases are renewable liveness evidence. A stopped envelope preserves process,
 workspace and truth for later inspection; it never converts silence into success or retries blindly.
 
+### Observed recovery corrections
+
+T2's first live marketing run proved four smaller missing semantics. EXP-03 retains them in the harness:
+
+1. every accepted commit is anchored by Attempt identity, so sibling repairs never contend for a
+   mutable Work ref;
+2. the lead completes through `complete_run(candidate_commit=...)`, not a magic decision subject;
+3. a worker judgement request blocks its current Attempt and resolution reactivates the same Work as a
+   new revision through the existing outbox; and
+4. native review exports the exact candidate without `.git` before the lead decides.
+
+These corrections reuse the existing mutable operational store, Git commits, Work revisions and wake
+delivery. They are explicitly not an artifact lifecycle, append-only ledger or durable workflow engine.
+The hypothesis, deterministic proof and live GLM-5.3 result are recorded in
+[`t09`](../coordination/experiments/EXP-03/t09-four-primitives-hypothesis.md),
+[`t11`](../coordination/experiments/EXP-03/t11-four-primitives-conformance.md) and
+[`t12`](../coordination/experiments/EXP-03/t12-four-primitives-live-result.md).
+
 ## 10. Measurements
 
 ### Outcome

@@ -2,7 +2,7 @@
 
 Scratch-only successor to the v0/v1 experiment in [`../RESULTS.md`](../RESULTS.md).
 
-V2 keeps the seven model-facing commands and replaces the failed substrate:
+V2 keeps a small set of model-facing coordination tools and replaces the failed substrate:
 
 - one host process owns SQLite, outbox mutations, and chronological trace writes;
 - container MCP servers are thin TCP clients and never mount/open the database;
@@ -13,11 +13,25 @@ V2 keeps the seven model-facing commands and replaces the failed substrate:
 - a worker that ends without a terminal callback remains explicitly `unknown`, with its workspace preserved;
 - only `integration-lead` can hold the single integration lease.
 
+EXP-03 adds four observed recovery corrections without changing that substrate:
+
+- accepted Git commits are anchored once per Attempt at `refs/heads/attempts/<attempt-id>`; repairs do
+  not overwrite an earlier Attempt or require fast-forward history;
+- the accountable coordinator uses `complete_run(candidate_commit=...)`; a free-form decision subject
+  is not completion transport;
+- a worker judgement request terminally blocks its Attempt, and resolution reactivates the same Work
+  as its next revision through the existing outbox; and
+- the lead's native-review adapter runs the exact candidate from a Git archive without `.git`.
+
+These are local Work/Attempt/tool semantics, not an artifact lifecycle or durable workflow engine. Prove
+them with `four-primitives-test` before spending model tokens.
+
 Run deterministic substrate faults before any model scenario:
 
 ```sh
 cargo build --release --manifest-path experiment/coordination-lab/Cargo.toml
 bash experiment/coordination-lab/v2/run.sh fault-test faults
+bash experiment/coordination-lab/v2/run.sh four-primitives-test exp03-four-primitives
 ```
 
 Then prepare and run the same fixed-seed scenario:
