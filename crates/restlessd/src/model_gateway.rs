@@ -714,13 +714,11 @@ struct MeteredRequest {
 
 /// The relay forwards chunks unchanged but observes enough pi-native SSE to
 /// make the terminal charged usage a host-side record. A provider error is a
-/// valid terminal only when its canonical error message carries an exact cost
-/// (including zero). Pi-native tool-use completions expose their final exact
-/// usage in a completed partial. The Runtime client is allowed to close the
-/// response body as soon as it receives that completed tool-use message, so
-/// that partial is the accounting boundary; its later `done` / `[DONE]`
-/// acknowledgement is transport cleanup, not a second billable outcome. An
-/// ambiguous error, incomplete partial, Drop and EOF still poison the company.
+/// valid terminal only when its canonical error message carries a provider
+/// cost (including zero). A semantic pi-native `done` or `error` message is
+/// the accounting boundary. The `[DONE]` sentinel is transport cleanup, and
+/// a partial, Drop, or EOF without a semantic terminal remains ambiguous and
+/// therefore poisons the company.
 struct MeteredStream {
     inner: Pin<Box<dyn Stream<Item = std::result::Result<Bytes, reqwest::Error>> + Send>>,
     meter: crate::spend::TurnMeter,
@@ -791,9 +789,9 @@ impl MeteredStream {
             return;
         }
         if data == "[DONE]" {
-            // A normal semantic `done` or completed terminal partial should
-            // already have settled the request. A bare sentinel cannot prove
-            // spend and remains fail-closed.
+            // A normal semantic `done` or `error` should already have settled
+            // the request. A bare sentinel cannot prove spend and remains
+            // fail-closed.
             self.record_terminal_usage(None);
             return;
         }
@@ -801,10 +799,6 @@ impl MeteredStream {
             self.failed = true;
             return;
         };
-        self.observe_complete_partial(&event);
-        if self.settled || self.failed {
-            return;
-        }
         match event.get("type").and_then(serde_json::Value::as_str) {
             Some("done") => self.record_terminal_usage(event.pointer("/message/usage")),
             Some("error") => {
@@ -817,25 +811,6 @@ impl MeteredStream {
         }
     }
 
-    fn observe_complete_partial(&mut self, event: &serde_json::Value) {
-        let Some(partial) = event.get("partial") else {
-            return;
-        };
-        let complete = matches!(
-            partial
-                .get("stopReason")
-                .and_then(serde_json::Value::as_str),
-            Some("stop" | "length" | "toolUse")
-        );
-        if complete {
-            // This is a complete assistant message, not an arbitrary rolling
-            // delta: pi-ai sets stopReason only when a turn has ended. It is
-            // the only exact-cost terminal evidence guaranteed to reach a
-            // client that begins executing a tool immediately.
-            self.record_terminal_usage(partial.get("usage"));
-        }
-    }
-
     fn record_terminal_usage(&mut self, usage: Option<&serde_json::Value>) {
         if self.settled || self.failed {
             return;
@@ -844,7 +819,7 @@ impl MeteredStream {
         let micro_usd = match self.request.billing {
             ModelBilling::MeteredApi => usage
                 .and_then(|usage| usage.pointer("/cost/total"))
-                .and_then(decimal_micro_usd),
+                .and_then(ceiling_micro_usd),
             ModelBilling::Subscription => Some(0),
         };
         let Some(micro_usd) = micro_usd else {
@@ -933,7 +908,12 @@ fn total_tokens(usage: &serde_json::Value) -> u64 {
         .fold(0_u64, u64::saturating_add)
 }
 
-fn decimal_micro_usd(value: &serde_json::Value) -> Option<u64> {
+/// Convert the provider's decimal charge into the ledger's coarser
+/// micro-USD unit without ever understating spend. Providers may report
+/// hundredths of a micro-dollar (for example `$0.01104072`); an upward
+/// quantisation of less than one micro-dollar preserves the hard ceiling even
+/// though the ledger does not store a fractional micro-dollar.
+fn ceiling_micro_usd(value: &serde_json::Value) -> Option<u64> {
     let raw = value.as_number()?.to_string();
     let exponent_at = raw.find(['e', 'E']);
     let (significand, exponent) = match exponent_at {
@@ -957,18 +937,30 @@ fn decimal_micro_usd(value: &serde_json::Value) -> Option<u64> {
         return None;
     }
     let digits = format!("{whole}{fraction}").parse::<u64>().ok()?;
-    // The authority ledger's unit is an exact micro-USD. A JSON number might
-    // serialise in exponent form (for example 0.000001 as 1e-6); normalise it
-    // with integer powers only. If it cannot be represented exactly in micro
-    // USD, refuse it rather than round down real spend.
+    if digits == 0 {
+        return Some(0);
+    }
+    // A JSON number might serialise in exponent form (for example 0.000001 as
+    // 1e-6); normalise it with integer powers only. The ledger uses whole
+    // micro-USD, so retain an exact value when possible and otherwise round
+    // *up* rather than leave real spend outside the hard envelope.
     let shift = exponent
         .checked_sub(fraction.len() as i64)?
         .checked_add(6)?;
     if shift >= 0 {
-        digits.checked_mul(10_u64.checked_pow(shift.try_into().ok()?)?)
+        let power: u32 = shift.try_into().ok()?;
+        digits.checked_mul(10_u64.checked_pow(power)?)
     } else {
-        let divisor = 10_u64.checked_pow((-shift).try_into().ok()?)?;
-        (digits % divisor == 0).then_some(digits / divisor)
+        let scale = shift.checked_abs()?;
+        // Any positive value smaller than 10^-19 USD still consumes one whole
+        // micro-USD in a conservative integer ledger. Large positive shifts
+        // cannot fit the ledger and stay fail-closed.
+        if scale > 19 {
+            return Some(u64::from(digits != 0));
+        }
+        let divisor = 10_u64.checked_pow(scale.try_into().ok()?)?;
+        let whole = digits / divisor;
+        whole.checked_add(u64::from(digits % divisor != 0))
     }
 }
 
@@ -1481,7 +1473,7 @@ mod tests {
     }
 
     #[test]
-    fn relay_accounts_for_a_completed_terminal_partial_before_wire_cleanup() {
+    fn relay_poisoned_when_only_a_partial_and_wire_cleanup_arrive() {
         let root = test_root();
         let (_issuer, ledger, _state) = test_relay_state(&root);
         {
@@ -1514,8 +1506,8 @@ mod tests {
                     "acme_test",
                     crate::runtime::SpendCeiling::from_micro_usd(2)
                 ),
-                1,
-                "a completed terminal partial records exact spend even if the Runtime client closes before [DONE]"
+                2,
+                "a partial is not a provider-confirmed terminal usage record"
             );
             stream.observe(&Bytes::from_static(b"data: [DONE]\n\n"));
         }
@@ -1524,8 +1516,8 @@ mod tests {
                 "acme_test",
                 crate::runtime::SpendCeiling::from_micro_usd(2)
             ),
-            1,
-            "trailing wire cleanup does not duplicate the terminal charge"
+            0,
+            "a bare wire sentinel cannot turn a partial into accounted provider spend"
         );
 
         drop(ledger);
@@ -1584,22 +1576,77 @@ mod tests {
     }
 
     #[test]
-    fn micro_usd_parser_is_exact_or_refuses_to_guess() {
+    fn micro_usd_parser_preserves_or_conservatively_rounds_provider_decimals() {
         assert_eq!(
-            decimal_micro_usd(&serde_json::from_str("0.000001").unwrap()),
+            ceiling_micro_usd(&serde_json::from_str("0.000001").unwrap()),
             Some(1)
         );
         assert_eq!(
-            decimal_micro_usd(&serde_json::from_str("12.34").unwrap()),
+            ceiling_micro_usd(&serde_json::from_str("12.34").unwrap()),
             Some(12_340_000)
         );
-        assert!(decimal_micro_usd(&serde_json::from_str("0.0000001").unwrap()).is_none());
         assert_eq!(
-            decimal_micro_usd(&serde_json::from_str("1e-6").unwrap()),
+            ceiling_micro_usd(&serde_json::from_str("0.0000001").unwrap()),
+            Some(1),
+            "never round real provider spend down below one ledger unit"
+        );
+        assert_eq!(
+            ceiling_micro_usd(&serde_json::from_str("0.01104072").unwrap()),
+            Some(11_041),
+            "GLM's 8-place dollar prices are charged upward by less than one micro-dollar"
+        );
+        assert_eq!(
+            ceiling_micro_usd(&serde_json::from_str("1e-6").unwrap()),
             Some(1)
         );
-        assert!(decimal_micro_usd(&serde_json::from_str("1e-7").unwrap()).is_none());
-        assert!(decimal_micro_usd(&serde_json::from_str("-1").unwrap()).is_none());
+        assert_eq!(
+            ceiling_micro_usd(&serde_json::from_str("1e-7").unwrap()),
+            Some(1)
+        );
+        assert!(ceiling_micro_usd(&serde_json::from_str("-1").unwrap()).is_none());
+    }
+
+    #[test]
+    fn relay_charges_a_glm_precision_terminal_without_poisoning() {
+        let root = test_root();
+        let (_issuer, ledger, _state) = test_relay_state(&root);
+        let event = serde_json::json!({
+            "type": "done",
+            "message": {
+                "usage": {
+                    "input": 7_568,
+                    "output": 71,
+                    "cacheRead": 512,
+                    "cost": { "total": 0.01104072 }
+                }
+            }
+        });
+        {
+            let inner = futures_util::stream::empty::<std::result::Result<Bytes, reqwest::Error>>();
+            let mut stream = MeteredStream::new(
+                inner,
+                ledger.meter(),
+                MeteredRequest {
+                    company: "acme_test".into(),
+                    actor: "delivery-lead".into(),
+                    session: "glm_precision".into(),
+                    model: "zai/glm-5.3".into(),
+                    billing: ModelBilling::MeteredApi,
+                },
+            );
+            stream.observe(&Bytes::from(format!("data: {event}\n\n")));
+        }
+        assert_eq!(
+            ledger.remaining_micro_usd_for(
+                "acme_test",
+                crate::runtime::SpendCeiling::from_micro_usd(12_000)
+            ),
+            959,
+            "the micro-USD ledger uses a conservative 11,041-micro charge"
+        );
+
+        drop(ledger);
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

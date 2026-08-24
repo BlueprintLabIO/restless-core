@@ -43,9 +43,10 @@ pub struct TurnMeter {
 }
 
 impl TurnMeter {
-    /// Host-side relay accounting already has a canonical exact micro-USD
-    /// amount and the supervised session id. Keep it exact through the spool
-    /// rather than converting a provider decimal back through f64.
+    /// The host-side relay has normalised the provider charge upward into the
+    /// ledger's micro-USD unit and attributed it to one supervised session.
+    /// Preserve that integer charge through the spool rather than converting a
+    /// provider decimal back through `f64`.
     pub fn record_exact(
         &self,
         company: &str,
