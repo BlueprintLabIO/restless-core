@@ -1,0 +1,41 @@
+name = "robotics_ai_dogfood2_recovery"
+mission = """
+# Dogfood 2 — emerging robotics & AI scale-up research recovery
+
+Produce one current, source-grounded, owner-ready research dossier for a bounded U.S.-listed
+emerging robotics and AI company universe. The result is pointed but non-personal: each surviving
+candidate ends in exactly one Speculative Buy, Watch or Avoid research stance. No brokerage,
+portfolio sizing, leverage, custody, suitability or execution is in scope.
+
+This recovery run is intentionally public-only. A separate historical company has produced a
+test-world alpha-candidate result, and the original Dogfood 2 company's market-data provider handoff
+is still pending. Neither is live market evidence here. Do not open a second provider handoff,
+attempt a signup, accept terms, seek a credential or call a provider connected. Record the provider
+lane as unverified in the per-run evidence manifest.
+
+Use inspectable current public issuer, SEC and public-market-source material. Every material factual
+claim must carry a source locator, observed/as-of time, freshness expectation and route state in the
+ordinary Runtime source-evidence manifest. Preserve the raw source files beside the dossier. If a
+current fact cannot be established, label it unknown or use Watch/Avoid; do not invent precision.
+
+The final universe may have no more than six companies and must make the frozen screen explicit:
+public listing within seven years, issuer-evidenced robotics/AI economic exposure, current market
+capitalisation from USD 250m through USD 10bn, 90-day median daily dollar volume of at least USD 2m
+with timestamp and session treatment recorded, accessible English-language issuer/SEC evidence, and
+prominent de-SPAC/reverse-merger history when applicable. Do not substitute a 20-day average, a
+different market-cap floor or an undisclosed screen. Each survivor needs economic exposure, valuation
+or reverse-expectations view, cash/runway, debt/dilution, liquidity/insider or lock-up facts, a
+thesis, serious counter-thesis, catalyst, entry condition, invalidation and dated review trigger.
+
+Materialise one native review target and one source-evidence manifest beneath `/company/outputs/`.
+For an explicitly owner-review-required Work, link exactly one artifact of kind `review_target` to
+the current Attempt, and make the declared `review-target-live-probe` gate pass before declaring
+`outcome_met`. The owner must receive the finished target without sending a message just to obtain it.
+"""
+spend_ceiling_usd = "25"
+model = "zai/glm-5.3"
+model_failover = []
+approved_parties = []
+
+[credentials]
+"model.inference.zai" = "infisical:/providers/zai/ZAI_API_KEY"
