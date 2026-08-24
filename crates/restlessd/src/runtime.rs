@@ -556,6 +556,54 @@ pub async fn up(config: &CompanyConfig, reconcile: bool) -> Result<String> {
     Ok(format!("{}: running{suffix}", config.name))
 }
 
+/// Materialise the company-scoped bridge grant after the Runtime is known to
+/// be running. The token travels over docker stdin rather than argv, and is
+/// only readable by the company group inside its persistent computer.
+pub async fn install_runtime_bridge_capability(company: &str, capability: &str) -> Result<()> {
+    if capability.is_empty() || capability.bytes().any(|byte| byte.is_ascii_whitespace()) {
+        bail!("refusing an invalid Runtime bridge capability");
+    }
+    let container = container_name(company);
+    let mut child = tokio::process::Command::new("docker")
+        .args([
+            "exec",
+            "-i",
+            "-u",
+            "company",
+            &container,
+            "sh",
+            "-c",
+            "set -eu; dir=/company/run; mkdir -p \"$dir\"; umask 007; tmp=\"$dir/.restless-bridge.cap.$$\"; trap 'rm -f \"$tmp\"' EXIT; cat > \"$tmp\"; chmod 0640 \"$tmp\"; mv \"$tmp\" \"$dir/restless-bridge.cap\"; trap - EXIT",
+        ])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .kill_on_drop(true)
+        .spawn()
+        .context("start Runtime bridge capability install")?;
+    let mut stdin = child
+        .stdin
+        .take()
+        .context("open Runtime bridge capability stdin")?;
+    stdin.write_all(capability.as_bytes()).await?;
+    stdin.write_all(b"\n").await?;
+    stdin.shutdown().await?;
+    let output = child
+        .wait_with_output()
+        .await
+        .context("finish Runtime bridge capability install")?;
+    if !output.status.success() {
+        bail!(
+            "Runtime bridge capability install failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+                .chars()
+                .take(300)
+                .collect::<String>()
+        );
+    }
+    Ok(())
+}
+
 /// Check the replaceable runtime image independently of an agent report.
 pub async fn doctor(company: &str) -> Result<RuntimeDoctor> {
     let container = status(company).await?;

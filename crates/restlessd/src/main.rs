@@ -10,6 +10,7 @@ mod airwallex_ingress;
 mod approval;
 mod attention;
 mod authority;
+mod capability;
 mod capability_sourcing;
 mod company;
 mod context;
@@ -168,6 +169,7 @@ async fn ensure_standing_actors(org: &OrgIntel, model: Option<&str>) -> Result<(
 
 pub(crate) struct Daemon {
     pub(crate) root: PathBuf,
+    pub(crate) capabilities: capability::CapabilityIssuer,
     pub(crate) spend: spend::SpendLedger,
     pub(crate) authority: authority::AuthorityStore,
     pub(crate) orgintel: OrgIntelRegistry,
@@ -183,6 +185,15 @@ pub(crate) struct Daemon {
 /// TCP port the company containers reach the daemon on (T10). Next to the
 /// model gateway's 7790; reachable as host.docker.internal from containers.
 pub(crate) const COORD_TCP_PORT: u16 = 7791;
+
+/// The listener is identity evidence. A Unix socket is the local appliance
+/// owner boundary; TCP is only the Company Runtime bridge and therefore must
+/// present a signed capability before it can reach dispatch.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ConnectionOrigin {
+    LocalOwner,
+    RuntimeTcp,
+}
 
 /// Advance ordinary Work only after authenticated provider state proves the
 /// owner's irreducible approval step has ended. Submission and IN_APPROVAL are
@@ -251,23 +262,26 @@ async fn main() -> Result<()> {
     let root = runtime::state_root();
     std::fs::create_dir_all(root.join("companies"))
         .with_context(|| format!("create state root {}", root.display()))?;
+    let capabilities = capability::CapabilityIssuer::open(&root)?;
     // The current owner cockpit has one supported topology: direct loopback.
     // Refuse network configuration before starting provider or scheduler work.
     let owner_config = owner::OwnerConfig::from_env()?;
 
+    // Open authoritative charged-use accounting before the model relay. The
+    // relay receives this exact ledger and is the only model path permitted to
+    // append charged records.
+    let spend = spend::SpendLedger::open(&root)?;
+
     // Model access is a host authority boundary. OMP's imported broker and
     // gateway hold the provider credential; company processes receive only a
-    // narrower gateway bearer. A failed start is a failed daemon start because
-    // no configured Exec can think without it.
+    // signed, scoped relay capability. A failed start is a failed daemon start
+    // because no configured Exec can think without it.
     let company_configs = configured_companies(&root)?
         .into_iter()
         .map(|company| runtime::CompanyConfig::load(&root, &company))
         .collect::<Result<Vec<_>>>()?;
-    let _model_gateway = model_gateway::start(&company_configs).await?;
-
-    // The spend ledger remains in the coordination core, but metering comes
-    // from OMP's ACP usage updates rather than from a custom HTTP proxy.
-    let spend = spend::SpendLedger::open(&root)?;
+    let _model_gateway =
+        model_gateway::start(&company_configs, &root, capabilities.clone(), spend.clone()).await?;
     // T5: coordination state. The database must answer at boot — probe,
     // never guess that it will be there when a company wakes.
     let orgintel_config = OrgIntelConfig::load_or_seed(&root)?;
@@ -302,6 +316,7 @@ async fn main() -> Result<()> {
 
     let daemon = std::sync::Arc::new(Daemon {
         root: root.clone(),
+        capabilities,
         spend,
         authority,
         orgintel: OrgIntelRegistry {
@@ -344,12 +359,10 @@ async fn main() -> Result<()> {
     let listener = UnixListener::bind(&sock).with_context(|| format!("bind {}", sock.display()))?;
     tracing::info!(socket = %sock.display(), "restlessd listening");
 
-    // T10: the agents' channel. Unix sockets do not cross the Docker Desktop
-    // file share (probed: the mount hangs), so containers reach the daemon
-    // over TCP on the same proven path as the model gateway. The trust
-    // boundary is these listeners, not the CLI binary (§6.1); company
-    // identity on a request is trusted as-sent — accepted risk this sprint
-    // (single-operator host), expiry: before any real external effect.
+    // Unix sockets do not cross the Docker Desktop file share (probed: the
+    // mount hangs), so containers reach the daemon over TCP on the same
+    // proven path as the model relay. TCP is capability-authenticated before
+    // dispatch; company identity is never trusted as JSON sent by the caller.
     let coord_addr = format!("0.0.0.0:{COORD_TCP_PORT}");
     match tokio::net::TcpListener::bind(&coord_addr).await {
         Ok(tcp) => {
@@ -361,7 +374,9 @@ async fn main() -> Result<()> {
                         Ok((stream, _)) => {
                             let daemon = std::sync::Arc::clone(&tcp_daemon);
                             tokio::spawn(async move {
-                                if let Err(error) = serve(stream, &daemon).await {
+                                if let Err(error) =
+                                    serve(stream, &daemon, ConnectionOrigin::RuntimeTcp).await
+                                {
                                     tracing::warn!("tcp connection error: {error:#}");
                                 }
                             });
@@ -427,7 +442,9 @@ async fn main() -> Result<()> {
                 let (stream, _) = accepted?;
                 let daemon = std::sync::Arc::clone(&daemon);
                 tokio::spawn(async move {
-                    if let Err(error) = serve(stream, &daemon).await {
+                    if let Err(error) =
+                        serve(stream, &daemon, ConnectionOrigin::LocalOwner).await
+                    {
                         tracing::warn!("connection error: {error:#}");
                     }
                 });
@@ -477,14 +494,14 @@ async fn await_stopped_company_idle(daemon: &Daemon, company: &str) -> bool {
     }
 }
 
-async fn serve<S>(stream: S, daemon: &Daemon) -> Result<()>
+async fn serve<S>(stream: S, daemon: &Daemon, origin: ConnectionOrigin) -> Result<()>
 where
     S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
 {
     let (read, mut write) = tokio::io::split(stream);
     let mut lines = BufReader::new(read).lines();
     while let Some(line) = lines.next_line().await? {
-        let request = match serde_json::from_str::<Request>(&line) {
+        let mut request = match serde_json::from_str::<Request>(&line) {
             Ok(request) => request,
             Err(error) => {
                 let response = Response::err(format!("bad request: {error}"));
@@ -494,18 +511,16 @@ where
                 continue;
             }
         };
-        // S04-T10. The gate sits HERE, above the watch/dispatch branch, so a
-        // streaming command cannot slip past it. It gates on the principal the
-        // request carries, never on which listener the request arrived at:
-        // "the TCP socket may not do X" would work today and would have to be
-        // torn out the moment a second human exists (`ARCHITECTURE.md:690`).
-        let principal = match authorize(request.principal.as_deref(), &request.cmd) {
+        // The gate sits above the watch/dispatch branch, so a streaming
+        // command cannot slip past it. Unix derives local owner access; TCP
+        // derives Runtime scope from a signed, expiring capability.
+        let principal = match authenticate_request(&mut request, &daemon.capabilities, origin) {
             Ok(principal) => principal,
             Err(refusal) => {
                 tracing::warn!(
                     cmd = %request.cmd,
                     company = ?request.company,
-                    principal = ?request.principal,
+                    ?origin,
                     "refused: {refusal}"
                 );
                 let response = Response::err_kind("authority", refusal);
@@ -527,6 +542,87 @@ where
         write.write_all(out.as_bytes()).await?;
     }
     Ok(())
+}
+
+fn authenticate_request(
+    request: &mut Request,
+    capabilities: &capability::CapabilityIssuer,
+    origin: ConnectionOrigin,
+) -> std::result::Result<Principal, String> {
+    match origin {
+        ConnectionOrigin::LocalOwner => authorize(Principal::Owner, &request.cmd),
+        ConnectionOrigin::RuntimeTcp => {
+            Principal::legacy_runtime_claim(request.principal.as_deref())?;
+            let token = request
+                .session_capability
+                .as_deref()
+                .ok_or_else(|| "TCP Runtime request carries no session capability".to_string())?;
+            let grant = capabilities
+                .verify_coordination(token)
+                .map_err(|error| format!("invalid Runtime capability: {error:#}"))?;
+            let requested_company = request
+                .company
+                .as_deref()
+                .ok_or_else(|| "TCP Runtime request needs a company".to_string())?;
+            if requested_company != grant.company {
+                return Err(format!(
+                    "Runtime capability is scoped to company {:?}, not {:?}",
+                    grant.company, requested_company
+                ));
+            }
+            request.company = Some(grant.company);
+            bind_runtime_actor(request, &grant.actor)?;
+            authorize(Principal::CompanyExec, &request.cmd)
+        }
+    }
+}
+
+/// A Runtime actor cannot re-label an attribution field after the daemon has
+/// authenticated the session. Fields that name another person as a target
+/// remain ordinary OrgIntel work, while every acting-attribution field is
+/// pinned here.
+fn bind_runtime_actor(request: &mut Request, actor: &str) -> std::result::Result<(), String> {
+    let command = request.cmd.clone();
+    match command.as_str() {
+        "actor-create" | "actor-model" | "actor-retire" | "team-create" | "team-update"
+        | "team-assign" | "team-lead" | "team-disband" | "goal-add" | "work-goal"
+        | "work-assign" | "work-artifact" | "work-gate" | "work-handoff" | "effect"
+        | "effect-reconcile" => pin_actor(&mut request.orgintel.actor, actor, "actor")?,
+        "work-add"
+        | "work-edge"
+        | "work-handoff-escalate"
+        | "work-handoff-refresh"
+        | "work-handoff-prepare-brief"
+        | "work-handoff-resolve"
+        | "work-resume"
+        | "work-abandon"
+        | "judgement" => pin_actor(&mut request.common.as_actor, actor, "acting actor")?,
+        "message" => pin_actor(&mut request.common.from, actor, "message sender")?,
+        "inbox" => {
+            pin_actor(&mut request.orgintel.actor, actor, "inbox actor")?;
+            pin_actor(&mut request.common.as_actor, actor, "inbox actor")?;
+        }
+        "browser-request" => pin_actor(&mut request.common.id, actor, "browser requester")?,
+        _ => {}
+    }
+    Ok(())
+}
+
+fn pin_actor(
+    supplied: &mut Option<String>,
+    actor: &str,
+    field: &str,
+) -> std::result::Result<(), String> {
+    match supplied.as_deref() {
+        Some(value) if value != actor => Err(format!(
+            "Runtime session for actor {actor:?} cannot claim {field} {value:?}"
+        )),
+        Some(_) => Ok(()),
+        None => {
+            *supplied = Some(actor.to_string());
+            Ok(())
+        }
+    }
 }
 
 /// Stream the operational event stream: a recent snapshot, then new events
@@ -617,7 +713,23 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
             let from = request.lifecycle.from_company.as_deref().unwrap_or_default();
             match runtime::clone_config(&daemon.root, from, company) {
                 Ok(config) => match runtime::up(&config, request.lifecycle.reconcile).await {
-                    Ok(message) => match daemon.orgintel.get(company).await {
+                    Ok(message) => {
+                        let bridge = match daemon.capabilities.issue_runtime_bridge(company) {
+                            Ok(bridge) => bridge,
+                            Err(error) => {
+                                return Response::err(format!(
+                                    "cloned container is up but Runtime bridge capability could not be issued: {error:#}"
+                                ))
+                            }
+                        };
+                        if let Err(error) =
+                            runtime::install_runtime_bridge_capability(company, &bridge).await
+                        {
+                            return Response::err(format!(
+                                "cloned container is up but Runtime bridge capability could not be installed: {error:#}"
+                            ));
+                        }
+                        match daemon.orgintel.get(company).await {
                         Ok(_) => match daemon
                             .authority
                             .initialise_company(
@@ -636,7 +748,8 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
                         Err(error) => Response::err(format!(
                             "container up but orgintel schema failed: {error:#}"
                         )),
-                    },
+                    }
+                    }
                     Err(error) => Response::err(format!("{error:#}")),
                 },
                 Err(error) => Response::err(format!("{error:#}")),
@@ -697,6 +810,21 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
                 };
                 match runtime::up(&config, request.lifecycle.reconcile).await {
                     Ok(message) => {
+                        let bridge = match daemon.capabilities.issue_runtime_bridge(company) {
+                            Ok(bridge) => bridge,
+                            Err(error) => {
+                                return Response::err(format!(
+                                    "container up but Runtime bridge capability could not be issued: {error:#}"
+                                ))
+                            }
+                        };
+                        if let Err(error) =
+                            runtime::install_runtime_bridge_capability(company, &bridge).await
+                        {
+                            return Response::err(format!(
+                                "container up but Runtime bridge capability could not be installed: {error:#}"
+                            ));
+                        }
                         // Company up = environment AND coordination state ready.
                         match daemon.orgintel.get(company).await {
                             Ok(org) => match daemon
@@ -2576,7 +2704,7 @@ mod tests {
     #[test]
     fn the_company_may_not_perform_an_owner_authority_act() {
         for cmd in OWNER_ONLY {
-            let refusal = authorize(Some("company/exec"), cmd)
+            let refusal = authorize(Principal::CompanyExec, cmd)
                 .expect_err("company/exec must not perform {cmd}");
             assert!(refusal.contains("owner authority"), "{cmd}: {refusal}");
         }
@@ -2649,34 +2777,117 @@ mod tests {
     fn the_company_keeps_its_coordination_channel() {
         for cmd in ["work", "message", "work-handoff-resolve", "effect", "inbox"] {
             assert_eq!(
-                authorize(Some("company/exec"), cmd).unwrap(),
+                authorize(Principal::CompanyExec, cmd).unwrap(),
                 Principal::CompanyExec,
                 "{cmd} must stay open to the company"
             );
         }
     }
 
-    /// Absent is refused, not defaulted. A daemon that defaults a principal
-    /// grants authority to whoever forgot to send one.
+    /// TCP has no principal fallback. Local Unix derives owner identity from
+    /// its listener, but a Runtime must carry a valid capability.
     #[test]
-    fn a_missing_or_unknown_principal_is_refused_never_defaulted() {
-        for raw in [None, Some(""), Some("   ")] {
-            assert!(authorize(raw, "goals").is_err(), "{raw:?} must be refused");
-        }
-        // Not a fallback: an unrecognised principal is an error, for the same
-        // reason an unknown credential scheme is (credential.rs:49).
-        assert!(authorize(Some("root"), "goals").is_err());
-        assert!(
-            authorize(Some("owner "), "approve").is_ok(),
-            "whitespace must not deny the owner"
+    fn runtime_legacy_principal_spelling_cannot_claim_owner() {
+        assert!(Principal::legacy_runtime_claim(None).is_ok());
+        assert!(Principal::legacy_runtime_claim(Some("company/exec")).is_ok());
+        assert!(Principal::legacy_runtime_claim(Some("owner")).is_err());
+        assert!(Principal::legacy_runtime_claim(Some("root")).is_err());
+    }
+
+    #[test]
+    fn tcp_capability_derives_company_and_actor_before_dispatch() {
+        let root =
+            std::env::temp_dir().join(format!("restless-tcp-auth-test-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&root).unwrap();
+        let issuer = capability::CapabilityIssuer::open(&root).unwrap();
+        let token = issuer
+            .issue_actor_session("acme_test", "delivery-lead", "session_1")
+            .unwrap();
+
+        let mut valid: Request = serde_json::from_value(serde_json::json!({
+            "cmd": "message",
+            "company": "acme_test",
+            "principal": "company/exec",
+            "session_capability": token,
+            "from": "delivery-lead",
+            "to": "exec",
+            "body": "native result is ready"
+        }))
+        .unwrap();
+        assert_eq!(
+            authenticate_request(&mut valid, &issuer, ConnectionOrigin::RuntimeTcp).unwrap(),
+            Principal::CompanyExec
         );
+        assert_eq!(valid.company.as_deref(), Some("acme_test"));
+        assert_eq!(valid.common.from.as_deref(), Some("delivery-lead"));
+
+        let mut owner_claim: Request = serde_json::from_value(serde_json::json!({
+            "cmd": "approve",
+            "company": "acme_test",
+            "principal": "owner",
+            "session_capability": issuer
+                .issue_actor_session("acme_test", "delivery-lead", "session_2")
+                .unwrap()
+        }))
+        .unwrap();
+        assert!(
+            authenticate_request(&mut owner_claim, &issuer, ConnectionOrigin::RuntimeTcp)
+                .unwrap_err()
+                .contains("may not claim owner")
+        );
+
+        let mut foreign_company: Request = serde_json::from_value(serde_json::json!({
+            "cmd": "message",
+            "company": "other_test",
+            "session_capability": issuer
+                .issue_actor_session("acme_test", "delivery-lead", "session_3")
+                .unwrap(),
+            "from": "delivery-lead",
+            "body": "forged"
+        }))
+        .unwrap();
+        assert!(
+            authenticate_request(&mut foreign_company, &issuer, ConnectionOrigin::RuntimeTcp)
+                .is_err()
+        );
+
+        let mut foreign_actor: Request = serde_json::from_value(serde_json::json!({
+            "cmd": "message",
+            "company": "acme_test",
+            "session_capability": issuer
+                .issue_actor_session("acme_test", "delivery-lead", "session_4")
+                .unwrap(),
+            "from": "exec",
+            "body": "forged"
+        }))
+        .unwrap();
+        assert!(
+            authenticate_request(&mut foreign_actor, &issuer, ConnectionOrigin::RuntimeTcp)
+                .unwrap_err()
+                .contains("cannot claim")
+        );
+
+        let mut local: Request = serde_json::from_value(serde_json::json!({
+            "cmd": "approve",
+            "company": "acme_test",
+            "principal": "company/exec"
+        }))
+        .unwrap();
+        assert_eq!(
+            authenticate_request(&mut local, &issuer, ConnectionOrigin::LocalOwner).unwrap(),
+            Principal::Owner
+        );
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
     fn the_owner_may_do_everything_the_company_may_and_more() {
         for cmd in OWNER_ONLY {
-            assert_eq!(authorize(Some("owner"), cmd).unwrap(), Principal::Owner);
+            assert_eq!(authorize(Principal::Owner, cmd).unwrap(), Principal::Owner);
         }
-        assert_eq!(authorize(Some("owner"), "goals").unwrap(), Principal::Owner);
+        assert_eq!(
+            authorize(Principal::Owner, "goals").unwrap(),
+            Principal::Owner
+        );
     }
 }

@@ -86,6 +86,7 @@ pub async fn wake(
     config: &CompanyConfig,
     spend: &SpendLedger,
     authority: &crate::authority::AuthorityStore,
+    capabilities: &crate::capability::CapabilityIssuer,
     org: &OrgIntel,
     reason: &str,
     observer: Option<acp::SessionObserver>,
@@ -162,7 +163,7 @@ pub async fn wake(
         )
         .await?;
 
-        let auth = match agent_auth_for_model(model).await {
+        let auth = match agent_auth_for_model(model, capabilities, &config.name, "exec").await {
             Ok(auth) => auth,
             Err(error) => {
                 let text = format!("{error:#}");
@@ -262,7 +263,7 @@ pub async fn wake(
             .flatten()
             .filter(|kind| health::is_provider_failover_kind(*kind));
         if let Some(usage) = usage {
-            record_usage(spend, org, config, &auth, usage, failover_kind).await?;
+            record_usage(org, &auth, usage, failover_kind).await?;
         }
         // Keep the lane through final durable accounting so a waiting turn
         // recalculates from this outcome. Cooldown and failover bookkeeping
@@ -338,11 +339,26 @@ async fn blocked_wake(org: &OrgIntel, config: &CompanyConfig, reason: &str) -> R
     Ok(report)
 }
 
-pub(crate) async fn agent_auth_for_model(model: &str) -> Result<acp::AgentAuth> {
-    let access = crate::model_gateway::client()?.auth_for(model)?;
+pub(crate) async fn agent_auth_for_model(
+    model: &str,
+    capabilities: &crate::capability::CapabilityIssuer,
+    company: &str,
+    actor: &str,
+) -> Result<acp::AgentAuth> {
+    let session_id = uuid::Uuid::new_v4().simple().to_string();
+    let access = crate::model_gateway::client()?.auth_for(
+        model,
+        capabilities,
+        company,
+        actor,
+        &session_id,
+    )?;
     Ok(acp::AgentAuth {
         model: model.to_string(),
         provider: access.provider,
+        session_id: session_id.clone(),
+        coordination_token_env: "RESTLESS_SESSION_CAPABILITY".to_string(),
+        coordination_token: capabilities.issue_actor_session(company, actor, &session_id)?,
         gateway_token_env: access.token_env,
         gateway_token: access.token,
         gateway_url: access.runtime_url,
@@ -399,30 +415,18 @@ async fn record_failover(org: &OrgIntel, transition: &ModelFailoverReport) -> Re
 }
 
 async fn record_usage(
-    spend: &SpendLedger,
     org: &OrgIntel,
-    config: &CompanyConfig,
     auth: &acp::AgentAuth,
     usage: acp::TurnUsage,
     failure_kind: Option<health::BlockKind>,
 ) -> Result<()> {
-    let charged_cost_usd = match auth.billing {
+    let reported_session_cost_usd = match auth.billing {
         crate::model_gateway::ModelBilling::MeteredApi => usage.cost_usd,
         crate::model_gateway::ModelBilling::Subscription => Some(0.0),
     };
-    // OMP can report the assembled context tokens even when a provider rejects
-    // before inference, with no price. A classified auth/quota/model refusal is
-    // kept as unpriced telemetry and may fail over. An unpriced, unclassified
-    // mid-stream failure after token use remains fail-closed.
-    if should_record_spend(auth.billing, usage, failure_kind) {
-        spend.record_turn(
-            &config.name,
-            "exec",
-            &auth.model,
-            usage.used,
-            charged_cost_usd,
-        );
-    }
+    // ACP reports remain useful session telemetry, but the relay owns
+    // canonical charged-use records. Never turn this presentation float into a
+    // second ledger write.
     org.emit_event(
         "turn_usage",
         Some("exec"),
@@ -432,7 +436,12 @@ async fn record_usage(
             "tokens": usage.used,
             "context_size": usage.size,
             "context_used_pct": percent(usage.used, usage.size),
-            "cost_usd": charged_cost_usd,
+            "reported_session_cost_usd": reported_session_cost_usd,
+            "charged_cost_source": "host_model_relay",
+            // Keep this compatibility field explicitly labelled by its
+            // semantics for existing projections.
+            "cost_usd": reported_session_cost_usd,
+            "cost_semantics": "acp_reported_noncanonical",
             "estimated_list_cost_usd": (auth.billing == crate::model_gateway::ModelBilling::Subscription)
                 .then_some(usage.cost_usd)
                 .flatten(),
@@ -444,28 +453,6 @@ async fn record_usage(
     )
     .await?;
     Ok(())
-}
-
-pub(crate) fn should_record_spend(
-    billing: crate::model_gateway::ModelBilling,
-    usage: acp::TurnUsage,
-    failure_kind: Option<health::BlockKind>,
-) -> bool {
-    if billing == crate::model_gateway::ModelBilling::Subscription || usage.cost_usd.is_some() {
-        return true;
-    }
-    if failure_kind.is_some_and(|kind| {
-        matches!(
-            kind,
-            health::BlockKind::Credential
-                | health::BlockKind::Quota
-                | health::BlockKind::Model
-                | health::BlockKind::NoOp
-        )
-    }) {
-        return false;
-    }
-    usage.used > 0
 }
 
 /// The full turn inside one ACP session: work prompt, then the termination
@@ -867,37 +854,5 @@ mod tests {
         assert_eq!(decision.termination, Termination::Continue);
         assert_eq!(decision.retry_after_seconds, Some(60));
         assert_eq!(decision.reason, "ACP connection closed");
-    }
-
-    #[test]
-    fn an_empty_provider_refusal_is_not_unaccounted_spend() {
-        let empty = acp::TurnUsage {
-            used: 0,
-            size: 0,
-            cost_usd: None,
-        };
-        assert!(!should_record_spend(
-            crate::model_gateway::ModelBilling::MeteredApi,
-            empty,
-            Some(health::BlockKind::Quota)
-        ));
-        assert!(should_record_spend(
-            crate::model_gateway::ModelBilling::Subscription,
-            empty,
-            None
-        ));
-        assert!(should_record_spend(
-            crate::model_gateway::ModelBilling::MeteredApi,
-            acp::TurnUsage { used: 1, ..empty },
-            Some(health::BlockKind::Transport)
-        ));
-        assert!(!should_record_spend(
-            crate::model_gateway::ModelBilling::MeteredApi,
-            acp::TurnUsage {
-                used: 15_547,
-                ..empty
-            },
-            Some(health::BlockKind::Quota)
-        ));
     }
 }

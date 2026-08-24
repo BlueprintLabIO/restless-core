@@ -885,22 +885,36 @@ enum BrowserCommand {
     },
 }
 
-/// S04-T10. Who this invocation is, at the authority boundary.
-///
-/// Inside a company container `RESTLESS_COORDINATOR` is set by the image, and
-/// that is already how the CLI knows where to connect — so it is also how it
-/// knows what it is. On the host, the caller is the owner.
-///
-/// This is a claim, not a proof: on a single-operator host the container is
-/// still trusted to say what it is. What changes is that it now *says* it, the
-/// daemon acts on it, and the audit record carries it. Hardening the claim is
-/// the Authority Kernel's job.
+/// Transport spelling only. The daemon derives real authority from its
+/// listener and the signed Runtime/session grant, rather than trusting this
+/// environment-derived label.
 fn principal() -> &'static str {
     if std::env::var_os("RESTLESS_COORDINATOR").is_some() {
         "company/exec"
     } else {
         "owner"
     }
+}
+
+fn is_runtime() -> bool {
+    std::env::var_os("RESTLESS_COORDINATOR").is_some()
+}
+
+/// A supervised actor receives an ephemeral session grant. An ordinary
+/// Runtime shell falls back to its company-scoped bridge grant materialised
+/// by the host on up. Neither variable is meaningful on the local Unix owner
+/// transport.
+fn runtime_capability() -> Option<String> {
+    std::env::var("RESTLESS_SESSION_CAPABILITY")
+        .ok()
+        .or_else(|| std::env::var("RESTLESS_RUNTIME_CAPABILITY").ok())
+        .or_else(|| {
+            is_runtime()
+                .then(|| std::fs::read_to_string("/company/run/restless-bridge.cap").ok())
+                .flatten()
+        })
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
 }
 
 /// OrgIntel attribution is not kernel authority, but it must still name the
@@ -1021,6 +1035,11 @@ fn main() -> Result<()> {
 fn stamp(mut request: serde_json::Value) -> serde_json::Value {
     if let Some(object) = request.as_object_mut() {
         object.insert("principal".into(), principal().into());
+        if is_runtime() {
+            if let Some(capability) = runtime_capability() {
+                object.insert("session_capability".into(), capability.into());
+            }
+        }
     }
     request
 }
@@ -1236,7 +1255,13 @@ fn request_json(command: Command) -> Result<serde_json::Value> {
             }
             BrowserCommand::Request { company, session } => serde_json::json!({
                 "cmd": "browser-request", "company": company,
-                "id": session.unwrap_or_else(|| "exec".to_string()),
+                "id": session.unwrap_or_else(|| {
+                    if is_runtime() {
+                        acting_actor()
+                    } else {
+                        "exec".to_string()
+                    }
+                }),
             }),
             BrowserCommand::Release { company } => {
                 serde_json::json!({ "cmd": "browser-release", "company": company })
@@ -1414,6 +1439,7 @@ fn request_json(command: Command) -> Result<serde_json::Value> {
                     "integration_branch": integration_branch, "worktree": worktree,
                     "attempt_limit": attempt_limit, "goal": goal,
                     "requires": requires, "revises": revises, "gates": gates,
+                    "as_actor": acting_actor(),
                 })
             }
             WorkCommand::Assign {

@@ -1,23 +1,9 @@
-//! The spend fuse (sprint 01 T2, relocated).
+//! The spend ledger and host-side model admission fuse.
 //!
-//! This began as an embedded HTTP model gateway: provider key held host-side,
-//! a purpose token minted per wake, requests proxied upstream so token usage
-//! could be scraped off the response and charged against a per-company
-//! ceiling. All of that existed to answer one question — *how much did that
-//! turn cost?* — and the agent turned out to answer it directly: `omp` reports
-//! tokens and dollars per turn on the ACP session stream.
-//!
-//! So the fuse moved to the session layer, where the daemon already knows
-//! whose turn it is, and the proxy became dead weight: no agent has routed a
-//! request through it since the runtime swap. What remains here is the part
-//! that was always load-bearing — a crash-durable ledger of what each company
-//! has spent, and the check that stops a company at its ceiling.
-//!
-//! The trade-off, recorded honestly: the ceiling is now checked per *turn*
-//! rather than per *request*, so a single turn can overshoot. The watchdog
-//! also checks it mid-turn against reported usage, which bounds the overshoot
-//! to whatever one turn burns between ticks — cents, against a ceiling in
-//! dollars.
+//! Provider credentials remain behind OMP's loopback gateway. The Runtime sees
+//! a scoped relay capability, and the relay records terminal charged usage here
+//! in exact micro-USD. ACP usage remains useful telemetry and an in-session
+//! early-stop hint, but it is intentionally not a second charging path.
 
 use std::{
     collections::HashMap,
@@ -57,25 +43,18 @@ pub struct TurnMeter {
 }
 
 impl TurnMeter {
-    /// A turn we cannot account for poisons the company fail-closed:
-    /// unaccounted spend and unbounded spend are indistinguishable.
-    pub fn record(
+    /// Host-side relay accounting already has a canonical exact micro-USD
+    /// amount and the supervised session id. Keep it exact through the spool
+    /// rather than converting a provider decimal back through f64.
+    pub fn record_exact(
         &self,
         company: &str,
         actor: &str,
+        session: &str,
         model: &str,
         used: u64,
-        cost_usd: Option<f64>,
+        cost_micro_usd: u64,
     ) {
-        let Some(cost_usd) = cost_usd else {
-            tracing::error!(
-                company,
-                used,
-                "agent reported usage without a cost; poisoning fail-closed"
-            );
-            self.store.poison(company);
-            return;
-        };
         let record = SpendRecord {
             request_id: Uuid::new_v4(),
             company_id: company.to_owned(),
@@ -83,8 +62,9 @@ impl TurnMeter {
             input_tokens: 0,
             output_tokens: 0,
             total_tokens: used,
-            cost_micro_usd: (cost_usd * 1_000_000.0).round().max(0.0) as u64,
+            cost_micro_usd,
             actor_id: actor.to_owned(),
+            session_id: session.to_owned(),
             occurred_at: Utc::now(),
         };
         if self.store.record(&record).is_err() {
@@ -94,6 +74,10 @@ impl TurnMeter {
                 "turn spend record failed; company poisoned fail-closed"
             );
         }
+    }
+
+    pub fn poison(&self, company: &str) {
+        self.store.poison(company);
     }
 }
 
@@ -198,8 +182,8 @@ impl SpendLedger {
             .saturating_sub(self.store.spent_micro_usd(company))
     }
 
-    /// A cheap cloneable handle for turns that outlive the borrow — staff run
-    /// in spawned tasks but spend the same budget.
+    /// A cheap cloneable handle for relay streams that outlive the daemon
+    /// borrow while writing to the same company ledger.
     #[must_use]
     pub fn meter(&self) -> TurnMeter {
         TurnMeter {
@@ -276,18 +260,6 @@ impl SpendLedger {
         self.store
             .forget(company)
             .map_err(|error| anyhow::anyhow!("forget spend: {error}"))
-    }
-
-    /// Record what one turn cost, from the agent's own ACP usage report.
-    pub fn record_turn(
-        &self,
-        company: &str,
-        actor: &str,
-        model: &str,
-        used: u64,
-        cost_usd: Option<f64>,
-    ) {
-        self.meter().record(company, actor, model, used, cost_usd);
     }
 }
 

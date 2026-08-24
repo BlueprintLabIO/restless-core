@@ -286,6 +286,7 @@ async fn scan_company(daemon: &Arc<Daemon>, in_flight: &InFlight, company: &str)
                 crate::staff::ConversationRuntime {
                     spend: &daemon.spend,
                     authority: &daemon.authority,
+                    capabilities: &daemon.capabilities,
                     registry: &daemon.staff,
                     streams: &daemon.conversations,
                 },
@@ -333,6 +334,7 @@ async fn scan_company(daemon: &Arc<Daemon>, in_flight: &InFlight, company: &str)
             &config,
             &daemon.spend,
             &daemon.authority,
+            &daemon.capabilities,
             &org,
             &daemon.staff,
             claimed,
@@ -507,6 +509,7 @@ pub(crate) async fn run_exec_turn(
         config,
         &daemon.spend,
         &daemon.authority,
+        &daemon.capabilities,
         org,
         reason,
         observer,

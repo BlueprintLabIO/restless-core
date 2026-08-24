@@ -33,12 +33,17 @@ use tokio_util::compat::{TokioAsyncReadCompatExt as _, TokioAsyncWriteCompatExt 
 ///
 /// The agent binary is `omp` (Oh My Pi), which speaks ACP natively and
 /// reports its own token and dollar usage per turn. The process receives a
-/// narrow OMP auth-gateway bearer, never the provider credential or Infisical
-/// machine identity.
+/// signed model-relay capability, never the provider credential, OMP root
+/// bearer, or Infisical machine identity.
 pub struct AgentAuth {
     /// Provider-qualified model, e.g. `moonshot/k3-256k`.
     pub model: String,
     pub provider: String,
+    /// The host-generated session identifier binds coordination and model
+    /// grants to this one supervised ACP process.
+    pub session_id: String,
+    pub coordination_token_env: String,
+    pub coordination_token: String,
     pub gateway_token_env: String,
     pub gateway_token: String,
     pub gateway_url: String,
@@ -182,7 +187,7 @@ async fn write_private_container_file(container: &str, path: &str, contents: &st
 
 /// Install the provider's credential-free OMP route in a Restless-owned agent
 /// directory. This never touches the company's general-purpose ~/.omp config
-/// and never writes a bearer or provider key to the volume.
+/// and never writes a capability or provider key to the volume.
 pub(crate) async fn prepare_agent_runtime(container: &str, auth: &AgentAuth) -> Result<()> {
     let config = crate::model_gateway::models_config(
         &auth.provider,
@@ -573,7 +578,7 @@ where
     // session id inside the container so cleanup can reap only its process
     // tree. A before/after PID diff is not ownership: a staff turn may start
     // while the Exec is running, and the Exec must never kill it on exit.
-    let launch_id = uuid::Uuid::new_v4().simple().to_string();
+    let launch_id = auth.session_id.clone();
     let session_marker = format!("/tmp/restless-agent-{launch_id}.sid");
     let system_prompt_path = format!("/tmp/restless-agent-{launch_id}.system.md");
     write_private_container_file(container, &system_prompt_path, &controls.system_prompt).await?;
@@ -590,9 +595,11 @@ where
         args.push("RESTLESS_COORDINATION_WAKE=1".to_string());
     }
     args.push("-e".to_string());
+    args.push(auth.coordination_token_env.clone());
+    args.push("-e".to_string());
     // `docker exec -e NAME` copies NAME from the docker client's environment.
-    // Passing NAME=VALUE in argv would expose even the narrow gateway bearer
-    // to host process listings during session bootstrap.
+    // Passing NAME=VALUE in argv would expose the scoped model capability to
+    // host process listings during session bootstrap.
     args.push(auth.gateway_token_env.clone());
     args.extend(
         [
@@ -623,6 +630,7 @@ where
         .map(|arg| (*arg).to_string()),
     );
     let spawned = tokio::process::Command::new("docker")
+        .env(&auth.coordination_token_env, &auth.coordination_token)
         .env(&auth.gateway_token_env, &auth.gateway_token)
         .args(&args)
         .stdin(Stdio::piped())

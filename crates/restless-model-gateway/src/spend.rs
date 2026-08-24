@@ -66,6 +66,10 @@ pub struct SpendRecord {
     /// disagreeing with the org.
     #[serde(default)]
     pub actor_id: String,
+    /// Supervised Runtime session that produced this record. Older ACP-era
+    /// records predate host-side admission and remain explicitly empty.
+    #[serde(default)]
+    pub session_id: String,
     pub occurred_at: DateTime<Utc>,
 }
 
@@ -560,6 +564,7 @@ impl SpendStore {
             total_tokens: 0,
             cost_micro_usd: u64::MAX,
             actor_id: "daemon".into(),
+            session_id: "system".into(),
             occurred_at: Utc::now(),
         };
         if self.record(&marker).is_err() {
@@ -582,6 +587,7 @@ impl SpendStore {
             total_tokens: 0,
             cost_micro_usd: 0,
             actor_id: "daemon".into(),
+            session_id: "system".into(),
             occurred_at: Utc::now(),
         };
         self.record(&marker)?;
@@ -787,6 +793,7 @@ mod tests {
             total_tokens: 0,
             cost_micro_usd: cost,
             actor_id: "exec".to_owned(),
+            session_id: String::new(),
             occurred_at: Utc::now(),
         }
     }

@@ -30,7 +30,7 @@ use context::{actor_posture, team_capacity_context, workspace_instruction};
 #[cfg(test)]
 use conversation::{conversation_turn_prompt, internal_message_context};
 #[cfg(test)]
-use execution::{record_final_staff_spend, staff_spend_limit_reached, termination_prompt};
+use execution::{final_staff_usage, staff_spend_limit_reached, termination_prompt};
 #[cfg(test)]
 use recovery::gate_cwd;
 #[cfg(test)]
@@ -116,6 +116,7 @@ pub async fn dispatch_claimed_work(
     config: &CompanyConfig,
     spend: &SpendLedger,
     authority: &crate::authority::AuthorityStore,
+    capabilities: &crate::capability::CapabilityIssuer,
     org: &restless_orgintel::OrgIntel,
     registry: &StaffRegistry,
     claimed: ClaimedWork,
@@ -247,10 +248,10 @@ pub async fn dispatch_claimed_work(
     };
     let org = org.clone();
     let registry = registry.clone();
-    let meter = spend.meter();
     let spend = spend.clone();
     let spend_ceiling = config.spend_ceiling_usd;
     let authority = authority.clone();
+    let capabilities = capabilities.clone();
     let role = actor_row.role;
     let attempt_id = claimed.attempt_id;
     let work_id = claimed.work.id;
@@ -269,9 +270,9 @@ pub async fn dispatch_claimed_work(
             candidates,
             org: org.clone(),
             spend,
-            meter,
             spend_ceiling,
             authority,
+            capabilities,
             conversation: false,
             accountable_lead,
             observer: None,
@@ -360,13 +361,12 @@ pub async fn sweep_orphans(root: &std::path::Path, orgintel: &crate::OrgIntelReg
 #[cfg(test)]
 mod tests {
     use super::{
-        actor_posture, bound_attempt_context, conversation_turn_prompt, gate_cwd,
-        internal_message_context, record_final_staff_spend, staff_spend_limit_reached,
-        team_capacity_context, termination_prompt, workspace_instruction, WorkspaceObservation,
+        actor_posture, bound_attempt_context, conversation_turn_prompt, final_staff_usage,
+        gate_cwd, internal_message_context, staff_spend_limit_reached, team_capacity_context,
+        termination_prompt, workspace_instruction, WorkspaceObservation,
     };
     use crate::acp::TurnUsage;
     use crate::model_gateway::ModelBilling;
-    use crate::spend::SpendLedger;
     use chrono::Utc;
     use restless_orgintel::{ActorRow, ClaimedWork, MessageRow, TeamRow, WorkRow, WorkStatus};
 
@@ -647,7 +647,7 @@ mod tests {
     }
 
     #[test]
-    fn cumulative_acp_snapshots_charge_one_final_session_total() {
+    fn cumulative_acp_snapshots_keep_one_final_telemetry_total() {
         // Reduced from the live lead turn: OMP reported a new cumulative
         // session snapshot after each re-prompt. Summing these would charge
         // $6.34; the provider's final cumulative total is $2.38.
@@ -674,42 +674,10 @@ mod tests {
                 cost_usd: Some(2.38),
             },
         ];
-        let root = std::env::temp_dir().join(format!(
-            "restless-cumulative-usage-test-{}",
-            uuid::Uuid::new_v4()
-        ));
-        assert!(!root.exists(), "test spend root must be fresh");
-        let ledger = SpendLedger::open(&root).unwrap();
-        let meter = ledger.meter();
-
-        let (usage, charged) = record_final_staff_spend(
-            &meter,
-            "usage_test",
-            "validation-lead",
-            "moonshot/kimi-k3",
-            ModelBilling::MeteredApi,
-            &snapshots,
-            None,
-        )
-        .expect("one final cumulative usage snapshot");
+        let (usage, reported) = final_staff_usage(ModelBilling::MeteredApi, &snapshots)
+            .expect("one final cumulative usage snapshot");
 
         assert_eq!(usage.used, 64_814, "context usage is the final snapshot");
-        assert_eq!(charged, Some(2.38));
-        assert!(
-            (ledger.spent_usd("usage_test") - 2.38).abs() < f64::EPSILON,
-            "repeated cumulative snapshots must not be summed"
-        );
-        assert_eq!(
-            ledger.breakdown("usage_test"),
-            vec![(
-                "validation-lead".to_string(),
-                "moonshot/kimi-k3".to_string(),
-                2.38,
-            )]
-        );
-
-        drop(meter);
-        drop(ledger);
-        std::fs::remove_dir_all(&root).unwrap();
+        assert_eq!(reported, Some(2.38));
     }
 }

@@ -4,16 +4,25 @@
 //! Restless does not implement another model proxy here. It supervises the
 //! open-source proxy shipped by the ACP runtime we already use, places only
 //! credentials for providers named by configured companies into its host-side
-//! vault, and gives company processes the narrower gateway bearer. Provider
-//! keys (and Infisical machine-identity credentials) never cross into the
-//! Company Runtime.
+//! vault, and gives company processes a short-lived signed relay capability.
+//! Provider keys, OMP's root bearer, and Infisical machine-identity
+//! credentials never cross into the Company Runtime.
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::pin::Pin;
 use std::process::Stdio;
 use std::sync::OnceLock;
+use std::task::{Context as TaskContext, Poll};
 use std::time::Duration;
 
 use anyhow::{bail, Context, Result};
+use axum::body::{Body, Bytes};
+use axum::extract::{DefaultBodyLimit, State};
+use axum::http::header::{ACCEPT, AUTHORIZATION, CACHE_CONTROL, CONTENT_TYPE};
+use axum::http::{HeaderMap, Response, StatusCode};
+use axum::routing::post;
+use axum::Router;
+use futures_util::Stream;
 use serde::Deserialize;
 use tokio::process::{Child, Command};
 
@@ -23,21 +32,31 @@ const BROKER_PROFILE: &str = "restless-model-broker";
 const GATEWAY_PROFILE: &str = "restless-model-gateway";
 const BROKER_URL: &str = "http://127.0.0.1:7789";
 const BROKER_BIND: &str = "127.0.0.1:7789";
-const GATEWAY_HOST_URL: &str = "http://127.0.0.1:7790";
-const GATEWAY_RUNTIME_URL: &str = "http://host.docker.internal:7790";
-const GATEWAY_BIND: &str = "0.0.0.0:7790";
-const GATEWAY_TOKEN_ENV: &str = "RESTLESS_MODEL_GATEWAY_TOKEN";
+/// OMP itself keeps the root provider bearer on this loopback-only listener.
+const OMP_GATEWAY_HOST_URL: &str = "http://127.0.0.1:7792";
+const OMP_GATEWAY_BIND: &str = "127.0.0.1:7792";
+/// The Runtime-facing relay owns the established container route. It never
+/// accepts OMP's root bearer.
+const RELAY_RUNTIME_URL: &str = "http://host.docker.internal:7790";
+const RELAY_BIND: &str = "0.0.0.0:7790";
+const MODEL_CAPABILITY_ENV: &str = "RESTLESS_MODEL_CAPABILITY";
 
 static CLIENT: OnceLock<ClientConfig> = OnceLock::new();
 
 #[derive(Clone)]
 pub struct ClientConfig {
-    gateway_token: String,
     providers: BTreeMap<String, ModelBilling>,
 }
 
 impl ClientConfig {
-    pub fn auth_for(&self, model: &str) -> Result<AgentGatewayAuth> {
+    pub fn auth_for(
+        &self,
+        model: &str,
+        capabilities: &crate::capability::CapabilityIssuer,
+        company: &str,
+        actor: &str,
+        session: &str,
+    ) -> Result<AgentGatewayAuth> {
         let (provider, _) = split_model(model)?;
         let Some(billing) = self.providers.get(provider).copied() else {
             bail!(
@@ -46,9 +65,15 @@ impl ClientConfig {
         };
         Ok(AgentGatewayAuth {
             provider: provider.to_string(),
-            token_env: GATEWAY_TOKEN_ENV.to_string(),
-            token: self.gateway_token.clone(),
-            runtime_url: GATEWAY_RUNTIME_URL.to_string(),
+            token_env: MODEL_CAPABILITY_ENV.to_string(),
+            token: capabilities.issue_model_session(
+                company,
+                actor,
+                session,
+                provider,
+                billing.as_str(),
+            )?,
+            runtime_url: RELAY_RUNTIME_URL.to_string(),
             billing,
         })
     }
@@ -170,10 +195,12 @@ pub async fn record_cooldown(
 pub struct Processes {
     broker: Child,
     gateway: Child,
+    relay: tokio::task::JoinHandle<()>,
 }
 
 impl Drop for Processes {
     fn drop(&mut self) {
+        self.relay.abort();
         let _ = self.gateway.start_kill();
         let _ = self.broker.start_kill();
     }
@@ -181,7 +208,12 @@ impl Drop for Processes {
 
 /// Start the imported broker/gateway pair and install its narrow client
 /// configuration for ACP and world-model processes.
-pub async fn start(configs: &[CompanyConfig]) -> Result<Processes> {
+pub async fn start(
+    configs: &[CompanyConfig],
+    root: &std::path::Path,
+    capabilities: crate::capability::CapabilityIssuer,
+    spend: crate::spend::SpendLedger,
+) -> Result<Processes> {
     let provider_credentials = provider_credentials(configs).await?;
     if provider_credentials.is_empty() {
         bail!("no configured company model provider is available for the model gateway");
@@ -240,7 +272,7 @@ pub async fn start(configs: &[CompanyConfig]) -> Result<Processes> {
         .env("OMP_PROFILE", GATEWAY_PROFILE)
         .env("OMP_AUTH_BROKER_URL", BROKER_URL)
         .env("OMP_AUTH_BROKER_TOKEN", &broker_token)
-        .args(["auth-gateway", "serve", "--bind", GATEWAY_BIND])
+        .args(["auth-gateway", "serve", "--bind", OMP_GATEWAY_BIND])
         .stdin(Stdio::null())
         .stdout(Stdio::inherit())
         .stderr(Stdio::inherit())
@@ -258,12 +290,24 @@ pub async fn start(configs: &[CompanyConfig]) -> Result<Processes> {
         .collect();
 
     CLIENT
-        .set(ClientConfig {
-            gateway_token,
-            providers,
-        })
+        .set(ClientConfig { providers })
         .map_err(|_| anyhow::anyhow!("model gateway client was already installed"))?;
-    Ok(Processes { broker, gateway })
+    let relay = start_runtime_relay(RelayState {
+        root: root.to_path_buf(),
+        capabilities,
+        spend,
+        upstream_token: gateway_token,
+        http: reqwest::Client::builder()
+            .timeout(Duration::from_secs(15 * 60))
+            .build()
+            .context("build Runtime model relay client")?,
+    })
+    .await?;
+    Ok(Processes {
+        broker,
+        gateway,
+        relay,
+    })
 }
 
 #[derive(Deserialize)]
@@ -468,6 +512,402 @@ fn canonical_oauth_credential(
     Ok((keep_id, superseded))
 }
 
+#[derive(Clone)]
+struct RelayState {
+    root: std::path::PathBuf,
+    capabilities: crate::capability::CapabilityIssuer,
+    spend: crate::spend::SpendLedger,
+    upstream_token: String,
+    http: reqwest::Client,
+}
+
+async fn start_runtime_relay(state: RelayState) -> Result<tokio::task::JoinHandle<()>> {
+    let listener = tokio::net::TcpListener::bind(RELAY_BIND)
+        .await
+        .with_context(|| format!("bind Runtime model relay {RELAY_BIND}"))?;
+    let app = Router::new()
+        .route("/v1/pi/stream", post(relay_pi_stream))
+        .layer(DefaultBodyLimit::max(2 * 1024 * 1024))
+        .with_state(state);
+    Ok(tokio::spawn(async move {
+        if let Err(error) = axum::serve(listener, app).await {
+            tracing::error!("Runtime model relay stopped: {error}");
+        }
+    }))
+}
+
+async fn relay_pi_stream(
+    State(state): State<RelayState>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response<Body> {
+    let token = match bearer_capability(&headers) {
+        Ok(token) => token,
+        Err(error) => return relay_error(StatusCode::UNAUTHORIZED, &error),
+    };
+    let grant = match state.capabilities.verify_model(token) {
+        Ok(grant) => grant,
+        Err(error) => {
+            return relay_error(
+                StatusCode::UNAUTHORIZED,
+                &format!("invalid model capability: {error:#}"),
+            )
+        }
+    };
+    let request = match serde_json::from_slice::<serde_json::Value>(&body) {
+        Ok(request) => request,
+        Err(_) => return relay_error(StatusCode::BAD_REQUEST, "model request body is not JSON"),
+    };
+    let model = match requested_model(&request) {
+        Some(model) => model,
+        None => return relay_error(StatusCode::BAD_REQUEST, "model request has no modelId"),
+    };
+    let provider = match split_model(model) {
+        Ok((provider, _)) => provider,
+        Err(_) => {
+            return relay_error(
+                StatusCode::BAD_REQUEST,
+                "model request must use a provider-qualified model id",
+            )
+        }
+    };
+    if provider != grant.provider {
+        return relay_error(
+            StatusCode::FORBIDDEN,
+            "model capability does not permit this provider",
+        );
+    }
+    let config = match CompanyConfig::load(&state.root, &grant.company) {
+        Ok(config) => config,
+        Err(_) => {
+            return relay_error(
+                StatusCode::FORBIDDEN,
+                "model capability company is unavailable",
+            )
+        }
+    };
+    let configured = config
+        .model_candidates()
+        .ok()
+        .is_some_and(|models| models.contains(&model));
+    if !configured {
+        return relay_error(
+            StatusCode::FORBIDDEN,
+            "model capability does not permit this configured company model",
+        );
+    }
+    let billing = match grant.billing.as_str() {
+        "metered_api" => ModelBilling::MeteredApi,
+        "subscription" => ModelBilling::Subscription,
+        _ => {
+            return relay_error(
+                StatusCode::UNAUTHORIZED,
+                "model capability has an invalid billing policy",
+            )
+        }
+    };
+    if billing == ModelBilling::MeteredApi && state.spend.over_ceiling(&config).is_some() {
+        return relay_error(
+            StatusCode::PAYMENT_REQUIRED,
+            "company model ceiling is exhausted; owner action is required",
+        );
+    }
+
+    let mut upstream_request = state
+        .http
+        .post(format!("{OMP_GATEWAY_HOST_URL}/v1/pi/stream"))
+        .bearer_auth(&state.upstream_token)
+        .header(CONTENT_TYPE, "application/json")
+        .body(body);
+    if let Some(accept) = headers.get(ACCEPT) {
+        upstream_request = upstream_request.header(ACCEPT, accept);
+    }
+    let upstream = match upstream_request.send().await {
+        Ok(response) => response,
+        Err(error) => {
+            tracing::warn!(company = %grant.company, actor = %grant.actor, "model relay upstream transport: {error}");
+            return relay_error(StatusCode::BAD_GATEWAY, "host model gateway is unavailable");
+        }
+    };
+    if !upstream.status().is_success() {
+        let status = upstream.status();
+        tracing::warn!(
+            company = %grant.company,
+            actor = %grant.actor,
+            upstream_status = %status,
+            "host model gateway refused Runtime request"
+        );
+        return relay_error(status, "host model gateway refused the model request");
+    }
+
+    let status = upstream.status();
+    let upstream_headers = upstream.headers().clone();
+    let stream = MeteredStream::new(
+        upstream.bytes_stream(),
+        state.spend.meter(),
+        MeteredRequest {
+            company: grant.company,
+            actor: grant.actor,
+            session: grant.session,
+            model: model.to_string(),
+            billing,
+        },
+    );
+    let mut response = Response::builder().status(status);
+    for name in [CONTENT_TYPE, CACHE_CONTROL] {
+        if let Some(value) = upstream_headers.get(&name) {
+            response = response.header(name, value);
+        }
+    }
+    response
+        .body(Body::from_stream(stream))
+        .unwrap_or_else(|_| relay_error(StatusCode::BAD_GATEWAY, "could not relay model stream"))
+}
+
+fn bearer_capability(headers: &HeaderMap) -> std::result::Result<&str, String> {
+    let raw = headers
+        .get(AUTHORIZATION)
+        .and_then(|value| value.to_str().ok())
+        .ok_or_else(|| "model request has no bearer capability".to_string())?;
+    raw.strip_prefix("Bearer ")
+        .filter(|token| !token.is_empty())
+        .ok_or_else(|| "model request bearer capability is malformed".to_string())
+}
+
+fn requested_model(request: &serde_json::Value) -> Option<&str> {
+    request
+        .get("modelId")
+        .and_then(serde_json::Value::as_str)
+        .filter(|model| !model.is_empty())
+        .or_else(|| {
+            request
+                .get("model")
+                .and_then(serde_json::Value::as_str)
+                .filter(|model| !model.is_empty())
+        })
+        .or_else(|| {
+            request
+                .get("model")
+                .and_then(serde_json::Value::as_object)
+                .and_then(|model| model.get("id"))
+                .and_then(serde_json::Value::as_str)
+                .filter(|model| !model.is_empty())
+        })
+}
+
+fn relay_error(status: StatusCode, message: &str) -> Response<Body> {
+    let body = serde_json::json!({ "error": { "message": message } }).to_string();
+    Response::builder()
+        .status(status)
+        .header(CONTENT_TYPE, "application/json")
+        .body(Body::from(body))
+        .expect("static relay error response")
+}
+
+struct MeteredRequest {
+    company: String,
+    actor: String,
+    session: String,
+    model: String,
+    billing: ModelBilling,
+}
+
+/// The relay forwards chunks unchanged but observes enough pi-native SSE to
+/// make the terminal charged usage a host-side record. If a metered request
+/// ends without that evidence, Drop and EOF both poison the company.
+struct MeteredStream {
+    inner: Pin<Box<dyn Stream<Item = std::result::Result<Bytes, reqwest::Error>> + Send>>,
+    meter: crate::spend::TurnMeter,
+    request: MeteredRequest,
+    frame_buffer: Vec<u8>,
+    settled: bool,
+    failed: bool,
+}
+
+impl MeteredStream {
+    fn new<S>(inner: S, meter: crate::spend::TurnMeter, request: MeteredRequest) -> Self
+    where
+        S: Stream<Item = std::result::Result<Bytes, reqwest::Error>> + Send + 'static,
+    {
+        Self {
+            inner: Box::pin(inner),
+            meter,
+            request,
+            frame_buffer: Vec::new(),
+            settled: false,
+            failed: false,
+        }
+    }
+
+    fn observe(&mut self, bytes: &Bytes) {
+        if self.settled || self.failed {
+            return;
+        }
+        self.frame_buffer.extend_from_slice(bytes);
+        if self.frame_buffer.len() > 256 * 1024 {
+            self.failed = true;
+            return;
+        }
+        while let Some((end, separator)) = sse_frame_end(&self.frame_buffer) {
+            let frame = self.frame_buffer.drain(..end).collect::<Vec<_>>();
+            self.frame_buffer.drain(..separator);
+            let Ok(frame) = std::str::from_utf8(&frame) else {
+                self.failed = true;
+                return;
+            };
+            let data = frame
+                .lines()
+                .filter_map(|line| line.trim_end_matches('\r').strip_prefix("data:"))
+                .map(str::trim_start)
+                .collect::<Vec<_>>()
+                .join("\n");
+            if data.is_empty() || data == "[DONE]" {
+                continue;
+            }
+            let Ok(event) = serde_json::from_str::<serde_json::Value>(&data) else {
+                self.failed = true;
+                return;
+            };
+            if event.get("type").and_then(serde_json::Value::as_str) == Some("done") {
+                self.record_terminal(&event);
+                return;
+            }
+        }
+    }
+
+    fn record_terminal(&mut self, event: &serde_json::Value) {
+        let usage = event.pointer("/message/usage");
+        let tokens = usage.map(total_tokens).unwrap_or_default();
+        let micro_usd = match self.request.billing {
+            ModelBilling::MeteredApi => usage
+                .and_then(|usage| usage.pointer("/cost/total"))
+                .and_then(decimal_micro_usd),
+            ModelBilling::Subscription => Some(0),
+        };
+        let Some(micro_usd) = micro_usd else {
+            self.failed = true;
+            return;
+        };
+        self.meter.record_exact(
+            &self.request.company,
+            &self.request.actor,
+            &self.request.session,
+            &self.request.model,
+            tokens,
+            micro_usd,
+        );
+        self.settled = true;
+    }
+
+    fn fail_closed(&mut self, detail: &str) {
+        if self.request.billing == ModelBilling::MeteredApi && !self.settled {
+            self.meter.poison(&self.request.company);
+            tracing::error!(
+                company = %self.request.company,
+                actor = %self.request.actor,
+                session = %self.request.session,
+                "metered model response had no terminal charged usage: {detail}"
+            );
+            self.settled = true;
+        }
+    }
+}
+
+impl Stream for MeteredStream {
+    type Item = std::result::Result<Bytes, reqwest::Error>;
+
+    fn poll_next(mut self: Pin<&mut Self>, cx: &mut TaskContext<'_>) -> Poll<Option<Self::Item>> {
+        let this = self.as_mut().get_mut();
+        match this.inner.as_mut().poll_next(cx) {
+            Poll::Ready(Some(Ok(bytes))) => {
+                this.observe(&bytes);
+                Poll::Ready(Some(Ok(bytes)))
+            }
+            Poll::Ready(Some(Err(error))) => {
+                this.fail_closed("upstream stream failed");
+                Poll::Ready(Some(Err(error)))
+            }
+            Poll::Ready(None) => {
+                if !this.settled || this.failed {
+                    this.fail_closed("stream ended before a valid done event");
+                }
+                Poll::Ready(None)
+            }
+            Poll::Pending => Poll::Pending,
+        }
+    }
+}
+
+impl Drop for MeteredStream {
+    fn drop(&mut self) {
+        if !self.settled || self.failed {
+            self.fail_closed("relay body dropped before a valid done event");
+        }
+    }
+}
+
+fn sse_frame_end(buffer: &[u8]) -> Option<(usize, usize)> {
+    buffer
+        .windows(4)
+        .position(|window| window == b"\r\n\r\n")
+        .map(|end| (end, 4))
+        .or_else(|| {
+            buffer
+                .windows(2)
+                .position(|window| window == b"\n\n")
+                .map(|end| (end, 2))
+        })
+}
+
+fn total_tokens(usage: &serde_json::Value) -> u64 {
+    if let Some(tokens) = usage.get("totalTokens").and_then(serde_json::Value::as_u64) {
+        return tokens;
+    }
+    ["input", "output", "cacheRead", "cacheWrite"]
+        .into_iter()
+        .filter_map(|field| usage.get(field).and_then(serde_json::Value::as_u64))
+        .fold(0_u64, u64::saturating_add)
+}
+
+fn decimal_micro_usd(value: &serde_json::Value) -> Option<u64> {
+    let raw = value.as_number()?.to_string();
+    let exponent_at = raw.find(['e', 'E']);
+    let (significand, exponent) = match exponent_at {
+        Some(index) => {
+            let (significand, exponent) = raw.split_at(index);
+            let exponent = exponent.get(1..)?.parse::<i64>().ok()?;
+            if raw[index + 1..].contains(['e', 'E']) {
+                return None;
+            }
+            (significand, exponent)
+        }
+        None => (raw.as_str(), 0),
+    };
+    let (whole, fraction) = significand.split_once('.').unwrap_or((significand, ""));
+    if whole.is_empty()
+        || whole.starts_with('-')
+        || whole.starts_with('+')
+        || !whole.bytes().all(|byte| byte.is_ascii_digit())
+        || !fraction.bytes().all(|byte| byte.is_ascii_digit())
+    {
+        return None;
+    }
+    let digits = format!("{whole}{fraction}").parse::<u64>().ok()?;
+    // The authority ledger's unit is an exact micro-USD. A JSON number might
+    // serialise in exponent form (for example 0.000001 as 1e-6); normalise it
+    // with integer powers only. If it cannot be represented exactly in micro
+    // USD, refuse it rather than round down real spend.
+    let shift = exponent
+        .checked_sub(fraction.len() as i64)?
+        .checked_add(6)?;
+    if shift >= 0 {
+        digits.checked_mul(10_u64.checked_pow(shift.try_into().ok()?)?)
+    } else {
+        let divisor = 10_u64.checked_pow((-shift).try_into().ok()?)?;
+        (digits % divisor == 0).then_some(digits / divisor)
+    }
+}
+
 pub fn client() -> Result<&'static ClientConfig> {
     CLIENT
         .get()
@@ -488,7 +928,7 @@ pub fn models_config(provider: &str, runtime_url: &str, token_env: &str) -> Resu
     {
         bail!("invalid model provider identifier {provider:?}");
     }
-    if runtime_url != GATEWAY_RUNTIME_URL || token_env != GATEWAY_TOKEN_ENV {
+    if runtime_url != RELAY_RUNTIME_URL || token_env != MODEL_CAPABILITY_ENV {
         bail!("refusing an unrecognised model gateway route");
     }
     Ok(format!(
@@ -652,7 +1092,7 @@ async fn wait_for_gateway(
             bail!("OMP model auth gateway exited during boot ({status})");
         }
         if let Ok(response) = http
-            .get(format!("{GATEWAY_HOST_URL}/v1/models"))
+            .get(format!("{OMP_GATEWAY_HOST_URL}/v1/models"))
             .bearer_auth(token)
             .send()
             .await
@@ -689,12 +1129,59 @@ async fn wait_for_gateway(
 mod tests {
     use super::*;
 
+    fn test_root() -> std::path::PathBuf {
+        let root = std::env::temp_dir().join(format!(
+            "restless-model-relay-test-{}",
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(root.join("companies")).unwrap();
+        CompanyConfig::save(
+            &root,
+            &CompanyConfig {
+                name: "acme_test".into(),
+                mission: "relay test".into(),
+                spend_ceiling_usd: crate::runtime::SpendCeiling::from_micro_usd(2),
+                model: "moonshot/kimi-k3".into(),
+                model_failover: Vec::new(),
+                credentials: BTreeMap::new(),
+                approved_parties: Vec::new(),
+            },
+        )
+        .unwrap();
+        root
+    }
+
+    fn test_relay_state(
+        root: &std::path::Path,
+    ) -> (
+        crate::capability::CapabilityIssuer,
+        crate::spend::SpendLedger,
+        RelayState,
+    ) {
+        let capabilities = crate::capability::CapabilityIssuer::open(root).unwrap();
+        let spend = crate::spend::SpendLedger::open(root).unwrap();
+        let state = RelayState {
+            root: root.to_path_buf(),
+            capabilities: capabilities.clone(),
+            spend: spend.clone(),
+            upstream_token: "host-only-root-bearer".into(),
+            http: reqwest::Client::new(),
+        };
+        (capabilities, spend, state)
+    }
+
+    fn bearer_headers(token: &str) -> HeaderMap {
+        let mut headers = HeaderMap::new();
+        headers.insert(AUTHORIZATION, format!("Bearer {token}").parse().unwrap());
+        headers
+    }
+
     #[test]
     fn runtime_model_config_contains_only_the_narrow_gateway_route() {
-        let config = models_config("moonshot", GATEWAY_RUNTIME_URL, GATEWAY_TOKEN_ENV).unwrap();
+        let config = models_config("moonshot", RELAY_RUNTIME_URL, MODEL_CAPABILITY_ENV).unwrap();
         assert!(config.contains("\n  moonshot:\n    baseUrl:"));
         assert!(config.contains("transport: pi-native"));
-        assert!(config.contains("apiKey: RESTLESS_MODEL_GATEWAY_TOKEN"));
+        assert!(config.contains("apiKey: RESTLESS_MODEL_CAPABILITY"));
         assert!(!config.contains("MOONSHOT_API_KEY"));
         assert!(!config.contains("api.kimi.com"));
     }
@@ -702,9 +1189,179 @@ mod tests {
     #[test]
     fn provider_and_route_are_not_open_ended_injection_points() {
         assert!(
-            models_config("moonshot\nheaders", GATEWAY_RUNTIME_URL, GATEWAY_TOKEN_ENV).is_err()
+            models_config("moonshot\nheaders", RELAY_RUNTIME_URL, MODEL_CAPABILITY_ENV).is_err()
         );
-        assert!(models_config("moonshot", "https://example.invalid", GATEWAY_TOKEN_ENV).is_err());
+        assert!(
+            models_config("moonshot", "https://example.invalid", MODEL_CAPABILITY_ENV).is_err()
+        );
+    }
+
+    #[test]
+    fn agent_model_access_is_a_signed_company_actor_session_provider_grant() {
+        let root = test_root();
+        let (issuer, _spend, _state) = test_relay_state(&root);
+        let client = ClientConfig {
+            providers: BTreeMap::from([("moonshot".into(), ModelBilling::MeteredApi)]),
+        };
+        let access = client
+            .auth_for(
+                "moonshot/kimi-k3",
+                &issuer,
+                "acme_test",
+                "delivery-lead",
+                "session_123",
+            )
+            .unwrap();
+        assert_eq!(access.token_env, MODEL_CAPABILITY_ENV);
+        assert_eq!(access.runtime_url, RELAY_RUNTIME_URL);
+        assert_eq!(
+            issuer.verify_model(&access.token).unwrap(),
+            crate::capability::ModelGrant {
+                company: "acme_test".into(),
+                actor: "delivery-lead".into(),
+                session: "session_123".into(),
+                provider: "moonshot".into(),
+                billing: "metered_api".into(),
+            }
+        );
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn relay_refuses_a_provider_mismatch_and_exhausted_company_before_forwarding() {
+        let root = test_root();
+        let (issuer, spend, state) = test_relay_state(&root);
+        let token = issuer
+            .issue_model_session(
+                "acme_test",
+                "delivery-lead",
+                "session_123",
+                "moonshot",
+                "metered_api",
+            )
+            .unwrap();
+        let mismatched = relay_pi_stream(
+            State(state.clone()),
+            bearer_headers(&token),
+            Bytes::from_static(br#"{"modelId":"openai/gpt-5"}"#),
+        )
+        .await;
+        assert_eq!(mismatched.status(), StatusCode::FORBIDDEN);
+
+        spend.meter().record_exact(
+            "acme_test",
+            "delivery-lead",
+            "prior_session",
+            "moonshot/kimi-k3",
+            1,
+            2,
+        );
+        let exhausted = relay_pi_stream(
+            State(state),
+            bearer_headers(&token),
+            Bytes::from_static(br#"{"modelId":"moonshot/kimi-k3"}"#),
+        )
+        .await;
+        assert_eq!(exhausted.status(), StatusCode::PAYMENT_REQUIRED);
+
+        drop(spend);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn relay_records_one_exact_terminal_charge_and_poison_missing_terminal_usage() {
+        let root = test_root();
+        let (_issuer, ledger, _state) = test_relay_state(&root);
+        let event = serde_json::json!({
+            "type": "done",
+            "message": {
+                "usage": {
+                    "input": 3,
+                    "output": 5,
+                    "cost": { "total": 0.000001 }
+                }
+            }
+        });
+        {
+            let inner = futures_util::stream::empty::<std::result::Result<Bytes, reqwest::Error>>();
+            let mut stream = MeteredStream::new(
+                inner,
+                ledger.meter(),
+                MeteredRequest {
+                    company: "acme_test".into(),
+                    actor: "delivery-lead".into(),
+                    session: "session_123".into(),
+                    model: "moonshot/kimi-k3".into(),
+                    billing: ModelBilling::MeteredApi,
+                },
+            );
+            let frame = Bytes::from(format!("data: {event}\n\n"));
+            stream.observe(&frame);
+            stream.observe(&frame);
+        }
+        assert_eq!(
+            ledger.remaining_micro_usd_for(
+                "acme_test",
+                crate::runtime::SpendCeiling::from_micro_usd(2)
+            ),
+            1,
+            "one terminal event writes one exact micro-USD record"
+        );
+        let spool = std::fs::read_to_string(root.join("spend/spend.jsonl")).unwrap();
+        let records = spool
+            .lines()
+            .map(|line| serde_json::from_str::<serde_json::Value>(line).unwrap())
+            .collect::<Vec<_>>();
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0]["actorId"], "delivery-lead");
+        assert_eq!(records[0]["sessionId"], "session_123");
+        assert_eq!(records[0]["totalTokens"], 8);
+        assert_eq!(records[0]["costMicroUsd"], 1);
+
+        {
+            let inner = futures_util::stream::empty::<std::result::Result<Bytes, reqwest::Error>>();
+            let _missing_terminal = MeteredStream::new(
+                inner,
+                ledger.meter(),
+                MeteredRequest {
+                    company: "acme_test".into(),
+                    actor: "delivery-lead".into(),
+                    session: "session_missing_usage".into(),
+                    model: "moonshot/kimi-k3".into(),
+                    billing: ModelBilling::MeteredApi,
+                },
+            );
+        }
+        assert_eq!(
+            ledger.remaining_micro_usd_for(
+                "acme_test",
+                crate::runtime::SpendCeiling::from_micro_usd(2)
+            ),
+            0,
+            "a metered stream without terminal charged usage blocks further requests"
+        );
+
+        drop(ledger);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn micro_usd_parser_is_exact_or_refuses_to_guess() {
+        assert_eq!(
+            decimal_micro_usd(&serde_json::from_str("0.000001").unwrap()),
+            Some(1)
+        );
+        assert_eq!(
+            decimal_micro_usd(&serde_json::from_str("12.34").unwrap()),
+            Some(12_340_000)
+        );
+        assert!(decimal_micro_usd(&serde_json::from_str("0.0000001").unwrap()).is_none());
+        assert_eq!(
+            decimal_micro_usd(&serde_json::from_str("1e-6").unwrap()),
+            Some(1)
+        );
+        assert!(decimal_micro_usd(&serde_json::from_str("1e-7").unwrap()).is_none());
+        assert!(decimal_micro_usd(&serde_json::from_str("-1").unwrap()).is_none());
     }
 
     #[test]

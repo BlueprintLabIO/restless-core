@@ -25,6 +25,7 @@ use super::StaffRegistry;
 pub struct ConversationRuntime<'a> {
     pub spend: &'a SpendLedger,
     pub authority: &'a crate::authority::AuthorityStore,
+    pub capabilities: &'a crate::capability::CapabilityIssuer,
     pub registry: &'a StaffRegistry,
     pub streams: &'a ConversationStreams,
 }
@@ -375,10 +376,10 @@ pub async fn dispatch_actor_conversation(
     let role = actor_row.role.clone();
     let org = org.clone();
     let registry = runtime.registry.clone();
-    let meter = runtime.spend.meter();
     let spend = runtime.spend.clone();
     let spend_ceiling = config.spend_ceiling_usd;
     let authority = runtime.authority.clone();
+    let capabilities = runtime.capabilities.clone();
     let spine = format!(
         "\n# The company you work for\n{}\n\n# Why you woke\n{}\n{}\n",
         config.mission.trim(),
@@ -401,9 +402,9 @@ pub async fn dispatch_actor_conversation(
             candidates,
             org: org.clone(),
             spend,
-            meter,
             spend_ceiling,
             authority,
+            capabilities,
             conversation: true,
             accountable_lead: true,
             observer,

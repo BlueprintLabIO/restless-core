@@ -171,10 +171,15 @@ pub(crate) struct OwnerInput {
 pub(crate) struct Request {
     pub(crate) cmd: String,
     pub(crate) company: Option<String>,
-    /// Who is asking at the Authority boundary. Absence is rejected, never
-    /// defaulted: a principal is not an OrgIntel actor.
+    /// Legacy caller spelling retained for source-compatible JSON. The daemon
+    /// derives the actual principal from the listener and signed capability;
+    /// TCP can never turn this field into owner authority.
     #[serde(default)]
     pub(crate) principal: Option<String>,
+    /// Signed Runtime/session grant. It is an authenticated envelope field,
+    /// deliberately separate from the Authority-domain capability input.
+    #[serde(default)]
+    pub(crate) session_capability: Option<String>,
     #[serde(flatten)]
     pub(crate) common: CommonInput,
     #[serde(flatten)]
@@ -196,14 +201,6 @@ pub(crate) enum Principal {
 }
 
 impl Principal {
-    fn parse(raw: &str) -> Option<Self> {
-        match raw.trim() {
-            "owner" => Some(Self::Owner),
-            "company/exec" => Some(Self::CompanyExec),
-            _ => None,
-        }
-    }
-
     pub(crate) fn as_str(self) -> &'static str {
         match self {
             Self::Owner => "owner",
@@ -234,14 +231,7 @@ pub(crate) const OWNER_ONLY: &[&str] = &[
     "work-review",
 ];
 
-pub(crate) fn authorize(raw: Option<&str>, cmd: &str) -> std::result::Result<Principal, String> {
-    let raw = raw.map(str::trim).filter(|value| !value.is_empty());
-    let Some(raw) = raw else {
-        return Err("request carries no principal; this daemon does not default one".into());
-    };
-    let Some(principal) = Principal::parse(raw) else {
-        return Err(format!("unknown principal {raw:?}"));
-    };
+pub(crate) fn authorize(principal: Principal, cmd: &str) -> std::result::Result<Principal, String> {
     if principal != Principal::Owner && OWNER_ONLY.contains(&cmd) {
         return Err(format!(
             "{cmd} is an act of owner authority; principal {} may not perform it",
@@ -249,6 +239,18 @@ pub(crate) fn authorize(raw: Option<&str>, cmd: &str) -> std::result::Result<Pri
         ));
     }
     Ok(principal)
+}
+
+impl Principal {
+    /// Old images still send company/exec. It is compatibility syntax only:
+    /// the listener capability, not this field, supplies real authority.
+    pub(crate) fn legacy_runtime_claim(raw: Option<&str>) -> std::result::Result<(), String> {
+        match raw.map(str::trim).filter(|value| !value.is_empty()) {
+            None | Some("company/exec") => Ok(()),
+            Some("owner") => Err("TCP Runtime traffic may not claim owner authority".into()),
+            Some(other) => Err(format!("unknown TCP principal claim {other:?}")),
+        }
+    }
 }
 
 /// Typed protocol refusal; clients can distinguish authority denial from an

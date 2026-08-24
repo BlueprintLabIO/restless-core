@@ -30,9 +30,9 @@ pub(super) struct StaffRun {
     pub(super) candidates: Vec<String>,
     pub(super) org: restless_orgintel::OrgIntel,
     pub(super) spend: SpendLedger,
-    pub(super) meter: crate::spend::TurnMeter,
     pub(super) spend_ceiling: crate::runtime::SpendCeiling,
     pub(super) authority: crate::authority::AuthorityStore,
+    pub(super) capabilities: crate::capability::CapabilityIssuer,
     pub(super) conversation: bool,
     /// One durable actor keeps the same accountable posture whether Work or
     /// conversation woke it.
@@ -58,7 +58,14 @@ pub(super) async fn run_staff_with_failover(run: StaffRun) -> Result<StaffOutcom
             )
             .await?;
 
-        let auth = match crate::exec::agent_auth_for_model(model).await {
+        let auth = match crate::exec::agent_auth_for_model(
+            model,
+            &run.capabilities,
+            &run.company,
+            &run.actor,
+        )
+        .await
+        {
             Ok(auth) => auth,
             Err(error) => {
                 let text = format!("{error:#}");
@@ -157,24 +164,13 @@ pub(super) async fn run_staff_with_failover(run: StaffRun) -> Result<StaffOutcom
             _ => None,
         };
 
-        // Meter before deciding whether to continue. A classified unpriced
-        // provider refusal is telemetry, not mysterious spend; subscription
-        // usage is recorded as zero charged dollars, with the catalogue
-        // estimate retained only in the event.
+        // The host relay has already made the canonical charged-use decision.
+        // ACP snapshots are retained as telemetry before deciding whether to
+        // continue or fail over.
         if let Ok((_, _, spent, _)) = &outcome {
-            record_staff_usage(
-                &run.meter,
-                &run.org,
-                &run.company,
-                &run.actor,
-                model,
-                billing,
-                spent,
-                failure_kind,
-            )
-            .await?;
+            record_staff_usage(&run.org, &run.actor, model, billing, spent, failure_kind).await?;
         }
-        // A waiting charged turn sees this final ledger record before it
+        // The relay's terminal record is visible before a waiting charged turn
         // starts. Cooldown and failover bookkeeping do not hold the lane.
         drop(metered_turn);
 
@@ -243,26 +239,15 @@ async fn record_staff_failover(
     Ok(())
 }
 
-#[allow(clippy::too_many_arguments)]
 async fn record_staff_usage(
-    meter: &crate::spend::TurnMeter,
     org: &restless_orgintel::OrgIntel,
-    company: &str,
     actor: &str,
     model: &str,
     billing: crate::model_gateway::ModelBilling,
     snapshots: &[acp::TurnUsage],
     failure_kind: Option<health::BlockKind>,
 ) -> Result<()> {
-    let Some((usage, charged_cost_usd)) = record_final_staff_spend(
-        meter,
-        company,
-        actor,
-        model,
-        billing,
-        snapshots,
-        failure_kind,
-    ) else {
+    let Some((usage, reported_session_cost_usd)) = final_staff_usage(billing, snapshots) else {
         return Ok(());
     };
     org.emit_event(
@@ -281,8 +266,11 @@ async fn record_staff_usage(
             } else {
                 usage.used.saturating_mul(100) / usage.size
             },
-            "cost_usd": charged_cost_usd,
-            "cumulative_session_cost_usd": charged_cost_usd,
+            "cost_usd": reported_session_cost_usd,
+            "reported_session_cost_usd": reported_session_cost_usd,
+            "charged_cost_source": "host_model_relay",
+            "cost_semantics": "acp_reported_noncanonical",
+            "cumulative_session_cost_usd": reported_session_cost_usd,
             "usage_semantics": "final_cumulative_session_snapshot",
             "estimated_list_cost_usd": (billing == crate::model_gateway::ModelBilling::Subscription)
                 .then_some(usage.cost_usd)
@@ -314,25 +302,16 @@ fn final_session_usage(snapshots: &[acp::TurnUsage]) -> Option<acp::TurnUsage> {
     })
 }
 
-#[allow(clippy::too_many_arguments)]
-pub(super) fn record_final_staff_spend(
-    meter: &crate::spend::TurnMeter,
-    company: &str,
-    actor: &str,
-    model: &str,
+pub(super) fn final_staff_usage(
     billing: crate::model_gateway::ModelBilling,
     snapshots: &[acp::TurnUsage],
-    failure_kind: Option<health::BlockKind>,
 ) -> Option<(acp::TurnUsage, Option<f64>)> {
     let usage = final_session_usage(snapshots)?;
-    let charged_cost_usd = match billing {
+    let reported_session_cost_usd = match billing {
         crate::model_gateway::ModelBilling::MeteredApi => usage.cost_usd,
         crate::model_gateway::ModelBilling::Subscription => Some(0.0),
     };
-    if crate::exec::should_record_spend(billing, usage, failure_kind) {
-        meter.record(company, actor, model, usage.used, charged_cost_usd);
-    }
-    Some((usage, charged_cost_usd))
+    Some((usage, reported_session_cost_usd))
 }
 
 /// The staff turn: work the task, then the same judgement envelope as the
