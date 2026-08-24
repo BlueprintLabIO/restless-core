@@ -79,8 +79,8 @@ evidence sufficient. Its actions included both:
 - `restless up -c sprint08_ui_test --reconcile`
 
 The active stack was not restarted during this run: it is an independently running shared process.
-The remaining positive doctor proof is to restart it with the current daemon, reconcile the `_test`
-Runtime, and rerun `restless-dev doctor sprint08_ui_test`.
+After its next normal daemon update, restart it with the current daemon, reconcile the `_test` Runtime,
+and rerun `restless-dev doctor sprint08_ui_test` to observe the new field in the installed stack.
 
 ## Automated verification
 
