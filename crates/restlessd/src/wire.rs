@@ -1,6 +1,6 @@
 //! Stable JSON-lines transport types, grouped by the plane that owns each
-//! input. The wire stays flat for the existing CLI and company runtime; the
-//! daemon no longer grows one universal all-optional request bag.
+//! input. The wire remains flat for the existing CLI and company runtime, but
+//! the decoder rejects fields outside each command's domain view.
 
 use std::collections::BTreeMap;
 
@@ -164,9 +164,10 @@ pub(crate) struct OwnerInput {
     pub(crate) deadline: Option<String>,
 }
 
-/// The header determines routing and authority; flattened domain inputs keep
-/// the existing socket/CLI JSON source-compatible without pretending that
-/// every domain field belongs to every command.
+/// The in-memory dispatch view after Request::decode has selected and checked
+/// the command's domain fields. The JSON line remains source-compatible with
+/// the CLI, but no command may smuggle an optional field from another domain
+/// through this aggregate view.
 #[derive(Debug, Deserialize)]
 pub(crate) struct Request {
     pub(crate) cmd: String,
@@ -190,6 +191,177 @@ pub(crate) struct Request {
     pub(crate) orgintel: OrgIntelInput,
     #[serde(flatten)]
     pub(crate) owner: OwnerInput,
+}
+
+const ENVELOPE_FIELDS: &[&str] = &["cmd", "company", "principal", "session_capability"];
+
+/// Decode exactly the fields that belong to a command. The dispatcher still
+/// receives a compact aggregate so existing domain handlers can be moved
+/// independently, but this boundary refuses the old universal optional-field
+/// bag before any handler sees it.
+impl Request {
+    pub(crate) fn decode(line: &str) -> std::result::Result<Self, String> {
+        let mut value = serde_json::from_str::<serde_json::Value>(line)
+            .map_err(|error| format!("parse JSON: {error}"))?;
+        let object = value
+            .as_object()
+            .ok_or_else(|| "request must be a JSON object".to_string())?;
+        let command = object
+            .get("cmd")
+            .and_then(serde_json::Value::as_str)
+            .filter(|command| !command.is_empty())
+            .map(str::to_string)
+            .ok_or_else(|| "request needs a string cmd".to_string())?;
+        let fields =
+            command_fields(&command).ok_or_else(|| format!("unknown command {command:?}"))?;
+        for field in object.keys() {
+            if !ENVELOPE_FIELDS.contains(&field.as_str()) && !fields.contains(&field.as_str()) {
+                return Err(format!(
+                    "command {command:?} does not accept field {field:?}"
+                ));
+            }
+        }
+        // CommonInput already owns the historic from spelling for messages.
+        // Normalise the only lifecycle use before flattened domain decoding so
+        // the clone source cannot be silently dropped by that field collision.
+        if command == "up" && object.contains_key("from") {
+            let object = value
+                .as_object_mut()
+                .expect("the checked request remains an object");
+            if object.contains_key("from_company") {
+                return Err("command \"up\" may name only one clone source".to_string());
+            }
+            if let Some(from) = object.remove("from") {
+                object.insert("from_company".to_string(), from);
+            }
+        }
+        serde_json::from_value(value).map_err(|error| format!("decode {command:?}: {error}"))
+    }
+}
+
+/// This is a decoder allowlist, not a second command algebra: the dispatcher
+/// remains the only command behaviour and source owner. Each row merely names
+/// the already-existing fields that cross its concrete domain boundary.
+fn command_fields(command: &str) -> Option<&'static [&'static str]> {
+    Some(match command {
+        "company-list" | "status" | "doctor" | "company-show" | "credential-check"
+        | "legal-show" | "legal-probe" | "finance-show" | "finance-balances" | "finance-probe"
+        | "orgintel-init" | "teams" | "spend" | "goals" | "work" | "work-graph"
+        | "clear-poison" | "attention" | "browser-status" | "browser-release" | "watch" => &[],
+        "up" => &["from", "from_company", "reconcile"],
+        "down" => &["destroy"],
+        "company-create"
+        | "legal-set"
+        | "finance-envelope-set"
+        | "finance-connect-airwallex"
+        | "tell" => &["body"],
+        "company-set" => &["state", "body"],
+        "company-unset" => &["state"],
+        "credential-set" => &["capability", "body", "secret_value"],
+        "credential-promote" => &["capability", "body"],
+        "finance-freeze" => &["state", "apply"],
+        "finance-reserve" => &["body"],
+        "finance-submit" | "finance-reconcile" => &["key"],
+        "wake" => &["reason"],
+        "people" => &["include_retired"],
+        "actor-create" => &["as_actor", "role", "name", "actor", "reason", "model"],
+        "actor-model" => &["as_actor", "model", "actor", "reason"],
+        "actor-retire" => &["as_actor", "actor", "reason"],
+        "team-create" => &["name", "to", "body", "actor"],
+        "team-update" => &["name", "new_name", "body", "actor", "reason"],
+        "team-assign" => &["as_actor", "name", "actor", "reason"],
+        "team-lead" => &["name", "to", "actor", "reason"],
+        "team-disband" => &["name", "actor", "reason"],
+        "judgement" => &["as_actor"],
+        "work-handoff-escalate" => &["id", "as_actor", "reason"],
+        "receipts" => &["capability", "limit"],
+        "spend-correct" => &[
+            "correction_id",
+            "request_ids",
+            "delta_micro_usd",
+            "reason",
+            "apply",
+        ],
+        "goal-add" => &["title", "body", "actor"],
+        "work-goal" => &["id", "goal", "actor"],
+        "work-attempts" => &["id"],
+        "work-assign" => &["id", "to", "actor", "reason"],
+        "work-add" => &[
+            "actor",
+            "role",
+            "title",
+            "body",
+            "model",
+            "goal",
+            "priority",
+            "expected_artifact",
+            "repo",
+            "base_ref",
+            "integration_branch",
+            "worktree",
+            "attempt_limit",
+            "requires",
+            "revises",
+            "gates",
+            "as_actor",
+        ],
+        "work-edge" => &["from", "to", "kind", "action", "as_actor", "reason"],
+        "work-artifact" => &[
+            "id",
+            "attempt",
+            "kind",
+            "uri",
+            "body",
+            "actor",
+            "digest",
+            "source_commit",
+            "label",
+        ],
+        "work-gate" => &["id", "name", "cwd", "argv", "actor"],
+        "work-handoff" => &[
+            "id",
+            "attempt",
+            "category",
+            "action",
+            "prepared",
+            "resume_when",
+            "actor",
+        ],
+        "work-handoff-refresh" => &["id", "as_actor", "action", "prepared", "resume_when"],
+        "work-handoff-prepare-brief" => &[
+            "id",
+            "as_actor",
+            "owner_kind",
+            "headline",
+            "situation",
+            "impact",
+            "recommendation",
+            "no_action",
+            "uncertainty",
+            "deadline",
+        ],
+        "work-handoff-resolve" => &["id", "state", "resolution", "as_actor"],
+        "work-resume" | "work-abandon" => &["id", "as_actor", "reason"],
+        "work-review" => &["id", "state", "resolution"],
+        "inbox" => &["actor", "as_actor"],
+        "message" => &["from", "to", "id", "body"],
+        "events" => &["limit"],
+        "approve" | "revoke" | "decline" => &["party"],
+        "browser-request" => &["id"],
+        "effect" => &[
+            "effect_class",
+            "purpose",
+            "key",
+            "cwd",
+            "argv",
+            "actor",
+            "party",
+            "artifacts",
+            "secret_bindings",
+        ],
+        "effect-reconcile" => &["key", "execution_no", "state", "id", "actor"],
+        _ => return None,
+    })
 }
 
 /// The V0 principal set (`authority-plane §4.1`). Two, because two is what
@@ -304,11 +476,11 @@ impl Response {
 
 #[cfg(test)]
 mod tests {
-    use super::Request;
+    use super::{command_fields, Request};
 
     #[test]
-    fn flat_json_decodes_into_the_owner_domain_without_a_universal_payload() {
-        let request: Request = serde_json::from_str(
+    fn command_decoder_selects_the_owner_domain_and_refuses_foreign_fields() {
+        let request = Request::decode(
             r#"{
                 "cmd":"work-handoff-prepare-brief",
                 "company":"review_test",
@@ -331,5 +503,131 @@ mod tests {
         assert_eq!(request.owner.owner_kind.as_deref(), Some("outcome_review"));
         assert!(request.orgintel.gates.is_empty());
         assert!(!request.lifecycle.reconcile);
+        assert!(
+            Request::decode(
+                r#"{
+                    "cmd":"message",
+                    "company":"review_test",
+                    "from":"exec",
+                    "body":"hello",
+                    "model":"moonshot/kimi-k3"
+                }"#
+            )
+            .is_err(),
+            "a message may not carry a Work/model field"
+        );
+    }
+
+    #[test]
+    fn lifecycle_decoder_uses_the_cli_from_spelling() {
+        let request = Request::decode(
+            r#"{"cmd":"up","company":"clone_test","from":"source_test","reconcile":true}"#,
+        )
+        .expect("decode clone lifecycle request");
+        assert_eq!(
+            request.lifecycle.from_company.as_deref(),
+            Some("source_test")
+        );
+        assert!(request.lifecycle.reconcile);
+    }
+
+    #[test]
+    fn lifecycle_decoder_keeps_the_current_from_company_spelling() {
+        let request =
+            Request::decode(r#"{"cmd":"up","company":"clone_test","from_company":"source_test"}"#)
+                .expect("decode current clone lifecycle request");
+        assert_eq!(
+            request.lifecycle.from_company.as_deref(),
+            Some("source_test")
+        );
+    }
+
+    #[test]
+    fn every_dispatch_command_has_a_checked_domain_view() {
+        // Kept next to the boundary rather than parsed from Rust source: the
+        // dispatcher legitimately contains nested string matches such as
+        // company config keys, which are not transport commands.
+        const COMMANDS: &[&str] = &[
+            "up",
+            "down",
+            "status",
+            "doctor",
+            "company-list",
+            "company-create",
+            "company-show",
+            "company-set",
+            "company-unset",
+            "credential-set",
+            "credential-promote",
+            "credential-check",
+            "legal-show",
+            "legal-probe",
+            "legal-set",
+            "finance-show",
+            "finance-envelope-set",
+            "finance-freeze",
+            "finance-connect-airwallex",
+            "finance-balances",
+            "finance-probe",
+            "finance-reserve",
+            "finance-submit",
+            "finance-reconcile",
+            "orgintel-init",
+            "wake",
+            "tell",
+            "people",
+            "actor-create",
+            "actor-model",
+            "actor-retire",
+            "teams",
+            "team-create",
+            "team-update",
+            "team-assign",
+            "team-lead",
+            "team-disband",
+            "judgement",
+            "work-handoff-escalate",
+            "receipts",
+            "spend",
+            "spend-correct",
+            "goals",
+            "goal-add",
+            "work-goal",
+            "work",
+            "work-graph",
+            "work-attempts",
+            "work-assign",
+            "work-add",
+            "work-edge",
+            "work-artifact",
+            "work-gate",
+            "work-handoff",
+            "work-handoff-refresh",
+            "work-handoff-prepare-brief",
+            "work-handoff-resolve",
+            "work-resume",
+            "work-abandon",
+            "work-review",
+            "inbox",
+            "message",
+            "events",
+            "clear-poison",
+            "approve",
+            "revoke",
+            "decline",
+            "attention",
+            "browser-status",
+            "browser-request",
+            "browser-release",
+            "effect",
+            "effect-reconcile",
+            "watch",
+        ];
+        for command in COMMANDS {
+            assert!(
+                command_fields(command).is_some(),
+                "dispatch command {command:?} has no checked input view"
+            );
+        }
     }
 }

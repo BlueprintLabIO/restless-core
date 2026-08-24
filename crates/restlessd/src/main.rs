@@ -501,7 +501,7 @@ where
     let (read, mut write) = tokio::io::split(stream);
     let mut lines = BufReader::new(read).lines();
     while let Some(line) = lines.next_line().await? {
-        let mut request = match serde_json::from_str::<Request>(&line) {
+        let mut request = match Request::decode(&line) {
             Ok(request) => request,
             Err(error) => {
                 let response = Response::err(format!("bad request: {error}"));
@@ -2698,6 +2698,10 @@ async fn resolve_team(
 mod tests {
     use super::*;
 
+    fn decoded_request(value: serde_json::Value) -> Request {
+        Request::decode(&value.to_string()).expect("decode request through the transport boundary")
+    }
+
     /// The hole this ticket closes: an agent inside the container asking for
     /// the owner's authority act. `main.rs:215` accepted this with the expiry
     /// "before any real external effect" — sprint 03 sent real email.
@@ -2804,7 +2808,7 @@ mod tests {
             .issue_actor_session("acme_test", "delivery-lead", "session_1")
             .unwrap();
 
-        let mut valid: Request = serde_json::from_value(serde_json::json!({
+        let mut valid = decoded_request(serde_json::json!({
             "cmd": "message",
             "company": "acme_test",
             "principal": "company/exec",
@@ -2812,8 +2816,7 @@ mod tests {
             "from": "delivery-lead",
             "to": "exec",
             "body": "native result is ready"
-        }))
-        .unwrap();
+        }));
         assert_eq!(
             authenticate_request(&mut valid, &issuer, ConnectionOrigin::RuntimeTcp).unwrap(),
             Principal::CompanyExec
@@ -2821,22 +2824,21 @@ mod tests {
         assert_eq!(valid.company.as_deref(), Some("acme_test"));
         assert_eq!(valid.common.from.as_deref(), Some("delivery-lead"));
 
-        let mut owner_claim: Request = serde_json::from_value(serde_json::json!({
+        let mut owner_claim = decoded_request(serde_json::json!({
             "cmd": "approve",
             "company": "acme_test",
             "principal": "owner",
             "session_capability": issuer
                 .issue_actor_session("acme_test", "delivery-lead", "session_2")
                 .unwrap()
-        }))
-        .unwrap();
+        }));
         assert!(
             authenticate_request(&mut owner_claim, &issuer, ConnectionOrigin::RuntimeTcp)
                 .unwrap_err()
                 .contains("may not claim owner")
         );
 
-        let mut foreign_company: Request = serde_json::from_value(serde_json::json!({
+        let mut foreign_company = decoded_request(serde_json::json!({
             "cmd": "message",
             "company": "other_test",
             "session_capability": issuer
@@ -2844,14 +2846,13 @@ mod tests {
                 .unwrap(),
             "from": "delivery-lead",
             "body": "forged"
-        }))
-        .unwrap();
+        }));
         assert!(
             authenticate_request(&mut foreign_company, &issuer, ConnectionOrigin::RuntimeTcp)
                 .is_err()
         );
 
-        let mut foreign_actor: Request = serde_json::from_value(serde_json::json!({
+        let mut foreign_actor = decoded_request(serde_json::json!({
             "cmd": "message",
             "company": "acme_test",
             "session_capability": issuer
@@ -2859,20 +2860,18 @@ mod tests {
                 .unwrap(),
             "from": "exec",
             "body": "forged"
-        }))
-        .unwrap();
+        }));
         assert!(
             authenticate_request(&mut foreign_actor, &issuer, ConnectionOrigin::RuntimeTcp)
                 .unwrap_err()
                 .contains("cannot claim")
         );
 
-        let mut local: Request = serde_json::from_value(serde_json::json!({
+        let mut local = decoded_request(serde_json::json!({
             "cmd": "approve",
             "company": "acme_test",
             "principal": "company/exec"
-        }))
-        .unwrap();
+        }));
         assert_eq!(
             authenticate_request(&mut local, &issuer, ConnectionOrigin::LocalOwner).unwrap(),
             Principal::Owner
