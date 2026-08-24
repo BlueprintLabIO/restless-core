@@ -348,6 +348,7 @@ struct CockpitLegal {
     status: String,
     profile: Option<CockpitLegalProfile>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     detail: Option<String>,
 }
 
@@ -388,6 +389,7 @@ struct CockpitProvider {
     status: String,
     connection: Option<CockpitProviderConnection>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     detail: Option<String>,
 }
 
@@ -410,6 +412,7 @@ struct CockpitFinance {
     payments: Vec<CockpitPaymentIntent>,
     last_balance_observation: Option<CockpitBalanceObservation>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
     detail: Option<String>,
 }
 
