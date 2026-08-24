@@ -588,6 +588,10 @@ pub async fn install_runtime_bridge_capability(company: &str, capability: &str) 
     stdin.write_all(capability.as_bytes()).await?;
     stdin.write_all(b"\n").await?;
     stdin.shutdown().await?;
+    // `docker exec -i` keeps the remote `cat` alive while this pipe handle is
+    // retained, even after Tokio has flushed it. Drop it before waiting so
+    // the Company Runtime observes EOF and atomically installs the grant.
+    drop(stdin);
     let output = child
         .wait_with_output()
         .await
