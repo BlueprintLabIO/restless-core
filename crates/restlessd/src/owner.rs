@@ -2981,10 +2981,6 @@ mod tests {
             .join("../../web/src/lib/model/generated/cockpit.ts");
         let rendered = render_cockpit_bindings();
 
-        if std::env::var_os("RESTLESS_PRINT_COCKPIT_BINDINGS").is_some() {
-            println!("{rendered}");
-            return;
-        }
         if std::env::var_os("RESTLESS_WRITE_COCKPIT_BINDINGS").is_some() {
             if let Some(directory) = path.parent() {
                 std::fs::create_dir_all(directory).expect("create cockpit bindings directory");
