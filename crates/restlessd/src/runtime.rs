@@ -489,6 +489,9 @@ pub struct BrowserDoctor {
 async fn docker(args: &[&str]) -> Result<std::process::Output> {
     tokio::process::Command::new("docker")
         .args(args)
+        // A timed health probe must not leave an orphaned `docker exec`
+        // process behind if the Runtime or coordinator has stopped answering.
+        .kill_on_drop(true)
         .output()
         .await
         .context("spawn docker")
