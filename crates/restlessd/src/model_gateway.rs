@@ -715,12 +715,16 @@ struct MeteredRequest {
 /// The relay forwards chunks unchanged but observes enough pi-native SSE to
 /// make the terminal charged usage a host-side record. A provider error is a
 /// valid terminal only when its canonical error message carries an exact cost
-/// (including zero); an ambiguous error, Drop and EOF still poison the company.
+/// (including zero). Some pi-native tool-use completions carry that final
+/// usage in a completed partial immediately before the explicit `[DONE]`
+/// sentinel. An ambiguous error, partial, Drop and EOF still poison the
+/// company.
 struct MeteredStream {
     inner: Pin<Box<dyn Stream<Item = std::result::Result<Bytes, reqwest::Error>> + Send>>,
     meter: crate::spend::TurnMeter,
     request: MeteredRequest,
     frame_buffer: Vec<u8>,
+    complete_partial_usage: Option<serde_json::Value>,
     settled: bool,
     failed: bool,
 }
@@ -735,6 +739,7 @@ impl MeteredStream {
             meter,
             request,
             frame_buffer: Vec::new(),
+            complete_partial_usage: None,
             settled: false,
             failed: false,
         }
@@ -752,37 +757,76 @@ impl MeteredStream {
         while let Some((end, separator)) = sse_frame_end(&self.frame_buffer) {
             let frame = self.frame_buffer.drain(..end).collect::<Vec<_>>();
             self.frame_buffer.drain(..separator);
-            let Ok(frame) = std::str::from_utf8(&frame) else {
-                self.failed = true;
+            self.observe_frame(&frame);
+            if self.settled || self.failed {
                 return;
-            };
-            let data = frame
-                .lines()
-                .filter_map(|line| line.trim_end_matches('\r').strip_prefix("data:"))
-                .map(str::trim_start)
-                .collect::<Vec<_>>()
-                .join("\n");
-            if data.is_empty() || data == "[DONE]" {
-                continue;
             }
-            let Ok(event) = serde_json::from_str::<serde_json::Value>(&data) else {
-                self.failed = true;
-                return;
-            };
-            match event.get("type").and_then(serde_json::Value::as_str) {
-                Some("done") => {
-                    self.record_terminal_usage(event.pointer("/message/usage"));
-                    return;
-                }
-                Some("error") => {
-                    // pi-native error events are terminal messages too. A
-                    // provider refusal may legitimately cost $0, but accepting
-                    // it requires the same exact usage envelope as a success.
-                    self.record_terminal_usage(event.pointer("/error/usage"));
-                    return;
-                }
-                _ => {}
+        }
+    }
+
+    /// The pi-native client accepts a final SSE event without the customary
+    /// blank-line delimiter. Mirror that tolerant protocol behaviour here,
+    /// but keep strict JSON parsing so a genuinely truncated terminal frame is
+    /// still unaccountable and therefore fail-closed.
+    fn finish(&mut self) {
+        if self.settled || self.failed || self.frame_buffer.is_empty() {
+            return;
+        }
+        let frame = std::mem::take(&mut self.frame_buffer);
+        self.observe_frame(&frame);
+    }
+
+    fn observe_frame(&mut self, frame: &[u8]) {
+        let Ok(frame) = std::str::from_utf8(frame) else {
+            self.failed = true;
+            return;
+        };
+        let data = frame
+            .lines()
+            .filter_map(|line| line.trim_end_matches('\r').strip_prefix("data:"))
+            .map(str::trim_start)
+            .collect::<Vec<_>>()
+            .join("\n");
+        if data.is_empty() {
+            return;
+        }
+        if data == "[DONE]" {
+            // The pi-native server has explicitly finished the wire stream.
+            // Some tool-use transports expose final exact usage on the
+            // completed rolling partial rather than a semantic `done` event.
+            let usage = self.complete_partial_usage.take();
+            self.record_terminal_usage(usage.as_ref());
+            return;
+        }
+        let Ok(event) = serde_json::from_str::<serde_json::Value>(&data) else {
+            self.failed = true;
+            return;
+        };
+        self.observe_complete_partial(&event);
+        match event.get("type").and_then(serde_json::Value::as_str) {
+            Some("done") => self.record_terminal_usage(event.pointer("/message/usage")),
+            Some("error") => {
+                // pi-native error events are terminal messages too. A provider
+                // refusal may legitimately cost $0, but accepting it requires
+                // the same exact usage envelope as a success.
+                self.record_terminal_usage(event.pointer("/error/usage"));
             }
+            _ => {}
+        }
+    }
+
+    fn observe_complete_partial(&mut self, event: &serde_json::Value) {
+        let Some(partial) = event.get("partial") else {
+            return;
+        };
+        let complete = matches!(
+            partial
+                .get("stopReason")
+                .and_then(serde_json::Value::as_str),
+            Some("stop" | "length" | "toolUse")
+        );
+        if complete {
+            self.complete_partial_usage = partial.get("usage").cloned();
         }
     }
 
@@ -838,6 +882,7 @@ impl Stream for MeteredStream {
                 Poll::Ready(Some(Err(error)))
             }
             Poll::Ready(None) => {
+                this.finish();
                 if !this.settled || this.failed {
                     this.fail_closed("stream ended before a valid done event");
                 }
@@ -1420,6 +1465,109 @@ mod tests {
             ),
             0,
             "an error with no exact usage remains fail-closed"
+        );
+
+        drop(ledger);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn relay_accounts_for_a_completed_partial_only_after_the_wire_done_sentinel() {
+        let root = test_root();
+        let (_issuer, ledger, _state) = test_relay_state(&root);
+        {
+            let inner = futures_util::stream::empty::<std::result::Result<Bytes, reqwest::Error>>();
+            let mut stream = MeteredStream::new(
+                inner,
+                ledger.meter(),
+                MeteredRequest {
+                    company: "acme_test".into(),
+                    actor: "delivery-lead".into(),
+                    session: "tool_use_partial".into(),
+                    model: "moonshot/kimi-k3".into(),
+                    billing: ModelBilling::MeteredApi,
+                },
+            );
+            let partial = serde_json::json!({
+                "type": "toolcall_end",
+                "partial": {
+                    "stopReason": "toolUse",
+                    "usage": {
+                        "input": 3,
+                        "output": 5,
+                        "cost": { "total": 0.000001 }
+                    }
+                }
+            });
+            stream.observe(&Bytes::from(format!("data: {partial}\n\n")));
+            assert_eq!(
+                ledger.remaining_micro_usd_for(
+                    "acme_test",
+                    crate::runtime::SpendCeiling::from_micro_usd(2)
+                ),
+                2,
+                "a partial never settles a metered request by itself"
+            );
+            stream.observe(&Bytes::from_static(b"data: [DONE]\n\n"));
+        }
+        assert_eq!(
+            ledger.remaining_micro_usd_for(
+                "acme_test",
+                crate::runtime::SpendCeiling::from_micro_usd(2)
+            ),
+            1,
+            "a completed partial plus the explicit wire terminator records exact spend"
+        );
+
+        drop(ledger);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn relay_flushes_a_valid_terminal_frame_that_arrives_without_a_final_blank_line() {
+        let root = test_root();
+        let (_issuer, ledger, _state) = test_relay_state(&root);
+        let event = serde_json::json!({
+            "type": "done",
+            "message": {
+                "usage": {
+                    "input": 3,
+                    "output": 5,
+                    "cost": { "total": 0.000001 }
+                }
+            }
+        });
+        {
+            let inner = futures_util::stream::empty::<std::result::Result<Bytes, reqwest::Error>>();
+            let mut stream = MeteredStream::new(
+                inner,
+                ledger.meter(),
+                MeteredRequest {
+                    company: "acme_test".into(),
+                    actor: "delivery-lead".into(),
+                    session: "trailing_terminal".into(),
+                    model: "moonshot/kimi-k3".into(),
+                    billing: ModelBilling::MeteredApi,
+                },
+            );
+            stream.observe(&Bytes::from(format!("data: {event}\n")));
+            assert_eq!(
+                ledger.remaining_micro_usd_for(
+                    "acme_test",
+                    crate::runtime::SpendCeiling::from_micro_usd(2)
+                ),
+                2,
+                "a trailing frame is held until EOF"
+            );
+            stream.finish();
+        }
+        assert_eq!(
+            ledger.remaining_micro_usd_for(
+                "acme_test",
+                crate::runtime::SpendCeiling::from_micro_usd(2)
+            ),
+            1,
+            "a valid trailing terminal frame records its exact cost"
         );
 
         drop(ledger);
