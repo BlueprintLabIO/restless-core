@@ -156,3 +156,13 @@ Sprint 15 exits only with recorded command/output for:
 8. narrow checkpoint commits pushed to `dev` under this sprint's explicit owner authorisation.
 
 No test suite or sprint prose alone substitutes for these observed outcomes.
+
+## Checkpoint command
+
+Run `RESTLESS_TEST_DATABASE_URL=postgresql:///restless scripts/verify-sprint-checkpoint` against a
+local scratch database when preparing a Sprint 15 checkpoint or release candidate. It first invokes
+the guarded OrgIntel live-Postgres verifier, then runs Rust formatting, strict Clippy, the workspace
+tests, and Svelte checks. A missing or non-local scratch URL fails before any Rust compiler command.
+
+Ordinary `cargo test` remains the fast iteration loop. It is not evidence that the Postgres-backed
+OrgIntel scenarios ran; record the checkpoint command's actual output before making that claim.

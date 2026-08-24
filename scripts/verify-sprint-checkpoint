@@ -1,0 +1,80 @@
+#!/usr/bin/env bash
+# Full, honest checkpoint evidence. Fast cargo tests deliberately remain a
+# different command: they do not prove the live Postgres scenarios ran.
+set -euo pipefail
+
+CHECKPOINT_SCRIPT_PATH="${BASH_SOURCE[0]}"
+CHECKPOINT_SCRIPT_DIR="$(cd "$(dirname "$CHECKPOINT_SCRIPT_PATH")" && pwd)"
+CHECKPOINT_REPO_ROOT="$(cd "$CHECKPOINT_SCRIPT_DIR/.." && pwd)"
+LIVE_DB_VERIFIER="$CHECKPOINT_SCRIPT_DIR/verify-orgintel-live-db"
+
+usage() {
+  cat <<'EOF'
+usage: scripts/verify-sprint-checkpoint [--preflight | --self-test]
+
+Without an option, runs the full checkpoint bundle:
+  1. guarded live-Postgres OrgIntel verification;
+  2. Rust formatting, strict Clippy and workspace tests; and
+  3. Svelte type and formatting checks.
+
+RESTLESS_TEST_DATABASE_URL is required and must pass
+scripts/verify-orgintel-live-db's local scratch-database preflight.
+
+Fast cargo test remains useful for iteration, but it is not evidence that
+the Postgres-backed OrgIntel scenarios ran.
+EOF
+}
+
+preflight() {
+  "$LIVE_DB_VERIFIER" --preflight
+}
+
+self_test() {
+  if env -u RESTLESS_TEST_DATABASE_URL bash "$CHECKPOINT_SCRIPT_PATH" --preflight >/dev/null 2>&1; then
+    printf 'self-test failed: checkpoint accepted a missing live-Postgres URL\n' >&2
+    return 1
+  fi
+  if RESTLESS_TEST_DATABASE_URL='postgresql://db.example/restless' \
+    bash "$CHECKPOINT_SCRIPT_PATH" --preflight >/dev/null 2>&1; then
+    printf 'self-test failed: checkpoint accepted a non-local live-Postgres URL\n' >&2
+    return 1
+  fi
+  RESTLESS_TEST_DATABASE_URL='postgresql:///restless' \
+    bash "$CHECKPOINT_SCRIPT_PATH" --preflight >/dev/null
+  printf 'checkpoint verifier preflight self-test passed\n'
+}
+
+run() {
+  # This happens before a Rust compiler command so missing or unsafe database
+  # configuration can never be mistaken for a successful checkpoint.
+  preflight
+  cd "$CHECKPOINT_REPO_ROOT"
+  "$LIVE_DB_VERIFIER"
+  cargo fmt --check
+  cargo clippy --workspace --all-targets -- -D warnings
+  cargo test --workspace --all-targets
+  (
+    cd web
+    npm run check
+    npm run lint
+  )
+}
+
+case "${1:-}" in
+  -h|--help|help)
+    usage
+    ;;
+  --preflight)
+    preflight
+    ;;
+  --self-test)
+    self_test
+    ;;
+  '')
+    run
+    ;;
+  *)
+    usage >&2
+    exit 2
+    ;;
+esac
