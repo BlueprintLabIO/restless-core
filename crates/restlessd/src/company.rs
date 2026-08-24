@@ -294,9 +294,8 @@ pub(crate) async fn project(
     let spend = SpendLimit {
         model: config.model.clone(),
         accounted_usd: round_usd(accounted_usd),
-        ceiling_usd: config.spend_ceiling_usd,
-        remaining_usd: (!poisoned)
-            .then(|| round_usd((config.spend_ceiling_usd - accounted_usd).max(0.0))),
+        ceiling_usd: config.spend_ceiling_usd.as_usd(),
+        remaining_usd: (!poisoned).then(|| round_usd(daemon.spend.remaining_usd(config))),
         poisoned,
     };
 

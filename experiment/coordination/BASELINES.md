@@ -23,6 +23,10 @@ lead and returned to availability. The experiment changes organisation below the
 B0 and B1 map the producer-team frontier. B2 is tested on a smaller subset where hidden error or
 subjective quality is material; it does not replace the B0/B1 comparison.
 
+B1 is a **player-coach** topology: the lead may continue complementary production while the worker
+acts. It does not test a supervisor-only lead that preserves its attention for alignment, guidance,
+redirection and repair; EXP-03's M1 arm owns that separate question.
+
 ## Three meanings of parallelism
 
 - **Potential:** work that could proceed independently given stable seams and acceptance targets.

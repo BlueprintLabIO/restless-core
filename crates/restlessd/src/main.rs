@@ -30,6 +30,7 @@ mod runtime;
 mod schedule;
 mod spend;
 mod staff;
+mod wire;
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -40,238 +41,9 @@ use serde::{Deserialize, Serialize};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::UnixListener;
 
-#[derive(Debug, Deserialize)]
-struct InitialWorkGateRequest {
-    name: String,
-    command: Vec<String>,
-}
-
-#[derive(Debug, Deserialize)]
-struct Request {
-    cmd: String,
-    company: Option<String>,
-    #[serde(default)]
-    reason: Option<String>,
-    // T10 coordination fields (presence depends on cmd).
-    #[serde(default)]
-    body: Option<String>,
-    /// Secret material forwarded once to the configured credential backend.
-    /// This field is never persisted or logged; company config stores only
-    /// `body`, the credential reference.
-    #[serde(default)]
-    secret_value: Option<String>,
-    #[serde(default)]
-    from: Option<String>,
-    #[serde(default)]
-    to: Option<String>,
-    #[serde(default)]
-    as_actor: Option<String>,
-    #[serde(default)]
-    id: Option<String>,
-    #[serde(default)]
-    state: Option<String>,
-    #[serde(default)]
-    resolution: Option<String>,
-    #[serde(default)]
-    limit: Option<i64>,
-    // Kernel spend-recovery fields. These are deliberately distinct from
-    // Work ids and effect costs: hard-budget truth belongs to Authority.
-    #[serde(default)]
-    correction_id: Option<String>,
-    #[serde(default)]
-    request_ids: Vec<String>,
-    #[serde(default)]
-    delta_micro_usd: Option<i64>,
-    #[serde(default)]
-    apply: bool,
-    #[serde(default)]
-    include_retired: bool,
-    // Work graph fields.
-    #[serde(default)]
-    name: Option<String>,
-    #[serde(default)]
-    new_name: Option<String>,
-    #[serde(default)]
-    repo: Option<String>,
-    // T8 effect fields.
-    #[serde(default)]
-    capability: Option<String>,
-    #[serde(default)]
-    effect_class: Option<String>,
-    #[serde(default)]
-    purpose: Option<String>,
-    #[serde(default)]
-    artifacts: Option<Vec<String>>,
-    #[serde(default)]
-    secret_bindings: Option<std::collections::BTreeMap<String, String>>,
-    #[serde(default)]
-    key: Option<String>,
-    #[serde(default)]
-    execution_no: Option<i32>,
-    #[serde(default)]
-    actor: Option<String>,
-    // S03-T5 approval field.
-    #[serde(default)]
-    party: Option<String>,
-    // Work actor fields: who owns the Attempt and what it thinks with.
-    #[serde(default)]
-    role: Option<String>,
-    #[serde(default)]
-    model: Option<String>,
-    #[serde(default)]
-    title: Option<String>,
-    #[serde(default)]
-    priority: Option<i16>,
-    #[serde(default)]
-    expected_artifact: Option<String>,
-    #[serde(default)]
-    base_ref: Option<String>,
-    #[serde(default)]
-    integration_branch: Option<String>,
-    #[serde(default)]
-    worktree: Option<String>,
-    #[serde(default)]
-    attempt_limit: Option<i32>,
-    #[serde(default)]
-    goal: Option<String>,
-    #[serde(default)]
-    requires: Vec<String>,
-    #[serde(default)]
-    revises: Vec<String>,
-    #[serde(default)]
-    gates: Vec<InitialWorkGateRequest>,
-    #[serde(default)]
-    kind: Option<String>,
-    #[serde(default)]
-    attempt: Option<String>,
-    #[serde(default)]
-    uri: Option<String>,
-    #[serde(default)]
-    digest: Option<String>,
-    #[serde(default)]
-    source_commit: Option<String>,
-    #[serde(default)]
-    label: Option<String>,
-    #[serde(default)]
-    cwd: Option<String>,
-    #[serde(default)]
-    argv: Option<Vec<String>>,
-    #[serde(default)]
-    category: Option<String>,
-    #[serde(default)]
-    action: Option<String>,
-    #[serde(default)]
-    prepared: Option<String>,
-    #[serde(default)]
-    resume_when: Option<String>,
-    #[serde(default)]
-    owner_kind: Option<String>,
-    #[serde(default)]
-    headline: Option<String>,
-    #[serde(default)]
-    situation: Option<String>,
-    #[serde(default)]
-    impact: Option<String>,
-    #[serde(default)]
-    recommendation: Option<String>,
-    #[serde(default)]
-    no_action: Option<String>,
-    #[serde(default)]
-    uncertainty: Option<String>,
-    #[serde(default)]
-    deadline: Option<String>,
-    /// S04-T10. Who is asking, at the authority boundary. `authority-plane §4.1`
-    /// names the V0 set; `cross-layer §2.2` keeps `principal_id` distinct from
-    /// `actor_id` (an actor is who did the work, a principal is who was allowed
-    /// to ask). Absent is rejected, never defaulted — a missing principal is
-    /// exactly the case this field exists to catch.
-    #[serde(default)]
-    principal: Option<String>,
-    /// S04-T1. `up --from <live>` clones a company into a throwaway;
-    /// `down --destroy` removes container, volume, schema and spend spool.
-    #[serde(default)]
-    from_company: Option<String>,
-    #[serde(default)]
-    destroy: bool,
-    /// Rebuild and reconcile the Company Runtime image. This remains one
-    /// generic lifecycle operation; Docker is an implementation detail in
-    /// `runtime.rs`, not part of the owner's operating transcript.
-    #[serde(default)]
-    reconcile: bool,
-}
-
-/// The V0 principal set (`authority-plane §4.1`). Two, because two is what
-/// exists: the human on the host, and the company running in a container.
-/// Going from here to N is adding variants, not changing shape.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum Principal {
-    Owner,
-    CompanyExec,
-}
-
-impl Principal {
-    fn parse(raw: &str) -> Option<Self> {
-        match raw.trim() {
-            "owner" => Some(Self::Owner),
-            "company/exec" => Some(Self::CompanyExec),
-            _ => None,
-        }
-    }
-
-    pub(crate) fn as_str(self) -> &'static str {
-        match self {
-            Self::Owner => "owner",
-            Self::CompanyExec => "company/exec",
-        }
-    }
-}
-
-/// Commands that are acts of owner authority. Everything else is open to both
-/// principals. A list and not a policy engine: `authority-plane §6.5` warns off
-/// a DSL before a workload demands one, and this sprint puts the Kernel proper
-/// out of scope.
-///
-/// The membership rule: could a company, by running this, widen what it is
-/// allowed to do to the world — or stop the owner from watching it try?
-const OWNER_ONLY: &[&str] = &[
-    "approve",
-    "decline",
-    "revoke",
-    "up",
-    "down",
-    "clear-poison",
-    "spend-correct",
-    "company-create",
-    "company-set",
-    "company-unset",
-    "credential-set",
-    "legal-set",
-    "finance-envelope-set",
-    "finance-freeze",
-    "finance-connect-airwallex",
-    "work-review",
-];
-
-/// The whole gate, as one pure decision so it can be tested adversarially
-/// rather than only observed through a socket.
-///
-/// Returns the authenticated principal, or the refusal to send back.
-fn authorize(raw: Option<&str>, cmd: &str) -> std::result::Result<Principal, String> {
-    let raw = raw.map(str::trim).filter(|value| !value.is_empty());
-    let Some(raw) = raw else {
-        return Err("request carries no principal; this daemon does not default one".into());
-    };
-    let Some(principal) = Principal::parse(raw) else {
-        return Err(format!("unknown principal {raw:?}"));
-    };
-    if principal != Principal::Owner && OWNER_ONLY.contains(&cmd) {
-        return Err(format!(
-            "{cmd} is an act of owner authority; principal {} may not perform it",
-            principal.as_str()
-        ));
-    }
-    Ok(principal)
-}
+#[cfg(test)]
+use wire::OWNER_ONLY;
+use wire::{authorize, Principal, Request, Response};
 
 /// Money to four decimal places, and never `-0.0` — a negative zero in an
 /// owner-facing figure reads as a bug in the accounting, which is exactly the
@@ -288,55 +60,6 @@ fn round_usd(usd: f64) -> f64 {
 /// A poisoned company's ledger total is pinned at `u64::MAX` micro-USD. Any
 /// value near it is the sentinel, not spend.
 const POISON_SENTINEL_USD: f64 = 1_000_000_000.0;
-
-/// A typed refusal. The UI (and the agent) must be able to tell "authority
-/// denied" from "daemon unreachable" from "already resolved" without switching
-/// on prose — `S03-T8` item 2. This ticket does not un-flatten every existing
-/// error; it declines to add a new flattened one.
-#[derive(Debug, Serialize)]
-struct ErrorBody {
-    kind: String,
-    message: String,
-}
-
-#[derive(Debug, Serialize)]
-struct Response {
-    ok: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    data: Option<serde_json::Value>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    error: Option<ErrorBody>,
-}
-
-impl Response {
-    fn ok(data: impl Into<serde_json::Value>) -> Self {
-        Self {
-            ok: true,
-            data: Some(data.into()),
-            error: None,
-        }
-    }
-
-    fn ok_serialized(data: impl serde::Serialize) -> Self {
-        match serde_json::to_value(data) {
-            Ok(data) => Self::ok(data),
-            Err(error) => Self::err(format!("encode response: {error}")),
-        }
-    }
-    fn err(message: impl Into<String>) -> Self {
-        Self::err_kind("error", message)
-    }
-    fn err_kind(kind: impl Into<String>, message: impl Into<String>) -> Self {
-        Self {
-            ok: false,
-            data: None,
-            error: Some(ErrorBody {
-                kind: kind.into(),
-                message: message.into(),
-            }),
-        }
-    }
-}
 
 /// OrgIntel connection settings at `$RESTLESS_HOME/orgintel.toml`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -890,10 +613,10 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
     match request.cmd.as_str() {
         // S04-T1. Clone-then-up, so a throwaway is one command rather than a
         // config file someone hand-copies and forgets to strip.
-        "up" if request.from_company.is_some() => {
-            let from = request.from_company.as_deref().unwrap_or_default();
+        "up" if request.lifecycle.from_company.is_some() => {
+            let from = request.lifecycle.from_company.as_deref().unwrap_or_default();
             match runtime::clone_config(&daemon.root, from, company) {
-                Ok(config) => match runtime::up(&config, request.reconcile).await {
+                Ok(config) => match runtime::up(&config, request.lifecycle.reconcile).await {
                     Ok(message) => match daemon.orgintel.get(company).await {
                         Ok(_) => match daemon
                             .authority
@@ -921,7 +644,7 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
         }
         "up" => match runtime::CompanyConfig::load(&daemon.root, company) {
             Ok(mut config) => {
-                let _reconcile_guard = if request.reconcile {
+                let _reconcile_guard = if request.lifecycle.reconcile {
                     // An explicit `down` is the owner's instruction to stop
                     // supervised work before replacement. Docker can stop
                     // slightly before the ACP task observes transport close
@@ -972,7 +695,7 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
                 } else {
                     None
                 };
-                match runtime::up(&config, request.reconcile).await {
+                match runtime::up(&config, request.lifecycle.reconcile).await {
                     Ok(message) => {
                         // Company up = environment AND coordination state ready.
                         match daemon.orgintel.get(company).await {
@@ -1008,7 +731,7 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
             }
             Err(error) => Response::err(format!("{error:#}")),
         },
-        "down" if request.destroy => {
+        "down" if request.lifecycle.destroy => {
             // S04-T1. Destroying a live company is not something to make
             // convenient. `_test` is the marker, and the refusal is on the
             // daemon side so no client can decide otherwise.
@@ -1053,7 +776,7 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
             },
             Err(error) => Response::err(format!("{error:#}")),
         },
-        "company-create" => match request.body {
+        "company-create" => match request.common.body {
             Some(raw) => {
                 let path = daemon
                     .root
@@ -1109,7 +832,7 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
             },
             Err(error) => Response::err(format!("{error:#}")),
         },
-        "company-set" => match (request.state.as_deref(), request.body.as_deref()) {
+        "company-set" => match (request.common.state.as_deref(), request.common.body.as_deref()) {
             (Some(key), Some(value)) => match runtime::CompanyConfig::load(&daemon.root, company) {
                 Ok(mut config) => {
                     let result = match key {
@@ -1130,10 +853,8 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
                                 .collect();
                             config.model_candidates().map(|_| ())
                         }
-                        "spend_ceiling_usd" => value
-                            .parse::<f64>()
-                            .map(|parsed| config.spend_ceiling_usd = parsed)
-                            .map_err(|_| anyhow::anyhow!("spend_ceiling_usd must be a number")),
+                        "spend_ceiling_usd" => runtime::SpendCeiling::parse(value)
+                            .map(|parsed| config.spend_ceiling_usd = parsed),
                         _ if key.starts_with("credentials.") => {
                             config.credentials.insert(key[12..].to_string(), value.to_string());
                             Ok(())
@@ -1152,7 +873,7 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
             },
             _ => Response::err("company-set needs key and value"),
         },
-        "company-unset" => match request.state.as_deref() {
+        "company-unset" => match request.common.state.as_deref() {
             Some(key) if key.starts_with("credentials.") && key.len() > 12 => {
                 match runtime::CompanyConfig::load(&daemon.root, company) {
                     Ok(mut config) => {
@@ -1176,9 +897,9 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
             )),
             None => Response::err("company-unset needs a key"),
         },
-        "credential-set" => match (request.capability.as_deref(), request.body.as_deref()) {
+        "credential-set" => match (request.authority.capability.as_deref(), request.common.body.as_deref()) {
             (Some(binding), Some(reference)) => {
-                if let Some(value) = request.secret_value.as_deref() {
+                if let Some(value) = request.authority.secret_value.as_deref() {
                     if let Err(error) = credential::store_reference(reference, value).await {
                         return Response::err(format!("{error:#}"));
                     }
@@ -1211,6 +932,35 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
             }
             _ => Response::err("credential-set needs binding and reference"),
         },
+        "credential-promote" => match (request.authority.capability.as_deref(), request.common.body.as_deref()) {
+            (Some(binding), Some(destination)) => {
+                match runtime::CompanyConfig::load(&daemon.root, company) {
+                    Ok(mut config) => {
+                        let Some(source) = config.credentials.get(binding).cloned() else {
+                            return Response::err(format!(
+                                "company {company} has no credential binding {binding:?}"
+                            ));
+                        };
+                        match credential::promote_env_to_infisical(&source, destination).await {
+                            Ok(()) => {
+                                config
+                                    .credentials
+                                    .insert(binding.to_string(), destination.to_string());
+                                match runtime::CompanyConfig::save(&daemon.root, &config) {
+                                    Ok(()) => Response::ok(format!(
+                                        "promoted bootstrap reference for {binding} into Infisical"
+                                    )),
+                                    Err(error) => Response::err(format!("{error:#}")),
+                                }
+                            }
+                            Err(error) => Response::err(format!("{error:#}")),
+                        }
+                    }
+                    Err(error) => Response::err(format!("{error:#}")),
+                }
+            }
+            _ => Response::err("credential-promote needs binding and destination reference"),
+        },
         "credential-check" => match runtime::CompanyConfig::load(&daemon.root, company) {
             Ok(config) => {
                 let mut rows = Vec::with_capacity(config.credentials.len());
@@ -1241,7 +991,7 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
             },
             Err(error) => Response::err(format!("{error:#}")),
         },
-        "legal-set" => match request.body.as_deref() {
+        "legal-set" => match request.common.body.as_deref() {
             Some(body) => match serde_json::from_str::<legal::LegalProfileInput>(body) {
                 Ok(input) => match legal::set_profile(&daemon.authority, company, input, "owner").await
                 {
@@ -1278,7 +1028,7 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
                 | (_, _, _, Err(error)) => Response::err(format!("{error:#}")),
             }
         }
-        "finance-envelope-set" => match request.body.as_deref() {
+        "finance-envelope-set" => match request.common.body.as_deref() {
             Some(body) => match serde_json::from_str::<finance::MoneyEnvelopeInput>(body) {
                 Ok(input) => {
                     match finance::set_envelope(&daemon.authority, company, input, "owner").await {
@@ -1290,12 +1040,12 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
             },
             None => Response::err("finance-envelope-set needs an envelope"),
         },
-        "finance-freeze" => match request.state.as_deref() {
+        "finance-freeze" => match request.common.state.as_deref() {
             Some(currency) => match finance::set_frozen(
                 &daemon.authority,
                 company,
                 currency,
-                request.apply,
+                request.authority.apply,
                 "owner",
             )
             .await
@@ -1305,7 +1055,7 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
             },
             None => Response::err("finance-freeze needs a currency"),
         },
-        "finance-connect-airwallex" => match request.body.as_deref() {
+        "finance-connect-airwallex" => match request.common.body.as_deref() {
             Some(body) => match serde_json::from_str::<airwallex::ConnectionInput>(body) {
                 Ok(input) => {
                     match airwallex::set_connection(&daemon.authority, company, input, "owner").await
@@ -1332,7 +1082,7 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
             },
             Err(error) => Response::err(format!("{error:#}")),
         },
-        "finance-reserve" => match request.body.as_deref() {
+        "finance-reserve" => match request.common.body.as_deref() {
             Some(body) => match serde_json::from_str::<finance::PaymentIntentInput>(body) {
                 Ok(mut input) => {
                     input.requesting_actor = if principal == Principal::Owner {
@@ -1357,7 +1107,7 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
         },
         "finance-submit" => match (
             runtime::CompanyConfig::load(&daemon.root, company),
-            request.key.as_deref(),
+            request.authority.key.as_deref(),
         ) {
             (Ok(config), Some(key)) => {
                 match airwallex::submit_reserved(&config, &daemon.authority, key).await {
@@ -1370,7 +1120,7 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
         },
         "finance-reconcile" => match (
             runtime::CompanyConfig::load(&daemon.root, company),
-            request.key.as_deref(),
+            request.authority.key.as_deref(),
         ) {
             (Ok(config), Some(key)) => {
                 match airwallex::reconcile_payment(&config, &daemon.authority, key).await {
@@ -1434,7 +1184,7 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
                         }
                     }
                     let _guard = schedule::WakeGuard::new(company, &daemon.in_flight);
-                    let reason = request.reason.as_deref().unwrap_or("owner-requested wake");
+                    let reason = request.common.reason.as_deref().unwrap_or("owner-requested wake");
                     match schedule::run_exec_turn(daemon, &config, &org, reason).await {
                         Ok(report) => match serde_json::to_value(&report) {
                             Ok(value) => Response::ok(value),
@@ -1453,7 +1203,7 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
         // An owner directive: mail to the Exec. The T6 message trigger
         // turns it into a wake — answering a blocked judgement request is
         // this same command.
-        "tell" => match request.body {
+        "tell" => match request.common.body {
             Some(body) => match daemon.orgintel.get(company).await {
                 Ok(org) => {
                     // The lifecycle path owns standing actors; retain this as
@@ -1477,7 +1227,7 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
         // reading the Exec's assembled prompt or the database.
         "people" => match daemon.orgintel.get(company).await {
             Ok(org) => {
-                let actors = if request.include_retired {
+                let actors = if request.orgintel.include_retired {
                     org.list_actors_including_retired().await
                 } else {
                     org.list_actors().await
@@ -1552,11 +1302,11 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
             Err(error) => Response::err(format!("{error:#}")),
         },
         "actor-create" => match (
-            request.as_actor.as_deref(),
-            request.role.as_deref(),
-            request.name.as_deref(),
-            request.actor.as_deref(),
-            request.reason.as_deref(),
+            request.common.as_actor.as_deref(),
+            request.orgintel.role.as_deref(),
+            request.orgintel.name.as_deref(),
+            request.orgintel.actor.as_deref(),
+            request.common.reason.as_deref(),
         ) {
             (Some(actor_id), Some(role), Some(display), Some(created_by), Some(reason)) => {
                 match daemon.orgintel.get(company).await {
@@ -1565,7 +1315,7 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
                             actor_id,
                             role,
                             display,
-                            request.model.as_deref(),
+                            request.orgintel.model.as_deref(),
                             created_by,
                             reason,
                         )
@@ -1586,10 +1336,10 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
             ),
         },
         "actor-model" => match (
-            request.as_actor.as_deref(),
-            request.model.as_deref(),
-            request.actor.as_deref(),
-            request.reason.as_deref(),
+            request.common.as_actor.as_deref(),
+            request.orgintel.model.as_deref(),
+            request.orgintel.actor.as_deref(),
+            request.common.reason.as_deref(),
         ) {
             (Some(actor_id), Some(model), Some(changed_by), Some(reason)) => {
                 match daemon.orgintel.get(company).await {
@@ -1611,9 +1361,9 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
             ),
         },
         "actor-retire" => match (
-            request.as_actor.as_deref(),
-            request.actor.as_deref(),
-            request.reason.as_deref(),
+            request.common.as_actor.as_deref(),
+            request.orgintel.actor.as_deref(),
+            request.common.reason.as_deref(),
         ) {
             (Some(actor_id), Some(retired_by), Some(reason)) => {
                 match daemon.orgintel.get(company).await {
@@ -1674,10 +1424,10 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
             Err(error) => Response::err(format!("{error:#}")),
         },
         "team-create" => match (
-            request.name.as_deref(),
-            request.to.as_deref(),
-            request.body.as_deref(),
-            request.actor.as_deref(),
+            request.orgintel.name.as_deref(),
+            request.common.to.as_deref(),
+            request.common.body.as_deref(),
+            request.orgintel.actor.as_deref(),
         ) {
             (Some(name), Some(lead), Some(brief), Some(created_by)) => {
                 match daemon.orgintel.get(company).await {
@@ -1691,9 +1441,9 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
             _ => Response::err("team create needs --name, --lead, --brief, and an acting actor"),
         },
         "team-update" => match (
-            request.name.as_deref(),
-            request.actor.as_deref(),
-            request.reason.as_deref(),
+            request.orgintel.name.as_deref(),
+            request.orgintel.actor.as_deref(),
+            request.common.reason.as_deref(),
         ) {
             (Some(team), Some(changed_by), Some(reason)) => {
                 match daemon.orgintel.get(company).await {
@@ -1701,8 +1451,8 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
                         Ok(id) => match org
                             .update_team(
                                 id,
-                                request.new_name.as_deref(),
-                                request.body.as_deref(),
+                                request.orgintel.new_name.as_deref(),
+                                request.common.body.as_deref(),
                                 changed_by,
                                 reason,
                             )
@@ -1719,10 +1469,10 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
             _ => Response::err("team update needs --team, --reason, and an acting actor"),
         },
         "team-assign" => match (
-            request.as_actor.as_deref(),
-            request.name.as_deref(),
-            request.actor.as_deref(),
-            request.reason.as_deref(),
+            request.common.as_actor.as_deref(),
+            request.orgintel.name.as_deref(),
+            request.orgintel.actor.as_deref(),
+            request.common.reason.as_deref(),
         ) {
             (Some(actor), Some(team), Some(changed_by), Some(reason)) => {
                 match daemon.orgintel.get(company).await {
@@ -1750,10 +1500,10 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
             _ => Response::err("team assign needs --actor, --team, --reason, and an acting actor"),
         },
         "team-lead" => match (
-            request.name.as_deref(),
-            request.to.as_deref(),
-            request.actor.as_deref(),
-            request.reason.as_deref(),
+            request.orgintel.name.as_deref(),
+            request.common.to.as_deref(),
+            request.orgintel.actor.as_deref(),
+            request.common.reason.as_deref(),
         ) {
             (Some(team), Some(actor), Some(changed_by), Some(reason)) => {
                 match daemon.orgintel.get(company).await {
@@ -1772,9 +1522,9 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
             _ => Response::err("team lead needs --team, --actor, --reason, and an acting actor"),
         },
         "team-disband" => match (
-            request.name.as_deref(),
-            request.actor.as_deref(),
-            request.reason.as_deref(),
+            request.orgintel.name.as_deref(),
+            request.orgintel.actor.as_deref(),
+            request.common.reason.as_deref(),
         ) {
             (Some(team), Some(changed_by), Some(reason)) => {
                 match daemon.orgintel.get(company).await {
@@ -1795,7 +1545,7 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
             }
             _ => Response::err("team disband needs --team, --reason, and an acting actor"),
         },
-        "judgement" => match request.as_actor.as_deref() {
+        "judgement" => match request.common.as_actor.as_deref() {
             Some(actor) => match daemon.orgintel.get(company).await {
                 Ok(org) => match org.handoffs_assigned_to(actor).await {
                     Ok(rows) => Response::ok(serde_json::to_value(rows).unwrap_or_default()),
@@ -1806,9 +1556,9 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
             None => Response::err("judgement needs --as <actor>"),
         },
         "work-handoff-escalate" => match (
-            request.id.as_deref().map(uuid::Uuid::parse_str).transpose(),
-            request.as_actor.as_deref(),
-            request.reason.as_deref(),
+            request.common.id.as_deref().map(uuid::Uuid::parse_str).transpose(),
+            request.common.as_actor.as_deref(),
+            request.common.reason.as_deref(),
         ) {
             (Ok(Some(id)), Some(actor), Some(reason)) => match daemon.orgintel.get(company).await {
                 Ok(org) => match org.escalate_handoff(id, actor, reason).await {
@@ -1825,8 +1575,8 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
         },
         "receipts" => match daemon.authority.records_of_kind(company, "effect").await {
             Ok(events) => {
-                let wanted = request.capability.as_deref();
-                let limit = request.limit.unwrap_or(50).max(1) as usize;
+                let wanted = request.authority.capability.as_deref();
+                let limit = request.common.limit.unwrap_or(50).max(1) as usize;
                 let rows: Vec<serde_json::Value> = events
                     .iter()
                     .rev()
@@ -1892,11 +1642,11 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
                         .collect();
                     Response::ok(serde_json::json!({
                         "accounted_usd": round_usd(accounted),
-                        "ceiling_usd": config.spend_ceiling_usd,
+                        "ceiling_usd": config.spend_ceiling_usd.as_usd(),
                         "remaining_usd": if poisoned {
                             serde_json::Value::Null
                         } else {
-                            serde_json::json!(round_usd((config.spend_ceiling_usd - accounted).max(0.0)))
+                            serde_json::json!(round_usd(daemon.spend.remaining_usd(&config)))
                         },
                         "poisoned": poisoned,
                         "note": if poisoned {
@@ -1919,13 +1669,14 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
             if let Err(error) = runtime::CompanyConfig::load(&daemon.root, company) {
                 return Response::err(format!("{error:#}"));
             }
-            let Some(correction_id) = request.correction_id.as_deref() else {
+            let Some(correction_id) = request.authority.correction_id.as_deref() else {
                 return Response::err("spend-correct needs --correction-id");
             };
             let Ok(correction_id) = uuid::Uuid::parse_str(correction_id) else {
                 return Response::err("spend-correct correction id must be a UUID");
             };
             let request_ids = match request
+                .authority
                 .request_ids
                 .iter()
                 .map(|request_id| uuid::Uuid::parse_str(request_id))
@@ -1934,13 +1685,13 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
                 Ok(request_ids) => request_ids,
                 Err(_) => return Response::err("spend-correct request ids must be UUIDs"),
             };
-            let Some(delta_micro_usd) = request.delta_micro_usd else {
+            let Some(delta_micro_usd) = request.authority.delta_micro_usd else {
                 return Response::err("spend-correct needs --delta-micro-usd");
             };
-            let Some(reason) = request.reason.as_deref() else {
+            let Some(reason) = request.common.reason.as_deref() else {
                 return Response::err("spend-correct needs --reason");
             };
-            if request.apply {
+            if request.authority.apply {
                 match daemon.spend.correct(
                     correction_id,
                     company,
@@ -1984,9 +1735,9 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
             Err(error) => Response::err(format!("{error:#}")),
         },
         "goal-add" => match (
-            request.title.as_deref(),
-            request.body.as_deref(),
-            request.actor.as_deref(),
+            request.orgintel.title.as_deref(),
+            request.common.body.as_deref(),
+            request.orgintel.actor.as_deref(),
         ) {
             (Some(title), Some(body), Some(actor)) => match daemon.orgintel.get(company).await {
                 Ok(org) => match org.add_goal(title, body, actor).await {
@@ -1998,9 +1749,9 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
             _ => Response::err("goal-add needs title, body and actor attribution"),
         },
         "work-goal" => match (
-            request.id.as_deref(),
-            request.goal.as_deref(),
-            request.actor.as_deref(),
+            request.common.id.as_deref(),
+            request.orgintel.goal.as_deref(),
+            request.orgintel.actor.as_deref(),
         ) {
             (Some(work_id), Some(goal_id), Some(actor)) => {
                 let work_id = match uuid::Uuid::parse_str(work_id) {
@@ -2041,7 +1792,7 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
         },
         "work-attempts" => match daemon.orgintel.get(company).await {
             Ok(org) => {
-                let work_id = match request.id.as_deref().map(uuid::Uuid::parse_str).transpose() {
+                let work_id = match request.common.id.as_deref().map(uuid::Uuid::parse_str).transpose() {
                     Ok(value) => value,
                     Err(error) => return Response::err(format!("bad Work id: {error}")),
                 };
@@ -2053,10 +1804,10 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
             Err(error) => Response::err(format!("{error:#}")),
         },
         "work-assign" => match (
-            request.id.as_deref().map(uuid::Uuid::parse_str).transpose(),
-            request.to.as_deref(),
-            request.actor.as_deref(),
-            request.reason.as_deref(),
+            request.common.id.as_deref().map(uuid::Uuid::parse_str).transpose(),
+            request.common.to.as_deref(),
+            request.orgintel.actor.as_deref(),
+            request.common.reason.as_deref(),
         ) {
             (Ok(Some(work_id)), Some(new_owner), Some(changed_by), Some(reason)) => {
                 match daemon.orgintel.get(company).await {
@@ -2078,10 +1829,10 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
             _ => Response::err("work-assign needs Work id, new owner, reason and acting actor"),
         },
         "work-add" => match (
-            request.actor.as_deref(),
-            request.role.as_deref(),
-            request.title.as_deref(),
-            request.body.as_deref(),
+            request.orgintel.actor.as_deref(),
+            request.orgintel.role.as_deref(),
+            request.orgintel.title.as_deref(),
+            request.common.body.as_deref(),
         ) {
             (Some(owner), Some(role), Some(title), Some(outcome)) => {
                 match daemon.orgintel.get(company).await {
@@ -2099,7 +1850,7 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
                                 actor.role
                             ));
                         }
-                        if let Some(requested_model) = request.model.as_deref() {
+                        if let Some(requested_model) = request.orgintel.model.as_deref() {
                             if actor.model.as_deref() != Some(requested_model) {
                                 return Response::err(format!(
                                     "Work requested model {requested_model:?}, but durable actor {owner:?} uses {:?}; model changes belong to the actor/session, not a Work assignment",
@@ -2107,7 +1858,7 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
                                 ));
                             }
                         }
-                        let goal_id = match request.goal.as_deref() {
+                        let goal_id = match request.orgintel.goal.as_deref() {
                             Some(goal_id) => match uuid::Uuid::parse_str(goal_id) {
                                 Ok(goal_id) => Some(goal_id),
                                 Err(error) => {
@@ -2121,15 +1872,15 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
                             title,
                             outcome,
                             goal_id,
-                            priority: request.priority.unwrap_or(0),
-                            expected_artifact: request.expected_artifact.as_deref().unwrap_or(""),
+                            priority: request.orgintel.priority.unwrap_or(0),
+                            expected_artifact: request.orgintel.expected_artifact.as_deref().unwrap_or(""),
                             workspace: restless_orgintel::WorkspaceSpec {
-                                repo: request.repo,
-                                base_ref: request.base_ref,
-                                integration_branch: request.integration_branch,
-                                worktree: request.worktree,
+                                repo: request.orgintel.repo,
+                                base_ref: request.orgintel.base_ref,
+                                integration_branch: request.orgintel.integration_branch,
+                                worktree: request.orgintel.worktree,
                             },
-                            attempt_limit: request.attempt_limit,
+                            attempt_limit: request.orgintel.attempt_limit,
                         };
                         let parse_edges = |values: &[String], label: &str| {
                             values
@@ -2141,15 +1892,16 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
                                 })
                                 .collect::<Result<Vec<_>, _>>()
                         };
-                        let requires = match parse_edges(&request.requires, "required") {
+                        let requires = match parse_edges(&request.orgintel.requires, "required") {
                             Ok(values) => values,
                             Err(error) => return Response::err(error),
                         };
-                        let revises = match parse_edges(&request.revises, "revised") {
+                        let revises = match parse_edges(&request.orgintel.revises, "revised") {
                             Ok(values) => values,
                             Err(error) => return Response::err(error),
                         };
                         let gates = request
+                            .orgintel
                             .gates
                             .iter()
                             .map(|gate| restless_orgintel::InitialWorkGate {
@@ -2171,9 +1923,9 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
             _ => Response::err("work-add needs owner, role, title and outcome"),
         },
         "work-edge" => match (
-            request.from.as_deref(),
-            request.to.as_deref(),
-            request.kind.as_deref(),
+            request.common.from.as_deref(),
+            request.common.to.as_deref(),
+            request.orgintel.kind.as_deref(),
         ) {
             (Some(from), Some(to), Some(kind)) => {
                 let (Ok(from), Ok(to)) = (uuid::Uuid::parse_str(from), uuid::Uuid::parse_str(to))
@@ -2191,11 +1943,11 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
                 };
                 match daemon.orgintel.get(company).await {
                     Ok(org) => {
-                        if request.action.as_deref() == Some("remove") {
-                            let Some(changed_by) = request.as_actor.as_deref() else {
+                        if request.owner.action.as_deref() == Some("remove") {
+                            let Some(changed_by) = request.common.as_actor.as_deref() else {
                                 return Response::err("removing a Work edge needs --as");
                             };
-                            let Some(reason) = request.reason.as_deref() else {
+                            let Some(reason) = request.common.reason.as_deref() else {
                                 return Response::err("removing a Work edge needs --reason");
                             };
                             match org
@@ -2218,10 +1970,10 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
             _ => Response::err("work-edge needs from, to and kind"),
         },
         "work-artifact" => match (
-            request.id.as_deref(),
-            request.attempt.as_deref(),
-            request.kind.as_deref(),
-            request.uri.as_deref(),
+            request.common.id.as_deref(),
+            request.orgintel.attempt.as_deref(),
+            request.orgintel.kind.as_deref(),
+            request.orgintel.uri.as_deref(),
         ) {
             (Some(work), Some(attempt), Some(kind), Some(uri)) => {
                 let (Ok(work_id), Ok(attempt_id)) =
@@ -2234,14 +1986,14 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
                         .link_work_artifact(restless_orgintel::NewArtifactRef {
                             kind,
                             uri,
-                            note: request.body.as_deref().unwrap_or(""),
-                            created_by: request.actor.as_deref().unwrap_or("owner"),
+                            note: request.common.body.as_deref().unwrap_or(""),
+                            created_by: request.orgintel.actor.as_deref().unwrap_or("owner"),
                             work_id: Some(work_id),
                             attempt_id: Some(attempt_id),
-                            digest: request.digest.as_deref(),
-                            source_commit: request.source_commit.as_deref(),
+                            digest: request.orgintel.digest.as_deref(),
+                            source_commit: request.orgintel.source_commit.as_deref(),
                             runtime_generation: None,
-                            label: request.label.as_deref().unwrap_or("output"),
+                            label: request.orgintel.label.as_deref().unwrap_or("output"),
                         })
                         .await
                     {
@@ -2254,10 +2006,10 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
             _ => Response::err("work-artifact needs work, attempt, kind and uri"),
         },
         "work-gate" => match (
-            request.id.as_deref(),
-            request.name.as_deref(),
-            request.cwd.as_deref(),
-            request.argv.as_deref(),
+            request.common.id.as_deref(),
+            request.orgintel.name.as_deref(),
+            request.orgintel.cwd.as_deref(),
+            request.orgintel.argv.as_deref(),
         ) {
             (Some(work), Some(name), Some(cwd), Some(argv)) => {
                 let Ok(work_id) = uuid::Uuid::parse_str(work) else {
@@ -2270,7 +2022,7 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
                             name,
                             cwd,
                             command: argv,
-                            created_by: request.actor.as_deref().unwrap_or("owner"),
+                            created_by: request.orgintel.actor.as_deref().unwrap_or("owner"),
                         })
                         .await
                     {
@@ -2283,17 +2035,18 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
             _ => Response::err("work-gate needs work, name, cwd and command"),
         },
         "work-handoff" => match (
-            request.id.as_deref(),
-            request.category.as_deref(),
-            request.action.as_deref(),
-            request.prepared.as_deref(),
-            request.resume_when.as_deref(),
+            request.common.id.as_deref(),
+            request.owner.category.as_deref(),
+            request.owner.action.as_deref(),
+            request.owner.prepared.as_deref(),
+            request.owner.resume_when.as_deref(),
         ) {
             (Some(work), Some(category), Some(action), Some(prepared), Some(resume_when)) => {
                 let Ok(work_id) = uuid::Uuid::parse_str(work) else {
                     return Response::err("bad Work id");
                 };
                 let attempt_id = match request
+                    .orgintel
                     .attempt
                     .as_deref()
                     .map(uuid::Uuid::parse_str)
@@ -2325,7 +2078,7 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
                         .request_owner_handoff(restless_orgintel::NewOwnerHandoff {
                             work_id,
                             attempt_id,
-                            requested_by: request.actor.as_deref().unwrap_or("owner"),
+                            requested_by: request.orgintel.actor.as_deref().unwrap_or("owner"),
                             category,
                             requested_action: action,
                             prepared_state: prepared,
@@ -2344,11 +2097,11 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
             ),
         },
         "work-handoff-refresh" => match (
-            request.id.as_deref(),
-            request.as_actor.as_deref(),
-            request.action.as_deref(),
-            request.prepared.as_deref(),
-            request.resume_when.as_deref(),
+            request.common.id.as_deref(),
+            request.common.as_actor.as_deref(),
+            request.owner.action.as_deref(),
+            request.owner.prepared.as_deref(),
+            request.owner.resume_when.as_deref(),
         ) {
             (Some(id), Some(changed_by), Some(action), Some(prepared), Some(resume_when)) => {
                 let Ok(id) = uuid::Uuid::parse_str(id) else {
@@ -2373,14 +2126,14 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
             ),
         },
         "work-handoff-prepare-brief" => match (
-            request.id.as_deref(),
-            request.as_actor.as_deref(),
-            request.owner_kind.as_deref(),
-            request.headline.as_deref(),
-            request.situation.as_deref(),
-            request.impact.as_deref(),
-            request.recommendation.as_deref(),
-            request.no_action.as_deref(),
+            request.common.id.as_deref(),
+            request.common.as_actor.as_deref(),
+            request.owner.owner_kind.as_deref(),
+            request.owner.headline.as_deref(),
+            request.owner.situation.as_deref(),
+            request.owner.impact.as_deref(),
+            request.owner.recommendation.as_deref(),
+            request.owner.no_action.as_deref(),
         ) {
             (
                 Some(id),
@@ -2413,8 +2166,8 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
                     impact: impact.to_string(),
                     recommendation: recommendation.to_string(),
                     no_action: no_action.to_string(),
-                    uncertainty: request.uncertainty.clone(),
-                    deadline: request.deadline.clone(),
+                    uncertainty: request.owner.uncertainty.clone(),
+                    deadline: request.owner.deadline.clone(),
                 };
                 match daemon.orgintel.get(company).await {
                     Ok(org) => match org.prepare_owner_brief(id, briefed_by, brief).await {
@@ -2432,10 +2185,10 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
             ),
         },
         "work-handoff-resolve" => match (
-            request.id.as_deref(),
-            request.state.as_deref(),
-            request.resolution.as_deref(),
-            request.as_actor.as_deref(),
+            request.common.id.as_deref(),
+            request.common.state.as_deref(),
+            request.common.resolution.as_deref(),
+            request.common.as_actor.as_deref(),
         ) {
             (Some(id), Some(state), Some(resolution), Some(resolved_by))
                 if !resolution.trim().is_empty() =>
@@ -2467,9 +2220,9 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
             _ => Response::err("work-handoff-resolve needs handoff, state, resolution and --as"),
         },
         "work-resume" => match (
-            request.id.as_deref().map(uuid::Uuid::parse_str).transpose(),
-            request.as_actor.as_deref(),
-            request.reason.as_deref(),
+            request.common.id.as_deref().map(uuid::Uuid::parse_str).transpose(),
+            request.common.as_actor.as_deref(),
+            request.common.reason.as_deref(),
         ) {
             (Ok(Some(id)), Some(actor), Some(reason)) => match daemon.orgintel.get(company).await {
                 Ok(org) => match org.resume_work(id, actor, reason).await {
@@ -2484,9 +2237,9 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
             _ => Response::err("work-resume needs work, reason and --as"),
         },
         "work-abandon" => match (
-            request.id.as_deref().map(uuid::Uuid::parse_str).transpose(),
-            request.as_actor.as_deref(),
-            request.reason.as_deref(),
+            request.common.id.as_deref().map(uuid::Uuid::parse_str).transpose(),
+            request.common.as_actor.as_deref(),
+            request.common.reason.as_deref(),
         ) {
             (Ok(Some(id)), Some(actor), Some(reason)) => match daemon.orgintel.get(company).await {
                 Ok(org) => match org.abandon_work(id, actor, reason).await {
@@ -2500,7 +2253,7 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
             (Err(error), _, _) => Response::err(format!("bad Work id: {error}")),
             _ => Response::err("work-abandon needs work, reason and --as"),
         },
-        "work-review" => match (request.id.as_deref(), request.state.as_deref()) {
+        "work-review" => match (request.common.id.as_deref(), request.common.state.as_deref()) {
             (Some(id), Some(state)) => {
                 let Ok(id) = uuid::Uuid::parse_str(id) else {
                     return Response::err("bad handoff id");
@@ -2519,7 +2272,7 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
                         .decide_owner_review(
                             id,
                             decision,
-                            request.resolution.as_deref().unwrap_or(""),
+                            request.common.resolution.as_deref().unwrap_or(""),
                         )
                         .await
                     {
@@ -2533,37 +2286,57 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
         },
         // Reading your own inbox marks read; inspecting another actor's
         // (--as) does not — an observer must not hide mail from its
-        // addressee.
+        // addressee. A company actor carries its durable actor id, so its
+        // self-read can also prove which live Attempt actually received a
+        // Work-linked message. This is ordinary inbox delivery, not a second
+        // Work/message protocol.
         "inbox" => match daemon.orgintel.get(company).await {
-            Ok(org) => match org.inbox(request.as_actor.as_deref()).await {
-                Ok(messages) => {
-                    if request.as_actor.is_none() {
-                        for message in &messages {
-                            if let Err(error) = org.mark_read(message.id).await {
-                                tracing::warn!("mark_read {}: {error:#}", message.id);
+            Ok(org) => {
+                let self_read_actor = if principal == Principal::CompanyExec {
+                    request.orgintel.actor.as_deref().filter(|actor| {
+                        request
+                            .common
+                            .as_actor
+                            .as_deref()
+                            .is_none_or(|requested| requested == *actor)
+                    })
+                } else {
+                    None
+                };
+                let result = match self_read_actor {
+                    Some(actor) => org.consume_inbox_for_actor(actor).await,
+                    None => org.inbox(request.common.as_actor.as_deref()).await,
+                };
+                match result {
+                    Ok(messages) => {
+                        if self_read_actor.is_none() && request.common.as_actor.is_none() {
+                            for message in &messages {
+                                if let Err(error) = org.mark_read(message.id).await {
+                                    tracing::warn!("mark_read {}: {error:#}", message.id);
+                                }
                             }
                         }
+                        Response::ok(serde_json::to_value(messages).unwrap_or_default())
                     }
-                    Response::ok(serde_json::to_value(messages).unwrap_or_default())
+                    Err(error) => Response::err(format!("{error:#}")),
                 }
-                Err(error) => Response::err(format!("{error:#}")),
-            },
+            }
             Err(error) => Response::err(format!("{error:#}")),
         },
-        "message" => match (request.from, request.body) {
+        "message" => match (request.common.from, request.common.body) {
             (Some(from), Some(body)) => match daemon.orgintel.get(company).await {
                 Ok(org) => {
-                    let result = match request.id.as_deref() {
+                    let result = match request.common.id.as_deref() {
                         Some(work_id) => {
                             let Ok(work_id) = uuid::Uuid::parse_str(work_id) else {
                                 return Response::err("bad Work id on message");
                             };
-                            match request.to.as_deref() {
+                            match request.common.to.as_deref() {
                                 Some(to) => org.send_work_message(&from, to, work_id, &body).await,
                                 None => org.send_work_message_to_owner(&from, work_id, &body).await,
                             }
                         }
-                        None => org.send_message(&from, request.to.as_deref(), &body).await,
+                        None => org.send_message(&from, request.common.to.as_deref(), &body).await,
                     };
                     match result {
                         Ok(id) => Response::ok(serde_json::json!({ "message_id": id })),
@@ -2575,7 +2348,7 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
             _ => Response::err("message needs from and body"),
         },
         "events" => match daemon.orgintel.get(company).await {
-            Ok(org) => match org.list_events(request.limit.unwrap_or(50)).await {
+            Ok(org) => match org.list_events(request.common.limit.unwrap_or(50)).await {
                 Ok(events) => Response::ok(serde_json::to_value(events).unwrap_or_default()),
                 Err(error) => Response::err(format!("{error:#}")),
             },
@@ -2593,7 +2366,7 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
         // only a best-effort wake message. Idempotent: approving twice is not
         // an error, because an owner re-confirming should never look like a
         // failure.
-        "approve" | "revoke" | "decline" => match request.party {
+        "approve" | "revoke" | "decline" => match request.authority.party {
             Some(party) => {
                 let org = daemon.orgintel.get(company).await.ok();
                 let result = match request.cmd.as_str() {
@@ -2659,7 +2432,7 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
             Err(error) => Response::err(format!("{error:#}")),
         },
         "browser-request" => {
-            let requester = request.id.as_deref().unwrap_or("exec");
+            let requester = request.common.id.as_deref().unwrap_or("exec");
             let current = runtime::read_browser_control(company).await.ok().flatten();
             if current.as_ref().is_some_and(|value| {
                 value["controller"] == "owner"
@@ -2689,14 +2462,14 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
             }
         }
         "effect" => match (
-            request.effect_class,
-            request.purpose,
-            request.key,
-            request.cwd,
-            request.argv,
+            request.authority.effect_class,
+            request.authority.purpose,
+            request.authority.key,
+            request.orgintel.cwd,
+            request.orgintel.argv,
         ) {
             (Some(effect_class), Some(purpose), Some(key), Some(cwd), Some(argv)) => {
-                let actor = request.actor.as_deref().unwrap_or("owner");
+                let actor = request.orgintel.actor.as_deref().unwrap_or("owner");
                 match runtime::CompanyConfig::load(&daemon.root, company) {
                     Ok(config) => {
                         let org = daemon.orgintel.get(company).await.ok();
@@ -2707,12 +2480,12 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
                                 org: org.as_ref(),
                             },
                             &effect_class,
-                            request.party.as_deref(),
+                            request.authority.party.as_deref(),
                             &purpose,
-                            request.artifacts.unwrap_or_default(),
+                            request.authority.artifacts.unwrap_or_default(),
                             &cwd,
                             argv,
-                            request.secret_bindings.unwrap_or_default(),
+                            request.authority.secret_bindings.unwrap_or_default(),
                             &key,
                             actor,
                         )
@@ -2731,10 +2504,10 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
             _ => Response::err("effect needs class, purpose, key, cwd and command"),
         },
         "effect-reconcile" => match (
-            request.key.as_deref(),
-            request.execution_no,
-            request.state.as_deref(),
-            request.id.as_deref(),
+            request.authority.key.as_deref(),
+            request.authority.execution_no,
+            request.common.state.as_deref(),
+            request.common.id.as_deref(),
         ) {
             (Some(key), Some(execution_no), Some(result), Some(evidence_receipt)) => {
                 match effect::reconcile_unknown(
@@ -2744,7 +2517,7 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
                     execution_no,
                     result,
                     evidence_receipt,
-                    request.actor.as_deref().unwrap_or("owner"),
+                    request.orgintel.actor.as_deref().unwrap_or("owner"),
                 )
                 .await
                 {

@@ -1,6 +1,7 @@
 # Communication frontier research programme
 
-Status: approved experimental direction; no wildcard is a production default
+Status: EXP-02 closed; EXP-03 is drafted to test the accountability/execution abstraction frontier;
+no wildcard is a production default and only a named evidence gate may reopen one
 
 ## 1. Objective
 
@@ -128,6 +129,59 @@ The remaining sequence is therefore:
    `not-activated` as their final sprint disposition when the trigger never appears;
 5. replicate only a provisional winner. If neither sentinel shows credible unused parallel value,
    stop wildcard execution and retain B0 as the scoped prior.
+
+### EXP-02 closure — 23 August 2026
+
+EXP-02 screened the observed bottlenecks and recommends no new durable mechanism. Final wildcard
+dispositions are:
+
+| Wildcard | Final disposition | Evidence / reopening gate |
+|---|---|---|
+| W01 session mitosis | superseded; A2 not activated | A1 exact artifact access removed source loss; no residual causal-context loss appeared on P1. Reopen only on an observed failure exact access cannot solve. |
+| W02 fork–work–reunite | deferred | Requires a one-shot shared-history win plus a real interface change. |
+| W03 Exec-to-lead fork | deferred | Exec availability is fixed; no evidence justified authority/context leakage and the mechanism remains likely to lose. |
+| W04 one brain, many hands | blocked | No distinct bounded executor exists beyond ordinary lead tools or autonomous Work. |
+| W05 semantic blackboard | rejected | No repeated shared-state failure justified a second plan/database. |
+| W06 causal deltas | deferred | Full-context replay did not dominate cost after the narrower screens. |
+| W07 proof-carrying handoff | rejected after A4 fold | A4 showed compact proof handles are useful, but a rich recovery capsule failed its churn gate. |
+| W08 ambient artifact events | not activated | Preservation/event observation is a product floor; no noisy or late delivery bottleneck justified a new feed. |
+| W09 questions-only communication | rejected | No narration-volume failure and the restriction conflicts with natural communication. |
+| W10 blind sibling diversification | deferred | P4 same-artifact criticism lost; reopen only for genuinely independent evidence or alternatives. |
+| W11 cross-finish | not activated; diagnostic only | No production mechanism claim. |
+| W12 micro-audition | not activated | No genuine actor or seam-selection uncertainty occurred. |
+| W13 sealed shadow | deferred | No repeated high-uncertainty dead end justified duplicate production. |
+| W14 adaptive gates | not activated | No repeated material-change communication bottleneck activated A3. |
+| W15 KV-state cloning | superseded into separate study | Runtime/cache feasibility cannot decide organisational quality. |
+| W16 common room/private offices | deferred | No multi-party dialogue bottleneck remained after natural one-Staff runs. |
+
+These rows supersede the older staged queue for the completed sprint. `Deferred` requires new observed
+evidence; it is not approval to implement.
+
+### EXP-03 proposed frontier — 24 August 2026
+
+The next decision is narrower than the wildcard catalogue: determine whether current solo advantage
+comes from fast lead economics, avoidable coordination weakness or placing responsibility at the wrong
+level. The four comparison shapes are:
+
+```text
+shared outcome: direct | bounded hands | semantic Staff
+portfolio: one broad lead | separate accountable leads
+replicated units: one producer | elastic same-role Staff pool
+lead posture: player-coach | supervisor-only
+```
+
+`W04` is reopened only as a conformance question inside the EXP-03 draft: can a bounded hand be made
+mechanically distinct from ordinary lead tools and autonomous Staff without hidden cognitive work? If
+not, it closes as `not-identifiable`; no executor is built merely to keep the hypothesis alive. The
+portfolio makes domain validity explicit: alongside one coding/product sentinel, it requires a
+source-complete research decision and a document/operational outcome with no live external effect.
+It also adds a safe sales-like queue because repeated independent units may scale very differently
+from several actors coauthoring one artifact.
+One disruption sentinel separately tests whether preserving a non-producing lead for mission
+alignment, redirection and repair repays its lost production capacity; prior B1/N1 arms were
+player-coach topologies and did not answer that question.
+The full frozen proposal and stop rules live in
+[`../exp-sprints/exp-sprint-03-coordination-abstraction-frontier.md`](../exp-sprints/exp-sprint-03-coordination-abstraction-frontier.md).
 
 ### Stage 2 — Replication on different work shapes
 

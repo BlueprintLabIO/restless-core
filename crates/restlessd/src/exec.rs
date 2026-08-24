@@ -120,13 +120,15 @@ pub async fn wake(
 
     // T7: gather the snapshot (IO), then assemble (pure, digested). The
     // digest lands in the wake event so the Exec's worldview is auditable.
+    let spent_usd = spend.spent_usd(&config.name);
     let snapshot = gather_snapshot(
         &container,
         org,
         authority,
         config,
         reason,
-        spend.spent_usd(&config.name),
+        spent_usd,
+        spend.remaining_usd(config),
     )
     .await?;
     let package = context::assemble(&snapshot);
@@ -199,7 +201,27 @@ pub async fn wake(
                 )
             },
         );
-        let remaining = (config.spend_ceiling_usd - spend.spent_usd(&config.name)).max(0.0);
+        // Acquire after provider authentication but before opening the ACP
+        // session. A waiting charged turn consumes no model session; after
+        // the prior holder records usage, it sees the current envelope.
+        // Subscription sessions do not take this lane because their charged
+        // cost is authoritatively zero.
+        let metered_turn = spend.acquire_metered_turn(&config.name, auth.billing).await;
+        if let Some((spent, ceiling)) = spend.over_ceiling(config) {
+            drop(metered_turn);
+            let report = blocked_report(
+                config,
+                model,
+                &format!(
+                    "[budget] {} has spent ${spent:.2} of its ${ceiling:.2} ceiling; the owner must raise it before a queued provider turn starts",
+                    config.name
+                ),
+                failovers,
+            );
+            record_outcome(org, &report).await?;
+            return Ok(report);
+        }
+        let remaining = spend.remaining_usd(config);
         let metered = auth.billing == crate::model_gateway::ModelBilling::MeteredApi;
         let controls = acp::AgentControls::company_actor(package.system_prompt.clone())?;
         let outcome = acp::with_agent(
@@ -242,6 +264,10 @@ pub async fn wake(
         if let Some(usage) = usage {
             record_usage(spend, org, config, &auth, usage, failover_kind).await?;
         }
+        // Keep the lane through final durable accounting so a waiting turn
+        // recalculates from this outcome. Cooldown and failover bookkeeping
+        // are not part of model-session admission.
+        drop(metered_turn);
         if let Some(kind) = failover_kind {
             crate::model_gateway::record_cooldown(
                 authority,
@@ -647,6 +673,7 @@ async fn gather_snapshot(
     config: &CompanyConfig,
     reason: &str,
     spent_usd: f64,
+    remaining_usd: f64,
 ) -> Result<ContextSnapshot> {
     let current_plan = read_company_file(container, "/company/org/exec/current-plan.md").await?;
     let latest_journal = latest_journal_entry(container).await?;
@@ -688,8 +715,8 @@ async fn gather_snapshot(
         inbox,
         owed_judgements,
         wake_reason: reason.to_string(),
-        budget_remaining_usd: (config.spend_ceiling_usd - spent_usd).max(0.0),
-        budget_ceiling_usd: config.spend_ceiling_usd,
+        budget_remaining_usd: remaining_usd,
+        budget_ceiling_usd: config.spend_ceiling_usd.as_usd(),
         effect_ledger: crate::reconcile::effect_ledger(authority, &config.name)
             .await?
             .summary(),

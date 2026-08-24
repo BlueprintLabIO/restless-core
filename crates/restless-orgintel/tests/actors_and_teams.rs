@@ -3,7 +3,8 @@
 //! `RESTLESS_TEST_DATABASE_URL` is available.
 
 use restless_orgintel::{
-    InitialWorkGate, NewWork, NewWorkGate, OrgIntel, WorkAttemptState, WorkspaceSpec,
+    InitialWorkGate, NewArtifactRef, NewAttemptRecovery, NewWork, NewWorkGate, OrgIntel,
+    WorkAttemptState, WorkspaceSpec,
 };
 
 async fn create_actor(org: &OrgIntel, id: &str, role: &str) {
@@ -214,6 +215,432 @@ async fn initial_work_gates_commit_atomically_and_follow_the_attempt_workspace()
         )
         .await;
     assert!(duplicate.is_err());
+}
+
+#[tokio::test]
+async fn unknown_attempt_recovery_is_one_capsule_addressed_to_the_accountable_lead() {
+    let Ok(url) = std::env::var("RESTLESS_TEST_DATABASE_URL") else {
+        eprintln!("RESTLESS_TEST_DATABASE_URL unset; skipping recovery capsule scenario");
+        return;
+    };
+    let company = format!("recovery{}", uuid::Uuid::new_v4().simple());
+    let org = OrgIntel::ensure(&url, &company)
+        .await
+        .expect("ensure scratch company schema");
+    org.ensure_actor("exec", "exec", "exec", "The Exec")
+        .await
+        .unwrap();
+    org.ensure_actor("daemon", "system", "system-sender", "The daemon")
+        .await
+        .unwrap();
+    create_actor(&org, "product-direction", "lead").await;
+    create_actor(&org, "world-builder", "world engineer").await;
+    let team = org
+        .create_team(
+            "Product",
+            "Ship one coherent playable outcome",
+            "product-direction",
+            "exec",
+        )
+        .await
+        .unwrap();
+    org.set_actor_team(
+        "world-builder",
+        Some(team),
+        "product-direction",
+        "owns one stable world-building seam",
+    )
+    .await
+    .unwrap();
+    let work = org
+        .add_work(NewWork {
+            owner_id: "world-builder",
+            title: "Build the crossing",
+            outcome: "produce one inspectable crossing candidate",
+            goal_id: None,
+            priority: 10,
+            expected_artifact: "commit",
+            workspace: WorkspaceSpec {
+                repo: Some("cosmon".into()),
+                base_ref: Some("dev".into()),
+                integration_branch: Some("dev".into()),
+                worktree: Some("crossing-recovery".into()),
+            },
+            attempt_limit: Some(2),
+        })
+        .await
+        .unwrap();
+    let attempt = org
+        .claim_ready_work("runtime")
+        .await
+        .unwrap()
+        .expect("Work should be claimable");
+    let linked_artifact = org
+        .link_work_artifact(NewArtifactRef {
+            kind: "path",
+            uri: "/company/worktrees/crossing-recovery/scene.glb",
+            note: "Staff linked this file before its cognitive process exited",
+            created_by: "world-builder",
+            work_id: Some(work),
+            attempt_id: Some(attempt.attempt_id),
+            digest: Some("scene-digest"),
+            source_commit: Some("abc123"),
+            runtime_generation: None,
+            label: "Crossing scene candidate",
+        })
+        .await
+        .unwrap();
+    let start = serde_json::json!({
+        "workdir": "/company/worktrees/crossing-recovery",
+        "source_commit": "aaaaaa",
+        "status_digest": "clean",
+        "dirty_entries": 0,
+    });
+    let end = serde_json::json!({
+        "workdir": "/company/worktrees/crossing-recovery",
+        "source_commit": "abc123",
+        "status_digest": "changed",
+        "dirty_entries": 1,
+    });
+    let recovery = NewAttemptRecovery {
+        observed_by: "daemon",
+        reason: "simulated process exit after writing an artifact",
+        workspace: "/company/worktrees/crossing-recovery",
+        start_observation: &start,
+        end_observation: &end,
+        start_summary: "HEAD aaaaaa with 0 changed entries",
+        end_summary: "HEAD abc123 with 1 changed entries",
+        changed_since_start: true,
+        observation_digest: Some("workspace-digest"),
+        end_commit: Some("abc123"),
+    };
+    let notice = org
+        .record_unknown_attempt_recovery(attempt.attempt_id, recovery)
+        .await
+        .unwrap()
+        .expect("first reconciliation must make one capsule");
+    assert_eq!(notice.work_id, work);
+    assert_eq!(notice.actor_id, "world-builder");
+    assert_eq!(notice.coordinator_id, "product-direction");
+    assert!(notice.artifact_ref_ids.contains(&linked_artifact));
+
+    let duplicate_start = start.clone();
+    let duplicate_end = end.clone();
+    assert!(org
+        .record_unknown_attempt_recovery(
+            attempt.attempt_id,
+            NewAttemptRecovery {
+                observed_by: "daemon",
+                reason: "duplicate reconciliation after daemon restart",
+                workspace: "/company/worktrees/crossing-recovery",
+                start_observation: &duplicate_start,
+                end_observation: &duplicate_end,
+                start_summary: "HEAD aaaaaa with 0 changed entries",
+                end_summary: "HEAD abc123 with 1 changed entries",
+                changed_since_start: true,
+                observation_digest: Some("workspace-digest"),
+                end_commit: Some("abc123"),
+            },
+        )
+        .await
+        .unwrap()
+        .is_none());
+
+    let state = org.list_work_attempts(Some(work)).await.unwrap();
+    assert_eq!(state.len(), 1);
+    assert_eq!(state[0].state, WorkAttemptState::Failed);
+    assert!(state[0].summary.contains("productive outcome unknown"));
+    assert_eq!(
+        org.get_work(work).await.unwrap().unwrap().status,
+        restless_orgintel::WorkStatus::Blocked
+    );
+    let lead_mail = org.inbox(Some("product-direction")).await.unwrap();
+    assert_eq!(lead_mail.len(), 1, "only the accountable lead wakes");
+    assert_eq!(lead_mail[0].id, notice.message_id);
+    assert!(lead_mail[0].body.contains("productive outcome is UNKNOWN"));
+    assert!(lead_mail[0].body.contains("Crossing scene candidate"));
+    assert!(org.inbox(Some("exec")).await.unwrap().is_empty());
+    assert_eq!(
+        org.events_of_kind("attempt_process_ended")
+            .await
+            .unwrap()
+            .len(),
+        1
+    );
+    assert_eq!(
+        org.events_of_kind("attempt_recovery_capsule")
+            .await
+            .unwrap()
+            .len(),
+        1
+    );
+    let attempt_artifacts = org
+        .list_artifact_refs(Some(work))
+        .await
+        .unwrap()
+        .into_iter()
+        .filter(|artifact| artifact.attempt_id == Some(attempt.attempt_id))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        attempt_artifacts.len(),
+        2,
+        "one Staff-linked artifact plus one runtime observation, never duplicates"
+    );
+    assert!(attempt_artifacts.iter().any(|artifact| {
+        artifact.kind == "git_worktree_observation" && artifact.created_by == "daemon"
+    }));
+
+    org.resume_work(
+        work,
+        "product-direction",
+        "inspected the preserved candidate and selected a bounded repair",
+    )
+    .await
+    .unwrap();
+    let repaired = org
+        .claim_ready_work("lead-approved repair")
+        .await
+        .unwrap()
+        .expect("only an explicit lead repair can create another Attempt");
+    assert_eq!(repaired.work.id, work);
+    assert!(repaired
+        .feedback
+        .iter()
+        .any(|message| message.id == notice.message_id));
+
+    // A plain process loss is still unknown, but it must not invent a
+    // worktree-change artifact when both observed Git snapshots agree.
+    let unchanged = serde_json::json!({
+        "workdir": "/company/worktrees/crossing-recovery",
+        "source_commit": "abc123",
+        "status_digest": "clean",
+        "dirty_entries": 0,
+    });
+    let no_change_notice = org
+        .record_unknown_attempt_recovery(
+            repaired.attempt_id,
+            NewAttemptRecovery {
+                observed_by: "daemon",
+                reason: "simulated process exit with no workspace change",
+                workspace: "/company/worktrees/crossing-recovery",
+                start_observation: &unchanged,
+                end_observation: &unchanged,
+                start_summary: "HEAD abc123 with 0 changed entries",
+                end_summary: "HEAD abc123 with 0 changed entries",
+                changed_since_start: false,
+                observation_digest: Some("unchanged-digest"),
+                end_commit: Some("abc123"),
+            },
+        )
+        .await
+        .unwrap()
+        .expect("a later Attempt gets its own one recovery capsule");
+    assert_eq!(no_change_notice.work_id, work);
+    assert!(
+        org.list_artifact_refs(Some(work))
+            .await
+            .unwrap()
+            .iter()
+            .all(|artifact| artifact.attempt_id != Some(repaired.attempt_id)),
+        "no changed Git fact means no synthetic recovery artifact"
+    );
+
+    org.drop_schema().await.unwrap();
+}
+
+#[tokio::test]
+async fn material_member_message_wakes_the_lead_and_late_direct_feedback_gets_a_successor() {
+    let Ok(url) = std::env::var("RESTLESS_TEST_DATABASE_URL") else {
+        eprintln!("RESTLESS_TEST_DATABASE_URL unset; skipping direct lead message scenario");
+        return;
+    };
+    let company = format!("message{}", uuid::Uuid::new_v4().simple());
+    let org = OrgIntel::ensure(&url, &company).await.unwrap();
+    org.ensure_actor("exec", "exec", "exec", "The Exec")
+        .await
+        .unwrap();
+    create_actor(&org, "product-direction", "game lead").await;
+    create_actor(&org, "world-builder", "world engineer").await;
+    let team = org
+        .create_team(
+            "Game product",
+            "Deliver one coherent playable scene",
+            "product-direction",
+            "exec",
+        )
+        .await
+        .unwrap();
+    org.set_actor_team(
+        "world-builder",
+        Some(team),
+        "product-direction",
+        "owns one stable world-building seam",
+    )
+    .await
+    .unwrap();
+    let work = org
+        .add_work(NewWork {
+            owner_id: "world-builder",
+            title: "Build the landing route",
+            outcome: "make the landing route runnable in the playable scene",
+            goal_id: None,
+            priority: 10,
+            expected_artifact: "",
+            workspace: WorkspaceSpec::default(),
+            attempt_limit: Some(2),
+        })
+        .await
+        .unwrap();
+    let attempt = org
+        .claim_ready_work("test launch")
+        .await
+        .unwrap()
+        .expect("member Work should be running");
+
+    let lead_message = org
+        .send_work_message(
+            "world-builder",
+            "product-direction",
+            work,
+            "The new terrain collider changes the landing-route interface; choose the integration shape before I continue.",
+        )
+        .await
+        .unwrap();
+    assert!(
+        !org.message_is_work_attempt_input(lead_message)
+            .await
+            .unwrap(),
+        "a direct member-to-lead question wakes the accountable judgement, not a second producer"
+    );
+    let lead_mail = org.inbox(Some("product-direction")).await.unwrap();
+    assert_eq!(lead_mail.len(), 1);
+    assert_eq!(lead_mail[0].id, lead_message);
+    assert!(org.inbox(Some("exec")).await.unwrap().is_empty());
+    assert_eq!(
+        org.list_work_attempts(Some(work)).await.unwrap().len(),
+        1,
+        "a direct lead message does not manufacture a second Attempt"
+    );
+
+    org.ensure_actor("owner", "owner", "owner", "The Owner")
+        .await
+        .unwrap();
+    let owner_feedback = org
+        .send_work_message(
+            "owner",
+            "world-builder",
+            work,
+            "Keep the route readable from the first encounter.",
+        )
+        .await
+        .unwrap();
+    assert!(
+        org.message_is_work_attempt_input(owner_feedback)
+            .await
+            .unwrap(),
+        "feedback to the current Work owner remains deterministic Attempt input"
+    );
+    assert_eq!(
+        attempt.attempt_id,
+        org.list_work_attempts(Some(work)).await.unwrap()[0].id
+    );
+
+    let direct_decision = org
+        .send_work_message(
+            "product-direction",
+            "world-builder",
+            work,
+            "Use landing_zone_id and continue the route integration.",
+        )
+        .await
+        .unwrap();
+    assert!(
+        org.message_is_work_attempt_input(direct_decision)
+            .await
+            .unwrap(),
+        "the lead's direct response is Work input for the member, never an Exec relay"
+    );
+
+    assert_eq!(
+        org.finish_work_attempt(
+            attempt.attempt_id,
+            WorkAttemptState::Produced,
+            "stale process reported the original route complete",
+        )
+        .await
+        .unwrap(),
+        WorkAttemptState::Superseded,
+        "a member process cannot close Work after direct input arrived outside its frozen snapshot"
+    );
+    let attempts = org.list_work_attempts(Some(work)).await.unwrap();
+    assert_eq!(attempts.len(), 1);
+    assert_eq!(attempts[0].state, WorkAttemptState::Superseded);
+    assert!(attempts[0].summary.contains(&direct_decision.to_string()));
+    assert_eq!(
+        org.get_work(work).await.unwrap().unwrap().status,
+        restless_orgintel::WorkStatus::Active,
+        "the changed assignment stays ready for one sequential successor"
+    );
+    let first_snapshot = org.work_graph_snapshot().await.unwrap();
+    assert!(
+        !first_snapshot.attempt_feedback.iter().any(|feedback| {
+            feedback.attempt_id == attempt.attempt_id && feedback.message_id == direct_decision
+        }),
+        "the original Attempt keeps its immutable input boundary"
+    );
+
+    let successor = org
+        .claim_ready_work("late direct Work feedback")
+        .await
+        .unwrap()
+        .expect("the changed direct feedback releases one successor Attempt");
+    assert_eq!(successor.work.id, work);
+    assert_eq!(successor.attempt_no, 2);
+    assert!(successor.feedback.iter().any(|message| {
+        message.id == direct_decision && message.body.contains("landing_zone_id")
+    }));
+    assert_ne!(successor.input_fingerprint, attempt.input_fingerprint);
+    let successor_snapshot = org.work_graph_snapshot().await.unwrap();
+    assert!(successor_snapshot.attempt_feedback.iter().any(|feedback| {
+        feedback.attempt_id == successor.attempt_id && feedback.message_id == direct_decision
+    }));
+
+    let live_decision = org
+        .send_work_message(
+            "product-direction",
+            "world-builder",
+            work,
+            "The same landing_zone_id decision is confirmed for this live Attempt.",
+        )
+        .await
+        .unwrap();
+    let consumed = org.consume_inbox_for_actor("world-builder").await.unwrap();
+    assert!(consumed.iter().any(|message| message.id == live_decision));
+    assert!(
+        org.inbox(Some("world-builder")).await.unwrap().is_empty(),
+        "a self-read consumes only the actor's own addressed mail"
+    );
+    let consumed_snapshot = org.work_graph_snapshot().await.unwrap();
+    assert!(consumed_snapshot.attempt_feedback.iter().any(|feedback| {
+        feedback.attempt_id == successor.attempt_id && feedback.message_id == live_decision
+    }));
+    assert_eq!(
+        org.finish_work_attempt(
+            successor.attempt_id,
+            WorkAttemptState::Produced,
+            "the live actor observed and applied the confirmed decision",
+        )
+        .await
+        .unwrap(),
+        WorkAttemptState::Produced,
+        "an Attempt that actually consumed its direct feedback may finish without another retry"
+    );
+    assert_eq!(
+        org.get_work(work).await.unwrap().unwrap().status,
+        restless_orgintel::WorkStatus::Completed
+    );
+
+    org.drop_schema().await.unwrap();
 }
 
 #[tokio::test]

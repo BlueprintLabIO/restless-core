@@ -750,9 +750,12 @@ condition is observed.
 The accountable lead owns the complete outcome. It first forms a causal understanding and then chooses
 the smallest effective team; zero Staff is a valid judgement. It commissions another actor only for a
 stable, independently useful responsibility whose expected quality, evidence, specialisation or
-parallel value can repay communication, integration and review cost. The lead continues complementary
-work, observes rather than trusts returned artifacts, integrates the whole result, prepares its native
-review target and makes the completion judgement.
+parallel value can repay communication, integration and review cost, or for independently valuable
+units in a real throughput queue. The lead may continue complementary production as a player-coach or
+reserve attention for supervision, guidance, redirection and repair. For one shared result, the lead
+observes and integrates the whole. For repeated units that close locally, the lead owns the charter,
+calibration, aggregate result, quality sampling and exceptions rather than recreating every accepted
+unit. It prepares the native review target and makes the outcome-level completion judgement.
 
 The deterministic substrate stays deliberately small: Work and Attempts prove real cross-actor
 responsibility, inputs, artifacts, terminal state and recovery. They do not encode the lead's plan,
@@ -777,34 +780,38 @@ run also narrated a Staff contribution that never happened; zero Work and Attemp
 minimal factual `commission` boundary fixed the manipulation without adding a workflow. See
 [`experiment/coordination/experiments/EXP-01/natural-lead-result.md`](../../experiment/coordination/experiments/EXP-01/natural-lead-result.md).
 
-### 6.3.2 A team requires difference, or it is not a team
+### 6.3.2 A team requires useful difference or independent throughput
 
-**Core contract.** Added 15 August 2026 from three sprints of evidence.
+**Core contract.** Added 15 August 2026 from three sprints of evidence; scoped on 24 August 2026 to
+distinguish shared-outcome decomposition from replicated unit work.
 
 Across three companies and three sprints, **organic delegation happened zero
 times.** The cause was not reluctance and not prompting — it was arithmetic. Every
 staff member ran the Exec's own model under the generic role `staff`, so
 delegating meant handing work to a copy of yourself with **less** context. That
-buys parallelism and nothing else, and an Exec that declines is reasoning
-correctly.
+buys parallelism and nothing else **when several actors are trying to coauthor one result**, and an
+Exec that declines that split is reasoning correctly. It does not establish that parallelism is
+worthless on different customer accounts, support cases or other independently valuable units.
 
-Therefore an actor assigned ready Work must be able to differ in:
+Therefore an actor assigned ready Work must add at least one of:
 
-- **Role** — its durable identity, recorded on the actor, so the owner can ask
-  who did what. Never a generic label; the literal `"staff"` on every actor is
-  what made three sprints of delegation invisible.
-- **Model** — a different mind. A critic on the producer's model, with the
-  producer's context, is an echo chamber with a second invoice.
-- **Context** — deliberately *less*, and deliberately different. Narrow context
-  is the feature, not a compromise: the value of a specialist is an opinion you
-  do not already hold.
+- **Cognitive or evidential difference** — a role, model, context, source region, expertise or
+  incentive that can improve one shared outcome. A critic on the producer's model, with the producer's
+  context and evidence, is an echo chamber with a second invoice.
+- **Work-unit difference** — a distinct account, case, territory, candidate or other independently
+  valuable unit in a repeatable queue. The same capable role and model may be correct here because
+  capacity and response time, rather than disagreement, are the benefit.
+
+Every actor still has durable identity and attributable Work so the owner can ask who did what. The
+literal `"staff"` on every actor made three sprints of delegation invisible. Narrow, different context
+is valuable for a specialist; exact, repeated context may instead be valuable for a queue worker.
 
 The first real specialist confirmed it in one run. A critic given a narrow brief
 and no drafting context returned three specific, quoted objections to copy the
 Exec had judged finished — including that it pattern-matched to spam and
 contained two competing asks. The producing actor had not seen any of them.
 
-**Two failure modes arrive with heterogeneity**, both observed on the first
+**Two failure modes arrive with provider heterogeneity**, both observed on the first
 specialist launch and neither reachable with one model:
 
 1. A provider error that arrives as message *content* rather than transport is
@@ -815,6 +822,51 @@ specialist launch and neither reachable with one model:
    provider running out of credit poisoned a company whose own provider was
    healthy. Correct behaviour, new blast radius; it needs an explicit
    disposition rather than a surprise.
+
+### 6.3.3 Accountability determines organisational level
+
+**Core contract**
+
+Organisational boundaries follow where responsibility can close:
+
+| Level | Responsibility |
+| --- | --- |
+| **Exec** | Portfolio coherence, priorities, cross-team resources and company-level exceptions |
+| **Accountable lead** | One complete outcome that can be natively inspected and judged |
+| **Staff** | One independently useful semantic contribution or locally closing unit whose value is accountable to the lead |
+| **Hand or tool** | One bounded lead-specified operation with no independent project judgement |
+| **Lead directly** | Coupled reasoning and execution for which no cross-actor boundary adds value |
+
+A separate lead is justified only when its outcome can progress and be judged independently and has
+continuing trade-offs of its own. A Staff actor is justified when semantic ownership crosses a stable
+seam but completion of the parent outcome does not, or when it owns distinct locally closing units in
+a repeated queue. A separate model that interprets the project and authors a contribution is Staff
+even if an implementation calls it a tool; hiding it as an unattributed subagent recreates fictional
+collaboration.
+
+Leads coordinate directly through changed facts, decisions, artifacts and true Work dependencies.
+One lead remains the integrator of any shared outcome. Cross-team priority, resource, charter and
+strategy conflicts rise to Exec; ordinary status does not. If two leads require continuous shared
+state or joint completion judgement, the likely repair is one accountable lead rather than more
+coordination machinery.
+
+**Product hypothesis**
+
+Fast model production makes briefing and integration large relative costs, while current LLMs lose
+collaborator context and integrate inconsistently. The current likely organisation is therefore wide,
+shallow and elastic: several mostly-solo leads run concurrently and add temporary Staff only when
+saturation, specialisation, independent evidence or useful latency overlap can repay the boundary.
+Repeated independent unit queues may instead justify large elastic Staff pools because briefing is
+amortised and accepted throughput aggregates without semantic merging. Better models or cheaper
+context transfer may move either crossover; OrgIntel must not encode the prior as a fixed team-size or
+span-of-control rule. See
+[`docs/COORDINATION_THEORY.md`](../COORDINATION_THEORY.md).
+
+Lead posture is another product hypothesis. A supervisor-only lead may preserve mission context and
+repair capacity on long, volatile, high-consequence or many-worker outcomes, while a player-coach may
+dominate with one strong worker on short stable work. Supervision should wake from material Work,
+Attempt, artifact and message changes rather than polling. OrgIntel must support both postures without
+encoding a deterministic manager threshold.
 
 ## 6.4 Business processes
 

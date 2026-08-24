@@ -1,13 +1,12 @@
 # Experiment Sprint 01 — GPT-5.6 coordination frontier
 
-**Status:** Running. Founder start signal received 23 August 2026.
+**Status:** Superseded on 23 August 2026 after evidence checkpoint. Completed reports remain immutable;
+unfinished W01 replications and the natural-lead boundary move into EXP-02's narrower programme.
 
 **Decision owner:** Founder.
 
-**Execution authority after the start signal:** the current Codex session may prepare and run only the isolated
-experiments described here, update their evidence, and commit/push those experiment changes to `dev`.
-Any material change to tasks, models, effects, evaluation or production architecture returns for
-founder judgement.
+**Execution authority:** closed. New runs use EXP-02. Historical generated workspaces remain evidence,
+not authority to resume this programme.
 
 ## 1. Outcome
 

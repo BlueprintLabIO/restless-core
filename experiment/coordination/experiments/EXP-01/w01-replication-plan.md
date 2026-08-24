@@ -1,6 +1,7 @@
 # EXP-01 W01 — cross-shape replication plan
 
-**Status:** running after provisional G-WORLD win
+**Status:** superseded after the 23 August evidence checkpoint. The G-WORLD result remains historical;
+EXP-02 did not activate A2 because exact artifact access left no measured residual causal-context loss.
 
 ## Trigger
 

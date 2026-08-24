@@ -729,6 +729,13 @@ Most changes remain within one layer. Runtime changes do not normally reach OrgI
 
 ## 7.3 Single agent versus team
 
+Organisational level follows accountability closure rather than task size. Exec owns portfolio
+coherence; a lead owns one complete outcome; Staff owns one independently useful semantic
+responsibility or locally closing repeated unit inside that outcome; a hand or ordinary tool performs
+one lead-specified operation and owns no project judgement. Another model that interprets the project
+and authors a contribution is Staff even if the mechanism calls it a tool. See
+[`docs/COORDINATION_THEORY.md`](docs/COORDINATION_THEORY.md).
+
 - The Exec always assigns executable owner work to an accountable team lead and returns to availability.
 - A team lead may work alone on coherent, tightly coupled work; “lead” names accountability, not a
   minimum headcount.
@@ -738,6 +745,21 @@ Most changes remain within one layer. Runtime changes do not normally reach OrgI
 - Collaboration stays natural and consequential: communicate the causal model and material unknowns,
   invite challenge, update when information changes another actor's work, and personally inspect the
   combined native outcome. Do not impose a handoff template, message cadence or teamwork state machine.
+- Separate accountable leads only where outcomes can progress and be judged independently. Leads
+  exchange material facts, decisions, artifacts and true dependencies directly; portfolio, resource,
+  charter and strategy conflicts rise to Exec. If two leads require continuous shared state or joint
+  completion judgement, one lead should own the combined outcome.
+- Fast model production raises the relative cost of briefing and integration, so the current prior is
+  a wide, shallow organisation of mostly-solo leads with temporary Staff. This is an evidence-scoped
+  product hypothesis, not a fixed span of control or permanent claim about future models.
+- Replicated independent units are a different regime from coauthoring one outcome. A sales, support
+  or case-processing lead may use a large elastic Staff pool where shared briefing is amortised,
+  units close locally and accepted throughput repays supervision. Team size follows marginal queue
+  economics and quality, not a universal span of control.
+- Lead accountability does not prescribe lead posture. A lead may be a player-coach or reserve
+  attention for supervision, guidance, redirection and repair. Supervisor-only posture becomes more
+  plausible as coordination load, volatility, capability uncertainty or consequence rises; OrgIntel
+  must not force it for every one-worker outcome.
 - A lead or maintainer decides changes to shared project state.
 - A builder plus independent reviewer is appropriate for company-wide coordination machinery or changes with subtle failure modes.
 - A small cross-functional team handles changes spanning several disciplines or materially changing company strategy.

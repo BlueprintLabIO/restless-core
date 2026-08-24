@@ -1,0 +1,90 @@
+#!/usr/bin/env bash
+# Explicit evidence for OrgIntel's Postgres-backed behavioural scenarios.
+# Fast Rust test loops intentionally retain their no-database skips; this
+# command is the separate, honest claim that those scenarios actually ran.
+set -euo pipefail
+
+VERIFY_SCRIPT_PATH="${BASH_SOURCE[0]}"
+VERIFY_SCRIPT_DIR="$(cd "$(dirname "$VERIFY_SCRIPT_PATH")" && pwd)"
+VERIFY_REPO_ROOT="$(cd "$VERIFY_SCRIPT_DIR/.." && pwd)"
+
+usage() {
+  cat <<'EOF'
+usage: scripts/verify-orgintel-live-db [--preflight | --self-test]
+
+Requires RESTLESS_TEST_DATABASE_URL to name a local scratch Postgres database.
+Without an option, preflights the URL and runs the OrgIntel integration suite.
+
+Accepted local targets:
+  postgresql:///restless
+  postgres:///restless
+  postgresql://localhost/<database>
+  postgresql://127.0.0.1/<database>
+
+For TCP targets, <database> must be `restless` or contain `test` or `scratch`.
+EOF
+}
+
+fail() {
+  printf 'live OrgIntel verification refused: %s\n' "$1" >&2
+  exit 2
+}
+
+preflight() {
+  local database_url="${RESTLESS_TEST_DATABASE_URL:-}"
+  [ -n "${database_url//[[:space:]]/}" ] \
+    || fail 'RESTLESS_TEST_DATABASE_URL is required; a fast test run is not live-Postgres evidence'
+
+  case "$database_url" in
+    postgresql:///restless|postgres:///restless)
+      ;;
+    postgresql://localhost/*|postgres://localhost/*|postgresql://127.0.0.1/*|postgres://127.0.0.1/*)
+      local database_name="${database_url##*/}"
+      case "$database_name" in
+        restless|*test*|*scratch*) ;;
+        *) fail 'database name must be `restless` or contain `test` or `scratch`' ;;
+      esac
+      ;;
+    *)
+      fail 'URL must target a local Unix socket, localhost, or 127.0.0.1 scratch database'
+      ;;
+  esac
+
+  printf 'live OrgIntel verification target accepted: %s\n' "$database_url"
+}
+
+self_test() {
+  if env -u RESTLESS_TEST_DATABASE_URL bash "$VERIFY_SCRIPT_PATH" --preflight >/dev/null 2>&1; then
+    printf 'self-test failed: missing URL was accepted\n' >&2
+    return 1
+  fi
+  if RESTLESS_TEST_DATABASE_URL='postgresql://db.example/restless' \
+    bash "$VERIFY_SCRIPT_PATH" --preflight >/dev/null 2>&1; then
+    printf 'self-test failed: non-local URL was accepted\n' >&2
+    return 1
+  fi
+  RESTLESS_TEST_DATABASE_URL='postgresql:///restless' \
+    bash "$VERIFY_SCRIPT_PATH" --preflight >/dev/null
+  printf 'live OrgIntel verification preflight self-test passed\n'
+}
+
+case "${1:-}" in
+  -h|--help|help)
+    usage
+    ;;
+  --preflight)
+    preflight
+    ;;
+  --self-test)
+    self_test
+    ;;
+  '')
+    preflight
+    cd "$VERIFY_REPO_ROOT"
+    cargo test -p restless-orgintel --tests -- --nocapture
+    ;;
+  *)
+    usage >&2
+    exit 2
+    ;;
+esac

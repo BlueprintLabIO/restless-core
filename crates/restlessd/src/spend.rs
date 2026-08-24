@@ -19,26 +19,41 @@
 //! to whatever one turn burns between ticks — cents, against a ceiling in
 //! dollars.
 
-use std::path::Path;
+use std::{
+    collections::HashMap,
+    path::Path,
+    sync::{Arc, Mutex},
+};
 
 use anyhow::{Context, Result};
 use chrono::Utc;
 use restless_model_gateway::{SpendCorrection, SpendCorrectionPreview, SpendRecord, SpendStore};
 use uuid::Uuid;
 
-use crate::runtime::CompanyConfig;
+use crate::{
+    model_gateway::ModelBilling,
+    runtime::{CompanyConfig, SpendCeiling},
+};
 
 /// The company's spend ledger. One per installation, shared by every company;
 /// the store keys by company id.
+///
+/// Metered sessions also share a one-per-company in-process lane. It is not a
+/// reservation or a scheduler: it has no durable state, queue, priority, or
+/// retry policy. It merely prevents two charged ACP sessions from using the
+/// same stale pre-turn remaining balance. A single active provider session can
+/// still overshoot between its own usage reports.
+#[derive(Clone)]
 pub struct SpendLedger {
-    store: std::sync::Arc<SpendStore>,
+    store: Arc<SpendStore>,
+    metered_turn_lanes: Arc<Mutex<HashMap<String, Arc<tokio::sync::Semaphore>>>>,
 }
 
 /// Writes turn costs into the ledger. Cloneable so supervised staff processes
 /// can meter themselves without borrowing the daemon.
 #[derive(Clone)]
 pub struct TurnMeter {
-    store: std::sync::Arc<SpendStore>,
+    store: Arc<SpendStore>,
 }
 
 impl TurnMeter {
@@ -113,8 +128,39 @@ impl SpendLedger {
         let store =
             SpendStore::open(&dir).map_err(|error| anyhow::anyhow!("spend store: {error}"))?;
         Ok(Self {
-            store: std::sync::Arc::new(store),
+            store: Arc::new(store),
+            metered_turn_lanes: Arc::new(Mutex::new(HashMap::new())),
         })
+    }
+
+    /// Wait for this company's one charged-model session lane. Subscription
+    /// routes have no authoritative charged cost and deliberately remain
+    /// concurrent. The returned permit drops on cancellation, failure, or
+    /// normal completion.
+    pub async fn acquire_metered_turn(
+        &self,
+        company: &str,
+        billing: ModelBilling,
+    ) -> Option<tokio::sync::OwnedSemaphorePermit> {
+        if billing == ModelBilling::Subscription {
+            return None;
+        }
+        let lane = {
+            let mut lanes = self
+                .metered_turn_lanes
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            Arc::clone(
+                lanes
+                    .entry(company.to_string())
+                    .or_insert_with(|| Arc::new(tokio::sync::Semaphore::new(1))),
+            )
+        };
+        Some(
+            lane.acquire_owned()
+                .await
+                .expect("metered turn lane is never closed"),
+        )
     }
 
     /// What this company has spent so far, in USD. Shown to the agent so it can
@@ -129,8 +175,27 @@ impl SpendLedger {
     #[must_use]
     pub fn over_ceiling(&self, company: &CompanyConfig) -> Option<(f64, f64)> {
         let spent = self.store.spent_micro_usd(&company.name);
-        let ceiling = (company.spend_ceiling_usd * 1_000_000.0).round().max(0.0) as u64;
+        let ceiling = company.spend_ceiling_usd.micro_usd();
         (spent >= ceiling).then(|| (spent as f64 / 1_000_000.0, ceiling as f64 / 1_000_000.0))
+    }
+
+    /// Remaining company envelope calculated in exact micro-USD. Convert to a
+    /// display float only at the caller's presentation boundary.
+    #[must_use]
+    pub fn remaining_micro_usd(&self, company: &CompanyConfig) -> u64 {
+        self.remaining_micro_usd_for(&company.name, company.spend_ceiling_usd)
+    }
+
+    #[must_use]
+    pub fn remaining_usd(&self, company: &CompanyConfig) -> f64 {
+        self.remaining_micro_usd(company) as f64 / 1_000_000.0
+    }
+
+    #[must_use]
+    pub fn remaining_micro_usd_for(&self, company: &str, ceiling: SpendCeiling) -> u64 {
+        ceiling
+            .micro_usd()
+            .saturating_sub(self.store.spent_micro_usd(company))
     }
 
     /// A cheap cloneable handle for turns that outlive the borrow — staff run
@@ -138,7 +203,7 @@ impl SpendLedger {
     #[must_use]
     pub fn meter(&self) -> TurnMeter {
         TurnMeter {
-            store: std::sync::Arc::clone(&self.store),
+            store: Arc::clone(&self.store),
         }
     }
 
@@ -223,5 +288,67 @@ impl SpendLedger {
         cost_usd: Option<f64>,
     ) {
         self.meter().record(company, actor, model, used, cost_usd);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{sync::Arc, time::Duration};
+
+    use super::*;
+
+    #[tokio::test]
+    async fn charged_turns_share_one_company_lane_without_blocking_other_companies() {
+        let root = std::env::temp_dir().join(format!(
+            "restless-metered-turn-lane-test-{}",
+            uuid::Uuid::new_v4()
+        ));
+        assert!(!root.exists(), "test spend root must be fresh");
+        let ledger = Arc::new(SpendLedger::open(&root).unwrap());
+
+        let first = ledger
+            .acquire_metered_turn("same-company", ModelBilling::MeteredApi)
+            .await
+            .expect("metered routes acquire a lane");
+        assert!(
+            ledger
+                .acquire_metered_turn("same-company", ModelBilling::Subscription)
+                .await
+                .is_none(),
+            "subscription routes do not take the charged lane"
+        );
+
+        let another_company = tokio::time::timeout(
+            Duration::from_millis(100),
+            ledger.acquire_metered_turn("other-company", ModelBilling::MeteredApi),
+        )
+        .await
+        .expect("a different company is not blocked")
+        .expect("metered routes acquire a lane");
+
+        let waiting_ledger = Arc::clone(&ledger);
+        let mut waiting_turn = tokio::spawn(async move {
+            waiting_ledger
+                .acquire_metered_turn("same-company", ModelBilling::MeteredApi)
+                .await
+                .expect("metered routes acquire a lane")
+        });
+        assert!(
+            tokio::time::timeout(Duration::from_millis(50), &mut waiting_turn)
+                .await
+                .is_err(),
+            "a second charged turn waits for the active company turn"
+        );
+
+        drop(first);
+        let second = tokio::time::timeout(Duration::from_millis(100), waiting_turn)
+            .await
+            .expect("the waiting turn proceeds after release")
+            .expect("the waiting task did not fail");
+
+        drop(second);
+        drop(another_company);
+        drop(ledger);
+        std::fs::remove_dir_all(&root).unwrap();
     }
 }

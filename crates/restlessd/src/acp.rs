@@ -95,6 +95,10 @@ const OMP_AGENT_TOOLS: &str = "read,bash,edit,write,grep";
 pub struct AgentControls {
     system_prompt: String,
     mcp_servers: Vec<McpServer>,
+    /// A team-lead conversation is a coordination session, not a productive
+    /// Attempt. This is passed to the local CLI as a narrow guard against
+    /// accidentally sending an unaddressed message to the owner.
+    team_coordination_wake: bool,
 }
 
 impl AgentControls {
@@ -105,7 +109,17 @@ impl AgentControls {
         Ok(Self {
             system_prompt,
             mcp_servers: Vec::new(),
+            team_coordination_wake: false,
         })
+    }
+
+    /// Mark this as an accountable team-lead coordination wake. This does not
+    /// claim filesystem isolation; the shared Runtime remains intentionally
+    /// mutable. It lets the local coordination CLI reject a common accidental
+    /// owner-send shape while the actor is deciding a team fact.
+    pub fn for_team_coordination(mut self) -> Self {
+        self.team_coordination_wake = true;
+        self
     }
 
     /// Attach only connections selected for this actor and session. Provider
@@ -568,23 +582,13 @@ where
     // chaining .args() and hoping the order is right — appending the base-URL
     // override after the container silently handed it to omp as an argument,
     // which surfaced as "No model selected".
-    let mut args: Vec<String> = [
-        "exec",
-        "-i",
-        "-u",
-        "company",
-        "-w",
-        "/company",
-        "-e",
-        &format!("PI_CODING_AGENT_DIR={AGENT_CONFIG_DIR}"),
-        "-e",
-        "NO_BROWSER=1",
-    ]
-    .iter()
-    .map(|arg| (*arg).to_string())
-    .collect();
+    let mut args = agent_exec_prefix(workdir);
     args.push("-e".to_string());
     args.push(format!("RESTLESS_ACTOR={actor}"));
+    if controls.team_coordination_wake {
+        args.push("-e".to_string());
+        args.push("RESTLESS_COORDINATION_WAKE=1".to_string());
+    }
     args.push("-e".to_string());
     // `docker exec -e NAME` copies NAME from the docker client's environment.
     // Passing NAME=VALUE in argv would expose even the narrow gateway bearer
@@ -767,6 +771,26 @@ where
     Ok(result?)
 }
 
+/// Docker's process cwd and ACP's `session/new` cwd must agree. Otherwise an
+/// agent can be told that it is reviewing a detached copy while its shell
+/// tools still start in `/company`, which silently reopens the source
+/// worktree mutation path Sprint 14 is closing.
+fn agent_exec_prefix(workdir: &str) -> Vec<String> {
+    [
+        "exec".to_string(),
+        "-i".to_string(),
+        "-u".to_string(),
+        "company".to_string(),
+        "-w".to_string(),
+        workdir.to_string(),
+        "-e".to_string(),
+        format!("PI_CODING_AGENT_DIR={AGENT_CONFIG_DIR}"),
+        "-e".to_string(),
+        "NO_BROWSER=1".to_string(),
+    ]
+    .to_vec()
+}
+
 /// Read and validate the Linux session id written by this turn's wrapper.
 async fn read_session_id(container: &str, marker: &str) -> Option<String> {
     let Ok(output) = tokio::process::Command::new("docker")
@@ -887,7 +911,9 @@ fn pids_in_session(table: &str, session_id: &str) -> Vec<String> {
 mod tests {
     use agent_client_protocol::schema::v1::ClientCapabilities;
 
-    use super::{pids_in_session, AgentControls, OMP_AGENT_TOOLS, RESTLESS_OMP_CONFIG};
+    use super::{
+        agent_exec_prefix, pids_in_session, AgentControls, OMP_AGENT_TOOLS, RESTLESS_OMP_CONFIG,
+    };
 
     /// OrgIntel owns Staff identity and handoff evidence. OMP's similarly
     /// named task runtime is deliberately absent so an actor cannot bypass
@@ -905,6 +931,21 @@ mod tests {
         let controls = AgentControls::company_actor("You are a Restless actor.".into()).unwrap();
         assert_eq!(controls.system_prompt, "You are a Restless actor.");
         assert!(controls.mcp_servers.is_empty());
+        assert!(!controls.team_coordination_wake);
+
+        let coordination = controls.for_team_coordination();
+        assert!(coordination.team_coordination_wake);
+    }
+
+    #[test]
+    fn agent_shell_and_acp_session_share_the_requested_workspace() {
+        let review_copy = "/company/reviews/attempt-0123456789abcdef";
+        let prefix = agent_exec_prefix(review_copy);
+        assert_eq!(
+            prefix.windows(2).find(|window| window[0] == "-w"),
+            Some(["-w".to_string(), review_copy.to_string()].as_slice())
+        );
+        assert!(!prefix.iter().any(|argument| argument == "/company"));
     }
 
     #[test]

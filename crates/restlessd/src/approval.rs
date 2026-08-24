@@ -329,7 +329,7 @@ mod tests {
         CompanyConfig {
             name: "aris".to_string(),
             mission: String::new(),
-            spend_ceiling_usd: 30.0,
+            spend_ceiling_usd: crate::runtime::SpendCeiling::from_micro_usd(30_000_000),
             model: "moonshot/kimi-k3".to_string(),
             model_failover: Vec::new(),
             credentials: std::collections::BTreeMap::new(),

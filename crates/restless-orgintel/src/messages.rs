@@ -1,0 +1,372 @@
+//! Direct mail, Work feedback, and bounded owner conversation reads.
+
+use super::*;
+
+impl OrgIntel {
+    // ---- messages ----
+
+    /// Send a directed message; `to_actor: None` addresses the owner inbox.
+    pub async fn send_message(&self, from: &str, to: Option<&str>, body: &str) -> Result<i64> {
+        let row = sqlx::query(
+            "INSERT INTO messages (from_actor, to_actor, body) VALUES ($1, $2, $3) RETURNING id",
+        )
+        .bind(from)
+        .bind(to)
+        .bind(body)
+        .fetch_one(&self.pool)
+        .await?;
+        // Directed-mail NOTIFY comes from the database trigger (0002).
+        Ok(row.get(0))
+    }
+
+    /// Send ordinary owner conversation, optionally moving the actor's one
+    /// working-context cursor to the end of the existing transcript first.
+    /// The cursor changes what a future model wake carries, never what the
+    /// owner can read; no message or actor history is deleted.
+    pub async fn send_owner_conversation_message(
+        &self,
+        actor: &str,
+        body: &str,
+        new_focus: bool,
+    ) -> Result<(i64, ConversationFocusRow)> {
+        let mut tx = self.pool.begin().await?;
+        if new_focus {
+            let after_message_id: i64 = sqlx::query_scalar(
+                "SELECT COALESCE(MAX(id), 0) FROM messages \
+                 WHERE (from_actor='owner' AND to_actor=$1) \
+                    OR (from_actor=$1 AND to_actor IS NULL)",
+            )
+            .bind(actor)
+            .fetch_one(&mut *tx)
+            .await?;
+            let changed = sqlx::query(
+                "UPDATE actors SET conversation_focus_after_message_id=$2, \
+                         conversation_focus_started_at=now() \
+                 WHERE id=$1 AND retired_at IS NULL",
+            )
+            .bind(actor)
+            .bind(after_message_id)
+            .execute(&mut *tx)
+            .await?;
+            if changed.rows_affected() != 1 {
+                return Err(OrgIntelError::InvalidWork(format!(
+                    "active conversation actor {actor:?} does not exist"
+                )));
+            }
+        }
+        let id: i64 = sqlx::query_scalar(
+            "INSERT INTO messages (from_actor, to_actor, body) \
+             VALUES ('owner',$1,$2) RETURNING id",
+        )
+        .bind(actor)
+        .bind(body)
+        .fetch_one(&mut *tx)
+        .await?;
+        let focus = sqlx::query_as(
+            "SELECT conversation_focus_after_message_id AS after_message_id, \
+                    conversation_focus_started_at AS started_at \
+             FROM actors WHERE id=$1 AND retired_at IS NULL",
+        )
+        .bind(actor)
+        .fetch_optional(&mut *tx)
+        .await?
+        .ok_or_else(|| {
+            OrgIntelError::InvalidWork(format!(
+                "active conversation actor {actor:?} does not exist"
+            ))
+        })?;
+        tx.commit().await?;
+        Ok((id, focus))
+    }
+
+    /// Send ordinary free-form conversation and link it to the Work it changes.
+    /// The link is kickoff context, not a conversation lifecycle.
+    pub async fn send_work_message(
+        &self,
+        from: &str,
+        to: &str,
+        work_id: Uuid,
+        body: &str,
+    ) -> Result<i64> {
+        if body.trim().is_empty() {
+            return Err(OrgIntelError::InvalidWork(
+                "Work feedback message cannot be empty".into(),
+            ));
+        }
+        let mut tx = self.pool.begin().await?;
+        let owner: String = sqlx::query_scalar("SELECT owner_id FROM work WHERE id=$1")
+            .bind(work_id)
+            .fetch_one(&mut *tx)
+            .await?;
+        let accountable_lead: Option<String> = sqlx::query_scalar(
+            "SELECT t.lead_actor_id FROM actors a JOIN teams t ON t.id=a.team_id \
+             WHERE a.id=$1 AND t.disbanded_at IS NULL",
+        )
+        .bind(&owner)
+        .fetch_optional(&mut *tx)
+        .await?;
+        if owner != to && accountable_lead.as_deref() != Some(to) {
+            return Err(OrgIntelError::InvalidWork(format!(
+                "Work {work_id} belongs to {owner:?}; its accountable lead is {:?}, not message recipient {to:?}",
+                accountable_lead
+            )));
+        }
+        let id: i64 = sqlx::query_scalar(
+            "INSERT INTO messages (from_actor, to_actor, body) VALUES ($1,$2,$3) RETURNING id",
+        )
+        .bind(from)
+        .bind(to)
+        .bind(body)
+        .fetch_one(&mut *tx)
+        .await?;
+        sqlx::query("INSERT INTO work_feedback (work_id, message_id, linked_by) VALUES ($1,$2,$3)")
+            .bind(work_id)
+            .bind(id)
+            .bind(from)
+            .execute(&mut *tx)
+            .await?;
+        tx.commit().await?;
+        Ok(id)
+    }
+
+    /// Whether a directed message is already deterministic input to an active
+    /// Work revision. The scheduler uses this after the transaction commits:
+    /// such a message must start (or await) the Work Attempt, not race it with
+    /// a second free-form actor session.
+    pub async fn message_is_work_attempt_input(&self, message_id: i64) -> Result<bool> {
+        Ok(sqlx::query_scalar(
+            "SELECT EXISTS(\
+               SELECT 1 FROM work_feedback feedback \
+               JOIN work ON work.id=feedback.work_id \
+               JOIN messages message ON message.id=feedback.message_id \
+               WHERE feedback.message_id=$1 \
+                 AND message.to_actor=work.owner_id \
+                 AND work.status IN ('proposed','active') \
+                 AND NOT EXISTS (\
+                   SELECT 1 FROM owner_handoffs handoff \
+                   WHERE handoff.work_id=work.id AND handoff.state='pending'\
+                 )\
+             )",
+        )
+        .bind(message_id)
+        .fetch_one(&self.pool)
+        .await?)
+    }
+
+    /// Work context attached to a message, when there is one. Conversation
+    /// streaming uses this only to persist the final reply beside the owner's
+    /// triggering message; `work_feedback` remains the one canonical link.
+    pub async fn message_work_id(&self, message_id: i64) -> Result<Option<Uuid>> {
+        Ok(
+            sqlx::query_scalar("SELECT work_id FROM work_feedback WHERE message_id=$1")
+                .bind(message_id)
+                .fetch_optional(&self.pool)
+                .await?,
+        )
+    }
+
+    /// Reply from the accountable Work owner to the human owner, preserving
+    /// the same Work-scoped conversation. The owner inbox remains the existing
+    /// `to_actor = NULL` convention; no thread entity is introduced.
+    pub async fn send_work_message_to_owner(
+        &self,
+        from: &str,
+        work_id: Uuid,
+        body: &str,
+    ) -> Result<i64> {
+        if body.trim().is_empty() {
+            return Err(OrgIntelError::InvalidWork(
+                "Work feedback message cannot be empty".into(),
+            ));
+        }
+        let mut tx = self.pool.begin().await?;
+        let owner: String = sqlx::query_scalar("SELECT owner_id FROM work WHERE id=$1")
+            .bind(work_id)
+            .fetch_one(&mut *tx)
+            .await?;
+        if owner != from {
+            return Err(OrgIntelError::InvalidWork(format!(
+                "Work {work_id} belongs to {owner:?}, not replying actor {from:?}"
+            )));
+        }
+        let id: i64 = sqlx::query_scalar(
+            "INSERT INTO messages (from_actor, to_actor, body) VALUES ($1,NULL,$2) RETURNING id",
+        )
+        .bind(from)
+        .bind(body)
+        .fetch_one(&mut *tx)
+        .await?;
+        sqlx::query("INSERT INTO work_feedback (work_id, message_id, linked_by) VALUES ($1,$2,$3)")
+            .bind(work_id)
+            .bind(id)
+            .bind(from)
+            .execute(&mut *tx)
+            .await?;
+        tx.commit().await?;
+        Ok(id)
+    }
+
+    /// The owner/actor messages linked to one Work item. This keeps the review
+    /// conversation focused without inventing a thread entity.
+    pub async fn owner_work_conversation(
+        &self,
+        actor: &str,
+        work_id: Uuid,
+        limit: i64,
+    ) -> Result<Vec<MessageRow>> {
+        let owner: String = sqlx::query_scalar("SELECT owner_id FROM work WHERE id=$1")
+            .bind(work_id)
+            .fetch_one(&self.pool)
+            .await?;
+        if owner != actor {
+            return Err(OrgIntelError::InvalidWork(format!(
+                "Work {work_id} belongs to {owner:?}, not conversation actor {actor:?}"
+            )));
+        }
+        Ok(sqlx::query_as(
+            "SELECT id,from_actor,to_actor,body,created_at,read_at FROM (\
+               SELECT m.id,m.from_actor,m.to_actor,m.body,m.created_at,m.read_at \
+               FROM messages m JOIN work_feedback f ON f.message_id=m.id \
+               WHERE f.work_id=$1 AND (\
+                 (m.from_actor='owner' AND m.to_actor=$2) OR \
+                 (m.from_actor=$2 AND m.to_actor IS NULL)\
+               ) ORDER BY m.created_at DESC,m.id DESC LIMIT $3\
+             ) recent ORDER BY created_at,id",
+        )
+        .bind(work_id)
+        .bind(actor)
+        .bind(limit.max(1))
+        .fetch_all(&self.pool)
+        .await?)
+    }
+
+    /// An actor's unread inbox (`None` = the owner's), oldest first.
+    pub async fn inbox(&self, actor: Option<&str>) -> Result<Vec<MessageRow>> {
+        Ok(sqlx::query_as(
+            "SELECT id, from_actor, to_actor, body, created_at, read_at FROM messages \
+             WHERE read_at IS NULL AND to_actor IS NOT DISTINCT FROM $1 ORDER BY id",
+        )
+        .bind(actor)
+        .fetch_all(&self.pool)
+        .await?)
+    }
+
+    /// Read one actor's own inbox. If that actor has one live Work Attempt,
+    /// any Work-linked message addressed to it is recorded as feedback that
+    /// exact Attempt received. The initial input snapshot remains fixed at
+    /// claim time; this is the later live-observation path permitted by the
+    /// one-process rule, not a second kickoff or message lifecycle.
+    pub async fn consume_inbox_for_actor(&self, actor: &str) -> Result<Vec<MessageRow>> {
+        let mut tx = self.pool.begin().await?;
+        let live_attempt = sqlx::query(
+            "SELECT id, work_id FROM work_attempts \
+             WHERE actor_id=$1 AND state='running' \
+             ORDER BY started_at, id LIMIT 1 FOR UPDATE",
+        )
+        .bind(actor)
+        .fetch_optional(&mut *tx)
+        .await?;
+        let messages = sqlx::query_as::<_, MessageRow>(
+            "SELECT id, from_actor, to_actor, body, created_at, read_at FROM messages \
+             WHERE read_at IS NULL AND to_actor=$1 ORDER BY id FOR UPDATE",
+        )
+        .bind(actor)
+        .fetch_all(&mut *tx)
+        .await?;
+        if let Some(attempt) = live_attempt {
+            let attempt_id: Uuid = attempt.get("id");
+            let work_id: Uuid = attempt.get("work_id");
+            for message in &messages {
+                sqlx::query(
+                    "INSERT INTO work_attempt_feedback (attempt_id, message_id) \
+                     SELECT $1,$2 WHERE EXISTS (\
+                       SELECT 1 FROM work_feedback WHERE work_id=$3 AND message_id=$2\
+                     ) ON CONFLICT DO NOTHING",
+                )
+                .bind(attempt_id)
+                .bind(message.id)
+                .bind(work_id)
+                .execute(&mut *tx)
+                .await?;
+            }
+        }
+        for message in &messages {
+            sqlx::query("UPDATE messages SET read_at=now() WHERE id=$1")
+                .bind(message.id)
+                .execute(&mut *tx)
+                .await?;
+        }
+        tx.commit().await?;
+        Ok(messages)
+    }
+
+    /// Ordinary conversation between the owner and one actor, oldest first.
+    /// This is a read over the existing message rows, not a handover/thread
+    /// entity. `to_actor = NULL` is the established owner-inbox convention.
+    pub async fn owner_conversation(&self, actor: &str, limit: i64) -> Result<Vec<MessageRow>> {
+        let limit = limit.clamp(1, 200);
+        Ok(sqlx::query_as(
+            "SELECT id, from_actor, to_actor, body, created_at, read_at FROM (\
+               SELECT id, from_actor, to_actor, body, created_at, read_at FROM messages \
+               WHERE (from_actor = 'owner' AND to_actor = $1) \
+                  OR (from_actor = $1 AND to_actor IS NULL) \
+               ORDER BY id DESC LIMIT $2\
+             ) recent ORDER BY id",
+        )
+        .bind(actor)
+        .bind(limit)
+        .fetch_all(&self.pool)
+        .await?)
+    }
+
+    /// Current working-context boundary for the owner's conversation with one
+    /// actor. A zero cursor with no timestamp is the original uninterrupted
+    /// conversation; it is not an unknown state.
+    pub async fn owner_conversation_focus(&self, actor: &str) -> Result<ConversationFocusRow> {
+        sqlx::query_as(
+            "SELECT conversation_focus_after_message_id AS after_message_id, \
+                    conversation_focus_started_at AS started_at \
+             FROM actors WHERE id=$1 AND retired_at IS NULL",
+        )
+        .bind(actor)
+        .fetch_optional(&self.pool)
+        .await?
+        .ok_or_else(|| {
+            OrgIntelError::InvalidWork(format!(
+                "active conversation actor {actor:?} does not exist"
+            ))
+        })
+    }
+
+    /// The bounded owner/actor transcript newer than a known focus cursor.
+    /// This is input material for a wake, not a second conversation record.
+    pub async fn owner_conversation_since(
+        &self,
+        actor: &str,
+        after_message_id: i64,
+        limit: i64,
+    ) -> Result<Vec<MessageRow>> {
+        let limit = limit.clamp(1, 200);
+        Ok(sqlx::query_as(
+            "SELECT id,from_actor,to_actor,body,created_at,read_at FROM (\
+               SELECT id,from_actor,to_actor,body,created_at,read_at FROM messages \
+               WHERE id>$2 AND ((from_actor='owner' AND to_actor=$1) \
+                            OR (from_actor=$1 AND to_actor IS NULL)) \
+               ORDER BY id DESC LIMIT $3\
+             ) recent ORDER BY id",
+        )
+        .bind(actor)
+        .bind(after_message_id.max(0))
+        .bind(limit)
+        .fetch_all(&self.pool)
+        .await?)
+    }
+
+    pub async fn mark_read(&self, message_id: i64) -> Result<()> {
+        sqlx::query("UPDATE messages SET read_at = now() WHERE id = $1")
+            .bind(message_id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+}

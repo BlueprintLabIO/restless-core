@@ -44,3 +44,12 @@ real or overfit**. This is ARCHITECTURE.md §17 step 2 with §17 step 5 pulled f
 Note: this supersedes the single-outcome framing in `docs/SALVAGE.md` → "First outcome target", which
 proposed Cosmon alone. Cosmon remains the company the skeleton is built against and the only one with a
 hard green requirement.
+
+## Current alignment drafts
+
+- [`sprint-11.md`](./sprint-11.md) — trustworthy delegated execution from ACP control package through
+  native owner evidence.
+- [`sprint-12.md`](./sprint-12.md) — implementation evidenced: recoverable natural-team execution,
+  including a real Cosmon outcome; connected-browser owner-surface visual sign-off remains open.
+- [`sprint-14.md`](./sprint-14.md) — active: pre-release Rust consolidation, evidence integrity, and
+  hardening of the model-spend boundary.

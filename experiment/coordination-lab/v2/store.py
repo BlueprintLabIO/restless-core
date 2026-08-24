@@ -94,6 +94,8 @@ CREATE TABLE IF NOT EXISTS judgements (
   question TEXT NOT NULL,
   resume_condition TEXT NOT NULL,
   state TEXT NOT NULL CHECK(state IN ('open','resolved','declined')),
+  attempt_id TEXT REFERENCES attempts(id),
+  work_id TEXT REFERENCES work(id),
   choice TEXT,
   rationale TEXT,
   created_at REAL NOT NULL,
@@ -177,6 +179,12 @@ def initialize(path: Path) -> None:
     for name in ("cached_input_tokens", "reasoning_output_tokens"):
         if name not in turn_columns:
             conn.execute(f"ALTER TABLE turns ADD COLUMN {name} INTEGER")
+    judgement_columns = {
+        row["name"] for row in conn.execute("PRAGMA table_info(judgements)").fetchall()
+    }
+    for name in ("attempt_id", "work_id"):
+        if name not in judgement_columns:
+            conn.execute(f"ALTER TABLE judgements ADD COLUMN {name} TEXT")
     conn.close()
 
 

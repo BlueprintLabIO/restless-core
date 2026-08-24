@@ -58,12 +58,34 @@ class WorkspaceManager:
             f"    baseUrl: http://host.docker.internal:{GATEWAY_PORT}\n"
             "    apiKey: RESTLESS_MODEL_GATEWAY_TOKEN\n"
             "    transport: pi-native\n"
+            "  zai:\n"
+            f"    baseUrl: http://host.docker.internal:{GATEWAY_PORT}\n"
+            "    apiKey: RESTLESS_MODEL_GATEWAY_TOKEN\n"
+            "    api: openai-completions\n"
+            "    transport: pi-native\n"
+            "    models:\n"
+            "      - id: glm-5.3\n"
+            "        name: GLM 5.3\n"
+            "        reasoning: true\n"
+            "        supportsTools: true\n"
+            "        input: [text]\n"
+            "        cost: {input: 1.4, output: 4.4, cacheRead: 0.26, cacheWrite: 0}\n"
+            "        contextWindow: 1048576\n"
+            "        maxTokens: 131072\n"
             "  openrouter:\n"
             f"    baseUrl: http://host.docker.internal:{GATEWAY_PORT}\n"
             "    apiKey: RESTLESS_MODEL_GATEWAY_TOKEN\n"
             "    api: openai-completions\n"
             "    transport: pi-native\n"
             "    models:\n"
+            "      - id: z-ai/glm-5.3\n"
+            "        name: Z.ai GLM 5.3\n"
+            "        reasoning: true\n"
+            "        supportsTools: true\n"
+            "        input: [text]\n"
+            "        cost: {input: 1.4, output: 4.4, cacheRead: 0.26, cacheWrite: 0}\n"
+            "        contextWindow: 1048576\n"
+            "        maxTokens: 131072\n"
             "      - id: stealth/ox-alpha\n"
             "        name: Ox Alpha\n"
             "        reasoning: true\n"
@@ -265,9 +287,12 @@ class WorkspaceManager:
             capture_output=True,
         )
 
-    def import_artifact(self, work: sqlite3.Row, commit: str) -> str:
+    def import_artifact(self, work: sqlite3.Row, attempt_id: str, commit: str) -> str:
         workspace = Path(work["workspace"])
-        ref = f"refs/heads/artifacts/{safe_name(work['id'])}"
+        # Git commits are already immutable. Anchor each accepted Attempt under
+        # its own ref so a repair never needs to overwrite or fast-forward the
+        # prior Attempt's evidence.
+        ref = f"refs/heads/attempts/{safe_name(attempt_id)}"
         run(["git", "-C", str(self.canonical), "fetch", str(workspace), f"{commit}:{ref}"])
         if work["owner"] == "integration-lead":
             ancestor = run(["git", "-C", str(self.canonical), "merge-base", "--is-ancestor", work["base_ref"], commit], check=False)
@@ -651,7 +676,7 @@ class Coordinator:
                         "candidate_commit": commit,
                         "gates": gate_results,
                     }
-                imported_ref = self.workspaces.import_artifact(work, commit)
+                imported_ref = self.workspaces.import_artifact(work, attempt["id"], commit)
                 imported = run(
                     ["git", "-C", str(self.workspaces.canonical), "rev-parse", f"{imported_ref}^{{commit}}"]
                 ).stdout.strip()
@@ -706,8 +731,10 @@ class Coordinator:
 
         if name == "request_judgement":
             judgement = uid("judgement")
+            linked_attempt = context[0]["id"] if context else None
+            linked_work = context[1]["id"] if context else None
             self.conn.execute(
-                "INSERT INTO judgements(id,requested_by,assigned_to,subject,question,resume_condition,state,created_at) VALUES(?,?,?,?,?,?,'open',?)",
+                "INSERT INTO judgements(id,requested_by,assigned_to,subject,question,resume_condition,state,attempt_id,work_id,created_at) VALUES(?,?,?,?,?,?,'open',?,?,?)",
                 (
                     judgement,
                     actor,
@@ -715,16 +742,83 @@ class Coordinator:
                     args["subject"],
                     args["question"],
                     args["resume_condition"],
+                    linked_attempt,
+                    linked_work,
                     time.time(),
                 ),
             )
+            if context:
+                attempt, work = context
+                summary = f"Waiting for judgement {judgement}: {args['question']}"
+                self.conn.execute(
+                    "UPDATE attempts SET state='blocked',summary=?,ended_at=? WHERE id=?",
+                    (summary, time.time(), attempt["id"]),
+                )
+                self.conn.execute(
+                    "UPDATE work SET status='blocked',feedback=?,updated_at=? WHERE id=?",
+                    (args["resume_condition"], time.time(), work["id"]),
+                )
+                self.emit(
+                    "attempt_terminal",
+                    {
+                        "attempt": attempt["id"],
+                        "work": work["id"],
+                        "state": "blocked",
+                        "judgement": judgement,
+                    },
+                    actor,
+                )
             self.emit("judgement_requested", {"judgement": judgement, "assigned_to": args["assigned_to"]}, actor)
             if args["assigned_to"] != "owner":
                 self.wake(args["assigned_to"], "judgement_requested", {"judgement": judgement})
-            return {"judgement": judgement, "state": "open"}
+            return {
+                "judgement": judgement,
+                "state": "open",
+                "attempt_state": "blocked" if context else None,
+                "instruction": "End this turn; resolution will reactivate the same Work." if context else None,
+            }
+
+        if name == "complete_run":
+            if context is not None or actor != self.coordination_actor:
+                raise ValueError("only the accountable coordination actor may complete the run")
+            requested = args["candidate_commit"]
+            resolved = run(
+                ["git", "-C", str(self.workspaces.canonical), "rev-parse", f"{requested}^{{commit}}"],
+                check=False,
+            )
+            if resolved.returncode:
+                raise ValueError("candidate_commit is not an observable commit")
+            exact_commit = resolved.stdout.strip()
+            current = run(
+                ["git", "-C", str(self.workspaces.canonical), "rev-parse", "candidate^{commit}"]
+            ).stdout.strip()
+            if exact_commit != current:
+                raise ValueError("candidate_commit must equal the exact current candidate")
+            decision = uid("decision")
+            evidence = [f"candidate:{exact_commit}", *args.get("evidence", [])]
+            self.conn.execute(
+                "INSERT INTO decisions VALUES(?,?,?,?,?,?,?)",
+                (
+                    decision,
+                    actor,
+                    "run",
+                    "complete",
+                    args["rationale"],
+                    json.dumps(evidence),
+                    time.time(),
+                ),
+            )
+            self.emit(
+                "run_completed",
+                {"decision": decision, "candidate_commit": exact_commit},
+                actor,
+            )
+            return {"decision": decision, "candidate_commit": exact_commit, "state": "complete"}
 
         if name == "decide":
             subject = args["subject"]
+            if subject == "run" and args["choice"] == "complete":
+                raise ValueError("run completion requires complete_run(candidate_commit=...)")
             request_id = args.get("request")
             open_same = self.conn.execute(
                 "SELECT * FROM judgements WHERE subject=? AND state='open' ORDER BY created_at LIMIT 1",
@@ -732,6 +826,7 @@ class Coordinator:
             ).fetchone()
             if open_same and request_id != open_same["id"]:
                 raise ValueError("an open judgement on this subject must be resolved explicitly")
+            judgement = None
             if request_id:
                 judgement = self.conn.execute(
                     "SELECT * FROM judgements WHERE id=? AND state='open'", (request_id,)
@@ -758,7 +853,29 @@ class Coordinator:
                 ),
             )
             self.emit("decision_recorded", {"decision": decision, "subject": subject, "choice": args["choice"]}, actor)
-            return {"decision": decision}
+            resumed_work = None
+            if judgement and judgement["work_id"]:
+                work = self.conn.execute(
+                    "SELECT * FROM work WHERE id=?", (judgement["work_id"],)
+                ).fetchone()
+                if work and work["status"] == "blocked" and not self.conn.execute(
+                    "SELECT 1 FROM attempts WHERE work_id=? AND state='running'", (work["id"],)
+                ).fetchone():
+                    reason = (
+                        f"Judgement {request_id} resolved as {args['choice']}: "
+                        f"{args['rationale']}"
+                    )
+                    self._apply_redirect_now(work, "repair", reason, None)
+                    resumed_work = dict(self.conn.execute(
+                        "SELECT * FROM work WHERE id=?", (work["id"],)
+                    ).fetchone())
+            elif judgement and judgement["requested_by"] != actor:
+                self.wake(
+                    judgement["requested_by"],
+                    "judgement_resolved",
+                    {"judgement": request_id, "choice": args["choice"]},
+                )
+            return {"decision": decision, "resumed_work": resumed_work}
 
         if name == "schedule":
             schedule = uid("schedule")

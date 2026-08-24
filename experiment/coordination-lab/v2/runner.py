@@ -60,6 +60,7 @@ MODE_LEAD = "lead_alone"
 MODE_TEAM = "ordinary_team"
 MODE_NATURAL = "natural_team"
 MODE_CRITIC = "lead_critic"
+MODE_SUPERVISOR = "supervisor_team"
 MODES = (
     MODE_GRAPH,
     MODE_ARTIFACT,
@@ -68,6 +69,7 @@ MODES = (
     MODE_TEAM,
     MODE_NATURAL,
     MODE_CRITIC,
+    MODE_SUPERVISOR,
 )
 WRITABLE_CANDIDATE_MODES = {
     MODE_ARTIFACT,
@@ -76,13 +78,38 @@ WRITABLE_CANDIDATE_MODES = {
     MODE_TEAM,
     MODE_NATURAL,
     MODE_CRITIC,
+    MODE_SUPERVISOR,
 }
-WORKER_MODES = {MODE_GRAPH, MODE_ARTIFACT, MODE_TEAM, MODE_NATURAL, MODE_CRITIC}
+WORKER_MODES = {
+    MODE_GRAPH,
+    MODE_ARTIFACT,
+    MODE_TEAM,
+    MODE_NATURAL,
+    MODE_CRITIC,
+    MODE_SUPERVISOR,
+}
 PRODUCER_ACTORS = (
     "gameplay-systems",
     "world-content",
     "experience-presentation",
     "research-analyst",
+    "marketing-operator",
+    "sales-operator",
+    "customer-operations",
+    "marketing-strategist",
+    "marketing-producer",
+    "research-evidence-a",
+    "research-evidence-b",
+    "decision-synthesist",
+    "sales-operator-1",
+    "sales-operator-2",
+    "sales-operator-3",
+    "sales-operator-4",
+    "sales-operator-5",
+    "sales-operator-6",
+    "sales-operator-7",
+    "sales-operator-8",
+    "batch-assembler",
 )
 
 ACTORS = {
@@ -106,6 +133,49 @@ ACTORS = {
         "Research analyst",
         "Own bounded synthesis of frozen source regions, exact citations, contradiction analysis, and decision evidence when commissioned.",
     ),
+    "marketing-operator": (
+        "Marketing operator",
+        "Own a bounded campaign outcome end to end: strategy, channel-native assets, claims discipline, measurement and review-ready packaging.",
+    ),
+    "sales-operator": (
+        "Sales operator",
+        "Own disjoint fictional prospect units: evidence-based qualification, personalised next actions, dispositions and batch-quality proof. Never send messages.",
+    ),
+    "customer-operations": (
+        "Customer operations specialist",
+        "Own fictional customer cases end to end: evidence-grounded response and resolution packages, policy adherence, exception handling and review-ready proof. Never send responses.",
+    ),
+    "marketing-strategist": (
+        "Marketing strategist",
+        "Own evidence-grounded positioning, audience, claims, channel and measurement strategy as a bounded input to a downstream campaign producer. Never publish.",
+    ),
+    "marketing-producer": (
+        "Marketing campaign producer",
+        "Consume the exact required strategy artifact, challenge it where evidence requires, and produce one coherent decision-ready campaign and native asset pack. Never publish.",
+    ),
+    "research-evidence-a": (
+        "Research evidence analyst A",
+        "Own only the frozen source region assigned in Work; return exact source-grounded findings, contradictions and uncertainties for downstream synthesis.",
+    ),
+    "research-evidence-b": (
+        "Research evidence analyst B",
+        "Own only the frozen source region assigned in Work; return exact source-grounded findings, contradictions and uncertainties for downstream synthesis.",
+    ),
+    "decision-synthesist": (
+        "Decision synthesist",
+        "Consume every exact required evidence artifact, reconcile contradictions, and produce the final source-traceable decision memo and its deterministic verification surface.",
+    ),
+    **{
+        f"sales-operator-{index}": (
+            f"Sales operator {index}",
+            "Own only the disjoint fictional prospect units assigned in Work: evidence-based qualification, personalised unsent next actions, disposition and exact unit proof. Never send messages.",
+        )
+        for index in range(1, 9)
+    },
+    "batch-assembler": (
+        "Sales batch assembler",
+        "Consume every exact required sales-unit artifact, assemble the complete batch without rewriting valid unit judgement, detect duplicates and omissions, run the whole-batch gate, and return one clean final artifact. Never send messages.",
+    ),
     "artifact-critic": (
         "Independent playable-build critic",
         "Review only the runnable artifact and success contract. Do not read producer reasoning. Seek concrete defects, regressions, missing requirements, and false claims.",
@@ -118,6 +188,10 @@ ACTORS = {
         "Game product lead",
         "Own the playable milestone, shared product understanding, canonical candidate, integration, quality judgement, and adaptive delegation.",
     ),
+    "supervisor-lead": (
+        "Non-producing accountable supervisor",
+        "Own the complete outcome, mission alignment, worker selection, guidance, recovery, native inspection and final judgement. Perform no planned production or content-changing integration.",
+    ),
     "single-agent": (
         "Single-agent studio baseline",
         "Own product judgement, implementation, verification, and the canonical candidate without team coordination machinery.",
@@ -128,6 +202,7 @@ ACTORS = {
 def actors_for_mode(
     mode: str,
     team_worker_actor: str = "gameplay-systems",
+    team_worker_actors: list[str] | None = None,
 ) -> dict[str, tuple[str, str]]:
     specialists = {
         actor: ACTORS[actor]
@@ -141,15 +216,15 @@ def actors_for_mode(
         return {"single-agent": ACTORS["single-agent"]}
     if mode == MODE_LEAD:
         return {"studio-lead": ACTORS["studio-lead"]}
-    if mode in (MODE_TEAM, MODE_NATURAL):
-        if team_worker_actor not in PRODUCER_ACTORS:
-            raise ValueError(
-                f"team worker must be one of {PRODUCER_ACTORS}, got {team_worker_actor!r}"
-            )
-        return {
-            "studio-lead": ACTORS["studio-lead"],
-            team_worker_actor: ACTORS[team_worker_actor],
-        }
+    if mode in (MODE_TEAM, MODE_NATURAL, MODE_SUPERVISOR):
+        selected = list(team_worker_actors or [team_worker_actor])
+        if not selected or len(selected) != len(set(selected)):
+            raise ValueError("team workers must be a non-empty list of distinct actor identities")
+        invalid = [actor for actor in selected if actor not in PRODUCER_ACTORS]
+        if invalid:
+            raise ValueError(f"team workers must be selected from {PRODUCER_ACTORS}, got {invalid}")
+        lead = "supervisor-lead" if mode == MODE_SUPERVISOR else "studio-lead"
+        return {lead: ACTORS[lead], **{actor: ACTORS[actor] for actor in selected}}
     if mode == MODE_CRITIC:
         return {
             "studio-lead": ACTORS["studio-lead"],
@@ -167,6 +242,7 @@ def coordination_actor_for_mode(mode: str) -> str:
         MODE_TEAM: "studio-lead",
         MODE_NATURAL: "studio-lead",
         MODE_CRITIC: "studio-lead",
+        MODE_SUPERVISOR: "supervisor-lead",
     }[mode]
 
 
@@ -248,17 +324,26 @@ def mission() -> str:
         return tomllib.load(source)["mission"]
 
 
-def prove_free_worker_pool(models: list[str]) -> list[dict[str, Any]]:
-    """Live-prove that every worker model is still zero-price and tool-capable."""
+def prove_worker_pool(
+    models: list[str], *, require_free: bool = True
+) -> list[dict[str, Any]]:
+    """Live-prove worker identity, price and advertised tool capability."""
     if not models:
-        raise RuntimeError("team modes require at least one explicitly pinned free worker model")
+        raise RuntimeError("team modes require at least one explicitly pinned worker model")
     with urllib.request.urlopen("https://openrouter.ai/api/v1/models", timeout=30) as response:
         body = json.load(response)
     catalogue = {row.get("id"): row for row in body.get("data", []) if isinstance(row, dict)}
     checked_at = datetime.now(timezone.utc).isoformat()
     proofs: list[dict[str, Any]] = []
     for model in models:
-        row = catalogue.get(model)
+        # The broker may expose the same Z.ai model through its first-party
+        # `zai` route while OpenRouter's public catalogue names the vendor
+        # namespace `z-ai`. Keep runtime identity explicit and map only the
+        # admission metadata lookup.
+        catalogue_id = (
+            "z-ai/glm-5.3" if model == "zai/glm-5.3" else model.removeprefix("openrouter/")
+        )
+        row = catalogue.get(catalogue_id)
         if not row:
             raise RuntimeError(f"worker model {model!r} is absent from the live OpenRouter catalogue")
         pricing = row.get("pricing") or {}
@@ -266,7 +351,7 @@ def prove_free_worker_pool(models: list[str]) -> list[dict[str, Any]]:
         completion_price = str(pricing.get("completion", ""))
         parameters = sorted(item for item in row.get("supported_parameters", []) if isinstance(item, str))
         modalities = (row.get("architecture") or {}).get("input_modalities", [])
-        if prompt_price != "0" or completion_price != "0":
+        if require_free and (prompt_price != "0" or completion_price != "0"):
             raise RuntimeError(
                 f"worker model {model!r} is not free (prompt={prompt_price}, completion={completion_price})"
             )
@@ -275,19 +360,83 @@ def prove_free_worker_pool(models: list[str]) -> list[dict[str, Any]]:
         proofs.append(
             {
                 "id": model,
+                "catalogue_id": catalogue_id,
                 "name": row.get("name") or model,
                 "checked_at": checked_at,
                 "context_length": int(row.get("context_length") or 0),
                 "prompt_price": prompt_price,
                 "completion_price": completion_price,
+                "cache_read_price": str(pricing.get("input_cache_read", "")),
+                "require_free": require_free,
                 "supported_parameters": parameters,
             }
         )
     return proofs
 
 
+def runtime_model_selector(model: str) -> str:
+    """Return the exact gateway selector without hiding provider identity."""
+    if model.startswith(("openrouter/", "zai/")):
+        return model
+    return f"openrouter/{model}"
+
+
+def summarize_omp_sessions(paths: list[Path]) -> dict[str, Any]:
+    """Aggregate provider-reported usage from exact OMP session evidence."""
+    usage = {
+        "input": 0,
+        "output": 0,
+        "cache_read": 0,
+        "cache_write": 0,
+        "total_tokens": 0,
+        "cost_usd": 0.0,
+    }
+    identities: set[tuple[str, str, str]] = set()
+    thinking_levels: list[str] = []
+    for path in paths:
+        for line in path.read_text().splitlines():
+            try:
+                row = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(row, dict) and row.get("type") == "thinking_level_change":
+                thinking_levels.append(str(row.get("thinkingLevel") or "unknown"))
+            message = row.get("message") if isinstance(row, dict) else None
+            if not isinstance(message, dict) or message.get("role") != "assistant":
+                continue
+            observed = message.get("usage")
+            if not isinstance(observed, dict):
+                continue
+            usage["input"] += int(observed.get("input") or 0)
+            usage["output"] += int(observed.get("output") or 0)
+            usage["cache_read"] += int(observed.get("cacheRead") or 0)
+            usage["cache_write"] += int(observed.get("cacheWrite") or 0)
+            usage["total_tokens"] += int(observed.get("totalTokens") or 0)
+            cost = observed.get("cost")
+            if isinstance(cost, dict):
+                usage["cost_usd"] += float(cost.get("total") or 0.0)
+            identities.add(
+                (
+                    str(message.get("provider") or "unknown"),
+                    str(message.get("model") or "unknown"),
+                    str(message.get("api") or "unknown"),
+                )
+            )
+    usage["cost_usd"] = round(float(usage["cost_usd"]), 9)
+    return {
+        "sessions": [str(path) for path in paths],
+        "identities": [
+            {"provider": provider, "model": model, "api": api}
+            for provider, model, api in sorted(identities)
+        ],
+        "thinking_levels": thinking_levels,
+        "final_thinking_level": thinking_levels[-1] if thinking_levels else None,
+        "usage": usage,
+    }
+
+
 def prove_worker_runtime(cell: str, models: list[str]) -> list[dict[str, Any]]:
-    """Prove each free worker through the exact container + gateway path.
+    """Prove each worker through the exact container + gateway path.
 
     The public OpenRouter catalogue proves price and advertised capabilities,
     but it does not prove that the Company Runtime has a current model registry
@@ -332,7 +481,7 @@ def prove_worker_runtime(cell: str, models: list[str]) -> list[dict[str, Any]]:
         for row in catalogue.get("models", [])
         if isinstance(row, dict)
     }
-    missing = [model for model in models if f"openrouter/{model}" not in selectors]
+    missing = [model for model in models if runtime_model_selector(model) not in selectors]
     if missing:
         raise RuntimeError(f"Company Runtime model catalogue is missing worker models: {missing}")
 
@@ -346,7 +495,7 @@ def prove_worker_runtime(cell: str, models: list[str]) -> list[dict[str, Any]]:
         raise RuntimeError("COORD_WORKER_PROBE_MAX_SECONDS must be between 10 and 600")
     for model in models:
         started = time.monotonic()
-        runtime_selector = f"openrouter/{model}"
+        runtime_selector = runtime_model_selector(model)
         thinking_args = ["--thinking", probe_thinking] if probe_thinking else []
         probe = subprocess.run(
             [
@@ -531,9 +680,16 @@ def prepare(
     drain_grace_seconds: int = DRAIN_GRACE_SECONDS,
     scenario_text: str | None = None,
     team_worker_actor: str = "gameplay-systems",
+    team_worker_actors: list[str] | None = None,
     max_staff_concurrency: int | None = None,
     evaluator_files: list[str] | None = None,
     actor_max_time: str = DEFAULT_ACTOR_MAX_TIME,
+    require_free_workers: bool = True,
+    supervision_events: str = "terminal",
+    expected_scenario_sha256: str | None = None,
+    expected_evaluator_sha256: list[str] | None = None,
+    external_event_file: str | None = None,
+    expected_external_event_sha256: str | None = None,
 ) -> Path:
     if mode not in MODES:
         raise ValueError(f"mode must be one of {MODES}")
@@ -541,7 +697,7 @@ def prepare(
     if not mode_has_workers(mode):
         selected_workers = []
     if mode_has_workers(mode) and not selected_workers:
-        raise ValueError("team modes require a non-empty free worker model pool")
+        raise ValueError("team modes require a non-empty worker model pool")
     if spend_ceiling_usd <= 0:
         raise ValueError("spend ceiling must be positive")
     if wall_clock_seconds < 60:
@@ -550,10 +706,17 @@ def prepare(
         raise ValueError("drain grace must be between 15 and 300 seconds")
     if actor_max_time != "none" and not re.fullmatch(r"[1-9][0-9]*[smh]", actor_max_time):
         raise ValueError("actor max time must be 'none' or a positive duration such as 8m")
-    actors = actors_for_mode(mode, team_worker_actor)
+    if supervision_events not in {"terminal", "material"}:
+        raise ValueError("supervision events must be 'terminal' or 'material'")
+    if mode != MODE_SUPERVISOR and supervision_events != "terminal":
+        raise ValueError("material supervision events are meaningful only in supervisor mode")
+    selected_team_workers = list(team_worker_actors or [team_worker_actor])
+    actors = actors_for_mode(mode, team_worker_actor, selected_team_workers)
     coordination_actor = coordination_actor_for_mode(mode)
     if max_staff_concurrency is None:
-        if mode in (MODE_TEAM, MODE_NATURAL, MODE_CRITIC):
+        if mode == MODE_SUPERVISOR:
+            selected_max_staff = len(selected_team_workers)
+        elif mode in (MODE_TEAM, MODE_NATURAL, MODE_CRITIC):
             selected_max_staff = 1
         elif mode_has_workers(mode):
             selected_max_staff = MAX_STAFF
@@ -565,6 +728,10 @@ def prepare(
         raise ValueError("max Staff concurrency must not be negative")
     if mode in (MODE_TEAM, MODE_NATURAL, MODE_CRITIC) and selected_max_staff != 1:
         raise ValueError(f"{mode} requires exactly one available Staff slot")
+    if mode == MODE_SUPERVISOR and not 1 <= selected_max_staff <= len(selected_team_workers):
+        raise ValueError(
+            "supervisor mode Staff concurrency must be between one and the available worker count"
+        )
     cleanup_cells(run_id)
     run_dir = WORK_ROOT / run_id
     safe_reset(run_dir)
@@ -603,6 +770,12 @@ def prepare(
     scenario = scenario_text if scenario_text is not None else mission()
     if not scenario.strip():
         raise ValueError("scenario must not be empty")
+    scenario_sha256 = hashlib.sha256(scenario.encode()).hexdigest()
+    if expected_scenario_sha256 and scenario_sha256 != expected_scenario_sha256:
+        raise ValueError(
+            "scenario hash mismatch: "
+            f"expected {expected_scenario_sha256}, got {scenario_sha256}"
+        )
     (context / "scenario.md").write_text(scenario)
     evaluation_dir = run_dir / "evaluation"
     evaluation_dir.mkdir()
@@ -622,6 +795,53 @@ def prepare(
         declared_evaluators.append(
             {"name": name, "sha256": hashlib.sha256(body).hexdigest()}
         )
+    if expected_evaluator_sha256:
+        expected_hashes = sorted(expected_evaluator_sha256)
+        observed_hashes = sorted(item["sha256"] for item in declared_evaluators)
+        if observed_hashes != expected_hashes:
+            raise ValueError(
+                "evaluator hash mismatch: "
+                f"expected {expected_hashes}, got {observed_hashes}"
+            )
+    external_event_manifest: dict[str, str] | None = None
+    if external_event_file:
+        if mode != MODE_SUPERVISOR:
+            raise ValueError("external event injection is currently scoped to supervisor mode")
+        source = Path(external_event_file).expanduser().resolve()
+        if not source.is_file():
+            raise ValueError(f"external event plan is not a file: {source}")
+        body = source.read_bytes()
+        observed_event_sha256 = hashlib.sha256(body).hexdigest()
+        if (
+            expected_external_event_sha256
+            and observed_event_sha256 != expected_external_event_sha256
+        ):
+            raise ValueError(
+                "external event hash mismatch: "
+                f"expected {expected_external_event_sha256}, got {observed_event_sha256}"
+            )
+        plan = json.loads(body)
+        if not isinstance(plan, dict) or not isinstance(plan.get("id"), str):
+            raise ValueError("external event plan requires a string id")
+        trigger_path = plan.get("trigger_path")
+        trigger = Path(trigger_path) if isinstance(trigger_path, str) else None
+        if (
+            trigger is None
+            or trigger.is_absolute()
+            or not trigger.parts
+            or ".." in trigger.parts
+        ):
+            raise ValueError("external event trigger_path must be a safe relative path")
+        if not isinstance(plan.get("payload"), dict):
+            raise ValueError("external event plan requires an object payload")
+        (run_dir / "external-event-plan.json").write_bytes(body)
+        external_event_manifest = {
+            "id": plan["id"],
+            "sha256": observed_event_sha256,
+            "trigger_path": trigger_path,
+        }
+    elif expected_external_event_sha256:
+        raise ValueError("expected external event hash requires --external-event-file")
     if mode == MODE_ARTIFACT:
         lead_home = run_dir / "homes" / coordination_actor
         lead_home.mkdir(parents=True)
@@ -657,7 +877,7 @@ Messages never reopen blocked Work and are not a second assignment path. When an
 
 There is no mid-run owner help. Make reversible operating decisions yourself. Request owner judgement only for irreducible identity, legal attestation, taste, or consequential approval. Never contradict an unresolved judgement request with a separate decision.
 
-Use outcome-sized Work, deterministic argv gates where useful, and evidence from produced callbacks. `outcome_met` is a claim; gates and independent review determine whether it holds. Call `decide(subject=run, choice=complete)` only after one integrated candidate is prepared and independently reviewed.
+Use outcome-sized Work, deterministic argv gates where useful, and evidence from produced callbacks. `outcome_met` is a claim; gates and independent review determine whether it holds. Call `complete_run(candidate_commit=<exact SHA>, ...)` only after one integrated candidate is prepared and independently reviewed.
 """
     elif mode == MODE_ARTIFACT:
         coordination_system = f"""# Coordination lab v21 — artifact-led Game Product Lead
@@ -690,8 +910,8 @@ proof. Never delegate the whole vertical milestone, broad repository discovery, 
 integration. Prefer two independent small contributions that you can integrate and judge over one
 large Work item that asks a worker to rediscover the product.
 
-Producer Work ends at a clean commit and terminal report. Their commit is imported into canonical
-`refs/heads/artifacts/<work-id>` and is also named in coordination evidence. Integrate it yourself with
+Producer Work ends at a clean commit and terminal report. Their exact commit is named in coordination
+evidence and anchored immutably at `refs/heads/attempts/<attempt-id>`. Integrate the named commit with
 ordinary Git, resolve conflicts against the evolving whole, and verify the combined candidate. Keep the
 canonical checkout clean at wake boundaries.
 
@@ -705,7 +925,7 @@ the critic the observable milestone and require a concrete review artifact. Judg
 review; do not accept it mechanically.
 
 There is no mid-run owner help. Make reversible product and engineering decisions yourself. Call
-`decide(subject=run, choice=complete)` only after one clean, advanced, executable candidate has combined
+`complete_run(candidate_commit=<exact SHA>, ...)` only after one clean, advanced, executable candidate has combined
 at least two delegated contributions, passed its checks, and received independent native-artifact review.
 """
     elif mode == MODE_LEAD:
@@ -718,7 +938,7 @@ run native checks, judge the result, and leave one clean meaningful commit.
 
 This arm gives you no Staff. Do not create Work or simulate delegation. You remain a team lead even
 when the correct team size below you is zero. Prefer the working outcome over management prose. There
-is no mid-run owner help. Record `decide(subject=run, choice=complete)` only when the exact candidate is
+is no mid-run owner help. Call `complete_run(candidate_commit=<exact SHA>, ...)` only when the exact candidate is
 advanced, clean, and executable; otherwise leave truthful continuation evidence.
 """
     elif mode == MODE_TEAM:
@@ -747,7 +967,7 @@ contribution exists, end truthfully without completing the run; that is protocol
 This is the ordinary-team baseline: no shared project-state document, no shared hidden reasoning, no
 mandatory critic, no graph ceremony, and no second worker. Work exists only for the one real cross-actor
 responsibility and artifact handoff. There is no mid-run owner help. Record
-`decide(subject=run, choice=complete)` only after the clean candidate has advanced and the one commissioned
+`complete_run(candidate_commit=<exact SHA>, ...)` only after the clean candidate has advanced and the one commissioned
 contribution has been judged; if it is rejected, record why in the final decision evidence.
 
 Runtime recovery must be evidence-driven. One repair of the same Work is reasonable when preserved
@@ -776,8 +996,11 @@ contribution useful. Invite material challenge. Communicate again only when new 
 other person's work. There is no required handoff template, shared-state document, message cadence,
 polling loop, critic, or prescribed first action.
 
-Collaboration is a real cross-actor event, not a story: if you choose it, actually call OrgIntel's
-`commission` tool before representing Staff as working. Only the resulting Work → Attempt → artifact
+Collaboration is a real cross-actor event, not a story. The `orgintel` MCP server is configured for
+this session and exposes `inspect_coordination`, `commission`, and the other factual coordination
+tools; do not infer that commission is absent merely because it is not a repository command. If you
+choose collaboration, actually call OrgIntel's `commission` tool before representing Staff as working.
+Only the resulting Work → Attempt → artifact
 callback is evidence that Staff contributed. Never invent, simulate, or role-play a Staff handoff. If no
 Work exists, say truthfully that you worked alone.
 
@@ -787,8 +1010,73 @@ coherence where warranted, and run native proof yourself. You retain accountabil
 typed which change.
 
 Use at most one genuine Staff responsibility in this bounded screen. There is no mid-run owner help.
-Record `decide(subject=run, choice=complete)` only when one clean, advanced, executable candidate meets
+Call `complete_run(candidate_commit=<exact SHA>, ...)` only when one clean, advanced, executable candidate meets
 the exact outcome. In the final evidence, briefly state why the chosen team size was appropriate.
+"""
+    elif mode == MODE_SUPERVISOR:
+        if len(selected_team_workers) == 1:
+            roster_contract = (
+                "Exactly one end-to-end producer is available. Commission exactly one whole-outcome "
+                "responsibility on the first wake."
+            )
+            first_wake_contract = (
+                "On the first wake, build enough causal understanding to brief the whole outcome, "
+                "then call `commission` exactly once."
+            )
+        else:
+            roster_contract = (
+                f"This frozen cell provides {len(selected_team_workers)} distinct worker identities. "
+                "Use every identity exactly once for the genuine responsibilities named by the owner "
+                "outcome; roster size is an experimental boundary, not permission for duplicate work. "
+                "When contributions must converge, a downstream worker must own the final artifact "
+                "through explicit `requires` edges. You may not integrate it yourself."
+            )
+            first_wake_contract = (
+                "On the first wake, build the causal model and commission the independent ready "
+                "responsibilities. Commission dependency-bound synthesis or assembly only after its "
+                "inputs complete."
+            )
+        event_guidance = (
+            "This is the stable terminal-only cell. The worker should return either a terminal "
+            "artifact or a blocked report; do not request or send progress/status updates. You wake "
+            "for terminal or blocked evidence only."
+            if supervision_events == "terminal"
+            else "This is the material-event cell. A worker may send a question or progress update "
+            "only when new information can change the work; you may wake and intervene on that "
+            "material delta as well as blocked or terminal evidence."
+        )
+        coordination_system = f"""# Coordination lab EXP-03 — non-producing accountable supervisor
+
+The company Exec has delegated this exact owner outcome to you and returned to owner availability. You
+are its accountable lead and mission keeper. Preserve whole-outcome understanding, choose and guide
+workers, observe native evidence, redirect or reassign weak work, and make the final judgement.
+
+{roster_contract}
+
+Available roster:
+{roster}
+
+You perform **no planned production**. Do not edit product or document content, make a private parallel
+implementation, commit a lead-authored repair, resolve a content conflict yourself, or rewrite the
+worker's artifact. Inspection, communication, running checks and promoting an exact accepted worker
+commit are supervisory actions. Any content correction goes back to the worker through `redirect`.
+
+{first_wake_contract} Give each worker the purpose, complete responsibility, observable success, exact useful
+inputs and tools, consequential constraints, authority boundary and required artifact/checks. The
+worker owns its bounded outcome end to end; do not manufacture an arbitrary fragment merely to delegate.
+
+After commissioning, quiesce. Do not poll, schedule status meetings, work in parallel or infer outcome
+from elapsed time. {event_guidance} Communicate only new information that can change the worker's
+work. Repair the same Work when correction belongs with
+the same owner; reassign only when another capability or accountability owner is genuinely required.
+
+A producer report is a claim. Inspect the exact imported commit in
+an exact commit SHA and an immutable `refs/heads/attempts/<attempt-id>` anchor. If it is acceptable,
+promote that exact tree with `git reset --hard <exact-worker-commit>`; do not alter it. Run the frozen native proof against that exact commit. If it
+fails or whole-outcome judgement finds a defect, redirect the worker with exact evidence. Record
+`complete_run(candidate_commit=<exact SHA>, ...)` only when the clean `candidate` is exactly a produced worker
+artifact and the observable outcome passes. If the worker cannot close it, leave truthful continuation
+evidence instead of taking over.
 """
     elif mode == MODE_CRITIC:
         coordination_system = f"""# Coordination lab v24 — accountable lead plus fresh artifact critic (B2)
@@ -807,7 +1095,7 @@ repairs yourself, rerun native proof, and decide. The critic informs your judgem
 
 This isolates review value from production parallelism: no producer Staff, no shared project-state
 document, no shared hidden reasoning, and no second critic. There is no mid-run owner help. Record
-`decide(subject=run, choice=complete)` only after fresh artifact review has been consumed and the final
+`complete_run(candidate_commit=<exact SHA>, ...)` only after fresh artifact review has been consumed and the final
 candidate is clean and executable.
 """
     elif mode == MODE_SINGLE:
@@ -817,7 +1105,7 @@ You own this Cosmon milestone end to end. Work directly in the writable canonica
 inspect the current product, choose the smallest coherent playable increment, implement it, run the
 existing and new executable checks, and leave one clean meaningful commit. You have no team and should
 not create Work or simulate delegation. Prefer a working integrated product increment over planning or
-management prose. There is no mid-run owner help. Record `decide(subject=run, choice=complete)` only
+management prose. There is no mid-run owner help. Call `complete_run(candidate_commit=<exact SHA>, ...)` only
 when the exact candidate is advanced, clean, and executable; otherwise leave a truthful continuation.
 """
     else:
@@ -842,7 +1130,7 @@ Commands require a caller-chosen `idempotency_key`; reuse it only for an exact r
             if mode == MODE_ARTIFACT
             else (
                 "Your accountable lead has already metabolised the owner directive into this exact bounded Work. Complete only this responsibility and hand back one clean commit; do not reopen the whole mission or create a parallel plan.\n\n"
-                if mode in (MODE_TEAM, MODE_NATURAL, MODE_CRITIC)
+                if mode in (MODE_TEAM, MODE_NATURAL, MODE_CRITIC, MODE_SUPERVISOR)
                 else ""
             )
         )
@@ -876,15 +1164,19 @@ Commands require a caller-chosen `idempotency_key`; reuse it only for an exact r
                 "coordination_actor": coordination_actor,
                 "lead_model": lead_model,
                 "worker_model_pool": selected_workers,
+                "require_free_workers": require_free_workers,
+                "supervision_events": supervision_events,
                 "wall_clock_seconds": wall_clock_seconds,
                 "drain_grace_seconds": drain_grace_seconds,
                 "actor_max_time": actor_max_time,
-                "scenario_sha256": hashlib.sha256(scenario.encode()).hexdigest(),
+                "scenario_sha256": scenario_sha256,
                 "spend_ceiling_usd": spend_ceiling_usd,
                 "turn_reservation_usd": RESERVATION_USD,
                 "max_staff_concurrency": selected_max_staff,
-                "team_worker_actor": team_worker_actor if mode in (MODE_TEAM, MODE_NATURAL) else None,
+                "team_worker_actor": team_worker_actor if mode in (MODE_TEAM, MODE_NATURAL, MODE_SUPERVISOR) else None,
+                "team_worker_actors": selected_team_workers if mode in (MODE_TEAM, MODE_NATURAL, MODE_SUPERVISOR) else [],
                 "declared_evaluators": declared_evaluators,
+                "external_event": external_event_manifest,
                 "actors": {actor: {"role": role, "brief": brief} for actor, (role, brief) in actors.items()},
             },
             indent=2,
@@ -913,6 +1205,8 @@ class LabRun:
         self.lead_actor = self.manifest.get("coordination_actor", "exec")
         self.lead_model = self.manifest.get("lead_model", LEAD_MODEL)
         self.worker_pool = list(self.manifest.get("worker_model_pool", []))
+        self.require_free_workers = bool(self.manifest.get("require_free_workers", True))
+        self.supervision_events = str(self.manifest.get("supervision_events", "terminal"))
         self.spend_ceiling = float(self.manifest.get("spend_ceiling_usd", CEILING_USD))
         self.turn_reservation = float(self.manifest.get("turn_reservation_usd", RESERVATION_USD))
         self.max_staff = int(self.manifest.get("max_staff_concurrency", MAX_STAFF))
@@ -930,9 +1224,61 @@ class LabRun:
         self.envelope_warned = False
         self.stopping = False
         self.native_review_proof: dict[str, Any] | None = None
+        self.external_event_task: asyncio.Task[None] | None = None
 
     def remaining(self) -> float:
         return max(0.0, self.deadline - time.monotonic())
+
+    def external_event_state(self) -> dict[str, Any] | None:
+        state_path = self.run_dir / "external-event-state.json"
+        return json.loads(state_path.read_text()) if state_path.exists() else None
+
+    async def watch_external_event(self) -> None:
+        event_manifest = self.manifest.get("external_event")
+        if not event_manifest:
+            return
+        plan_path = self.run_dir / "external-event-plan.json"
+        body = plan_path.read_bytes()
+        observed_sha256 = hashlib.sha256(body).hexdigest()
+        if observed_sha256 != event_manifest["sha256"]:
+            raise RuntimeError(
+                "external event plan changed: "
+                f"expected {event_manifest['sha256']}, got {observed_sha256}"
+            )
+        plan = json.loads(body)
+        trigger_path = Path(plan["trigger_path"])
+        workspaces = self.run_dir / "workspaces"
+        while self.remaining() > 1 and not self.stopping:
+            for workspace in sorted(workspaces.iterdir()) if workspaces.exists() else []:
+                trigger = workspace / trigger_path
+                if not trigger.exists():
+                    continue
+                trigger_bytes = trigger.read_bytes() if trigger.is_file() else b""
+                state = {
+                    "id": plan["id"],
+                    "plan_sha256": observed_sha256,
+                    "trigger_path": plan["trigger_path"],
+                    "trigger_workspace": workspace.name,
+                    "trigger_sha256": hashlib.sha256(trigger_bytes).hexdigest(),
+                    "elapsed_seconds": time.monotonic() - self.started,
+                    "payload": plan["payload"],
+                }
+                state_path = self.run_dir / "external-event-state.json"
+                temporary = state_path.with_suffix(".tmp")
+                temporary.write_text(json.dumps(state, indent=2, sort_keys=True))
+                temporary.replace(state_path)
+                self.coordinator.emit("external_event_injected", state)
+                if self.supervision_events == "material":
+                    self.coordinator.wake(
+                        self.lead_actor,
+                        "external_event_material",
+                        {
+                            "external_event": plan["id"],
+                            "payload": plan["payload"],
+                        },
+                    )
+                return
+            await asyncio.sleep(0.05)
 
     def reserved_cost(self, additional: int = 0) -> float:
         return self.coordinator.cost() + (len(self.tasks) + additional) * self.turn_reservation
@@ -1000,10 +1346,8 @@ class LabRun:
         selected_model = self.select_model(actor, attempt)
         runtime_model = (
             selected_model
-            if actor == self.lead_actor
-            or selected_model.startswith("openrouter/")
-            or selected_model.startswith("gpt-")
-            else f"openrouter/{selected_model}"
+            if selected_model.startswith("gpt-")
+            else runtime_model_selector(selected_model)
         )
         self.coordinator.emit(
             "model_selected",
@@ -1500,6 +1844,61 @@ coherent playable advance, verify it, commit it cleanly, and truthfully close or
 Continue direct outcome work from this exact candidate. Inspect and run what judgement requires,
 produce one coherent advance, verify it natively, commit it cleanly, and close only on observed proof.
 """
+        if self.mode == MODE_SUPERVISOR:
+            supervisor_workers = list(
+                self.manifest.get("team_worker_actors")
+                or [self.manifest.get("team_worker_actor")]
+            )
+            supervisor_workers = [actor for actor in supervisor_workers if actor]
+            supervisor_next_action = (
+                "If no Work exists, commission exactly one end-to-end producer with a rich causal "
+                "brief, then quiesce."
+                if len(supervisor_workers) == 1
+                else (
+                    "Use each frozen worker identity exactly once at its genuine seam. Commission "
+                    "independent ready Work without duplicate scope; commission downstream synthesis "
+                    "or assembly only with explicit `requires` edges after its input Work completes. "
+                    "The final coherent artifact must be produced by a worker, never integrated by you."
+                )
+            )
+            return f"""# Non-producing accountable supervisor wake — EXP-03 S1
+
+## Exec-delegated owner outcome
+
+{(self.run_dir / 'context' / 'scenario.md').read_text()}
+
+{runtime_capsule}
+
+## Exact native candidate evidence
+
+```json
+{json.dumps(candidate_evidence, indent=2)}
+```
+
+## New event causes
+
+```json
+{json.dumps(causes, indent=2)}
+```
+
+## Current frozen external-event state
+
+```json
+{json.dumps(self.external_event_state(), indent=2)}
+```
+
+## Sparse responsibility and artifact map
+
+```json
+{json.dumps(self.lead_projection(), indent=2)}
+```
+
+{supervisor_next_action}
+If the worker has returned, inspect its exact artifact and native outcome. Accept and promote the exact
+artifact tree, or redirect/reassign with observable correction evidence. Do not edit, implement,
+rewrite, resolve content conflicts, keep a parallel artifact, poll or perform planned production.
+Retain whole-outcome accountability and close only on the frozen native proof.
+"""
         if self.mode in (MODE_TEAM, MODE_NATURAL, MODE_CRITIC):
             if self.mode == MODE_TEAM:
                 baseline_name = "ordinary team — B1"
@@ -1585,7 +1984,7 @@ and update `/company/project-state.md` before quiescing.
             canonical = self.run_dir / "canonical"
             command = (
                 f"python3 {self.native_review_proof['adapter']} {cell} {canonical} "
-                "<relative-check.mjs>"
+                "--commit <exact-candidate-commit> <relative-check.mjs>"
             )
             return f"""## Probed native review runtime
 
@@ -1599,9 +1998,10 @@ new Chrome DevTools adapter. Run a repository-native browser proof against the c
 {command}
 ```
 
-The first-party adapter uses the already-mounted current workspace and supplies a temporary static
-server only when the proof reports a refused local connection. Native proof is evidence for judgement,
-not a reason to invent a stricter acceptance target than the owner outcome.
+The first-party adapter exports the exact commit without Git metadata and supplies a temporary static
+server only when the proof reports a refused local connection. This is the actual packaged review
+boundary. Native proof is evidence for judgement, not a reason to invent a stricter acceptance target
+than the owner outcome.
 """
         return f"""## Probed native review runtime
 
@@ -1697,6 +2097,28 @@ from the named extension seam and inspect only the files needed for this bounded
 outcome remains your responsibility; do not replace it with a new project plan.
 """
         runtime_capsule = self.runtime_capability_capsule(item["owner"], item["cell"])
+        external_event_context = ""
+        external_event = self.external_event_state()
+        if external_event:
+            external_event_context = f"""
+## Material external state received since the prior Attempt
+
+```json
+{json.dumps(external_event, indent=2)}
+```
+
+This is observed changed input, not optional advice. Reconcile the preserved workspace against it.
+"""
+        dependency_guidance = ""
+        if self.mode == MODE_SUPERVISOR and required_ids:
+            dependency_guidance = (
+                "The produced artifacts listed below are required inputs, not optional references. "
+                "With one required Work, your workspace starts from that exact produced commit. With "
+                "multiple required Work items, consume each exact commit named below (normally by "
+                "cherry-picking the disjoint commits), verify the combined tree, and make your final "
+                "commit descend from the integrated result. Do not replace returned artifacts with a "
+                "prose reconstruction.\n\n"
+            )
         return f"""# Claimed Work execution lease
 
 Work: {item['id']}
@@ -1712,6 +2134,10 @@ Feedback: {item.get('feedback') or 'none'}
 {runtime_capsule}
 
 {shared_product_context}
+
+{external_event_context}
+
+{dependency_guidance}
 
 Observed persistent workspace at lease claim:
 ```json
@@ -1803,6 +2229,7 @@ integration-lead consumes the required commit references above.
         await asyncio.gather(*terminal_tasks, return_exceptions=True)
 
     def protocol_evidence(self) -> dict[str, Any]:
+        supervisor_conformance: dict[str, Any] | None = None
         work = [
             dict(row)
             for row in self.coordinator.conn.execute(
@@ -1842,6 +2269,86 @@ integration-lead consumes the required commit references above.
                 and work[0]["id"] in produced_work
                 and work[0]["id"] in commit_work
             )
+        elif self.mode == MODE_SUPERVISOR:
+            expected_workers = set(
+                self.manifest.get("team_worker_actors")
+                or [self.manifest.get("team_worker_actor")]
+            )
+            expected_workers.discard(None)
+            required = (
+                "every frozen worker owns exactly one produced commit Work; all Work reaches one "
+                "dependency-linked final worker artifact; clean candidate equals that exact artifact; "
+                "supervisor authors no final content"
+            )
+            artifact_commits = [
+                artifact["reference"]
+                for artifact in artifacts
+                if artifact["kind"] == "commit"
+            ]
+            candidate = run(
+                ["git", "-C", str(self.run_dir / "canonical"), "rev-parse", "candidate"],
+                check=False,
+            )
+            candidate_commit = candidate.stdout.strip() if candidate.returncode == 0 else None
+            status = run(
+                ["git", "-C", str(self.run_dir / "canonical"), "status", "--porcelain"],
+                check=False,
+            )
+            clean = status.returncode == 0 and not status.stdout.strip()
+            candidate_is_worker_artifact = bool(
+                candidate_commit and candidate_commit in artifact_commits
+            )
+            candidate_work = {
+                artifact["work_id"]
+                for artifact in artifacts
+                if artifact["kind"] == "commit" and artifact["reference"] == candidate_commit
+            }
+            requires_edges = [
+                dict(row)
+                for row in self.coordinator.conn.execute(
+                    "SELECT work_id,other_work_id FROM work_edges WHERE kind='requires'"
+                ).fetchall()
+            ]
+            dependency_closure = set(candidate_work)
+            changed = True
+            while changed:
+                changed = False
+                for edge in requires_edges:
+                    if (
+                        edge["work_id"] in dependency_closure
+                        and edge["other_work_id"] not in dependency_closure
+                    ):
+                        dependency_closure.add(edge["other_work_id"])
+                        changed = True
+            all_work_ids = {item["id"] for item in work}
+            all_work_reaches_candidate = bool(candidate_work) and dependency_closure == all_work_ids
+            owners_match_frozen_roster = (
+                len(work) == len(expected_workers)
+                and {item["owner"] for item in work} == expected_workers
+            )
+            every_work_produced_commit = all(
+                item["id"] in produced_work and item["id"] in commit_work
+                for item in work
+            )
+            supervisor_conformance = {
+                "candidate_commit": candidate_commit,
+                "worker_artifact_commits": artifact_commits,
+                "candidate_is_exact_worker_artifact": candidate_is_worker_artifact,
+                "candidate_clean": clean,
+                "lead_final_content_diff": False if candidate_is_worker_artifact else None,
+                "expected_worker_actors": sorted(expected_workers),
+                "candidate_artifact_work": sorted(candidate_work),
+                "dependency_closure": sorted(dependency_closure),
+                "all_work_reaches_candidate": all_work_reaches_candidate,
+            }
+            valid = (
+                bool(work)
+                and owners_match_frozen_roster
+                and every_work_produced_commit
+                and all_work_reaches_candidate
+                and candidate_is_worker_artifact
+                and clean
+            )
         elif self.mode == MODE_NATURAL:
             required = "zero Staff Work, or one genuine producer Work with a produced commit artifact"
             valid = not work or (
@@ -1867,6 +2374,7 @@ integration-lead consumes the required commit references above.
             "work": work,
             "attempts": attempts,
             "artifacts": artifacts,
+            "supervisor_conformance": supervisor_conformance,
         }
 
     async def execute(self) -> dict[str, Any]:
@@ -1881,10 +2389,17 @@ integration-lead consumes the required commit references above.
             model.startswith("gpt-") for model in self.worker_pool
         )
         if uses_workers and not codex_pool:
-            proofs = await asyncio.to_thread(prove_free_worker_pool, self.worker_pool)
-            (self.run_dir / "free-worker-proof.json").write_text(json.dumps(proofs, indent=2, sort_keys=True))
-            self.coordinator.emit("free_worker_pool_proved", {"models": proofs})
+            proofs = await asyncio.to_thread(
+                prove_worker_pool,
+                self.worker_pool,
+                require_free=self.require_free_workers,
+            )
+            proof_path = self.run_dir / "worker-catalogue-proof.json"
+            proof_path.write_text(json.dumps(proofs, indent=2, sort_keys=True))
+            self.coordinator.emit("worker_pool_proved", {"models": proofs})
         await self.coordinator.start_server()
+        if self.manifest.get("external_event"):
+            self.external_event_task = asyncio.create_task(self.watch_external_event())
         coordination_cell = self.coordinator.workspaces.ensure_coordination_cell(
             self.lead_actor, read_only=self.mode == MODE_GRAPH
         )
@@ -1997,6 +2512,17 @@ integration-lead consumes the required commit references above.
                     self.tasks.pop(actor, None)
 
         await self.drain_active_tasks()
+        if self.external_event_task:
+            if not self.external_event_task.done():
+                self.external_event_task.cancel()
+            watcher_result = await asyncio.gather(
+                self.external_event_task, return_exceptions=True
+            )
+            if watcher_result and isinstance(watcher_result[0], Exception):
+                self.coordinator.emit(
+                    "external_event_watcher_failed",
+                    {"error": str(watcher_result[0])},
+                )
         for active in self.tasks.values():
             if active.attempt:
                 self.coordinator.mark_unknown(active.attempt, "global run envelope ended")
@@ -2015,6 +2541,7 @@ integration-lead consumes the required commit references above.
         summary["lead_model"] = self.lead_model
         summary["worker_model_pool"] = self.worker_pool
         summary["protocol"] = self.protocol_evidence()
+        summary["external_event"] = self.external_event_state()
         summary["candidate_evidence"] = self.candidate_evidence(
             coordination_cell, run_checks=self.mode != MODE_GRAPH
         )
@@ -2272,7 +2799,7 @@ async def fault_test(run_id: str) -> dict[str, Any]:
                 str(coordinator.workspaces.canonical),
                 "show-ref",
                 "--verify",
-                f"refs/heads/artifacts/{two_phase['work']}",
+                f"refs/heads/attempts/{two_phase_item['attempt']}",
             ],
             check=False,
         ).returncode
@@ -3025,7 +3552,7 @@ async def artifact_architecture_test(run_id: str) -> dict[str, Any]:
         timeout=210,
     )
     check(
-        "actor-facing native adapter verifies the current mounted workspace",
+        "actor-facing native adapter verifies the exact archive-native candidate",
         actor_native_result.returncode == 0
         and "FIXTURE_OWNERSHIP_READY" in actor_native_result.stdout,
         {"stdout": actor_native_result.stdout, "stderr": actor_native_result.stderr},
@@ -3339,6 +3866,808 @@ async def call_trace(endpoint: str, number: int) -> dict[str, Any]:
     )
 
 
+def supervisor_architecture_test(run_id: str) -> dict[str, Any]:
+    """Mechanically prove the EXP-03 one-supervisor/one-worker contract."""
+    run_id = safe_name(run_id)
+    checks: list[dict[str, Any]] = []
+
+    def check(name: str, condition: bool, detail: Any = None) -> None:
+        checks.append({"name": name, "pass": bool(condition), "detail": detail})
+        if not condition:
+            raise AssertionError(f"{name}: {detail}")
+
+    run_dir = prepare(
+        run_id,
+        mode=MODE_SUPERVISOR,
+        lead_model="zai/glm-5.3",
+        worker_pool=["zai/glm-5.3"],
+        require_free_workers=False,
+        spend_ceiling_usd=1.0,
+        team_worker_actor="gameplay-systems",
+    )
+    lab = LabRun(run_id)
+    coordinator = lab.coordinator
+    try:
+        manifest = lab.manifest
+        system = (run_dir / "context" / "system" / "supervisor-lead.md").read_text()
+        check(
+            "supervisor and worker are distinct attributable actors",
+            set(manifest["actors"]) == {"supervisor-lead", "gameplay-systems"},
+            manifest["actors"],
+        )
+        check(
+            "matched GLM-5.3 identities are frozen for lead and worker",
+            manifest["lead_model"] == "zai/glm-5.3"
+            and manifest["worker_model_pool"] == ["zai/glm-5.3"],
+            manifest,
+        )
+        check(
+            "qualified Z.ai worker identity is not rewritten as OpenRouter",
+            runtime_model_selector(manifest["worker_model_pool"][0]) == "zai/glm-5.3",
+            runtime_model_selector(manifest["worker_model_pool"][0]),
+        )
+        check(
+            "supervisor mode has exactly one Staff slot",
+            manifest["max_staff_concurrency"] == 1,
+            manifest["max_staff_concurrency"],
+        )
+        check(
+            "supervisor contract forbids production and polling",
+            "no planned production" in system
+            and "Do not poll" in system
+            and "correction goes back to the worker" in system,
+            system,
+        )
+        check(
+            "supervisor contract permits only exact artifact promotion",
+            "git reset --hard <exact-worker-commit>" in system
+            and "do not alter it" in system,
+            system,
+        )
+        lead_cell = coordinator.workspaces.ensure_coordination_cell(
+            "supervisor-lead", read_only=False
+        )
+        lab.native_review_proof = prove_native_review_runtime(lead_cell)
+
+        initial_protocol = lab.protocol_evidence()
+        check(
+            "narrated supervision without Work is rejected",
+            initial_protocol["valid"] is False,
+            initial_protocol,
+        )
+
+        commissioned = coordinator.command(
+            command_payload(
+                "supervisor-lead",
+                "commission",
+                "supervisor-architecture-whole-outcome",
+                {
+                    "owner": "gameplay-systems",
+                    "outcome": "Own the deterministic whole outcome and return its exact clean artifact",
+                    "expected_artifact": "supervisor-worker-artifact.txt in a clean commit",
+                    "gates": [
+                        {
+                            "name": "exact-worker-artifact",
+                            "argv": ["test", "-s", "supervisor-worker-artifact.txt"],
+                        }
+                    ],
+                },
+            )
+        )
+        item = coordinator.claim_ready(1, lease_seconds=900)[0]
+        check(
+            "the only commissioned responsibility belongs to the worker",
+            item["id"] == commissioned["work"] and item["owner"] == "gameplay-systems",
+            item,
+        )
+        worker_prompt = lab.staff_prompt(item)
+        check(
+            "worker receives the exact whole-outcome responsibility and terminal artifact contract",
+            item["outcome"] in worker_prompt
+            and "clean commit and terminal report" in worker_prompt,
+            worker_prompt,
+        )
+
+        workspace = Path(item["workspace"])
+        artifact = workspace / "supervisor-worker-artifact.txt"
+        artifact.write_text("exact worker-owned outcome\n")
+        run(["git", "-C", str(workspace), "add", artifact.name])
+        run(["git", "-C", str(workspace), "commit", "-m", "Produce exact supervised outcome"])
+        report = coordinator.command(
+            command_payload(
+                "gameplay-systems",
+                "report",
+                "supervisor-architecture-report",
+                {"disposition": "outcome_met", "summary": "Exact whole outcome produced"},
+                attempt=item["attempt"],
+                lease_token=item["lease_token"],
+            )
+        )
+        check(
+            "terminal worker evidence is a produced callback",
+            report["state"] == "produced",
+            report,
+        )
+        worker_commit = run(
+            ["git", "-C", str(workspace), "rev-parse", "HEAD"]
+        ).stdout.strip()
+        imported_ref = f"refs/heads/attempts/{safe_name(item['attempt'])}"
+        imported_commit = run(
+            ["git", "-C", str(run_dir / "canonical"), "rev-parse", imported_ref]
+        ).stdout.strip()
+        check(
+            "callback imports the exact worker commit without a prose relay",
+            imported_commit == worker_commit,
+            {"worker": worker_commit, "imported": imported_commit},
+        )
+
+        run(
+            [
+                "git",
+                "-C",
+                str(run_dir / "canonical"),
+                "reset",
+                "--hard",
+                imported_ref,
+            ]
+        )
+        protocol = lab.protocol_evidence()
+        check(
+            "final candidate is the exact clean worker artifact",
+            protocol["valid"] is True
+            and protocol["supervisor_conformance"]["lead_final_content_diff"] is False,
+            protocol,
+        )
+        check(
+            "supervisor owns no production Work",
+            coordinator.conn.execute(
+                "SELECT COUNT(*) FROM work WHERE owner='supervisor-lead'"
+            ).fetchone()[0]
+            == 0,
+        )
+        causes = coordinator.pending_causes("supervisor-lead")
+        check(
+            "worker terminal event wakes the supervisor",
+            any(cause["cause"] == "attempt_terminal" for cause in causes),
+            causes,
+        )
+        wake_prompt = lab.coordination_prompt(causes, lead_cell)
+        check(
+            "event wake exposes exact artifact facts and repeats the non-production boundary",
+            worker_commit in wake_prompt
+            and "Do not edit" in wake_prompt
+            and "poll" in wake_prompt,
+            wake_prompt,
+        )
+        quick_check = coordinator.conn.execute("PRAGMA quick_check").fetchone()[0]
+        check("coordination database remains healthy", quick_check == "ok", quick_check)
+
+        result = {
+            "run": run_id,
+            "mode": MODE_SUPERVISOR,
+            "checks": checks,
+            "passed": len(checks),
+            "candidate": worker_commit,
+            "protocol": protocol,
+            "quick_check": quick_check,
+        }
+        (run_dir / "supervisor-architecture-results.json").write_text(
+            json.dumps(result, indent=2, sort_keys=True)
+        )
+        return result
+    finally:
+        coordinator.close()
+
+
+def supervisor_multi_architecture_test(run_id: str) -> dict[str, Any]:
+    """Prove multi-worker identity, dependency lineage and exact final promotion."""
+    run_id = safe_name(run_id)
+    workers = ["research-evidence-a", "research-evidence-b", "decision-synthesist"]
+    checks: list[dict[str, Any]] = []
+
+    def check(name: str, condition: bool, detail: Any = None) -> None:
+        checks.append({"name": name, "pass": bool(condition), "detail": detail})
+        if not condition:
+            raise AssertionError(f"{name}: {detail}")
+
+    run_dir = prepare(
+        run_id,
+        mode=MODE_SUPERVISOR,
+        lead_model="zai/glm-5.3",
+        worker_pool=["zai/glm-5.3"],
+        require_free_workers=False,
+        spend_ceiling_usd=1.0,
+        scenario_text="Deterministic multi-worker dependency-lineage fixture.",
+        team_worker_actors=workers,
+        max_staff_concurrency=2,
+    )
+    lab = LabRun(run_id)
+    coordinator = lab.coordinator
+    try:
+        manifest = lab.manifest
+        system = (run_dir / "context" / "system" / "supervisor-lead.md").read_text()
+        check(
+            "multi-worker roster is frozen as distinct attributable actors",
+            set(manifest["actors"]) == {"supervisor-lead", *workers}
+            and manifest["team_worker_actors"] == workers,
+            manifest["actors"],
+        )
+        check(
+            "bounded parallel Staff capacity is independent of roster size",
+            manifest["max_staff_concurrency"] == 2,
+            manifest["max_staff_concurrency"],
+        )
+        check(
+            "supervisor must delegate synthesis and may not integrate",
+            "downstream worker must own the final artifact" in system
+            and "You may not integrate it yourself" in system,
+            system,
+        )
+        lead_cell = coordinator.workspaces.ensure_coordination_cell(
+            "supervisor-lead", read_only=False
+        )
+        lab.native_review_proof = prove_native_review_runtime(lead_cell)
+
+        source_work: list[str] = []
+        for index, actor in enumerate(workers[:2], start=1):
+            commissioned = coordinator.command(
+                command_payload(
+                    "supervisor-lead",
+                    "commission",
+                    f"multi-source-{index}",
+                    {
+                        "owner": actor,
+                        "outcome": f"Produce exact bounded source evidence region {index}",
+                        "expected_artifact": f"evidence-{index}.txt in a clean commit",
+                        "gates": [
+                            {
+                                "name": f"evidence-{index}",
+                                "argv": ["test", "-s", f"evidence-{index}.txt"],
+                            }
+                        ],
+                    },
+                )
+            )
+            source_work.append(commissioned["work"])
+
+        claimed = coordinator.claim_ready(2, lease_seconds=900)
+        check(
+            "independent source responsibilities can be claimed concurrently",
+            {item["owner"] for item in claimed} == set(workers[:2]),
+            claimed,
+        )
+        source_commits: list[str] = []
+        for index, item in enumerate(claimed, start=1):
+            workspace = Path(item["workspace"])
+            artifact = workspace / f"evidence-{index}.txt"
+            artifact.write_text(f"exact evidence region {index}\n")
+            run(["git", "-C", str(workspace), "add", artifact.name])
+            run(["git", "-C", str(workspace), "commit", "-m", f"Produce evidence {index}"])
+            source_commits.append(
+                run(["git", "-C", str(workspace), "rev-parse", "HEAD"]).stdout.strip()
+            )
+            coordinator.command(
+                command_payload(
+                    item["owner"],
+                    "report",
+                    f"multi-source-report-{index}",
+                    {"disposition": "outcome_met", "summary": f"Evidence {index} produced"},
+                    attempt=item["attempt"],
+                    lease_token=item["lease_token"],
+                )
+            )
+
+        synthesis = coordinator.command(
+            command_payload(
+                "supervisor-lead",
+                "commission",
+                "multi-synthesis",
+                {
+                    "owner": "decision-synthesist",
+                    "outcome": "Consume both exact evidence regions and return one final decision artifact",
+                    "expected_artifact": "evidence-1.txt, evidence-2.txt and decision.txt in one clean commit",
+                    "requires": source_work,
+                    "gates": [
+                        {"name": "evidence-1", "argv": ["test", "-s", "evidence-1.txt"]},
+                        {"name": "evidence-2", "argv": ["test", "-s", "evidence-2.txt"]},
+                        {"name": "decision", "argv": ["test", "-s", "decision.txt"]},
+                    ],
+                },
+            )
+        )
+        synthesis_item = coordinator.claim_ready(1, lease_seconds=900)[0]
+        synthesis_prompt = lab.staff_prompt(synthesis_item)
+        check(
+            "synthesis receives both exact commit artifacts and no prose-only handoff",
+            all(commit in synthesis_prompt for commit in source_commits)
+            and "multiple required Work items" in synthesis_prompt,
+            synthesis_prompt,
+        )
+        synthesis_workspace = Path(synthesis_item["workspace"])
+        for commit in source_commits:
+            run(["git", "-C", str(synthesis_workspace), "cherry-pick", commit])
+        (synthesis_workspace / "decision.txt").write_text(
+            "decision grounded in exact evidence regions 1 and 2\n"
+        )
+        run(["git", "-C", str(synthesis_workspace), "add", "decision.txt"])
+        run(["git", "-C", str(synthesis_workspace), "commit", "-m", "Synthesize final decision"])
+        synthesis_commit = run(
+            ["git", "-C", str(synthesis_workspace), "rev-parse", "HEAD"]
+        ).stdout.strip()
+        coordinator.command(
+            command_payload(
+                "decision-synthesist",
+                "report",
+                "multi-synthesis-report",
+                {"disposition": "outcome_met", "summary": "Exact synthesis produced"},
+                attempt=synthesis_item["attempt"],
+                lease_token=synthesis_item["lease_token"],
+            )
+        )
+
+        run(["git", "-C", str(run_dir / "canonical"), "reset", "--hard", source_commits[0]])
+        partial = lab.protocol_evidence()
+        check(
+            "a clean partial worker artifact cannot satisfy the whole team protocol",
+            partial["valid"] is False
+            and partial["supervisor_conformance"]["all_work_reaches_candidate"] is False,
+            partial,
+        )
+
+        run(["git", "-C", str(run_dir / "canonical"), "reset", "--hard", synthesis_commit])
+        protocol = lab.protocol_evidence()
+        check(
+            "exact final worker artifact carries every dependency-linked contribution",
+            protocol["valid"] is True
+            and protocol["supervisor_conformance"]["candidate_commit"] == synthesis_commit
+            and set(protocol["supervisor_conformance"]["dependency_closure"])
+            == set(source_work + [synthesis["work"]]),
+            protocol,
+        )
+        check(
+            "supervisor owns no production Work",
+            coordinator.conn.execute(
+                "SELECT COUNT(*) FROM work WHERE owner='supervisor-lead'"
+            ).fetchone()[0]
+            == 0,
+        )
+        quick_check = coordinator.conn.execute("PRAGMA quick_check").fetchone()[0]
+        check("coordination database remains healthy", quick_check == "ok", quick_check)
+        result = {
+            "run": run_id,
+            "mode": MODE_SUPERVISOR,
+            "workers": workers,
+            "checks": checks,
+            "passed": len(checks),
+            "total": len(checks),
+            "candidate": synthesis_commit,
+            "protocol": protocol,
+            "quick_check": quick_check,
+        }
+        (run_dir / "supervisor-multi-architecture-results.json").write_text(
+            json.dumps(result, indent=2, sort_keys=True)
+        )
+        return result
+    finally:
+        coordinator.close()
+
+
+def four_primitives_test(run_id: str) -> dict[str, Any]:
+    """Prove the four EXP-03 recovery primitives without a model call."""
+    run_id = safe_name(run_id)
+    checks: list[dict[str, Any]] = []
+
+    def check(name: str, condition: bool, detail: Any = None) -> None:
+        checks.append({"name": name, "pass": bool(condition), "detail": detail})
+        if not condition:
+            raise AssertionError(f"{name}: {detail}")
+
+    run_dir = prepare(
+        run_id,
+        mode=MODE_SUPERVISOR,
+        lead_model="zai/glm-5.3",
+        worker_pool=["zai/glm-5.3"],
+        require_free_workers=False,
+        spend_ceiling_usd=1.0,
+        scenario_text="Deterministic EXP-03 four-primitives recovery fixture.",
+        team_worker_actor="gameplay-systems",
+    )
+    lab = LabRun(run_id)
+    coordinator = lab.coordinator
+    try:
+        lead_cell = coordinator.workspaces.ensure_coordination_cell(
+            "supervisor-lead", read_only=False
+        )
+        lab.native_review_proof = prove_native_review_runtime(lead_cell)
+        canonical = run_dir / "canonical"
+
+        produced = coordinator.command(
+            command_payload(
+                "supervisor-lead",
+                "commission",
+                "four-primitives-produce",
+                {
+                    "owner": "gameplay-systems",
+                    "outcome": "Produce the archive-native recovery fixture",
+                    "expected_artifact": "fixture.txt and verify-archive-native.mjs in one clean commit",
+                    "gates": [
+                        {"name": "fixture", "argv": ["test", "-s", "fixture.txt"]},
+                        {
+                            "name": "verifier",
+                            "argv": ["test", "-s", "verify-archive-native.mjs"],
+                        },
+                    ],
+                },
+            )
+        )
+        first = coordinator.claim_ready(1, lease_seconds=900)[0]
+        first_workspace = Path(first["workspace"])
+        (first_workspace / "fixture.txt").write_text("revision one\n")
+        (first_workspace / "verify-archive-native.mjs").write_text(
+            "import { existsSync } from 'node:fs';\n"
+            "if (!existsSync('.git')) { console.error('requires .git'); process.exit(1); }\n"
+            "console.log('GIT_DEPENDENT_PASS');\n"
+        )
+        run(["git", "-C", str(first_workspace), "add", "fixture.txt", "verify-archive-native.mjs"])
+        run(["git", "-C", str(first_workspace), "commit", "-m", "Fixture with hidden Git dependency"])
+        first_commit = run(["git", "-C", str(first_workspace), "rev-parse", "HEAD"]).stdout.strip()
+        coordinator.command(
+            command_payload(
+                "gameplay-systems",
+                "report",
+                "four-primitives-report-one",
+                {"disposition": "outcome_met", "summary": "First ordinary commit produced"},
+                attempt=first["attempt"],
+                lease_token=first["lease_token"],
+            )
+        )
+
+        coordinator.command(
+            command_payload(
+                "supervisor-lead",
+                "redirect",
+                "four-primitives-repair",
+                {
+                    "work": produced["work"],
+                    "action": "repair",
+                    "reason": "Archive-native review exposed a hidden .git dependency",
+                },
+            )
+        )
+        second = coordinator.claim_ready(1, lease_seconds=900)[0]
+        second_workspace = Path(second["workspace"])
+        # Deliberately produce a sibling rather than a descendant. This is the
+        # exact shape that deadlocked the live T2 repair.
+        run(["git", "-C", str(second_workspace), "reset", "--hard", second["base_ref"]])
+        (second_workspace / "fixture.txt").write_text("revision two portable\n")
+        (second_workspace / "verify-archive-native.mjs").write_text(
+            "import { existsSync } from 'node:fs';\n"
+            "if (existsSync('.git')) { console.error('review was not isolated'); process.exit(1); }\n"
+            "console.log('ARCHIVE_NATIVE_PASS');\n"
+        )
+        run(["git", "-C", str(second_workspace), "add", "fixture.txt", "verify-archive-native.mjs"])
+        run(["git", "-C", str(second_workspace), "commit", "-m", "Repair fixture for archive-native review"])
+        second_commit = run(["git", "-C", str(second_workspace), "rev-parse", "HEAD"]).stdout.strip()
+        check(
+            "repair fixture is a non-descendant sibling commit",
+            run(
+                ["git", "-C", str(second_workspace), "merge-base", "--is-ancestor", first_commit, second_commit],
+                check=False,
+            ).returncode
+            != 0,
+            {"first": first_commit, "second": second_commit},
+        )
+        coordinator.command(
+            command_payload(
+                "gameplay-systems",
+                "report",
+                "four-primitives-report-two",
+                {"disposition": "outcome_met", "summary": "Portable sibling repair produced"},
+                attempt=second["attempt"],
+                lease_token=second["lease_token"],
+            )
+        )
+        attempt_refs = {
+            first["attempt"]: first_commit,
+            second["attempt"]: second_commit,
+        }
+        observed_refs = {
+            attempt: run(
+                [
+                    "git",
+                    "-C",
+                    str(canonical),
+                    "rev-parse",
+                    f"refs/heads/attempts/{safe_name(attempt)}",
+                ]
+            ).stdout.strip()
+            for attempt in attempt_refs
+        }
+        check(
+            "sibling repairs retain distinct immutable Attempt refs",
+            observed_refs == attempt_refs,
+            observed_refs,
+        )
+
+        canonical_before = {
+            "head": run(["git", "-C", str(canonical), "rev-parse", "HEAD"]).stdout.strip(),
+            "status": run(["git", "-C", str(canonical), "status", "--porcelain"]).stdout,
+        }
+        hidden_dependency = subprocess.run(
+            [
+                sys.executable,
+                str(HERE / "native_check.py"),
+                lead_cell,
+                str(canonical),
+                "--commit",
+                first_commit,
+                "verify-archive-native.mjs",
+            ],
+            text=True,
+            capture_output=True,
+            timeout=210,
+        )
+        portable_review = subprocess.run(
+            [
+                sys.executable,
+                str(HERE / "native_check.py"),
+                lead_cell,
+                str(canonical),
+                "--commit",
+                second_commit,
+                "verify-archive-native.mjs",
+            ],
+            text=True,
+            capture_output=True,
+            timeout=210,
+        )
+        canonical_after = {
+            "head": run(["git", "-C", str(canonical), "rev-parse", "HEAD"]).stdout.strip(),
+            "status": run(["git", "-C", str(canonical), "status", "--porcelain"]).stdout,
+        }
+        check(
+            "archive-native review exposes a Git-dependent verifier",
+            hidden_dependency.returncode != 0 and "requires .git" in hidden_dependency.stderr,
+            {"stdout": hidden_dependency.stdout, "stderr": hidden_dependency.stderr},
+        )
+        check(
+            "archive-native review passes the portable sibling repair",
+            portable_review.returncode == 0 and "ARCHIVE_NATIVE_PASS" in portable_review.stdout,
+            {"stdout": portable_review.stdout, "stderr": portable_review.stderr},
+        )
+        check(
+            "archive-native review leaves the canonical checkout untouched",
+            canonical_after == canonical_before,
+            {"before": canonical_before, "after": canonical_after},
+        )
+
+        run(["git", "-C", str(canonical), "reset", "--hard", second_commit])
+        mismatched_completion_rejected = False
+        try:
+            coordinator.command(
+                command_payload(
+                    "supervisor-lead",
+                    "complete_run",
+                    "four-primitives-complete-wrong",
+                    {"candidate_commit": first_commit, "rationale": "Wrong candidate probe"},
+                )
+            )
+        except ValueError:
+            mismatched_completion_rejected = True
+        check("explicit completion rejects a mismatched candidate", mismatched_completion_rejected)
+        non_coordinator_rejected = False
+        try:
+            coordinator.command(
+                command_payload(
+                    "gameplay-systems",
+                    "complete_run",
+                    "four-primitives-complete-worker",
+                    {"candidate_commit": second_commit, "rationale": "Wrong actor probe"},
+                )
+            )
+        except ValueError:
+            non_coordinator_rejected = True
+        check("explicit completion rejects a non-coordinator", non_coordinator_rejected)
+        completed = coordinator.command(
+            command_payload(
+                "supervisor-lead",
+                "complete_run",
+                "four-primitives-complete",
+                {
+                    "candidate_commit": second_commit,
+                    "rationale": "Exact repaired candidate passed archive-native review",
+                    "evidence": ["ARCHIVE_NATIVE_PASS"],
+                },
+            )
+        )
+        check(
+            "explicit completion closes the exact candidate without subject-string transport",
+            completed["state"] == "complete"
+            and completed["candidate_commit"] == second_commit
+            and coordinator.run_complete(),
+            completed,
+        )
+
+        waiting = coordinator.command(
+            command_payload(
+                "supervisor-lead",
+                "commission",
+                "four-primitives-judgement-work",
+                {
+                    "owner": "gameplay-systems",
+                    "outcome": "Exercise judgement-linked Work resumption",
+                    "expected_artifact": "bounded recovery report",
+                },
+            )
+        )
+        waiting_attempt = coordinator.claim_ready(1, lease_seconds=900)[0]
+        requested = coordinator.command(
+            command_payload(
+                "gameplay-systems",
+                "request_judgement",
+                "four-primitives-request-judgement",
+                {
+                    "assigned_to": "supervisor-lead",
+                    "subject": "Choose the bounded recovery direction",
+                    "question": "Should the preserved Work continue with option A?",
+                    "resume_condition": "Supervisor chooses and explains the recovery direction",
+                },
+                attempt=waiting_attempt["attempt"],
+                lease_token=waiting_attempt["lease_token"],
+            )
+        )
+        check(
+            "worker judgement request terminally blocks its exact Attempt and Work",
+            requested["attempt_state"] == "blocked"
+            and coordinator.attempt(waiting_attempt["attempt"])["state"] == "blocked"
+            and coordinator.work(waiting["work"])["status"] == "blocked",
+            requested,
+        )
+        resolved = coordinator.command(
+            command_payload(
+                "supervisor-lead",
+                "decide",
+                "four-primitives-resolve-judgement",
+                {
+                    "request": requested["judgement"],
+                    "subject": "Choose the bounded recovery direction",
+                    "choice": "continue-option-a",
+                    "rationale": "Option A is reversible and satisfies the original Work.",
+                },
+            )
+        )
+        pending_worker_wakes = coordinator.conn.execute(
+            "SELECT cause,payload_json FROM outbox WHERE target='gameplay-systems' AND delivered_at IS NULL"
+        ).fetchall()
+        check(
+            "judgement resolution reactivates the same Work at revision plus one",
+            resolved["resumed_work"]
+            and resolved["resumed_work"]["id"] == waiting["work"]
+            and resolved["resumed_work"]["status"] == "active"
+            and resolved["resumed_work"]["revision"] == 2,
+            resolved,
+        )
+        check(
+            "judgement resolution queues exactly one worker wake",
+            len(pending_worker_wakes) == 1 and pending_worker_wakes[0]["cause"] == "work_changed",
+            [dict(row) for row in pending_worker_wakes],
+        )
+        resumed_attempt = coordinator.claim_ready(1, lease_seconds=900)[0]
+        check(
+            "resolved judgement creates a fresh Attempt over the preserved Work",
+            resumed_attempt["id"] == waiting["work"]
+            and resumed_attempt["revision"] == 2
+            and resumed_attempt["workspace"] == waiting_attempt["workspace"],
+            resumed_attempt,
+        )
+        coordinator.command(
+            command_payload(
+                "gameplay-systems",
+                "report",
+                "four-primitives-close-resumed-attempt",
+                {"disposition": "abandoned", "summary": "Recovery seam proved"},
+                attempt=resumed_attempt["attempt"],
+                lease_token=resumed_attempt["lease_token"],
+            )
+        )
+
+        quick_check = coordinator.conn.execute("PRAGMA quick_check").fetchone()[0]
+        check("coordination database remains healthy", quick_check == "ok", quick_check)
+        result = {
+            "run": run_id,
+            "checks": checks,
+            "passed": len(checks),
+            "total": len(checks),
+            "attempt_commits": attempt_refs,
+            "candidate": second_commit,
+            "quick_check": quick_check,
+        }
+        (run_dir / "four-primitives-results.json").write_text(
+            json.dumps(result, indent=2, sort_keys=True)
+        )
+        return result
+    finally:
+        coordinator.close()
+
+
+def external_event_architecture_test(run_id: str, event_file: str) -> dict[str, Any]:
+    """Prove identical frozen injection with policy-dependent supervisor wake delivery."""
+    event_body = Path(event_file).expanduser().resolve().read_bytes()
+    event_sha256 = hashlib.sha256(event_body).hexdigest()
+    event_plan = json.loads(event_body)
+    checks: list[dict[str, Any]] = []
+
+    def check(name: str, condition: bool, detail: Any = None) -> None:
+        checks.append({"name": name, "pass": bool(condition), "detail": detail})
+        if not condition:
+            raise AssertionError(f"{name}: {detail}")
+
+    states: dict[str, Any] = {}
+    for policy in ("terminal", "material"):
+        policy_run = f"{safe_name(run_id)}-{policy}"
+        run_dir = prepare(
+            policy_run,
+            mode=MODE_SUPERVISOR,
+            lead_model="zai/glm-5.3",
+            worker_pool=["zai/glm-5.3"],
+            scenario_text="External event architecture fixture.",
+            team_worker_actor="customer-operations",
+            require_free_workers=False,
+            supervision_events=policy,
+            external_event_file=event_file,
+            expected_external_event_sha256=event_sha256,
+        )
+        lab = LabRun(policy_run)
+        try:
+            workspace = run_dir / "workspaces" / "fixture-work"
+            trigger = workspace / event_plan["trigger_path"]
+            trigger.parent.mkdir(parents=True)
+            trigger.write_text("observable first artifact\n")
+            asyncio.run(lab.watch_external_event())
+            state = lab.external_event_state()
+            causes = lab.coordinator.pending_causes(lab.lead_actor)
+            events = [
+                dict(row)
+                for row in lab.coordinator.conn.execute(
+                    "SELECT kind,payload_json FROM events WHERE kind='external_event_injected'"
+                ).fetchall()
+            ]
+            states[policy] = {"state": state, "causes": causes, "events": events}
+            check(
+                f"{policy} injects the exact frozen event after the artifact trigger",
+                bool(state)
+                and state["id"] == event_plan["id"]
+                and state["plan_sha256"] == event_sha256
+                and state["trigger_path"] == event_plan["trigger_path"]
+                and state["payload"] == event_plan["payload"]
+                and len(events) == 1,
+                states[policy],
+            )
+            material_wakes = [
+                cause for cause in causes if cause["cause"] == "external_event_material"
+            ]
+            check(
+                f"{policy} wake delivery matches the frozen event policy",
+                len(material_wakes) == (1 if policy == "material" else 0),
+                causes,
+            )
+        finally:
+            lab.coordinator.close()
+            cleanup_cells(policy_run)
+
+    result = {
+        "run": safe_name(run_id),
+        "event_sha256": event_sha256,
+        "checks": checks,
+        "passed": len(checks),
+        "total": len(checks),
+        "states": states,
+    }
+    result_path = WORK_ROOT / f"{safe_name(run_id)}-external-event-results.json"
+    result_path.write_text(json.dumps(result, indent=2, sort_keys=True))
+    return {**result, "result_path": str(result_path)}
+
+
 def prepare_experiment(
     experiment_id: str,
     *,
@@ -3411,7 +4740,9 @@ def worker_runtime_probe(run_id: str) -> dict[str, Any]:
         lab.coordinator.close()
         raise RuntimeError("worker runtime probe requires a team-mode run")
     try:
-        catalogue = prove_free_worker_pool(lab.worker_pool)
+        catalogue = prove_worker_pool(
+            lab.worker_pool, require_free=lab.require_free_workers
+        )
         cell = lab.coordinator.workspaces.ensure_coordination_cell(
             lab.lead_actor, read_only=lab.mode == MODE_GRAPH
         )
@@ -3437,7 +4768,9 @@ def worker_capability_probe(run_id: str) -> dict[str, Any]:
         lab.coordinator.close()
         raise RuntimeError("worker capability probe requires a team-mode run")
     try:
-        catalogue = prove_free_worker_pool(lab.worker_pool)
+        catalogue = prove_worker_pool(
+            lab.worker_pool, require_free=lab.require_free_workers
+        )
         cell = lab.coordinator.workspaces.ensure_coordination_cell(
             lab.lead_actor, read_only=False
         )
@@ -3462,6 +4795,8 @@ def worker_capability_probe(run_id: str) -> dict[str, Any]:
         thinking_args = ["--thinking", probe_thinking] if probe_thinking else []
         results: list[dict[str, Any]] = []
         for model in lab.worker_pool:
+            session_root = lab.run_dir / "homes" / safe_name(lab.lead_actor) / "sessions"
+            sessions_before = set(session_root.rglob("*.jsonl")) if session_root.exists() else set()
             nonce = uid("admission")
             relative_dir = Path(".coordination-admission") / f"{safe_name(model)}-{nonce}"
             host_dir = lab.run_dir / "canonical" / relative_dir
@@ -3486,7 +4821,7 @@ def worker_capability_probe(run_id: str) -> dict[str, Any]:
                     *common,
                     "-p",
                     "--model",
-                    f"openrouter/{model}",
+                    runtime_model_selector(model),
                     "--system-prompt",
                     "You are a bounded capability probe. Perform only the requested file operation and verification.",
                     "--config",
@@ -3510,15 +4845,22 @@ def worker_capability_probe(run_id: str) -> dict[str, Any]:
             )
             elapsed = round(time.monotonic() - started, 3)
             observed = artifact.read_text() if artifact.exists() else None
+            sessions_after = set(session_root.rglob("*.jsonl")) if session_root.exists() else set()
+            session_evidence = summarize_omp_sessions(sorted(sessions_after - sessions_before))
             valid = (
                 probe.returncode == 0
                 and "CAPABILITY_PROBE_COMPLETE" in probe.stdout
                 and observed == expected
+                and bool(session_evidence["identities"])
+                and (
+                    not probe_thinking
+                    or session_evidence["final_thinking_level"] == probe_thinking
+                )
             )
             results.append(
                 {
                     "model": model,
-                    "runtime_selector": f"openrouter/{model}",
+                    "runtime_selector": runtime_model_selector(model),
                     "thinking": probe_thinking or "runtime-default",
                     "max_seconds": probe_max_seconds,
                     "elapsed_seconds": elapsed,
@@ -3528,6 +4870,7 @@ def worker_capability_probe(run_id: str) -> dict[str, Any]:
                     "artifact_exists": artifact.exists(),
                     "artifact_exact": observed == expected,
                     "artifact_sha256": hashlib.sha256(observed.encode()).hexdigest() if observed is not None else None,
+                    "session_evidence": session_evidence,
                     "valid": valid,
                     "stdout_tail": probe.stdout[-1_000:],
                     "stderr_tail": probe.stderr[-1_000:],
@@ -3560,10 +4903,26 @@ def main() -> None:
     prepare_parser.add_argument("--wall-clock-seconds", type=int, default=1800)
     prepare_parser.add_argument("--drain-grace-seconds", type=int, default=DRAIN_GRACE_SECONDS)
     prepare_parser.add_argument("--scenario-file")
+    prepare_parser.add_argument("--expect-scenario-sha256")
     prepare_parser.add_argument("--team-worker-actor", choices=PRODUCER_ACTORS, default="gameplay-systems")
+    prepare_parser.add_argument(
+        "--team-worker-actors",
+        help="comma-separated distinct Staff identities for a supervisor team cell",
+    )
     prepare_parser.add_argument("--max-staff-concurrency", type=int)
     prepare_parser.add_argument("--evaluator-file", action="append", default=[])
+    prepare_parser.add_argument("--expect-evaluator-sha256", action="append", default=[])
+    prepare_parser.add_argument("--external-event-file")
+    prepare_parser.add_argument("--expect-external-event-sha256")
     prepare_parser.add_argument("--actor-max-time", default=DEFAULT_ACTOR_MAX_TIME)
+    prepare_parser.add_argument(
+        "--allow-paid-workers",
+        action="store_true",
+        help="admit live-priced worker models while still recording exact catalogue pricing",
+    )
+    prepare_parser.add_argument(
+        "--supervision-events", choices=("terminal", "material"), default="terminal"
+    )
     run_parser = sub.add_parser("run")
     run_parser.add_argument("run_id")
     evaluate_parser = sub.add_parser("evaluate")
@@ -3580,6 +4939,21 @@ def main() -> None:
     architecture_parser.add_argument("run_id", nargs="?", default="v21-architecture")
     baseline_architecture_parser = sub.add_parser("baseline-architecture-test")
     baseline_architecture_parser.add_argument("run_id", nargs="?", default="v24-baseline-architecture")
+    supervisor_architecture_parser = sub.add_parser("supervisor-architecture-test")
+    supervisor_architecture_parser.add_argument(
+        "run_id", nargs="?", default="exp03-supervisor-architecture"
+    )
+    supervisor_multi_parser = sub.add_parser("supervisor-multi-architecture-test")
+    supervisor_multi_parser.add_argument(
+        "run_id", nargs="?", default="exp03-supervisor-multi-architecture"
+    )
+    four_primitives_parser = sub.add_parser("four-primitives-test")
+    four_primitives_parser.add_argument(
+        "run_id", nargs="?", default="exp03-four-primitives"
+    )
+    external_event_parser = sub.add_parser("external-event-architecture-test")
+    external_event_parser.add_argument("run_id")
+    external_event_parser.add_argument("--event-file", required=True)
     experiment_prepare_parser = sub.add_parser("experiment-prepare")
     experiment_prepare_parser.add_argument("experiment_id", nargs="?", default="v21-smoke")
     experiment_prepare_parser.add_argument("--lead-model", default=LEAD_MODEL)
@@ -3598,6 +4972,11 @@ def main() -> None:
     WORK_ROOT.mkdir(parents=True, exist_ok=True)
     if args.command == "prepare":
         worker_pool = [model.strip() for model in args.worker_pool.split(",") if model.strip()]
+        team_worker_actors = (
+            [actor.strip() for actor in args.team_worker_actors.split(",") if actor.strip()]
+            if args.team_worker_actors
+            else None
+        )
         scenario_text = Path(args.scenario_file).read_text() if args.scenario_file else None
         print(
             prepare(
@@ -3610,9 +4989,16 @@ def main() -> None:
                 drain_grace_seconds=args.drain_grace_seconds,
                 scenario_text=scenario_text,
                 team_worker_actor=args.team_worker_actor,
+                team_worker_actors=team_worker_actors,
                 max_staff_concurrency=args.max_staff_concurrency,
                 evaluator_files=args.evaluator_file,
                 actor_max_time=args.actor_max_time,
+                require_free_workers=not args.allow_paid_workers,
+                supervision_events=args.supervision_events,
+                expected_scenario_sha256=args.expect_scenario_sha256,
+                expected_evaluator_sha256=args.expect_evaluator_sha256,
+                external_event_file=args.external_event_file,
+                expected_external_event_sha256=args.expect_external_event_sha256,
             )
         )
     elif args.command == "run":
@@ -3639,6 +5025,19 @@ def main() -> None:
         print(json.dumps(asyncio.run(artifact_architecture_test(args.run_id)), indent=2))
     elif args.command == "baseline-architecture-test":
         print(json.dumps(baseline_architecture_test(args.run_id), indent=2))
+    elif args.command == "supervisor-architecture-test":
+        print(json.dumps(supervisor_architecture_test(args.run_id), indent=2))
+    elif args.command == "supervisor-multi-architecture-test":
+        print(json.dumps(supervisor_multi_architecture_test(args.run_id), indent=2))
+    elif args.command == "four-primitives-test":
+        print(json.dumps(four_primitives_test(args.run_id), indent=2))
+    elif args.command == "external-event-architecture-test":
+        print(
+            json.dumps(
+                external_event_architecture_test(args.run_id, args.event_file),
+                indent=2,
+            )
+        )
     elif args.command == "experiment-prepare":
         worker_pool = [model.strip() for model in args.worker_pool.split(",") if model.strip()]
         print(

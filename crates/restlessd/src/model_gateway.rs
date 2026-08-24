@@ -744,7 +744,7 @@ mod tests {
         let config = CompanyConfig {
             name: "continuity_test".into(),
             mission: String::new(),
-            spend_ceiling_usd: 10.0,
+            spend_ceiling_usd: crate::runtime::SpendCeiling::from_micro_usd(10_000_000),
             model: "moonshot/kimi-k3".into(),
             model_failover: vec!["anthropic/claude-sonnet-4-5".into()],
             credentials: BTreeMap::new(),

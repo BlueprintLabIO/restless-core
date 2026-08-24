@@ -520,7 +520,7 @@ async fn company_catalog_entry(
         name: company_display_name(&config.name),
         mission: config.mission,
         model: config.model,
-        spend_ceiling_usd: config.spend_ceiling_usd,
+        spend_ceiling_usd: config.spend_ceiling_usd.as_usd(),
         runtime_status,
         lifecycle_status,
     }
@@ -1037,11 +1037,11 @@ async fn cockpit_view(
         "goals": goals,
         "spend": {
             "accounted_usd": round_owner_usd(accounted_usd),
-            "ceiling_usd": config.spend_ceiling_usd,
+            "ceiling_usd": config.spend_ceiling_usd.as_usd(),
             "remaining_usd": if poisoned {
                 serde_json::Value::Null
             } else {
-                serde_json::json!(round_owner_usd((config.spend_ceiling_usd - accounted_usd).max(0.0)))
+                serde_json::json!(round_owner_usd(state.daemon.spend.remaining_usd(&config)))
             },
             "poisoned": poisoned,
         },

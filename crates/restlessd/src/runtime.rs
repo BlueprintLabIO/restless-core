@@ -2,6 +2,7 @@
 //! CLI (mature infrastructure over bespoke machinery, §2.6). One persistent
 //! container + one named volume per company; the volume is the company home.
 
+use std::fmt;
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::process::Stdio;
@@ -14,7 +15,8 @@ use hyper::body::{Bytes, Incoming};
 use hyper::client::conn::http1;
 use hyper::{HeaderMap, Method, Request, Response, Uri};
 use hyper_util::rt::TokioIo;
-use serde::{Deserialize, Serialize};
+use serde::de::{self, Visitor};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use sha2::{Digest, Sha256};
 use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt, ReadBuf};
 use tokio::process::{Child, ChildStdin, ChildStdout};
@@ -22,6 +24,158 @@ use uuid::Uuid;
 
 pub const COMPANY_IMAGE: &str = "restless-company-image:latest";
 const SOURCE_DIGEST_LABEL: &str = "io.restless.source-digest";
+
+/// Exact model-spend ceiling in micro-USD. This is an Authority value, not a
+/// display float: `inf`, `NaN`, negative values and more than six fractional
+/// cents are configuration errors rather than a route to an uncapped company.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct SpendCeiling(u64);
+
+impl SpendCeiling {
+    pub const fn from_micro_usd(micro_usd: u64) -> Self {
+        Self(micro_usd)
+    }
+
+    #[must_use]
+    pub const fn micro_usd(self) -> u64 {
+        self.0
+    }
+
+    /// This conversion is presentation only. Authority comparisons use
+    /// `micro_usd()` so binary floating-point never decides whether a company
+    /// may spend.
+    #[must_use]
+    pub fn as_usd(self) -> f64 {
+        self.0 as f64 / 1_000_000.0
+    }
+
+    pub fn parse(value: &str) -> Result<Self> {
+        let value = value.trim();
+        if value.is_empty() || value.starts_with('-') || value.starts_with('+') {
+            bail!("spend ceiling must be a non-negative decimal USD amount");
+        }
+        let mut pieces = value.split('.');
+        let whole = pieces.next().unwrap_or_default();
+        let fraction = pieces.next();
+        if pieces.next().is_some()
+            || whole.is_empty()
+            || !whole.bytes().all(|byte| byte.is_ascii_digit())
+        {
+            bail!("spend ceiling must be a non-negative decimal USD amount");
+        }
+        let whole = whole
+            .parse::<u64>()
+            .map_err(|_| anyhow::anyhow!("spend ceiling is too large"))?;
+        let fraction = fraction.unwrap_or_default();
+        if !fraction.bytes().all(|byte| byte.is_ascii_digit()) || fraction.len() > 6 {
+            bail!("spend ceiling supports at most six fractional USD digits");
+        }
+        let fraction = if fraction.is_empty() {
+            0
+        } else {
+            let parsed = fraction
+                .parse::<u64>()
+                .map_err(|_| anyhow::anyhow!("invalid spend ceiling fraction"))?;
+            parsed
+                .checked_mul(10_u64.pow((6 - fraction.len()) as u32))
+                .expect("fraction padding is bounded to six digits")
+        };
+        let micro_usd = whole
+            .checked_mul(1_000_000)
+            .and_then(|value| value.checked_add(fraction))
+            .context("spend ceiling is too large")?;
+        Ok(Self(micro_usd))
+    }
+}
+
+impl fmt::Display for SpendCeiling {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let whole = self.0 / 1_000_000;
+        let fraction = self.0 % 1_000_000;
+        if fraction == 0 {
+            return write!(formatter, "{whole}");
+        }
+        let mut fraction = format!("{fraction:06}");
+        while fraction.ends_with('0') {
+            fraction.pop();
+        }
+        write!(formatter, "{whole}.{fraction}")
+    }
+}
+
+impl Serialize for SpendCeiling {
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        // A TOML string retains every micro-USD exactly across a save/load.
+        serializer.serialize_str(&self.to_string())
+    }
+}
+
+impl<'de> Deserialize<'de> for SpendCeiling {
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        struct SpendCeilingVisitor;
+
+        impl<'de> Visitor<'de> for SpendCeilingVisitor {
+            type Value = SpendCeiling;
+
+            fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+                formatter
+                    .write_str("a finite, non-negative USD amount with at most six decimal places")
+            }
+
+            fn visit_str<E>(self, value: &str) -> std::result::Result<Self::Value, E>
+            where
+                E: de::Error,
+            {
+                SpendCeiling::parse(value).map_err(E::custom)
+            }
+
+            fn visit_string<E>(self, value: String) -> std::result::Result<Self::Value, E>
+            where
+                E: de::Error,
+            {
+                self.visit_str(&value)
+            }
+
+            fn visit_u64<E>(self, value: u64) -> std::result::Result<Self::Value, E>
+            where
+                E: de::Error,
+            {
+                SpendCeiling::parse(&value.to_string()).map_err(E::custom)
+            }
+
+            fn visit_i64<E>(self, value: i64) -> std::result::Result<Self::Value, E>
+            where
+                E: de::Error,
+            {
+                if value < 0 {
+                    return Err(E::custom("spend ceiling must be non-negative"));
+                }
+                self.visit_u64(value as u64)
+            }
+
+            fn visit_f64<E>(self, value: f64) -> std::result::Result<Self::Value, E>
+            where
+                E: de::Error,
+            {
+                if !value.is_finite() || value < 0.0 {
+                    return Err(E::custom("spend ceiling must be finite and non-negative"));
+                }
+                // Rust's shortest round-trip representation preserves the
+                // owner-supplied decimal intent without using float arithmetic
+                // for the authority decision.
+                SpendCeiling::parse(&value.to_string()).map_err(E::custom)
+            }
+        }
+
+        deserializer.deserialize_any(SpendCeilingVisitor)
+    }
+}
 
 /// One company's identity and configuration, as a file — not a table (sprint
 /// spec, kernel slice). Lives at `$RESTLESS_HOME/companies/<name>.toml`.
@@ -34,7 +188,7 @@ pub struct CompanyConfig {
     pub mission: String,
     /// Per-company model spend ceiling in USD (T2). The fuse, not governance.
     #[serde(default = "default_ceiling")]
-    pub spend_ceiling_usd: f64,
+    pub spend_ceiling_usd: SpendCeiling,
     /// Provider-qualified model the agent runs on, e.g. `zai/glm-5.2`.
     /// Required: there is no sensible default provider, and the adapter-model
     /// indirection this replaced (`company-general-v1` → a gateway route)
@@ -57,8 +211,8 @@ pub struct CompanyConfig {
     pub approved_parties: Vec<String>,
 }
 
-fn default_ceiling() -> f64 {
-    10.0
+fn default_ceiling() -> SpendCeiling {
+    SpendCeiling::from_micro_usd(10_000_000)
 }
 
 impl CompanyConfig {
@@ -1324,8 +1478,36 @@ pub fn state_root() -> PathBuf {
 mod tests {
     use super::{
         move_active_config_to_archive, move_archived_config_to_active,
-        normalize_expired_browser_control, runtime_http_target, CompanyConfig,
+        normalize_expired_browser_control, runtime_http_target, CompanyConfig, SpendCeiling,
     };
+
+    #[test]
+    fn model_ceiling_is_exact_and_refuses_non_finite_or_negative_values() {
+        assert_eq!(
+            SpendCeiling::parse("10.000001").unwrap().micro_usd(),
+            10_000_001
+        );
+        assert_eq!(SpendCeiling::parse("0").unwrap().to_string(), "0");
+        assert_eq!(SpendCeiling::parse("1.250000").unwrap().to_string(), "1.25");
+        for invalid in ["inf", "NaN", "-1", "+1", "1e3", "0.0000001"] {
+            assert!(SpendCeiling::parse(invalid).is_err(), "accepted {invalid}");
+        }
+    }
+
+    #[test]
+    fn legacy_numeric_toml_loads_but_saved_ceiling_retains_exact_micro_usd() {
+        let config: CompanyConfig = toml::from_str(
+            r#"name = "ceiling_test"
+mission = "test"
+spend_ceiling_usd = 1.000001
+model = "moonshot/kimi-k3"
+"#,
+        )
+        .unwrap();
+        assert_eq!(config.spend_ceiling_usd.micro_usd(), 1_000_001);
+        let rendered = toml::to_string(&config).unwrap();
+        assert!(rendered.contains("spend_ceiling_usd = \"1.000001\""));
+    }
 
     #[test]
     fn an_expired_owner_lease_returns_to_its_requester() {
@@ -1401,7 +1583,7 @@ model_failover = ["anthropic/claude-haiku-4-5", "zai/glm-5"]
         let config = CompanyConfig {
             name: "archive_contract_test".into(),
             mission: "Preserve me".into(),
-            spend_ceiling_usd: 5.0,
+            spend_ceiling_usd: SpendCeiling::from_micro_usd(5_000_000),
             model: "moonshot/kimi-k3".into(),
             model_failover: Vec::new(),
             credentials: std::collections::BTreeMap::new(),

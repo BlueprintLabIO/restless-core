@@ -180,6 +180,32 @@ pub(crate) async fn store_reference(reference: &str, value: &str) -> Result<()> 
     }
 }
 
+/// Move a bootstrap-only daemon environment credential into durable Infisical
+/// custody. The value is resolved and forwarded entirely inside the trusted
+/// daemon; callers receive only success or a sanitized error. Deliberately do
+/// not make this a generic secret-copy primitive: only the documented `env:`
+/// migration source and the durable `infisical:` destination are permitted.
+pub(crate) async fn promote_env_to_infisical(
+    source_reference: &str,
+    destination_reference: &str,
+) -> Result<()> {
+    let source = match parse_reference(source_reference)? {
+        CredentialReference::Env(locator) => locator,
+        _ => bail!("credential promotion source must use the bootstrap env: backend"),
+    };
+    let destination = match parse_reference(destination_reference)? {
+        CredentialReference::Infisical(locator) => locator,
+        _ => bail!("credential promotion destination must use the durable infisical: backend"),
+    };
+    let value = read_env(source)?;
+    let settings = InfisicalSettings::from_env()?;
+    // Infisical requires a folder to exist before a secret can be written at a
+    // nested path. Folder creation happens only on this explicit owner
+    // promotion path, never implicitly while a company resolves a secret.
+    infisical_ensure_folder(&settings, destination.path).await?;
+    infisical_upsert(&settings, &destination, &value).await
+}
+
 /// Files and clipboard pipes commonly add one or more line endings. Those are
 /// transport delimiters, not part of an API key. Other control characters are
 /// rejected rather than silently mutated.
@@ -481,6 +507,58 @@ async fn infisical_upsert(
     Ok(())
 }
 
+/// Ensure the destination directory exists for an explicit credential
+/// promotion. Creating a directory that already exists is harmless; any
+/// other backend error remains visible to the owner without a response body
+/// that might contain secret material.
+async fn infisical_ensure_folder(settings: &InfisicalSettings, path: &str) -> Result<()> {
+    if path == "/" {
+        return Ok(());
+    }
+    let client = reqwest::Client::new();
+    let access_token = infisical_login(&client, settings).await?;
+    let endpoint = infisical_endpoint(&settings.base_url, &["api", "v2", "folders"])?;
+    let mut parent = "/".to_string();
+    for name in path
+        .trim_matches('/')
+        .split('/')
+        .filter(|part| !part.is_empty())
+    {
+        let response = client
+            .post(endpoint.clone())
+            .bearer_auth(&access_token)
+            .json(&serde_json::json!({
+                "projectId": settings.project_id,
+                "environment": settings.environment,
+                "name": name,
+                "path": parent,
+            }))
+            .send()
+            .await
+            .context("create Infisical secret folder")?;
+        let status = response.status();
+        // The Infisical folder API returns 400 for an already-existing folder
+        // on this host. The subsequent secret upsert is still authoritative:
+        // if this was any other bad request, it will fail without persisting a
+        // company reference.
+        if !status.is_success()
+            && status != reqwest::StatusCode::CONFLICT
+            && status != reqwest::StatusCode::BAD_REQUEST
+        {
+            bail!(
+                "Infisical folder creation returned HTTP {}",
+                status.as_u16()
+            );
+        }
+        parent = if parent == "/" {
+            format!("/{name}")
+        } else {
+            format!("{parent}/{name}")
+        };
+    }
+    Ok(())
+}
+
 fn infisical_endpoint(base: &Url, segments: &[&str]) -> Result<Url> {
     let mut endpoint = base.clone();
     {
@@ -518,7 +596,7 @@ mod tests {
         CompanyConfig {
             name: "aris".to_string(),
             mission: String::new(),
-            spend_ceiling_usd: 30.0,
+            spend_ceiling_usd: crate::runtime::SpendCeiling::from_micro_usd(30_000_000),
             model: "moonshot/kimi-k3".to_string(),
             model_failover: Vec::new(),
             credentials,
@@ -605,6 +683,31 @@ mod tests {
             "sk-test-value"
         );
         unsafe { std::env::remove_var("RESTLESS_TEST_CRED") };
+    }
+
+    #[tokio::test]
+    async fn promotion_is_limited_to_bootstrap_env_and_infisical() {
+        let source_error = format!(
+            "{:#}",
+            promote_env_to_infisical("omp-oauth:zai", "infisical:/providers/zai/ZAI_API_KEY")
+                .await
+                .unwrap_err()
+        );
+        assert!(
+            source_error.contains("source must use the bootstrap env:"),
+            "{source_error}"
+        );
+
+        let destination_error = format!(
+            "{:#}",
+            promote_env_to_infisical("env:RESTLESS_TEST_CRED", "env:ZAI_API_KEY")
+                .await
+                .unwrap_err()
+        );
+        assert!(
+            destination_error.contains("destination must use the durable infisical:"),
+            "{destination_error}"
+        );
     }
 
     #[tokio::test]

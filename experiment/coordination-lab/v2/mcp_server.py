@@ -119,7 +119,7 @@ def schemas() -> list[dict[str, Any]]:
         },
         {
             "name": "request_judgement",
-            "description": "Request a bounded irreducible judgement with an observable resume condition. Reversible operating choices belong in decide.",
+            "description": "Request a bounded irreducible judgement with an observable resume condition. For a worker Attempt this is terminal: end the turn after calling it; resolution reactivates the same Work as a new revision. Reversible operating choices belong in decide.",
             "inputSchema": mutation(
                 ["assigned_to", "subject", "question", "resume_condition"],
                 {
@@ -131,8 +131,23 @@ def schemas() -> list[dict[str, Any]]:
             ),
         },
         {
+            "name": "complete_run",
+            "description": "Complete the owner outcome with the exact current candidate commit after accountable native review. This is available only to the coordination actor; do not encode completion in a free-form decide subject.",
+            "inputSchema": mutation(
+                ["candidate_commit", "rationale"],
+                {
+                    "candidate_commit": {
+                        "type": "string",
+                        "description": "Exact commit SHA currently selected by the canonical candidate branch.",
+                    },
+                    "rationale": {"type": "string"},
+                    "evidence": strings,
+                },
+            ),
+        },
+        {
             "name": "decide",
-            "description": "Resolve a judgement or record an accountable choice. An open judgement on the same subject must be explicitly resolved.",
+            "description": "Resolve a judgement or record an accountable operating choice. An open judgement on the same subject must be explicitly resolved. Run completion belongs only in complete_run.",
             "inputSchema": mutation(
                 ["subject", "choice", "rationale"],
                 {

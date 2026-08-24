@@ -736,6 +736,14 @@ enum CredentialCommand {
         #[arg(long)]
         value: Option<String>,
     },
+    /// Promote a daemon bootstrap env: binding into Infisical without exposing
+    /// its value to the CLI, command line, or company Runtime.
+    Promote {
+        #[arg(long, short = 'c', env = "RESTLESS_COMPANY")]
+        company: Option<String>,
+        binding: String,
+        reference: String,
+    },
     /// Probe every configured reference as present, absent or invalid.
     Check {
         #[arg(long, short = 'c', env = "RESTLESS_COMPANY")]
@@ -909,6 +917,27 @@ fn acting_actor() -> String {
     })
 }
 
+/// A team-lead coordination turn may communicate only through an explicit
+/// recipient. In this mode an omitted `--to` is never an owner reply: it is a
+/// common command-shape mistake (`restless message list`) that otherwise
+/// creates unsolicited owner mail. This is a narrow usability guard, not a
+/// new agent-security boundary; the shared company Runtime remains mutable.
+fn require_message_recipient_in_coordination_wake(
+    coordination_wake: bool,
+    recipient: Option<&str>,
+) -> Result<()> {
+    if coordination_wake && recipient.is_none() {
+        bail!(
+            "an internal team coordination wake cannot send mail to the owner; use `restless inbox --as <actor>` to inspect mail, or `restless message --to <actor> <body>` for changed information"
+        );
+    }
+    Ok(())
+}
+
+fn is_team_coordination_wake() -> bool {
+    std::env::var("RESTLESS_COORDINATION_WAKE").is_ok_and(|value| value == "1")
+}
+
 fn state_root() -> PathBuf {
     if let Ok(root) = std::env::var("RESTLESS_HOME") {
         return PathBuf::from(root);
@@ -1042,6 +1071,14 @@ fn request_json(command: Command) -> Result<serde_json::Value> {
                     "secret_value": secret_value,
                 })
             }
+            CredentialCommand::Promote {
+                company,
+                binding,
+                reference,
+            } => serde_json::json!({
+                "cmd": "credential-promote", "company": company,
+                "capability": binding, "body": reference,
+            }),
             CredentialCommand::Check { company } => {
                 serde_json::json!({ "cmd": "credential-check", "company": company })
             }
@@ -1534,7 +1571,15 @@ fn request_json(command: Command) -> Result<serde_json::Value> {
             company: c,
             as_actor,
         } => {
-            serde_json::json!({ "cmd": "inbox", "company": c, "as_actor": as_actor })
+            // A company actor reading its own inbox is a real observation,
+            // not host-side inspection: the daemon can then attach any
+            // Work-linked mail it actually received to its one live Attempt.
+            // `--as` remains an observer spelling on the host, and stays one
+            // inside a container when it names someone else.
+            let actor = (principal() == "company/exec").then(acting_actor);
+            serde_json::json!({
+                "cmd": "inbox", "company": c, "as_actor": as_actor, "actor": actor,
+            })
         }
         Command::ClearPoison { company: c } => serde_json::json!({
             "cmd": "clear-poison",
@@ -1556,15 +1601,21 @@ fn request_json(command: Command) -> Result<serde_json::Value> {
             to,
             work,
             body,
-        } => serde_json::json!({
-            "cmd": "message",
-            "company": c,
-            "from": from.or_else(|| std::env::var("RESTLESS_ACTOR").ok())
-                .unwrap_or_else(|| "owner".to_string()),
-            "to": to,
-            "id": work,
-            "body": body,
-        }),
+        } => {
+            require_message_recipient_in_coordination_wake(
+                is_team_coordination_wake(),
+                to.as_deref(),
+            )?;
+            serde_json::json!({
+                "cmd": "message",
+                "company": c,
+                "from": from.or_else(|| std::env::var("RESTLESS_ACTOR").ok())
+                    .unwrap_or_else(|| "owner".to_string()),
+                "to": to,
+                "id": work,
+                "body": body,
+            })
+        }
         Command::Effect {
             company: c,
             effect_class,
@@ -2020,6 +2071,15 @@ fn request_once(line: &str) -> Result<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn internal_coordination_cannot_accidentally_address_the_owner() {
+        assert!(require_message_recipient_in_coordination_wake(true, None).is_err());
+        assert!(
+            require_message_recipient_in_coordination_wake(true, Some("world-builder")).is_ok()
+        );
+        assert!(require_message_recipient_in_coordination_wake(false, None).is_ok());
+    }
 
     #[test]
     fn runtime_health_fails_closed_when_volume_evidence_is_missing() {

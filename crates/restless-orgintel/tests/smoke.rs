@@ -179,6 +179,35 @@ async fn company_schema_round_trip() {
     })
     .await
     .unwrap();
+    // Sprint 14's detached review checkout is supporting evidence tied to
+    // the exact producer Attempt. It is deliberately another ordinary
+    // artifact reference, not a second candidate or custody state.
+    org.link_work_artifact(NewArtifactRef {
+        kind: "review_copy",
+        uri: "/company/reviews/attempt-smoke",
+        note: "supporting review copy; not a replacement candidate",
+        created_by: "delivery-build",
+        work_id: Some(work),
+        attempt_id: Some(attempt.attempt_id),
+        digest: Some("sha256:review-copy"),
+        source_commit: Some("0123456789012345678901234567890123456789"),
+        runtime_generation: Some("test"),
+        label: "Supporting review copy (not candidate)",
+    })
+    .await
+    .unwrap();
+    assert!(org
+        .list_artifact_refs(Some(work))
+        .await
+        .unwrap()
+        .iter()
+        .any(|artifact| {
+            artifact.kind == "review_copy"
+                && artifact.attempt_id == Some(attempt.attempt_id)
+                && artifact.source_commit.as_deref()
+                    == Some("0123456789012345678901234567890123456789")
+                && artifact.label == "Supporting review copy (not candidate)"
+        }));
     let gate = org
         .add_work_gate(NewWorkGate {
             work_id: work,
@@ -459,6 +488,12 @@ async fn company_schema_round_trip() {
     )
     .await
     .unwrap();
+    let resumed_input = org.consume_inbox_for_actor("delivery-build").await.unwrap();
+    let resumed_message_id = resumed_input
+        .iter()
+        .find(|message| message.body == "sign-in observed")
+        .map(|message| message.id)
+        .expect("the still-running Attempt must actually receive the owner response before it may continue");
     assert_eq!(
         org.list_work_attempts(Some(running_handoff_work))
             .await
@@ -750,7 +785,7 @@ async fn company_schema_round_trip() {
     let again = OrgIntel::ensure(&url, &company).await.unwrap();
     assert_eq!(again.list_work().await.unwrap().len(), 7);
     let graph = again.work_graph_snapshot().await.unwrap();
-    assert_eq!(graph.attempt_feedback.len(), 3);
+    assert_eq!(graph.attempt_feedback.len(), 4);
     assert!(graph
         .attempt_feedback
         .iter()
@@ -759,6 +794,10 @@ async fn company_schema_round_trip() {
         .attempt_feedback
         .iter()
         .any(|link| link.message_id != feedback));
+    assert!(graph
+        .attempt_feedback
+        .iter()
+        .any(|link| link.message_id == resumed_message_id));
 
     org.drop_schema().await.unwrap();
 }

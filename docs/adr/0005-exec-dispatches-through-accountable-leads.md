@@ -14,11 +14,22 @@ canonical integration, review preparation and completion judgement. A lead may w
 outcome is tightly coupled; “team lead” is an accountability and concurrency boundary, not a required
 team size.
 
+The lead may act as a player-coach or reserve its attention for supervision, guidance, redirection and
+repair. This posture is chosen from the actual coordination and failure load; accountability neither
+requires production nor forbids it.
+
 Before choosing Staff, the lead builds a causal understanding of the outcome and chooses the smallest
 effective team, including itself alone. If another actor can own a stable seam, the lead communicates
 purpose, current understanding, unknowns and observable proof naturally, continues complementary work,
 then personally inspects and integrates the returned artifact. OrgIntel Work proves that the
 cross-actor contribution happened; it does not prescribe the lead's plan or conversation.
+
+The organisational level is determined by accountability closure rather than apparent task size. A
+separate lead owns an independently judgeable outcome; Staff owns an independently useful semantic
+contribution or locally closing repeated unit inside that outcome; a hand or ordinary tool performs a
+bounded operation without owning project judgement. Several leads communicate material facts and
+artifacts directly, while only portfolio, resource, charter and strategy conflicts rise to Exec. The
+fuller explanatory model is in [`docs/COORDINATION_THEORY.md`](../COORDINATION_THEORY.md).
 
 Exec retains owner-mandate interpretation, portfolio prioritisation, resource allocation,
 cross-department arbitration, authority escalation and company-level continue/pivot/stop decisions.
@@ -50,6 +61,9 @@ above a sparse factual substrate, not a universal claim that teams are faster or
 - The lead, not Exec, is the strong singleton baseline in delegation crossover experiments.
 - Work between Exec and lead records the outcome boundary; Work below the lead remains sparse and
   exists only for real cross-actor commitments.
+- The current likely organisation is wide and shallow: several mostly-solo leads run concurrently and
+  add Staff elastically. Repeated independent-unit departments may instead support large Staff pools.
+  This is an evidence-scoped prior, not a fixed team size or span of control.
 - The same lead identity and natural-team contract apply on productive Work and conversation wakes;
   the runtime must not demote a lead to generic specialist on one path.
 - No teamwork-pattern recommender, handoff form, message cadence or graph-shaped execution plan is part

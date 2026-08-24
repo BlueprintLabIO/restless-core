@@ -42,6 +42,7 @@ LLM_CURE.md              failure modes and their cures — how we think; read be
 AGENTS.md                symlink → CLAUDE.md (one source of truth)
 docs/
   sprints/               sprint specs (sprint-NN.md); see docs/sprints/README.md
+  COORDINATION_THEORY.md accountability boundaries and current team-shape theory
   SALVAGE.md             proven-component lift map from the prior implementation
 crates/
   restlessd/             daemon: coordination, Authority adapters and owner API

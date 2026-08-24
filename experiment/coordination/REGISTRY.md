@@ -24,29 +24,48 @@ Historical v23 remains indexed in `EVIDENCE.md` and does not change a cell above
 
 | ID | Domain | Manipulation | Status | Next gate |
 |---|---|---|---|---|
-| **N1-G-WORLD** | Coding/product | Strong lead chooses zero or one Staff; causal free-form brief over factual Work events | replicating | Provisional 8.2 blind win versus forced B1 6.4 and fresh B0 4.5; replicate on one tight-coupling and one uncertainty/breadth workload |
+| **N1-G-WORLD** | Coding/product | Strong lead chooses zero or one Staff; causal free-form brief over factual Work events | superseded | Provisional 8.2 blind win retained as the sole +1 quality crossover; EXP-02 closed without a second work-shape win |
+
+## EXP-02 natural-team affordance screens
+
+| ID | Candidate | First cell | Status | Next gate |
+|---|---|---|---|---|
+| **A4-P5** | Recovery capsule over preserved process/artifact observations | Recovery | provisional-loss | Both arms recovered correctly; A4 won blind provenance 9.8 vs 9.2 but cost 11.1% more wall time, 10.1% more new input and one extra tool, so no replication |
+| **A1-P3/P1** | Commission context capsule | Evidence breadth then stable-seam coding | rejected | P3 removed source loss, but P1 lost blind quality 7.6 vs 9.0 despite passing 18/18 and running 16.8% faster; first-clear-loss rule purges it |
+| **A2-P2** | Shared-history fork | Interface volatility | not-activated | A1's coding loss exposed native-quality judgement defects, not residual causal-context loss that a history fork would target |
+| **A3-P2** | Material event capsule | Interface volatility | not-activated | No activated run measured repeated context reconstruction around an addressed material change |
+| **A5** | Bounded micro-audition | Unfamiliar actor/seam | not-activated | No genuine selection uncertainty in the initial P0–P5 portfolio |
+| **P0-N1** | Natural lead team-size choice | Small, tightly coupled coding | provisional-loss | Lead chose one useful presentation seam and passed 11/11, but wall time rose 109% at outcome parity; bounded is not sufficient value |
+| **P4-C1** | Independent Terra critic before accountable Sol review | Native artifact judgement | provisional-loss | Both found planted defects and chose revision; B0 won blind 6.0 vs 5.0 while C1 doubled wall time and added 56.7% new input |
+
+## Proposed EXP-03 abstraction frontier
+
+| ID | Question | Shapes | Status | Next gate |
+|---|---|---|---|---|
+| **EXP-03** | Where should responsibility remain direct, become a bounded hand, cross to semantic Staff, close under a separate lead, preserve a supervisor or replicate across a queue? | D0 / H1 / S1 / M1 / L2 plus staged Q1/Q2/Q4/Q8 across coding, research, document/operations and sales-like throughput | designing | Founder confirms the frozen sprint before Wave 0; at least two counted workflows are non-coding, H1 must be distinct, M1 cannot perform planned production and queue scale advances only through positive marginal gates |
 
 ## Wildcards
 
 | ID | Wildcard | Family | Dependency | Status | Next gate |
 |---|---|---|---|---|---|
-| **W01** | Session mitosis | Shared history | Baseline B0/B1 | running | Corrected conformance passed exact parent→Sol/Terra forks and clean role branches; frozen G-WORLD arm order is ordinary B1 → W01 |
-| **W02** | Fork–work–reunite cycles | Shared history | W01 | queued | One fork, artifact-only reunion and second fork |
-| **W03** | Exec-to-lead lineage fork | Shared history | W01 + redaction audit | queued | Neutral request capsule without executive authority leakage |
+| **W01** | Session mitosis | Shared history | Baseline B0/B1 | superseded | G-WORLD result retained; EXP-02 did not activate A2 because no residual causal-context loss remained after exact artifact access |
+| **W02** | Fork–work–reunite cycles | Shared history | W01 | deferred | Reopen only after a one-shot shared-history win plus a real interface change |
+| **W03** | Exec-to-lead lineage fork | Shared history | W01 + redaction audit | deferred | No evidence justified leaking Exec context/authority; availability remains fixed |
 | **W04** | One brain, many hands | Cognitive topology | Baseline B0 | blocked | Conformance showed B0 already has process concurrency, while the only extra dispatch is autonomous Work; no distinct bounded executor exists to compare without building speculative machinery |
-| **W05** | Shared semantic blackboard | Shared state | Baseline B1 | queued | Patchable bounded situation model with provenance |
-| **W06** | Causal context deltas | Communication compression | W05 or stable checkpoint | queued | Reconstruct exact relevant changes from base hash |
-| **W07** | Proof-carrying handoffs | Artifact boundary | Baseline B1 | queued | First candidate only if a valid run records callback/acceptance `V3`; artifact + native proof + semantic diff |
-| **W08** | Ambient coordination | Event routing | W07 | queued | Activate after W07 only if late material delivery `M3`/`M5` remains |
-| **W09** | Questions-only communication | Communication discipline | Baseline B1 | queued | Reserve unless a valid run measures narration/status `M1`; ordinary B1 traffic is already sparse |
-| **W10** | Blind sibling diversification | Independence | W01 | queued | Same prefix plus private evidence shards and blind review |
-| **W11** | Cross-finish experiment | Transferability | W01 | queued | Swap branches at midpoint and measure recovery/rework |
-| **W12** | Micro-audition before ownership | Allocation | Fork primitive | queued | Two bounded probes, evidence-based lead selection |
-| **W13** | Speculative shadow branch | Redundancy | Baseline B0 | queued | Keep shadow sealed unless primary stalls or fails |
-| **W14** | Adaptive communication gates | Event routing | Metrics from W01–W09 | queued | Open rendezvous only on observable collision/uncertainty signal |
-| **W15** | KV-state cloning | Runtime efficiency | Provider/runtime feasibility | queued | Clone inference state or test cached-prefix proxy |
-| **W16** | Common room, private offices | Temporal topology | W01/W02 | queued | Scheduled artifact-bound rendezvous without continuous chat |
+| **W05** | Shared semantic blackboard | Shared state | Baseline B1 | rejected | No repeated shared-state failure justified a second plan/database |
+| **W06** | Causal context deltas | Communication compression | W05 or stable checkpoint | deferred | Reopen only if full-context replay becomes measured dominant cost |
+| **W07** | Proof-carrying handoffs | Artifact boundary | Baseline B1 | rejected | Folded into A4: compact proof remains floor, rich capsule lost its churn gate |
+| **W08** | Ambient coordination | Event routing | W07 | not-activated | Artifact observation remains a floor; no late/noisy delivery bottleneck appeared |
+| **W09** | Questions-only communication | Communication discipline | Baseline B1 | rejected | No narration-volume failure and rigid speech restriction conflicts with natural communication |
+| **W10** | Blind sibling diversification | Independence | W01 | deferred | Same-evidence P4 criticism lost; reopen only for genuinely independent evidence or alternatives |
+| **W11** | Cross-finish experiment | Transferability | W01 | not-activated | Retained only as a possible diagnostic; no production mechanism claim |
+| **W12** | Micro-audition before ownership | Allocation | Fork primitive | not-activated | No genuine actor or seam-selection uncertainty occurred |
+| **W13** | Speculative shadow branch | Redundancy | Baseline B0 | deferred | Reopen only after repeated high-uncertainty dead ends justify duplicate spend |
+| **W14** | Adaptive communication gates | Event routing | Metrics from W01–W09 | not-activated | No repeated material-change communication bottleneck activated A3 |
+| **W15** | KV-state cloning | Runtime efficiency | Provider/runtime feasibility | superseded | Separated into runtime/cache feasibility; cannot decide organisational quality |
+| **W16** | Common room, private offices | Temporal topology | W01/W02 | deferred | Reopen only after a measured multi-party dialogue bottleneck |
 
 Allowed statuses: `queued`, `designing`, `running`, `provisional-win`, `provisional-loss`, `blocked`,
-`replicating`, `accepted`, `rejected`, `superseded`, `not-activated`. `not-activated` is a final
+`replicating`, `accepted`, `rejected`, `superseded`, `deferred`, `not-activated`. `deferred` is closed
+for the current sprint and requires its named new evidence before reopening. `not-activated` is a final
 disposition meaning the evidence trigger never appeared; it is not a failed run.

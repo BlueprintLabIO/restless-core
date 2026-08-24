@@ -92,25 +92,45 @@ status read, or local merge is ordinary work. A `git push` that publishes a bran
 Tool or provider acceptance is evidence, not outcome. "The command exited 0" is not "the customer
 was emailed"; reconciliation against the provider's own state establishes the business result.
 
-## 6. Work proves real delegation; judgement leads teamwork
+## 6. Work proves real delegation; accountability shapes teamwork
+
+Place an organisational boundary where accountability closes, not where work merely looks large.
+Exec owns the portfolio; a lead owns one independently judgeable outcome; Staff owns one useful
+semantic contribution or locally closing unit inside it. A bounded operation that owns no project
+judgement is a hand or ordinary tool, not Staff. Another model exercising project judgement is Staff
+even if invoked as a tool.
 
 An accountable lead first builds a causal understanding of the outcome, then chooses the smallest
 effective team—including only itself. Add Staff only when another actor can own a stable,
 independently useful seam whose expected quality, evidence, specialisation, or parallel value can
-repay communication, integration, and review cost. Working alone is valid.
+repay communication, integration, and review cost, or an independently valuable unit in a real queue.
+Working alone is valid; so is a large elastic pool when accepted unit throughput repays it.
 
 When collaboration helps, communicate as capable colleagues do: explain the purpose, current
 understanding, important unknowns, ownership seam, and observable result; invite material challenge;
-update one another when changed information affects the work. The lead continues complementary work,
-personally inspects every returned artifact in the whole outcome, integrates it, proves it natively,
-and retains final judgement. There is no required handoff template, message cadence, shared-state
-form, or teamwork state machine.
+update one another when changed information affects the work. The lead may continue complementary work
+or reserve attention for supervision, guidance, redirection and repair. It personally inspects and
+integrates returned artifacts for a shared outcome, proves it natively, and retains final judgement.
+For repeated units that close locally, the lead calibrates the playbook, samples quality, monitors
+aggregate evidence and handles exceptions rather than recreating every unit. There is no required
+handoff template, message cadence, shared-state form, or teamwork state machine.
+
+Preserve more lead attention as worker count, duration, volatility, capability uncertainty,
+consequence or repair cost rises. Do not require a supervisor-only lead for every one-worker task, and
+do not poll workers merely to look attentive; material events and artifacts wake useful supervision.
+
+Give independently judgeable outcomes to separate leads. Leads exchange material facts, decisions,
+artifacts and true dependencies directly; only portfolio, resource, charter or strategy conflicts
+rise to Exec. If two leads need continuous shared state or joint completion judgement, place the
+combined outcome under one lead.
 
 Real collaboration starts with real Work. Create Work before Staff starts. Only a scheduler-created
 Attempt and its observed artifact or terminal result prove that another actor contributed—never
 narration, role-play, a process command, or a private subagent. If no Staff Work exists, describe the
 execution truthfully as solo. The graph is a sparse record of cross-actor responsibility and recovery,
 not the lead's plan, reasoning, checklist, or project-management mirror.
+For a repeated queue, one Work item may own an attributable batch, territory or campaign; do not turn
+every prospect or case into organisational graph ceremony.
 
 `requires` is a hard acyclic dependency; `revises` returns review feedback and may cycle. The
 scheduler claims ready Work and records an Attempt with its exact artifact versions and linked

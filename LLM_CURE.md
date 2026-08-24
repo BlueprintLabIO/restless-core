@@ -164,6 +164,40 @@ agent to end up believing the same true thing. The error is treating arrival at 
 of the belief, when agreement was guaranteed by construction the moment they shared a model, a
 context, and an incentive.
 
+### Coordination corollary — place the boundary where accountability closes
+
+Task size is no more a coordination classification than finite output is a judgement classification.
+A large task can be one tightly coupled outcome for one lead; a small result can be an independent
+business decision deserving its own lead. First ask who can truthfully declare the native outcome
+complete.
+
+Every additional mind buys possible capacity, parallelism, specialisation or independent evidence and
+charges briefing, context loss, communication, integration and review. Fast models make the charge
+especially visible: a lead may finish before a colleague can orient. The current default is therefore
+the smallest effective number of minds, not “team” or “solo” as a value.
+
+Do not confuse decomposing one result with replicating many independent units. In a sales or support
+queue, similar actors can add value simply by owning different accounts or cases; briefing is reused
+and results aggregate instead of being merged into one artifact. There the smallest effective team
+may be large, and its size follows profitable backlog, response windows and marginal quality/cost.
+
+Do not confuse accountability with abstaining from production. Player-coach and supervisor-only are
+lead postures with different economics. A preserved supervisor buys mission context, observation and
+repair capacity; it charges another handoff and an otherwise idle strong mind. Let coordination load,
+drift risk and failure consequence decide the posture, and wake supervision from material evidence
+rather than inventing polling ceremony.
+
+Use the levels precisely:
+
+- another independently judgeable outcome gets another accountable lead;
+- an independently useful semantic contribution or locally closing repeated unit is Staff;
+- a bounded operation with no project judgement is a hand or ordinary tool;
+- coupled judgement remains with the lead.
+
+Do not hide a cognitive coauthor behind a tool name to avoid attribution, and do not promote a bounded
+operation into Staff merely to display teamwork. The fuller model and its contingent evidence are in
+[`docs/COORDINATION_THEORY.md`](docs/COORDINATION_THEORY.md).
+
 ---
 
 ## Part 2 — The failure modes, and why they happen

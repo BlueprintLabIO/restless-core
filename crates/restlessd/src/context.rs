@@ -335,6 +335,20 @@ pub fn assemble(snapshot: &ContextSnapshot) -> ContextPackage {
     );
     let user_prompt = format!(
         "# This wake\n{}\n\n\
+         # Execution boundary [invariant]\n\
+         This is an Exec coordination wake. Inspect company state and repositories only to frame \
+         and dispatch the outcome; use ordinary Restless CLI to update the factual actor, team, \
+         and Work graph, and update only Exec continuity files under /company/org/exec when \
+         needed. Do not edit application or repository files, create a candidate artifact or test \
+         output, run a productive repair, or claim a produced outcome in this wake. If the owner \
+         input requires productive execution, first inspect the current standing team leads and \
+         reuse a lead whose charter already covers the outcome; commission new capacity only when \
+         no such role exists. Create exactly one accountable lead Work with its repository \
+         coordinates and expected proof. When the owner names a concrete output path or URL, use \
+         that exact locator as the expected proof rather than combining it with prose. Then \
+         quiesce. Any product file, screenshot, \
+         test result, or output created directly by this Exec wake is not an attributable outcome \
+         and must not be presented as one.\n\n\
          # Recent conversation in this focus [historical context; owner lines are owner-authored, your lines are prior claims]\n{}\n\n\
          # Owner input [authoritative in source; classify before applying]\n{}\n\
          Work this turn using the actor contract and current company state in your system context. \
@@ -596,6 +610,25 @@ mod tests {
         assert!(package
             .system_prompt
             .contains("adding a gate afterward races the scheduler"));
+        assert!(package
+            .user_prompt
+            .contains("# Execution boundary [invariant]"));
+        assert!(package
+            .user_prompt
+            .contains("frame and dispatch the outcome"));
+        assert!(package
+            .user_prompt
+            .contains("Do not edit application or repository files"));
+        assert!(package
+            .user_prompt
+            .contains("Create exactly one accountable lead Work"));
+        assert!(package
+            .user_prompt
+            .contains("reuse a lead whose charter already covers the outcome"));
+        assert!(package
+            .user_prompt
+            .contains("use that exact locator as the expected proof"));
+        assert!(package.user_prompt.contains("not an attributable outcome"));
     }
 
     #[test]

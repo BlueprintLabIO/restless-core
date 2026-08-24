@@ -1,0 +1,58 @@
+{
+  "experiment": "EXP-03",
+  "task": "T1",
+  "date": "2026-08-24",
+  "frozen": {
+    "scenario_sha256": "44699970e702693657ecd59c66515eb804591446404167c8f896b3e5e275ab32",
+    "evaluator_sha256": "c2e18bbae886b84d955844ae16b837e6a008d7a22578040a5392380be3f12c19",
+    "seed": "514b7b3d0a65e093af608b08ca142344412181f4",
+    "model": "zai/glm-5.3",
+    "reasoning": "high",
+    "wall_clock_seconds": 1800,
+    "drain_grace_seconds": 120
+  },
+  "s1_terminal": {
+    "run": "exp03-t1-s1t-glm53-r3",
+    "company_outcome": false,
+    "protocol_valid": false,
+    "elapsed_seconds": 1850.6478031249717,
+    "cost_usd": 1.51666348,
+    "used_tokens": 150584,
+    "output_tokens": 60027,
+    "tool_calls": 80,
+    "work_count": 1,
+    "attempt_count": 1,
+    "worker_commit": "62920588d8baf30b36e05f0c9e34860507b28fa6",
+    "candidate_commit": "514b7b3d0a65e093af608b08ca142344412181f4",
+    "frozen_evaluator_passed": 11,
+    "frozen_evaluator_total": 11,
+    "worker_harness_passed": 23,
+    "worker_harness_total": 23
+  },
+  "c0_terminal": {
+    "run": "exp03-t1-c0-glm53-r1",
+    "company_outcome": false,
+    "protocol_valid": true,
+    "elapsed_seconds": 1894.638402,
+    "cost_usd": null,
+    "usage": null,
+    "work_count": 0,
+    "candidate_commit": "514b7b3d0a65e093af608b08ca142344412181f4",
+    "candidate_clean": false,
+    "frozen_evaluator_passed": 11,
+    "frozen_evaluator_total": 11,
+    "own_harness_standalone": false,
+    "own_harness_with_external_server_passed": 13,
+    "own_harness_with_external_server_total": 13,
+    "roster_terminal_passed": 28,
+    "roster_terminal_total": 29,
+    "roster_immediate_rerun_passed": 29,
+    "roster_immediate_rerun_total": 29
+  },
+  "disposition": {
+    "primary_failure": "model_tool_loop_throughput",
+    "secondary_cost": "sequential_supervisor_handoff_and_review",
+    "coordination_churn": false,
+    "supervisor_invariant_changed": false
+  }
+}

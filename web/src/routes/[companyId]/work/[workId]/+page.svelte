@@ -76,6 +76,32 @@
 				return graph?.work.filter((item) => item.id === relatedId) ?? [];
 			})
 	);
+	const workOwner = $derived(cockpit?.people.find((person) => person.actor_id === work?.owner_id));
+	const accountableLeadId = $derived(
+		workOwner?.team_id
+			? (cockpit?.teams.find((team) => team.id === workOwner.team_id)?.lead_actor_id ??
+					work?.owner_id)
+			: work?.owner_id
+	);
+	const accountableLead = $derived(
+		cockpit?.people.find((person) => person.actor_id === accountableLeadId) ?? null
+	);
+	const unknownRecovery = $derived(
+		work?.status === 'blocked' &&
+			latestAttempt?.state === 'failed' &&
+			latestAttempt.summary.includes('productive outcome unknown')
+	);
+	const recoveryArtifacts = $derived(
+		unknownRecovery && latestAttempt
+			? artifacts.filter((artifact) => artifact.attempt_id === latestAttempt.id)
+			: []
+	);
+	const preservedCandidate = $derived(
+		recoveryArtifacts.find((artifact) => artifact.kind !== 'git_worktree_observation') ??
+			recoveryArtifacts.at(0) ??
+			null
+	);
+	const workIsLeadOwned = $derived(!!work?.owner_id && work.owner_id === accountableLeadId);
 
 	function gatePassed(gate: WorkGateRow): boolean {
 		if (!latestAttempt) return false;
@@ -111,6 +137,19 @@
 
 	function artifactState(artifact: ArtifactRefRow): string {
 		return artifact.state === 'available' ? 'Available' : artifact.state.replaceAll('_', ' ');
+	}
+
+	function canOpenOutsideCompany(uri: string): boolean {
+		try {
+			const parsed = new URL(uri);
+			return (
+				parsed.protocol === 'https:' ||
+				(parsed.protocol === 'http:' &&
+					!['localhost', '127.0.0.1', '::1'].includes(parsed.hostname))
+			);
+		} catch {
+			return false;
+		}
 	}
 
 	function displayDate(value: string | null | undefined): string {
@@ -162,6 +201,61 @@
 			</div>
 		</header>
 
+		{#if unknownRecovery}
+			<section class="recovery-brief" aria-labelledby="recovery-heading">
+				<div class="recovery-mark" aria-hidden="true">
+					<MatrixGlyph rows={GLYPHS.ring} size={9} />
+				</div>
+				<div class="recovery-copy">
+					<h2 id="recovery-heading">A candidate is preserved. Its outcome is still unknown.</h2>
+					<p>
+						The cognitive process ended before it reported a trustworthy result. Restless has not
+						called this success or failure. {accountableLead?.display ??
+							ownerName(accountableLeadId ?? work.owner_id)}
+						owns the next judgement: inspect the same candidate, then revise, resume, reassign, or abandon
+						it.
+					</p>
+					{#if preservedCandidate}
+						<div class="preserved-candidate">
+							<div>
+								<h3>Preserved candidate</h3>
+								<strong>{preservedCandidate.label || preservedCandidate.kind}</strong>
+								<code title="Exact Runtime or external target preserved with this Attempt"
+									>{preservedCandidate.uri}</code
+								>
+							</div>
+							{#if canOpenOutsideCompany(preservedCandidate.uri)}
+								<a
+									class="preserved-link"
+									href={preservedCandidate.uri}
+									target="_blank"
+									rel="noreferrer"
+									title="Open this exact preserved target without deciding the Work"
+									>Open target ↗</a
+								>
+							{/if}
+						</div>
+					{/if}
+					<details class="recovery-evidence">
+						<summary
+							title="Process observations and linked outputs; these support review but do not decide quality"
+						>
+							Show recovery evidence
+						</summary>
+						<div>
+							<p>{latestAttempt?.summary}</p>
+							{#each recoveryArtifacts as artifact (artifact.id)}
+								<div class="recovery-artifact">
+									<strong>{artifact.label || artifact.kind}</strong>
+									<code>{artifact.uri}</code>
+								</div>
+							{/each}
+						</div>
+					</details>
+				</div>
+			</section>
+		{/if}
+
 		<div class="work-detail-scroll">
 			<div class="work-detail-layout">
 				<main class="work-detail-main">
@@ -198,12 +292,53 @@
 							<Markdown text={work.resolution} />
 						</section>
 					{/if}
+
+					<section class="contribution-trace">
+						<h2>{workIsLeadOwned ? 'Lead-owned outcome' : 'Attributable Staff contribution'}</h2>
+						{#if workIsLeadOwned}
+							<p>
+								{accountableLead?.display ?? ownerName(accountableLeadId ?? work.owner_id)} owns the integration
+								judgement for this outcome. Restless does not infer a Staff contribution from chat or
+								prose; any accepted, revised, or abandoned contribution has its own Work, Attempt, and
+								observed output in the linked record.
+							</p>
+						{:else}
+							<p>
+								{ownerName(work.owner_id)} owns this bounded Staff responsibility for
+								{accountableLead?.display ?? ownerName(accountableLeadId ?? work.owner_id)}. Its
+								actual Attempt and outputs appear below. A completed Attempt is evidence of this
+								contribution, not a claim that the lead accepted the whole outcome.
+							</p>
+						{/if}
+						{#if work.status === 'abandoned'}
+							<p class="contribution-status">
+								This Work was abandoned and is not presented as accepted output.
+							</p>
+						{:else if revisions.length}
+							<p class="contribution-status">
+								A source-observed revision route is shown in the Work graph below.
+							</p>
+						{/if}
+					</section>
 				</main>
 
 				<aside class="work-detail-aside" aria-label="Work facts">
 					<section>
-						<span class="detail-label">Accountable owner</span>
-						<strong>{ownerName(work.owner_id)}</strong>
+						<span
+							class="detail-label"
+							title="The lead accountable for integrating the whole outcome"
+						>
+							Accountable lead
+						</span>
+						<strong
+							>{accountableLead?.display ?? ownerName(accountableLeadId ?? work.owner_id)}</strong
+						>
+						{#if !workIsLeadOwned}
+							<small
+								title="This bounded Work is performed by a Staff member under the accountable lead."
+								>Staff responsibility: {ownerName(work.owner_id)}</small
+							>
+						{/if}
 					</section>
 					<section>
 						<span class="detail-label">Evidence</span>

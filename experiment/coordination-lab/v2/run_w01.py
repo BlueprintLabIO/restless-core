@@ -142,7 +142,7 @@ and focused acceptance proof. The Terra producer simultaneously owns the bounded
 history on `worker/`; do not duplicate that seam or poll the producer. It is acceptable for your
 first-phase branch to await that exact artifact. Make complementary progress, commit your lead-owned
 work cleanly, and end `LEAD_PHASE_COMPLETE`. The hidden evaluator is not present. For browser-native
-checks, the prepared path is `{HERE / 'native_check.py'} {cell} {canonical} <file>`.
+checks, the prepared path is `{HERE / 'native_check.py'} {cell} {canonical} --commit <exact-candidate-commit> <file>`.
 """
     worker_prompt = """# W01 bounded producer child
 

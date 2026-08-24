@@ -1,0 +1,31 @@
+{
+  "artifact": {
+    "exact": true,
+    "sha256": "bd42111b02b0d94392f82c5f6a49558ba961f57f3eeaf8cc5c02414ea4c70013"
+  },
+  "catalogue": {
+    "context_length": 1048576,
+    "openrouter_id": "z-ai/glm-5.3",
+    "supported_reasoning_efforts": ["low", "high", "max"],
+    "supports_tools": true
+  },
+  "completion_marker": "CAPABILITY_PROBE_COMPLETE",
+  "elapsed_seconds": 10.481,
+  "identity": {
+    "api": "anthropic-messages",
+    "model": "glm-5.3",
+    "provider": "zai",
+    "runtime_selector": "zai/glm-5.3"
+  },
+  "run": "exp03-glm53-zai-admission",
+  "thinking": "high",
+  "usage": {
+    "cache_read": 4544,
+    "cache_write": 0,
+    "cost_usd": 0.00307304,
+    "input": 468,
+    "output": 281,
+    "total_tokens": 5293
+  },
+  "valid": true
+}
