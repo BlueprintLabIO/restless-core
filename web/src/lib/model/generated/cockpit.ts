@@ -27,11 +27,11 @@ export type CockpitRegistryObservation = { source: string, status: string, obser
 
 export type CockpitLegalProfile = { legal_name: string, trading_name: string | null, entity_type: string, jurisdiction: string, registration_identifier: CockpitRegistrationIdentifier, approved_business_address: string, invoice_email: string | null, owner_asserted_by: string, owner_asserted_at: string, registry_observation: CockpitRegistryObservation | null, };
 
-export type CockpitLegal = { status: string, profile: CockpitLegalProfile | null, detail: string | null, };
+export type CockpitLegal = { status: string, profile: CockpitLegalProfile | null, detail?: string, };
 
 export type CockpitProviderConnection = { environment: string, account_ref: string, api_version: string, read_scopes: Array<string>, submit_scopes: Array<string>, approval_workflow_observed: boolean, observed_at: string | null, updated_at: string, };
 
-export type CockpitProvider = { status: string, connection: CockpitProviderConnection | null, detail: string | null, };
+export type CockpitProvider = { status: string, connection: CockpitProviderConnection | null, detail?: string, };
 
 export type CockpitMoneyEnvelope = { source_account_ref: string, currency: string, beneficiary_refs: Array<string>, per_payment_limit_minor: number, aggregate_limit_minor: number, frozen: boolean, period_started_at: string, updated_by: string, updated_at: string, };
 
@@ -39,7 +39,7 @@ export type CockpitPaymentIntent = { work_id: string, owner_handoff_id: string, 
 
 export type CockpitBalanceObservation = { observed_at: string, body: JsonValue, };
 
-export type CockpitFinance = { status: string, envelopes: Array<CockpitMoneyEnvelope>, payments: Array<CockpitPaymentIntent>, last_balance_observation: CockpitBalanceObservation | null, detail: string | null, };
+export type CockpitFinance = { status: string, envelopes: Array<CockpitMoneyEnvelope>, payments: Array<CockpitPaymentIntent>, last_balance_observation: CockpitBalanceObservation | null, detail?: string, };
 
 export type CockpitEvidenceQuality = "governed" | "legacy_unverified";
 
@@ -48,3 +48,4 @@ export type CockpitEffectReceipt = { id: number, effect_class: JsonValue | null,
 export type CockpitAuthority = { approved_parties: Array<string>, credentials: Array<CockpitCredential>, legal: CockpitLegal, provider: CockpitProvider, finance: CockpitFinance, };
 
 export type CockpitView = { company: CockpitCompany, source_health: { [key in string]: string }, people: Array<CockpitPerson>, teams: Array<CockpitTeam>, goals: Array<CockpitGoal>, spend: CockpitSpend, authority: CockpitAuthority, receipts: Array<CockpitEffectReceipt>, refreshed_at: string, };
+
