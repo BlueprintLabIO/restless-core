@@ -2974,6 +2974,8 @@ async fn api_not_found() -> Response<Body> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use axum::body::to_bytes;
+    use tower::ServiceExt as _;
 
     #[test]
     fn cockpit_typescript_bindings_match() {
@@ -2999,6 +3001,259 @@ mod tests {
             committed, rendered,
             "cockpit TypeScript bindings drifted; regenerate with RESTLESS_WRITE_COCKPIT_BINDINGS=1 cargo test -p restlessd cockpit_typescript_bindings_match"
         );
+    }
+
+    fn cockpit_contract_fixture(degraded: bool) -> CockpitView {
+        let at = || {
+            chrono::DateTime::parse_from_rfc3339("2026-08-24T00:00:00Z")
+                .expect("fixture timestamp")
+                .with_timezone(&Utc)
+        };
+        let source_health = BTreeMap::from([
+            ("orgintel".into(), "available".into()),
+            (
+                "authority".into(),
+                if degraded {
+                    "unavailable: fixture authority outage".into()
+                } else {
+                    "available".into()
+                },
+            ),
+            ("runtime".into(), "running".into()),
+        ]);
+        let legal = if degraded {
+            CockpitLegal {
+                status: "unavailable".into(),
+                profile: None,
+                detail: Some("fixture authority outage".into()),
+            }
+        } else {
+            CockpitLegal {
+                status: "available".into(),
+                profile: Some(CockpitLegalProfile {
+                    legal_name: "Fixture Robotics Pty Ltd".into(),
+                    trading_name: Some("Fixture Robotics".into()),
+                    entity_type: "company".into(),
+                    jurisdiction: "AU".into(),
+                    registration_identifier: CockpitRegistrationIdentifier {
+                        kind: "ACN".into(),
+                        value: "123456789".into(),
+                    },
+                    approved_business_address: "1 Test Street".into(),
+                    invoice_email: Some("ops@example.test".into()),
+                    owner_asserted_by: "owner".into(),
+                    owner_asserted_at: at(),
+                    registry_observation: None,
+                }),
+                detail: None,
+            }
+        };
+        let provider = if degraded {
+            CockpitProvider {
+                status: "unavailable".into(),
+                connection: None,
+                detail: Some("fixture authority outage".into()),
+            }
+        } else {
+            CockpitProvider {
+                status: "available".into(),
+                connection: Some(CockpitProviderConnection {
+                    environment: "sandbox".into(),
+                    account_ref: "acct_fixture".into(),
+                    api_version: "2026-01-01".into(),
+                    read_scopes: vec!["balances:read".into()],
+                    submit_scopes: vec!["transfers:submit".into()],
+                    approval_workflow_observed: true,
+                    observed_at: Some(at()),
+                    updated_at: at(),
+                }),
+                detail: None,
+            }
+        };
+        let finance = if degraded {
+            CockpitFinance {
+                status: "unavailable".into(),
+                envelopes: Vec::new(),
+                payments: Vec::new(),
+                last_balance_observation: None,
+                detail: Some("fixture authority outage".into()),
+            }
+        } else {
+            CockpitFinance {
+                status: "available".into(),
+                envelopes: vec![CockpitMoneyEnvelope {
+                    source_account_ref: "acct_fixture".into(),
+                    currency: "AUD".into(),
+                    beneficiary_refs: vec!["beneficiary_fixture".into()],
+                    per_payment_limit_minor: 50_000,
+                    aggregate_limit_minor: 100_000,
+                    frozen: false,
+                    period_started_at: at(),
+                    updated_by: "owner".into(),
+                    updated_at: at(),
+                }],
+                payments: vec![CockpitPaymentIntent {
+                    work_id: Uuid::from_u128(1),
+                    owner_handoff_id: Uuid::from_u128(2),
+                    source_account_ref: "acct_fixture".into(),
+                    provider_beneficiary_ref: "beneficiary_fixture".into(),
+                    amount_minor: 12_34,
+                    currency: "AUD".into(),
+                    purpose: "fixture payment".into(),
+                    evidence_refs: vec!["work:fixture".into()],
+                    idempotency_key: "fixture-payment-1".into(),
+                    requesting_actor: "exec".into(),
+                    state: "reserved".into(),
+                    provider: "airwallex".into(),
+                    provider_transfer_id: None,
+                    raw_provider_status: None,
+                    provider_approval_url: None,
+                    settled_at: None,
+                    created_at: at(),
+                    updated_at: at(),
+                }],
+                last_balance_observation: Some(CockpitBalanceObservation {
+                    observed_at: at(),
+                    body: serde_json::json!({ "currency": "AUD", "available": "10.00" }),
+                }),
+                detail: None,
+            }
+        };
+        CockpitView {
+            company: CockpitCompany {
+                id: "fixture_test".into(),
+                name: "Fixture Test".into(),
+                mission: "Verify the owner projection.".into(),
+                model: "fixture/model".into(),
+            },
+            source_health,
+            people: vec![CockpitPerson {
+                actor_id: "exec".into(),
+                kind: "exec".into(),
+                role: "exec".into(),
+                display: "The Exec".into(),
+                model: Some("fixture/model".into()),
+                team_id: None,
+                spent_usd: 1.25,
+                session_running: true,
+                session_observed_at: Some(at()),
+                model_cooldown: None,
+            }],
+            teams: vec![CockpitTeam {
+                id: Uuid::from_u128(3),
+                name: "Research".into(),
+                brief: "Research the fixture.".into(),
+                lead_actor_id: "exec".into(),
+                created_by: "owner".into(),
+                created_at: at(),
+                member_count: 1,
+                in_motion_count: 1,
+                blocked_count: 0,
+            }],
+            goals: vec![CockpitGoal {
+                id: Uuid::from_u128(4),
+                title: "Fixture goal".into(),
+                body: "Make the contract observable.".into(),
+                created_by: "owner".into(),
+                created_at: at(),
+                closed_at: None,
+            }],
+            spend: CockpitSpend {
+                accounted_usd: 1.25,
+                ceiling_usd: 25.0,
+                remaining_usd: Some(23.75),
+                poisoned: false,
+            },
+            authority: CockpitAuthority {
+                approved_parties: vec!["fixture-provider".into()],
+                credentials: vec![CockpitCredential {
+                    binding: "fixture.api".into(),
+                    status: "present".into(),
+                    detail: None,
+                }],
+                legal,
+                provider,
+                finance,
+            },
+            receipts: vec![CockpitEffectReceipt {
+                id: 7,
+                effect_class: Some(serde_json::json!("provider_read")),
+                tool: Some(serde_json::json!("fixture")),
+                success: Some(serde_json::json!(true)),
+                party: Some(serde_json::json!("fixture-provider")),
+                actor: Some(serde_json::json!("exec")),
+                outcome: Some(serde_json::json!({ "status": "observed" })),
+                evidence_quality: CockpitEvidenceQuality::Governed,
+                at: at(),
+            }],
+            refreshed_at: at(),
+        }
+    }
+
+    #[tokio::test]
+    async fn cockpit_router_keeps_populated_and_degraded_response_shapes() {
+        let app = Router::new()
+            .route(
+                "/populated",
+                get(|| async { Json(cockpit_contract_fixture(false)) }),
+            )
+            .route(
+                "/degraded",
+                get(|| async { Json(cockpit_contract_fixture(true)) }),
+            );
+
+        for (path, degraded) in [("/populated", false), ("/degraded", true)] {
+            let response = app
+                .clone()
+                .oneshot(
+                    axum::http::Request::builder()
+                        .uri(path)
+                        .body(Body::empty())
+                        .expect("fixture request"),
+                )
+                .await
+                .expect("fixture router response");
+            assert_eq!(response.status(), StatusCode::OK);
+            assert_eq!(
+                response
+                    .headers()
+                    .get(CONTENT_TYPE)
+                    .and_then(|value| value.to_str().ok()),
+                Some("application/json")
+            );
+            let body = to_bytes(response.into_body(), usize::MAX)
+                .await
+                .expect("read fixture response body");
+            let json: serde_json::Value =
+                serde_json::from_slice(&body).expect("fixture response is JSON");
+            assert_eq!(json["company"]["id"], "fixture_test");
+            assert_eq!(json["people"][0]["actor_id"], "exec");
+            assert_eq!(json["receipts"][0]["evidence_quality"], "governed");
+            assert_eq!(
+                json["authority"]["finance"]["status"],
+                if degraded { "unavailable" } else { "available" }
+            );
+            if degraded {
+                assert_eq!(
+                    json["authority"]["legal"]["profile"],
+                    serde_json::Value::Null
+                );
+                assert_eq!(
+                    json["authority"]["provider"]["detail"],
+                    "fixture authority outage"
+                );
+            } else {
+                assert_eq!(
+                    json["authority"]["legal"]["profile"]["legal_name"],
+                    "Fixture Robotics Pty Ltd"
+                );
+                assert!(json["authority"]["provider"].get("detail").is_none());
+                assert_eq!(
+                    json["authority"]["finance"]["payments"][0]["state"],
+                    "reserved"
+                );
+            }
+        }
     }
 
     #[test]
