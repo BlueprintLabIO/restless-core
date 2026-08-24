@@ -1,6 +1,6 @@
 # Sprint 15 — Trusted runtime boundary
 
-**Status:** Active — implementation slices checkpointed; final shared-worktree verification pending.
+**Status:** Complete — implementation, boundary evidence and final checkpoint recorded.
 
 **Date:** 24 August 2026
 
@@ -136,7 +136,7 @@ Ticket status lives only in this checklist.
 | [x] | [**S15-T4 · Finish command-domain transport decomposition**](sprint-15/t04-domain-transport.md) | Daemon transport | Flat all-domain payload and god dispatcher remain | Cross-domain optional-field bag and duplicate command construction |
 | [x] | [**S15-T5 · Check the owner cockpit projection contract**](sprint-15/t05-owner-projection-contract.md) | Owner cockpit | Dynamic Rust JSON and handwritten Svelte model can drift | Unchecked high-value BFF shape |
 | [x] | [**S15-T6 · Require live-Postgres evidence at checkpoint exit**](sprint-15/t06-live-db-gate.md) | Evaluation + OrgIntel | Green workspace test can mean skipped DB scenarios | Implicit use of `cargo test` as live-DB proof |
-| [ ] | [**S15-T7 · Run the boundary scenario, purge and report**](sprint-15/t07-boundary-run-and-purge.md) | All | Security code can compile without proving the company boundary | Superseded comments, duplicate meters and stale docs |
+| [x] | [**S15-T7 · Run the boundary scenario, purge and report**](sprint-15/t07-boundary-run-and-purge.md) | All | Security code can compile without proving the company boundary | Superseded comments, duplicate meters and stale docs |
 
 ## Exit evidence
 

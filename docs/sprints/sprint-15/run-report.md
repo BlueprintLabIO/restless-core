@@ -1,7 +1,7 @@
 # Sprint 15 — Boundary run report
 
 **Recorded:** 24 August 2026
-**State:** implementation evidence recorded; final shared-worktree checkpoint remains pending.
+**State:** complete — implementation, boundary evidence and final shared-worktree checkpoint recorded.
 
 ## Checkpoints
 
@@ -84,15 +84,15 @@ Runtime, and rerun `restless-dev doctor sprint08_ui_test`.
 
 ## Automated verification
 
-The required database-backed checkpoint command was previously run successfully after `0ca0660`:
+The required database-backed checkpoint command was run successfully after the final Runtime repair:
 
 ```text
 RESTLESS_TEST_DATABASE_URL=postgresql:///restless scripts/verify-sprint-checkpoint
 ```
 
-It observed the guarded local Postgres target, completed 17 OrgIntel live-DB tests, strict workspace
-Clippy, workspace Rust tests (including 130 `restlessd` tests at that checkpoint), and Svelte checks
-with zero diagnostics.
+It observed 130 GiB host headroom, accepted the guarded local Postgres target, completed 19 OrgIntel
+live-DB tests, strict workspace Clippy, workspace Rust tests (3 `restless`, 12 model-gateway, 19
+OrgIntel and 133 `restlessd`), and Svelte checks with zero diagnostics.
 
 After `7fa8e1f`, focused checks passed:
 
@@ -105,11 +105,9 @@ cargo test -p restless runtime_health_fails_closed_when_required_runtime_evidenc
 cd web && npm run check && npm run lint
 ```
 
-The shared daemon suite was subsequently run with the current shared worktree and passed 132 tests.
-This is not substituted for the final checkpoint command: a concurrent, uncommitted OrgIntel
-owner-review change currently makes `cargo fmt --all -- --check` fail on its own unformatted source.
-That work is outside this sprint’s checkpoint and must be formatted/checkpointed before the final
-release command is rerun.
+The checkpoint ran against the current shared worktree, including a concurrent owner-review slice
+that had already passed formatting, bindings and tests. That slice remains outside Sprint 15’s narrow
+commits; its presence does not replace any of the recorded Sprint 15 boundary evidence.
 
 ## Scope decisions and deletion
 
