@@ -1,0 +1,83 @@
+{
+  "schema": "restless.dogfood2.alpha-candidate/v1",
+  "kind": "test_world_only",
+  "title": "Emerging robotics and AI 60-trading-day relative-strength candidate",
+  "frozen_at": "2026-08-24T00:00:00Z",
+  "data_cutoff": "2025-12-31",
+  "universe": [
+    {
+      "ticker": "AI",
+      "asset_class": "stock",
+      "reason_for_inclusion": "Predeclared emerging AI software candidate; this is a testing universe, not the live Dogfood 2 recommendation universe."
+    },
+    {
+      "ticker": "AUR",
+      "asset_class": "stock",
+      "reason_for_inclusion": "Predeclared autonomous-vehicle candidate; this is a testing universe, not the live Dogfood 2 recommendation universe."
+    },
+    {
+      "ticker": "PATH",
+      "asset_class": "stock",
+      "reason_for_inclusion": "Predeclared automation software candidate; this is a testing universe, not the live Dogfood 2 recommendation universe."
+    },
+    {
+      "ticker": "RKLB",
+      "asset_class": "stock",
+      "reason_for_inclusion": "Predeclared space-robotics candidate; this is a testing universe, not the live Dogfood 2 recommendation universe."
+    },
+    {
+      "ticker": "SOUN",
+      "asset_class": "stock",
+      "reason_for_inclusion": "Predeclared voice-AI candidate; this is a testing universe, not the live Dogfood 2 recommendation universe."
+    },
+    {
+      "ticker": "SYM",
+      "asset_class": "stock",
+      "reason_for_inclusion": "Predeclared warehouse-automation candidate; this is a testing universe, not the live Dogfood 2 recommendation universe."
+    }
+  ],
+  "benchmark": {
+    "ticker": "SPY",
+    "asset_class": "etf",
+    "role": "Broad U.S. large-cap equity comparison only; this is not a factor-neutral benchmark."
+  },
+  "point_in_time_eligibility": {
+    "rule": "A security becomes eligible only after 60 prior daily observations in the frozen source file, and only if its 60-observation median daily close-times-volume is at least USD 2,000,000 on the signal date.",
+    "availability_timestamp": "The frozen file's historical trade dates are the only eligibility timestamps used by the evaluator.",
+    "known_gap": "The pack does not prove original public-listing dates, historical market capitalisation, delisting coverage, or index membership. Those gaps force an inconclusive alpha verdict even if the arithmetic is positive."
+  },
+  "hypothesis": "Among a fixed emerging robotics/AI testing universe, recent relative strength may capture information diffusion and improving execution before it is fully reflected in price. This is a candidate to falsify, not an assertion of alpha.",
+  "signal": {
+    "name": "60-trading-day close momentum",
+    "lookback_trading_days": 60,
+    "selection_count": 2,
+    "portfolio_construction": "At each month-end signal date, select the two eligible securities with the highest 60-trading-day close return and weight them equally."
+  },
+  "execution": {
+    "signal_timing": "Use the signal-date close. Enter at each selected security's next available daily close and exit at its last available daily close on or before the following month-end signal date.",
+    "rebalance": "calendar-month end using the benchmark's available historical trading calendar",
+    "holding": "until the next month-end rebalance",
+    "liquidity_floor_usd": 2000000,
+    "transaction_cost_bps_per_side": 20,
+    "corporate_actions": "Use source-supplied close and volume as captured. Adjustment methodology is not independently verified and is a verdict limitation."
+  },
+  "partitions": {
+    "in_sample": {
+      "start": "2022-08-01",
+      "end": "2023-12-31"
+    },
+    "validation": {
+      "start": "2024-01-01",
+      "end": "2024-12-31"
+    },
+    "out_of_sample": {
+      "start": "2025-01-01",
+      "end": "2025-12-31"
+    }
+  },
+  "rejection_conditions": [
+    "Reject if the frozen out-of-sample cost-adjusted return does not exceed the benchmark return after the declared costs and there are at least six valid periods.",
+    "Report inconclusive if there are fewer than six out-of-sample periods, any selected return cannot be reproduced from the frozen files, or the pack lacks point-in-time listing, delisting/survivorship, or adjustment evidence needed to interpret the result as an investable alpha test.",
+    "Never use supported, rejected, or inconclusive as a claim that alpha is proved."
+  ]
+}
