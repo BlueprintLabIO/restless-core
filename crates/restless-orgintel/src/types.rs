@@ -116,6 +116,12 @@ pub enum OwnerReviewDecision {
     ChangesRequested,
 }
 
+/// A ReviewTarget is an ordinary artifact reference chosen by the accountable
+/// producer. These fixed labels only qualify the one automatic outcome-review
+/// path; they are not a new artifact lifecycle or renderer catalogue.
+pub const REVIEW_TARGET_ARTIFACT_KIND: &str = "review_target";
+pub const REVIEW_TARGET_LIVE_PROBE_GATE: &str = "review-target-live-probe";
+
 /// The exact runtime workspace inherited by every Attempt of a Work node.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, ts_rs::TS)]
 pub struct WorkspaceSpec {
@@ -224,6 +230,10 @@ pub struct WorkRow {
     pub resolution: String,
     pub priority: i16,
     pub expected_artifact: String,
+    /// Explicitly opt a Work into the qualified owner-outcome handoff. This is
+    /// recoverable coordination state, not an implicit consequence of a
+    /// generic artifact or completion state.
+    pub owner_review_required: bool,
     pub repo: Option<String>,
     pub base_ref: Option<String>,
     pub integration_branch: Option<String>,

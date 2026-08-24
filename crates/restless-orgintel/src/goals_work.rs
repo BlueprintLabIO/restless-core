@@ -145,9 +145,41 @@ impl OrgIntel {
         revises: &[Uuid],
         gates: &[InitialWorkGate<'_>],
     ) -> Result<Uuid> {
+        self.add_work_inner(work, requires, revises, gates, false)
+            .await
+    }
+
+    /// Create Work whose produced outcome must be reviewed by the owner. The
+    /// declared ReviewTarget and its live-probe gate are part of the same
+    /// creation transaction, so a scheduler cannot observe a half-qualified
+    /// review contract.
+    pub async fn add_review_required_work_with_edges_and_gates(
+        &self,
+        work: NewWork<'_>,
+        requires: &[Uuid],
+        revises: &[Uuid],
+        gates: &[InitialWorkGate<'_>],
+    ) -> Result<Uuid> {
+        self.add_work_inner(work, requires, revises, gates, true)
+            .await
+    }
+
+    async fn add_work_inner(
+        &self,
+        work: NewWork<'_>,
+        requires: &[Uuid],
+        revises: &[Uuid],
+        gates: &[InitialWorkGate<'_>],
+        owner_review_required: bool,
+    ) -> Result<Uuid> {
         if work.title.trim().is_empty() || work.outcome.trim().is_empty() {
             return Err(OrgIntelError::InvalidWork(
                 "Work needs a title and outcome contract".into(),
+            ));
+        }
+        if owner_review_required && work.expected_artifact.trim().is_empty() {
+            return Err(OrgIntelError::InvalidWork(
+                "review-required Work needs a declared ReviewTarget artifact".into(),
             ));
         }
         let mut tx = self.pool.begin().await?;
@@ -232,6 +264,11 @@ impl OrgIntel {
                 )));
             }
         }
+        if owner_review_required && !gate_names.contains(REVIEW_TARGET_LIVE_PROBE_GATE) {
+            return Err(OrgIntelError::InvalidWork(format!(
+                "review-required Work needs a {REVIEW_TARGET_LIVE_PROBE_GATE:?} gate"
+            )));
+        }
         let id = Uuid::new_v4();
         let mut initial_edges = std::collections::HashSet::new();
         for (kind, targets) in [
@@ -270,8 +307,8 @@ impl OrgIntel {
         sqlx::query(
             "INSERT INTO work \
              (id, goal_id, owner_id, title, outcome, priority, expected_artifact, \
-              repo, base_ref, integration_branch, worktree, attempt_limit) \
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)",
+              owner_review_required, repo, base_ref, integration_branch, worktree, attempt_limit) \
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)",
         )
         .bind(id)
         .bind(work.goal_id)
@@ -280,6 +317,7 @@ impl OrgIntel {
         .bind(work.outcome)
         .bind(work.priority)
         .bind(work.expected_artifact)
+        .bind(owner_review_required)
         .bind(work.workspace.repo)
         .bind(work.workspace.base_ref)
         .bind(work.workspace.integration_branch)
@@ -330,7 +368,7 @@ impl OrgIntel {
     pub async fn list_work(&self) -> Result<Vec<WorkRow>> {
         Ok(sqlx::query_as(
             "SELECT id, goal_id, owner_id, title, outcome, status, resolution, priority, \
-             expected_artifact, repo, base_ref, integration_branch, worktree, revision, \
+             expected_artifact, owner_review_required, repo, base_ref, integration_branch, worktree, revision, \
              attempt_limit, created_at, updated_at FROM work \
              ORDER BY priority DESC, created_at",
         )
@@ -341,7 +379,7 @@ impl OrgIntel {
     pub async fn get_work(&self, id: Uuid) -> Result<Option<WorkRow>> {
         Ok(sqlx::query_as(
             "SELECT id, goal_id, owner_id, title, outcome, status, resolution, priority, \
-             expected_artifact, repo, base_ref, integration_branch, worktree, revision, \
+             expected_artifact, owner_review_required, repo, base_ref, integration_branch, worktree, revision, \
              attempt_limit, created_at, updated_at FROM work WHERE id = $1",
         )
         .bind(id)

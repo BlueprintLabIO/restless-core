@@ -521,6 +521,7 @@ mod tests {
                 resolution: String::new(),
                 priority: 0,
                 expected_artifact: "/company/outputs/playable-room.html".into(),
+                owner_review_required: false,
                 repo: Some("cosmon".into()),
                 // A lead did not fill every optional coordinate. The Runtime
                 // still has an authoritative repository and generated worktree

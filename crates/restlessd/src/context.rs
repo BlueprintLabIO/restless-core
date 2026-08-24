@@ -406,6 +406,7 @@ mod tests {
                 resolution: String::new(),
                 priority: 0,
                 expected_artifact: String::new(),
+                owner_review_required: false,
                 repo: None,
                 base_ref: None,
                 integration_branch: None,

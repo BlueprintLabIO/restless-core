@@ -110,6 +110,10 @@ pub(crate) struct OrgIntelInput {
     pub(crate) worktree: Option<String>,
     #[serde(default)]
     pub(crate) attempt_limit: Option<i32>,
+    /// Opt this Work into the qualified owner-outcome path. Completion then
+    /// requires one ReviewTarget artifact and its named live-probe gate.
+    #[serde(default)]
+    pub(crate) owner_review: bool,
     #[serde(default)]
     pub(crate) goal: Option<String>,
     #[serde(default)]
@@ -300,6 +304,7 @@ fn command_fields(command: &str) -> Option<&'static [&'static str]> {
             "integration_branch",
             "worktree",
             "attempt_limit",
+            "owner_review",
             "requires",
             "revises",
             "gates",
@@ -515,6 +520,40 @@ mod tests {
             )
             .is_err(),
             "a message may not carry a Work/model field"
+        );
+    }
+
+    #[test]
+    fn work_add_keeps_owner_review_an_explicit_narrow_contract() {
+        let request = Request::decode(
+            r#"{
+                "cmd":"work-add",
+                "company":"review_test",
+                "actor":"research-analyst",
+                "role":"research",
+                "title":"Review the prepared dossier",
+                "body":"a current evidence-linked outcome",
+                "expected_artifact":"native ReviewTarget",
+                "owner_review":true,
+                "gates":[{"name":"review-target-live-probe","command":["test","-s","report.html"]}]
+            }"#,
+        )
+        .expect("decode explicit owner-review Work contract");
+        assert!(request.orgintel.owner_review);
+        assert!(
+            Request::decode(
+                r#"{
+                    "cmd":"work-artifact",
+                    "company":"review_test",
+                    "id":"00000000-0000-0000-0000-000000000001",
+                    "attempt":"00000000-0000-0000-0000-000000000002",
+                    "kind":"review_target",
+                    "uri":"/company/reports/current.html",
+                    "owner_review":true
+                }"#
+            )
+            .is_err(),
+            "the flag belongs only to Work creation, not arbitrary artifact writes"
         );
     }
 

@@ -464,6 +464,11 @@ enum WorkCommand {
         worktree: Option<String>,
         #[arg(long)]
         attempt_limit: Option<i32>,
+        /// Require one prepared native ReviewTarget and a recorded
+        /// `review-target-live-probe` gate before this Work reaches owner
+        /// outcome review. It never accepts the outcome automatically.
+        #[arg(long)]
+        owner_review: bool,
         /// Existing Goal this Work serves.
         #[arg(long)]
         goal: Option<String>,
@@ -1419,6 +1424,7 @@ fn request_json(command: Command) -> Result<serde_json::Value> {
                 integration_branch,
                 worktree,
                 attempt_limit,
+                owner_review,
                 goal,
                 requires,
                 revises,
@@ -1436,7 +1442,7 @@ fn request_json(command: Command) -> Result<serde_json::Value> {
                     "model": model, "title": title, "body": outcome, "priority": priority,
                     "expected_artifact": expected_artifact, "repo": repo, "base_ref": base_ref,
                     "integration_branch": integration_branch, "worktree": worktree,
-                    "attempt_limit": attempt_limit, "goal": goal,
+                    "attempt_limit": attempt_limit, "owner_review": owner_review, "goal": goal,
                     "requires": requires, "revises": revises, "gates": gates,
                     "as_actor": acting_actor(),
                 })

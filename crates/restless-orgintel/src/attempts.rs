@@ -4,6 +4,12 @@
 
 use super::*;
 
+struct QualifiedOutcomeReview {
+    target_uri: String,
+    title: String,
+    outcome: String,
+}
+
 impl OrgIntel {
     /// Atomically lease the highest-priority ready Work node. Readiness is a
     /// database fact: all hard requirements completed, no pending owner
@@ -24,7 +30,8 @@ impl OrgIntel {
         let mut tx = self.pool.begin().await?;
         let work = sqlx::query_as::<_, WorkRow>(
             "SELECT w.id, w.goal_id, w.owner_id, w.title, w.outcome, w.status, \
-                    w.resolution, w.priority, w.expected_artifact, w.repo, w.base_ref, \
+                    w.resolution, w.priority, w.expected_artifact, w.owner_review_required, \
+                    w.repo, w.base_ref, \
                     w.integration_branch, w.worktree, w.revision, w.attempt_limit, \
                     w.created_at, w.updated_at \
              FROM work w \
@@ -431,6 +438,7 @@ impl OrgIntel {
             WorkAttemptState::Superseded
         };
         let mut effective_summary = summary.to_string();
+        let mut qualified_outcome_review = None;
         if effective != WorkAttemptState::Superseded {
             // Work-linked mail sent directly to this Attempt's owner after
             // its frozen input cursor is a changed assignment fact. The live
@@ -485,11 +493,15 @@ impl OrgIntel {
             }
         }
         if effective == WorkAttemptState::Produced {
-            let expected_artifact: String =
-                sqlx::query_scalar("SELECT expected_artifact FROM work WHERE id=$1")
-                    .bind(work_id)
-                    .fetch_one(&mut *tx)
-                    .await?;
+            let work = sqlx::query(
+                "SELECT expected_artifact, owner_review_required, title, outcome \
+                 FROM work WHERE id=$1",
+            )
+            .bind(work_id)
+            .fetch_one(&mut *tx)
+            .await?;
+            let expected_artifact: String = work.get("expected_artifact");
+            let owner_review_required: bool = work.get("owner_review_required");
             let artifact_present: bool = sqlx::query_scalar(
                 "SELECT EXISTS(SELECT 1 FROM artifact_refs \
                  WHERE work_id=$1 AND attempt_id=$2 AND state='available')",
@@ -509,7 +521,57 @@ impl OrgIntel {
             .bind(attempt_id)
             .fetch_one(&mut *tx)
             .await?;
-            if !expected_artifact.trim().is_empty() && !artifact_present {
+            if owner_review_required {
+                let review_targets = sqlx::query_scalar::<_, String>(
+                    "SELECT uri FROM artifact_refs \
+                     WHERE work_id=$1 AND attempt_id=$2 AND kind=$3 AND state='available' \
+                     ORDER BY created_at, id LIMIT 2",
+                )
+                .bind(work_id)
+                .bind(attempt_id)
+                .bind(REVIEW_TARGET_ARTIFACT_KIND)
+                .fetch_all(&mut *tx)
+                .await?;
+                let probe_passed: bool = sqlx::query_scalar(
+                    "SELECT EXISTS(\
+                       SELECT 1 FROM work_gates g JOIN work_gate_runs r ON r.gate_id=g.id \
+                       WHERE g.work_id=$1 AND g.name=$2 AND r.attempt_id=$3 AND r.passed\
+                     )",
+                )
+                .bind(work_id)
+                .bind(REVIEW_TARGET_LIVE_PROBE_GATE)
+                .bind(attempt_id)
+                .fetch_one(&mut *tx)
+                .await?;
+                match review_targets.as_slice() {
+                    [] => {
+                        effective = WorkAttemptState::Failed;
+                        effective_summary = "declared owner review without linking one available ReviewTarget artifact".into();
+                    }
+                    [_] if !gates_passed => {
+                        effective = WorkAttemptState::Failed;
+                        effective_summary =
+                            "one or more deterministic Work gates did not pass".into();
+                    }
+                    [target] if !probe_passed => {
+                        effective = WorkAttemptState::Failed;
+                        effective_summary = format!(
+                            "declared owner review but {REVIEW_TARGET_LIVE_PROBE_GATE:?} did not pass for ReviewTarget {target:?}"
+                        );
+                    }
+                    [target] => {
+                        qualified_outcome_review = Some(QualifiedOutcomeReview {
+                            target_uri: target.clone(),
+                            title: work.get("title"),
+                            outcome: work.get("outcome"),
+                        });
+                    }
+                    _ => {
+                        effective = WorkAttemptState::Failed;
+                        effective_summary = "declared owner review with multiple available ReviewTarget artifacts; select one prepared native outcome".into();
+                    }
+                }
+            } else if !expected_artifact.trim().is_empty() && !artifact_present {
                 effective = WorkAttemptState::Failed;
                 effective_summary = format!(
                     "declared complete without linking expected artifact: {expected_artifact}"
@@ -530,11 +592,30 @@ impl OrgIntel {
 
         match effective {
             WorkAttemptState::Produced => {
-                sqlx::query("UPDATE work SET status = 'completed', resolution = $2 WHERE id = $1")
+                if let Some(review) = qualified_outcome_review {
+                    let handoff_id = create_qualified_outcome_review(
+                        &mut tx,
+                        work_id,
+                        attempt_id,
+                        &attempt_actor,
+                        work_revision,
+                        review,
+                    )
+                    .await?;
+                    sqlx::query("UPDATE work SET status='blocked', resolution=$2 WHERE id=$1")
+                        .bind(work_id)
+                        .bind(format!("awaiting owner outcome review {handoff_id}"))
+                        .execute(&mut *tx)
+                        .await?;
+                } else {
+                    sqlx::query(
+                        "UPDATE work SET status = 'completed', resolution = $2 WHERE id = $1",
+                    )
                     .bind(work_id)
                     .bind(&effective_summary)
                     .execute(&mut *tx)
                     .await?;
+                }
             }
             WorkAttemptState::ChangesRequested => {
                 // The reviewer completed its assignment, then each revises
@@ -701,4 +782,87 @@ impl OrgIntel {
         tx.commit().await?;
         Ok(())
     }
+}
+
+/// Materialise the owner-facing side of a qualified produced outcome in the
+/// same transaction as Attempt completion. The accountable producer chose and
+/// live-probed the target; this deterministic transition only brings that
+/// exact candidate to the owner and never accepts it or interprets it.
+async fn create_qualified_outcome_review(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    work_id: Uuid,
+    attempt_id: Uuid,
+    requested_by: &str,
+    work_revision: i64,
+    review: QualifiedOutcomeReview,
+) -> Result<Uuid> {
+    let id = Uuid::new_v4();
+    let requested_action = format!(
+        "Open the prepared outcome at {}. Accept it if it meets the declared outcome, or request concrete changes.",
+        review.target_uri
+    );
+    let prepared_state = format!(
+        "ReviewTarget: {}\nDeclared outcome: {}\n{} passed for this Attempt.",
+        review.target_uri, review.outcome, REVIEW_TARGET_LIVE_PROBE_GATE
+    );
+    let resume_condition =
+        "The owner accepts the prepared outcome or records concrete requested changes.";
+    let brief = OwnerBrief {
+        kind: OwnerBriefKind::OutcomeReview,
+        headline: format!("Review: {}", review.title),
+        situation: format!(
+            "The accountable producer completed the declared outcome and prepared this live-probed ReviewTarget: {}.",
+            review.target_uri
+        ),
+        impact: review.outcome,
+        recommendation: "Open the prepared outcome, compare it with the declared outcome, then accept it or request concrete changes.".into(),
+        no_action: "The Work remains blocked with its prepared outcome intact until this review is decided.".into(),
+        uncertainty: None,
+        deadline: None,
+    };
+    validate_owner_brief(&brief)?;
+    let brief = serde_json::to_value(&brief).map_err(|error| {
+        OrgIntelError::InvalidWork(format!("invalid generated outcome review brief: {error}"))
+    })?;
+    let fingerprint = owner_handoff_source_fingerprint(
+        work_id,
+        Some(attempt_id),
+        OwnerHandoffCategory::OwnerJudgement,
+        &requested_action,
+        &prepared_state,
+        resume_condition,
+        work_revision,
+    );
+    sqlx::query(
+        "INSERT INTO owner_handoffs \
+         (id, work_id, attempt_id, requested_by, category, requested_action, prepared_state, \
+          resume_condition, assigned_to, escalated_from, escalated_at, owner_brief, briefed_by, \
+          briefed_at, brief_source_fingerprint) \
+         VALUES ($1,$2,$3,$4,'owner_judgement',$5,$6,$7,NULL,$4,now(),$8,$4,now(),$9)",
+    )
+    .bind(id)
+    .bind(work_id)
+    .bind(attempt_id)
+    .bind(requested_by)
+    .bind(&requested_action)
+    .bind(&prepared_state)
+    .bind(resume_condition)
+    .bind(&brief)
+    .bind(&fingerprint)
+    .execute(&mut **tx)
+    .await?;
+    sqlx::query(
+        "INSERT INTO events (kind, actor_id, body) VALUES ('outcome_review_prepared',$1,$2)",
+    )
+    .bind(requested_by)
+    .bind(serde_json::json!({
+        "handoff_id": id,
+        "work_id": work_id,
+        "attempt_id": attempt_id,
+        "review_target": review.target_uri,
+        "work_revision": work_revision,
+    }))
+    .execute(&mut **tx)
+    .await?;
+    Ok(id)
 }

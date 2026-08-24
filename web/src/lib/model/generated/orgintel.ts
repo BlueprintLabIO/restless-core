@@ -69,7 +69,13 @@ retirement_reason: string, created_at: string, };
 
 export type GoalRow = { id: string, title: string, body: string, created_by: string, created_at: string, closed_at: string | null, };
 
-export type WorkRow = { id: string, goal_id: string | null, owner_id: string, title: string, outcome: string, status: WorkStatus, resolution: string, priority: number, expected_artifact: string, repo: string | null, base_ref: string | null, integration_branch: string | null, worktree: string | null, revision: number, attempt_limit: number | null, created_at: string, updated_at: string, };
+export type WorkRow = { id: string, goal_id: string | null, owner_id: string, title: string, outcome: string, status: WorkStatus, resolution: string, priority: number, expected_artifact: string,
+/**
+ * Explicitly opt a Work into the qualified owner-outcome handoff. This is
+ * recoverable coordination state, not an implicit consequence of a
+ * generic artifact or completion state.
+ */
+owner_review_required: boolean, repo: string | null, base_ref: string | null, integration_branch: string | null, worktree: string | null, revision: number, attempt_limit: number | null, created_at: string, updated_at: string, };
 
 export type WorkEdgeRow = { from_work_id: string, to_work_id: string, kind: WorkEdgeKind, created_at: string, };
 

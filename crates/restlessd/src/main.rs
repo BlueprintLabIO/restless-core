@@ -2031,10 +2031,16 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
                                 command: &gate.command,
                             })
                             .collect::<Vec<_>>();
-                        match org
-                            .add_work_with_edges_and_gates(work, &requires, &revises, &gates)
+                        let added = if request.orgintel.owner_review {
+                            org.add_review_required_work_with_edges_and_gates(
+                                work, &requires, &revises, &gates,
+                            )
                             .await
-                        {
+                        } else {
+                            org.add_work_with_edges_and_gates(work, &requires, &revises, &gates)
+                                .await
+                        };
+                        match added {
                             Ok(id) => Response::ok(serde_json::json!({ "work_id": id })),
                             Err(error) => Response::err(format!("{error:#}")),
                         }

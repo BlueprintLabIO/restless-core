@@ -133,7 +133,7 @@ impl OrgIntel {
             .await?;
         let work = sqlx::query_as(
             "SELECT id, goal_id, owner_id, title, outcome, status, resolution, priority, \
-             expected_artifact, repo, base_ref, integration_branch, worktree, revision, \
+             expected_artifact, owner_review_required, repo, base_ref, integration_branch, worktree, revision, \
              attempt_limit, created_at, updated_at FROM work ORDER BY priority DESC, created_at",
         )
         .fetch_all(&mut *tx)
