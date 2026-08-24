@@ -1,6 +1,6 @@
 # Sprint 15 — Trusted runtime boundary
 
-**Status:** Active — security and evidence repair following the 24 August 2026 codebase audit.
+**Status:** Active — implementation slices checkpointed; final shared-worktree verification pending.
 
 **Date:** 24 August 2026
 
@@ -129,13 +129,13 @@ Ticket status lives only in this checklist.
 
 | Status | Ticket | Slice | Observed friction served | Prior machinery made deletable |
 | --- | --- | --- | --- | --- |
-| [ ] | [**S15-T0 · Freeze trust-boundary contract and checkpoint baseline**](sprint-15/t00-contract-and-checkpoints.md) | Cross-layer + evaluation | An accepted identity risk expired before real effects existed | Caller-claim trust comments and ambiguous checkpoint practice |
-| [ ] | [**S15-T1 · Authenticate the Runtime coordination channel**](sprint-15/t01-runtime-coordination-capability.md) | Authority + Runtime Bridge | TCP caller can claim `owner` | TCP trust-by-JSON-principal |
-| [ ] | [**S15-T2 · Scope and meter host model access**](sprint-15/t02-scoped-model-gateway.md) | Authority + Runtime | One gateway bearer and invisible direct spend | Runtime exposure of the OMP root bearer and ACP-only charged accounting |
-| [ ] | [**S15-T3 · Make model ceilings exact and finite**](sprint-15/t03-exact-model-ceiling.md) | Authority | `inf` disables the hard ceiling | Float saturation in the decision path |
-| [ ] | [**S15-T4 · Finish command-domain transport decomposition**](sprint-15/t04-domain-transport.md) | Daemon transport | Flat all-domain payload and god dispatcher remain | Cross-domain optional-field bag and duplicate command construction |
-| [ ] | [**S15-T5 · Check the owner cockpit projection contract**](sprint-15/t05-owner-projection-contract.md) | Owner cockpit | Dynamic Rust JSON and handwritten Svelte model can drift | Unchecked high-value BFF shape |
-| [ ] | [**S15-T6 · Require live-Postgres evidence at checkpoint exit**](sprint-15/t06-live-db-gate.md) | Evaluation + OrgIntel | Green workspace test can mean skipped DB scenarios | Implicit use of `cargo test` as live-DB proof |
+| [x] | [**S15-T0 · Freeze trust-boundary contract and checkpoint baseline**](sprint-15/t00-contract-and-checkpoints.md) | Cross-layer + evaluation | An accepted identity risk expired before real effects existed | Caller-claim trust comments and ambiguous checkpoint practice |
+| [x] | [**S15-T1 · Authenticate the Runtime coordination channel**](sprint-15/t01-runtime-coordination-capability.md) | Authority + Runtime Bridge | TCP caller can claim `owner` | TCP trust-by-JSON-principal |
+| [x] | [**S15-T2 · Scope and meter host model access**](sprint-15/t02-scoped-model-gateway.md) | Authority + Runtime | One gateway bearer and invisible direct spend | Runtime exposure of the OMP root bearer and ACP-only charged accounting |
+| [x] | [**S15-T3 · Make model ceilings exact and finite**](sprint-15/t03-exact-model-ceiling.md) | Authority | `inf` disables the hard ceiling | Float saturation in the decision path |
+| [x] | [**S15-T4 · Finish command-domain transport decomposition**](sprint-15/t04-domain-transport.md) | Daemon transport | Flat all-domain payload and god dispatcher remain | Cross-domain optional-field bag and duplicate command construction |
+| [x] | [**S15-T5 · Check the owner cockpit projection contract**](sprint-15/t05-owner-projection-contract.md) | Owner cockpit | Dynamic Rust JSON and handwritten Svelte model can drift | Unchecked high-value BFF shape |
+| [x] | [**S15-T6 · Require live-Postgres evidence at checkpoint exit**](sprint-15/t06-live-db-gate.md) | Evaluation + OrgIntel | Green workspace test can mean skipped DB scenarios | Implicit use of `cargo test` as live-DB proof |
 | [ ] | [**S15-T7 · Run the boundary scenario, purge and report**](sprint-15/t07-boundary-run-and-purge.md) | All | Security code can compile without proving the company boundary | Superseded comments, duplicate meters and stale docs |
 
 ## Exit evidence
