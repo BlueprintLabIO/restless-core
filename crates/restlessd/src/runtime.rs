@@ -7,6 +7,7 @@ use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::process::Stdio;
 use std::task::{Context as TaskContext, Poll};
+use std::time::Duration;
 
 use anyhow::{bail, Context, Result};
 use chrono::{DateTime, Utc};
@@ -444,9 +445,23 @@ pub struct RuntimeDoctor {
     pub reconciliation: ReconciliationStatus,
     pub action: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub coordination: Option<CoordinationDoctor>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub supervisor: Option<SupervisorDoctor>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub browser: Option<BrowserDoctor>,
+}
+
+/// Observation of the Runtime's bounded, authenticated coordination path.
+///
+/// This deliberately performs an ordinary read through the Runtime Bridge
+/// rather than inferring availability from a running container or its process
+/// supervisor. It is a health observation, not another Runtime lifecycle.
+#[derive(Debug, Serialize)]
+pub struct CoordinationDoctor {
+    pub status: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub detail: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -661,14 +676,19 @@ pub async fn doctor(company: &str) -> Result<RuntimeDoctor> {
         ReconciliationStatus::Unknown
     };
 
-    let (supervisor, browser) = if container == ContainerStatus::Running {
+    let (coordination, supervisor, browser) = if container == ContainerStatus::Running {
         (
+            Some(coordination_doctor(company).await),
             Some(supervisor_doctor(company).await),
             Some(browser_doctor(company).await),
         )
     } else {
-        (None, None)
+        (None, None, None)
     };
+    let coordination_requires_reconcile = container == ContainerStatus::Running
+        && coordination
+            .as_ref()
+            .is_none_or(|value| value.status != "available");
 
     Ok(RuntimeDoctor {
         company: company.to_string(),
@@ -682,8 +702,10 @@ pub async fn doctor(company: &str) -> Result<RuntimeDoctor> {
         source_digest,
         image_source_digest,
         reconciliation,
-        action: (reconciliation != ReconciliationStatus::Current)
+        action: (reconciliation != ReconciliationStatus::Current
+            || coordination_requires_reconcile)
             .then(|| format!("restless up -c {company} --reconcile")),
+        coordination,
         supervisor,
         browser,
     })
@@ -693,6 +715,34 @@ pub async fn doctor(company: &str) -> Result<RuntimeDoctor> {
 /// replaceable shell changes and stays stable across ordinary process restarts.
 pub async fn generation(company: &str) -> Result<Option<String>> {
     inspect_value(&["inspect", "-f", "{{.Id}}", &container_name(company)]).await
+}
+
+async fn coordination_doctor(company: &str) -> CoordinationDoctor {
+    let name = container_name(company);
+    let probe = tokio::time::timeout(
+        Duration::from_secs(5),
+        docker(&["exec", "-u", "company", &name, "restless", "status"]),
+    )
+    .await;
+    match probe {
+        Ok(Ok(output)) if output.status.success() => CoordinationDoctor {
+            status: "available".into(),
+            detail: None,
+        },
+        Ok(Ok(_)) => CoordinationDoctor {
+            status: "degraded".into(),
+            detail: Some(
+                "The Runtime could not complete an authenticated coordination status request."
+                    .into(),
+            ),
+        },
+        Ok(Err(_)) | Err(_) => CoordinationDoctor {
+            status: "degraded".into(),
+            detail: Some(
+                "The Runtime coordination path could not be observed within five seconds.".into(),
+            ),
+        },
+    }
 }
 
 async fn browser_doctor(company: &str) -> BrowserDoctor {
@@ -1657,5 +1707,40 @@ model_failover = ["anthropic/claude-haiku-4-5", "zai/glm-5"]
         );
 
         std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    /// Real Docker/daemon proof for the EOF-sensitive bridge installer. It is
+    /// opt-in because it writes a fresh bounded capability into a persistent
+    /// Runtime, and it refuses any company that is not explicitly a test
+    /// company.
+    #[tokio::test]
+    async fn bridge_capability_reaches_a_named_test_runtime_when_requested() {
+        let Ok(company) = std::env::var("RESTLESS_RUNTIME_BRIDGE_TEST_COMPANY") else {
+            return;
+        };
+        assert!(
+            company.ends_with("_test"),
+            "bridge integration test requires a *_test company"
+        );
+
+        let issuer = crate::capability::CapabilityIssuer::open(&super::state_root())
+            .expect("open local Runtime capability issuer");
+        let bridge = issuer
+            .issue_runtime_bridge(&company)
+            .expect("issue test Runtime bridge capability");
+        super::install_runtime_bridge_capability(&company, &bridge)
+            .await
+            .expect("install Runtime bridge capability");
+
+        let observation = super::doctor(&company)
+            .await
+            .expect("inspect test Runtime after bridge installation")
+            .coordination
+            .expect("running Runtime has a coordination observation");
+        assert_eq!(
+            observation.status, "available",
+            "Runtime bridge should complete an authenticated status request: {:?}",
+            observation.detail
+        );
     }
 }

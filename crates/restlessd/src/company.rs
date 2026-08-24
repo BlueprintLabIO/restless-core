@@ -867,6 +867,7 @@ fn company_doctor(
         });
         checks.push(service_check(doctor));
         checks.push(browser_check(doctor));
+        checks.push(coordination_check(doctor));
     } else {
         checks.push(DoctorCheck {
             id: "runtime",
@@ -960,6 +961,37 @@ fn browser_check(doctor: &runtime::RuntimeDoctor) -> DoctorCheck {
     }
 }
 
+fn coordination_check(doctor: &runtime::RuntimeDoctor) -> DoctorCheck {
+    match doctor.coordination.as_ref() {
+        Some(coordination) => DoctorCheck {
+            id: "coordination",
+            label: "Runtime coordination",
+            source: "runtime",
+            status: if coordination.status == "available" {
+                "healthy"
+            } else {
+                "degraded"
+            },
+            summary: if coordination.status == "available" {
+                "The Runtime completed an authenticated coordination status request.".into()
+            } else {
+                "The Runtime cannot currently use its bounded coordination path; files and already-running local work remain available.".into()
+            },
+            detail: coordination.detail.clone(),
+        },
+        None => DoctorCheck {
+            id: "coordination",
+            label: "Runtime coordination",
+            source: "runtime",
+            status: "unavailable",
+            summary:
+                "Runtime coordination is not observable while the Company computer is stopped."
+                    .into(),
+            detail: None,
+        },
+    }
+}
+
 fn source_check_status(source: &SourceObservation) -> &'static str {
     if source.status == "available" {
         "healthy"
@@ -987,6 +1019,14 @@ fn overall_doctor_status(checks: &[DoctorCheck]) -> &'static str {
 
 fn recommended_actions(doctor: &runtime::RuntimeDoctor) -> Vec<RecoveryAction> {
     if doctor.reconciliation == runtime::ReconciliationStatus::Required {
+        return vec![RecoveryAction::Reconcile];
+    }
+    if doctor.container == runtime::ContainerStatus::Running
+        && doctor
+            .coordination
+            .as_ref()
+            .is_none_or(|value| value.status != "available")
+    {
         return vec![RecoveryAction::Reconcile];
     }
     match doctor.container {
@@ -1025,7 +1065,7 @@ fn action_copy(action: RecoveryAction) -> DoctorAction {
         RecoveryAction::Reconcile => DoctorAction {
             id: action,
             label: "Reconcile company computer",
-            consequence: "Rebuilds the current shell and replaces it when needed while preserving the named company volume.",
+            consequence: "Rebuilds the current shell and restores its Runtime coordination grant while preserving the named company volume.",
             confirmation: "Reconcile the Company computer with the current Restless source?",
         },
     }
@@ -1061,14 +1101,19 @@ pub(crate) async fn recover(
         .await
         .context("record owner recovery request before changing Runtime lifecycle")?;
 
-    let result = match action {
-        RecoveryAction::Start => runtime::up(config, false).await,
-        RecoveryAction::Restart => match runtime::down(&config.name).await {
-            Ok(_) => runtime::up(config, false).await,
-            Err(error) => Err(error),
-        },
-        RecoveryAction::Reconcile => runtime::up(config, true).await,
-    };
+    let result: Result<String> = async {
+        let message = match action {
+            RecoveryAction::Start => runtime::up(config, false).await,
+            RecoveryAction::Restart => match runtime::down(&config.name).await {
+                Ok(_) => runtime::up(config, false).await,
+                Err(error) => Err(error),
+            },
+            RecoveryAction::Reconcile => runtime::up(config, true).await,
+        }?;
+        crate::materialize_runtime_bridge(daemon, &config.name).await?;
+        Ok(message)
+    }
+    .await;
     let message = match result {
         Ok(message) => message,
         Err(error) => {
@@ -1113,6 +1158,7 @@ pub(crate) async fn recover(
                     "volume_exists": after.volume_exists,
                     "volume_mounted": after.volume_mounted,
                     "reconciliation": after.reconciliation,
+                    "coordination": after.coordination.as_ref().map(|value| value.status.as_str()),
                     "supervisor": after.supervisor.as_ref().map(|value| value.status.as_str()),
                     "browser": after.browser.as_ref().map(|value| value.status.as_str()),
                 },
@@ -1186,6 +1232,7 @@ mod tests {
         reconciliation: runtime::ReconciliationStatus,
         supervisor: Option<&str>,
         browser: Option<&str>,
+        coordination: Option<&str>,
     ) -> runtime::RuntimeDoctor {
         runtime::RuntimeDoctor {
             company: "company_test".into(),
@@ -1200,6 +1247,10 @@ mod tests {
             image_source_digest: None,
             reconciliation,
             action: None,
+            coordination: coordination.map(|status| runtime::CoordinationDoctor {
+                status: status.into(),
+                detail: (status != "available").then(|| "coordination detail".into()),
+            }),
             supervisor: supervisor.map(|status| runtime::SupervisorDoctor {
                 status: status.into(),
                 services: Vec::new(),
@@ -1223,6 +1274,7 @@ mod tests {
                 runtime::ReconciliationStatus::Current,
                 None,
                 None,
+                None,
             )),
             vec![RecoveryAction::Start]
         );
@@ -1230,6 +1282,7 @@ mod tests {
             recommended_actions(&doctor(
                 runtime::ContainerStatus::Running,
                 runtime::ReconciliationStatus::Required,
+                Some("degraded"),
                 Some("degraded"),
                 Some("degraded"),
             )),
@@ -1241,9 +1294,49 @@ mod tests {
                 runtime::ReconciliationStatus::Current,
                 Some("available"),
                 Some("degraded"),
+                Some("available"),
             )),
             vec![RecoveryAction::Restart]
         );
+        assert_eq!(
+            recommended_actions(&doctor(
+                runtime::ContainerStatus::Running,
+                runtime::ReconciliationStatus::Current,
+                Some("available"),
+                Some("available"),
+                Some("degraded"),
+            )),
+            vec![RecoveryAction::Reconcile]
+        );
+    }
+
+    #[test]
+    fn doctor_exposes_a_degraded_runtime_coordination_path() {
+        let observed_at = Utc::now();
+        let source = SourceObservation::available(observed_at);
+        let runtime_doctor = doctor(
+            runtime::ContainerStatus::Running,
+            runtime::ReconciliationStatus::Current,
+            Some("available"),
+            Some("available"),
+            Some("degraded"),
+        );
+
+        let report = company_doctor(
+            source.clone(),
+            source.clone(),
+            source,
+            Some(&runtime_doctor),
+            observed_at,
+        );
+        let coordination = report
+            .checks
+            .iter()
+            .find(|check| check.id == "coordination")
+            .expect("coordination check");
+        assert_eq!(coordination.status, "degraded");
+        assert_eq!(coordination.detail.as_deref(), Some("coordination detail"));
+        assert_eq!(report.status, "degraded");
     }
 
     #[test]

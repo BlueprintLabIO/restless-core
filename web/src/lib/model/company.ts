@@ -126,6 +126,7 @@ export interface RuntimeDoctor {
 	volume_exists: boolean;
 	volume_mounted: boolean;
 	reconciliation: 'current' | 'required' | 'unknown';
+	coordination?: { status: string; detail?: string };
 	supervisor?: { status: string; services: Array<{ name: string; state: string }> };
 	browser?: {
 		status: string;

@@ -1805,6 +1805,11 @@ fn doctor(company: Option<String>) -> Result<()> {
                 "restart restlessd with the current build (stop the old stack, then run restless-dev {company})"
             ));
         }
+        if report.get("coordination").is_none() {
+            actions.push(format!(
+                "restart restlessd with the current build (stop the old stack, then run restless-dev {company})"
+            ));
+        }
         if let Some(action) = report["action"].as_str() {
             actions.push(action.to_string());
         }
@@ -1875,6 +1880,7 @@ fn runtime_report_is_live(report: &serde_json::Value) -> bool {
         && report["browser"]["status"].as_str() == Some("available")
         && report["volume_exists"].as_bool() == Some(true)
         && report["volume_mounted"].as_bool() == Some(true)
+        && report["coordination"]["status"].as_str() == Some("available")
 }
 
 fn http_check(
@@ -2107,7 +2113,7 @@ mod tests {
     }
 
     #[test]
-    fn runtime_health_fails_closed_when_volume_evidence_is_missing() {
+    fn runtime_health_fails_closed_when_required_runtime_evidence_is_missing() {
         let old_report = serde_json::json!({
             "container": "Running",
             "reconciliation": "current",
@@ -2116,6 +2122,27 @@ mod tests {
         });
         assert!(!runtime_report_is_live(&old_report));
 
+        let bridge_unprobed = serde_json::json!({
+            "container": "Running",
+            "reconciliation": "current",
+            "supervisor": { "status": "available" },
+            "browser": { "status": "available" },
+            "volume_exists": true,
+            "volume_mounted": true,
+        });
+        assert!(!runtime_report_is_live(&bridge_unprobed));
+
+        let bridge_degraded = serde_json::json!({
+            "container": "Running",
+            "reconciliation": "current",
+            "supervisor": { "status": "available" },
+            "browser": { "status": "available" },
+            "volume_exists": true,
+            "volume_mounted": true,
+            "coordination": { "status": "degraded" },
+        });
+        assert!(!runtime_report_is_live(&bridge_degraded));
+
         let live_report = serde_json::json!({
             "container": "Running",
             "reconciliation": "current",
@@ -2123,6 +2150,7 @@ mod tests {
             "browser": { "status": "available" },
             "volume_exists": true,
             "volume_mounted": true,
+            "coordination": { "status": "available" },
         });
         assert!(runtime_report_is_live(&live_report));
     }

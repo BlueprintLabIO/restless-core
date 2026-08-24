@@ -182,6 +182,20 @@ pub(crate) struct Daemon {
     pub(crate) in_flight: schedule::InFlight,
 }
 
+/// A Runtime is only ready for coordination after the host-issued bridge grant
+/// is materialised inside its persistent computer. Keep the issuer and the
+/// Runtime file write together here: neither the Runtime nor OrgIntel owns
+/// that authority boundary.
+pub(crate) async fn materialize_runtime_bridge(daemon: &Daemon, company: &str) -> Result<()> {
+    let bridge = daemon
+        .capabilities
+        .issue_runtime_bridge(company)
+        .context("issue Runtime bridge capability")?;
+    runtime::install_runtime_bridge_capability(company, &bridge)
+        .await
+        .context("install Runtime bridge capability")
+}
+
 /// TCP port the company containers reach the daemon on (T10). Next to the
 /// model gateway's 7790; reachable as host.docker.internal from containers.
 pub(crate) const COORD_TCP_PORT: u16 = 7791;
@@ -714,19 +728,9 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
             match runtime::clone_config(&daemon.root, from, company) {
                 Ok(config) => match runtime::up(&config, request.lifecycle.reconcile).await {
                     Ok(message) => {
-                        let bridge = match daemon.capabilities.issue_runtime_bridge(company) {
-                            Ok(bridge) => bridge,
-                            Err(error) => {
-                                return Response::err(format!(
-                                    "cloned container is up but Runtime bridge capability could not be issued: {error:#}"
-                                ))
-                            }
-                        };
-                        if let Err(error) =
-                            runtime::install_runtime_bridge_capability(company, &bridge).await
-                        {
+                        if let Err(error) = materialize_runtime_bridge(daemon, company).await {
                             return Response::err(format!(
-                                "cloned container is up but Runtime bridge capability could not be installed: {error:#}"
+                                "cloned container is up but Runtime bridge capability could not be materialized: {error:#}"
                             ));
                         }
                         match daemon.orgintel.get(company).await {
@@ -810,19 +814,9 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
                 };
                 match runtime::up(&config, request.lifecycle.reconcile).await {
                     Ok(message) => {
-                        let bridge = match daemon.capabilities.issue_runtime_bridge(company) {
-                            Ok(bridge) => bridge,
-                            Err(error) => {
-                                return Response::err(format!(
-                                    "container up but Runtime bridge capability could not be issued: {error:#}"
-                                ))
-                            }
-                        };
-                        if let Err(error) =
-                            runtime::install_runtime_bridge_capability(company, &bridge).await
-                        {
+                        if let Err(error) = materialize_runtime_bridge(daemon, company).await {
                             return Response::err(format!(
-                                "container up but Runtime bridge capability could not be installed: {error:#}"
+                                "container up but Runtime bridge capability could not be materialized: {error:#}"
                             ));
                         }
                         // Company up = environment AND coordination state ready.
