@@ -26,15 +26,69 @@ use crate::{
 /// The company's spend ledger. One per installation, shared by every company;
 /// the store keys by company id.
 ///
-/// Metered sessions also share a one-per-company in-process lane. It is not a
-/// reservation or a scheduler: it has no durable state, queue, priority, or
-/// retry policy. It merely prevents two charged ACP sessions from using the
-/// same stale pre-turn remaining balance. A single active provider session can
-/// still overshoot between its own usage reports.
+/// Metered sessions share a small per-company in-process admission pool. Its
+/// reservations are deliberately ephemeral: Work scheduling stays in
+/// OrgIntel and exact terminal charges stay in the durable store. The pool
+/// only prevents concurrent charged ACP sessions from each treating the same
+/// uncommitted balance as entirely theirs. A provider session can still
+/// overshoot its own reservation between usage reports, so this remains the
+/// Authority Plane's coarse outer fuse rather than perfect per-task costing.
 #[derive(Clone)]
 pub struct SpendLedger {
     store: Arc<SpendStore>,
-    metered_turn_lanes: Arc<Mutex<HashMap<String, Arc<tokio::sync::Semaphore>>>>,
+    metered_turn_lanes: Arc<Mutex<HashMap<String, Arc<MeteredTurnLane>>>>,
+}
+
+/// The first product workload that needed same-company parallel model work
+/// was EXP-05's four independently closing Staff units. Keep the outer limit
+/// small and explicit; provider capacity above this is still unproved.
+const METERED_TURN_CONCURRENCY: usize = 4;
+
+struct MeteredTurnLane {
+    permits: Arc<tokio::sync::Semaphore>,
+    reserved_micro_usd: Mutex<u64>,
+}
+
+impl MeteredTurnLane {
+    fn new() -> Self {
+        Self {
+            permits: Arc::new(tokio::sync::Semaphore::new(METERED_TURN_CONCURRENCY)),
+            reserved_micro_usd: Mutex::new(0),
+        }
+    }
+}
+
+/// An ephemeral share of the company's currently uncommitted model envelope.
+/// Dropping it returns unused headroom and releases one concurrency slot. The
+/// provider's exact terminal charge is recorded separately before callers
+/// drop this guard.
+pub struct MeteredTurnPermit {
+    _permit: tokio::sync::OwnedSemaphorePermit,
+    lane: Arc<MeteredTurnLane>,
+    reserved_micro_usd: u64,
+}
+
+impl MeteredTurnPermit {
+    #[must_use]
+    pub fn allowance_micro_usd(&self) -> u64 {
+        self.reserved_micro_usd
+    }
+
+    #[must_use]
+    pub fn allowance_usd(&self) -> f64 {
+        self.reserved_micro_usd as f64 / 1_000_000.0
+    }
+}
+
+impl Drop for MeteredTurnPermit {
+    fn drop(&mut self) {
+        let mut reserved = self
+            .lane
+            .reserved_micro_usd
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        *reserved = reserved.saturating_sub(self.reserved_micro_usd);
+    }
 }
 
 /// Writes turn costs into the ledger. Cloneable so supervised staff processes
@@ -211,15 +265,17 @@ impl SpendLedger {
         })
     }
 
-    /// Wait for this company's one charged-model session lane. Subscription
-    /// routes have no authoritative charged cost and deliberately remain
-    /// concurrent. The returned permit drops on cancellation, failure, or
-    /// normal completion.
+    /// Admit one of at most four same-company charged sessions and reserve it
+    /// an equal share of the uncommitted envelope. Sequential callers retain
+    /// all four slots over time; concurrent callers cannot each inherit the
+    /// same full remaining balance. Subscription routes have no authoritative
+    /// charged cost and deliberately bypass this pool.
     pub async fn acquire_metered_turn(
         &self,
         company: &str,
         billing: ModelBilling,
-    ) -> Option<tokio::sync::OwnedSemaphorePermit> {
+        ceiling: SpendCeiling,
+    ) -> Option<MeteredTurnPermit> {
         if billing == ModelBilling::Subscription {
             return None;
         }
@@ -231,14 +287,40 @@ impl SpendLedger {
             Arc::clone(
                 lanes
                     .entry(company.to_string())
-                    .or_insert_with(|| Arc::new(tokio::sync::Semaphore::new(1))),
+                    .or_insert_with(|| Arc::new(MeteredTurnLane::new())),
             )
         };
-        Some(
-            lane.acquire_owned()
-                .await
-                .expect("metered turn lane is never closed"),
-        )
+        let permit = Arc::clone(&lane)
+            .permits
+            .clone()
+            .acquire_owned()
+            .await
+            .expect("metered turn lane is never closed");
+        let remaining = self
+            .budget_state_for(company, ceiling)
+            .remaining_micro_usd()
+            .unwrap_or_default();
+        let reserved_micro_usd = {
+            let mut reserved = lane
+                .reserved_micro_usd
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            let uncommitted = remaining.saturating_sub(*reserved);
+            // Each slot may hold at most one quarter of the currently
+            // remaining envelope. Cap again by uncommitted headroom so races
+            // between concurrent acquirers cannot duplicate a share (for
+            // example 8 -> 2+2+2+2 regardless of lock acquisition order).
+            let slots = METERED_TURN_CONCURRENCY as u64;
+            let fair_share = remaining.saturating_add(slots.saturating_sub(1)) / slots;
+            let share = fair_share.min(uncommitted);
+            *reserved = reserved.saturating_add(share);
+            share
+        };
+        Some(MeteredTurnPermit {
+            _permit: permit,
+            lane,
+            reserved_micro_usd,
+        })
     }
 
     /// What this company has spent so far, in USD. Shown to the agent so it can
@@ -369,21 +451,23 @@ mod tests {
     use super::*;
 
     #[tokio::test]
-    async fn charged_turns_share_one_company_lane_without_blocking_other_companies() {
+    async fn charged_turns_reserve_one_envelope_across_four_company_slots() {
         let root = std::env::temp_dir().join(format!(
             "restless-metered-turn-lane-test-{}",
             uuid::Uuid::new_v4()
         ));
         assert!(!root.exists(), "test spend root must be fresh");
         let ledger = Arc::new(SpendLedger::open(&root).unwrap());
+        let ceiling = SpendCeiling::from_micro_usd(8_000_000);
 
         let first = ledger
-            .acquire_metered_turn("same-company", ModelBilling::MeteredApi)
+            .acquire_metered_turn("same-company", ModelBilling::MeteredApi, ceiling)
             .await
             .expect("metered routes acquire a lane");
+        assert_eq!(first.allowance_micro_usd(), 2_000_000);
         assert!(
             ledger
-                .acquire_metered_turn("same-company", ModelBilling::Subscription)
+                .acquire_metered_turn("same-company", ModelBilling::Subscription, ceiling)
                 .await
                 .is_none(),
             "subscription routes do not take the charged lane"
@@ -391,16 +475,41 @@ mod tests {
 
         let another_company = tokio::time::timeout(
             Duration::from_millis(100),
-            ledger.acquire_metered_turn("other-company", ModelBilling::MeteredApi),
+            ledger.acquire_metered_turn("other-company", ModelBilling::MeteredApi, ceiling),
         )
         .await
         .expect("a different company is not blocked")
         .expect("metered routes acquire a lane");
 
+        let second = ledger
+            .acquire_metered_turn("same-company", ModelBilling::MeteredApi, ceiling)
+            .await
+            .expect("second metered route acquires a lane");
+        let third = ledger
+            .acquire_metered_turn("same-company", ModelBilling::MeteredApi, ceiling)
+            .await
+            .expect("third metered route acquires a lane");
+        let fourth = ledger
+            .acquire_metered_turn("same-company", ModelBilling::MeteredApi, ceiling)
+            .await
+            .expect("fourth metered route acquires a lane");
+        assert_eq!(
+            [
+                first.allowance_micro_usd(),
+                second.allowance_micro_usd(),
+                third.allowance_micro_usd(),
+                fourth.allowance_micro_usd(),
+            ]
+            .into_iter()
+            .sum::<u64>(),
+            ceiling.micro_usd(),
+            "concurrent reservations never duplicate company headroom"
+        );
+
         let waiting_ledger = Arc::clone(&ledger);
         let mut waiting_turn = tokio::spawn(async move {
             waiting_ledger
-                .acquire_metered_turn("same-company", ModelBilling::MeteredApi)
+                .acquire_metered_turn("same-company", ModelBilling::MeteredApi, ceiling)
                 .await
                 .expect("metered routes acquire a lane")
         });
@@ -408,16 +517,24 @@ mod tests {
             tokio::time::timeout(Duration::from_millis(50), &mut waiting_turn)
                 .await
                 .is_err(),
-            "a second charged turn waits for the active company turn"
+            "a fifth charged turn waits for an active company slot"
         );
 
         drop(first);
-        let second = tokio::time::timeout(Duration::from_millis(100), waiting_turn)
+        let replacement = tokio::time::timeout(Duration::from_millis(100), waiting_turn)
             .await
             .expect("the waiting turn proceeds after release")
             .expect("the waiting task did not fail");
+        assert_eq!(
+            replacement.allowance_micro_usd(),
+            2_000_000,
+            "an unused reservation returns to the next admitted turn"
+        );
 
         drop(second);
+        drop(third);
+        drop(fourth);
+        drop(replacement);
         drop(another_company);
         drop(ledger);
         std::fs::remove_dir_all(&root).unwrap();

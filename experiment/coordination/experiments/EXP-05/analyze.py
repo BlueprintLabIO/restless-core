@@ -35,6 +35,12 @@ def load_runs() -> tuple[dict[str, list[dict[str, Any]]], list[dict[str, Any]]]:
         if arm:
             grouped[str(arm)].append(row)
     for path in sorted(RESULTS.glob("*/run-failure.json")):
+        # A finalization observer can fail after productive work is already
+        # durable, then recover the same cell without replaying it. Its later
+        # run-result is the cell disposition; preserve but do not double-count
+        # the superseded observer diagnostic beside it.
+        if (path.parent / "run-result.json").exists():
+            continue
         try:
             row = read(path)
         except (OSError, json.JSONDecodeError) as error:

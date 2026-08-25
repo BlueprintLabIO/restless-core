@@ -208,9 +208,15 @@ pub async fn wake(
         // the prior holder records usage, it sees the current envelope.
         // Subscription sessions do not take this lane because their charged
         // cost is authoritatively zero.
-        let metered_turn = spend.acquire_metered_turn(&config.name, auth.billing).await;
+        let metered_turn = spend
+            .acquire_metered_turn(&config.name, auth.billing, config.spend_ceiling_usd)
+            .await;
         let budget = spend.budget_state(config);
-        if auth.billing == crate::model_gateway::ModelBilling::MeteredApi && !budget.is_available()
+        let reserved_budget_available = metered_turn
+            .as_ref()
+            .is_none_or(|turn| turn.allowance_micro_usd() > 0);
+        if auth.billing == crate::model_gateway::ModelBilling::MeteredApi
+            && (!budget.is_available() || !reserved_budget_available)
         {
             drop(metered_turn);
             let reason = format!("[budget] {}", budget.owner_message(&config.name));
@@ -225,9 +231,14 @@ pub async fn wake(
             record_outcome(org, &report).await?;
             return Ok(report);
         }
-        let remaining = budget
-            .remaining_micro_usd()
-            .map(|remaining| remaining as f64 / 1_000_000.0)
+        let remaining = metered_turn
+            .as_ref()
+            .map(crate::spend::MeteredTurnPermit::allowance_usd)
+            .or_else(|| {
+                budget
+                    .remaining_micro_usd()
+                    .map(|remaining| remaining as f64 / 1_000_000.0)
+            })
             // The value is only observed by the per-session cost fuse for a
             // metered candidate, which passed the check above. Subscription
             // sessions deliberately do not use the fuse.

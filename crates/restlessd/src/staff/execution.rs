@@ -107,9 +107,17 @@ pub(super) async fn run_staff_with_failover(run: StaffRun) -> Result<StaffOutcom
         // The shared ledger gate is acquired before opening the ACP session.
         // It is only charged-turn admission: no Work state, queue, or durable
         // reservation is introduced here.
-        let metered_turn = run.spend.acquire_metered_turn(&run.company, billing).await;
+        let metered_turn = run
+            .spend
+            .acquire_metered_turn(&run.company, billing, run.spend_ceiling)
+            .await;
         let budget = run.spend.budget_state_for(&run.company, run.spend_ceiling);
-        if billing == crate::model_gateway::ModelBilling::MeteredApi && !budget.is_available() {
+        let reserved_budget_available = metered_turn
+            .as_ref()
+            .is_none_or(|turn| turn.allowance_micro_usd() > 0);
+        if billing == crate::model_gateway::ModelBilling::MeteredApi
+            && (!budget.is_available() || !reserved_budget_available)
+        {
             drop(metered_turn);
             return Ok(StaffOutcome {
                 termination: Termination::Blocked,
@@ -117,8 +125,10 @@ pub(super) async fn run_staff_with_failover(run: StaffRun) -> Result<StaffOutcom
                 output_tokens: None,
             });
         }
-        let remaining_budget_usd =
-            budget.remaining_micro_usd().unwrap_or_default() as f64 / 1_000_000.0;
+        let remaining_budget_usd = metered_turn.as_ref().map_or_else(
+            || budget.remaining_micro_usd().unwrap_or_default() as f64 / 1_000_000.0,
+            crate::spend::MeteredTurnPermit::allowance_usd,
+        );
         let spine = continuity_note.as_ref().map_or_else(
             || run.spine.clone(),
             |failure| {
@@ -363,12 +373,26 @@ struct StaffBrief {
 /// when it did. Staff go through the same total classifier as the Exec so that
 /// a wedge is reported as a wedge here too; they differ only in what they can
 /// do about it, which is nothing.
-fn staff_halt(end: &acp::TurnEnd) -> Option<String> {
+#[derive(Debug, PartialEq, Eq)]
+enum StaffHalt {
+    Resume(String),
+    Blocked(String),
+}
+
+fn staff_halt(end: &acp::TurnEnd) -> Option<StaffHalt> {
     match health::classify(end) {
         health::Verdict::Ran => None,
-        health::Verdict::Resume(reason) => Some(reason),
-        health::Verdict::Blocked(blocked) => Some(blocked.message()),
+        health::Verdict::Resume(reason) => Some(StaffHalt::Resume(reason)),
+        health::Verdict::Blocked(blocked) => Some(StaffHalt::Blocked(blocked.message())),
     }
+}
+
+fn resumable_staff_summary(reason: &str) -> String {
+    // This stable non-provider prefix keeps a deliberate interruption or
+    // watchdog recovery out of provider failover/cooldown classification.
+    // The Attempt still closes as unknown and the accountable lead still has
+    // to resume it from durable Runtime evidence.
+    format!("[resumable] {reason}")
 }
 
 /// The Staff counterpart to Exec's in-turn dollar fuse. This intentionally
@@ -523,13 +547,24 @@ async fn run_staff(
                     // Verdict of their own to act on — the whole run is abandoned
                     // and the Exec reads the reason on its next wake. But the
                     // reason must still be the specific one.
-                    if let Some(blocked) = staff_halt(&end) {
-                        if health::block_kind_from_message(&blocked)
-                            .is_some_and(health::is_provider_failover_kind)
-                        {
-                            return Ok((Termination::Blocked, blocked, spent, None));
+                    if let Some(halt) = staff_halt(&end) {
+                        match halt {
+                            StaffHalt::Resume(reason) => {
+                                return Ok((
+                                    Termination::Blocked,
+                                    resumable_staff_summary(&reason),
+                                    spent,
+                                    None,
+                                ));
+                            }
+                            StaffHalt::Blocked(blocked)
+                                if health::block_kind_from_message(&blocked)
+                                    .is_some_and(health::is_provider_failover_kind) =>
+                            {
+                                return Ok((Termination::Blocked, blocked, spent, None));
+                            }
+                            StaffHalt::Blocked(blocked) => bail!("staff turn: {blocked}"),
                         }
-                        bail!("staff turn: {blocked}");
                     }
 
                     if conversation {
@@ -572,13 +607,26 @@ async fn run_staff(
                     if let Some(usage) = end.usage() {
                         spent.push(usage);
                     }
-                    if let Some(blocked) = staff_halt(&end) {
-                        if health::block_kind_from_message(&blocked)
-                            .is_some_and(health::is_provider_failover_kind)
-                        {
-                            return Ok((Termination::Blocked, blocked, spent, None));
+                    if let Some(halt) = staff_halt(&end) {
+                        match halt {
+                            StaffHalt::Resume(reason) => {
+                                return Ok((
+                                    Termination::Blocked,
+                                    resumable_staff_summary(&reason),
+                                    spent,
+                                    None,
+                                ));
+                            }
+                            StaffHalt::Blocked(blocked)
+                                if health::block_kind_from_message(&blocked)
+                                    .is_some_and(health::is_provider_failover_kind) =>
+                            {
+                                return Ok((Termination::Blocked, blocked, spent, None));
+                            }
+                            StaffHalt::Blocked(blocked) => {
+                                bail!("staff termination ask: {blocked}");
+                            }
                         }
-                        bail!("staff termination ask: {blocked}");
                     }
                     let said = end.into_transcript().text;
                     match exec::parse_termination(&said) {
@@ -638,6 +686,27 @@ mod live_product_tests {
         InitialWorkGate, NewWork, WorkAttemptState, WorkStatus, WorkspaceSpec,
         REVIEW_TARGET_ARTIFACT_KIND, REVIEW_TARGET_LIVE_PROBE_GATE,
     };
+
+    #[test]
+    fn resumable_staff_halts_never_become_provider_failures() {
+        let ends = [
+            acp::TurnEnd::Interrupted {
+                transcript: acp::TurnTranscript::default(),
+            },
+            acp::TurnEnd::Wedged {
+                idle: std::time::Duration::from_secs(8 * 60),
+                transcript: acp::TurnTranscript::default(),
+            },
+        ];
+        for end in ends {
+            let Some(StaffHalt::Resume(reason)) = staff_halt(&end) else {
+                panic!("a recoverable Staff halt must remain resumable: {end:?}");
+            };
+            let summary = resumable_staff_summary(&reason);
+            assert!(health::block_kind_from_message(&summary).is_none());
+            assert!(health::classify_provider_error(&summary).is_none());
+        }
+    }
 
     fn live_auth(root: &std::path::Path, company: &str, actor: &str, model: &str) -> AgentAuth {
         let provider = model.split_once('/').unwrap().0.to_string();

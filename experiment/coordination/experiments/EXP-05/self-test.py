@@ -230,8 +230,44 @@ def check_runner_contracts() -> dict[str, bool]:
         raise AssertionError("service-pressure value curve did not decay")
     if runner.interval_summary([(0, 10), (5, 12), (20, 25)]) != {"summed": 22, "union": 17}:
         raise AssertionError("overlapping actor time was composed incorrectly")
+    session_history = []
+    event_id = 1
+    for actor, start_second, end_second in (
+        ("worker-1", 0, 10),
+        ("worker-2", 1, 11),
+        ("worker-3", 2, 12),
+        ("worker-4", 3, 13),
+    ):
+        for kind, second in (("model_session_ready", start_second), ("turn_usage", end_second)):
+            session_history.append({
+                "id": event_id,
+                "kind": kind,
+                "actor_id": actor,
+                "created_at": (start + timedelta(seconds=second)).isoformat(),
+            })
+            event_id += 1
+    peak, unterminated = runner.peak_model_session_concurrency(
+        list(reversed(session_history)),
+        {"worker-1", "worker-2", "worker-3", "worker-4"},
+    )
+    if peak != 4 or unterminated != 0:
+        raise AssertionError("actual model-session overlap was not measured exactly")
+    session_history.pop()
+    if runner.peak_model_session_concurrency(
+        session_history, {"worker-1", "worker-2", "worker-3", "worker-4"}
+    )[1] != 1:
+        raise AssertionError("a missing terminal model-usage callback was not exposed")
+    review_history = [
+        {"id": 1, "kind": "turn_usage", "actor_id": "lead", "created_at": (start + timedelta(seconds=10)).isoformat(), "body": {}},
+        {"id": 2, "kind": "wake", "actor_id": "exec", "created_at": (start + timedelta(seconds=9)).isoformat(), "body": {"reason": "message from lead"}},
+        {"id": 3, "kind": "wake_end", "actor_id": "exec", "created_at": (start + timedelta(seconds=12)).isoformat(), "body": {}},
+    ]
+    pair = runner.final_review_pair(list(reversed(review_history)), "lead", start.timestamp())
+    if pair is None or pair[0]["kind"] != "turn_usage" or pair[1]["kind"] != "wake_end":
+        raise AssertionError("material lead-to-Exec closure depended on cosmetic actor_wake_end")
     runner.experiment_spend = lambda: {
-        "ceiling_usd": 100.0, "accounted_usd": 93.0, "companies": []
+        "ceiling_usd": 100.0, "accounted_usd": 93.0,
+        "committed_usd": 93.0, "unknown_reserve_usd": 0.0, "companies": []
     }
     try:
         runner.admit_program_cell(8)
@@ -240,15 +276,48 @@ def check_runner_contracts() -> dict[str, bool]:
     else:
         raise AssertionError("programme overspend was admitted")
     runner.experiment_spend = lambda: {
-        "ceiling_usd": 100.0, "accounted_usd": 92.0, "companies": []
+        "ceiling_usd": 100.0, "accounted_usd": 92.0,
+        "committed_usd": 92.0, "unknown_reserve_usd": 0.0, "companies": []
     }
     if runner.admit_program_cell(8)["accounted_usd"] != 92.0:
         raise AssertionError("exact programme-boundary admission was rejected")
+    runner.experiment_spend = lambda: {
+        "ceiling_usd": 100.0, "accounted_usd": 1.0,
+        "committed_usd": 8.0, "unknown_reserve_usd": 7.0, "companies": []
+    }
+    if runner.admit_program_cell(92)["committed_usd"] != 8.0:
+        raise AssertionError("bounded unknown metering was not reserved at the company ceiling")
+    actor_ids = {
+        actor_id
+        for domain in ("sales", "support", "monitoring", "capacity", "operations", "continuity")
+        for actor_id in (
+            runner.actor_ids(domain, 4)[0],
+            *runner.actor_ids(domain, 4)[1],
+        )
+    } | {
+        "account-owner", "case-owner", "monitoring-owner",
+        "operations-direction", "reconciliation-owner", "continuity-control",
+    }
+    displays = [runner.actor_display(actor_id) for actor_id in sorted(actor_ids)]
+    normalise = lambda value: "".join(character for character in value.lower() if character.isalnum())
+    if len(displays) != len(set(displays)):
+        raise AssertionError("frozen colleague identities are not unique")
+    if any(normalise(actor_id) == normalise(display) for actor_id, display in zip(sorted(actor_ids), displays)):
+        raise AssertionError("a frozen display repeats its machine actor id")
+    retry_one = runner.company_name("wave0-continuity", "20260825-glm53-r1")
+    retry_two = runner.company_name("wave0-continuity", "20260825-glm53-r2")
+    if retry_one == retry_two or len(retry_one) > 63 or len(retry_two) > 63:
+        raise AssertionError("counted retry company names are not unique and bounded")
     return {
+        "actor_identities_are_product_valid": True,
         "blind_schema_rejects_drift": True,
         "flat_and_decaying_value_curves_separate": True,
         "overlap_math_is_exact": True,
+        "model_session_overlap_is_not_attempt_overlap": True,
+        "material_review_survives_missing_wake_end": True,
         "programme_spend_guard_is_fail_closed": True,
+        "unknown_spend_reserves_company_ceiling": True,
+        "retry_company_names_are_unique": True,
     }
 
 

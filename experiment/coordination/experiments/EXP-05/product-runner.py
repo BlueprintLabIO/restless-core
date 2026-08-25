@@ -41,6 +41,40 @@ RUNTIME_ROOT = Path("/company/experiment/EXP-05")
 RESULTS = ROOT / "results"
 PROGRAM_CEILING_USD = 100.0
 
+# Product actor displays are colleague identities, not prettified machine IDs
+# or repeated role labels. Keep them frozen so topology is the only changing
+# organisational variable across cells.
+ACTOR_DISPLAY_NAMES = {
+    "revenue-direction": "Mara Voss",
+    "account-north": "Avery Lin",
+    "account-south": "Noah Patel",
+    "account-east": "Imani Brooks",
+    "account-west": "Luca Meyer",
+    "account-owner": "Sofia Reyes",
+    "customer-direction": "Priya Shah",
+    "customer-north": "Daniel Cho",
+    "customer-south": "Amara Okafor",
+    "customer-east": "Elias Novak",
+    "customer-west": "Zoe Martin",
+    "case-owner": "Nina Park",
+    "intelligence-direction": "Elena Torres",
+    "signal-primary": "Theo Bennett",
+    "signal-secondary": "Mina Kaur",
+    "signal-tertiary": "Jon Bell",
+    "signal-quaternary": "Aya Mori",
+    "monitoring-owner": "Owen Price",
+    "capacity-direction": "Caleb Wong",
+    "capacity-alpha": "Maya Singh",
+    "capacity-beta": "Felix Grant",
+    "capacity-gamma": "Leila Haddad",
+    "capacity-delta": "Samir Costa",
+    "operations-direction": "Rhea Collins",
+    "reconciliation-owner": "Marco Silva",
+    "continuity-direction": "Anika Rao",
+    "continuity-worker": "Jamie Chen",
+    "continuity-control": "Robin Foster",
+}
+
 
 class RunFailure(RuntimeError):
     pass
@@ -99,6 +133,13 @@ def json_write(path: Path, value: object) -> None:
     path.write_text(json.dumps(value, indent=2, sort_keys=True) + "\n")
 
 
+def actor_display(actor_id: str) -> str:
+    try:
+        return ACTOR_DISPLAY_NAMES[actor_id]
+    except KeyError as error:
+        raise RunFailure(f"no frozen colleague identity for actor {actor_id!r}") from error
+
+
 def run_sync(argv: list[str], *, check: bool = True, env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
     merged = os.environ.copy()
     if env:
@@ -118,7 +159,20 @@ async def run_async(argv: list[str], *, check: bool = True) -> tuple[int, str, s
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
     )
-    stdout, stderr = await process.communicate()
+    try:
+        stdout, stderr = await process.communicate()
+    except asyncio.CancelledError:
+        # A stopped experiment must not leave its blocking `restless tell`
+        # child alive to keep changing the company after evidence capture has
+        # ended. The short grace period supervises OS teardown; it is not an
+        # agent-work deadline.
+        process.terminate()
+        try:
+            await asyncio.wait_for(process.wait(), timeout=5)
+        except TimeoutError:
+            process.kill()
+            await process.wait()
+        raise
     text_out = stdout.decode(errors="replace")
     text_err = stderr.decode(errors="replace")
     if check and process.returncode != 0:
@@ -152,28 +206,32 @@ def experiment_spend() -> dict[str, object]:
         except json.JSONDecodeError:
             raise RunFailure(f"could not read authoritative spend for {company}")
         rows.append({"company": company, **spend})
+    accounted_usd = sum(float(row["accounted_usd"]) for row in rows)
+    committed_usd = sum(
+        float(row["ceiling_usd"])
+        if row.get("status") == "metering_unknown"
+        else float(row["accounted_usd"])
+        for row in rows
+    )
     return {
         "ceiling_usd": PROGRAM_CEILING_USD,
-        "accounted_usd": sum(float(row["accounted_usd"]) for row in rows),
+        "accounted_usd": accounted_usd,
+        "committed_usd": committed_usd,
+        "unknown_reserve_usd": committed_usd - accounted_usd,
+        "metering_unknown_companies": [
+            row["company"] for row in rows if row.get("status") == "metering_unknown"
+        ],
         "companies": rows,
     }
 
 
 def admit_program_cell(cell_ceiling_usd: float) -> dict[str, object]:
     spend = experiment_spend()
-    unknown = [
-        row["company"]
-        for row in spend["companies"]
-        if row.get("status") == "metering_unknown"
-    ]
-    if unknown:
-        raise RunFailure(
-            "EXP-05 spend is unknown for " + ", ".join(map(str, unknown))
-        )
-    if float(spend["accounted_usd"]) + cell_ceiling_usd > PROGRAM_CEILING_USD:
+    if float(spend["committed_usd"]) + cell_ceiling_usd > PROGRAM_CEILING_USD:
         raise RunFailure(
             f"EXP-05 programme admission would exceed ${PROGRAM_CEILING_USD:.0f}: "
-            f"${float(spend['accounted_usd']):.6f} already accounted and "
+            f"${float(spend['accounted_usd']):.6f} exactly accounted, "
+            f"${float(spend['unknown_reserve_usd']):.6f} reserved for unknown metering, and "
             f"${cell_ceiling_usd:.0f} requested"
         )
     return spend
@@ -301,9 +359,10 @@ def units_for(arm: Arm) -> list[Unit]:
 
 
 def company_name(arm_id: str, run_token: str) -> str:
-    compact = re.sub(r"[^a-z0-9]+", "_", arm_id.lower()).strip("_")
-    token = re.sub(r"[^a-z0-9]+", "", run_token.lower())[:10]
-    return f"exp05_{compact}_{token}_test"
+    compact = re.sub(r"[^a-z0-9]+", "_", arm_id.lower()).strip("_")[:30]
+    token = re.sub(r"[^a-z0-9]+", "", run_token.lower())[:8] or "run"
+    identity = hashlib.sha256(f"{arm_id}\0{run_token}".encode()).hexdigest()[:8]
+    return f"exp05_{compact}_{token}_{identity}_test"
 
 
 def company_mission(arm: Arm) -> str:
@@ -490,13 +549,13 @@ def provision(arm: Arm, run_token: str, result_dir: Path) -> tuple[str, str, lis
     lead, workers, team_name = actor_ids(arm.domain, arm.workers)
     cli(
         "people", "create", "-c", company, "--id", lead,
-        "--role", f"accountable {arm.domain} outcome lead", "--display", lead.replace("-", " ").title(),
+        "--role", f"accountable {arm.domain} outcome lead", "--display", actor_display(lead),
         "--model", LEAD_MODEL, "--reason", "frozen EXP-05 accountable supervision boundary",
     )
     for worker in workers:
         cli(
             "people", "create", "-c", company, "--id", worker,
-            "--role", f"{arm.domain} queue operator", "--display", worker.replace("-", " ").title(),
+            "--role", f"{arm.domain} queue operator", "--display", actor_display(worker),
             "--model", STAFF_MODEL, "--reason", "frozen EXP-05 independently closing production capacity",
         )
     cli(
@@ -934,6 +993,8 @@ def metrics(
         ),
         "worker_active_seconds": worker_time,
         "peak_staff_attempt_concurrency": peak_attempt_concurrency(attempts, workers),
+        "peak_staff_model_concurrency": peak_model_session_concurrency(history, workers)[0],
+        "unterminated_staff_model_sessions": peak_model_session_concurrency(history, workers)[1],
         "lead_active_seconds": lead_time,
         "lead_active_fraction_of_outcome_window": (
             lead_time["summed"] / outcome_seconds if outcome_seconds > 0 else None
@@ -1137,6 +1198,146 @@ def run_blind_evaluator(arm: Arm, result_dir: Path) -> dict[str, object]:
     }
 
 
+def final_review_pair(
+    history: list[dict[str, Any]], lead: str, after_epoch: float
+) -> tuple[dict[str, Any], dict[str, Any]] | None:
+    """Find material lead-to-Exec closure even if a cosmetic wake-end is absent."""
+    ordered = sorted(history, key=lambda row: (parse_time(row["created_at"]), int(row["id"])))
+    for index, row in enumerate(ordered):
+        if (
+            row["kind"] != "wake"
+            or row.get("actor_id") != "exec"
+            or parse_time(row["created_at"]) < after_epoch
+            or row.get("body", {}).get("reason") != f"message from {lead}"
+        ):
+            continue
+        exec_end = next(
+            (
+                candidate
+                for candidate in ordered[index + 1 :]
+                if candidate["kind"] == "wake_end"
+                and candidate.get("actor_id") == "exec"
+            ),
+            None,
+        )
+        if exec_end is None:
+            continue
+        exec_end_epoch = parse_time(exec_end["created_at"])
+        lead_ends = [
+            candidate
+            for candidate in ordered
+            if candidate.get("actor_id") == lead
+            and candidate["kind"] in {"actor_wake_end", "turn_usage"}
+            and after_epoch <= parse_time(candidate["created_at"]) <= exec_end_epoch
+        ]
+        if lead_ends:
+            return lead_ends[-1], exec_end
+    return None
+
+
+async def finalize_completed_arm(
+    *,
+    arm: Arm,
+    company: str,
+    lead: str,
+    workers: list[str],
+    units: list[Unit],
+    result_dir: Path,
+    receipts: list[dict[str, object]],
+    start_wall: float,
+    first_started_at: str,
+    tell_started: str,
+    tell_result: tuple[int, str, str],
+    arrivals: list[dict[str, object]],
+    event_record: dict[str, object] | None,
+    deadline: float,
+    skip_blind: bool,
+    send_validator_callback: bool,
+) -> dict[str, object]:
+    """Finalize already-produced native evidence without replaying production."""
+    receipt_payload = {
+        "kind": "exact_validator_complete",
+        "arm": arm.arm_id,
+        "units": sum(int(row["validator"]["units"]) for row in receipts),
+        "receipts": receipts,
+        "created_at": utc_now(),
+    }
+    json_write(result_dir / "validator-receipts.json", receipt_payload)
+    docker_copy(result_dir / "validator-receipts.json", company, RUNTIME_ROOT / "control/validator-receipts.json")
+    validation_complete_at = max(str(row["accepted_at"]) for row in receipts)
+    validation_complete_epoch = parse_time(validation_complete_at)
+    callback_at: str | None = None
+    if send_validator_callback:
+        callback_at = utc_now()
+        send_controlled_event(
+            company,
+            lead,
+            f"Every exact unit validator receipt now exists at {RUNTIME_ROOT}/control/validator-receipts.json. Perform the frozen read-only native review and make one outcome judgement; do not rewrite or fan in outputs.",
+        )
+    # Product completion callbacks may naturally wake the lead before this
+    # observer copies its redundant receipt bundle. The evidence boundary is
+    # exact acceptance, not controller message ordering.
+    review_event, exec_review_event = await wait_until(
+        "post-acceptance lead-to-Exec judgement",
+        lambda: final_review_pair(events(company), lead, validation_complete_epoch),
+        deadline,
+    )
+    exact = full_verify(arm, company, units, result_dir)
+    snapshot_events = events(company)
+    snapshot_graph = graph(company)
+    json_write(result_dir / "events.json", snapshot_events)
+    json_write(result_dir / "work-graph.json", snapshot_graph)
+    measured = metrics(
+        company,
+        receipts,
+        start_wall,
+        arm=arm,
+        leads={lead},
+        workers=set(workers),
+    )
+    measured.update({
+        "tell_started_at": tell_started,
+        "first_staff_attempt_at": first_started_at,
+        "exec_to_staff_dispatch_seconds": parse_time(first_started_at) - parse_time(tell_started),
+        "exact_validation_completed_at": validation_complete_at,
+        "validator_callback_at": callback_at,
+        "lead_review_completed_at": review_event["created_at"],
+        "lead_review_seconds": parse_time(review_event["created_at"]) - validation_complete_epoch,
+        "exec_judgement_completed_at": exec_review_event["created_at"],
+        "arrivals": arrivals,
+        "support_event": event_record,
+    })
+    if event_record is not None:
+        measured["support_change"] = support_change_metrics(
+            snapshot_graph, event_record, units, result_dir
+        )
+    json_write(result_dir / "metrics.json", measured)
+    blind = None if skip_blind or not exact["exact"].get("valid") else run_blind_evaluator(arm, result_dir)
+    if blind is not None:
+        json_write(result_dir / "blind-evaluation.json", blind)
+    evaluation_valid = skip_blind or (blind is not None and bool(blind.get("valid")))
+    expected_concurrency = 4 if arm.arm_id == "wave0-q4-admission" else 1
+    runtime_valid = (
+        set(measured["models"]) == {LEAD_MODEL, STAFF_MODEL}
+        and measured["configured_efforts"] == [PRODUCTION_EFFORT]
+        and measured["peak_staff_model_concurrency"] >= expected_concurrency
+        and measured["unterminated_staff_model_sessions"] == 0
+    )
+    result = {
+        "arm": arm.arm_id,
+        "company": company,
+        "validity": "counted" if exact["exact"].get("valid") and exact["attribution_valid"] and evaluation_valid and runtime_valid else "invalid",
+        "exact_evaluation": exact,
+        "blind_evaluation": blind,
+        "runtime_valid": runtime_valid,
+        "metrics": measured,
+        "tell_process": {"exit": tell_result[0], "stdout": tell_result[1], "stderr": tell_result[2]},
+        "finished_at": utc_now(),
+    }
+    json_write(result_dir / "run-result.json", result)
+    return result
+
+
 async def run_arm(arm_id: str, run_token: str, wall_seconds: int, skip_blind: bool) -> dict[str, object]:
     arm = Arm.load(arm_id)
     if arm.domain == "company":
@@ -1188,88 +1389,115 @@ async def run_arm(arm_id: str, run_token: str, wall_seconds: int, skip_blind: bo
 
     await arrival_task
     receipts = await collect_receipts(arm, company, units, result_dir, deadline, 2 if arm.domain == "support" else None)
-    receipt_payload = {
-        "kind": "exact_validator_complete",
-        "arm": arm.arm_id,
-        "units": sum(int(row["validator"]["units"]) for row in receipts),
-        "receipts": receipts,
-        "created_at": utc_now(),
-    }
-    json_write(result_dir / "validator-receipts.json", receipt_payload)
-    docker_copy(result_dir / "validator-receipts.json", company, RUNTIME_ROOT / "control/validator-receipts.json")
-    callback_at = utc_now()
-    send_controlled_event(
-        company,
-        lead,
-        f"Every exact unit validator receipt now exists at {RUNTIME_ROOT}/control/validator-receipts.json. Perform the frozen read-only native review and make one outcome judgement; do not rewrite or fan in outputs.",
-    )
-    callback_epoch = parse_time(callback_at)
-    review_event = await wait_until(
-        "post-validator accountable-lead review wake",
-        lambda: next(
-            (
-                row
-                for row in reversed(events(company))
-                if row["kind"] == "actor_wake_end"
-                and row.get("actor_id") == lead
-                and parse_time(row["created_at"]) >= callback_epoch
-            ),
-            None,
-        ),
-        deadline,
-    )
     tell_result = await await_process("Exec delegation process", tell_task, deadline)
-    exact = full_verify(arm, company, units, result_dir)
-    snapshot_events = events(company)
-    snapshot_graph = graph(company)
-    json_write(result_dir / "events.json", snapshot_events)
-    json_write(result_dir / "work-graph.json", snapshot_graph)
-    measured = metrics(
-        company,
-        receipts,
-        start_wall,
+    return await finalize_completed_arm(
         arm=arm,
-        leads={lead},
-        workers=set(workers),
+        company=company,
+        lead=lead,
+        workers=workers,
+        units=units,
+        result_dir=result_dir,
+        receipts=receipts,
+        start_wall=start_wall,
+        first_started_at=first_started_at,
+        tell_started=tell_started,
+        tell_result=tell_result,
+        arrivals=arrivals,
+        event_record=event_record,
+        deadline=deadline,
+        skip_blind=skip_blind,
+        send_validator_callback=True,
     )
-    measured.update({
-        "tell_started_at": tell_started,
-        "first_staff_attempt_at": first_started_at,
-        "exec_to_staff_dispatch_seconds": parse_time(first_started_at) - parse_time(tell_started),
-        "validator_callback_at": callback_at,
-        "lead_review_completed_at": review_event["created_at"],
-        "lead_review_seconds": parse_time(review_event["created_at"]) - callback_epoch,
-        "arrivals": arrivals,
-        "support_event": event_record,
-    })
-    if event_record is not None:
-        measured["support_change"] = support_change_metrics(
-            snapshot_graph, event_record, units, result_dir
+
+
+async def finalize_existing_arm(
+    arm_id: str, run_token: str, wall_seconds: int, skip_blind: bool
+) -> dict[str, object]:
+    """Recover a completed cell after its observer stopped during finalization."""
+    arm = Arm.load(arm_id)
+    if arm.domain in {"company", "support"}:
+        raise RunFailure(
+            "finalize-arm currently supports ordinary sales and monitoring cells only; "
+            "support causal-event state and Wave 4 require their dedicated runners"
         )
-    json_write(result_dir / "metrics.json", measured)
-    blind = None if skip_blind or not exact["exact"].get("valid") else run_blind_evaluator(arm, result_dir)
-    if blind is not None:
-        json_write(result_dir / "blind-evaluation.json", blind)
-    evaluation_valid = skip_blind or (blind is not None and bool(blind.get("valid")))
-    expected_concurrency = 4 if arm.arm_id == "wave0-q4-admission" else 1
-    runtime_valid = (
-        set(measured["models"]) == {LEAD_MODEL, STAFF_MODEL}
-        and measured["configured_efforts"] == [PRODUCTION_EFFORT]
-        and measured["peak_staff_attempt_concurrency"] >= expected_concurrency
+    result_dir = RESULTS / f"{arm_id}-{run_token}"
+    if not result_dir.exists():
+        raise RunFailure(f"result directory does not exist: {result_dir}")
+    existing_result_path = result_dir / "run-result.json"
+    if existing_result_path.exists():
+        existing_result = json.loads(existing_result_path.read_text())
+        blind = existing_result.get("blind_evaluation")
+        if (
+            existing_result.get("validity") != "invalid"
+            or not isinstance(blind, dict)
+            or blind.get("valid") is not False
+        ):
+            raise RunFailure(f"run is already finalized: {existing_result_path}")
+        retry_path = result_dir / "blind-invalid-run-result.json"
+        if retry_path.exists():
+            raise RunFailure(
+                f"blind evaluator already failed twice for this cell: {retry_path}"
+            )
+        shutil.copy(existing_result_path, retry_path)
+    company = company_name(arm.arm_id, run_token)
+    if company not in set(cli_json("company", "list")):
+        raise RunFailure(f"product company is unavailable: {company}")
+    lead, workers, _ = actor_ids(arm.domain, arm.workers)
+    units = units_for(arm)
+    deadline = time.monotonic() + wall_seconds
+    receipt_path = result_dir / "validator-receipts.json"
+    had_receipt_bundle = receipt_path.exists()
+    if had_receipt_bundle:
+        receipts = json.loads(receipt_path.read_text())["receipts"]
+    else:
+        receipts = await collect_receipts(arm, company, units, result_dir, deadline)
+    if len(receipts) != len(units):
+        raise RunFailure(
+            f"cannot finalize {arm_id}: {len(receipts)} exact receipts for {len(units)} units"
+        )
+    first_started_at = first_attempt_time(company)
+    if first_started_at is None:
+        raise RunFailure(f"cannot finalize {arm_id}: no Staff Attempt exists")
+    start_wall = parse_time(first_started_at)
+    history = events(company)
+    tell_started = min(
+        (
+            row["created_at"]
+            for row in history
+            if row["kind"] == "wake" and row.get("actor_id") == "exec"
+        ),
+        key=parse_time,
+        default=json.loads((result_dir / "run-manifest.json").read_text())["started_at"],
     )
-    result = {
-        "arm": arm.arm_id,
-        "company": company,
-        "validity": "counted" if exact["exact"].get("valid") and exact["attribution_valid"] and evaluation_valid and runtime_valid else "invalid",
-        "exact_evaluation": exact,
-        "blind_evaluation": blind,
-        "runtime_valid": runtime_valid,
-        "metrics": measured,
-        "tell_process": {"exit": tell_result[0], "stdout": tell_result[1], "stderr": tell_result[2]},
-        "finished_at": utc_now(),
-    }
-    json_write(result_dir / "run-result.json", result)
-    return result
+    arrivals = [
+        {
+            "unit": unit.name,
+            "offset_seconds": unit.offset_seconds,
+            "observed_at": datetime.fromtimestamp(
+                start_wall + unit.offset_seconds, timezone.utc
+            ).isoformat(),
+            "reconstructed": True,
+        }
+        for unit in units
+    ]
+    return await finalize_completed_arm(
+        arm=arm,
+        company=company,
+        lead=lead,
+        workers=workers,
+        units=units,
+        result_dir=result_dir,
+        receipts=receipts,
+        start_wall=start_wall,
+        first_started_at=first_started_at,
+        tell_started=tell_started,
+        tell_result=(0, "recovered completed product evidence; production was not replayed", ""),
+        arrivals=arrivals,
+        event_record=None,
+        deadline=deadline,
+        skip_blind=skip_blind,
+        send_validator_callback=not had_receipt_bundle,
+    )
 
 
 async def await_process(
@@ -1302,6 +1530,31 @@ def peak_attempt_concurrency(attempts: list[dict[str, Any]], actors: set[str]) -
         running += delta
         peak = max(peak, running)
     return peak
+
+
+def peak_model_session_concurrency(
+    history: list[dict[str, Any]], actors: set[str]
+) -> tuple[int, int]:
+    """Measure actual ACP overlap, not Attempts waiting before model admission."""
+    open_sessions: dict[str, list[float]] = {actor: [] for actor in actors}
+    boundaries: list[tuple[float, int]] = []
+    for row in sorted(history, key=lambda event: (parse_time(event["created_at"]), int(event["id"]))):
+        actor = row.get("actor_id")
+        if actor not in actors:
+            continue
+        when = parse_time(row["created_at"])
+        if row["kind"] == "model_session_ready":
+            open_sessions[actor].append(when)
+        elif row["kind"] == "turn_usage" and open_sessions[actor]:
+            started = open_sessions[actor].pop(0)
+            boundaries.append((started, 1))
+            boundaries.append((when, -1))
+    running = 0
+    peak = 0
+    for _, delta in sorted(boundaries, key=lambda item: (item[0], item[1])):
+        running += delta
+        peak = max(peak, running)
+    return peak, sum(len(starts) for starts in open_sessions.values())
 
 
 async def run_wave4(run_token: str, wall_seconds: int, skip_blind: bool) -> dict[str, object]:
@@ -1393,13 +1646,13 @@ async def run_wave4(run_token: str, wall_seconds: int, skip_blind: bool) -> dict
         cli(
             "people", "create", "-c", company, "--id", lead,
             "--role", f"accountable {domain} outcome lead",
-            "--display", lead.replace("-", " ").title(), "--model", LEAD_MODEL,
+            "--display", actor_display(lead), "--model", LEAD_MODEL,
             "--reason", "frozen EXP-05 company-level accountability boundary",
         )
         cli(
             "people", "create", "-c", company, "--id", worker,
             "--role", f"{domain} end-to-end producer",
-            "--display", worker.replace("-", " ").title(), "--model", STAFF_MODEL,
+            "--display", actor_display(worker), "--model", STAFF_MODEL,
             "--reason", "frozen EXP-05 locally closing production owner",
         )
         cli(
@@ -1537,6 +1790,24 @@ async def run_wave4(run_token: str, wall_seconds: int, skip_blind: bool) -> dict
         collections[domain] = await task
     collections["operations"] = await operations_collection
 
+    latest_review_epoch = max(
+        parse_time(value["review_completed_at"]) for value in collections.values()
+    )
+    company_exec_review = await wait_until(
+        "company Exec post-department-judgement wake",
+        lambda: next(
+            (
+                row
+                for row in reversed(events(company))
+                if row["kind"] == "wake_end"
+                and row.get("actor_id") == "exec"
+                and parse_time(row["created_at"]) >= latest_review_epoch
+            ),
+            None,
+        ),
+        deadline,
+    )
+
     exact: dict[str, object] = {}
     blind: dict[str, object] = {}
     all_receipts: list[dict[str, object]] = []
@@ -1586,6 +1857,12 @@ async def run_wave4(run_token: str, wall_seconds: int, skip_blind: bool) -> dict
             "peak_staff_attempt_concurrency": peak_attempt_concurrency(
                 state["attempts"], {plan["worker"] for plan in plans.values()}
             ),
+            "peak_staff_model_concurrency": peak_model_session_concurrency(
+                history, {plan["worker"] for plan in plans.values()}
+            )[0],
+            "unterminated_staff_model_sessions": peak_model_session_concurrency(
+                history, {plan["worker"] for plan in plans.values()}
+            )[1],
             "cross_department_leakage": leakage_errors,
             "lead_to_lead_message_count": None,
             "lead_to_lead_message_disposition": "not exposed by the bounded Work graph/event projection; do not infer zero",
@@ -1597,6 +1874,7 @@ async def run_wave4(run_token: str, wall_seconds: int, skip_blind: bool) -> dict
                 }
                 for domain, value in collections.items()
             },
+            "exec_judgement_completed_at": company_exec_review["created_at"],
         }
     )
     json_write(result_dir / "events.json", history)
@@ -1611,7 +1889,8 @@ async def run_wave4(run_token: str, wall_seconds: int, skip_blind: bool) -> dict
     expected_models = {LEAD_MODEL, STAFF_MODEL}
     runtime_valid = (
         measured["exec_returned_before_fourth_request"]
-        and measured["peak_staff_attempt_concurrency"] >= 3
+        and measured["peak_staff_model_concurrency"] >= 3
+        and measured["unterminated_staff_model_sessions"] == 0
         and not leakage_errors
         and set(measured["models"]) == expected_models
         and measured["configured_efforts"] == [PRODUCTION_EFFORT]
@@ -1657,13 +1936,13 @@ async def run_continuity_gate(run_token: str, wall_seconds: int) -> dict[str, ob
     workers = ["continuity-worker", "continuity-control"]
     cli(
         "people", "create", "-c", company, "--id", lead,
-        "--role", "accountable continuity lead", "--display", "Continuity Direction",
+        "--role", "accountable continuity lead", "--display", actor_display(lead),
         "--model", LEAD_MODEL, "--reason", "EXP-05 G1/G3 non-producing supervisor",
     )
     for worker in workers:
         cli(
             "people", "create", "-c", company, "--id", worker,
-            "--role", "bounded continuity producer", "--display", worker.replace("-", " ").title(),
+            "--role", "bounded continuity producer", "--display", actor_display(worker),
             "--model", STAFF_MODEL, "--reason", "EXP-05 G1/G3 exact Staff process",
         )
     cli(
@@ -1818,13 +2097,30 @@ read-only and send one material G1/G3 judgement to Exec. Do not poll or narrate 
         ),
         deadline,
     )
+    await wait_until(
+        "Exec post-judgement wake",
+        lambda: any(
+            row["kind"] == "wake_end"
+            and row.get("actor_id") == "exec"
+            and parse_time(row["created_at"]) >= callback_epoch
+            for row in events(company)
+        ),
+        deadline,
+    )
     tell_result = await tell_task
     state = graph(company)
     history = events(company)
     target_attempts = [row for row in state["attempts"] if row["work_id"] == target_id]
     control_work = next(row for row in state["work"] if row.get("expected_artifact") == str(control_output))
     control_attempts = [row for row in state["attempts"] if row["work_id"] == control_work["id"]]
-    lead_readiness = [row for row in history if row["kind"] == "model_session_ready" and row.get("actor_id") == lead]
+    lead_readiness = sorted(
+        [
+            row
+            for row in history
+            if row["kind"] == "model_session_ready" and row.get("actor_id") == lead
+        ],
+        key=lambda row: row["id"],
+    )
     target_ended = [
         row for row in history
         if row["kind"] == "attempt_process_ended" and row["body"].get("work_id") == target_id
@@ -2059,6 +2355,11 @@ def main() -> None:
     run.add_argument("--run-token", required=True)
     run.add_argument("--wall-seconds", type=int, default=3600)
     run.add_argument("--skip-blind", action="store_true")
+    finalize = sub.add_parser("finalize-arm")
+    finalize.add_argument("arm")
+    finalize.add_argument("--run-token", required=True)
+    finalize.add_argument("--wall-seconds", type=int, default=1800)
+    finalize.add_argument("--skip-blind", action="store_true")
     continuity = sub.add_parser("run-continuity-gate")
     continuity.add_argument("--run-token", required=True)
     continuity.add_argument("--wall-seconds", type=int, default=1800)
@@ -2088,6 +2389,19 @@ def main() -> None:
             result_dir,
             company=company_name(arm.arm_id, args.run_token),
             command=f"run-arm {args.arm}",
+            arm=args.arm,
+        )
+        print(json.dumps(result, indent=2, sort_keys=True))
+    elif args.command == "finalize-arm":
+        arm = Arm.load(args.arm)
+        result_dir = RESULTS / f"{args.arm}-{args.run_token}"
+        result = run_live_command(
+            finalize_existing_arm(
+                args.arm, args.run_token, args.wall_seconds, args.skip_blind
+            ),
+            result_dir,
+            company=company_name(arm.arm_id, args.run_token),
+            command=f"finalize-arm {args.arm}",
             arm=args.arm,
         )
         print(json.dumps(result, indent=2, sort_keys=True))
