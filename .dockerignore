@@ -1,4 +1,12 @@
-# The image build context is the repo root (see infra/company-image/Dockerfile).
-# Never ship build output or local state into the daemon's build cache.
-target/
-.git/
+# The company image builds from the repo root, but its Dockerfile consumes only
+# the Rust workspace and the image definition. Keep this an allowlist: local
+# experiments and company state can be gigabytes and must never enter BuildKit.
+*
+!Cargo.toml
+!Cargo.lock
+!crates/
+!crates/**
+!infra/
+infra/*
+!infra/company-image/
+!infra/company-image/**
