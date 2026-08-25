@@ -1,7 +1,7 @@
 # Coordination theory
 
 **Status:** Working explanatory theory
-**Date:** 25 August 2026
+**Date:** 26 August 2026
 **Authority:** Subordinate to `ARCHITECTURE.md`; empirical claims are indexed in
 `experiment/coordination/EVIDENCE.md`.
 
@@ -87,6 +87,12 @@ value of backlog reduction or response time is large enough to amortise those co
 queue can therefore be perfectly partitioned and still favour one worker. This is the central
 inequality applied to replication rather than coauthoring.
 
+EXP-05 sharpens “backlog” into a temporal claim. The same 240-unit account population crossed from
+Q1 to Q2 twice when all units were waiting, yet produced no p90 improvement when arrivals were paced.
+Forty-entity monitoring did cross at Q2 because disjoint search breadth could overlap immediately.
+Total population and department label are therefore weak signals; the lead should judge whether
+valuable independent work is simultaneously waiting while current Staff is occupied.
+
 The Work graph should remain sparse. It records an actor's real queue, batch, territory or campaign
 responsibility and observable results; it need not mirror every call, prospect or support ticket as a
 new organisational plan node.
@@ -106,6 +112,12 @@ maintained by polling or status meetings. Event-driven does not mean every event
 model wake: ordinary successful partition completions may accumulate durably until a local batch
 closes. Harm, blockage, changed policy, contradiction or another decision-relevant exception remains
 urgent.
+
+Availability is not correctness. In EXP-05, causal policy delivery let the lead supersede two stale
+Attempts and close 96/96 cases under the new policy, while terminal-only delivery left 16 stale cases
+and deadlocked. The causal lead still introduced a substantive unit-level judgement defect. The
+supervisor therefore needs exact changed facts, addressed Work and independent outcome evidence; a
+better wake path does not justify trusting the wake's judgement without review.
 
 ## Why fast agents change the shape
 
@@ -161,11 +173,12 @@ show who really accepted responsibility, what evidence returned and who judged t
 
 ## Experimental consequences
 
-The next useful frontier is not another broad search for teamwork tricks. EXP-04 failed to establish
-a Q2 crossover at 48 accounts or 12 monitored entities. The next queue test should create real demand
-pressure—a much larger frozen backlog or controlled arrivals with response-time value—while holding
-local closure, coalesced review and same-model quality fixed. It should locate three related boundaries
-while treating the supervisor boundary as fixed:
+EXP-05 completed the next queue test. Q2 crossed twice under an all-at-once 240-account backlog and
+once on 40-entity monitoring breadth; paced sales arrivals did not improve p90. Q4 sales had real
+four-way provider capacity and much higher throughput but lost marginal tail quality. This supports a
+wide, shallow, elastic organisation in scoped demand regions, not a fixed team-size table.
+
+The four boundaries remain useful as a reasoning map:
 
 ```text
 shared outcome:   one worker ↔ parallel bounded hands ↔ additional autonomous Staff
@@ -174,9 +187,20 @@ replicated units: one unit worker ↔ elastic same-role Staff pool with local cl
 effort:           validated model/workload effort ↔ consequence escalation + dynamic closure headroom
 ```
 
-The experiment must compare accepted native outcomes, wall time, newly processed input, tool/runtime
-cost, integration work and owner/Exec attention. Replicated work must additionally measure accepted
-units per time, marginal unit economics, tail quality, backlog and lead bottlenecks without inserting a
-model assembler or waking the lead for every normal success. Effort experiments should expose configured
-effort, observable phase and usage—not private chain of thought. A topology wins only in the work region
-it improves; no result becomes a universal router.
+Future experiments must still compare accepted native outcomes, wall time, newly processed input,
+tool/runtime cost, integration work and owner/Exec attention. Replicated work additionally measures
+accepted units per time, marginal unit economics, tail quality, backlog and lead bottlenecks without a
+model assembler or per-unit management wake. Effort remains configured and observable without private
+chain of thought. A topology wins only in the work region it improves.
+
+The next useful frontier is implementation truth rather than another wildcard search:
+
+1. deliver exact terminal failure evidence through the existing event/gate path so a lead cannot wait
+   indefinitely on a success-only callback;
+2. make Exec dispatch durably accepted and asynchronously return portfolio availability before lead
+   model orientation completes;
+3. constrain experiment evaluator structure without inferring missing semantic decisions; and
+4. dogfood one provider-observed inbound signal in an isolated company through prepared native review.
+
+Reopen a coordination mechanism only if that real path repeats one causal information-flow failure.
+No shared history, blackboard, fan-in or workflow engine is implied by EXP-05.

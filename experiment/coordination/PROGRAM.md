@@ -1,9 +1,10 @@
 # Communication frontier research programme
 
-Status: EXP-04 closed. One end-to-end worker under a non-producing lead remains the current
-shared-outcome default. Local closure is now proved as a scaling prerequisite, but the tested sales
-and monitoring loads did not establish a multi-worker crossover. The live frontier is demand-backed
-queue capacity with sparse, named convergence.
+Status: EXP-05 closed. One end-to-end worker under a non-producing lead remains the shared-outcome
+default. Locally closing queue workers now have two scoped Q2 wins—an all-at-once sales backlog and
+independent monitoring breadth—while paced sales arrivals did not improve p90 and sales Q4 failed
+marginal tail quality. The live frontier is implementation consolidation and real inbound-signal
+dogfood, not another broad topology search.
 
 ## 1. Objective
 
@@ -34,14 +35,12 @@ uses Exec as the strong-singleton producer. The main production baselines are:
 Each wildcard changes one important mechanism below the lead and is compared with the relevant
 baseline in the same harness.
 
-### Current model envelope — owner decision, 24 August 2026
+### Current model envelope — owner decision, 26 August 2026
 
-EXP-04's primary matched comparisons use live `zai/glm-5.3` for lead, workers and fresh qualitative
-review through the first-party Pi/OMP Company Runtime and Restless gateway. Topology is established
-with the same model before effort or worker price changes. A later economic arm may keep the GLM-5.3
-lead while testing a live-admitted cheaper/free worker route, but only on a topology that already won
-and only after tools, persistent-session handoff and sustained concurrency pass. Provider failure is
-reported separately from organisational performance.
+EXP-05 used live `zai/glm-5.3` for Exec, leads, workers and fresh qualitative review through the
+first-party Pi/OMP Company Runtime and Restless gateway. Exec, leads and Staff ran at medium effort;
+blind evaluators ran at high. No other model or silent fallback was mixed into a counted cell.
+Provider, evaluator and organisational outcomes remain separately attributed.
 
 ## 2. Questions
 
@@ -196,6 +195,36 @@ The closed contract is
 [`exp-sprint-04-local-closure-and-sparse-convergence.md`](../exp-sprints/exp-sprint-04-local-closure-and-sparse-convergence.md);
 the measured result and sparse dispositions are in
 [`t02-final-results.md`](experiments/EXP-04/t02-final-results.md).
+
+### EXP-05 closed frontier — 26 August 2026
+
+EXP-05 located a real replicated queue crossover without changing the accountability architecture.
+With 240 accounts available at once, Q2 delivered 1.985× then 2.834× value-adjusted throughput,
+materially lower p90 and lower charged cost/unit. With the same batches paced every 45 seconds, Q2
+produced no p90 gain. Conditional Q4 was faster again but its worst-unit score fell beyond the frozen
+tolerance, so Q2 is the accepted ceiling for this fixture and Q8 stops.
+
+Independent search breadth also crossed: monitoring Q2 delivered 1.917× throughput, 0.554× p90 and
+0.853× charged cost/alert with both arms blind-accepted. It needed no model fan-in. This turns the
+queue prior from “local closure may scale” into a scoped demand result: valuable work must be waiting
+while current Staff is occupied, and marginal tail quality must hold.
+
+Causal non-producing supervision materially changed customer operations. The addressed policy event
+superseded two live stale Attempts and closed 96/96 under v2; terminal-only delivery accepted 80/96
+and reached an evidence-proved semantic deadlock. The causal lead still introduced one judgement
+defect, so event addressability preserves the chance to supervise rather than guaranteeing correctness.
+
+Four independent department pairs produced 90/90 exact units while Exec had returned before the
+fourth request. That branch stopped infrastructure-invalid after the support blind evaluator omitted
+its required decision twice. Fourth dispatch took 68.679 seconds and lead-to-lead message count
+remained unknown; neither fact is smoothed into success.
+
+No fan-in or wildcard was authorised. The next frontier is a narrow implementation consolidation:
+deliver exact gate failures as causal evidence, return Exec availability after durable dispatch rather
+than lead orientation, constrain experiment evaluator structure, then dogfood one provider-observed
+inbound signal in isolation. Reopen coordination experimentation only when that real path exposes a
+repeated missing information flow. The closed result is
+[`t05-final-results.md`](experiments/EXP-05/t05-final-results.md).
 
 ### Stage 2 — Replication on different work shapes
 

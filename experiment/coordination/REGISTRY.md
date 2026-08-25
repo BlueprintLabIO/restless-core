@@ -54,7 +54,7 @@ Historical v23 remains indexed in `EVIDENCE.md` and does not change a cell above
 
 | ID | Question | Shapes | Status | Next gate |
 |---|---|---|---|---|
-| **EXP-05** | At what demand and response-time pressure do locally closing GPT-5.6 workers create net capacity, what value does event-responsive non-producing supervision add, and can several leads run while Exec remains available? | 240-account arrival queue; 96 support cases with a material policy change; 40-entity search monitoring; four concurrent departments | designing | Founder approves the frozen GPT-5.6-only, product-path, sparse experiment contract before any call or experiment directory is created. |
+| **EXP-05** | At what demand and response-time pressure do locally closing GLM-5.3 workers create net capacity, what value does event-responsive non-producing supervision add, and can several leads run while Exec remains available? | 240-account arrival queue; 96 support cases with a material policy change; 40-entity search monitoring; four concurrent departments | accepted | D0 sales Q2 crossed twice; paced D1/D2 did not improve p90; sales Q4 stopped on tail quality. Monitoring Q2 won without fan-in. Causal support closed 96/96 versus terminal 80/96. Four departments produced 90/90 exact units, but the semantic cell stopped evaluator-infrastructure-invalid. Consolidate exact failure delivery and asynchronous Exec dispatch before real inbound-signal dogfood. |
 
 ## Wildcards
 

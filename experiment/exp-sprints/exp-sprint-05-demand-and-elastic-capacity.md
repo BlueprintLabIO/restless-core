@@ -1,6 +1,6 @@
 # Experiment Sprint 05 — Demand and elastic capacity
 
-**Status:** Running — founder approved 25 August 2026; Wave 0 repair and fixture freeze in progress.
+**Status:** Complete — evidence closed 26 August 2026.
 
 **Decision owner:** Founder.
 
@@ -391,3 +391,11 @@ timeout never decides that Work succeeded, failed or finished.
 Founder approval freezes the questions, GLM-5.3-only envelope, first-wave fixtures, gates and spend.
 It authorises the controlled `_test` runs and evidence capture only. It does not authorise product
 promotion, a new primitive, an external effect or a live-provider stimulus.
+
+## 15. Closure evidence
+
+The final synthesis is [`t05-final-results.md`](../coordination/experiments/EXP-05/t05-final-results.md).
+Its supporting sales, support, monitoring, concurrent-company, team-size, supervisor-span and wildcard
+notes are colocated under `experiment/coordination/experiments/EXP-05/`; machine evidence and every
+invalid-attempt disposition remain under its `results/` directory. No wildcard or new coordination
+primitive was activated.
