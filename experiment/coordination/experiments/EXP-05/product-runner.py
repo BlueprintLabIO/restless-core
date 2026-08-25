@@ -706,18 +706,8 @@ def percentile(values: list[float], q: float) -> float | None:
     return ordered[lower] * (upper - index) + ordered[upper] * (index - lower)
 
 
-def metrics(company: str, receipts: list[dict[str, object]], start_wall: float) -> dict[str, object]:
-    state = graph(company)
-    history = events(company)
-    latencies = [parse_time(str(row["accepted_at"])) - (start_wall + int(row["arrival_offset_seconds"])) for row in receipts]
-    attempts = state["attempts"]
-    intervals = [
-        (parse_time(row["started_at"]), parse_time(row["finished_at"]))
-        for row in attempts
-        if row.get("finished_at") and row.get("actor_id") not in {"exec"}
-    ]
+def interval_summary(intervals: list[tuple[float, float]]) -> dict[str, float]:
     summed = sum(end - start for start, end in intervals)
-    union = 0.0
     merged: list[list[float]] = []
     for start, end in sorted(intervals):
         if not merged:
@@ -726,27 +716,238 @@ def metrics(company: str, receipts: list[dict[str, object]], start_wall: float) 
             merged[-1][1] = max(merged[-1][1], end)
         else:
             merged.append([start, end])
-    if intervals:
-        union = sum(end - start for start, end in merged)
+    return {
+        "summed": summed,
+        "union": sum(end - start for start, end in merged),
+    }
+
+
+def model_turn_intervals(
+    history: list[dict[str, Any]], actors: set[str]
+) -> list[tuple[float, float]]:
+    pending: dict[str, list[float]] = {actor: [] for actor in actors}
+    intervals: list[tuple[float, float]] = []
+    for row in sorted(history, key=lambda event: parse_time(event["created_at"])):
+        actor = row.get("actor_id")
+        if actor not in actors:
+            continue
+        if row["kind"] == "model_session_ready":
+            pending[actor].append(parse_time(row["created_at"]))
+        elif row["kind"] == "turn_usage" and pending[actor]:
+            intervals.append((pending[actor].pop(0), parse_time(row["created_at"])))
+    return intervals
+
+
+def sales_value_metrics(
+    arm: Arm,
+    receipts: list[dict[str, object]],
+    start_wall: float,
+) -> dict[str, object]:
+    if arm.domain != "sales" or not arm.demand:
+        accepted = sum(int(row["validator"]["units"]) for row in receipts)
+        return {
+            "value_adjusted_units": float(accepted),
+            "initial_value": None,
+            "accepted_value": None,
+            "missed_service_value": None,
+            "high_consequence_retained_fraction": None,
+        }
+    accepted_by_batch = {
+        int(str(row["unit"]).rsplit(" ", 1)[-1]): parse_time(str(row["accepted_at"]))
+        for row in receipts
+    }
+    curves = json.loads((ROOT / f"fixtures/sales/arrivals/{arm.demand}.json").read_text())
+    ratios: list[float] = []
+    initial_value = 0.0
+    accepted_value = 0.0
+    high_ratios: list[float] = []
+    for row in curves:
+        batch = int(row["batch"])
+        delay = max(
+            0.0,
+            accepted_by_batch[batch]
+            - (start_wall + int(row["arrival_offset_seconds"])),
+        )
+        ratio = 2 ** (-delay / float(row["response_half_life_seconds"]))
+        value = float(row["initial_value"])
+        ratios.append(ratio)
+        initial_value += value
+        accepted_value += value * ratio
+        if row["value_curve"] == "high-consequence":
+            high_ratios.append(ratio)
+    return {
+        "value_adjusted_units": sum(ratios),
+        "initial_value": initial_value,
+        "accepted_value": accepted_value,
+        "missed_service_value": initial_value - accepted_value,
+        "high_consequence_retained_fraction": (
+            statistics.mean(high_ratios) if high_ratios else None
+        ),
+    }
+
+
+def metrics(
+    company: str,
+    receipts: list[dict[str, object]],
+    start_wall: float,
+    *,
+    arm: Arm | None = None,
+    leads: set[str] | None = None,
+    workers: set[str] | None = None,
+) -> dict[str, object]:
+    state = graph(company)
+    history = events(company)
+    latencies = [parse_time(str(row["accepted_at"])) - (start_wall + int(row["arrival_offset_seconds"])) for row in receipts]
+    attempts = state["attempts"]
+    leads = leads or set()
+    workers = workers or {
+        str(row["actor_id"]) for row in attempts if row.get("actor_id") != "exec"
+    }
+    intervals = [
+        (parse_time(row["started_at"]), parse_time(row["finished_at"]))
+        for row in attempts
+        if row.get("finished_at") and row.get("actor_id") in workers
+    ]
+    worker_time = interval_summary(intervals)
+    lead_time = interval_summary(model_turn_intervals(history, leads))
     usage = [row for row in history if row["kind"] == "turn_usage"]
     readiness = [row for row in history if row["kind"] == "model_session_ready"]
+    accepted_units = sum(int(row["validator"]["units"]) for row in receipts)
+    queue_seconds = max(parse_time(str(row["accepted_at"])) for row in receipts) - start_wall
+    outcome_end = max(
+        [
+            parse_time(str(row["accepted_at"])) for row in receipts
+        ]
+        + [
+            parse_time(row["created_at"])
+            for row in usage
+            if row.get("actor_id") in leads
+        ]
+    )
+    outcome_seconds = outcome_end - start_wall
+    value = sales_value_metrics(arm, receipts, start_wall) if arm else {
+        "value_adjusted_units": float(accepted_units),
+        "initial_value": None,
+        "accepted_value": None,
+        "missed_service_value": None,
+        "high_consequence_retained_fraction": None,
+    }
+    spend = cli_json("spend", "-c", company)
+    estimated_list_cost = sum(
+        float(row["body"]["estimated_list_cost_usd"])
+        for row in usage
+        if row["body"].get("estimated_list_cost_usd") is not None
+    )
+    value_adjusted = float(value["value_adjusted_units"])
     return {
-        "accepted_units": sum(int(row["validator"]["units"]) for row in receipts),
-        "queue_seconds": max(parse_time(str(row["accepted_at"])) for row in receipts) - start_wall,
+        "accepted_units": accepted_units,
+        "queue_seconds": queue_seconds,
+        "outcome_review_seconds": outcome_seconds,
         "unit_latency_seconds": {
             "p50": percentile(latencies, 0.50),
             "p90": percentile(latencies, 0.90),
             "p99": percentile(latencies, 0.99),
             "max": max(latencies) if latencies else None,
         },
-        "worker_active_seconds": {"summed": summed, "union": union},
+        "accepted_units_per_request_hour": (
+            accepted_units * 3600 / queue_seconds if queue_seconds > 0 else None
+        ),
+        "accepted_units_per_active_worker_hour": (
+            accepted_units * 3600 / worker_time["summed"]
+            if worker_time["summed"] > 0 else None
+        ),
+        "value": value,
+        "value_adjusted_units_per_request_hour": (
+            value_adjusted * 3600 / queue_seconds if queue_seconds > 0 else None
+        ),
+        "value_adjusted_units_per_active_worker_hour": (
+            value_adjusted * 3600 / worker_time["summed"]
+            if worker_time["summed"] > 0 else None
+        ),
+        "worker_active_seconds": worker_time,
+        "lead_active_seconds": lead_time,
+        "lead_active_fraction_of_outcome_window": (
+            lead_time["summed"] / outcome_seconds if outcome_seconds > 0 else None
+        ),
         "attempts": len(attempts),
-        "lead_wakes": sum(1 for row in history if row["kind"] == "actor_wake_end"),
+        "lead_wakes": sum(
+            1
+            for row in history
+            if row["kind"] == "actor_wake_end" and row.get("actor_id") in leads
+        ),
         "usage_events": len(usage),
+        "observed_tokens": sum(
+            int(row["body"].get("tokens") or 0) for row in usage
+        ),
         "configured_efforts": sorted({row["body"].get("configured_effort") for row in usage if row["body"].get("configured_effort")}),
         "models": sorted({row["body"].get("model") for row in usage if row["body"].get("model")}),
         "session_resumptions": sum(bool(row["body"].get("resumed")) for row in readiness),
+        "spend": spend,
+        "estimated_list_cost_usd": estimated_list_cost,
+        "charged_cost_per_accepted_unit_usd": (
+            float(spend["accounted_usd"]) / accepted_units if accepted_units else None
+        ),
+        "estimated_list_cost_per_accepted_unit_usd": (
+            estimated_list_cost / accepted_units if accepted_units else None
+        ),
         "subscription_cost_disposition": "charged USD is authoritative zero and non-discriminating",
+    }
+
+
+def support_change_metrics(
+    state: dict[str, Any],
+    event_record: dict[str, object],
+    units: list[Unit],
+    result_dir: Path,
+) -> dict[str, object]:
+    effective = parse_time(str(event_record["effective_at"]))
+    delivered = parse_time(str(event_record["delivered_at"]))
+    expected_paths = {str(unit.runtime_output) for unit in units}
+    work_ids = {
+        row["id"]
+        for row in state["work"]
+        if row.get("expected_artifact") in expected_paths
+        or "support" in str(row.get("title", "")).lower()
+        or "case" in str(row.get("title", "")).lower()
+    }
+    attempts = [row for row in state["attempts"] if row["work_id"] in work_ids]
+    running_at_effective = [
+        row
+        for row in attempts
+        if parse_time(row["started_at"]) <= effective
+        and (
+            row.get("finished_at") is None
+            or parse_time(row["finished_at"]) >= effective
+        )
+    ]
+    replacement_starts = [
+        parse_time(row["started_at"])
+        for row in attempts
+        if parse_time(row["started_at"]) >= delivered
+    ]
+    stale_finishes = [
+        parse_time(row["finished_at"])
+        for row in running_at_effective
+        if row.get("finished_at") and parse_time(row["finished_at"]) >= delivered
+    ]
+    terminal_v1 = result_dir / "terminal-v1"
+    v1_outputs = len(list(terminal_v1.glob("batch-*.json"))) if terminal_v1.is_dir() else 0
+    attempt_ids = {row["id"] for row in attempts}
+    return {
+        "running_attempts_at_effective_time": len(running_at_effective),
+        "first_replacement_attempt_from_effective_seconds": (
+            min(replacement_starts) - effective if replacement_starts else None
+        ),
+        "first_stale_attempt_end_from_delivery_seconds": (
+            min(stale_finishes) - delivered if stale_finishes else None
+        ),
+        "attempt_feedback_inputs": sum(
+            row["attempt_id"] in attempt_ids for row in state["attempt_feedback"]
+        ),
+        "repair_attempts": max(0, len(attempts) - len(work_ids)),
+        "withheld_v1_first_pass_outputs": v1_outputs,
+        "final_stale_outputs_accepted": 0,
+        "final_policy_version": 2,
     }
 
 
@@ -757,16 +958,28 @@ def blind_packet(arm: Arm, result_dir: Path) -> Path:
     packet.mkdir(parents=True)
     shutil.copy(ROOT / "blind-evaluation-rubric.md", packet / "rubric.md")
     shutil.copy(result_dir / "deterministic-index.json", packet / "candidate.json")
-    if arm.domain == "sales":
+    if arm.wave == 4:
+        source_units = units_for(arm)
+        if arm.domain != "operations":
+            source_units = source_units[:1]
+        source_rows = [
+            row
+            for unit in source_units
+            for row in json.loads(unit.source.read_text())
+        ]
+        json_write(packet / "source.json", source_rows)
+    elif arm.domain == "sales":
         shutil.copy(ROOT / "fixtures/sales/data/accounts.json", packet / "source.json")
-        shutil.copy(ROOT / "fixtures/sales/POLICY.md", packet / "policy.md")
     elif arm.domain == "support":
         shutil.copy(ROOT / "fixtures/support/data/cases.json", packet / "source.json")
-        shutil.copy(ROOT / "fixtures/support/POLICY-v2.md", packet / "policy.md")
     elif arm.domain == "monitoring":
         shutil.copy(ROOT / "fixtures/monitoring/corpus/documents.json", packet / "source.json")
     elif arm.domain == "operations":
         shutil.copy(ROOT / "fixtures/operations/data/invoices.json", packet / "source.json")
+    if arm.domain == "sales":
+        shutil.copy(ROOT / "fixtures/sales/POLICY.md", packet / "policy.md")
+    elif arm.domain == "support":
+        shutil.copy(ROOT / "fixtures/support/POLICY-v2.md", packet / "policy.md")
     (packet / "owner-contract.md").write_text(
         "Judge the candidate as a locally closing fictional business outcome. Nothing was sent or applied. "
         "Return one JSON object with numeric scores, consequential_defects, evidence, and decision.\n"
@@ -881,13 +1094,20 @@ async def run_arm(arm_id: str, run_token: str, wall_seconds: int, skip_blind: bo
         ),
         deadline,
     )
-    tell_result = await tell_task
+    tell_result = await await_process("Exec delegation process", tell_task, deadline)
     exact = full_verify(arm, company, units, result_dir)
     snapshot_events = events(company)
     snapshot_graph = graph(company)
     json_write(result_dir / "events.json", snapshot_events)
     json_write(result_dir / "work-graph.json", snapshot_graph)
-    measured = metrics(company, receipts, start_wall)
+    measured = metrics(
+        company,
+        receipts,
+        start_wall,
+        arm=arm,
+        leads={lead},
+        workers=set(workers),
+    )
     measured.update({
         "tell_started_at": tell_started,
         "first_staff_attempt_at": first_started_at,
@@ -896,6 +1116,10 @@ async def run_arm(arm_id: str, run_token: str, wall_seconds: int, skip_blind: bo
         "arrivals": arrivals,
         "support_event": event_record,
     })
+    if event_record is not None:
+        measured["support_change"] = support_change_metrics(
+            snapshot_graph, event_record, units, result_dir
+        )
     json_write(result_dir / "metrics.json", measured)
     blind = None if skip_blind or not exact["exact"].get("valid") else run_blind_evaluator(arm, result_dir)
     if blind is not None:
@@ -1192,7 +1416,13 @@ async def run_wave4(run_token: str, wall_seconds: int, skip_blind: bool) -> dict
         and row.get("owner_id") != expected_owners[row.get("expected_artifact")]
     ]
     start_wall = min(parse_time(value) for value in first_attempts.values())
-    measured = metrics(company, all_receipts, start_wall)
+    measured = metrics(
+        company,
+        all_receipts,
+        start_wall,
+        leads={plan["lead"] for plan in plans.values()},
+        workers={plan["worker"] for plan in plans.values()},
+    )
     measured.update(
         {
             "initial_tell_started_at": initial_tell_started,

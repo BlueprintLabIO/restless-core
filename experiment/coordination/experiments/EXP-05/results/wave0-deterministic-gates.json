@@ -1,8 +1,8 @@
 {
-  "fixture_manifest_sha256": "ca41c494dd8922b5c29f0365614a0cbf723672b0590f929bc846f85a6d10da24",
+  "fixture_manifest_sha256": "f064978c9fdd4257da8604af101de80ffd33e5e99362f003389b406e413c7221",
   "frozen_contract_sha256": "3af30eaa91cb74e4b6f9332bdc1d16d1f7015270219149236806a1a1b8d2d515",
   "gate": "G4-deterministic-local-closure",
-  "recorded_at": "2026-08-25T08:46:07.340186+00:00",
+  "recorded_at": "2026-08-25T08:52:10.344985+00:00",
   "result": {
     "records": [
       {
