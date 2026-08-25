@@ -257,6 +257,24 @@ def check_runner_contracts() -> dict[str, bool]:
         session_history, {"worker-1", "worker-2", "worker-3", "worker-4"}
     )[1] != 1:
         raise AssertionError("a missing terminal model-usage callback was not exposed")
+    interrupted_history = [
+        {
+            "id": 1,
+            "kind": "model_session_ready",
+            "actor_id": "worker-1",
+            "created_at": start.isoformat(),
+        },
+        {
+            "id": 2,
+            "kind": "attempt_process_ended",
+            "actor_id": "worker-1",
+            "created_at": (start + timedelta(seconds=3)).isoformat(),
+        },
+    ]
+    if runner.peak_model_session_concurrency(
+        interrupted_history, {"worker-1"}
+    ) != (1, 0):
+        raise AssertionError("an interrupted supervised process left a false open model session")
     review_history = [
         {"id": 1, "kind": "turn_usage", "actor_id": "lead", "created_at": (start + timedelta(seconds=10)).isoformat(), "body": {}},
         {"id": 2, "kind": "wake", "actor_id": "exec", "created_at": (start + timedelta(seconds=9)).isoformat(), "body": {"reason": "message from lead"}},

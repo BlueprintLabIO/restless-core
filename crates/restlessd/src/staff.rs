@@ -41,9 +41,15 @@ use workspace::WorkspaceObservation;
 /// live process per durable actor still determine which Staff may run.
 const STAFF_CAP_PER_COMPANY: usize = 100;
 /// (company, actor) pairs with a live supervised process.
+#[derive(Clone)]
+struct RunningStaff {
+    cancellation: CancellationToken,
+    work_id: Option<uuid::Uuid>,
+}
+
 #[derive(Clone, Default)]
 pub struct StaffRegistry {
-    running: Arc<Mutex<HashMap<(String, String), CancellationToken>>>,
+    running: Arc<Mutex<HashMap<(String, String), RunningStaff>>>,
 }
 
 impl StaffRegistry {
@@ -60,7 +66,12 @@ impl StaffRegistry {
             .unwrap_or(false)
     }
 
-    fn try_claim(&self, company: &str, actor: &str) -> Result<CancellationToken> {
+    fn try_claim(
+        &self,
+        company: &str,
+        actor: &str,
+        work_id: Option<uuid::Uuid>,
+    ) -> Result<CancellationToken> {
         let mut running = self
             .running
             .lock()
@@ -78,7 +89,10 @@ impl StaffRegistry {
         let cancellation = CancellationToken::new();
         running.insert(
             (company.to_string(), actor.to_string()),
-            cancellation.clone(),
+            RunningStaff {
+                cancellation: cancellation.clone(),
+                work_id,
+            },
         );
         Ok(cancellation)
     }
@@ -127,7 +141,26 @@ impl StaffRegistry {
             .and_then(|running| {
                 running
                     .get(&(company.to_string(), actor.to_string()))
-                    .cloned()
+                    .map(|active| active.cancellation.clone())
+            })
+            .is_some_and(|cancellation| {
+                cancellation.cancel();
+                true
+            })
+    }
+
+    /// Interrupt only when the material feedback belongs to the Work this
+    /// actor is currently executing. One actor may own several queued units;
+    /// feedback for the next unit must never cancel an unrelated active turn.
+    pub fn interrupt_work(&self, company: &str, actor: &str, work_id: uuid::Uuid) -> bool {
+        self.running
+            .lock()
+            .ok()
+            .and_then(|running| {
+                running
+                    .get(&(company.to_string(), actor.to_string()))
+                    .filter(|active| active.work_id == Some(work_id))
+                    .map(|active| active.cancellation.clone())
             })
             .is_some_and(|cancellation| {
                 cancellation.cancel();
@@ -165,7 +198,7 @@ pub async fn dispatch_claimed_work(
     // claim. Otherwise a queued free-form Exec wake can claim its separate
     // in-memory slot while model/workspace setup is yielding, launching two
     // processes for one actor even though the Work Attempt lease is sound.
-    let cancellation = registry.try_claim(&config.name, &actor)?;
+    let cancellation = registry.try_claim(&config.name, &actor, Some(claimed.work.id))?;
     let container = runtime::container_name(&config.name);
 
     let setup = async {
@@ -705,10 +738,20 @@ mod tests {
     #[test]
     fn owner_interruption_cancels_the_exact_active_staff_turn() {
         let registry = StaffRegistry::default();
+        let active_work = uuid::Uuid::new_v4();
         let cancellation = registry
-            .try_claim("company_test", "research-lead")
+            .try_claim("company_test", "research-lead", Some(active_work))
             .expect("claim the staff turn");
 
+        assert!(!registry.interrupt_work("company_test", "research-lead", uuid::Uuid::new_v4(),));
+        assert!(!cancellation.is_cancelled());
+        assert!(registry.interrupt_work("company_test", "research-lead", active_work,));
+        assert!(cancellation.is_cancelled());
+
+        let registry = StaffRegistry::default();
+        let cancellation = registry
+            .try_claim("company_test", "research-lead", None)
+            .expect("claim the conversational turn");
         assert!(registry.interrupt("company_test", "research-lead"));
         assert!(cancellation.is_cancelled());
         assert!(!registry.interrupt("company_test", "other-actor"));

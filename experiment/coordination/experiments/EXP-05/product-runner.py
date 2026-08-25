@@ -187,8 +187,21 @@ def cli(*args: str, check: bool = True) -> str:
 
 
 def cli_json(*args: str) -> Any:
-    raw = cli(*args)
-    return json.loads(raw)
+    argv = [str(CLI), *args]
+    for attempt in range(3):
+        result = run_sync(argv, check=False)
+        if result.returncode == 0:
+            return json.loads(result.stdout.strip())
+        transient_read_failure = "pool timed out while waiting for an open connection" in result.stderr
+        if not transient_read_failure or attempt == 2:
+            raise RunFailure(
+                f"command failed ({result.returncode}): {' '.join(argv)}\n{result.stderr.strip()}"
+            )
+        # These are read-only observer commands. Retrying a transient pool
+        # acquisition cannot duplicate Work or an effect; the tiny backoff is
+        # substrate recovery, never a semantic completion timer.
+        time.sleep(0.1 * (attempt + 1))
+    raise AssertionError("bounded read retry exhausted without a disposition")
 
 
 def experiment_spend() -> dict[str, object]:
@@ -1253,6 +1266,7 @@ async def finalize_completed_arm(
     deadline: float,
     skip_blind: bool,
     send_validator_callback: bool,
+    preserved_blind: dict[str, object] | None = None,
 ) -> dict[str, object]:
     """Finalize already-produced native evidence without replaying production."""
     receipt_payload = {
@@ -1312,7 +1326,9 @@ async def finalize_completed_arm(
             snapshot_graph, event_record, units, result_dir
         )
     json_write(result_dir / "metrics.json", measured)
-    blind = None if skip_blind or not exact["exact"].get("valid") else run_blind_evaluator(arm, result_dir)
+    blind = preserved_blind
+    if blind is None and not skip_blind and exact["exact"].get("valid"):
+        blind = run_blind_evaluator(arm, result_dir)
     if blind is not None:
         json_write(result_dir / "blind-evaluation.json", blind)
     evaluation_valid = skip_blind or (blind is not None and bool(blind.get("valid")))
@@ -1415,30 +1431,48 @@ async def finalize_existing_arm(
 ) -> dict[str, object]:
     """Recover a completed cell after its observer stopped during finalization."""
     arm = Arm.load(arm_id)
-    if arm.domain in {"company", "support"}:
+    if arm.domain == "company":
         raise RunFailure(
-            "finalize-arm currently supports ordinary sales and monitoring cells only; "
-            "support causal-event state and Wave 4 require their dedicated runners"
+            "Wave 4 requires its dedicated runner because it contains several companies"
         )
     result_dir = RESULTS / f"{arm_id}-{run_token}"
     if not result_dir.exists():
         raise RunFailure(f"result directory does not exist: {result_dir}")
     existing_result_path = result_dir / "run-result.json"
+    existing_result: dict[str, Any] | None = None
+    preserved_blind: dict[str, object] | None = None
     if existing_result_path.exists():
         existing_result = json.loads(existing_result_path.read_text())
         blind = existing_result.get("blind_evaluation")
-        if (
-            existing_result.get("validity") != "invalid"
-            or not isinstance(blind, dict)
-            or blind.get("valid") is not False
-        ):
+        blind_retry = (
+            existing_result.get("validity") == "invalid"
+            and isinstance(blind, dict)
+            and blind.get("valid") is False
+        )
+        telemetry_refresh = (
+            existing_result.get("validity") == "invalid"
+            and existing_result.get("runtime_valid") is False
+            and isinstance(blind, dict)
+            and blind.get("valid") is True
+            and existing_result.get("exact_evaluation", {}).get("exact", {}).get("valid") is True
+            and existing_result.get("exact_evaluation", {}).get("attribution_valid") is True
+            and existing_result.get("metrics", {}).get("unterminated_staff_model_sessions", 0) > 0
+        )
+        if not blind_retry and not telemetry_refresh:
             raise RunFailure(f"run is already finalized: {existing_result_path}")
-        retry_path = result_dir / "blind-invalid-run-result.json"
-        if retry_path.exists():
-            raise RunFailure(
-                f"blind evaluator already failed twice for this cell: {retry_path}"
-            )
-        shutil.copy(existing_result_path, retry_path)
+        if blind_retry:
+            retry_path = result_dir / "blind-invalid-run-result.json"
+            if retry_path.exists():
+                raise RunFailure(
+                    f"blind evaluator already failed twice for this cell: {retry_path}"
+                )
+            shutil.copy(existing_result_path, retry_path)
+        else:
+            preserved_blind = blind
+    elif arm.domain == "support":
+        raise RunFailure(
+            "support finalization requires its preserved event-bearing run result"
+        )
     company = company_name(arm.arm_id, run_token)
     if company not in set(cli_json("company", "list")):
         raise RunFailure(f"product company is unavailable: {company}")
@@ -1460,7 +1494,11 @@ async def finalize_existing_arm(
         raise RunFailure(f"cannot finalize {arm_id}: no Staff Attempt exists")
     start_wall = parse_time(first_started_at)
     history = events(company)
-    tell_started = min(
+    tell_started = (
+        existing_result.get("metrics", {}).get("tell_started_at")
+        if existing_result is not None
+        else None
+    ) or min(
         (
             row["created_at"]
             for row in history
@@ -1469,7 +1507,11 @@ async def finalize_existing_arm(
         key=parse_time,
         default=json.loads((result_dir / "run-manifest.json").read_text())["started_at"],
     )
-    arrivals = [
+    arrivals = (
+        existing_result.get("metrics", {}).get("arrivals")
+        if existing_result is not None
+        else None
+    ) or [
         {
             "unit": unit.name,
             "offset_seconds": unit.offset_seconds,
@@ -1480,6 +1522,11 @@ async def finalize_existing_arm(
         }
         for unit in units
     ]
+    event_record = (
+        existing_result.get("metrics", {}).get("support_event")
+        if existing_result is not None and arm.domain == "support"
+        else None
+    )
     return await finalize_completed_arm(
         arm=arm,
         company=company,
@@ -1493,10 +1540,11 @@ async def finalize_existing_arm(
         tell_started=tell_started,
         tell_result=(0, "recovered completed product evidence; production was not replayed", ""),
         arrivals=arrivals,
-        event_record=None,
+        event_record=event_record,
         deadline=deadline,
         skip_blind=skip_blind,
         send_validator_callback=not had_receipt_bundle,
+        preserved_blind=preserved_blind,
     )
 
 
@@ -1535,7 +1583,13 @@ def peak_attempt_concurrency(attempts: list[dict[str, Any]], actors: set[str]) -
 def peak_model_session_concurrency(
     history: list[dict[str, Any]], actors: set[str]
 ) -> tuple[int, int]:
-    """Measure actual ACP overlap, not Attempts waiting before model admission."""
+    """Measure actual ACP overlap, not Attempts waiting before model admission.
+
+    A normal turn closes on its usage snapshot. An intentionally interrupted
+    turn may emit no ACP usage notification even though the supervised process
+    and host-owned metering drain both terminate; its Attempt process end is
+    therefore the exact local close boundary.
+    """
     open_sessions: dict[str, list[float]] = {actor: [] for actor in actors}
     boundaries: list[tuple[float, int]] = []
     for row in sorted(history, key=lambda event: (parse_time(event["created_at"]), int(event["id"]))):
@@ -1545,7 +1599,7 @@ def peak_model_session_concurrency(
         when = parse_time(row["created_at"])
         if row["kind"] == "model_session_ready":
             open_sessions[actor].append(when)
-        elif row["kind"] == "turn_usage" and open_sessions[actor]:
+        elif row["kind"] in {"turn_usage", "attempt_process_ended"} and open_sessions[actor]:
             started = open_sessions[actor].pop(0)
             boundaries.append((started, 1))
             boundaries.append((when, -1))
@@ -2316,7 +2370,7 @@ def run_live_command(
 ) -> dict[str, object]:
     try:
         return asyncio.run(coroutine)
-    except Exception as error:  # noqa: BLE001 - every invalid run must leave evidence
+    except (Exception, KeyboardInterrupt) as error:  # noqa: BLE001 - every invalid run must leave evidence
         result_dir.mkdir(parents=True, exist_ok=True)
         failure: dict[str, object] = {
             "validity": "invalid",

@@ -200,14 +200,20 @@ async fn handle_notification(daemon: &Arc<Daemon>, in_flight: &InFlight, payload
             // the same Work with this message in the next bound context.
             let actor = value["body"]["to"].as_str().unwrap_or_default();
             if let Some(message_id) = value["body"]["message_id"].as_i64() {
-                let routes_through_work = match daemon.orgintel.get(company).await {
-                    Ok(org) => org
-                        .message_is_work_attempt_input(message_id)
-                        .await
-                        .unwrap_or(false),
-                    Err(_) => false,
+                let routed_work = match daemon.orgintel.get(company).await {
+                    Ok(org)
+                        if org
+                            .message_is_work_attempt_input(message_id)
+                            .await
+                            .unwrap_or(false) =>
+                    {
+                        org.message_work_id(message_id).await.ok().flatten()
+                    }
+                    _ => None,
                 };
-                if routes_through_work && daemon.staff.interrupt(company, actor) {
+                if routed_work
+                    .is_some_and(|work_id| daemon.staff.interrupt_work(company, actor, work_id))
+                {
                     tracing::info!(
                         company,
                         actor,

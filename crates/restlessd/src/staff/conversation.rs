@@ -370,7 +370,7 @@ pub async fn dispatch_actor_conversation(
         reply_work_id.or_else(|| judgements.first().map(|handoff| handoff.work_id));
     let conversation_workspace =
         completed_attempt_review_workspace(org, &container, review_work_id).await;
-    let cancellation = runtime.registry.try_claim(&config.name, actor)?;
+    let cancellation = runtime.registry.try_claim(&config.name, actor, None)?;
     let company = config.name.clone();
     let actor = actor.to_string();
     let name = actor_row.display.clone();

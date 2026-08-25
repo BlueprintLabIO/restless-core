@@ -1745,52 +1745,44 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
             }
             Err(error) => Response::err(format!("{error:#}")),
         },
-        "spend" => match (
-            runtime::CompanyConfig::load(&daemon.root, company),
-            daemon.orgintel.get(company).await,
-        ) {
-            (Ok(config), Ok(org)) => match org.list_actors().await {
-                Ok(actors) => {
-                    let roles: HashMap<String, String> = actors
-                        .into_iter()
-                        .map(|actor| (actor.id, actor.role))
-                        .collect();
-                    let by_actor = daemon.spend.breakdown(company);
-                    let budget = daemon.spend.budget_state(&config);
-                    let accounted = budget.accounted_micro_usd() as f64 / 1_000_000.0;
-                    let status = match budget {
-                        spend::ModelBudgetState::Available { .. } => "available",
-                        spend::ModelBudgetState::Exhausted { .. } => "exhausted",
-                        spend::ModelBudgetState::MeteringUnknown { .. } => "metering_unknown",
-                    };
-                    let rows: Vec<serde_json::Value> = by_actor
-                        .into_iter()
-                        .map(|(actor, model, usd)| {
-                            let role = roles.get(&actor).cloned();
-                            serde_json::json!({
-                                "actor": actor,
-                                "role": role,
-                                "model": model,
-                                "spent_usd": round_usd(usd),
-                            })
+        // Spend is Authority-owned truth. Role labels are an OrgIntel
+        // projection and must not make a ceiling, poison, or exact charge
+        // unreadable when organisational state is unavailable or saturated.
+        "spend" => match runtime::CompanyConfig::load(&daemon.root, company) {
+            Ok(config) => {
+                let by_actor = daemon.spend.breakdown(company);
+                let budget = daemon.spend.budget_state(&config);
+                let accounted = budget.accounted_micro_usd() as f64 / 1_000_000.0;
+                let status = match budget {
+                    spend::ModelBudgetState::Available { .. } => "available",
+                    spend::ModelBudgetState::Exhausted { .. } => "exhausted",
+                    spend::ModelBudgetState::MeteringUnknown { .. } => "metering_unknown",
+                };
+                let rows: Vec<serde_json::Value> = by_actor
+                    .into_iter()
+                    .map(|(actor, model, usd)| {
+                        serde_json::json!({
+                            "actor": actor,
+                            "role": serde_json::Value::Null,
+                            "model": model,
+                            "spent_usd": round_usd(usd),
                         })
-                        .collect();
-                    Response::ok(serde_json::json!({
-                        "accounted_usd": round_usd(accounted),
-                        "ceiling_usd": config.spend_ceiling_usd.as_usd(),
-                        "remaining_usd": budget.remaining_micro_usd().map(|remaining| round_usd(remaining as f64 / 1_000_000.0)),
-                        "status": status,
-                        "note": if status == "metering_unknown" {
-                            serde_json::json!(
-                                "fail-closed: a provider stream could not be exactly accounted, so charged work is paused until model metering is reconciled. `accounted_usd` remains the real known spend."
-                            )
-                        } else { serde_json::Value::Null },
-                        "by_actor": rows,
-                    }))
-                }
-                Err(error) => Response::err(format!("{error:#}")),
-            },
-            (Err(error), _) | (_, Err(error)) => Response::err(format!("{error:#}")),
+                    })
+                    .collect();
+                Response::ok(serde_json::json!({
+                    "accounted_usd": round_usd(accounted),
+                    "ceiling_usd": config.spend_ceiling_usd.as_usd(),
+                    "remaining_usd": budget.remaining_micro_usd().map(|remaining| round_usd(remaining as f64 / 1_000_000.0)),
+                    "status": status,
+                    "note": if status == "metering_unknown" {
+                        serde_json::json!(
+                            "fail-closed: a provider stream could not be exactly accounted, so charged work is paused until model metering is reconciled. `accounted_usd` remains the real known spend."
+                        )
+                    } else { serde_json::Value::Null },
+                    "by_actor": rows,
+                }))
+            }
+            Err(error) => Response::err(format!("{error:#}")),
         },
         "spend-correct" => {
             if let Err(error) = runtime::CompanyConfig::load(&daemon.root, company) {

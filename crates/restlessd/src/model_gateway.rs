@@ -22,7 +22,7 @@ use axum::http::header::{ACCEPT, AUTHORIZATION, CACHE_CONTROL, CONTENT_TYPE};
 use axum::http::{HeaderMap, Response, StatusCode};
 use axum::routing::post;
 use axum::Router;
-use futures_util::Stream;
+use futures_util::{Stream, StreamExt as _};
 use serde::Deserialize;
 use tokio::process::{Child, Command};
 
@@ -669,6 +669,15 @@ async fn relay_pi_stream(
             billing,
         },
     );
+    // The Runtime client and the provider's accounting stream have different
+    // lifetimes. A deliberate ACP cancellation may close the former while the
+    // provider is still producing its terminal charged-usage event. Keep a
+    // host-owned drain alive so interruption can be prompt without turning a
+    // known request into permanently unknown spend. The bounded channel still
+    // provides ordinary downstream backpressure while connected; after a
+    // disconnect the task stops forwarding bytes but continues to the exact
+    // semantic terminal.
+    let (stream, _drain) = detach_metered_stream(stream);
     let mut response = Response::builder().status(status);
     for name in [CONTENT_TYPE, CACHE_CONTROL] {
         if let Some(value) = upstream_headers.get(&name) {
@@ -678,6 +687,27 @@ async fn relay_pi_stream(
     response
         .body(Body::from_stream(stream))
         .unwrap_or_else(|_| relay_error(StatusCode::BAD_GATEWAY, "could not relay model stream"))
+}
+
+fn detach_metered_stream(
+    mut upstream: MeteredStream,
+) -> (
+    impl Stream<Item = std::result::Result<Bytes, reqwest::Error>> + Send,
+    tokio::task::JoinHandle<()>,
+) {
+    let (sender, receiver) = tokio::sync::mpsc::channel(32);
+    let drain = tokio::spawn(async move {
+        let mut downstream_open = true;
+        while let Some(item) = upstream.next().await {
+            if downstream_open && sender.send(item).await.is_err() {
+                downstream_open = false;
+            }
+        }
+    });
+    let stream = futures_util::stream::unfold(receiver, |mut receiver| async move {
+        receiver.recv().await.map(|item| (item, receiver))
+    });
+    (stream, drain)
 }
 
 fn bearer_capability(headers: &HeaderMap) -> std::result::Result<&str, String> {
@@ -1421,6 +1451,59 @@ mod tests {
             None,
             "a metered stream without terminal charged usage leaves metering unknown and blocks further charged requests"
         );
+
+        drop(ledger);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn runtime_disconnect_does_not_abandon_terminal_metering() {
+        let root = test_root();
+        let (_issuer, ledger, _state) = test_relay_state(&root);
+        let event = serde_json::json!({
+            "type": "done",
+            "message": {
+                "usage": {
+                    "input": 11,
+                    "output": 7,
+                    "cost": { "total": 0.000001 }
+                }
+            }
+        });
+        let frame = Bytes::from(format!("data: {event}\n\n"));
+        let upstream = futures_util::stream::iter(vec![Ok(frame)]);
+        let metered = MeteredStream::new(
+            upstream,
+            ledger.meter(),
+            MeteredRequest {
+                company: "cancelled_test".into(),
+                actor: "support-owner".into(),
+                session: "session_cancelled".into(),
+                model: "zai/glm-5.3".into(),
+                billing: ModelBilling::MeteredApi,
+            },
+        );
+        let (downstream, drain) = detach_metered_stream(metered);
+
+        // ACP cancellation closes this response body. The host still owns the
+        // upstream request and must consume its terminal accounting event.
+        drop(downstream);
+        drain.await.unwrap();
+
+        assert_eq!(
+            ledger
+                .budget_state_for(
+                    "cancelled_test",
+                    crate::runtime::SpendCeiling::from_micro_usd(2),
+                )
+                .remaining_micro_usd(),
+            Some(1),
+        );
+        let spool = std::fs::read_to_string(root.join("spend/spend.jsonl")).unwrap();
+        let record: serde_json::Value = serde_json::from_str(spool.trim()).unwrap();
+        assert_eq!(record["sessionId"], "session_cancelled");
+        assert_eq!(record["totalTokens"], 18);
+        assert_eq!(record["costMicroUsd"], 1);
 
         drop(ledger);
         std::fs::remove_dir_all(root).unwrap();
