@@ -1,8 +1,8 @@
 {
-  "fixture_manifest_sha256": "567903fe8b7becb1ec45726a4d09b2d4c04819ab63d28563c5643e64940c320a",
+  "fixture_manifest_sha256": "88e9562b8b7063f1132e8fcdbcfe022716092a86082fa1d137ecc0510fae582d",
   "frozen_contract_sha256": "3af30eaa91cb74e4b6f9332bdc1d16d1f7015270219149236806a1a1b8d2d515",
   "gate": "G4-deterministic-local-closure",
-  "recorded_at": "2026-08-25T08:58:51.876407+00:00",
+  "recorded_at": "2026-08-25T09:00:47.268754+00:00",
   "result": {
     "records": [
       {
@@ -46,6 +46,11 @@
         "wave4_subset_contract": true
       }
     ],
+    "runner_contracts": {
+      "blind_schema_rejects_drift": true,
+      "flat_and_decaying_value_curves_separate": true,
+      "overlap_math_is_exact": true
+    },
     "valid": true
   },
   "scope": "deterministic fixture/evaluator conformance only; no model or product-path claim",

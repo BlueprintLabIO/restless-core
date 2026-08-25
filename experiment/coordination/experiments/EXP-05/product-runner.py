@@ -768,8 +768,9 @@ def sales_value_metrics(
             accepted_by_batch[batch]
             - (start_wall + int(row["arrival_offset_seconds"])),
         )
-        ratio = 2 ** (-delay / float(row["response_half_life_seconds"]))
-        value = float(row["initial_value"])
+        half_life = row.get("response_half_life_seconds")
+        ratio = 1.0 if half_life is None else 2 ** (-delay / float(half_life))
+        value = float(row.get("initial_value", 1.0))
         ratios.append(ratio)
         initial_value += value
         accepted_value += value * ratio

@@ -312,9 +312,9 @@
       "sha256": "3af30eaa91cb74e4b6f9332bdc1d16d1f7015270219149236806a1a1b8d2d515"
     },
     {
-      "bytes": 8298,
+      "bytes": 10829,
       "path": "self-test.py",
-      "sha256": "e36ba9d7e40b0776833ceaa6e2b85198a802a4497e4f824c6eefde20f1cd52bf"
+      "sha256": "e5c1dd220b6ec532b24e6e2f01e1da83724317d9a1535066b16ae1a2f831c67c"
     },
     {
       "bytes": 8502,
@@ -327,9 +327,9 @@
       "sha256": "704550fbf9a29a574da48a28778cdea98135576630a6be7fa2279674ce347879"
     },
     {
-      "bytes": 86490,
+      "bytes": 86563,
       "path": "product-runner.py",
-      "sha256": "2897d881cedc784de9cad2a2151bcb9d1f87b9b3b7fb633ee1e53ade6283f607"
+      "sha256": "ca0372d196ce0ba841fcb5e5a877f2c402ddc20693d0453d2e88c713053c98c4"
     },
     {
       "bytes": 10792,

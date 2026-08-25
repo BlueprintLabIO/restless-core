@@ -4,10 +4,13 @@
 from __future__ import annotations
 
 import hashlib
+import importlib.util
 import json
 import random
 import subprocess
+import sys
 import tempfile
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 
@@ -178,6 +181,62 @@ def check_domain(root: Path, domain: str) -> dict[str, object]:
     }
 
 
+def check_runner_contracts() -> dict[str, bool]:
+    spec = importlib.util.spec_from_file_location("exp05_product_runner_test", ROOT / "product-runner.py")
+    if spec is None or spec.loader is None:
+        raise AssertionError("could not load product runner")
+    runner = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = runner
+    spec.loader.exec_module(runner)
+    score_fields = (
+        "usefulness", "grounding", "safe_actionability", "tail_handling",
+        "uncertainty_calibration", "native_review_readiness",
+    )
+    good = {
+        "scores": {name: 9 for name in score_fields},
+        "worst_unit": {"id": "A001", "score": 8, "defect": "none"},
+        "high_consequence_breach": False,
+        "consequential_defects": [],
+        "evidence": ["exact artifact observation"],
+        "decision": "accept",
+    }
+    if runner.validate_blind_judgement(good):
+        raise AssertionError("valid frozen blind judgement was rejected")
+    if not runner.validate_blind_judgement({**good, "decision": "maybe"}):
+        raise AssertionError("invalid blind decision was accepted")
+    start = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    receipts = [
+        {
+            "unit": f"sales batch {batch:02d}",
+            "accepted_at": (start + timedelta(seconds=(batch - 1) * 45 + 300)).isoformat(),
+            "arrival_offset_seconds": (batch - 1) * 45,
+            "validator": {"units": 40},
+        }
+        for batch in range(1, 7)
+    ]
+    d0 = runner.sales_value_metrics(
+        runner.Arm("d0", 1, "sales", "q1", 1, demand="D0"),
+        receipts,
+        start.timestamp(),
+    )
+    d2 = runner.sales_value_metrics(
+        runner.Arm("d2", 1, "sales", "q1", 1, demand="D2"),
+        receipts,
+        start.timestamp(),
+    )
+    if d0["value_adjusted_units"] != 240:
+        raise AssertionError("flat demand unexpectedly decayed")
+    if not 0 < d2["value_adjusted_units"] < 240:
+        raise AssertionError("service-pressure value curve did not decay")
+    if runner.interval_summary([(0, 10), (5, 12), (20, 25)]) != {"summed": 22, "union": 17}:
+        raise AssertionError("overlapping actor time was composed incorrectly")
+    return {
+        "blind_schema_rejects_drift": True,
+        "flat_and_decaying_value_curves_separate": True,
+        "overlap_math_is_exact": True,
+    }
+
+
 def main() -> None:
     records = []
     with tempfile.TemporaryDirectory(prefix="restless-exp05-self-test-") as directory:
@@ -186,7 +245,13 @@ def main() -> None:
             domain_root = base / domain
             domain_root.mkdir()
             records.append(check_domain(domain_root, domain))
-    print(json.dumps({"valid": True, "records": records}, indent=2, sort_keys=True))
+    print(
+        json.dumps(
+            {"valid": True, "records": records, "runner_contracts": check_runner_contracts()},
+            indent=2,
+            sort_keys=True,
+        )
+    )
 
 
 if __name__ == "__main__":
