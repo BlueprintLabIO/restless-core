@@ -493,7 +493,7 @@ def write_blind_rubric() -> None:
         ROOT / "blind-evaluation-rubric.md",
         """# EXP-05 blinded semantic evaluation
 
-The fresh GPT-5.6 Sol evaluator receives only the frozen owner contract, authoritative fictional
+The fresh GLM-5.3 evaluator receives only the frozen owner contract, authoritative fictional
 sources, exact deterministic index and native artifacts. It must not see topology, actor names,
 model traces, usage, cost, arm labels or producer identity.
 
@@ -530,12 +530,17 @@ def write_contract() -> None:
     write(
         ROOT / "frozen-contract.json",
         {
-            "version": 1,
+            "version": 2,
+            "amendment": {
+                "date": "2026-08-25",
+                "reason": "Founder authorised exact GLM-5.3 after the first-party GPT-5.6 OAuth route remained unavailable; no counted live run existed.",
+                "prior_envelope": "openai-codex/gpt-5.6-sol + openai-codex/gpt-5.6-terra",
+            },
             "models": {
-                "exec": {"selector": "openai-codex/gpt-5.6-sol", "effort": "medium"},
-                "lead": {"selector": "openai-codex/gpt-5.6-sol", "effort": "medium"},
-                "staff": {"selector": "openai-codex/gpt-5.6-terra", "effort": "medium"},
-                "blind_evaluator": {"selector": "openai-codex/gpt-5.6-sol", "effort": "high"},
+                "exec": {"selector": "zai/glm-5.3", "effort": "medium"},
+                "lead": {"selector": "zai/glm-5.3", "effort": "medium"},
+                "staff": {"selector": "zai/glm-5.3", "effort": "medium"},
+                "blind_evaluator": {"selector": "zai/glm-5.3", "effort": "high"},
             },
             "sales": {
                 "batches": 6,
@@ -566,7 +571,7 @@ def write_contract() -> None:
                 "worker_active": "report both summed actor time and union window",
                 "operator_pauses": "reported separately and excluded from actor/provider latency",
             },
-            "cost": {"subscription_usd_zero_or_missing": "non-discriminating; preserve unknown and use usage, latency, cadence and accepted value"},
+            "cost": {"metered_api_usd": "authoritative gateway usage; missing metering makes a live cell invalid"},
         },
     )
 

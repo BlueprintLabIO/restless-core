@@ -1,6 +1,6 @@
 # EXP-05 blinded semantic evaluation
 
-The fresh GPT-5.6 Sol evaluator receives only the frozen owner contract, authoritative fictional
+The fresh GLM-5.3 evaluator receives only the frozen owner contract, authoritative fictional
 sources, exact deterministic index and native artifacts. It must not see topology, actor names,
 model traces, usage, cost, arm labels or producer identity.
 

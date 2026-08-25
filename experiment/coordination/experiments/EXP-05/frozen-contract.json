@@ -1,6 +1,11 @@
 {
+  "amendment": {
+    "date": "2026-08-25",
+    "prior_envelope": "openai-codex/gpt-5.6-sol + openai-codex/gpt-5.6-terra",
+    "reason": "Founder authorised exact GLM-5.3 after the first-party GPT-5.6 OAuth route remained unavailable; no counted live run existed."
+  },
   "cost": {
-    "subscription_usd_zero_or_missing": "non-discriminating; preserve unknown and use usage, latency, cadence and accepted value"
+    "metered_api_usd": "authoritative gateway usage; missing metering makes a live cell invalid"
   },
   "lead_span": {
     "exception_response_seconds": 180,
@@ -9,19 +14,19 @@
   "models": {
     "blind_evaluator": {
       "effort": "high",
-      "selector": "openai-codex/gpt-5.6-sol"
+      "selector": "zai/glm-5.3"
     },
     "exec": {
       "effort": "medium",
-      "selector": "openai-codex/gpt-5.6-sol"
+      "selector": "zai/glm-5.3"
     },
     "lead": {
       "effort": "medium",
-      "selector": "openai-codex/gpt-5.6-sol"
+      "selector": "zai/glm-5.3"
     },
     "staff": {
       "effort": "medium",
-      "selector": "openai-codex/gpt-5.6-terra"
+      "selector": "zai/glm-5.3"
     }
   },
   "monitoring": {
@@ -93,5 +98,5 @@
     "unit_arrival": "frozen schedule timestamp",
     "worker_active": "report both summed actor time and union window"
   },
-  "version": 1
+  "version": 2
 }

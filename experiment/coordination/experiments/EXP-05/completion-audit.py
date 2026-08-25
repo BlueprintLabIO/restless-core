@@ -41,7 +41,7 @@ def main() -> None:
     preflight = read(preflight_path) if preflight_path.is_file() else {}
     checks.append(
         check(
-            "exact GPT-5.6 subscription preflight",
+            "exact frozen-model preflight",
             bool(
                 preflight.get("valid")
                 and preflight.get("exact_execution_probe") == "passed"

@@ -6,11 +6,12 @@
 
 **Date:** 25 August 2026
 
-**Primary model envelope:** GPT-5.6 only. `openai-codex/gpt-5.6-sol` at medium effort is Exec and
-every accountable lead; `openai-codex/gpt-5.6-terra` at medium effort is Staff. The blinded semantic
-evaluator is fresh `openai-codex/gpt-5.6-sol` at high effort. The exact first-party runtime selectors and
-sustained concurrency must be live-probed before the first counted call. No other model or silent
-fallback is authorised.
+**Primary model envelope:** `zai/glm-5.3` only. It runs Exec, every accountable lead and Staff at
+medium effort; the fresh blinded semantic evaluator uses the same exact model at high effort. The
+exact runtime selector and sustained concurrency must be live-probed before the first counted cell.
+No other model or silent fallback is authorised. This envelope was amended with founder approval on
+25 August 2026 after the planned first-party GPT-5.6 OAuth route remained unavailable. No counted
+live run existed, so the amendment changes the treatment rather than mixing model populations.
 
 **Depends on:** EXP-04's local-closure and sparse-fan-in result; Sprint 17's product actor/session,
 causal event, supervised Work and native review path. The real Resend callback is not required:
@@ -111,22 +112,22 @@ approval after the repeated failure is shown.
 
 No organisational comparison counts until these pass.
 
-### G1 — GPT-5.6 product-path capability
+### G1 — GLM-5.3 product-path capability
 
-One Sol lead and one Terra worker each resume the same responsibility-scoped session across two fresh
+One GLM-5.3 lead and one GLM-5.3 worker each resume the same responsibility-scoped session across two fresh
 process launches, use the exact coordination and file tools, return a semantic terminal report and
 expose per-turn usage without crossing actor or Work boundaries. Missing usage fields remain unknown.
 
 The pre-call audit found and repaired four launch-contract defects before they could contaminate this
 gate: non-Exec actor preferences are exact rather than inheriting Exec fallbacks; the signed Runtime
-capability binds the exact model rather than only its provider; Terra may be an actor model without
+capability binds the exact model rather than only its provider; Staff may use an actor model without
 pretending it is an Exec fallback; and explicit effort enters the ACP launch, session identity,
 readiness event and usage event. These are conformance facts, not coordination results. Their live
 proof remains G1.
 
 ### G2 — Sustained Q4 admission
 
-Four Terra workers concurrently complete four exact, disjoint tool-backed units through the same
+Four GLM-5.3 workers concurrently complete four exact, disjoint tool-backed units through the same
 gateway and Runtime envelope. All four produce terminal reports and attributable usage. Provider
 queueing, missing tools or one absent callback makes Q4 infrastructure-invalid and stops Q4 counted
 arms; it does not become a topology loss or trigger route roulette.
@@ -140,7 +141,7 @@ post-change artifacts from being accepted. Routine completions remain coalesced.
 ### G4 — Local closure and evaluation
 
 Randomised completion order yields a byte-identical deterministic unit index with zero missing,
-duplicate or cross-unit ownership. Exact population checks inspect every unit. A fresh Sol evaluator
+duplicate or cross-unit ownership. Exact population checks inspect every unit. A fresh GLM-5.3 evaluator
 sees native artifacts and authoritative sources but not topology, traces, spend or producer identity.
 
 ## 6. Sparse experiment sequence
@@ -156,7 +157,7 @@ follow-up trigger, uncertainty and exact claims checks. Nothing is sent.
 
 Run the same total population under three predeclared arrival schedules:
 
-- **D0 — available batch:** all units are available at start; establishes the GPT-5.6 Q1/Q2 anchor.
+- **D0 — available batch:** all units are available at start; establishes the GLM-5.3 Q1/Q2 anchor.
 - **D1 — sustained arrivals:** arrivals are paced to keep Q1 meaningfully occupied without creating an
   impossible burst.
 - **D2 — service pressure:** the same arrivals carry heterogeneous response-value curves, including a
@@ -190,7 +191,7 @@ success cases arriving over time, with shared policy, eight planted exception cl
 harm. Every Staff owner closes a safe response/resolution package and observable next state. Nothing
 is sent or applied.
 
-Compare under the same Sol lead and the frozen Q2 diagnostic roster required to create the same
+Compare under the same GLM-5.3 lead and the frozen Q2 diagnostic roster required to create the same
 two-running-Attempt event boundary in both arms. If Wave 1 does not justify Q2 for ordinary queue
 staffing, this remains a causal-supervision probe rather than evidence for a two-worker production
 default. Both arms receive the same policy change and worker-local obstacle at the same effective
@@ -227,7 +228,7 @@ several exact alerts demonstrably need one named decision.
 ### Wave 4 — Concurrent company with available Exec
 
 This wave tests inter-lead organisation, not intra-lead team size, and therefore runs even if Q2 never
-wins. Start three independent outcomes concurrently, each with one Sol lead and one Terra worker:
+wins. Start three independent outcomes concurrently, each with one GLM-5.3 lead and one GLM-5.3 worker:
 
 ```text
 Exec
@@ -275,7 +276,7 @@ allowed explanatory variable unless translated into those observed properties.
 
 ## 8. Effort, focus and cognitive budget
 
-- The matched core freezes Sol leads and Terra workers at one exact, live-supported effort setting.
+- The matched core freezes GLM-5.3 leads and workers at one exact, live-supported effort setting.
 - Every actor receives a role envelope, consequence, acceptance target and overall spend ceiling.
 - Observable phases remain `orient | produce | verify | handoff | repair`; phases may inform spend and
   lead attention but do not expose private reasoning.
@@ -284,7 +285,7 @@ allowed explanatory variable unless translated into those observed properties.
 - Record configured effort separately from observed usage, latency, tool cadence and provider
   metadata. Never infer “more reasoning” from token count or prose.
 - No effort-routing comparison runs until a demand/topology crossover is replicated. If activated,
-  it stays within GPT-5.6 and varies only one role/effort dimension on the winning fixture.
+  it stays within GLM-5.3 and varies only one role/effort dimension on the winning fixture.
 
 ## 9. Wildcards: preserved, trigger-only
 
@@ -371,7 +372,7 @@ Stop for founder direction before:
 - changing the non-producing lead or always-delegating Exec invariants;
 - building a universal queue/event/signal primitive, deterministic team router, semantic blackboard,
   workflow engine or second actor/session lifecycle;
-- installing a new provider bridge, changing model family or silently falling back from GPT-5.6;
+- installing a new provider bridge, changing model family or silently falling back from GLM-5.3;
 - using a real inbox, customer, prospect, account or live company;
 - sending, publishing, paying, applying an account mutation or making a professional opinion; or
 - exceeding the approved spend ceiling.
@@ -387,6 +388,6 @@ timeout never decides that Work succeeded, failed or finished.
 - Wave 4 company concurrency: **US$20** maximum.
 - Stop rather than silently exceed a cell or sprint ceiling.
 
-Founder approval freezes the questions, GPT-5.6-only envelope, first-wave fixtures, gates and spend.
+Founder approval freezes the questions, GLM-5.3-only envelope, first-wave fixtures, gates and spend.
 It authorises the controlled `_test` runs and evidence capture only. It does not authorise product
 promotion, a new primitive, an external effect or a live-provider stimulus.

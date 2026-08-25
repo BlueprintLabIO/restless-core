@@ -31,8 +31,12 @@ REPO = ROOT.parents[3]
 CLI = REPO / "target/debug/restless"
 CATALOG = json.loads((ROOT / "arm-catalog.json").read_text())
 CONTRACT = json.loads((ROOT / "frozen-contract.json").read_text())
-SOL = CONTRACT["models"]["lead"]["selector"]
-TERRA = CONTRACT["models"]["staff"]["selector"]
+EXEC_MODEL = CONTRACT["models"]["exec"]["selector"]
+LEAD_MODEL = CONTRACT["models"]["lead"]["selector"]
+STAFF_MODEL = CONTRACT["models"]["staff"]["selector"]
+PRODUCTION_EFFORT = CONTRACT["models"]["staff"]["effort"]
+MODEL_PROVIDER = LEAD_MODEL.split("/", 1)[0]
+MODEL_CREDENTIAL_REFERENCE = "infisical:/providers/zai/ZAI_API_KEY"
 RUNTIME_ROOT = Path("/company/experiment/EXP-05")
 RESULTS = ROOT / "results"
 PROGRAM_CEILING_USD = 100.0
@@ -352,7 +356,7 @@ def charter_for(
     if arm.shape == "elastic":
         roster = (
             f"Start with {workers[0]}. You may commission exactly one relief worker with id `account-relief`, "
-            f"role `account queue operator`, model `{TERRA}`, and assign only not-yet-commissioned batches. "
+            f"role `account queue operator`, model `{STAFF_MODEL}`, and assign only not-yet-commissioned batches. "
             "Do so only after observing backlog age, response value and live capacity; send one factual rationale to Exec. No threshold decides for you."
         )
     else:
@@ -434,21 +438,38 @@ def create_company_config(path: Path, company: str, arm: Arm, ceiling: int) -> N
     mission = company_mission(arm).replace('"""', "")
     path.write_text(
         f'name = "{company}"\nmission = """{mission}"""\n'
-        f'spend_ceiling_usd = "{ceiling}"\nmodel = "{SOL}"\nmodel_failover = []\n'
+        f'spend_ceiling_usd = "{ceiling}"\nmodel = "{EXEC_MODEL}"\nmodel_failover = []\n'
     )
 
 
 def ensure_anchor(staging: Path) -> str:
     anchor = "exp05_model_anchor_test"
+    mission = "Host-only GLM-5.3 route anchor for fictional EXP-05 tests."
+    config = staging / "anchor-company.toml"
+    config.write_text(
+        f'name = "{anchor}"\nmission = "{mission}"\n'
+        f'spend_ceiling_usd = "1"\nmodel = "{EXEC_MODEL}"\nmodel_failover = []\n'
+        f'[credentials]\n"model.inference.{MODEL_PROVIDER}" = "{MODEL_CREDENTIAL_REFERENCE}"\n'
+    )
     configured = set(cli_json("company", "list"))
     if anchor not in configured:
-        config = staging / "anchor-company.toml"
-        config.write_text(
-            f'name = "{anchor}"\nmission = "Host-only GPT-5.6 route anchor for fictional EXP-05 tests."\n'
-            f'spend_ceiling_usd = "1"\nmodel = "{SOL}"\nmodel_failover = []\n'
-            '[credentials]\n"model.inference.openai-codex" = "omp-oauth:openai-codex"\n'
-        )
         cli("company", "create", "--from-file", str(config))
+    else:
+        cli("company", "set", "-c", anchor, "mission", mission)
+        cli("company", "set", "-c", anchor, "model", EXEC_MODEL)
+        cli("company", "set", "-c", anchor, "model_failover", "")
+        cli("company", "set", "-c", anchor, "spend_ceiling_usd", "1")
+        cli(
+            "company", "set", "-c", anchor,
+            f"credentials.model.inference.{MODEL_PROVIDER}",
+            MODEL_CREDENTIAL_REFERENCE,
+        )
+        current = cli("company", "show", "-c", anchor)
+        if "model.inference.openai-codex" in current:
+            cli(
+                "company", "unset", "-c", anchor,
+                "credentials.model.inference.openai-codex",
+            )
     return anchor
 
 
@@ -470,13 +491,13 @@ def provision(arm: Arm, run_token: str, result_dir: Path) -> tuple[str, str, lis
     cli(
         "people", "create", "-c", company, "--id", lead,
         "--role", f"accountable {arm.domain} outcome lead", "--display", lead.replace("-", " ").title(),
-        "--model", SOL, "--reason", "frozen EXP-05 accountable supervision boundary",
+        "--model", LEAD_MODEL, "--reason", "frozen EXP-05 accountable supervision boundary",
     )
     for worker in workers:
         cli(
             "people", "create", "-c", company, "--id", worker,
             "--role", f"{arm.domain} queue operator", "--display", worker.replace("-", " ").title(),
-            "--model", TERRA, "--reason", "frozen EXP-05 independently closing production capacity",
+            "--model", STAFF_MODEL, "--reason", "frozen EXP-05 independently closing production capacity",
         )
     cli(
         "teams", "create", "-c", company, "--name", team_name, "--lead", lead,
@@ -938,7 +959,7 @@ def metrics(
         "estimated_list_cost_per_accepted_unit_usd": (
             estimated_list_cost / accepted_units if accepted_units else None
         ),
-        "subscription_cost_disposition": "charged USD is authoritative zero and non-discriminating",
+        "billing_disposition": "charged metered API cost is authoritative; missing spend metering invalidates the cell",
     }
 
 
@@ -1232,8 +1253,8 @@ async def run_arm(arm_id: str, run_token: str, wall_seconds: int, skip_blind: bo
     evaluation_valid = skip_blind or (blind is not None and bool(blind.get("valid")))
     expected_concurrency = 4 if arm.arm_id == "wave0-q4-admission" else 1
     runtime_valid = (
-        set(measured["models"]) == {SOL, TERRA}
-        and measured["configured_efforts"] == ["medium"]
+        set(measured["models"]) == {LEAD_MODEL, STAFF_MODEL}
+        and measured["configured_efforts"] == [PRODUCTION_EFFORT]
         and measured["peak_staff_attempt_concurrency"] >= expected_concurrency
     )
     result = {
@@ -1372,13 +1393,13 @@ async def run_wave4(run_token: str, wall_seconds: int, skip_blind: bool) -> dict
         cli(
             "people", "create", "-c", company, "--id", lead,
             "--role", f"accountable {domain} outcome lead",
-            "--display", lead.replace("-", " ").title(), "--model", SOL,
+            "--display", lead.replace("-", " ").title(), "--model", LEAD_MODEL,
             "--reason", "frozen EXP-05 company-level accountability boundary",
         )
         cli(
             "people", "create", "-c", company, "--id", worker,
             "--role", f"{domain} end-to-end producer",
-            "--display", worker.replace("-", " ").title(), "--model", TERRA,
+            "--display", worker.replace("-", " ").title(), "--model", STAFF_MODEL,
             "--reason", "frozen EXP-05 locally closing production owner",
         )
         cli(
@@ -1587,13 +1608,13 @@ async def run_wave4(run_token: str, wall_seconds: int, skip_blind: bool) -> dict
         value["exact"].get("valid") and value["attribution_valid"]
         for value in exact.values()
     )
-    expected_models = {SOL, TERRA}
+    expected_models = {LEAD_MODEL, STAFF_MODEL}
     runtime_valid = (
         measured["exec_returned_before_fourth_request"]
         and measured["peak_staff_attempt_concurrency"] >= 3
         and not leakage_errors
         and set(measured["models"]) == expected_models
-        and measured["configured_efforts"] == ["medium"]
+        and measured["configured_efforts"] == [PRODUCTION_EFFORT]
     )
     blind_valid = skip_blind or (
         set(blind) == set(plans)
@@ -1637,13 +1658,13 @@ async def run_continuity_gate(run_token: str, wall_seconds: int) -> dict[str, ob
     cli(
         "people", "create", "-c", company, "--id", lead,
         "--role", "accountable continuity lead", "--display", "Continuity Direction",
-        "--model", SOL, "--reason", "EXP-05 G1/G3 non-producing supervisor",
+        "--model", LEAD_MODEL, "--reason", "EXP-05 G1/G3 non-producing supervisor",
     )
     for worker in workers:
         cli(
             "people", "create", "-c", company, "--id", worker,
             "--role", "bounded continuity producer", "--display", worker.replace("-", " ").title(),
-            "--model", TERRA, "--reason", "EXP-05 G1/G3 exact Staff process",
+            "--model", STAFF_MODEL, "--reason", "EXP-05 G1/G3 exact Staff process",
         )
     cli(
         "teams", "create", "-c", company, "--name", "Continuity Probe", "--lead", lead,
@@ -1740,7 +1761,7 @@ read-only and send one material G1/G3 judgement to Exec. Do not poll or narrate 
         ]
         return min(ready, key=lambda row: row["id"]) if ready else None
 
-    first_ready = await wait_until("first Terra target session readiness", first_target_ready, deadline, 0.2)
+    first_ready = await wait_until("first Staff target session readiness", first_target_ready, deadline, 0.2)
     feedback_at = utc_now()
     json_write(marker_source, {"marker": "EXP05-CONTINUITY-V2"})
     docker_copy(marker_source, company, RUNTIME_ROOT / "inbox/marker-source.json")
@@ -1760,7 +1781,7 @@ read-only and send one material G1/G3 judgement to Exec. Do not poll or narrate 
         )
         return ready[1] if len(ready) >= 2 else None
 
-    second_ready = await wait_until("resumed Terra target session", second_target_ready, deadline, 0.2)
+    second_ready = await wait_until("resumed Staff target session", second_target_ready, deadline, 0.2)
 
     async def collect_probe_outputs() -> tuple[Path, Path]:
         target_local = result_dir / "outputs/continuity-target.json"
@@ -1814,10 +1835,10 @@ read-only and send one material G1/G3 judgement to Exec. Do not poll or narrate 
         default=None,
     )
     checks = {
-        "sol_lead_process_cold_hot_session": len(lead_readiness) >= 2 and any(row["body"].get("resumed") for row in lead_readiness[1:]),
-        "terra_worker_process_cold_hot_session": bool(second_ready["body"].get("resumed")),
-        "exact_models": first_ready["body"].get("model") == TERRA and second_ready["body"].get("model") == TERRA and all(row["body"].get("model") == SOL for row in lead_readiness),
-        "medium_effort": first_ready["body"].get("configured_effort") == "medium" and second_ready["body"].get("configured_effort") == "medium" and all(row["body"].get("configured_effort") == "medium" for row in lead_readiness),
+        "lead_process_cold_hot_session": len(lead_readiness) >= 2 and any(row["body"].get("resumed") for row in lead_readiness[1:]),
+        "worker_process_cold_hot_session": bool(second_ready["body"].get("resumed")),
+        "exact_models": first_ready["body"].get("model") == STAFF_MODEL and second_ready["body"].get("model") == STAFF_MODEL and all(row["body"].get("model") == LEAD_MODEL for row in lead_readiness),
+        "production_effort": first_ready["body"].get("configured_effort") == PRODUCTION_EFFORT and second_ready["body"].get("configured_effort") == PRODUCTION_EFFORT and all(row["body"].get("configured_effort") == PRODUCTION_EFFORT for row in lead_readiness),
         "target_relaunched": len(target_attempts) >= 2,
         "first_target_not_accepted": target_attempts[0]["state"] != "produced",
         "second_target_produced": target_attempts[-1]["state"] == "produced",
@@ -1920,9 +1941,9 @@ def preflight() -> dict[str, object]:
     checks["arms"] = [dry_run(arm_id) for arm_id in CATALOG["base_order"]]
     usage = run_sync(["omp", "--profile", "restless-model-broker", "usage"], check=False)
     checks["omp_usage_exit"] = usage.returncode
-    checks["openai_route_observed"] = "OpenAI" in usage.stdout or "openai" in usage.stdout.lower()
+    checks["provider_route_observed"] = MODEL_PROVIDER.lower() in usage.stdout.lower()
     catalog = run_sync(
-        ["omp", "--profile", "restless-model-broker", "models", "openai-codex", "--json"],
+        ["omp", "--profile", "restless-model-broker", "models", MODEL_PROVIDER, "--json"],
         check=False,
     )
     catalog_models: list[dict[str, object]] = []
@@ -1934,8 +1955,8 @@ def preflight() -> dict[str, object]:
     catalog_selectors = {
         str(row.get("selector")) for row in catalog_models if row.get("selector")
     }
-    required_selectors = {SOL, TERRA}
-    checks["subscription_catalog_selectors"] = sorted(catalog_selectors)
+    required_selectors = {LEAD_MODEL, STAFF_MODEL}
+    checks["provider_catalog_selectors"] = sorted(catalog_selectors)
     checks["exact_frozen_selectors_advertised"] = required_selectors <= catalog_selectors
     continuity_paths = sorted(
         RESULTS.glob("wave0-continuity-*/run-result.json"),
@@ -1947,14 +1968,14 @@ def preflight() -> dict[str, object]:
         exact_execution = bool(
             continuity.get("valid")
             and continuity.get("checks", {}).get("exact_models")
-            and continuity.get("checks", {}).get("medium_effort")
+            and continuity.get("checks", {}).get("production_effort")
             and continuity.get("checks", {}).get("usage_attributable")
         )
     checks["exact_execution_probe"] = "passed" if exact_execution else "not_run"
     checks["valid"] = (
         bool(checks["cli"])
         and checks["fixture_self_test"]["valid"]
-        and checks["openai_route_observed"]
+        and checks["provider_route_observed"]
         and (checks["exact_frozen_selectors_advertised"] or exact_execution)
         and all(row.get("valid", True) for row in checks["arms"])
     )
