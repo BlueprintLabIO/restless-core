@@ -59,6 +59,20 @@ def counted(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return [row for row in rows if row.get("validity") == "counted"]
 
 
+def resolved(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Terminal protocol dispositions include outcomes and explicitly stopped branches."""
+    return [
+        row
+        for row in rows
+        if row.get("validity")
+        in {
+            "counted",
+            "counted_outcome_failure",
+            "branch_stopped_infrastructure_invalid",
+        }
+    ]
+
+
 def quality(row: dict[str, Any]) -> dict[str, Any] | None:
     blind = row.get("blind_evaluation")
     if not isinstance(blind, dict) or not blind.get("valid"):
@@ -86,14 +100,11 @@ def ratio(candidate: float | None, baseline: float | None) -> float | None:
     return candidate / baseline
 
 
-def sales_comparison(demand: str, grouped: dict[str, list[dict[str, Any]]]) -> dict[str, Any]:
-    prefix = demand.lower()
-    q1_rows = counted(grouped.get(f"sales-{prefix}-q1-r1", []))
-    q2_rows = counted(grouped.get(f"sales-{prefix}-q2-r1", []))
-    if not q1_rows or not q2_rows:
-        return {"demand": demand, "ready": False, "missing": [name for name, rows in (("q1", q1_rows), ("q2", q2_rows)) if not rows]}
-    q1 = q1_rows[0]
-    q2 = q2_rows[0]
+def sales_pair_comparison(
+    demand: str,
+    q1: dict[str, Any],
+    q2: dict[str, Any],
+) -> dict[str, Any]:
     m1 = q1["metrics"]
     m2 = q2["metrics"]
     quality1 = quality(q1)
@@ -155,6 +166,36 @@ def sales_comparison(demand: str, grouped: dict[str, list[dict[str, Any]]]) -> d
     }
 
 
+def sales_comparison(demand: str, grouped: dict[str, list[dict[str, Any]]]) -> dict[str, Any]:
+    prefix = demand.lower()
+    q1_rows = counted(grouped.get(f"sales-{prefix}-q1-r1", []))
+    q2_rows = counted(grouped.get(f"sales-{prefix}-q2-r1", []))
+    if not q1_rows or not q2_rows:
+        return {
+            "demand": demand,
+            "ready": False,
+            "missing": [
+                name
+                for name, rows in (("q1", q1_rows), ("q2", q2_rows))
+                if not rows
+            ],
+        }
+    result = sales_pair_comparison(demand, q1_rows[0], q2_rows[0])
+    result["replication"] = (
+        sales_pair_comparison(demand, q1_rows[1], q2_rows[1])
+        if len(q1_rows) >= 2 and len(q2_rows) >= 2
+        else {
+            "ready": False,
+            "missing": [
+                name
+                for name, rows in (("q1", q1_rows), ("q2", q2_rows))
+                if len(rows) < 2
+            ],
+        }
+    )
+    return result
+
+
 def latest_gate(pattern: str) -> dict[str, Any] | None:
     paths = sorted(RESULTS.glob(pattern), key=lambda path: path.stat().st_mtime)
     return read(paths[-1]) if paths else None
@@ -165,13 +206,18 @@ def first_counted(grouped: dict[str, list[dict[str, Any]]], arm: str) -> dict[st
     return rows[0] if rows else None
 
 
+def first_resolved(grouped: dict[str, list[dict[str, Any]]], arm: str) -> dict[str, Any] | None:
+    rows = resolved(grouped.get(arm, []))
+    return rows[0] if rows else None
+
+
 def matched_comparison(
     grouped: dict[str, list[dict[str, Any]]],
     baseline_arm: str,
     candidate_arm: str,
 ) -> dict[str, Any]:
-    baseline = first_counted(grouped, baseline_arm)
-    candidate = first_counted(grouped, candidate_arm)
+    baseline = first_resolved(grouped, baseline_arm)
+    candidate = first_resolved(grouped, candidate_arm)
     if baseline is None or candidate is None:
         return {
             "ready": False,
@@ -181,12 +227,33 @@ def matched_comparison(
                 if row is None
             ],
         }
-    base = baseline["metrics"]
-    cand = candidate["metrics"]
+    base = baseline.get("metrics")
+    cand = candidate.get("metrics")
+    baseline_summary = {
+        "arm": baseline_arm,
+        "path": baseline["_path"],
+        "metrics": base,
+        "quality": quality(baseline),
+        "outcome_failure": baseline.get("outcome_failure"),
+    }
+    candidate_summary = {
+        "arm": candidate_arm,
+        "path": candidate["_path"],
+        "metrics": cand,
+        "quality": quality(candidate),
+        "outcome_failure": candidate.get("outcome_failure"),
+    }
+    if not isinstance(base, dict) or not isinstance(cand, dict):
+        return {
+            "ready": True,
+            "baseline": baseline_summary,
+            "candidate": candidate_summary,
+            "ratios": None,
+        }
     return {
         "ready": True,
-        "baseline": {"arm": baseline_arm, "path": baseline["_path"], "metrics": base, "quality": quality(baseline)},
-        "candidate": {"arm": candidate_arm, "path": candidate["_path"], "metrics": cand, "quality": quality(candidate)},
+        "baseline": baseline_summary,
+        "candidate": candidate_summary,
         "ratios": {
             "accepted_throughput": ratio(
                 cand.get("accepted_units_per_request_hour"),
@@ -236,13 +303,13 @@ def analyze() -> dict[str, Any]:
     )
     if support.get("ready"):
         support["change"] = {
-            "terminal": support["baseline"]["metrics"].get("support_change"),
-            "causal": support["candidate"]["metrics"].get("support_change"),
+            "terminal": (support["baseline"].get("metrics") or {}).get("support_change"),
+            "causal": (support["candidate"].get("metrics") or {}).get("support_change"),
         }
     monitoring = matched_comparison(
         grouped, "monitoring-q1-r1", "monitoring-q2-r1"
     )
-    wave4_rows = counted(grouped.get("company-q1x4-r1", []))
+    wave4_rows = resolved(grouped.get("company-q1x4-r1", []))
     wave4 = (
         {
             "ready": True,
@@ -250,22 +317,39 @@ def analyze() -> dict[str, Any]:
             "metrics": wave4_rows[0]["metrics"],
             "exact_evaluations": wave4_rows[0]["exact_evaluations"],
             "blind_evaluations": wave4_rows[0].get("blind_evaluations"),
+            "validity": wave4_rows[0].get("validity"),
+            "infrastructure_failure": wave4_rows[0].get("infrastructure_failure"),
         }
         if wave4_rows
         else {"ready": False}
     )
     crossovers = [row for row in sales if row.get("q2_crossover")]
     missing_base = [
-        arm for arm in CATALOG["base_order"] if not counted(grouped.get(arm, []))
+        arm for arm in CATALOG["base_order"] if not resolved(grouped.get(arm, []))
     ]
+    first_crossover = crossovers[0] if crossovers else None
+    replication = first_crossover.get("replication") if first_crossover else None
+    replication_complete = bool(replication and replication.get("ready"))
+    replicated_crossover = bool(
+        replication_complete and replication.get("q2_crossover")
+    )
+    conditional_q4_authorized = bool(
+        not missing_base
+        and wave0["G2_sustained_q4"]
+        and replicated_crossover
+    )
     if not wave0["G1_G3_continuity"]:
         next_action = "run Wave 0 G1+G3 continuity gate"
     elif not wave0["G2_sustained_q4"]:
         next_action = "run Wave 0 sustained-Q4 admission gate"
     elif missing_base:
         next_action = f"run next frozen base arm: {missing_base[0]}"
-    elif crossovers:
-        next_action = f"replicate first provisional crossover with reversed order: {crossovers[0]['demand']} Q2/Q1"
+    elif first_crossover and not replication_complete:
+        next_action = f"replicate first provisional crossover with reversed order: {first_crossover['demand']} Q1/Q2"
+    elif conditional_q4_authorized:
+        next_action = f"run conditional Q4 arm at replicated crossover: {first_crossover['demand']}"
+    elif first_crossover:
+        next_action = "compile bounded unreplicated crossover result; do not activate Q4 or a wildcard"
     else:
         next_action = "compile bounded no-crossover result; do not activate Q4 or a wildcard"
     return {
@@ -274,6 +358,21 @@ def analyze() -> dict[str, Any]:
         "base_arms": {
             arm: {
                 "counted": len(counted(grouped.get(arm, []))),
+                "counted_outcome_failures": len(
+                    [
+                        row
+                        for row in grouped.get(arm, [])
+                        if row.get("validity") == "counted_outcome_failure"
+                    ]
+                ),
+                "branch_stopped": len(
+                    [
+                        row
+                        for row in grouped.get(arm, [])
+                        if row.get("validity")
+                        == "branch_stopped_infrastructure_invalid"
+                    ]
+                ),
                 "invalid": len(grouped.get(arm, [])) - len(counted(grouped.get(arm, []))),
             }
             for arm in CATALOG["base_order"]
@@ -284,7 +383,9 @@ def analyze() -> dict[str, Any]:
         "monitoring_comparison": monitoring,
         "company_concurrency": wave4,
         "provisional_crossovers": [row["demand"] for row in crossovers],
-        "conditional_q4_authorized": bool(crossovers and wave0["G2_sustained_q4"]),
+        "first_crossover_replication_complete": replication_complete,
+        "first_crossover_replicated": replicated_crossover,
+        "conditional_q4_authorized": conditional_q4_authorized,
         "wildcard_authorized": False,
         "missing_base_arms": missing_base,
         "malformed_results": malformed,

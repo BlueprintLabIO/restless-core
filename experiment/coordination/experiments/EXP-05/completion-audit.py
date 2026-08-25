@@ -78,17 +78,13 @@ def main() -> None:
     base_complete = not status["missing_base_arms"]
     checks.append(
         check(
-            "all frozen base arms counted",
+            "all frozen base arms have a protocol-valid terminal disposition",
             base_complete,
             ", ".join(status["missing_base_arms"]) if not base_complete else "results/program-status.json",
         )
     )
     crossovers = status["provisional_crossovers"]
-    replicated = True
-    for demand in crossovers:
-        prefix = demand.lower()
-        replicated &= len(analyze.counted(grouped.get(f"sales-{prefix}-q1-r1", []))) >= 2
-        replicated &= len(analyze.counted(grouped.get(f"sales-{prefix}-q2-r1", []))) >= 2
+    replicated = not crossovers or status["first_crossover_replication_complete"]
     checks.append(
         check(
             "first crossover replicated or bounded not-found",

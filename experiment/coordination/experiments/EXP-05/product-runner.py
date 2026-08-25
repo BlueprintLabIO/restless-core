@@ -1972,6 +1972,57 @@ async def run_wave4(run_token: str, wall_seconds: int, skip_blind: bool) -> dict
     return result
 
 
+def finalize_existing_wave4(run_token: str) -> dict[str, object]:
+    """Retry only malformed Wave-4 blind judgements; never replay production."""
+    result_dir = RESULTS / f"company-q1x4-r1-{run_token}"
+    result_path = result_dir / "run-result.json"
+    if not result_path.is_file():
+        raise RunFailure(f"no completed Wave-4 evidence at {result_path}")
+    result = json.loads(result_path.read_text())
+    blind = result.get("blind_evaluations")
+    if not isinstance(blind, dict):
+        raise RunFailure("Wave-4 result has no preserved blind evaluations")
+    arms = {
+        "sales": Arm("company-sales", 4, "sales", "q1", 1, demand="D0"),
+        "support": Arm("company-support", 4, "support", "q1", 1),
+        "monitoring": Arm("company-monitoring", 4, "monitoring", "q1", 1),
+        "operations": Arm("company-operations", 4, "operations", "q1", 1),
+    }
+    invalid_domains = [
+        domain
+        for domain in arms
+        if not isinstance(blind.get(domain), dict) or not blind[domain].get("valid")
+    ]
+    if not invalid_domains:
+        raise RunFailure("Wave-4 blind evaluations are already valid")
+    for domain in invalid_domains:
+        retry_path = result_dir / domain / "blind-invalid-evaluation.json"
+        if retry_path.exists():
+            raise RunFailure(
+                f"blind evaluator already failed twice for Wave-4 domain {domain}"
+            )
+        json_write(retry_path, blind.get(domain))
+        blind[domain] = run_blind_evaluator(arms[domain], result_dir / domain)
+    json_write(result_dir / "blind-evaluations.json", blind)
+    result["blind_evaluations"] = blind
+    result["blind_valid"] = set(blind) == set(arms) and all(
+        bool(value.get("valid")) for value in blind.values()
+    )
+    exact = result.get("exact_evaluations", {})
+    exact_valid = set(exact) == set(arms) and all(
+        value.get("exact", {}).get("valid") and value.get("attribution_valid")
+        for value in exact.values()
+    )
+    result["validity"] = (
+        "counted"
+        if exact_valid and result.get("runtime_valid") and result["blind_valid"]
+        else "invalid"
+    )
+    result["blind_retry_finished_at"] = utc_now()
+    json_write(result_path, result)
+    return result
+
+
 async def run_continuity_gate(run_token: str, wall_seconds: int) -> dict[str, object]:
     """G1 + G3: process-cold continuity and exact causal interruption."""
     arm = Arm("wave0-continuity", 0, "continuity", "q2", 2)
@@ -2421,6 +2472,8 @@ def main() -> None:
     wave4.add_argument("--run-token", required=True)
     wave4.add_argument("--wall-seconds", type=int, default=3600)
     wave4.add_argument("--skip-blind", action="store_true")
+    finalize_wave4 = sub.add_parser("finalize-wave4")
+    finalize_wave4.add_argument("--run-token", required=True)
     args = parser.parse_args()
     if args.command == "catalog":
         print(json.dumps(CATALOG, indent=2, sort_keys=True))
@@ -2478,6 +2531,9 @@ def main() -> None:
             command="run-wave4",
             arm="company-q1x4-r1",
         )
+        print(json.dumps(result, indent=2, sort_keys=True))
+    elif args.command == "finalize-wave4":
+        result = finalize_existing_wave4(args.run_token)
         print(json.dumps(result, indent=2, sort_keys=True))
 
 
