@@ -190,10 +190,13 @@ success cases arriving over time, with shared policy, eight planted exception cl
 harm. Every Staff owner closes a safe response/resolution package and observable next state. Nothing
 is sent or applied.
 
-Compare under the same Sol lead and the smallest worker count justified by Wave 1. Both arms receive
-the same policy change and worker-local obstacle at the same effective trigger; only delivery timing
-differs. The trigger is two running Staff Attempts plus the first attributable output progress
-marker—an ordinary Runtime file observation, not a claimed reasoning trace:
+Compare under the same Sol lead and the frozen Q2 diagnostic roster required to create the same
+two-running-Attempt event boundary in both arms. If Wave 1 does not justify Q2 for ordinary queue
+staffing, this remains a causal-supervision probe rather than evidence for a two-worker production
+default. Both arms receive the same policy change and worker-local obstacle at the same effective
+trigger; only delivery timing differs. The trigger is two running Staff Attempts plus the first
+attributable output progress marker—an ordinary Runtime file observation, not a claimed reasoning
+trace:
 
 - **S-T — terminal supervision:** the event and obstacle are durably withheld until terminal review;
 - **S-E — causal supervision:** one frozen material policy change and one worker-local obstacle reach

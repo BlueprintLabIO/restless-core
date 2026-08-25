@@ -584,6 +584,7 @@ def manifest() -> None:
         ROOT / "validate-visible.py",
         ROOT / "arm-catalog.json",
         ROOT / "product-runner.py",
+        ROOT / "analyze.py",
     ):
         records.append({"path": str(path.relative_to(ROOT)), "bytes": path.stat().st_size, "sha256": sha256_bytes(path.read_bytes())})
     write(ROOT / "fixture-manifest.json", {"fictional_test_data": True, "version": 1, "files": records})

@@ -865,6 +865,7 @@ def metrics(
             if worker_time["summed"] > 0 else None
         ),
         "worker_active_seconds": worker_time,
+        "peak_staff_attempt_concurrency": peak_attempt_concurrency(attempts, workers),
         "lead_active_seconds": lead_time,
         "lead_active_fraction_of_outcome_window": (
             lead_time["summed"] / outcome_seconds if outcome_seconds > 0 else None
@@ -1135,11 +1136,17 @@ async def run_arm(arm_id: str, run_token: str, wall_seconds: int, skip_blind: bo
         f"Every exact unit validator receipt now exists at {RUNTIME_ROOT}/control/validator-receipts.json. Perform the frozen read-only native review and make one outcome judgement; do not rewrite or fan in outputs.",
     )
     callback_epoch = parse_time(callback_at)
-    await wait_until(
+    review_event = await wait_until(
         "post-validator accountable-lead review wake",
-        lambda: any(
-            row["kind"] == "actor_wake_end" and row.get("actor_id") == lead and parse_time(row["created_at"]) >= callback_epoch
-            for row in events(company)
+        lambda: next(
+            (
+                row
+                for row in reversed(events(company))
+                if row["kind"] == "actor_wake_end"
+                and row.get("actor_id") == lead
+                and parse_time(row["created_at"]) >= callback_epoch
+            ),
+            None,
         ),
         deadline,
     )
@@ -1162,6 +1169,8 @@ async def run_arm(arm_id: str, run_token: str, wall_seconds: int, skip_blind: bo
         "first_staff_attempt_at": first_started_at,
         "exec_to_staff_dispatch_seconds": parse_time(first_started_at) - parse_time(tell_started),
         "validator_callback_at": callback_at,
+        "lead_review_completed_at": review_event["created_at"],
+        "lead_review_seconds": parse_time(review_event["created_at"]) - callback_epoch,
         "arrivals": arrivals,
         "support_event": event_record,
     })
@@ -1174,12 +1183,19 @@ async def run_arm(arm_id: str, run_token: str, wall_seconds: int, skip_blind: bo
     if blind is not None:
         json_write(result_dir / "blind-evaluation.json", blind)
     evaluation_valid = skip_blind or (blind is not None and bool(blind.get("valid")))
+    expected_concurrency = 4 if arm.arm_id == "wave0-q4-admission" else 1
+    runtime_valid = (
+        set(measured["models"]) == {SOL, TERRA}
+        and measured["configured_efforts"] == ["medium"]
+        and measured["peak_staff_attempt_concurrency"] >= expected_concurrency
+    )
     result = {
         "arm": arm.arm_id,
         "company": company,
-        "validity": "counted" if exact["exact"].get("valid") and exact["attribution_valid"] and evaluation_valid else "invalid",
+        "validity": "counted" if exact["exact"].get("valid") and exact["attribution_valid"] and evaluation_valid and runtime_valid else "invalid",
         "exact_evaluation": exact,
         "blind_evaluation": blind,
+        "runtime_valid": runtime_valid,
         "metrics": measured,
         "tell_process": {"exit": tell_result[0], "stdout": tell_result[1], "stderr": tell_result[2]},
         "finished_at": utc_now(),
@@ -1381,17 +1397,26 @@ async def run_wave4(run_token: str, wall_seconds: int, skip_blind: bool) -> dict
             f"Every exact {domain} receipt now exists at {runtime_receipt}. Review only your native outcome and make one judgement; do not rewrite, summarize another department, or relay status.",
         )
         callback_epoch = parse_time(callback_at)
-        await wait_until(
+        review_event = await wait_until(
             f"{domain} accountable-lead review wake",
-            lambda: any(
-                row["kind"] == "actor_wake_end"
-                and row.get("actor_id") == plan["lead"]
-                and parse_time(row["created_at"]) >= callback_epoch
-                for row in events(company)
+            lambda: next(
+                (
+                    row
+                    for row in reversed(events(company))
+                    if row["kind"] == "actor_wake_end"
+                    and row.get("actor_id") == plan["lead"]
+                    and parse_time(row["created_at"]) >= callback_epoch
+                ),
+                None,
             ),
             deadline,
         )
-        return {"receipts": receipts, "callback_at": callback_at}
+        return {
+            "receipts": receipts,
+            "callback_at": callback_at,
+            "review_completed_at": review_event["created_at"],
+            "review_seconds": parse_time(review_event["created_at"]) - callback_epoch,
+        }
 
     collection_tasks = {
         domain: asyncio.create_task(collect_and_review(domain))
@@ -1495,7 +1520,12 @@ async def run_wave4(run_token: str, wall_seconds: int, skip_blind: bool) -> dict
             "lead_to_lead_message_count": None,
             "lead_to_lead_message_disposition": "not exposed by the bounded Work graph/event projection; do not infer zero",
             "department_callbacks": {
-                domain: value["callback_at"] for domain, value in collections.items()
+                domain: {
+                    "callback_at": value["callback_at"],
+                    "review_completed_at": value["review_completed_at"],
+                    "review_seconds": value["review_seconds"],
+                }
+                for domain, value in collections.items()
             },
         }
     )

@@ -1,0 +1,129 @@
+{
+  "base_arms": {
+    "company-q1x4-r1": {
+      "counted": 0,
+      "invalid": 0
+    },
+    "monitoring-q1-r1": {
+      "counted": 0,
+      "invalid": 0
+    },
+    "monitoring-q2-r1": {
+      "counted": 0,
+      "invalid": 0
+    },
+    "sales-d0-q1-r1": {
+      "counted": 0,
+      "invalid": 0
+    },
+    "sales-d0-q2-r1": {
+      "counted": 0,
+      "invalid": 0
+    },
+    "sales-d1-elastic-r1": {
+      "counted": 0,
+      "invalid": 0
+    },
+    "sales-d1-q1-r1": {
+      "counted": 0,
+      "invalid": 0
+    },
+    "sales-d1-q2-r1": {
+      "counted": 0,
+      "invalid": 0
+    },
+    "sales-d2-elastic-r1": {
+      "counted": 0,
+      "invalid": 0
+    },
+    "sales-d2-q1-r1": {
+      "counted": 0,
+      "invalid": 0
+    },
+    "sales-d2-q2-r1": {
+      "counted": 0,
+      "invalid": 0
+    },
+    "support-causal-r1": {
+      "counted": 0,
+      "invalid": 0
+    },
+    "support-terminal-r1": {
+      "counted": 0,
+      "invalid": 0
+    }
+  },
+  "company_concurrency": {
+    "ready": false
+  },
+  "conditional_q4_authorized": false,
+  "generated_at": "2026-08-25T08:58:42.667408+00:00",
+  "malformed_results": [],
+  "missing_base_arms": [
+    "sales-d0-q2-r1",
+    "sales-d0-q1-r1",
+    "sales-d1-elastic-r1",
+    "sales-d1-q1-r1",
+    "sales-d1-q2-r1",
+    "sales-d2-q2-r1",
+    "sales-d2-elastic-r1",
+    "sales-d2-q1-r1",
+    "support-causal-r1",
+    "support-terminal-r1",
+    "monitoring-q1-r1",
+    "monitoring-q2-r1",
+    "company-q1x4-r1"
+  ],
+  "monitoring_comparison": {
+    "missing": [
+      "monitoring-q1-r1",
+      "monitoring-q2-r1"
+    ],
+    "ready": false
+  },
+  "next_action": "run Wave 0 G1+G3 continuity gate",
+  "provisional_crossovers": [],
+  "sales_comparisons": [
+    {
+      "demand": "D0",
+      "missing": [
+        "q1",
+        "q2"
+      ],
+      "ready": false
+    },
+    {
+      "demand": "D1",
+      "missing": [
+        "q1",
+        "q2"
+      ],
+      "ready": false
+    },
+    {
+      "demand": "D2",
+      "missing": [
+        "q1",
+        "q2"
+      ],
+      "ready": false
+    }
+  ],
+  "sales_elastic_arms": {
+    "D1": null,
+    "D2": null
+  },
+  "support_change_comparison": {
+    "missing": [
+      "support-terminal-r1",
+      "support-causal-r1"
+    ],
+    "ready": false
+  },
+  "wave0": {
+    "G1_G3_continuity": false,
+    "G2_sustained_q4": false,
+    "G4_deterministic_local_closure": true
+  },
+  "wildcard_authorized": false
+}
