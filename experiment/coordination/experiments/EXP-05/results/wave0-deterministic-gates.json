@@ -1,0 +1,53 @@
+{
+  "fixture_manifest_sha256": "e3a79c8fc41c6a40d97e5f426467d9bc60e9aa5907ba5dd2ca6f06e3b5fad4c0",
+  "frozen_contract_sha256": "3af30eaa91cb74e4b6f9332bdc1d16d1f7015270219149236806a1a1b8d2d515",
+  "gate": "G4-deterministic-local-closure",
+  "recorded_at": "2026-08-25T08:42:16.634452+00:00",
+  "result": {
+    "records": [
+      {
+        "domain": "sales",
+        "index_sha256": "57268e4499fb01d3b0b1688040ff86e1f1903597f91720222e55af7ced032d4e",
+        "orders": 20,
+        "ownership_mutation_rejected": true,
+        "units": 240,
+        "visible_corruption_rejected": true,
+        "visible_gate_checks": 6,
+        "wave4_subset_contract": true
+      },
+      {
+        "domain": "support-v2",
+        "index_sha256": "4afbca6e9623d93315b095a1774bbc230ab25232dbd2fe4471e52f42334f5c83",
+        "orders": 20,
+        "ownership_mutation_rejected": true,
+        "units": 96,
+        "visible_corruption_rejected": true,
+        "visible_gate_checks": 12,
+        "wave4_subset_contract": true
+      },
+      {
+        "domain": "monitoring",
+        "index_sha256": "dc3b7fa50c10ff8fbe97e60cfedd3cf3090e67f9bb13681a39fd51d2db45ce24",
+        "orders": 20,
+        "ownership_mutation_rejected": true,
+        "units": 40,
+        "visible_corruption_rejected": true,
+        "visible_gate_checks": 4,
+        "wave4_subset_contract": true
+      },
+      {
+        "domain": "operations",
+        "index_sha256": "a74834473c0b5042ca6e0d1206520437871be7bc3d83f880bea02a8d19bf8fa6",
+        "orders": 20,
+        "ownership_mutation_rejected": true,
+        "units": 32,
+        "visible_corruption_rejected": true,
+        "visible_gate_checks": 1,
+        "wave4_subset_contract": true
+      }
+    ],
+    "valid": true
+  },
+  "scope": "deterministic fixture/evaluator conformance only; no model or product-path claim",
+  "valid": true
+}

@@ -1,0 +1,8 @@
+{
+  "case_id": "C057",
+  "event_id": "exp05-support-obstacle-c057",
+  "fact": "The fixture deliberately withholds the duplicate parent reference.",
+  "kind": "controlled_test_worker_obstacle",
+  "required_supervisor_choice": "assign-parent-reference-or-safe-escalation",
+  "transport_authenticated": false
+}

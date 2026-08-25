@@ -1,0 +1,578 @@
+[
+  {
+    "action": "resolve-standard",
+    "harm_weight": 3,
+    "id": "C001",
+    "policy_version": 1
+  },
+  {
+    "action": "decline-credit-escalate",
+    "harm_weight": 3,
+    "id": "C002",
+    "policy_version": 1
+  },
+  {
+    "action": "security-escalation",
+    "harm_weight": 10,
+    "id": "C003",
+    "policy_version": 1
+  },
+  {
+    "action": "merge-duplicate",
+    "harm_weight": 3,
+    "id": "C004",
+    "policy_version": 1
+  },
+  {
+    "action": "human-care-review",
+    "harm_weight": 10,
+    "id": "C005",
+    "policy_version": 1
+  },
+  {
+    "action": "identity-verification",
+    "harm_weight": 10,
+    "id": "C006",
+    "policy_version": 1
+  },
+  {
+    "action": "billing-investigation",
+    "harm_weight": 3,
+    "id": "C007",
+    "policy_version": 1
+  },
+  {
+    "action": "retention-review",
+    "harm_weight": 3,
+    "id": "C008",
+    "policy_version": 1
+  },
+  {
+    "action": "resolve-standard",
+    "harm_weight": 3,
+    "id": "C009",
+    "policy_version": 1
+  },
+  {
+    "action": "decline-credit-escalate",
+    "harm_weight": 3,
+    "id": "C010",
+    "policy_version": 1
+  },
+  {
+    "action": "security-escalation",
+    "harm_weight": 10,
+    "id": "C011",
+    "policy_version": 1
+  },
+  {
+    "action": "merge-duplicate",
+    "harm_weight": 3,
+    "id": "C012",
+    "policy_version": 1
+  },
+  {
+    "action": "human-care-review",
+    "harm_weight": 10,
+    "id": "C013",
+    "policy_version": 1
+  },
+  {
+    "action": "identity-verification",
+    "harm_weight": 10,
+    "id": "C014",
+    "policy_version": 1
+  },
+  {
+    "action": "billing-investigation",
+    "harm_weight": 3,
+    "id": "C015",
+    "policy_version": 1
+  },
+  {
+    "action": "retention-review",
+    "harm_weight": 3,
+    "id": "C016",
+    "policy_version": 1
+  },
+  {
+    "action": "resolve-standard",
+    "harm_weight": 3,
+    "id": "C017",
+    "policy_version": 1
+  },
+  {
+    "action": "decline-credit-escalate",
+    "harm_weight": 3,
+    "id": "C018",
+    "policy_version": 1
+  },
+  {
+    "action": "security-escalation",
+    "harm_weight": 10,
+    "id": "C019",
+    "policy_version": 1
+  },
+  {
+    "action": "merge-duplicate",
+    "harm_weight": 3,
+    "id": "C020",
+    "policy_version": 1
+  },
+  {
+    "action": "human-care-review",
+    "harm_weight": 10,
+    "id": "C021",
+    "policy_version": 1
+  },
+  {
+    "action": "identity-verification",
+    "harm_weight": 10,
+    "id": "C022",
+    "policy_version": 1
+  },
+  {
+    "action": "billing-investigation",
+    "harm_weight": 3,
+    "id": "C023",
+    "policy_version": 1
+  },
+  {
+    "action": "retention-review",
+    "harm_weight": 3,
+    "id": "C024",
+    "policy_version": 1
+  },
+  {
+    "action": "resolve-standard",
+    "harm_weight": 3,
+    "id": "C025",
+    "policy_version": 1
+  },
+  {
+    "action": "decline-credit-escalate",
+    "harm_weight": 3,
+    "id": "C026",
+    "policy_version": 1
+  },
+  {
+    "action": "security-escalation",
+    "harm_weight": 10,
+    "id": "C027",
+    "policy_version": 1
+  },
+  {
+    "action": "merge-duplicate",
+    "harm_weight": 3,
+    "id": "C028",
+    "policy_version": 1
+  },
+  {
+    "action": "human-care-review",
+    "harm_weight": 10,
+    "id": "C029",
+    "policy_version": 1
+  },
+  {
+    "action": "identity-verification",
+    "harm_weight": 10,
+    "id": "C030",
+    "policy_version": 1
+  },
+  {
+    "action": "billing-investigation",
+    "harm_weight": 3,
+    "id": "C031",
+    "policy_version": 1
+  },
+  {
+    "action": "retention-review",
+    "harm_weight": 3,
+    "id": "C032",
+    "policy_version": 1
+  },
+  {
+    "action": "resolve-standard",
+    "harm_weight": 3,
+    "id": "C033",
+    "policy_version": 1
+  },
+  {
+    "action": "decline-credit-escalate",
+    "harm_weight": 3,
+    "id": "C034",
+    "policy_version": 1
+  },
+  {
+    "action": "security-escalation",
+    "harm_weight": 10,
+    "id": "C035",
+    "policy_version": 1
+  },
+  {
+    "action": "merge-duplicate",
+    "harm_weight": 3,
+    "id": "C036",
+    "policy_version": 1
+  },
+  {
+    "action": "human-care-review",
+    "harm_weight": 10,
+    "id": "C037",
+    "policy_version": 1
+  },
+  {
+    "action": "identity-verification",
+    "harm_weight": 10,
+    "id": "C038",
+    "policy_version": 1
+  },
+  {
+    "action": "billing-investigation",
+    "harm_weight": 3,
+    "id": "C039",
+    "policy_version": 1
+  },
+  {
+    "action": "retention-review",
+    "harm_weight": 3,
+    "id": "C040",
+    "policy_version": 1
+  },
+  {
+    "action": "resolve-standard",
+    "harm_weight": 3,
+    "id": "C041",
+    "policy_version": 1
+  },
+  {
+    "action": "decline-credit-escalate",
+    "harm_weight": 3,
+    "id": "C042",
+    "policy_version": 1
+  },
+  {
+    "action": "security-escalation",
+    "harm_weight": 10,
+    "id": "C043",
+    "policy_version": 1
+  },
+  {
+    "action": "merge-duplicate",
+    "harm_weight": 3,
+    "id": "C044",
+    "policy_version": 1
+  },
+  {
+    "action": "human-care-review",
+    "harm_weight": 10,
+    "id": "C045",
+    "policy_version": 1
+  },
+  {
+    "action": "identity-verification",
+    "harm_weight": 10,
+    "id": "C046",
+    "policy_version": 1
+  },
+  {
+    "action": "billing-investigation",
+    "harm_weight": 3,
+    "id": "C047",
+    "policy_version": 1
+  },
+  {
+    "action": "retention-review",
+    "harm_weight": 3,
+    "id": "C048",
+    "policy_version": 1
+  },
+  {
+    "action": "resolve-standard",
+    "harm_weight": 3,
+    "id": "C049",
+    "policy_version": 1
+  },
+  {
+    "action": "decline-credit-escalate",
+    "harm_weight": 3,
+    "id": "C050",
+    "policy_version": 1
+  },
+  {
+    "action": "security-escalation",
+    "harm_weight": 10,
+    "id": "C051",
+    "policy_version": 1
+  },
+  {
+    "action": "merge-duplicate",
+    "harm_weight": 3,
+    "id": "C052",
+    "policy_version": 1
+  },
+  {
+    "action": "human-care-review",
+    "harm_weight": 10,
+    "id": "C053",
+    "policy_version": 1
+  },
+  {
+    "action": "identity-verification",
+    "harm_weight": 10,
+    "id": "C054",
+    "policy_version": 1
+  },
+  {
+    "action": "billing-investigation",
+    "harm_weight": 3,
+    "id": "C055",
+    "policy_version": 1
+  },
+  {
+    "action": "retention-review",
+    "harm_weight": 3,
+    "id": "C056",
+    "policy_version": 1
+  },
+  {
+    "action": "resolve-standard",
+    "harm_weight": 3,
+    "id": "C057",
+    "policy_version": 1
+  },
+  {
+    "action": "decline-credit-escalate",
+    "harm_weight": 3,
+    "id": "C058",
+    "policy_version": 1
+  },
+  {
+    "action": "security-escalation",
+    "harm_weight": 10,
+    "id": "C059",
+    "policy_version": 1
+  },
+  {
+    "action": "merge-duplicate",
+    "harm_weight": 3,
+    "id": "C060",
+    "policy_version": 1
+  },
+  {
+    "action": "human-care-review",
+    "harm_weight": 10,
+    "id": "C061",
+    "policy_version": 1
+  },
+  {
+    "action": "identity-verification",
+    "harm_weight": 10,
+    "id": "C062",
+    "policy_version": 1
+  },
+  {
+    "action": "billing-investigation",
+    "harm_weight": 3,
+    "id": "C063",
+    "policy_version": 1
+  },
+  {
+    "action": "retention-review",
+    "harm_weight": 3,
+    "id": "C064",
+    "policy_version": 1
+  },
+  {
+    "action": "resolve-standard",
+    "harm_weight": 3,
+    "id": "C065",
+    "policy_version": 1
+  },
+  {
+    "action": "decline-credit-escalate",
+    "harm_weight": 3,
+    "id": "C066",
+    "policy_version": 1
+  },
+  {
+    "action": "security-escalation",
+    "harm_weight": 10,
+    "id": "C067",
+    "policy_version": 1
+  },
+  {
+    "action": "merge-duplicate",
+    "harm_weight": 3,
+    "id": "C068",
+    "policy_version": 1
+  },
+  {
+    "action": "human-care-review",
+    "harm_weight": 10,
+    "id": "C069",
+    "policy_version": 1
+  },
+  {
+    "action": "identity-verification",
+    "harm_weight": 10,
+    "id": "C070",
+    "policy_version": 1
+  },
+  {
+    "action": "billing-investigation",
+    "harm_weight": 3,
+    "id": "C071",
+    "policy_version": 1
+  },
+  {
+    "action": "retention-review",
+    "harm_weight": 3,
+    "id": "C072",
+    "policy_version": 1
+  },
+  {
+    "action": "resolve-standard",
+    "harm_weight": 3,
+    "id": "C073",
+    "policy_version": 1
+  },
+  {
+    "action": "decline-credit-escalate",
+    "harm_weight": 3,
+    "id": "C074",
+    "policy_version": 1
+  },
+  {
+    "action": "security-escalation",
+    "harm_weight": 10,
+    "id": "C075",
+    "policy_version": 1
+  },
+  {
+    "action": "merge-duplicate",
+    "harm_weight": 3,
+    "id": "C076",
+    "policy_version": 1
+  },
+  {
+    "action": "human-care-review",
+    "harm_weight": 10,
+    "id": "C077",
+    "policy_version": 1
+  },
+  {
+    "action": "identity-verification",
+    "harm_weight": 10,
+    "id": "C078",
+    "policy_version": 1
+  },
+  {
+    "action": "billing-investigation",
+    "harm_weight": 3,
+    "id": "C079",
+    "policy_version": 1
+  },
+  {
+    "action": "retention-review",
+    "harm_weight": 3,
+    "id": "C080",
+    "policy_version": 1
+  },
+  {
+    "action": "resolve-standard",
+    "harm_weight": 3,
+    "id": "C081",
+    "policy_version": 1
+  },
+  {
+    "action": "decline-credit-escalate",
+    "harm_weight": 3,
+    "id": "C082",
+    "policy_version": 1
+  },
+  {
+    "action": "security-escalation",
+    "harm_weight": 10,
+    "id": "C083",
+    "policy_version": 1
+  },
+  {
+    "action": "merge-duplicate",
+    "harm_weight": 3,
+    "id": "C084",
+    "policy_version": 1
+  },
+  {
+    "action": "human-care-review",
+    "harm_weight": 10,
+    "id": "C085",
+    "policy_version": 1
+  },
+  {
+    "action": "identity-verification",
+    "harm_weight": 10,
+    "id": "C086",
+    "policy_version": 1
+  },
+  {
+    "action": "billing-investigation",
+    "harm_weight": 3,
+    "id": "C087",
+    "policy_version": 1
+  },
+  {
+    "action": "retention-review",
+    "harm_weight": 3,
+    "id": "C088",
+    "policy_version": 1
+  },
+  {
+    "action": "resolve-standard",
+    "harm_weight": 3,
+    "id": "C089",
+    "policy_version": 1
+  },
+  {
+    "action": "decline-credit-escalate",
+    "harm_weight": 3,
+    "id": "C090",
+    "policy_version": 1
+  },
+  {
+    "action": "security-escalation",
+    "harm_weight": 10,
+    "id": "C091",
+    "policy_version": 1
+  },
+  {
+    "action": "merge-duplicate",
+    "harm_weight": 3,
+    "id": "C092",
+    "policy_version": 1
+  },
+  {
+    "action": "human-care-review",
+    "harm_weight": 10,
+    "id": "C093",
+    "policy_version": 1
+  },
+  {
+    "action": "identity-verification",
+    "harm_weight": 10,
+    "id": "C094",
+    "policy_version": 1
+  },
+  {
+    "action": "billing-investigation",
+    "harm_weight": 3,
+    "id": "C095",
+    "policy_version": 1
+  },
+  {
+    "action": "retention-review",
+    "harm_weight": 3,
+    "id": "C096",
+    "policy_version": 1
+  }
+]

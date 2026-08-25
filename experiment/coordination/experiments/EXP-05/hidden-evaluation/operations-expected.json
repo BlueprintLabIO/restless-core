@@ -1,0 +1,194 @@
+[
+  {
+    "action": "close-reconciled",
+    "delta": 0,
+    "disposition": "matched",
+    "id": "I001"
+  },
+  {
+    "action": "close-reconciled",
+    "delta": 0,
+    "disposition": "matched",
+    "id": "I002"
+  },
+  {
+    "action": "close-reconciled",
+    "delta": 0,
+    "disposition": "matched",
+    "id": "I003"
+  },
+  {
+    "action": "review-credit-or-ledger",
+    "delta": 75,
+    "disposition": "over-recorded",
+    "id": "I004"
+  },
+  {
+    "action": "close-reconciled",
+    "delta": 0,
+    "disposition": "matched",
+    "id": "I005"
+  },
+  {
+    "action": "close-reconciled",
+    "delta": 0,
+    "disposition": "matched",
+    "id": "I006"
+  },
+  {
+    "action": "close-reconciled",
+    "delta": 0,
+    "disposition": "matched",
+    "id": "I007"
+  },
+  {
+    "action": "review-missing-payment",
+    "delta": -50,
+    "disposition": "under-recorded",
+    "id": "I008"
+  },
+  {
+    "action": "close-reconciled",
+    "delta": 0,
+    "disposition": "matched",
+    "id": "I009"
+  },
+  {
+    "action": "close-reconciled",
+    "delta": 0,
+    "disposition": "matched",
+    "id": "I010"
+  },
+  {
+    "action": "close-reconciled",
+    "delta": 0,
+    "disposition": "matched",
+    "id": "I011"
+  },
+  {
+    "action": "review-credit-or-ledger",
+    "delta": 75,
+    "disposition": "over-recorded",
+    "id": "I012"
+  },
+  {
+    "action": "close-reconciled",
+    "delta": 0,
+    "disposition": "matched",
+    "id": "I013"
+  },
+  {
+    "action": "close-reconciled",
+    "delta": 0,
+    "disposition": "matched",
+    "id": "I014"
+  },
+  {
+    "action": "close-reconciled",
+    "delta": 0,
+    "disposition": "matched",
+    "id": "I015"
+  },
+  {
+    "action": "review-missing-payment",
+    "delta": -50,
+    "disposition": "under-recorded",
+    "id": "I016"
+  },
+  {
+    "action": "close-reconciled",
+    "delta": 0,
+    "disposition": "matched",
+    "id": "I017"
+  },
+  {
+    "action": "close-reconciled",
+    "delta": 0,
+    "disposition": "matched",
+    "id": "I018"
+  },
+  {
+    "action": "close-reconciled",
+    "delta": 0,
+    "disposition": "matched",
+    "id": "I019"
+  },
+  {
+    "action": "review-credit-or-ledger",
+    "delta": 75,
+    "disposition": "over-recorded",
+    "id": "I020"
+  },
+  {
+    "action": "close-reconciled",
+    "delta": 0,
+    "disposition": "matched",
+    "id": "I021"
+  },
+  {
+    "action": "close-reconciled",
+    "delta": 0,
+    "disposition": "matched",
+    "id": "I022"
+  },
+  {
+    "action": "close-reconciled",
+    "delta": 0,
+    "disposition": "matched",
+    "id": "I023"
+  },
+  {
+    "action": "review-missing-payment",
+    "delta": -50,
+    "disposition": "under-recorded",
+    "id": "I024"
+  },
+  {
+    "action": "close-reconciled",
+    "delta": 0,
+    "disposition": "matched",
+    "id": "I025"
+  },
+  {
+    "action": "close-reconciled",
+    "delta": 0,
+    "disposition": "matched",
+    "id": "I026"
+  },
+  {
+    "action": "close-reconciled",
+    "delta": 0,
+    "disposition": "matched",
+    "id": "I027"
+  },
+  {
+    "action": "review-credit-or-ledger",
+    "delta": 75,
+    "disposition": "over-recorded",
+    "id": "I028"
+  },
+  {
+    "action": "close-reconciled",
+    "delta": 0,
+    "disposition": "matched",
+    "id": "I029"
+  },
+  {
+    "action": "close-reconciled",
+    "delta": 0,
+    "disposition": "matched",
+    "id": "I030"
+  },
+  {
+    "action": "close-reconciled",
+    "delta": 0,
+    "disposition": "matched",
+    "id": "I031"
+  },
+  {
+    "action": "review-missing-payment",
+    "delta": -50,
+    "disposition": "under-recorded",
+    "id": "I032"
+  }
+]

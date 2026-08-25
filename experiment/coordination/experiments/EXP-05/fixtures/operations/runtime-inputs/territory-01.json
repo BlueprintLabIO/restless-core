@@ -1,0 +1,66 @@
+[
+  {
+    "currency": "AUD",
+    "fictional_customer": "Test Customer 01",
+    "id": "I001",
+    "invoice_total": 837,
+    "ledger_total": 837,
+    "reference": "INV-TEST-001"
+  },
+  {
+    "currency": "AUD",
+    "fictional_customer": "Test Customer 02",
+    "id": "I002",
+    "invoice_total": 874,
+    "ledger_total": 874,
+    "reference": "INV-TEST-002"
+  },
+  {
+    "currency": "AUD",
+    "fictional_customer": "Test Customer 03",
+    "id": "I003",
+    "invoice_total": 911,
+    "ledger_total": 911,
+    "reference": "INV-TEST-003"
+  },
+  {
+    "currency": "AUD",
+    "fictional_customer": "Test Customer 04",
+    "id": "I004",
+    "invoice_total": 948,
+    "ledger_total": 1023,
+    "reference": "INV-TEST-004"
+  },
+  {
+    "currency": "AUD",
+    "fictional_customer": "Test Customer 05",
+    "id": "I005",
+    "invoice_total": 985,
+    "ledger_total": 985,
+    "reference": "INV-TEST-005"
+  },
+  {
+    "currency": "AUD",
+    "fictional_customer": "Test Customer 06",
+    "id": "I006",
+    "invoice_total": 1022,
+    "ledger_total": 1022,
+    "reference": "INV-TEST-006"
+  },
+  {
+    "currency": "AUD",
+    "fictional_customer": "Test Customer 07",
+    "id": "I007",
+    "invoice_total": 1059,
+    "ledger_total": 1059,
+    "reference": "INV-TEST-007"
+  },
+  {
+    "currency": "AUD",
+    "fictional_customer": "Test Customer 08",
+    "id": "I008",
+    "invoice_total": 1096,
+    "ledger_total": 1046,
+    "reference": "INV-TEST-008"
+  }
+]

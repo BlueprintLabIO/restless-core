@@ -1,0 +1,66 @@
+[
+  {
+    "arrival_offset_seconds": 495,
+    "class": "ordinary",
+    "harm_weight": 3,
+    "id": "C089",
+    "signal": "CASE-SIGNAL-089",
+    "summary": "Fictional ordinary support case 89"
+  },
+  {
+    "arrival_offset_seconds": 495,
+    "class": "expired",
+    "harm_weight": 3,
+    "id": "C090",
+    "signal": "CASE-SIGNAL-090",
+    "summary": "Fictional expired support case 90"
+  },
+  {
+    "arrival_offset_seconds": 495,
+    "class": "security",
+    "harm_weight": 10,
+    "id": "C091",
+    "signal": "CASE-SIGNAL-091",
+    "summary": "Fictional security support case 91"
+  },
+  {
+    "arrival_offset_seconds": 495,
+    "class": "duplicate",
+    "harm_weight": 3,
+    "id": "C092",
+    "signal": "CASE-SIGNAL-092",
+    "summary": "Fictional duplicate support case 92"
+  },
+  {
+    "arrival_offset_seconds": 495,
+    "class": "vulnerable",
+    "harm_weight": 10,
+    "id": "C093",
+    "signal": "CASE-SIGNAL-093",
+    "summary": "Fictional vulnerable support case 93"
+  },
+  {
+    "arrival_offset_seconds": 495,
+    "class": "identity",
+    "harm_weight": 10,
+    "id": "C094",
+    "signal": "CASE-SIGNAL-094",
+    "summary": "Fictional identity support case 94"
+  },
+  {
+    "arrival_offset_seconds": 495,
+    "class": "billing",
+    "harm_weight": 3,
+    "id": "C095",
+    "signal": "CASE-SIGNAL-095",
+    "summary": "Fictional billing support case 95"
+  },
+  {
+    "arrival_offset_seconds": 495,
+    "class": "retention",
+    "harm_weight": 3,
+    "id": "C096",
+    "signal": "CASE-SIGNAL-096",
+    "summary": "Fictional retention support case 96"
+  }
+]

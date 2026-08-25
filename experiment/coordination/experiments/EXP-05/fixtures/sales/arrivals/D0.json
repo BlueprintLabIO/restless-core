@@ -1,0 +1,1442 @@
+[
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 1,
+    "unit_id": "A001",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 1,
+    "unit_id": "A002",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 1,
+    "unit_id": "A003",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 1,
+    "unit_id": "A004",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 1,
+    "unit_id": "A005",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 1,
+    "unit_id": "A006",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 1,
+    "unit_id": "A007",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 1,
+    "unit_id": "A008",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 1,
+    "unit_id": "A009",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 1,
+    "unit_id": "A010",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 1,
+    "unit_id": "A011",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 1,
+    "unit_id": "A012",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 1,
+    "unit_id": "A013",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 1,
+    "unit_id": "A014",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 1,
+    "unit_id": "A015",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 1,
+    "unit_id": "A016",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 1,
+    "unit_id": "A017",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 1,
+    "unit_id": "A018",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 1,
+    "unit_id": "A019",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 1,
+    "unit_id": "A020",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 1,
+    "unit_id": "A021",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 1,
+    "unit_id": "A022",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 1,
+    "unit_id": "A023",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 1,
+    "unit_id": "A024",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 1,
+    "unit_id": "A025",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 1,
+    "unit_id": "A026",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 1,
+    "unit_id": "A027",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 1,
+    "unit_id": "A028",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 1,
+    "unit_id": "A029",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 1,
+    "unit_id": "A030",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 1,
+    "unit_id": "A031",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 1,
+    "unit_id": "A032",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 1,
+    "unit_id": "A033",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 1,
+    "unit_id": "A034",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 1,
+    "unit_id": "A035",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 1,
+    "unit_id": "A036",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 1,
+    "unit_id": "A037",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 1,
+    "unit_id": "A038",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 1,
+    "unit_id": "A039",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 1,
+    "unit_id": "A040",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 2,
+    "unit_id": "A041",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 2,
+    "unit_id": "A042",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 2,
+    "unit_id": "A043",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 2,
+    "unit_id": "A044",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 2,
+    "unit_id": "A045",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 2,
+    "unit_id": "A046",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 2,
+    "unit_id": "A047",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 2,
+    "unit_id": "A048",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 2,
+    "unit_id": "A049",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 2,
+    "unit_id": "A050",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 2,
+    "unit_id": "A051",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 2,
+    "unit_id": "A052",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 2,
+    "unit_id": "A053",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 2,
+    "unit_id": "A054",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 2,
+    "unit_id": "A055",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 2,
+    "unit_id": "A056",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 2,
+    "unit_id": "A057",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 2,
+    "unit_id": "A058",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 2,
+    "unit_id": "A059",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 2,
+    "unit_id": "A060",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 2,
+    "unit_id": "A061",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 2,
+    "unit_id": "A062",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 2,
+    "unit_id": "A063",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 2,
+    "unit_id": "A064",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 2,
+    "unit_id": "A065",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 2,
+    "unit_id": "A066",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 2,
+    "unit_id": "A067",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 2,
+    "unit_id": "A068",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 2,
+    "unit_id": "A069",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 2,
+    "unit_id": "A070",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 2,
+    "unit_id": "A071",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 2,
+    "unit_id": "A072",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 2,
+    "unit_id": "A073",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 2,
+    "unit_id": "A074",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 2,
+    "unit_id": "A075",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 2,
+    "unit_id": "A076",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 2,
+    "unit_id": "A077",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 2,
+    "unit_id": "A078",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 2,
+    "unit_id": "A079",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 2,
+    "unit_id": "A080",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 3,
+    "unit_id": "A081",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 3,
+    "unit_id": "A082",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 3,
+    "unit_id": "A083",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 3,
+    "unit_id": "A084",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 3,
+    "unit_id": "A085",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 3,
+    "unit_id": "A086",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 3,
+    "unit_id": "A087",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 3,
+    "unit_id": "A088",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 3,
+    "unit_id": "A089",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 3,
+    "unit_id": "A090",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 3,
+    "unit_id": "A091",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 3,
+    "unit_id": "A092",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 3,
+    "unit_id": "A093",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 3,
+    "unit_id": "A094",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 3,
+    "unit_id": "A095",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 3,
+    "unit_id": "A096",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 3,
+    "unit_id": "A097",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 3,
+    "unit_id": "A098",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 3,
+    "unit_id": "A099",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 3,
+    "unit_id": "A100",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 3,
+    "unit_id": "A101",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 3,
+    "unit_id": "A102",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 3,
+    "unit_id": "A103",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 3,
+    "unit_id": "A104",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 3,
+    "unit_id": "A105",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 3,
+    "unit_id": "A106",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 3,
+    "unit_id": "A107",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 3,
+    "unit_id": "A108",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 3,
+    "unit_id": "A109",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 3,
+    "unit_id": "A110",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 3,
+    "unit_id": "A111",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 3,
+    "unit_id": "A112",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 3,
+    "unit_id": "A113",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 3,
+    "unit_id": "A114",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 3,
+    "unit_id": "A115",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 3,
+    "unit_id": "A116",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 3,
+    "unit_id": "A117",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 3,
+    "unit_id": "A118",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 3,
+    "unit_id": "A119",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 3,
+    "unit_id": "A120",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 4,
+    "unit_id": "A121",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 4,
+    "unit_id": "A122",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 4,
+    "unit_id": "A123",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 4,
+    "unit_id": "A124",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 4,
+    "unit_id": "A125",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 4,
+    "unit_id": "A126",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 4,
+    "unit_id": "A127",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 4,
+    "unit_id": "A128",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 4,
+    "unit_id": "A129",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 4,
+    "unit_id": "A130",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 4,
+    "unit_id": "A131",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 4,
+    "unit_id": "A132",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 4,
+    "unit_id": "A133",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 4,
+    "unit_id": "A134",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 4,
+    "unit_id": "A135",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 4,
+    "unit_id": "A136",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 4,
+    "unit_id": "A137",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 4,
+    "unit_id": "A138",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 4,
+    "unit_id": "A139",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 4,
+    "unit_id": "A140",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 4,
+    "unit_id": "A141",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 4,
+    "unit_id": "A142",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 4,
+    "unit_id": "A143",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 4,
+    "unit_id": "A144",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 4,
+    "unit_id": "A145",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 4,
+    "unit_id": "A146",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 4,
+    "unit_id": "A147",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 4,
+    "unit_id": "A148",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 4,
+    "unit_id": "A149",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 4,
+    "unit_id": "A150",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 4,
+    "unit_id": "A151",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 4,
+    "unit_id": "A152",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 4,
+    "unit_id": "A153",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 4,
+    "unit_id": "A154",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 4,
+    "unit_id": "A155",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 4,
+    "unit_id": "A156",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 4,
+    "unit_id": "A157",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 4,
+    "unit_id": "A158",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 4,
+    "unit_id": "A159",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 4,
+    "unit_id": "A160",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 5,
+    "unit_id": "A161",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 5,
+    "unit_id": "A162",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 5,
+    "unit_id": "A163",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 5,
+    "unit_id": "A164",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 5,
+    "unit_id": "A165",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 5,
+    "unit_id": "A166",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 5,
+    "unit_id": "A167",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 5,
+    "unit_id": "A168",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 5,
+    "unit_id": "A169",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 5,
+    "unit_id": "A170",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 5,
+    "unit_id": "A171",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 5,
+    "unit_id": "A172",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 5,
+    "unit_id": "A173",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 5,
+    "unit_id": "A174",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 5,
+    "unit_id": "A175",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 5,
+    "unit_id": "A176",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 5,
+    "unit_id": "A177",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 5,
+    "unit_id": "A178",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 5,
+    "unit_id": "A179",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 5,
+    "unit_id": "A180",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 5,
+    "unit_id": "A181",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 5,
+    "unit_id": "A182",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 5,
+    "unit_id": "A183",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 5,
+    "unit_id": "A184",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 5,
+    "unit_id": "A185",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 5,
+    "unit_id": "A186",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 5,
+    "unit_id": "A187",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 5,
+    "unit_id": "A188",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 5,
+    "unit_id": "A189",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 5,
+    "unit_id": "A190",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 5,
+    "unit_id": "A191",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 5,
+    "unit_id": "A192",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 5,
+    "unit_id": "A193",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 5,
+    "unit_id": "A194",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 5,
+    "unit_id": "A195",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 5,
+    "unit_id": "A196",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 5,
+    "unit_id": "A197",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 5,
+    "unit_id": "A198",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 5,
+    "unit_id": "A199",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 5,
+    "unit_id": "A200",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 6,
+    "unit_id": "A201",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 6,
+    "unit_id": "A202",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 6,
+    "unit_id": "A203",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 6,
+    "unit_id": "A204",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 6,
+    "unit_id": "A205",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 6,
+    "unit_id": "A206",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 6,
+    "unit_id": "A207",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 6,
+    "unit_id": "A208",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 6,
+    "unit_id": "A209",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 6,
+    "unit_id": "A210",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 6,
+    "unit_id": "A211",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 6,
+    "unit_id": "A212",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 6,
+    "unit_id": "A213",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 6,
+    "unit_id": "A214",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 6,
+    "unit_id": "A215",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 6,
+    "unit_id": "A216",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 6,
+    "unit_id": "A217",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 6,
+    "unit_id": "A218",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 6,
+    "unit_id": "A219",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 6,
+    "unit_id": "A220",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 6,
+    "unit_id": "A221",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 6,
+    "unit_id": "A222",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 6,
+    "unit_id": "A223",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 6,
+    "unit_id": "A224",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 6,
+    "unit_id": "A225",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 6,
+    "unit_id": "A226",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 6,
+    "unit_id": "A227",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 6,
+    "unit_id": "A228",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 6,
+    "unit_id": "A229",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 6,
+    "unit_id": "A230",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 6,
+    "unit_id": "A231",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 6,
+    "unit_id": "A232",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 6,
+    "unit_id": "A233",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 6,
+    "unit_id": "A234",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 6,
+    "unit_id": "A235",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 6,
+    "unit_id": "A236",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 6,
+    "unit_id": "A237",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 6,
+    "unit_id": "A238",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 6,
+    "unit_id": "A239",
+    "value_curve": "flat"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "batch": 6,
+    "unit_id": "A240",
+    "value_curve": "flat"
+  }
+]

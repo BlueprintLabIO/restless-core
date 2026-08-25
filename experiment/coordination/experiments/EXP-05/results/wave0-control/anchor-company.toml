@@ -1,0 +1,7 @@
+name = "exp05_model_anchor_test"
+mission = "Host-only GPT-5.6 route anchor for fictional EXP-05 tests."
+spend_ceiling_usd = "1"
+model = "openai-codex/gpt-5.6-sol"
+model_failover = []
+[credentials]
+"model.inference.openai-codex" = "omp-oauth:openai-codex"

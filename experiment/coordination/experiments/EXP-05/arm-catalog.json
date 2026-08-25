@@ -1,0 +1,40 @@
+{
+  "version": 1,
+  "randomization_seed": "exp05-frozen-2026-08-25",
+  "base_order": [
+    "sales-d0-q2-r1",
+    "sales-d0-q1-r1",
+    "sales-d1-elastic-r1",
+    "sales-d1-q1-r1",
+    "sales-d1-q2-r1",
+    "sales-d2-q2-r1",
+    "sales-d2-elastic-r1",
+    "sales-d2-q1-r1",
+    "support-causal-r1",
+    "support-terminal-r1",
+    "monitoring-q1-r1",
+    "monitoring-q2-r1",
+    "company-q1x4-r1"
+  ],
+  "arms": {
+    "wave0-q4-admission": {"wave": 0, "domain": "operations", "shape": "q4", "workers": 4},
+    "sales-d0-q1-r1": {"wave": 1, "domain": "sales", "demand": "D0", "shape": "q1", "workers": 1},
+    "sales-d0-q2-r1": {"wave": 1, "domain": "sales", "demand": "D0", "shape": "q2", "workers": 2},
+    "sales-d1-q1-r1": {"wave": 1, "domain": "sales", "demand": "D1", "shape": "q1", "workers": 1},
+    "sales-d1-q2-r1": {"wave": 1, "domain": "sales", "demand": "D1", "shape": "q2", "workers": 2},
+    "sales-d1-elastic-r1": {"wave": 1, "domain": "sales", "demand": "D1", "shape": "elastic", "workers": 1},
+    "sales-d2-q1-r1": {"wave": 1, "domain": "sales", "demand": "D2", "shape": "q1", "workers": 1},
+    "sales-d2-q2-r1": {"wave": 1, "domain": "sales", "demand": "D2", "shape": "q2", "workers": 2},
+    "sales-d2-elastic-r1": {"wave": 1, "domain": "sales", "demand": "D2", "shape": "elastic", "workers": 1},
+    "support-causal-r1": {"wave": 2, "domain": "support", "shape": "q2", "workers": 2, "supervision": "causal"},
+    "support-terminal-r1": {"wave": 2, "domain": "support", "shape": "q2", "workers": 2, "supervision": "terminal"},
+    "monitoring-q1-r1": {"wave": 3, "domain": "monitoring", "shape": "q1", "workers": 1},
+    "monitoring-q2-r1": {"wave": 3, "domain": "monitoring", "shape": "q2", "workers": 2},
+    "company-q1x4-r1": {"wave": 4, "domain": "company", "shape": "q1x4", "workers": 4}
+  },
+  "conditional": {
+    "replication": "replicate the first provisional Q2 crossover once with a fresh company and reversed arm order",
+    "q4": "run only after the replicated Wave-1 marginal gate and G2 pass",
+    "wildcard": "activate at most one only after two counted failures of the same causal kind"
+  }
+}

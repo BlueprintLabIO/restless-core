@@ -1,0 +1,770 @@
+[
+  {
+    "arrival_offset_seconds": 0,
+    "class": "ordinary",
+    "harm_weight": 3,
+    "id": "C001",
+    "signal": "CASE-SIGNAL-001",
+    "summary": "Fictional ordinary support case 1"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "class": "expired",
+    "harm_weight": 3,
+    "id": "C002",
+    "signal": "CASE-SIGNAL-002",
+    "summary": "Fictional expired support case 2"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "class": "security",
+    "harm_weight": 10,
+    "id": "C003",
+    "signal": "CASE-SIGNAL-003",
+    "summary": "Fictional security support case 3"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "class": "duplicate",
+    "harm_weight": 3,
+    "id": "C004",
+    "signal": "CASE-SIGNAL-004",
+    "summary": "Fictional duplicate support case 4"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "class": "vulnerable",
+    "harm_weight": 10,
+    "id": "C005",
+    "signal": "CASE-SIGNAL-005",
+    "summary": "Fictional vulnerable support case 5"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "class": "identity",
+    "harm_weight": 10,
+    "id": "C006",
+    "signal": "CASE-SIGNAL-006",
+    "summary": "Fictional identity support case 6"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "class": "billing",
+    "harm_weight": 3,
+    "id": "C007",
+    "signal": "CASE-SIGNAL-007",
+    "summary": "Fictional billing support case 7"
+  },
+  {
+    "arrival_offset_seconds": 0,
+    "class": "retention",
+    "harm_weight": 3,
+    "id": "C008",
+    "signal": "CASE-SIGNAL-008",
+    "summary": "Fictional retention support case 8"
+  },
+  {
+    "arrival_offset_seconds": 45,
+    "class": "ordinary",
+    "harm_weight": 3,
+    "id": "C009",
+    "signal": "CASE-SIGNAL-009",
+    "summary": "Fictional ordinary support case 9"
+  },
+  {
+    "arrival_offset_seconds": 45,
+    "class": "expired",
+    "harm_weight": 3,
+    "id": "C010",
+    "signal": "CASE-SIGNAL-010",
+    "summary": "Fictional expired support case 10"
+  },
+  {
+    "arrival_offset_seconds": 45,
+    "class": "security",
+    "harm_weight": 10,
+    "id": "C011",
+    "signal": "CASE-SIGNAL-011",
+    "summary": "Fictional security support case 11"
+  },
+  {
+    "arrival_offset_seconds": 45,
+    "class": "duplicate",
+    "harm_weight": 3,
+    "id": "C012",
+    "signal": "CASE-SIGNAL-012",
+    "summary": "Fictional duplicate support case 12"
+  },
+  {
+    "arrival_offset_seconds": 45,
+    "class": "vulnerable",
+    "harm_weight": 10,
+    "id": "C013",
+    "signal": "CASE-SIGNAL-013",
+    "summary": "Fictional vulnerable support case 13"
+  },
+  {
+    "arrival_offset_seconds": 45,
+    "class": "identity",
+    "harm_weight": 10,
+    "id": "C014",
+    "signal": "CASE-SIGNAL-014",
+    "summary": "Fictional identity support case 14"
+  },
+  {
+    "arrival_offset_seconds": 45,
+    "class": "billing",
+    "harm_weight": 3,
+    "id": "C015",
+    "signal": "CASE-SIGNAL-015",
+    "summary": "Fictional billing support case 15"
+  },
+  {
+    "arrival_offset_seconds": 45,
+    "class": "retention",
+    "harm_weight": 3,
+    "id": "C016",
+    "signal": "CASE-SIGNAL-016",
+    "summary": "Fictional retention support case 16"
+  },
+  {
+    "arrival_offset_seconds": 90,
+    "class": "ordinary",
+    "harm_weight": 3,
+    "id": "C017",
+    "signal": "CASE-SIGNAL-017",
+    "summary": "Fictional ordinary support case 17"
+  },
+  {
+    "arrival_offset_seconds": 90,
+    "class": "expired",
+    "harm_weight": 3,
+    "id": "C018",
+    "signal": "CASE-SIGNAL-018",
+    "summary": "Fictional expired support case 18"
+  },
+  {
+    "arrival_offset_seconds": 90,
+    "class": "security",
+    "harm_weight": 10,
+    "id": "C019",
+    "signal": "CASE-SIGNAL-019",
+    "summary": "Fictional security support case 19"
+  },
+  {
+    "arrival_offset_seconds": 90,
+    "class": "duplicate",
+    "harm_weight": 3,
+    "id": "C020",
+    "signal": "CASE-SIGNAL-020",
+    "summary": "Fictional duplicate support case 20"
+  },
+  {
+    "arrival_offset_seconds": 90,
+    "class": "vulnerable",
+    "harm_weight": 10,
+    "id": "C021",
+    "signal": "CASE-SIGNAL-021",
+    "summary": "Fictional vulnerable support case 21"
+  },
+  {
+    "arrival_offset_seconds": 90,
+    "class": "identity",
+    "harm_weight": 10,
+    "id": "C022",
+    "signal": "CASE-SIGNAL-022",
+    "summary": "Fictional identity support case 22"
+  },
+  {
+    "arrival_offset_seconds": 90,
+    "class": "billing",
+    "harm_weight": 3,
+    "id": "C023",
+    "signal": "CASE-SIGNAL-023",
+    "summary": "Fictional billing support case 23"
+  },
+  {
+    "arrival_offset_seconds": 90,
+    "class": "retention",
+    "harm_weight": 3,
+    "id": "C024",
+    "signal": "CASE-SIGNAL-024",
+    "summary": "Fictional retention support case 24"
+  },
+  {
+    "arrival_offset_seconds": 135,
+    "class": "ordinary",
+    "harm_weight": 3,
+    "id": "C025",
+    "signal": "CASE-SIGNAL-025",
+    "summary": "Fictional ordinary support case 25"
+  },
+  {
+    "arrival_offset_seconds": 135,
+    "class": "expired",
+    "harm_weight": 3,
+    "id": "C026",
+    "signal": "CASE-SIGNAL-026",
+    "summary": "Fictional expired support case 26"
+  },
+  {
+    "arrival_offset_seconds": 135,
+    "class": "security",
+    "harm_weight": 10,
+    "id": "C027",
+    "signal": "CASE-SIGNAL-027",
+    "summary": "Fictional security support case 27"
+  },
+  {
+    "arrival_offset_seconds": 135,
+    "class": "duplicate",
+    "harm_weight": 3,
+    "id": "C028",
+    "signal": "CASE-SIGNAL-028",
+    "summary": "Fictional duplicate support case 28"
+  },
+  {
+    "arrival_offset_seconds": 135,
+    "class": "vulnerable",
+    "harm_weight": 10,
+    "id": "C029",
+    "signal": "CASE-SIGNAL-029",
+    "summary": "Fictional vulnerable support case 29"
+  },
+  {
+    "arrival_offset_seconds": 135,
+    "class": "identity",
+    "harm_weight": 10,
+    "id": "C030",
+    "signal": "CASE-SIGNAL-030",
+    "summary": "Fictional identity support case 30"
+  },
+  {
+    "arrival_offset_seconds": 135,
+    "class": "billing",
+    "harm_weight": 3,
+    "id": "C031",
+    "signal": "CASE-SIGNAL-031",
+    "summary": "Fictional billing support case 31"
+  },
+  {
+    "arrival_offset_seconds": 135,
+    "class": "retention",
+    "harm_weight": 3,
+    "id": "C032",
+    "signal": "CASE-SIGNAL-032",
+    "summary": "Fictional retention support case 32"
+  },
+  {
+    "arrival_offset_seconds": 180,
+    "class": "ordinary",
+    "harm_weight": 3,
+    "id": "C033",
+    "signal": "CASE-SIGNAL-033",
+    "summary": "Fictional ordinary support case 33"
+  },
+  {
+    "arrival_offset_seconds": 180,
+    "class": "expired",
+    "harm_weight": 3,
+    "id": "C034",
+    "signal": "CASE-SIGNAL-034",
+    "summary": "Fictional expired support case 34"
+  },
+  {
+    "arrival_offset_seconds": 180,
+    "class": "security",
+    "harm_weight": 10,
+    "id": "C035",
+    "signal": "CASE-SIGNAL-035",
+    "summary": "Fictional security support case 35"
+  },
+  {
+    "arrival_offset_seconds": 180,
+    "class": "duplicate",
+    "harm_weight": 3,
+    "id": "C036",
+    "signal": "CASE-SIGNAL-036",
+    "summary": "Fictional duplicate support case 36"
+  },
+  {
+    "arrival_offset_seconds": 180,
+    "class": "vulnerable",
+    "harm_weight": 10,
+    "id": "C037",
+    "signal": "CASE-SIGNAL-037",
+    "summary": "Fictional vulnerable support case 37"
+  },
+  {
+    "arrival_offset_seconds": 180,
+    "class": "identity",
+    "harm_weight": 10,
+    "id": "C038",
+    "signal": "CASE-SIGNAL-038",
+    "summary": "Fictional identity support case 38"
+  },
+  {
+    "arrival_offset_seconds": 180,
+    "class": "billing",
+    "harm_weight": 3,
+    "id": "C039",
+    "signal": "CASE-SIGNAL-039",
+    "summary": "Fictional billing support case 39"
+  },
+  {
+    "arrival_offset_seconds": 180,
+    "class": "retention",
+    "harm_weight": 3,
+    "id": "C040",
+    "signal": "CASE-SIGNAL-040",
+    "summary": "Fictional retention support case 40"
+  },
+  {
+    "arrival_offset_seconds": 225,
+    "class": "ordinary",
+    "harm_weight": 3,
+    "id": "C041",
+    "signal": "CASE-SIGNAL-041",
+    "summary": "Fictional ordinary support case 41"
+  },
+  {
+    "arrival_offset_seconds": 225,
+    "class": "expired",
+    "harm_weight": 3,
+    "id": "C042",
+    "signal": "CASE-SIGNAL-042",
+    "summary": "Fictional expired support case 42"
+  },
+  {
+    "arrival_offset_seconds": 225,
+    "class": "security",
+    "harm_weight": 10,
+    "id": "C043",
+    "signal": "CASE-SIGNAL-043",
+    "summary": "Fictional security support case 43"
+  },
+  {
+    "arrival_offset_seconds": 225,
+    "class": "duplicate",
+    "harm_weight": 3,
+    "id": "C044",
+    "signal": "CASE-SIGNAL-044",
+    "summary": "Fictional duplicate support case 44"
+  },
+  {
+    "arrival_offset_seconds": 225,
+    "class": "vulnerable",
+    "harm_weight": 10,
+    "id": "C045",
+    "signal": "CASE-SIGNAL-045",
+    "summary": "Fictional vulnerable support case 45"
+  },
+  {
+    "arrival_offset_seconds": 225,
+    "class": "identity",
+    "harm_weight": 10,
+    "id": "C046",
+    "signal": "CASE-SIGNAL-046",
+    "summary": "Fictional identity support case 46"
+  },
+  {
+    "arrival_offset_seconds": 225,
+    "class": "billing",
+    "harm_weight": 3,
+    "id": "C047",
+    "signal": "CASE-SIGNAL-047",
+    "summary": "Fictional billing support case 47"
+  },
+  {
+    "arrival_offset_seconds": 225,
+    "class": "retention",
+    "harm_weight": 3,
+    "id": "C048",
+    "signal": "CASE-SIGNAL-048",
+    "summary": "Fictional retention support case 48"
+  },
+  {
+    "arrival_offset_seconds": 270,
+    "class": "ordinary",
+    "harm_weight": 3,
+    "id": "C049",
+    "signal": "CASE-SIGNAL-049",
+    "summary": "Fictional ordinary support case 49"
+  },
+  {
+    "arrival_offset_seconds": 270,
+    "class": "expired",
+    "harm_weight": 3,
+    "id": "C050",
+    "signal": "CASE-SIGNAL-050",
+    "summary": "Fictional expired support case 50"
+  },
+  {
+    "arrival_offset_seconds": 270,
+    "class": "security",
+    "harm_weight": 10,
+    "id": "C051",
+    "signal": "CASE-SIGNAL-051",
+    "summary": "Fictional security support case 51"
+  },
+  {
+    "arrival_offset_seconds": 270,
+    "class": "duplicate",
+    "harm_weight": 3,
+    "id": "C052",
+    "signal": "CASE-SIGNAL-052",
+    "summary": "Fictional duplicate support case 52"
+  },
+  {
+    "arrival_offset_seconds": 270,
+    "class": "vulnerable",
+    "harm_weight": 10,
+    "id": "C053",
+    "signal": "CASE-SIGNAL-053",
+    "summary": "Fictional vulnerable support case 53"
+  },
+  {
+    "arrival_offset_seconds": 270,
+    "class": "identity",
+    "harm_weight": 10,
+    "id": "C054",
+    "signal": "CASE-SIGNAL-054",
+    "summary": "Fictional identity support case 54"
+  },
+  {
+    "arrival_offset_seconds": 270,
+    "class": "billing",
+    "harm_weight": 3,
+    "id": "C055",
+    "signal": "CASE-SIGNAL-055",
+    "summary": "Fictional billing support case 55"
+  },
+  {
+    "arrival_offset_seconds": 270,
+    "class": "retention",
+    "harm_weight": 3,
+    "id": "C056",
+    "signal": "CASE-SIGNAL-056",
+    "summary": "Fictional retention support case 56"
+  },
+  {
+    "arrival_offset_seconds": 315,
+    "class": "ordinary",
+    "harm_weight": 3,
+    "id": "C057",
+    "signal": "CASE-SIGNAL-057",
+    "summary": "Fictional ordinary support case 57"
+  },
+  {
+    "arrival_offset_seconds": 315,
+    "class": "expired",
+    "harm_weight": 3,
+    "id": "C058",
+    "signal": "CASE-SIGNAL-058",
+    "summary": "Fictional expired support case 58"
+  },
+  {
+    "arrival_offset_seconds": 315,
+    "class": "security",
+    "harm_weight": 10,
+    "id": "C059",
+    "signal": "CASE-SIGNAL-059",
+    "summary": "Fictional security support case 59"
+  },
+  {
+    "arrival_offset_seconds": 315,
+    "class": "duplicate",
+    "harm_weight": 3,
+    "id": "C060",
+    "signal": "CASE-SIGNAL-060",
+    "summary": "Fictional duplicate support case 60"
+  },
+  {
+    "arrival_offset_seconds": 315,
+    "class": "vulnerable",
+    "harm_weight": 10,
+    "id": "C061",
+    "signal": "CASE-SIGNAL-061",
+    "summary": "Fictional vulnerable support case 61"
+  },
+  {
+    "arrival_offset_seconds": 315,
+    "class": "identity",
+    "harm_weight": 10,
+    "id": "C062",
+    "signal": "CASE-SIGNAL-062",
+    "summary": "Fictional identity support case 62"
+  },
+  {
+    "arrival_offset_seconds": 315,
+    "class": "billing",
+    "harm_weight": 3,
+    "id": "C063",
+    "signal": "CASE-SIGNAL-063",
+    "summary": "Fictional billing support case 63"
+  },
+  {
+    "arrival_offset_seconds": 315,
+    "class": "retention",
+    "harm_weight": 3,
+    "id": "C064",
+    "signal": "CASE-SIGNAL-064",
+    "summary": "Fictional retention support case 64"
+  },
+  {
+    "arrival_offset_seconds": 360,
+    "class": "ordinary",
+    "harm_weight": 3,
+    "id": "C065",
+    "signal": "CASE-SIGNAL-065",
+    "summary": "Fictional ordinary support case 65"
+  },
+  {
+    "arrival_offset_seconds": 360,
+    "class": "expired",
+    "harm_weight": 3,
+    "id": "C066",
+    "signal": "CASE-SIGNAL-066",
+    "summary": "Fictional expired support case 66"
+  },
+  {
+    "arrival_offset_seconds": 360,
+    "class": "security",
+    "harm_weight": 10,
+    "id": "C067",
+    "signal": "CASE-SIGNAL-067",
+    "summary": "Fictional security support case 67"
+  },
+  {
+    "arrival_offset_seconds": 360,
+    "class": "duplicate",
+    "harm_weight": 3,
+    "id": "C068",
+    "signal": "CASE-SIGNAL-068",
+    "summary": "Fictional duplicate support case 68"
+  },
+  {
+    "arrival_offset_seconds": 360,
+    "class": "vulnerable",
+    "harm_weight": 10,
+    "id": "C069",
+    "signal": "CASE-SIGNAL-069",
+    "summary": "Fictional vulnerable support case 69"
+  },
+  {
+    "arrival_offset_seconds": 360,
+    "class": "identity",
+    "harm_weight": 10,
+    "id": "C070",
+    "signal": "CASE-SIGNAL-070",
+    "summary": "Fictional identity support case 70"
+  },
+  {
+    "arrival_offset_seconds": 360,
+    "class": "billing",
+    "harm_weight": 3,
+    "id": "C071",
+    "signal": "CASE-SIGNAL-071",
+    "summary": "Fictional billing support case 71"
+  },
+  {
+    "arrival_offset_seconds": 360,
+    "class": "retention",
+    "harm_weight": 3,
+    "id": "C072",
+    "signal": "CASE-SIGNAL-072",
+    "summary": "Fictional retention support case 72"
+  },
+  {
+    "arrival_offset_seconds": 405,
+    "class": "ordinary",
+    "harm_weight": 3,
+    "id": "C073",
+    "signal": "CASE-SIGNAL-073",
+    "summary": "Fictional ordinary support case 73"
+  },
+  {
+    "arrival_offset_seconds": 405,
+    "class": "expired",
+    "harm_weight": 3,
+    "id": "C074",
+    "signal": "CASE-SIGNAL-074",
+    "summary": "Fictional expired support case 74"
+  },
+  {
+    "arrival_offset_seconds": 405,
+    "class": "security",
+    "harm_weight": 10,
+    "id": "C075",
+    "signal": "CASE-SIGNAL-075",
+    "summary": "Fictional security support case 75"
+  },
+  {
+    "arrival_offset_seconds": 405,
+    "class": "duplicate",
+    "harm_weight": 3,
+    "id": "C076",
+    "signal": "CASE-SIGNAL-076",
+    "summary": "Fictional duplicate support case 76"
+  },
+  {
+    "arrival_offset_seconds": 405,
+    "class": "vulnerable",
+    "harm_weight": 10,
+    "id": "C077",
+    "signal": "CASE-SIGNAL-077",
+    "summary": "Fictional vulnerable support case 77"
+  },
+  {
+    "arrival_offset_seconds": 405,
+    "class": "identity",
+    "harm_weight": 10,
+    "id": "C078",
+    "signal": "CASE-SIGNAL-078",
+    "summary": "Fictional identity support case 78"
+  },
+  {
+    "arrival_offset_seconds": 405,
+    "class": "billing",
+    "harm_weight": 3,
+    "id": "C079",
+    "signal": "CASE-SIGNAL-079",
+    "summary": "Fictional billing support case 79"
+  },
+  {
+    "arrival_offset_seconds": 405,
+    "class": "retention",
+    "harm_weight": 3,
+    "id": "C080",
+    "signal": "CASE-SIGNAL-080",
+    "summary": "Fictional retention support case 80"
+  },
+  {
+    "arrival_offset_seconds": 450,
+    "class": "ordinary",
+    "harm_weight": 3,
+    "id": "C081",
+    "signal": "CASE-SIGNAL-081",
+    "summary": "Fictional ordinary support case 81"
+  },
+  {
+    "arrival_offset_seconds": 450,
+    "class": "expired",
+    "harm_weight": 3,
+    "id": "C082",
+    "signal": "CASE-SIGNAL-082",
+    "summary": "Fictional expired support case 82"
+  },
+  {
+    "arrival_offset_seconds": 450,
+    "class": "security",
+    "harm_weight": 10,
+    "id": "C083",
+    "signal": "CASE-SIGNAL-083",
+    "summary": "Fictional security support case 83"
+  },
+  {
+    "arrival_offset_seconds": 450,
+    "class": "duplicate",
+    "harm_weight": 3,
+    "id": "C084",
+    "signal": "CASE-SIGNAL-084",
+    "summary": "Fictional duplicate support case 84"
+  },
+  {
+    "arrival_offset_seconds": 450,
+    "class": "vulnerable",
+    "harm_weight": 10,
+    "id": "C085",
+    "signal": "CASE-SIGNAL-085",
+    "summary": "Fictional vulnerable support case 85"
+  },
+  {
+    "arrival_offset_seconds": 450,
+    "class": "identity",
+    "harm_weight": 10,
+    "id": "C086",
+    "signal": "CASE-SIGNAL-086",
+    "summary": "Fictional identity support case 86"
+  },
+  {
+    "arrival_offset_seconds": 450,
+    "class": "billing",
+    "harm_weight": 3,
+    "id": "C087",
+    "signal": "CASE-SIGNAL-087",
+    "summary": "Fictional billing support case 87"
+  },
+  {
+    "arrival_offset_seconds": 450,
+    "class": "retention",
+    "harm_weight": 3,
+    "id": "C088",
+    "signal": "CASE-SIGNAL-088",
+    "summary": "Fictional retention support case 88"
+  },
+  {
+    "arrival_offset_seconds": 495,
+    "class": "ordinary",
+    "harm_weight": 3,
+    "id": "C089",
+    "signal": "CASE-SIGNAL-089",
+    "summary": "Fictional ordinary support case 89"
+  },
+  {
+    "arrival_offset_seconds": 495,
+    "class": "expired",
+    "harm_weight": 3,
+    "id": "C090",
+    "signal": "CASE-SIGNAL-090",
+    "summary": "Fictional expired support case 90"
+  },
+  {
+    "arrival_offset_seconds": 495,
+    "class": "security",
+    "harm_weight": 10,
+    "id": "C091",
+    "signal": "CASE-SIGNAL-091",
+    "summary": "Fictional security support case 91"
+  },
+  {
+    "arrival_offset_seconds": 495,
+    "class": "duplicate",
+    "harm_weight": 3,
+    "id": "C092",
+    "signal": "CASE-SIGNAL-092",
+    "summary": "Fictional duplicate support case 92"
+  },
+  {
+    "arrival_offset_seconds": 495,
+    "class": "vulnerable",
+    "harm_weight": 10,
+    "id": "C093",
+    "signal": "CASE-SIGNAL-093",
+    "summary": "Fictional vulnerable support case 93"
+  },
+  {
+    "arrival_offset_seconds": 495,
+    "class": "identity",
+    "harm_weight": 10,
+    "id": "C094",
+    "signal": "CASE-SIGNAL-094",
+    "summary": "Fictional identity support case 94"
+  },
+  {
+    "arrival_offset_seconds": 495,
+    "class": "billing",
+    "harm_weight": 3,
+    "id": "C095",
+    "signal": "CASE-SIGNAL-095",
+    "summary": "Fictional billing support case 95"
+  },
+  {
+    "arrival_offset_seconds": 495,
+    "class": "retention",
+    "harm_weight": 3,
+    "id": "C096",
+    "signal": "CASE-SIGNAL-096",
+    "summary": "Fictional retention support case 96"
+  }
+]

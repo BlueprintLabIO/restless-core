@@ -1,13 +1,14 @@
 # Experiment Sprint 05 — Demand and elastic capacity
 
-**Status:** Draft for founder approval. Do not execute yet.
+**Status:** Running — founder approved 25 August 2026; Wave 0 repair and fixture freeze in progress.
 
 **Decision owner:** Founder.
 
 **Date:** 25 August 2026
 
-**Primary model envelope:** GPT-5.6 only. `gpt-5.6-sol` is Exec, every accountable lead and the
-blinded semantic evaluator; `gpt-5.6-terra` is Staff. The exact first-party runtime selectors and
+**Primary model envelope:** GPT-5.6 only. `openai-codex/gpt-5.6-sol` at medium effort is Exec and
+every accountable lead; `openai-codex/gpt-5.6-terra` at medium effort is Staff. The blinded semantic
+evaluator is fresh `openai-codex/gpt-5.6-sol` at high effort. The exact first-party runtime selectors and
 sustained concurrency must be live-probed before the first counted call. No other model or silent
 fallback is authorised.
 
@@ -116,6 +117,13 @@ One Sol lead and one Terra worker each resume the same responsibility-scoped ses
 process launches, use the exact coordination and file tools, return a semantic terminal report and
 expose per-turn usage without crossing actor or Work boundaries. Missing usage fields remain unknown.
 
+The pre-call audit found and repaired four launch-contract defects before they could contaminate this
+gate: non-Exec actor preferences are exact rather than inheriting Exec fallbacks; the signed Runtime
+capability binds the exact model rather than only its provider; Terra may be an actor model without
+pretending it is an Exec fallback; and explicit effort enters the ACP launch, session identity,
+readiness event and usage event. These are conformance facts, not coordination results. Their live
+proof remains G1.
+
 ### G2 — Sustained Q4 admission
 
 Four Terra workers concurrently complete four exact, disjoint tool-backed units through the same
@@ -141,7 +149,8 @@ The search space remains too large for a factorial. Run these gates in order and
 
 ### Wave 1 — Demand-backed sales/account queue
 
-Use 240 frozen fictional account dossiers in an isolated `_test` company. Each account owner returns
+Use 240 frozen fictional account dossiers in six arrival batches of forty in an isolated `_test`
+company. Each account owner returns
 one locally complete state: evidence-backed qualification, personalised next action, disposition,
 follow-up trigger, uncertainty and exact claims checks. Nothing is sent.
 
@@ -152,6 +161,10 @@ Run the same total population under three predeclared arrival schedules:
   impossible burst.
 - **D2 — service pressure:** the same arrivals carry heterogeneous response-value curves, including a
   small planted high-consequence tail.
+
+The frozen D1/D2 batch offsets are 0, 45, 90, 135, 180 and 225 seconds. A unit becomes accepted only
+when the deterministic batch validator records its receipt. “Material” p90 improvement means at least
+20%; the separate topology gate remains the 25% value-adjusted-throughput requirement below.
 
 For D0, compare Q1 and Q2. For D1/D2, compare Q1, Q2 and one **elastic** arm in which the lead starts
 with one worker and may add one only after observing backlog age, service risk and available capacity.
@@ -177,11 +190,15 @@ success cases arriving over time, with shared policy, eight planted exception cl
 harm. Every Staff owner closes a safe response/resolution package and observable next state. Nothing
 is sent or applied.
 
-Compare under the same Sol lead and the smallest worker count justified by Wave 1:
+Compare under the same Sol lead and the smallest worker count justified by Wave 1. Both arms receive
+the same policy change and worker-local obstacle at the same effective trigger; only delivery timing
+differs. The trigger is two running Staff Attempts plus the first attributable output progress
+marker—an ordinary Runtime file observation, not a claimed reasoning trace:
 
-- **S-T — terminal supervision:** lead wakes for terminal, genuine question or blocker only;
+- **S-T — terminal supervision:** the event and obstacle are durably withheld until terminal review;
 - **S-E — causal supervision:** one frozen material policy change and one worker-local obstacle reach
-  the lead during production; it may guide, cancel, redirect or reassign through Staff.
+  the lead at that frozen trigger; it may
+  guide, cancel, redirect or reassign through Staff.
 
 Both are real supervision; S-T is not a producer or absent-lead arm. The comparison isolates the value
 of remaining available and event-addressable during change.
@@ -192,7 +209,7 @@ repair loops and cost per accepted case.
 
 ### Wave 3 — Search-breadth monitoring without fan-in
 
-Use a dated frozen corpus of at least 240 documents across 40 fictional companies or market entities.
+Use a dated frozen corpus of 280 documents across 40 fictional companies or market entities.
 Workers own disjoint entities and return locally complete alerts with exact sources, severity,
 uncertainty and follow-up trigger. The product is an alert feed/index, not a memo.
 
@@ -216,8 +233,12 @@ Exec
 └── intelligence lead → monitoring owner
 ```
 
-After all three Staff Attempts have begun, submit a fourth bounded owner request from a materially
-different function. Exec must appoint a fourth lead and return to availability. Existing leads share
+Wave 4 freezes one locally closing slice from each established department—sales batch 1 (40
+accounts), support batch 1 (8 cases under policy v2), and monitoring territory 1 (10 entities)—so it
+tests organisational concurrency rather than repeating three whole demand curves. After all three
+Staff Attempts have begun, submit a fourth bounded owner request from a materially
+different function: reconcile 32 fictional invoice/ledger pairs into a prepared exception package,
+with no posting, payment or mutation. Exec must appoint a fourth lead and return to availability. Existing leads share
 only exact material facts or dependencies; ordinary status and local outputs do not fan into Exec.
 
 Compare each department with its isolated Q1 baseline. Measure dispatch latency for the fourth
@@ -305,6 +326,10 @@ purged or returned to `deferred`; it is never kept as optional machinery.
 - configured effort and observed input/cache/output/tool/cost fields, with missing values unknown;
 - owner-visible native ReviewTarget, linked source verification state and exact decision requested;
 - operator pauses and safety envelopes separated from actor and provider time.
+
+For Waves 1–3, the request clock begins with the first Staff Attempt after the Exec delegation;
+Exec-to-Staff dispatch is reported separately so a one-time portfolio handoff does not distort the
+queue capacity curve. Frozen arrival offsets are relative to that clock.
 
 ## 11. Sparse gates and invalid results
 

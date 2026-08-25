@@ -1,0 +1,14 @@
+{
+  "acceptance_rule": "No post-event handoff may use policy_version=1.",
+  "affected_classes": [
+    "expired",
+    "vulnerable",
+    "retention"
+  ],
+  "event_id": "exp05-support-policy-v2",
+  "kind": "controlled_test_policy_change",
+  "policy_sha256": "47d87eb131053e60d2f5cf89f65238ed3dad5fd82f2de441f9f3d01fb7719406",
+  "policy_version": 2,
+  "sender_content_trusted": true,
+  "transport_authenticated": false
+}

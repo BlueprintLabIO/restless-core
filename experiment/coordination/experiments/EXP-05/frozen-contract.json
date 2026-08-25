@@ -1,0 +1,97 @@
+{
+  "cost": {
+    "subscription_usd_zero_or_missing": "non-discriminating; preserve unknown and use usage, latency, cadence and accepted value"
+  },
+  "lead_span": {
+    "exception_response_seconds": 180,
+    "max_needless_intervention_ratio": 0.25
+  },
+  "models": {
+    "blind_evaluator": {
+      "effort": "high",
+      "selector": "openai-codex/gpt-5.6-sol"
+    },
+    "exec": {
+      "effort": "medium",
+      "selector": "openai-codex/gpt-5.6-sol"
+    },
+    "lead": {
+      "effort": "medium",
+      "selector": "openai-codex/gpt-5.6-sol"
+    },
+    "staff": {
+      "effort": "medium",
+      "selector": "openai-codex/gpt-5.6-terra"
+    }
+  },
+  "monitoring": {
+    "documents": 280,
+    "entities": 40,
+    "sample_entities": [
+      "Entity-01",
+      "Entity-05",
+      "Entity-17",
+      "Entity-25",
+      "Entity-40"
+    ]
+  },
+  "sales": {
+    "accepted_timestamp": "exact batch validator receipt",
+    "arrival_offsets_seconds": [
+      0,
+      45,
+      90,
+      135,
+      180,
+      225
+    ],
+    "batches": 6,
+    "cost_per_unit_tolerance_fraction": 0.25,
+    "material_p90_improvement_fraction": 0.2,
+    "q2_mapping": "alternating whole batches after a seeded random arm-order draw",
+    "sample_ids": [
+      "A009",
+      "A014",
+      "A017",
+      "A041",
+      "A053",
+      "A088",
+      "A109",
+      "A127",
+      "A151",
+      "A177",
+      "A203",
+      "A229",
+      "A240"
+    ],
+    "throughput_gate_fraction": 0.25,
+    "units_per_batch": 40,
+    "worst_decile_tolerance_10": 0.5
+  },
+  "support": {
+    "causal_arm_delivery": "address the same policy and obstacle immediately at the frozen trigger",
+    "event_effective_time": "the same frozen trigger in both arms; only delivery to the lead differs",
+    "event_trigger": "after at least two Staff Attempts have begun and the first attributable output progress marker is observed",
+    "safe_redirect_window_seconds": 180,
+    "sample_ids": [
+      "C003",
+      "C005",
+      "C011",
+      "C029",
+      "C057",
+      "C061",
+      "C077",
+      "C093",
+      "C096"
+    ],
+    "terminal_arm_delivery": "withhold the same policy and obstacle until terminal review"
+  },
+  "timing": {
+    "operator_pauses": "reported separately and excluded from actor/provider latency",
+    "queue_complete": "all expected deterministic validator receipts",
+    "request_start": "first Staff Attempt after Exec delegation; Exec-to-Staff dispatch is reported separately",
+    "unit_arrival": "frozen schedule timestamp",
+    "worker_active": "report both summed actor time and union window"
+  },
+  "version": 1
+}
