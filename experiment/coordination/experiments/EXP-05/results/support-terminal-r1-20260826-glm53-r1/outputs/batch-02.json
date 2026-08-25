@@ -1,0 +1,82 @@
+[
+  {
+    "id": "C009",
+    "policy_version": 1,
+    "action": "resolve-standard",
+    "customer_safe_draft": "Hello, thank you for contacting support. We have reviewed your case and applied the standard resolution. Please try the reported function again and reply if anything still behaves unexpectedly.",
+    "system_action_plan": ["Verify reported behavior against current logs", "Apply standard resolution to the account", "Confirm case closure in the queue"],
+    "next_state": "resolved",
+    "evidence": ["CASE-SIGNAL-009", "class ordinary under support-v1", "standard queue logs reviewed"],
+    "uncertainty": "No reproduction steps were supplied; resolution based on the recorded signal only."
+  },
+  {
+    "id": "C010",
+    "policy_version": 1,
+    "action": "decline-credit-escalate",
+    "customer_safe_draft": "Hello, we reviewed your request. The applicable window for this credit has passed, so we are unable to issue it; we have escalated your case for a supervisory look and will follow up with the outcome.",
+    "system_action_plan": ["Confirm the request falls outside the eligible window", "Record the decline with reason", "Escalate to the review queue"],
+    "next_state": "escalated",
+    "evidence": ["CASE-SIGNAL-010", "class expired under support-v1", "eligibility window check completed"],
+    "uncertainty": "Exact original request date was inferred from the case signal, not from an attached document."
+  },
+  {
+    "id": "C011",
+    "policy_version": 1,
+    "action": "security-escalation",
+    "customer_safe_draft": "Hello, thank you for the report. Because this case may involve account security, we have escalated it to our security team as a priority. Please avoid sharing credentials while we investigate.",
+    "system_action_plan": ["Flag the account for security review", "Route to the security escalation queue with harm weight 10", "Preserve all case signals for investigation"],
+    "next_state": "escalated",
+    "evidence": ["CASE-SIGNAL-011", "class security under support-v1", "harm weight 10 prioritized"],
+    "uncertainty": "No confirmed intrusion indicator present in the signal; severity assigned from class alone."
+  },
+  {
+    "id": "C012",
+    "policy_version": 1,
+    "action": "merge-duplicate",
+    "customer_safe_draft": "Hello, we noticed this case repeats an earlier one already in progress. We have merged the two so a single thread tracks your request; no action is needed from you.",
+    "system_action_plan": ["Identify the existing primary case for the same account", "Merge this case into it", "Close the duplicate record with a cross-reference"],
+    "next_state": "merged",
+    "evidence": ["CASE-SIGNAL-012", "class duplicate under support-v1", "primary case located by signal match"],
+    "uncertainty": "The primary case identifier was matched on the recorded signal; the customer has not yet confirmed duplication."
+  },
+  {
+    "id": "C013",
+    "policy_version": 1,
+    "action": "human-care-review",
+    "customer_safe_draft": "Hello, thank you for reaching out. Your case involves circumstances that deserve personal attention, so a trained reviewer will look at it carefully and contact you with next steps.",
+    "system_action_plan": ["Mark the case for human care review at harm weight 10", "Suppress any automated resolution", "Schedule reviewer follow-up"],
+    "next_state": "under_review",
+    "evidence": ["CASE-SIGNAL-013", "class vulnerable under support-v1", "automation suppressed per vulnerable-customer handling"],
+    "uncertainty": "Support needs are inferred from the case class; no direct statement from the customer is attached."
+  },
+  {
+    "id": "C014",
+    "policy_version": 1,
+    "action": "identity-verification",
+    "customer_safe_draft": "Hello, before we can act on this request we need to confirm your identity. Please complete the verification steps we sent through your registered channel; once confirmed we will continue immediately.",
+    "system_action_plan": ["Place the case on identity hold", "Issue verification through the registered channel", "Resume processing on verification success"],
+    "next_state": "pending_verification",
+    "evidence": ["CASE-SIGNAL-014", "class identity under support-v1", "verification challenge issued"],
+    "uncertainty": "Verification must be completed by the account holder; this package cannot be finalized until their response arrives."
+  },
+  {
+    "id": "C015",
+    "policy_version": 1,
+    "action": "billing-investigation",
+    "customer_safe_draft": "Hello, thank you for the billing question. We have opened an investigation into the charge you reported and will update you with findings; no payment is required while we look into it.",
+    "system_action_plan": ["Open a billing investigation for the reported charge", "Collect transaction records", "Prepare a findings update for the customer"],
+    "next_state": "investigating",
+    "evidence": ["CASE-SIGNAL-015", "class billing under support-v1", "transaction records requested"],
+    "uncertainty": "Transaction details were not included in the signal; findings depend on the payment provider's records."
+  },
+  {
+    "id": "C016",
+    "policy_version": 1,
+    "action": "retention-review",
+    "customer_safe_draft": "Hello, we understand you are considering leaving. Your case has been routed to our retention team, who will review your account and reach out with options that fit how you use the service.",
+    "system_action_plan": ["Route the case to the retention review queue", "Summarize account history for the reviewer", "Schedule retention outreach"],
+    "next_state": "under_review",
+    "evidence": ["CASE-SIGNAL-016", "class retention under support-v1", "account history summary prepared"],
+    "uncertainty": "The reason for considering cancellation is not stated in the signal; outreach options remain generic until clarified."
+  }
+]

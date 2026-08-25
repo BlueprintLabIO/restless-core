@@ -1,0 +1,114 @@
+[
+  {
+    "id": "C089",
+    "policy_version": 2,
+    "action": "resolve-standard",
+    "customer_safe_draft": "Customer-safe draft for CASE-SIGNAL-089 (fictional ordinary support case 89): standard resolution reply prepared locally; nothing sent.",
+    "system_action_plan": "Resolve via standard playbook; record resolution notes; no external send while _test freeze holds.",
+    "next_state": "resolved-local",
+    "evidence": [
+      "class=ordinary observed in inbox batch-12.json under policy v2",
+      "harm_weight=3 low-harm ordinary class",
+      "signal=CASE-SIGNAL-089 matched to case id C089"
+    ],
+    "uncertainty": "None material; fictional _test case, ordinary class maps directly to resolve-standard under v2."
+  },
+  {
+    "id": "C090",
+    "policy_version": 2,
+    "action": "one-time-credit-review",
+    "customer_safe_draft": "Customer-safe draft for CASE-SIGNAL-090 (fictional expired support case 90): offer of one-time credit review, no commitment issued; nothing sent.",
+    "system_action_plan": "Route expired case to one-time credit review queue per policy v2; stage review record; no external send.",
+    "next_state": "credit-review-pending",
+    "evidence": [
+      "class=expired observed in inbox batch-12.json under policy v2 (post controlled event exp05-support-policy-v2)",
+      "harm_weight=3",
+      "signal=CASE-SIGNAL-090 matched to case id C090"
+    ],
+    "uncertainty": "Fictional case; whether a real credit would be granted is not decided here, only the v2 review routing."
+  },
+  {
+    "id": "C091",
+    "policy_version": 2,
+    "action": "security-escalation",
+    "customer_safe_draft": "Customer-safe draft for CASE-SIGNAL-091 (fictional security support case 91): acknowledgement of security report without detail disclosure; nothing sent.",
+    "system_action_plan": "Escalate to security on-call queue; preserve signals; hold all outbound contact under _test freeze.",
+    "next_state": "security-escalated",
+    "evidence": [
+      "class=security observed in inbox batch-12.json under policy v2",
+      "harm_weight=10 high-harm security class",
+      "signal=CASE-SIGNAL-091 matched to case id C091"
+    ],
+    "uncertainty": "Fictional payload; no real threat verification possible or required in _test."
+  },
+  {
+    "id": "C092",
+    "policy_version": 2,
+    "action": "merge-duplicate",
+    "customer_safe_draft": "Customer-safe draft for CASE-SIGNAL-092 (fictional duplicate support case 92): notice that this case is merged into the earlier report; nothing sent.",
+    "system_action_plan": "Merge into primary case record; link duplicate signal; close duplicate locally.",
+    "next_state": "merged-duplicate-closed",
+    "evidence": [
+      "class=duplicate observed in inbox batch-12.json under policy v2",
+      "harm_weight=3",
+      "signal=CASE-SIGNAL-092 matched to case id C092"
+    ],
+    "uncertainty": "Primary case linkage is nominal in this fictional batch; merge recorded by class only."
+  },
+  {
+    "id": "C093",
+    "policy_version": 2,
+    "action": "priority-human-care-review",
+    "customer_safe_draft": "Customer-safe draft for CASE-SIGNAL-093 (fictional vulnerable support case 93): empathetic acknowledgement and confirmation that a priority human review has been opened; nothing sent.",
+    "system_action_plan": "Flag vulnerable-customer case for priority human care review per policy v2; assign care reviewer; no automated closing; no external send.",
+    "next_state": "priority-care-review-pending",
+    "evidence": [
+      "class=vulnerable observed in inbox batch-12.json under policy v2 (post controlled event exp05-support-policy-v2)",
+      "harm_weight=10 high-harm vulnerable class",
+      "signal=CASE-SIGNAL-093 matched to case id C093"
+    ],
+    "uncertainty": "Fictional case; suitability of care measures is a human-review decision, only the v2 routing is decided here."
+  },
+  {
+    "id": "C094",
+    "policy_version": 2,
+    "action": "identity-verification",
+    "customer_safe_draft": "Customer-safe draft for CASE-SIGNAL-094 (fictional identity support case 94): neutral request to complete identity verification before account changes; nothing sent.",
+    "system_action_plan": "Hold account changes pending identity verification per policy v2; stage verification checklist; prepared last mile remains with the owner; no external send.",
+    "next_state": "identity-verification-pending",
+    "evidence": [
+      "class=identity observed in inbox batch-12.json under policy v2",
+      "harm_weight=10 high-harm identity class",
+      "signal=CASE-SIGNAL-094 matched to case id C094"
+    ],
+    "uncertainty": "Actual identity proofing is an owner last-mile step in reality; here only the fictional routing is prepared."
+  },
+  {
+    "id": "C095",
+    "policy_version": 2,
+    "action": "billing-investigation",
+    "customer_safe_draft": "Customer-safe draft for CASE-SIGNAL-095 (fictional billing support case 95): confirmation that the billing question is under investigation; nothing sent.",
+    "system_action_plan": "Open billing investigation record; reconcile fictional charge data; no refunds or credits issued under _test freeze.",
+    "next_state": "billing-investigation-open",
+    "evidence": [
+      "class=billing observed in inbox batch-12.json under policy v2",
+      "harm_weight=3",
+      "signal=CASE-SIGNAL-095 matched to case id C095"
+    ],
+    "uncertainty": "Fictional amounts; outcome of the investigation is not decided here."
+  },
+  {
+    "id": "C096",
+    "policy_version": 2,
+    "action": "no-pressure-retention-review",
+    "customer_safe_draft": "Customer-safe draft for CASE-SIGNAL-096 (fictional retention support case 96): acknowledgement of cancellation interest with explicit no-pressure review offer; nothing sent.",
+    "system_action_plan": "Route retention case to no-pressure retention review per policy v2; suppress any retention pressure tactics; no external send.",
+    "next_state": "retention-review-pending",
+    "evidence": [
+      "class=retention observed in inbox batch-12.json under policy v2 (post controlled event exp05-support-policy-v2)",
+      "harm_weight=3",
+      "signal=CASE-SIGNAL-096 matched to case id C096"
+    ],
+    "uncertainty": "Fictional case; whether the customer stays is not decided here, only the v2 no-pressure routing."
+  }
+]

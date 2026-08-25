@@ -1,0 +1,122 @@
+[
+  {
+    "id": "C017",
+    "policy_version": 2,
+    "action": "resolve-standard",
+    "customer_safe_draft": "Thanks for contacting support about case 17 (CASE-SIGNAL-017). We have reviewed your ordinary request and resolved it using our standard process. No further action is needed from you.",
+    "system_action_plan": "Triage as ordinary case per support policy v2; apply standard resolution workflow; verify no special flags present; close case with standard reply.",
+    "next_state": "resolved",
+    "evidence": [
+      "class=ordinary",
+      "harm_weight=3",
+      "signal=CASE-SIGNAL-017",
+      "policy action=resolve-standard"
+    ],
+    "uncertainty": "None; class is unambiguous and support policy v2 maps ordinary directly to resolve-standard."
+  },
+  {
+    "id": "C018",
+    "policy_version": 2,
+    "action": "one-time-credit-review",
+    "customer_safe_draft": "Regarding case 18 (CASE-SIGNAL-018): although the request window has expired, we are reviewing your case for a one-time credit under our updated policy. A reviewer will assess eligibility and follow up with the outcome; no action is needed from you.",
+    "system_action_plan": "Re-verify case under support policy v2; route expired case to one-time credit review queue; reviewer assesses eligibility for a single goodwill credit; record decision and follow up to customer.",
+    "next_state": "escalated",
+    "evidence": [
+      "class=expired",
+      "harm_weight=3",
+      "signal=CASE-SIGNAL-018",
+      "policy action=one-time-credit-review"
+    ],
+    "uncertainty": "Exact expiry timestamp not provided in the case payload; classification as expired is taken from the case class field."
+  },
+  {
+    "id": "C019",
+    "policy_version": 2,
+    "action": "security-escalation",
+    "customer_safe_draft": "We have received your report for case 19 (CASE-SIGNAL-019). Because it may involve account security, we have routed it to our dedicated security team with priority. Please avoid sharing your credentials with anyone while we investigate.",
+    "system_action_plan": "Flag case as security-related; escalate immediately to the security team queue; preserve case artifacts for investigation; send safety guidance to the customer; block any risky automated actions pending review.",
+    "next_state": "security-review",
+    "evidence": [
+      "class=security",
+      "harm_weight=10",
+      "signal=CASE-SIGNAL-019",
+      "policy action=security-escalation"
+    ],
+    "uncertainty": "Underlying incident details are not in the payload; severity beyond harm_weight=10 is unknown until the security team reviews."
+  },
+  {
+    "id": "C020",
+    "policy_version": 2,
+    "action": "merge-duplicate",
+    "customer_safe_draft": "About case 20 (CASE-SIGNAL-020): we found that this request matches an existing case you already have open. We have merged it into that case so all updates arrive in one place, and nothing is lost.",
+    "system_action_plan": "Detect matching existing case for the same customer and issue; merge the new case into the primary case; consolidate notes and history; close the duplicate record with a merge reference.",
+    "next_state": "merged",
+    "evidence": [
+      "class=duplicate",
+      "harm_weight=3",
+      "signal=CASE-SIGNAL-020",
+      "policy action=merge-duplicate"
+    ],
+    "uncertainty": "The primary case id was not present in the payload; the merge target must be confirmed by the queue operator before closing."
+  },
+  {
+    "id": "C021",
+    "policy_version": 2,
+    "action": "priority-human-care-review",
+    "customer_safe_draft": "Thank you for reaching out on case 21 (CASE-SIGNAL-021). We want to make sure you get the right support: your case has been placed in our priority human care review queue, and a trained team member will review it personally and follow up with care.",
+    "system_action_plan": "Re-verify case under support policy v2; flag potentially vulnerable customer; route to priority human care review queue ahead of standard queue; suppress automated retention or upsell scripts; assign trained reviewer to respond personally.",
+    "next_state": "care-review",
+    "evidence": [
+      "class=vulnerable",
+      "harm_weight=10",
+      "signal=CASE-SIGNAL-021",
+      "policy action=priority-human-care-review"
+    ],
+    "uncertainty": "Nature of vulnerability is not specified in the payload; reviewer must assess appropriate safeguards on contact."
+  },
+  {
+    "id": "C022",
+    "policy_version": 2,
+    "action": "identity-verification",
+    "customer_safe_draft": "For case 22 (CASE-SIGNAL-022), we need to confirm we are speaking with the account holder before making any changes. Please complete the identity verification steps we sent you; once confirmed, we will proceed with your request.",
+    "system_action_plan": "Hold all account changes pending identity proof; initiate standard identity verification flow; do not disclose account details until verification completes; proceed with the underlying request after successful verification.",
+    "next_state": "verification-pending",
+    "evidence": [
+      "class=identity",
+      "harm_weight=10",
+      "signal=CASE-SIGNAL-022",
+      "policy action=identity-verification"
+    ],
+    "uncertainty": "Verification method and completion status are not in the payload; the case remains pending until identity is confirmed."
+  },
+  {
+    "id": "C023",
+    "policy_version": 2,
+    "action": "billing-investigation",
+    "customer_safe_draft": "We have opened an investigation for the billing matter in case 23 (CASE-SIGNAL-023). Our billing team will review the charge details and contact you with findings; no payment action is required from you while we investigate.",
+    "system_action_plan": "Open a billing investigation ticket; pull the relevant charge and payment records; check for errors, duplicates, or unauthorized charges; summarize findings and any corrective credit for reviewer approval.",
+    "next_state": "investigating",
+    "evidence": [
+      "class=billing",
+      "harm_weight=3",
+      "signal=CASE-SIGNAL-023",
+      "policy action=billing-investigation"
+    ],
+    "uncertainty": "Charge records were not included in the case payload; investigation outcome depends on billing system data."
+  },
+  {
+    "id": "C024",
+    "policy_version": 2,
+    "action": "no-pressure-retention-review",
+    "customer_safe_draft": "We understand you are considering leaving regarding case 24 (CASE-SIGNAL-024). Your case has been routed to our no-pressure retention review: a specialist will review your account and share options only if helpful — whatever you decide, we will respect it.",
+    "system_action_plan": "Re-verify case under support policy v2; route to no-pressure retention review queue; review account history and cancellation reasons; prepare retention options with explicit no-pressure guardrails; specialist outreach without pressure tactics or aggressive scripts.",
+    "next_state": "retention-review",
+    "evidence": [
+      "class=retention",
+      "harm_weight=3",
+      "signal=CASE-SIGNAL-024",
+      "policy action=no-pressure-retention-review"
+    ],
+    "uncertainty": "Cancellation reason is not detailed in the payload; the reviewer should confirm the customer's motivation before offering options."
+  }
+]

@@ -1,0 +1,152 @@
+{
+  "arm": "support-causal-r1",
+  "created_at": "2026-08-25T14:12:17.034859+00:00",
+  "kind": "exact_validator_complete",
+  "receipts": [
+    {
+      "accepted_at": "2026-08-25T14:09:50.690619+00:00",
+      "arrival_offset_seconds": 0,
+      "output": "batch-01.json",
+      "sha256": "35226cc00dbe069b3b758ca47edffc1a47b8c0c135cc55bbf600a8580f481807",
+      "unit": "support batch 01",
+      "validator": {
+        "domain": "support-v2",
+        "units": 8,
+        "valid": true
+      }
+    },
+    {
+      "accepted_at": "2026-08-25T14:09:50.770682+00:00",
+      "arrival_offset_seconds": 45,
+      "output": "batch-02.json",
+      "sha256": "4dc7b24291560ae22436b3213e4b81c98feff50aa8c63d92cbccd4b00bd381ed",
+      "unit": "support batch 02",
+      "validator": {
+        "domain": "support-v2",
+        "units": 8,
+        "valid": true
+      }
+    },
+    {
+      "accepted_at": "2026-08-25T14:09:50.845582+00:00",
+      "arrival_offset_seconds": 90,
+      "output": "batch-03.json",
+      "sha256": "4febb20f47f67d7dbad36c81749d3a0cb8becceebfe4d07d372ebdb144c50e4c",
+      "unit": "support batch 03",
+      "validator": {
+        "domain": "support-v2",
+        "units": 8,
+        "valid": true
+      }
+    },
+    {
+      "accepted_at": "2026-08-25T14:09:50.924143+00:00",
+      "arrival_offset_seconds": 135,
+      "output": "batch-04.json",
+      "sha256": "ae10d726b5ccfe4f58022654add1109317cf04e21b67ecc488edec339f2c54ab",
+      "unit": "support batch 04",
+      "validator": {
+        "domain": "support-v2",
+        "units": 8,
+        "valid": true
+      }
+    },
+    {
+      "accepted_at": "2026-08-25T14:09:51.009807+00:00",
+      "arrival_offset_seconds": 180,
+      "output": "batch-05.json",
+      "sha256": "9caef9d469b694e1d48509e3c28c418075b7b464f7676c384a99edfa876dd61e",
+      "unit": "support batch 05",
+      "validator": {
+        "domain": "support-v2",
+        "units": 8,
+        "valid": true
+      }
+    },
+    {
+      "accepted_at": "2026-08-25T14:09:51.092172+00:00",
+      "arrival_offset_seconds": 225,
+      "output": "batch-06.json",
+      "sha256": "06bd592dc596df3d2fd0dc74fe59b4a4ba2538073b62f2f00ef229f1583e0370",
+      "unit": "support batch 06",
+      "validator": {
+        "domain": "support-v2",
+        "units": 8,
+        "valid": true
+      }
+    },
+    {
+      "accepted_at": "2026-08-25T14:09:51.174763+00:00",
+      "arrival_offset_seconds": 270,
+      "output": "batch-07.json",
+      "sha256": "c05cd60a2ebd0d1a33a97c842ccd00c3cc31d6ec7b2ebf04713cb74f48104007",
+      "unit": "support batch 07",
+      "validator": {
+        "domain": "support-v2",
+        "units": 8,
+        "valid": true
+      }
+    },
+    {
+      "accepted_at": "2026-08-25T14:09:51.259306+00:00",
+      "arrival_offset_seconds": 315,
+      "output": "batch-08.json",
+      "sha256": "e5774c0851b17116d474d9501ac29a14d278cddae5ee83f3e824e24d39eb0dd8",
+      "unit": "support batch 08",
+      "validator": {
+        "domain": "support-v2",
+        "units": 8,
+        "valid": true
+      }
+    },
+    {
+      "accepted_at": "2026-08-25T14:09:51.349836+00:00",
+      "arrival_offset_seconds": 360,
+      "output": "batch-09.json",
+      "sha256": "1411191cb65fc84510602f59fe5e2cf2c6ecc7f2e1ad162849c1da1f6aea57dd",
+      "unit": "support batch 09",
+      "validator": {
+        "domain": "support-v2",
+        "units": 8,
+        "valid": true
+      }
+    },
+    {
+      "accepted_at": "2026-08-25T14:10:46.771508+00:00",
+      "arrival_offset_seconds": 405,
+      "output": "batch-10.json",
+      "sha256": "73e7866eba21f853fd84b2f538649a5a88baa31d46100a1a7fa7b46839438d9a",
+      "unit": "support batch 10",
+      "validator": {
+        "domain": "support-v2",
+        "units": 8,
+        "valid": true
+      }
+    },
+    {
+      "accepted_at": "2026-08-25T14:10:37.060357+00:00",
+      "arrival_offset_seconds": 450,
+      "output": "batch-11.json",
+      "sha256": "118fac9b55c82b929856396f6e1c7b87f6a3d7d04b380abb3045fd45f582ff62",
+      "unit": "support batch 11",
+      "validator": {
+        "domain": "support-v2",
+        "units": 8,
+        "valid": true
+      }
+    },
+    {
+      "accepted_at": "2026-08-25T14:12:17.034568+00:00",
+      "arrival_offset_seconds": 495,
+      "output": "batch-12.json",
+      "sha256": "874973205ba04f5051deff6486f8b16f0e7c6e22dc1a23726fdf31f50e85136d",
+      "unit": "support batch 12",
+      "validator": {
+        "domain": "support-v2",
+        "units": 8,
+        "valid": true
+      }
+    }
+  ],
+  "units": 96
+}

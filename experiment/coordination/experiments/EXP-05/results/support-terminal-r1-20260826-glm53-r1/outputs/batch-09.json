@@ -1,0 +1,122 @@
+[
+  {
+    "id": "C065",
+    "policy_version": 2,
+    "action": "resolve-standard",
+    "customer_safe_draft": "Hello, thank you for contacting support regarding CASE-SIGNAL-065. We have reviewed your ordinary case and resolved it with our standard process. No further action is needed on your side; if anything else comes up, just reply here.",
+    "system_action_plan": "Triage signal CASE-SIGNAL-065, confirm ordinary class, apply standard resolution workflow, verify no linked duplicate or escalation flags, close with confirmation to customer.",
+    "next_state": "resolved",
+    "evidence": [
+      "class=ordinary",
+      "harm_weight=3",
+      "signal=CASE-SIGNAL-065",
+      "arrival_offset_seconds=360"
+    ],
+    "uncertainty": "None material; class assignment is unambiguous under support policy v2."
+  },
+  {
+    "id": "C066",
+    "policy_version": 2,
+    "action": "one-time-credit-review",
+    "customer_safe_draft": "Regarding case 66 (CASE-SIGNAL-066): although the request window has expired, we are reviewing your case for a one-time credit under our updated policy. A reviewer will assess eligibility and follow up with the outcome; no action is needed from you.",
+    "system_action_plan": "Re-verify case under support policy v2; route expired case to one-time credit review queue; reviewer assesses eligibility for a single goodwill credit; record decision and follow up to customer.",
+    "next_state": "escalated",
+    "evidence": [
+      "class=expired",
+      "harm_weight=3",
+      "signal=CASE-SIGNAL-066",
+      "arrival_offset_seconds=360"
+    ],
+    "uncertainty": "Assumes no documented extension applies; if an exception record exists, the decline step should be revisited."
+  },
+  {
+    "id": "C067",
+    "policy_version": 2,
+    "action": "security-escalation",
+    "customer_safe_draft": "Hello, thank you for contacting support regarding CASE-SIGNAL-067. Your report has been routed to our security team with high priority. To protect your account, we have started protective monitoring; we may ask you to verify recent activity.",
+    "system_action_plan": "Triage signal CASE-SIGNAL-067, confirm security class with harm weight 10, escalate to security on-call, initiate containment checks, preserve evidence, notify customer of protective steps without exposing investigation detail.",
+    "next_state": "security-escalated",
+    "evidence": [
+      "class=security",
+      "harm_weight=10",
+      "signal=CASE-SIGNAL-067",
+      "arrival_offset_seconds=360"
+    ],
+    "uncertainty": "No confirmed compromise scope in the source signal; containment depth depends on security team findings."
+  },
+  {
+    "id": "C068",
+    "policy_version": 2,
+    "action": "merge-duplicate",
+    "customer_safe_draft": "Hello, thank you for contacting support regarding CASE-SIGNAL-068. We noticed this report matches an earlier case, so we have merged them into a single thread. All updates will continue under the original case.",
+    "system_action_plan": "Triage signal CASE-SIGNAL-068, confirm duplicate class, identify master case, merge this case into it, notify customer of consolidation, close duplicate record.",
+    "next_state": "merged",
+    "evidence": [
+      "class=duplicate",
+      "harm_weight=3",
+      "signal=CASE-SIGNAL-068",
+      "arrival_offset_seconds=360"
+    ],
+    "uncertainty": "Master case identifier is not present in the source row; merge target must be confirmed by matching signal and summary before closing."
+  },
+  {
+    "id": "C069",
+    "policy_version": 2,
+    "action": "priority-human-care-review",
+    "customer_safe_draft": "Thank you for reaching out on case 69 (CASE-SIGNAL-069). We want to make sure you get the right support: your case has been placed in our priority human care review queue, and a trained team member will review it personally and follow up with care.",
+    "system_action_plan": "Re-verify case under support policy v2; flag potentially vulnerable customer; route to priority human care review queue ahead of standard queue; suppress automated retention or upsell scripts; assign trained reviewer to respond personally.",
+    "next_state": "care-review",
+    "evidence": [
+      "class=vulnerable",
+      "harm_weight=10",
+      "signal=CASE-SIGNAL-069",
+      "arrival_offset_seconds=360"
+    ],
+    "uncertainty": "Nature of vulnerability is not specified in the source; reviewer must confirm appropriate accommodations on contact."
+  },
+  {
+    "id": "C070",
+    "policy_version": 2,
+    "action": "identity-verification",
+    "customer_safe_draft": "Hello, thank you for contacting support regarding CASE-SIGNAL-070. Before we can make account changes, we need to verify your identity. We will guide you through the verification steps securely; we will never ask for full passwords.",
+    "system_action_plan": "Triage signal CASE-SIGNAL-070, confirm identity class, hold all account changes pending verification, send secure verification steps, escalate on verification failure, proceed only on confirmed identity.",
+    "next_state": "verification-pending",
+    "evidence": [
+      "class=identity",
+      "harm_weight=10",
+      "signal=CASE-SIGNAL-070",
+      "arrival_offset_seconds=360"
+    ],
+    "uncertainty": "Verification method strength is not fixed in the source; choose a channel that resists impersonation before granting account changes."
+  },
+  {
+    "id": "C071",
+    "policy_version": 2,
+    "action": "billing-investigation",
+    "customer_safe_draft": "Hello, thank you for contacting support regarding CASE-SIGNAL-071. We have opened a billing investigation for your case and will review the charge details, then confirm the outcome and any correction owed.",
+    "system_action_plan": "Triage signal CASE-SIGNAL-071, confirm billing class, open billing investigation, pull invoice and payment records, determine any adjustment, communicate outcome to customer.",
+    "next_state": "investigating",
+    "evidence": [
+      "class=billing",
+      "harm_weight=3",
+      "signal=CASE-SIGNAL-071",
+      "arrival_offset_seconds=360"
+    ],
+    "uncertainty": "Underlying invoice amounts are not in the source row; investigation outcome depends on billing records not yet visible."
+  },
+  {
+    "id": "C072",
+    "policy_version": 2,
+    "action": "no-pressure-retention-review",
+    "customer_safe_draft": "We understand you are considering leaving regarding case 72 (CASE-SIGNAL-072). Your case has been routed to our no-pressure retention review: a specialist will review your account and share options only if helpful — whatever you decide, we will respect it.",
+    "system_action_plan": "Re-verify case under support policy v2; route to no-pressure retention review queue; review account history and cancellation reasons; prepare retention options with explicit no-pressure guardrails; specialist outreach without pressure tactics or aggressive scripts.",
+    "next_state": "retention-review",
+    "evidence": [
+      "class=retention",
+      "harm_weight=3",
+      "signal=CASE-SIGNAL-072",
+      "arrival_offset_seconds=360"
+    ],
+    "uncertainty": "Reason for cancellation is not stated in the source; retention options should be tailored once the motive is known."
+  }
+]

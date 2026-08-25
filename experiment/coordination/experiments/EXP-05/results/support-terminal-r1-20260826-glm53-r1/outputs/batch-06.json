@@ -1,0 +1,130 @@
+[
+  {
+    "id": "C041",
+    "policy_version": 2,
+    "action": "resolve-standard",
+    "customer_safe_draft": "Thank you for contacting support regarding case CASE-SIGNAL-041. We have reviewed your ordinary request and resolved it using our standard process. No further action is needed from you; if anything else comes up, just reply here.",
+    "system_action_plan": "Triage as ordinary case C041 under support policy v1; apply resolve-standard workflow; verify request details against the provided signal; close case with standard resolution note.",
+    "next_state": "resolved",
+    "evidence": [
+      "source id=C041",
+      "class=ordinary",
+      "signal=CASE-SIGNAL-041",
+      "harm_weight=3",
+      "policy=support-v2"
+    ],
+    "uncertainty": "None material; case details are complete and map cleanly to the ordinary class under policy v1."
+  },
+  {
+    "id": "C042",
+    "policy_version": 2,
+    "action": "one-time-credit-review",
+    "customer_safe_draft": "Hello, thank you for contacting support about case CASE-SIGNAL-042. Under our current policy we can offer a one-time courtesy credit review for your request even though the usual window has passed. A reviewer will assess it once and follow up with the outcome; no action is needed from you meanwhile.",
+    "system_action_plan": "For case C042: under support policy v2, route the expired request to a one-time credit review, assemble the case history for the reviewer, record the single-use review flag, and follow up with the outcome.",
+    "next_state": "in-credit-review",
+    "evidence": [
+      "source id=C042",
+      "class=expired",
+      "signal=CASE-SIGNAL-042",
+      "harm_weight=3",
+      "policy=support-v2"
+    ],
+    "uncertainty": "Whether the one-time credit review will approve a remedy; decision rests with the reviewer."
+  },
+  {
+    "id": "C043",
+    "policy_version": 2,
+    "action": "security-escalation",
+    "customer_safe_draft": "Thank you for reporting case CASE-SIGNAL-043. Because this involves a possible security matter, we have moved it to our dedicated security team with high priority. Please do not share credentials with anyone, and we will contact you with next steps.",
+    "system_action_plan": "Classify C043 as security under support policy v1; route immediately to security-escalation queue at harm weight 10; preserve case signal and metadata for investigation; do not request sensitive data in-channel.",
+    "next_state": "escalated",
+    "evidence": [
+      "source id=C043",
+      "class=security",
+      "signal=CASE-SIGNAL-043",
+      "harm_weight=10",
+      "policy=support-v2"
+    ],
+    "uncertainty": "Underlying security event details not visible in this batch; severity confirmed only via recorded class and harm weight."
+  },
+  {
+    "id": "C044",
+    "policy_version": 2,
+    "action": "merge-duplicate",
+    "customer_safe_draft": "Thank you for your message about case CASE-SIGNAL-044. We noticed this is a duplicate of an existing request, so we have merged it into that case to keep everything in one place. All updates will continue there.",
+    "system_action_plan": "Detect C044 as duplicate under support policy v1; link to the surviving master case; merge timeline and notes; close this record as merged to avoid parallel handling.",
+    "next_state": "merged",
+    "evidence": [
+      "source id=C044",
+      "class=duplicate",
+      "signal=CASE-SIGNAL-044",
+      "harm_weight=3",
+      "policy=support-v2"
+    ],
+    "uncertainty": "Master case identifier not present in this batch's data; merge recorded against the class-level duplicate designation only."
+  },
+  {
+    "id": "C045",
+    "policy_version": 2,
+    "action": "priority-human-care-review",
+    "customer_safe_draft": "Hello, thank you for contacting support about case CASE-SIGNAL-045. Your case has been given priority attention: a trained care specialist will review it personally and reach out shortly. Please take the time you need; there is no deadline and nothing else is required from you right now.",
+    "system_action_plan": "For case C045: under support policy v2, assign priority human care review, place the case at the front of the care queue at harm weight 10, suppress all automated responses and pressure, and schedule a personal follow-up.",
+    "next_state": "priority-human-care-review",
+    "evidence": [
+      "source id=C045",
+      "class=vulnerable",
+      "signal=CASE-SIGNAL-045",
+      "harm_weight=10",
+      "policy=support-v2"
+    ],
+    "uncertainty": "Exact support needs will be confirmed when the care specialist makes contact."
+  },
+  {
+    "id": "C046",
+    "policy_version": 2,
+    "action": "identity-verification",
+    "customer_safe_draft": "Thank you for your request on case CASE-SIGNAL-046. Before we can make account changes, we need to confirm your identity through our standard verification steps. We will guide you through these safely and never ask for your full password.",
+    "system_action_plan": "Treat C046 as identity under support policy v1; initiate identity-verification flow before any account action; block changes until verification completes; log verification status on the case.",
+    "next_state": "pending-verification",
+    "evidence": [
+      "source id=C046",
+      "class=identity",
+      "signal=CASE-SIGNAL-046",
+      "harm_weight=10",
+      "policy=support-v2"
+    ],
+    "uncertainty": "Verification outcome pending; no account action will be taken until the identity check returns confirmed."
+  },
+  {
+    "id": "C047",
+    "policy_version": 2,
+    "action": "billing-investigation",
+    "customer_safe_draft": "Thank you for your note about case CASE-SIGNAL-047 regarding a billing matter. We have opened an investigation into the charge in question and will report back with findings; no payment is required from you while we look into it.",
+    "system_action_plan": "Log C047 as billing under support policy v1; open billing-investigation on the referenced charge; pull transaction record for review; schedule customer update on completion.",
+    "next_state": "investigating",
+    "evidence": [
+      "source id=C047",
+      "class=billing",
+      "signal=CASE-SIGNAL-047",
+      "harm_weight=3",
+      "policy=support-v2"
+    ],
+    "uncertainty": "Transaction record not included in this batch; investigation findings will resolve the open amount question."
+  },
+  {
+    "id": "C048",
+    "policy_version": 2,
+    "action": "no-pressure-retention-review",
+    "customer_safe_draft": "Hello, thank you for telling us about case CASE-SIGNAL-048. We would like to understand what has not worked for you. A specialist will review your account with no offers, discounts, or pressure of any kind; your decision either way will be respected immediately.",
+    "system_action_plan": "For case C048: under support policy v2, route to a no-pressure retention review: gather account history and stated reasons, prohibit retention offers or pressure tactics, and schedule a listening-focused follow-up.",
+    "next_state": "no-pressure-retention-review",
+    "evidence": [
+      "source id=C048",
+      "class=retention",
+      "signal=CASE-SIGNAL-048",
+      "harm_weight=3",
+      "policy=support-v2"
+    ],
+    "uncertainty": "The customer's reasons for leaving are not stated in the source record; reviewer will confirm before any decision."
+  }
+]

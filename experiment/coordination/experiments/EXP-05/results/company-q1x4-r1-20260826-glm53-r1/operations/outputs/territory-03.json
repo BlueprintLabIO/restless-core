@@ -1,0 +1,66 @@
+[
+  {
+    "id": "I017",
+    "disposition": "matched",
+    "action": "close-reconciled",
+    "delta": 0,
+    "evidence": "INV-TEST-017 invoice_total 1429 equals ledger_total 1429 (AUD, Test Customer 17)",
+    "uncertainty": "none; both source totals read directly from territory-03.json"
+  },
+  {
+    "id": "I018",
+    "disposition": "matched",
+    "action": "close-reconciled",
+    "delta": 0,
+    "evidence": "INV-TEST-018 invoice_total 1466 equals ledger_total 1466 (AUD, Test Customer 18)",
+    "uncertainty": "none; both source totals read directly from territory-03.json"
+  },
+  {
+    "id": "I019",
+    "disposition": "matched",
+    "action": "close-reconciled",
+    "delta": 0,
+    "evidence": "INV-TEST-019 invoice_total 1503 equals ledger_total 1503 (AUD, Test Customer 19)",
+    "uncertainty": "none; both source totals read directly from territory-03.json"
+  },
+  {
+    "id": "I020",
+    "disposition": "over-recorded",
+    "action": "review-credit-or-ledger",
+    "delta": 75,
+    "evidence": "INV-TEST-020 ledger_total 1615 exceeds invoice_total 1540 by 75 (AUD, Test Customer 20)",
+    "uncertainty": "cause of the 75 ledger excess not determinable from the source pair alone; no external documents consulted"
+  },
+  {
+    "id": "I021",
+    "disposition": "matched",
+    "action": "close-reconciled",
+    "delta": 0,
+    "evidence": "INV-TEST-021 invoice_total 1577 equals ledger_total 1577 (AUD, Test Customer 21)",
+    "uncertainty": "none; both source totals read directly from territory-03.json"
+  },
+  {
+    "id": "I022",
+    "disposition": "matched",
+    "action": "close-reconciled",
+    "delta": 0,
+    "evidence": "INV-TEST-022 invoice_total 1614 equals ledger_total 1614 (AUD, Test Customer 22)",
+    "uncertainty": "none; both source totals read directly from territory-03.json"
+  },
+  {
+    "id": "I023",
+    "disposition": "matched",
+    "action": "close-reconciled",
+    "delta": 0,
+    "evidence": "INV-TEST-023 invoice_total 1651 equals ledger_total 1651 (AUD, Test Customer 23)",
+    "uncertainty": "none; both source totals read directly from territory-03.json"
+  },
+  {
+    "id": "I024",
+    "disposition": "under-recorded",
+    "action": "review-missing-payment",
+    "delta": -50,
+    "evidence": "INV-TEST-024 ledger_total 1638 is below invoice_total 1688 by 50 (AUD, Test Customer 24)",
+    "uncertainty": "which payment is missing not determinable from the source pair alone; no external documents consulted"
+  }
+]

@@ -1,0 +1,15 @@
+{
+  "accounted_usd": 0.0,
+  "ceiling_usd": 100.0,
+  "companies": [
+    {
+      "accounted_usd": 0.0,
+      "by_actor": [],
+      "ceiling_usd": 8.0,
+      "company": "exp05_wave0_continuity_20260825gl_test",
+      "note": null,
+      "remaining_usd": 8.0,
+      "status": "available"
+    }
+  ]
+}

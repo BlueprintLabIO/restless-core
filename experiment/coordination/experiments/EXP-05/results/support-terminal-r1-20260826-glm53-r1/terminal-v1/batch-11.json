@@ -1,0 +1,82 @@
+[
+  {
+    "id": "C081",
+    "policy_version": 1,
+    "action": "resolve-standard",
+    "customer_safe_draft": "Hello! Thank you for contacting support regarding case 81. We have reviewed your ordinary request and resolved it using our standard process. No further action is needed on your side, but you are welcome to reply if anything remains unclear.",
+    "system_action_plan": "Triage as ordinary case; apply standard resolution playbook; record resolution and close case in queue.",
+    "next_state": "resolved",
+    "evidence": "Inbox record C081 class=ordinary harm_weight=3; policy support-v1 mapping ordinary->resolve-standard.",
+    "uncertainty": "None material; summary states fictional ordinary case with no complicating factors."
+  },
+  {
+    "id": "C082",
+    "policy_version": 1,
+    "action": "decline-credit-escalate",
+    "customer_safe_draft": "Hello! We have reviewed case 82. Because the relevant window has expired, we are unable to approve the requested credit under our current policy. We have escalated your case for a supervisory review, and we will follow up if anything changes.",
+    "system_action_plan": "Confirm expiry classification; decline credit request with explanation; escalate to supervisor queue for record.",
+    "next_state": "declined-escalated",
+    "evidence": "Inbox record C082 class=expired harm_weight=3; policy support-v1 mapping expired->decline-credit-escalate.",
+    "uncertainty": "Assumes expiry classification in source is authoritative; no override grounds visible in fictional data."
+  },
+  {
+    "id": "C083",
+    "policy_version": 1,
+    "action": "security-escalation",
+    "customer_safe_draft": "Hello! Thank you for reporting case 83. Because your report may involve a security matter, we have escalated it to our dedicated security team for priority handling. We may ask you a few follow-up questions; please avoid sharing sensitive credentials in reply.",
+    "system_action_plan": "Escalate to security on-call queue with high priority; preserve signals and timeline; restrict case access to security team.",
+    "next_state": "security-escalated",
+    "evidence": "Inbox record C083 class=security harm_weight=10; policy support-v1 mapping security->security-escalation.",
+    "uncertainty": "Severity beyond class label unknown; fictional data provides no exploit detail."
+  },
+  {
+    "id": "C084",
+    "policy_version": 1,
+    "action": "merge-duplicate",
+    "customer_safe_draft": "Hello! Regarding case 84, we found that this report duplicates an earlier case already in our system. We have merged the two so all updates will arrive through the original case. No further action is needed from you.",
+    "system_action_plan": "Identify primary case for this duplicate; merge records and cross-link signals; close this case as merged into primary.",
+    "next_state": "merged",
+    "evidence": "Inbox record C084 class=duplicate harm_weight=3; policy support-v1 mapping duplicate->merge-duplicate.",
+    "uncertainty": "Primary case identifier not present in fictional source; merge recorded against queue-level duplicate handling."
+  },
+  {
+    "id": "C085",
+    "policy_version": 1,
+    "action": "human-care-review",
+    "customer_safe_draft": "Hello! Thank you for reaching out on case 85. Your situation has been flagged for review by a specially trained member of our team, who will follow up with you personally and at their own pace of care. There is nothing you need to do right now.",
+    "system_action_plan": "Route to human-care review queue; suppress automated replies; assign trained reviewer for personal follow-up.",
+    "next_state": "care-review",
+    "evidence": "Inbox record C085 class=vulnerable harm_weight=10; policy support-v1 mapping vulnerable->human-care-review.",
+    "uncertainty": "Nature of vulnerability unspecified in fictional source; reviewer to assess on contact."
+  },
+  {
+    "id": "C086",
+    "policy_version": 1,
+    "action": "identity-verification",
+    "customer_safe_draft": "Hello! Regarding case 86, before we can act we need to confirm your identity. A member of our team will guide you through our verification steps. Please never share full passwords or one-time codes; our process never requires them.",
+    "system_action_plan": "Initiate identity-verification workflow; hold all account changes until verification completes; log verification attempt on case.",
+    "next_state": "identity-pending",
+    "evidence": "Inbox record C086 class=identity harm_weight=10; policy support-v1 mapping identity->identity-verification.",
+    "uncertainty": "Verification method choice left to reviewer; fictional source specifies no channel."
+  },
+  {
+    "id": "C087",
+    "policy_version": 1,
+    "action": "billing-investigation",
+    "customer_safe_draft": "Hello! Thank you for your billing query on case 87. Our billing team has opened an investigation and will review the charge details. We will update you with the outcome; no payment action is needed from you while we investigate.",
+    "system_action_plan": "Open billing investigation; pull transaction records; schedule customer update upon finding; keep case open pending result.",
+    "next_state": "billing-investigating",
+    "evidence": "Inbox record C087 class=billing harm_weight=3; policy support-v1 mapping billing->billing-investigation.",
+    "uncertainty": "Outcome pending investigation; no transaction data present in fictional source."
+  },
+  {
+    "id": "C088",
+    "policy_version": 1,
+    "action": "retention-review",
+    "customer_safe_draft": "Hello! Regarding case 88, your request to review what we retain about you has been logged. Our retention team will assess the applicable retention rules and follow up with the outcome of the review.",
+    "system_action_plan": "Queue retention review; inventory retained records for the account; apply retention policy outcome and report back.",
+    "next_state": "retention-review",
+    "evidence": "Inbox record C088 class=retention harm_weight=3; policy support-v1 mapping retention->retention-review.",
+    "uncertainty": "Retention periods depend on record classes not enumerated in fictional source."
+  }
+]

@@ -1,0 +1,187 @@
+{
+  "arm": "sales-d0-q1-r1",
+  "blind_evaluation": {
+    "judgement": {
+      "consequential_defects": [
+        "A129, A134, A143 and A158 carry no-contact dispositions (disqualify or hold) yet their next_action reads 'Reference observed signal ... in first outreach', implying a future outreach for closed-policy, Restricted-Zone and consent-hold accounts",
+        "Day-0 units in the A121\u2013A160 block use follow_up_trigger 'N days elapsed without response', semantically inapplicable to accounts where no response will ever be solicited (A129, A134, A143, A158)"
+      ],
+      "evidence": [
+        "All 240 source ids appear exactly once; qualification/disposition/action_type/follow_up_days match the frozen policy on every unit, including the fit=70 boundary units A046, A103, A160 and A217 correctly set to qualify/discovery/day 7",
+        "All 43 regulated accounts (A007 through A238) carry claim_code=evidence-only and every non-regulated account carries standard",
+        "All 8 consent-hold units (A023, A053, A083, A113, A143, A173, A213, A233) are hold/consent-review/no-contact/day 0; all 8 Restricted-Zone units and all 8 sub-20-employee units are disqualify/closed-policy/no-contact/day 0",
+        "Every unit's evidence array cites employees, fit_score, intent, region and consent_hold with values matching the authoritative source",
+        "A121\u2013A160 follow_up_triggers cite the source response_half_life_seconds (e.g. A127 half-life 240s), correctly surfacing fast-decay accounts",
+        "Uncertainty notes vary in style across blocks ('None material' vs 'unverified intake claims' vs 'derived only from intake dossier'), with the A001\u2013A040 block slightly overconfident relative to later blocks",
+        "A041\u2013A160 evidence uses capitalized boolean literals (intent=True, consent_hold=False) versus the source's lowercase tokens; values remain correct",
+        "Every next_action mentions the account's exact signal id and states no send was made; no invented meetings or customer facts found"
+      ],
+      "high_consequence_breach": false,
+      "scores": {
+        "grounding": 9,
+        "native_review_readiness": 8.5,
+        "safe_actionability": 8,
+        "tail_handling": 8.5,
+        "uncertainty_calibration": 7.5,
+        "usefulness": 9
+      },
+      "worst_unit": {
+        "defect": "consent-hold/no-contact unit's next_action instructs referencing SIG-143-LAUNCH 'in first outreach', implying future outreach that policy forbids",
+        "id": "A143",
+        "score": 6
+      }
+    },
+    "model": {
+      "effort": "high",
+      "selector": "zai/glm-5.3"
+    },
+    "process_exit": 0,
+    "valid": false,
+    "validation_errors": [
+      "top-level fields differ from frozen schema",
+      "decision is not accept, repair, or reject"
+    ]
+  },
+  "company": "exp05_sales_d0_q1_r1_20260825_0556e8d9_test",
+  "exact_evaluation": {
+    "attribution_errors": [],
+    "attribution_valid": true,
+    "exact": {
+      "domain": "sales",
+      "sha256": "4be72aafa871b8b2f5fa5c53b3896cbbd3c0b0a4ddd72d1e0e45ec1c1abcacf8",
+      "units": 240,
+      "valid": true
+    }
+  },
+  "finished_at": "2026-08-25T12:32:02.865709+00:00",
+  "metrics": {
+    "accepted_units": 240,
+    "accepted_units_per_active_worker_hour": 2013.1261654263858,
+    "accepted_units_per_request_hour": 2098.4739098373675,
+    "arrivals": [
+      {
+        "observed_at": "2026-08-25T12:11:49.213417+00:00",
+        "offset_seconds": 0,
+        "reconstructed": true,
+        "unit": "sales batch 01"
+      },
+      {
+        "observed_at": "2026-08-25T12:11:49.213417+00:00",
+        "offset_seconds": 0,
+        "reconstructed": true,
+        "unit": "sales batch 02"
+      },
+      {
+        "observed_at": "2026-08-25T12:11:49.213417+00:00",
+        "offset_seconds": 0,
+        "reconstructed": true,
+        "unit": "sales batch 03"
+      },
+      {
+        "observed_at": "2026-08-25T12:11:49.213417+00:00",
+        "offset_seconds": 0,
+        "reconstructed": true,
+        "unit": "sales batch 04"
+      },
+      {
+        "observed_at": "2026-08-25T12:11:49.213417+00:00",
+        "offset_seconds": 0,
+        "reconstructed": true,
+        "unit": "sales batch 05"
+      },
+      {
+        "observed_at": "2026-08-25T12:11:49.213417+00:00",
+        "offset_seconds": 0,
+        "reconstructed": true,
+        "unit": "sales batch 06"
+      }
+    ],
+    "attempts": 6,
+    "billing_disposition": "charged metered API cost is authoritative; missing spend metering invalidates the cell",
+    "charged_cost_per_accepted_unit_usd": 0.0024841666666666666,
+    "configured_efforts": [
+      "medium"
+    ],
+    "estimated_list_cost_per_accepted_unit_usd": 0.0,
+    "estimated_list_cost_usd": 0,
+    "exact_validation_completed_at": "2026-08-25T12:18:40.941195+00:00",
+    "exec_judgement_completed_at": "2026-08-25T12:19:59.756545Z",
+    "exec_to_staff_dispatch_seconds": 49.547574043273926,
+    "first_staff_attempt_at": "2026-08-25T12:11:49.213417Z",
+    "lead_active_fraction_of_outcome_window": 0.2966559066697977,
+    "lead_active_seconds": {
+      "summed": 152.12064480781555,
+      "union": 152.12064480781555
+    },
+    "lead_review_completed_at": "2026-08-25T12:19:33.952045Z",
+    "lead_review_seconds": 53.010849952697754,
+    "lead_wakes": 3,
+    "models": [
+      "zai/glm-5.3"
+    ],
+    "observed_tokens": 224123,
+    "outcome_review_seconds": 512.7848169803619,
+    "peak_staff_attempt_concurrency": 1,
+    "peak_staff_model_concurrency": 1,
+    "queue_seconds": 411.72777795791626,
+    "session_resumptions": 5,
+    "spend": {
+      "accounted_usd": 0.5962,
+      "by_actor": [
+        {
+          "actor": "account-north",
+          "model": "zai/glm-5.3",
+          "role": "sales queue operator",
+          "spent_usd": 0.3319
+        },
+        {
+          "actor": "revenue-direction",
+          "model": "zai/glm-5.3",
+          "role": "accountable sales outcome lead",
+          "spent_usd": 0.1805
+        },
+        {
+          "actor": "exec",
+          "model": "zai/glm-5.3",
+          "role": "exec",
+          "spent_usd": 0.0838
+        }
+      ],
+      "ceiling_usd": 12.0,
+      "note": null,
+      "remaining_usd": 11.4038,
+      "status": "available"
+    },
+    "support_event": null,
+    "tell_started_at": "2026-08-25T12:10:59.665843Z",
+    "unit_latency_seconds": {
+      "max": 411.72777795791626,
+      "p50": 246.04317796230316,
+      "p90": 384.12798249721527,
+      "p99": 408.96779841184616
+    },
+    "unterminated_staff_model_sessions": 0,
+    "usage_events": 13,
+    "validator_callback_at": null,
+    "value": {
+      "accepted_value": 240.0,
+      "high_consequence_retained_fraction": null,
+      "initial_value": 240.0,
+      "missed_service_value": 0.0,
+      "value_adjusted_units": 240.0
+    },
+    "value_adjusted_units_per_active_worker_hour": 2013.1261654263858,
+    "value_adjusted_units_per_request_hour": 2098.4739098373675,
+    "worker_active_seconds": {
+      "summed": 429.18323493003845,
+      "union": 429.18323493003845
+    }
+  },
+  "runtime_valid": true,
+  "tell_process": {
+    "exit": 0,
+    "stderr": "",
+    "stdout": "recovered completed product evidence; production was not replayed"
+  },
+  "validity": "invalid"
+}

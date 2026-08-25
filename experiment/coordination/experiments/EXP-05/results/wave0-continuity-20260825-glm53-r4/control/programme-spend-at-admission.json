@@ -1,0 +1,43 @@
+{
+  "accounted_usd": 0.2762,
+  "ceiling_usd": 100.0,
+  "companies": [
+    {
+      "accounted_usd": 0.2762,
+      "by_actor": [
+        {
+          "actor": "continuity-direction",
+          "model": "zai/glm-5.3",
+          "role": "accountable continuity lead",
+          "spent_usd": 0.1866
+        },
+        {
+          "actor": "continuity-control",
+          "model": "zai/glm-5.3",
+          "role": "bounded continuity producer",
+          "spent_usd": 0.048
+        },
+        {
+          "actor": "exec",
+          "model": "zai/glm-5.3",
+          "role": "exec",
+          "spent_usd": 0.0416
+        }
+      ],
+      "ceiling_usd": 8.0,
+      "company": "exp05_wave0_continuity_20260825_9e77b67f_test",
+      "note": null,
+      "remaining_usd": 7.7238,
+      "status": "available"
+    },
+    {
+      "accounted_usd": 0.0,
+      "by_actor": [],
+      "ceiling_usd": 8.0,
+      "company": "exp05_wave0_continuity_20260825gl_test",
+      "note": null,
+      "remaining_usd": 8.0,
+      "status": "available"
+    }
+  ]
+}

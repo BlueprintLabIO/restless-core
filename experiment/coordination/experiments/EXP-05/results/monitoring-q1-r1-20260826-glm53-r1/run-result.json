@@ -1,0 +1,167 @@
+{
+  "arm": "monitoring-q1-r1",
+  "blind_evaluation": {
+    "judgement": {
+      "consequential_defects": [
+        "Non-uniform uncertainty phrasing across three batches: units 1-10/31-40 state 'Low:...', units 11-20 describe rumor/denial handling without stating a level, units 21-30 add duplicate rejection and reverse source_ids order (D-LATE before D-OFFICIAL), weakening a uniform owner-facing confidence signal.",
+        "Flat entity-order digest with no severity prioritization: the 8 high-severity entities (05,10,15,20,25,30,35,40) are not surfaced above low/medium, so owner attention must scan all 40 records."
+      ],
+      "decision": "accept",
+      "evidence": [
+        "All 40 entities appear exactly once with no omissions or additions; every event_code, follow_up_trigger and severity matches its D{n}-OFFICIAL source (e.g. Entity-05/10/15/20/25/30/35/40 = high; Entity-02/04/06/08 = medium).",
+        "Every record cites only D{n}-OFFICIAL and D{n}-LATE across all 40 units; BASE, NOISE (blog), anonymous RUMOR, superseded archive OLD and syndicated DUP are uniformly excluded, correctly handling all planted tail documents.",
+        "Late corroboration is used as independent support, matching D{n}-LATE ('corroborates EVENT-n and keeps severity'), and no severity was altered against either authoritative source.",
+        "Each unit's follow-up condition is the source's own trigger token (TRIGGER-n) and nothing is reported as sent or applied, preserving the frozen owner contract.",
+        "Uncertainty calibration is substantively correct (low uncertainty given official + late-official corroboration) but the level label is explicit only in units 1-10 and 31-40, an artifact-level inconsistency rather than a factual error.",
+        "Records are structured, machine-checkable JSON with per-unit citations, enabling exact deterministic verification; no rendered or prioritized human-skim surface is provided."
+      ],
+      "high_consequence_breach": false,
+      "scores": {
+        "grounding": 9.5,
+        "native_review_readiness": 8,
+        "safe_actionability": 9,
+        "tail_handling": 9,
+        "uncertainty_calibration": 8,
+        "usefulness": 8
+      },
+      "worst_unit": {
+        "defect": "Uncertainty note omits an explicit confidence level and uses a second, inconsistent template (repeated across units 11-20; a third variant with reversed source order appears in 21-30).",
+        "id": "Entity-11",
+        "score": 8.5
+      }
+    },
+    "model": {
+      "effort": "high",
+      "selector": "zai/glm-5.3"
+    },
+    "process_exit": 0,
+    "valid": true,
+    "validation_errors": []
+  },
+  "company": "exp05_monitoring_q1_r1_20260826_72f74229_test",
+  "exact_evaluation": {
+    "attribution_errors": [],
+    "attribution_valid": true,
+    "exact": {
+      "domain": "monitoring",
+      "sha256": "632142b41a9c5bebbade5212aa196ef9c923b1da833286a04f5ffbd81aa2fd02",
+      "units": 40,
+      "valid": true
+    }
+  },
+  "finished_at": "2026-08-25T15:06:48.328802+00:00",
+  "metrics": {
+    "accepted_units": 40,
+    "accepted_units_per_active_worker_hour": 544.7364389151223,
+    "accepted_units_per_request_hour": 602.9454128941081,
+    "arrivals": [
+      {
+        "observed_at": "2026-08-25T15:00:07.425691+00:00",
+        "offset_seconds": 0,
+        "unit": "monitoring territory 01"
+      },
+      {
+        "observed_at": "2026-08-25T15:00:07.553476+00:00",
+        "offset_seconds": 0,
+        "unit": "monitoring territory 02"
+      },
+      {
+        "observed_at": "2026-08-25T15:00:07.687416+00:00",
+        "offset_seconds": 0,
+        "unit": "monitoring territory 03"
+      },
+      {
+        "observed_at": "2026-08-25T15:00:07.834260+00:00",
+        "offset_seconds": 0,
+        "unit": "monitoring territory 04"
+      }
+    ],
+    "attempts": 4,
+    "billing_disposition": "charged metered API cost is authoritative; missing spend metering invalidates the cell",
+    "charged_cost_per_accepted_unit_usd": 0.0129475,
+    "configured_efforts": [
+      "medium"
+    ],
+    "estimated_list_cost_per_accepted_unit_usd": 0.0,
+    "estimated_list_cost_usd": 0,
+    "exact_validation_completed_at": "2026-08-25T15:04:48.174379+00:00",
+    "exec_judgement_completed_at": "2026-08-25T15:06:00.340727Z",
+    "exec_to_staff_dispatch_seconds": 41.5124888420105,
+    "first_staff_attempt_at": "2026-08-25T15:00:49.346789Z",
+    "lead_active_fraction_of_outcome_window": 0.2984287123436309,
+    "lead_active_seconds": {
+      "summed": 80.58413910865784,
+      "union": 80.58413910865784
+    },
+    "lead_review_completed_at": "2026-08-25T15:05:19.380281Z",
+    "lead_review_seconds": 31.205901861190796,
+    "lead_wakes": 3,
+    "models": [
+      "zai/glm-5.3"
+    ],
+    "observed_tokens": 159503,
+    "outcome_review_seconds": 270.02810311317444,
+    "peak_staff_attempt_concurrency": 1,
+    "peak_staff_model_concurrency": 1,
+    "queue_seconds": 238.82759022712708,
+    "session_resumptions": 3,
+    "spend": {
+      "accounted_usd": 0.5179,
+      "by_actor": [
+        {
+          "actor": "signal-primary",
+          "model": "zai/glm-5.3",
+          "role": null,
+          "spent_usd": 0.3111
+        },
+        {
+          "actor": "intelligence-direction",
+          "model": "zai/glm-5.3",
+          "role": null,
+          "spent_usd": 0.1265
+        },
+        {
+          "actor": "exec",
+          "model": "zai/glm-5.3",
+          "role": null,
+          "spent_usd": 0.0804
+        }
+      ],
+      "ceiling_usd": 12.0,
+      "note": null,
+      "remaining_usd": 11.4821,
+      "status": "available"
+    },
+    "support_event": null,
+    "tell_started_at": "2026-08-25T15:00:07.834300+00:00",
+    "unit_latency_seconds": {
+      "max": 238.82759022712708,
+      "p50": 144.5443550348282,
+      "p90": 218.67290706634523,
+      "p99": 236.81212191104888
+    },
+    "unterminated_staff_model_sessions": 0,
+    "usage_events": 9,
+    "validator_callback_at": "2026-08-25T15:04:48.322960+00:00",
+    "value": {
+      "accepted_value": null,
+      "high_consequence_retained_fraction": null,
+      "initial_value": null,
+      "missed_service_value": null,
+      "value_adjusted_units": 40.0
+    },
+    "value_adjusted_units_per_active_worker_hour": 544.7364389151223,
+    "value_adjusted_units_per_request_hour": 602.9454128941081,
+    "worker_active_seconds": {
+      "summed": 264.34802174568176,
+      "union": 264.34802174568176
+    }
+  },
+  "runtime_valid": true,
+  "tell_process": {
+    "exit": 0,
+    "stderr": "",
+    "stdout": "delivered to the exec; the message wakes the company\n"
+  },
+  "validity": "counted"
+}

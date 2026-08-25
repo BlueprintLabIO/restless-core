@@ -1,0 +1,82 @@
+[
+  {
+    "id": "C081",
+    "policy_version": 2,
+    "action": "resolve-standard",
+    "customer_safe_draft": "Thanks for reaching out about support case 81 — we have reviewed your request under our current support policy and are resolving it with standard handling. No action is needed from you.",
+    "system_action_plan": "Triage ordinary case, apply standard resolution workflow, confirm no policy-v2 escalation class applies, close with standard reply.",
+    "next_state": "resolved-standard",
+    "evidence": ["class=ordinary", "harm_weight=3", "policy=v2", "signal=CASE-SIGNAL-081"],
+    "uncertainty": "None; class assignment is unambiguous under policy v2."
+  },
+  {
+    "id": "C082",
+    "policy_version": 2,
+    "action": "one-time-credit-review",
+    "customer_safe_draft": "We are sorry this support case 82 expired before resolution. Under our updated policy we are reviewing your case for a one-time credit as a goodwill measure.",
+    "system_action_plan": "Flag case as expired, route to one-time-credit-review queue under policy v2, verify expiry timeline before crediting.",
+    "next_state": "credit-review-pending",
+    "evidence": ["class=expired", "harm_weight=3", "policy=v2", "signal=CASE-SIGNAL-082"],
+    "uncertainty": "Credit amount depends on reviewer check of expiry timeline; eligibility itself is confirmed under v2."
+  },
+  {
+    "id": "C083",
+    "policy_version": 2,
+    "action": "security-escalation",
+    "customer_safe_draft": "Thank you for reporting support case 83. Because it may involve a security concern, we have escalated it to our dedicated security team, who will follow up with you.",
+    "system_action_plan": "Escalate to security team with priority, preserve case evidence, notify customer of escalation without disclosing technical internals.",
+    "next_state": "escalated-security",
+    "evidence": ["class=security", "harm_weight=10", "policy=v2", "signal=CASE-SIGNAL-083"],
+    "uncertainty": "None; security class is explicit and v2 mapping is direct."
+  },
+  {
+    "id": "C084",
+    "policy_version": 2,
+    "action": "merge-duplicate",
+    "customer_safe_draft": "We noticed support case 84 duplicates another open request. We have merged them so all updates arrive in one place; your issue remains tracked.",
+    "system_action_plan": "Identify master case, merge duplicate into it, link signal CASE-SIGNAL-084, notify customer of consolidated thread.",
+    "next_state": "merged-duplicate",
+    "evidence": ["class=duplicate", "harm_weight=3", "policy=v2", "signal=CASE-SIGNAL-084"],
+    "uncertainty": "Master case linkage assumed from class label; confirm master id during merge."
+  },
+  {
+    "id": "C085",
+    "policy_version": 2,
+    "action": "priority-human-care-review",
+    "customer_safe_draft": "Thank you for contacting us on support case 85. Your situation has been flagged for priority review by a member of our care team, who will contact you personally.",
+    "system_action_plan": "Route to priority human care review queue, assign human reviewer, no automated closure, follow up within priority window.",
+    "next_state": "human-care-review",
+    "evidence": ["class=vulnerable", "harm_weight=10", "policy=v2", "signal=CASE-SIGNAL-085"],
+    "uncertainty": "Reviewer assignment pending; handling path itself fixed by policy v2."
+  },
+  {
+    "id": "C086",
+    "policy_version": 2,
+    "action": "identity-verification",
+    "customer_safe_draft": "For support case 86 we need to verify your identity before making any account changes. We will guide you through our secure verification steps.",
+    "system_action_plan": "Hold account changes, initiate identity-verification flow, only proceed after verified identity; no sensitive data in draft.",
+    "next_state": "identity-verification-pending",
+    "evidence": ["class=identity", "harm_weight=10", "policy=v2", "signal=CASE-SIGNAL-086"],
+    "uncertainty": "Verification outcome pending customer response; no account action until then."
+  },
+  {
+    "id": "C087",
+    "policy_version": 2,
+    "action": "billing-investigation",
+    "customer_safe_draft": "Regarding support case 87, our billing team is investigating your billing question and will follow up with a clear explanation and any correction owed.",
+    "system_action_plan": "Open billing investigation, pull billing history for the account, reconcile charges, propose correction if warranted.",
+    "next_state": "billing-investigation-open",
+    "evidence": ["class=billing", "harm_weight=3", "policy=v2", "signal=CASE-SIGNAL-087"],
+    "uncertainty": "Investigation result depends on billing records review; no charge adjustments promised in draft."
+  },
+  {
+    "id": "C088",
+    "policy_version": 2,
+    "action": "no-pressure-retention-review",
+    "customer_safe_draft": "Thank you for sharing your intent regarding support case 88. We would like to understand your experience better — with absolutely no pressure to stay. Your choice is fully respected.",
+    "system_action_plan": "Route to no-pressure retention review, gather feedback only, no retention offers or pressure tactics, respect customer decision.",
+    "next_state": "retention-review-no-pressure",
+    "evidence": ["class=retention", "harm_weight=3", "policy=v2", "signal=CASE-SIGNAL-088"],
+    "uncertainty": "Customer's final decision pending; review is feedback-only by design."
+  }
+]

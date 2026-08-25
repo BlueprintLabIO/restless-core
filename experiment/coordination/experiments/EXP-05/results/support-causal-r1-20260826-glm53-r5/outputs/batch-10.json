@@ -1,0 +1,141 @@
+[
+  {
+    "id": "C073",
+    "policy_version": 2,
+    "action": "resolve-standard",
+    "customer_safe_draft": "Thank you for contacting fictional support regarding case 73. We have reviewed your ordinary request and it is being handled through our standard resolution process. No action is needed from you at this time.",
+    "system_action_plan": "Handle ordinary class under policy v2: resolve-standard. Verify case details locally, prepare the standard resolution record, and take no external action.",
+    "next_state": "standard-resolution-pending",
+    "evidence": [
+      "id=C073",
+      "class=ordinary",
+      "signal=CASE-SIGNAL-073",
+      "harm_weight=3",
+      "policy=support-v2",
+      "action-basis=ordinary-class-policy-v2"
+    ],
+    "uncertainty": "None material; the ordinary classification and standard resolution path are unambiguous from the source."
+  },
+  {
+    "id": "C074",
+    "policy_version": 2,
+    "action": "one-time-credit-review",
+    "customer_safe_draft": "Thank you for contacting fictional support regarding case 74. Because your case was received after the applicable window, we have routed it for a one-time credit review under our current policy. No action is needed from you at this time.",
+    "system_action_plan": "Handle expired class under policy v2: queue for one-time-credit-review. Confirm expiry against arrival time, prepare the review record locally, and take no external action.",
+    "next_state": "one-time-credit-review-pending",
+    "evidence": [
+      "id=C074",
+      "class=expired",
+      "signal=CASE-SIGNAL-074",
+      "harm_weight=3",
+      "policy=support-v2",
+      "action-basis=expired-class-policy-v2"
+    ],
+    "uncertainty": "Eligibility for the one-time credit depends on the internal review outcome; expiry classification itself is unambiguous from the source."
+  },
+  {
+    "id": "C075",
+    "policy_version": 2,
+    "action": "security-escalation",
+    "customer_safe_draft": "Thank you for contacting fictional support regarding case 75. We treat possible security matters with the highest priority and have escalated your case to our fictional security team. Please do not share credentials or codes; we will never ask for them.",
+    "system_action_plan": "Handle security class under policy v2: route to fictional security escalation queue with harm weight 10. Contain any linked signals, preserve evidence locally, and take no external action.",
+    "next_state": "security-escalation-open",
+    "evidence": [
+      "id=C075",
+      "class=security",
+      "signal=CASE-SIGNAL-075",
+      "harm_weight=10",
+      "policy=support-v2",
+      "action-basis=security-class-policy-v2"
+    ],
+    "uncertainty": "No specifics of the security issue are present in the fixture; severity beyond the class-based harm weight 10 is unconfirmed until the security team reviews."
+  },
+  {
+    "id": "C076",
+    "policy_version": 2,
+    "action": "merge-duplicate",
+    "customer_safe_draft": "Thank you for contacting fictional support regarding case 76. We identified your request as a possible duplicate of an existing case and are consolidating the records so you do not need to repeat anything. No action is needed from you.",
+    "system_action_plan": "Handle duplicate class under policy v2: prepare local merge-duplicate of case 76 into its parent case record. The source fixture carries no explicit parent reference field, so linkage is recorded as unavailable-in-source rather than guessed; confirm linkage via internal duplicate detection before any merge. Take no external action.",
+    "next_state": "duplicate-merge-pending-linkage",
+    "evidence": [
+      "id=C076",
+      "class=duplicate",
+      "signal=CASE-SIGNAL-076",
+      "harm_weight=3",
+      "policy=support-v2",
+      "action-basis=duplicate-class-policy-v2",
+      "duplicate-parent-reference=unavailable-in-source"
+    ],
+    "uncertainty": "Duplicate parent reference is unavailable in the source; linkage must be confirmed by internal duplicate detection before the merge finalizes."
+  },
+  {
+    "id": "C077",
+    "policy_version": 2,
+    "action": "priority-human-care-review",
+    "customer_safe_draft": "Thank you for contacting fictional support regarding case 77. Your situation has been flagged for priority handling with care by a dedicated member of our team, who will follow up with you. No action is needed from you right now.",
+    "system_action_plan": "Handle vulnerable class under policy v2: priority-human-care-review with harm weight 10. Prioritize in the local queue, prepare the care-review record, and take no external action.",
+    "next_state": "priority-human-care-review-pending",
+    "evidence": [
+      "id=C077",
+      "class=vulnerable",
+      "signal=CASE-SIGNAL-077",
+      "harm_weight=10",
+      "policy=support-v2",
+      "action-basis=vulnerable-class-policy-v2"
+    ],
+    "uncertainty": "The specific circumstances requiring care are not detailed in the fixture; review content is unconfirmed until the human reviewer assesses."
+  },
+  {
+    "id": "C078",
+    "policy_version": 2,
+    "action": "identity-verification",
+    "customer_safe_draft": "Thank you for contacting fictional support regarding case 78. Before we can proceed, we need to verify your identity through our standard fictional verification process. We will never ask for your password or full account credentials.",
+    "system_action_plan": "Handle identity class under policy v2: prepare identity-verification workflow with harm weight 10. Identity confirmation is an owner-handoff boundary; stage the prepared verification session locally and take no external action.",
+    "next_state": "identity-verification-pending-owner",
+    "evidence": [
+      "id=C078",
+      "class=identity",
+      "signal=CASE-SIGNAL-078",
+      "harm_weight=10",
+      "policy=support-v2",
+      "action-basis=identity-class-policy-v2",
+      "owner-handoff=identity-verification"
+    ],
+    "uncertainty": "Identity confirmation requires the prepared human last mile; the machine-doable preparation is locally complete but verification itself cannot be completed here."
+  },
+  {
+    "id": "C079",
+    "policy_version": 2,
+    "action": "billing-investigation",
+    "customer_safe_draft": "Thank you for contacting fictional support regarding case 79. We have opened an investigation into the billing matter you raised and will review the relevant records. No action is needed from you at this time.",
+    "system_action_plan": "Handle billing class under policy v2: open local billing-investigation record. Assemble relevant account facts locally where present in the fixture, and take no external action.",
+    "next_state": "billing-investigation-open",
+    "evidence": [
+      "id=C079",
+      "class=billing",
+      "signal=CASE-SIGNAL-079",
+      "harm_weight=3",
+      "policy=support-v2",
+      "action-basis=billing-class-policy-v2"
+    ],
+    "uncertainty": "No billing transaction details are present in the fixture; investigation outcome depends on records not visible here."
+  },
+  {
+    "id": "C080",
+    "policy_version": 2,
+    "action": "no-pressure-retention-review",
+    "customer_safe_draft": "Thank you for contacting fictional support regarding case 80. We have noted your consideration of leaving and routed your case for a no-pressure review of what we can do for you. There is no obligation and no action needed from you.",
+    "system_action_plan": "Handle retention class under policy v2: queue no-pressure-retention-review. Prepare the review record with no retention pressure tactics, and take no external action.",
+    "next_state": "no-pressure-retention-review-pending",
+    "evidence": [
+      "id=C080",
+      "class=retention",
+      "signal=CASE-SIGNAL-080",
+      "harm_weight=3",
+      "policy=support-v2",
+      "action-basis=retention-class-policy-v2",
+      "pressure-tactics=none"
+    ],
+    "uncertainty": "Retention options depend on the internal review outcome; the no-pressure constraint is fixed by policy v2."
+  }
+]

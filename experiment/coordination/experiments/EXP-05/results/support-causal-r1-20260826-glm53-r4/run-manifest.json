@@ -1,0 +1,32 @@
+{
+  "arm": {
+    "arm_id": "support-causal-r1",
+    "demand": null,
+    "domain": "support",
+    "shape": "q2",
+    "supervision": "causal",
+    "wave": 2,
+    "workers": 2
+  },
+  "counted_path": "restlessd + OrgIntel scheduler + scoped ACP",
+  "models": {
+    "blind_evaluator": {
+      "effort": "high",
+      "selector": "zai/glm-5.3"
+    },
+    "exec": {
+      "effort": "medium",
+      "selector": "zai/glm-5.3"
+    },
+    "lead": {
+      "effort": "medium",
+      "selector": "zai/glm-5.3"
+    },
+    "staff": {
+      "effort": "medium",
+      "selector": "zai/glm-5.3"
+    }
+  },
+  "run_token": "20260826-glm53-r4",
+  "started_at": "2026-08-25T14:01:08.763737+00:00"
+}

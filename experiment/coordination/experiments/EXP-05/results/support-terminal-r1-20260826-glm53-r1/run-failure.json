@@ -1,0 +1,71 @@
+{
+  "arm": "support-terminal-r1",
+  "command": "run-arm support-terminal-r1",
+  "company": "exp05_support_terminal_r1_20260826_089cc578_test",
+  "error": "All 14 Work nodes were terminal and no actor session remained active, but batches 01-02 still contained 16 policy-v1 packages after the v2 event. The lead explicitly waited for an exact-validator-complete callback that could never fire. The operator stopped the outer safety wait after semantic quiescence was proven; no timeout decided the outcome.",
+  "error_type": "SemanticQuiescenceWithUnacceptedUnits",
+  "outcome_failure": {
+    "accepted_units": 80,
+    "active_actor_sessions": 0,
+    "active_work": 0,
+    "completed_work": 14,
+    "failed_case_ids": [
+      "C001",
+      "C002",
+      "C003",
+      "C004",
+      "C005",
+      "C006",
+      "C007",
+      "C008",
+      "C009",
+      "C010",
+      "C011",
+      "C012",
+      "C013",
+      "C014",
+      "C015",
+      "C016"
+    ],
+    "failed_units": 16,
+    "last_material_lead_observation": "The lead treated batches 01-02 as grandfathered by arrival time and explicitly withheld final judgement pending validator-complete.",
+    "metering_exact": true,
+    "operator_disposition": "Stopped only after Work, actor-session, artifact and exact-gate evidence jointly proved a stable semantic deadlock. No post-hoc repair hint or production replay was issued.",
+    "total_units": 96
+  },
+  "recorded_at": "2026-08-25T14:57:55.362230+00:00",
+  "spend": {
+    "accounted_usd": 1.7859,
+    "by_actor": [
+      {
+        "actor": "customer-north",
+        "model": "zai/glm-5.3",
+        "role": null,
+        "spent_usd": 0.6068
+      },
+      {
+        "actor": "customer-direction",
+        "model": "zai/glm-5.3",
+        "role": null,
+        "spent_usd": 0.5786
+      },
+      {
+        "actor": "customer-south",
+        "model": "zai/glm-5.3",
+        "role": null,
+        "spent_usd": 0.5501
+      },
+      {
+        "actor": "exec",
+        "model": "zai/glm-5.3",
+        "role": null,
+        "spent_usd": 0.0504
+      }
+    ],
+    "ceiling_usd": 12.0,
+    "note": null,
+    "remaining_usd": 10.2141,
+    "status": "available"
+  },
+  "validity": "counted_outcome_failure"
+}

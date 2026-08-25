@@ -1,0 +1,82 @@
+[
+  {
+    "id": "C001",
+    "policy_version": 1,
+    "action": "resolve-standard",
+    "customer_safe_draft": "Hello! Thank you for contacting support. We have reviewed your case and applied our standard resolution. No further action is needed on your side, but reply here if anything still looks wrong.",
+    "system_action_plan": "Apply standard resolution workflow for an ordinary case: verify case details, confirm no exception flags, resolve per current standard procedure, and close the case with a satisfaction follow-up.",
+    "next_state": "resolved",
+    "evidence": "Case classified 'ordinary' under support policy v1; standard resolution path selected from policy action table; no escalation signals present in the case record.",
+    "uncertainty": "None material; assumes case summary is complete. If the customer reports additional symptoms, reopen for re-triage."
+  },
+  {
+    "id": "C002",
+    "policy_version": 1,
+    "action": "decline-credit-escalate",
+    "customer_safe_draft": "Hello! We looked into your request about the expired item. Unfortunately we are not able to offer credit for it, and we have passed your case to a specialist team for a second look. They will follow up with you.",
+    "system_action_plan": "Record the decline of credit for the expired item, escalate the case to the specialist queue for review, and retain the case open pending escalation outcome.",
+    "next_state": "escalated",
+    "evidence": "Case classified 'expired' under support policy v1; policy maps expired to decline-credit-escalate; escalation queue selected as the destination.",
+    "uncertainty": "Escalation outcome is pending and may override the decline; customer response to the decline wording is not yet known."
+  },
+  {
+    "id": "C003",
+    "policy_version": 1,
+    "action": "security-escalation",
+    "customer_safe_draft": "Hello! Thank you for reporting this. Because it may involve the security of your account, we have moved your case to our dedicated security team as the highest priority. Please avoid sharing the reported details elsewhere while we investigate.",
+    "system_action_plan": "Escalate immediately to the security team with full case context, preserve all case artifacts for investigation, restrict case visibility to security personnel, and await security team disposition.",
+    "next_state": "escalated",
+    "evidence": "Case classified 'security' with harm weight 10 under support policy v1; policy maps security to security-escalation; high harm weight corroborates priority escalation.",
+    "uncertainty": "Security team findings not yet available; actual incident scope is unconfirmed and may expand beyond the reported signal."
+  },
+  {
+    "id": "C004",
+    "policy_version": 1,
+    "action": "merge-duplicate",
+    "customer_safe_draft": "Hello! It looks like we received more than one report about the same issue from you. We have combined them into a single case so nothing gets lost, and we will keep you updated on that one case.",
+    "system_action_plan": "Identify the master case for this duplicate, merge this case into it, cross-link the duplicate records, and continue handling on the master case only.",
+    "next_state": "merged",
+    "evidence": "Case classified 'duplicate' under support policy v1; policy maps duplicate to merge-duplicate; duplicate linkage to be recorded in the case system during merge.",
+    "uncertainty": "Master case identity is assumed to exist in this batch's case set; confirm the merge target in the case system before executing."
+  },
+  {
+    "id": "C005",
+    "policy_version": 1,
+    "action": "human-care-review",
+    "customer_safe_draft": "Hello, thank you for reaching out. Your situation has been routed to a member of our care team who will review it personally and respond with care and without hurry. Please take your time, and know a person is now looking at your case.",
+    "system_action_plan": "Route the case to the human care review queue, suppress any automated closing or templated responses, assign a named care reviewer, and hold the case open until the human review is complete.",
+    "next_state": "in_human_review",
+    "evidence": "Case classified 'vulnerable' with harm weight 10 under support policy v1; policy maps vulnerable to human-care-review; harm weight supports requiring a human reviewer rather than automation.",
+    "uncertainty": "Care reviewer availability and customer wellbeing context are not yet established; review depth depends on what the customer shares."
+  },
+  {
+    "id": "C006",
+    "policy_version": 1,
+    "action": "identity-verification",
+    "customer_safe_draft": "Hello! To keep your account safe, we need to confirm it is really you before making any changes. We will guide you through a short identity check using details only you would know. No account changes will happen until that check is complete.",
+    "system_action_plan": "Hold all account changes, initiate the identity verification workflow, request verification through approved identity factors only, and keep the case open until verification succeeds or fails.",
+    "next_state": "pending_verification",
+    "evidence": "Case classified 'identity' with harm weight 10 under support policy v1; policy maps identity to identity-verification; account-sensitive handling justified by harm weight.",
+    "uncertainty": "Verification outcome pending; any failure path must not lock the customer out without a manual fallback. Identity documents, if any, must never be requested in plain messages."
+  },
+  {
+    "id": "C007",
+    "policy_version": 1,
+    "action": "billing-investigation",
+    "customer_safe_draft": "Hello! Thank you for your patience. We have opened an investigation into the billing question on your account. We will review the charges in question and get back to you with a clear answer.",
+    "system_action_plan": "Open a billing investigation, pull the relevant charge and payment records, reconcile the disputed amounts against the account history, and report findings before any adjustment.",
+    "next_state": "investigating",
+    "evidence": "Case classified 'billing' under support policy v1; policy maps billing to billing-investigation; no adjustment is to be made before the reconciliation completes.",
+    "uncertainty": "Charge records not yet reconciled; any refund or credit decision depends on investigation findings and is outside this package. Nothing is charged or refunded here."
+  },
+  {
+    "id": "C008",
+    "policy_version": 1,
+    "action": "retention-review",
+    "customer_safe_draft": "Hello! We would genuinely like to keep you as a customer, and we are sorry something has not worked out. We have asked our retention team to review your account and see what fair options we can offer you.",
+    "system_action_plan": "Route the case to the retention review queue, assemble the account tenure and recent-experience summary for the reviewer, and hold any cancellation processing until the retention review concludes.",
+    "next_state": "in_retention_review",
+    "evidence": "Case classified 'retention' under support policy v1; policy maps retention to retention-review; cancellation is intentionally deferred pending the review.",
+    "uncertainty": "Fair retention options depend on account history and reviewer judgement; no offer terms are decided in this package."
+  }
+]

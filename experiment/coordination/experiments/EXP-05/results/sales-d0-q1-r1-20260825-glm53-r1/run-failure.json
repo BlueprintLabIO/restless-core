@@ -1,0 +1,36 @@
+{
+  "arm": "sales-d0-q1-r1",
+  "command": "finalize-arm sales-d0-q1-r1",
+  "company": "exp05_sales_d0_q1_r1_20260825_0556e8d9_test",
+  "error": "too many values to unpack (expected 2, got 3)",
+  "error_type": "ValueError",
+  "recorded_at": "2026-08-25T12:26:16.778042+00:00",
+  "spend": {
+    "accounted_usd": 0.5962,
+    "by_actor": [
+      {
+        "actor": "account-north",
+        "model": "zai/glm-5.3",
+        "role": "sales queue operator",
+        "spent_usd": 0.3319
+      },
+      {
+        "actor": "revenue-direction",
+        "model": "zai/glm-5.3",
+        "role": "accountable sales outcome lead",
+        "spent_usd": 0.1805
+      },
+      {
+        "actor": "exec",
+        "model": "zai/glm-5.3",
+        "role": "exec",
+        "spent_usd": 0.0838
+      }
+    ],
+    "ceiling_usd": 12.0,
+    "note": null,
+    "remaining_usd": 11.4038,
+    "status": "available"
+  },
+  "validity": "invalid"
+}

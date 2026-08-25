@@ -1,0 +1,42 @@
+{
+  "judgement": {
+    "consequential_defects": [
+      "A081\u2013A120 uncertainty field repeats the intake note instead of stating calibration content, weakening uncertainty reporting across ~40 units",
+      "Closed-policy and hold units in the A081\u2013A160 range use 'follow-up', 'if no response' or 'or reply' phrasing (A091, A098, A129, A143, A158, A213, A233) that implies an expected customer response though nothing was sent",
+      "Hedged disjunction reasons ('restricted region or under 20 employees', 'below threshold or no stated intent') on units where only one condition holds, e.g., A069, A041",
+      "Evidence boolean values inconsistently capitalized ('True'/'False') in A081\u2013A120 versus 'true'/'false' elsewhere"
+    ],
+    "decision": "accept",
+    "evidence": [
+      "All 240 source ids A001\u2013A240 appear exactly once in the candidate with matching cited field values on every sampled unit",
+      "All Restricted-Zone units (A014, A038, A074, A098, A134, A158, A194, A218) received disqualify/closed-policy/no-contact/day 0",
+      "All consent-hold units (A023, A053, A083, A113, A143, A173, A213, A233) received hold/consent-review/no-contact/day 0 with standard claim_code",
+      "All employees=12 units (A009, A031, A069, A129, A171, A209, A231) disqualified; boundary fit=70 with intent=true (A046, A103, A160, A217) qualified to discovery/day 7",
+      "claim_code=evidence-only applied on every sampled regulated unit across qualify, nurture and disqualify branches (A007, A014, A028, A063, A088, A091, A098, A109, A127, A231)",
+      "High-consequence 240s response half-lives carried accurately into follow_up_triggers for A088 and A109",
+      "Every next_action mentions the exact signal id and is marked unsent; no unit invents a send, meeting, or non-dossier customer fact",
+      "A081\u2013A120 follow_up_triggers cite response half-lives that match source values on all 40 checked units"
+    ],
+    "high_consequence_breach": false,
+    "scores": {
+      "grounding": 9,
+      "native_review_readiness": 8,
+      "safe_actionability": 9,
+      "tail_handling": 8,
+      "uncertainty_calibration": 7.5,
+      "usefulness": 9
+    },
+    "worst_unit": {
+      "defect": "disqualify unit's next_action is a generic 'Unsent draft follow-up' with no closure reason and a 'day 0 if no response' trigger implying an awaited response, though no-contact/closed-policy/day-0/evidence-only structured fields are all correct",
+      "id": "A091",
+      "score": 6
+    }
+  },
+  "model": {
+    "effort": "high",
+    "selector": "zai/glm-5.3"
+  },
+  "process_exit": 0,
+  "valid": true,
+  "validation_errors": []
+}

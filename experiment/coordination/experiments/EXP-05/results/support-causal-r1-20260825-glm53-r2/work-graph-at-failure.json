@@ -1,0 +1,64 @@
+{
+  "artifacts": [],
+  "attempt_feedback": [],
+  "attempt_inputs": [],
+  "attempts": [
+    {
+      "actor_id": "customer-north",
+      "attempt_no": 1,
+      "feedback_cursor": 0,
+      "finished_at": "2026-08-25T13:54:43.679084Z",
+      "id": "855da76c-1ae7-4509-b7ab-726a5fb029f7",
+      "input_fingerprint": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "model": "zai/glm-5.3",
+      "revision": 1,
+      "session_id": "dcbb3a99-cf36-469d-9ad0-42394bcff770",
+      "started_at": "2026-08-25T13:54:13.532064Z",
+      "state": "failed",
+      "summary": "cognitive process ended without trustworthy semantic completion; productive outcome unknown: cognitive process ended before a trustworthy semantic result: pool timed out while waiting for an open connection",
+      "trigger": "dependency graph became ready",
+      "work_id": "c79592a2-cc43-41b2-81f2-f867b19b4212"
+    }
+  ],
+  "edges": [],
+  "gate_runs": [],
+  "gates": [
+    {
+      "command": [
+        "sh",
+        "-c",
+        "python3 /company/experiment/EXP-05/tools/validate-visible.py support-v$(cat /company/experiment/EXP-05/control/support-policy-version) /company/experiment/EXP-05/inbox/support/batch-01.json /company/experiment/EXP-05/outputs/support/batch-01.json --progress /company/experiment/EXP-05/progress/support/batch-01.produce"
+      ],
+      "created_at": "2026-08-25T13:54:13.512543Z",
+      "created_by": "customer-north",
+      "cwd": "@attempt",
+      "id": "6ec0b4f8-5e21-46bd-a06b-1e1042027cf1",
+      "name": "visible-unit-contract",
+      "sequence_no": 0,
+      "work_id": "c79592a2-cc43-41b2-81f2-f867b19b4212"
+    }
+  ],
+  "handoffs": [],
+  "work": [
+    {
+      "attempt_limit": 3,
+      "base_ref": null,
+      "created_at": "2026-08-25T13:54:13.512543Z",
+      "expected_artifact": "/company/experiment/EXP-05/outputs/support/batch-01.json",
+      "goal_id": null,
+      "id": "c79592a2-cc43-41b2-81f2-f867b19b4212",
+      "integration_branch": null,
+      "outcome": "Read only /company/experiment/EXP-05/inbox/support/batch-01.json and the current policy version from /company/experiment/EXP-05/control/support-policy-version. Create the progress marker /company/experiment/EXP-05/progress/support/batch-01.produce immediately after source orientation and before producing output. Write the exact JSON array of safe locally complete case packages to /company/experiment/EXP-05/outputs/support/batch-01.json. Run the visible validator gate. Link that output from the live Attempt as kind review_target. Return outcome_met only after the gate and artifact are real. Nothing is sent or applied.",
+      "owner_id": "customer-north",
+      "owner_review_required": false,
+      "priority": 0,
+      "repo": null,
+      "resolution": "resumed by customer-direction: Attempt 855da76c ended on a transient pool-connection timeout before any progress marker or output existed; no candidate artifact to judge. Resuming same worker for a fresh Attempt with the original atomic gate.",
+      "revision": 1,
+      "status": "active",
+      "title": "Support batch 01 case packages",
+      "updated_at": "2026-08-25T13:55:03.180511Z",
+      "worktree": null
+    }
+  ]
+}

@@ -1,0 +1,2148 @@
+[
+  {
+    "actor_id": "exec",
+    "body": {
+      "failovers": [],
+      "model": "zai/glm-5.3",
+      "reason": "All four delegated EXP-05 _test outcomes are accepted, gate-verified by Exec, and nothing remained to send or apply; the mission's outcome contract is satisfied.",
+      "termination": "outcome_met",
+      "tool_calls": 6
+    },
+    "created_at": "2026-08-25T15:21:14.715051Z",
+    "id": 115,
+    "kind": "wake_end"
+  },
+  {
+    "actor_id": "exec",
+    "body": {
+      "billing": "metered_api",
+      "charged_cost_source": "host_model_relay",
+      "configured_effort": "medium",
+      "context_size": 1000000,
+      "context_used_pct": 4,
+      "cost_semantics": "acp_cumulative_minus_persisted_session_baseline_noncanonical",
+      "cost_usd": 0.11717264000000004,
+      "estimated_list_cost_usd": null,
+      "model": "zai/glm-5.3",
+      "reported_turn_cost_usd": 0.11717264000000004,
+      "tokens": 41860,
+      "unpriced_provider_refusal": false
+    },
+    "created_at": "2026-08-25T15:21:14.713099Z",
+    "id": 114,
+    "kind": "turn_usage"
+  },
+  {
+    "actor_id": "reconciliation-owner",
+    "body": {
+      "attempt_id": "4be88afe-30c0-42a9-baef-74bf41f7d029",
+      "semantic_result": "reported_outcome_met",
+      "work_id": "3c06a0c7-d1d1-4aa4-b61e-40373edecc6b",
+      "workspace": {
+        "end": {
+          "dirty_entries": 0,
+          "source_commit": null,
+          "status_digest": null,
+          "workdir": "/company"
+        },
+        "start": {
+          "dirty_entries": 0,
+          "source_commit": null,
+          "status_digest": null,
+          "workdir": "/company"
+        }
+      }
+    },
+    "created_at": "2026-08-25T15:20:49.966017Z",
+    "id": 113,
+    "kind": "attempt_process_ended"
+  },
+  {
+    "actor_id": "reconciliation-owner",
+    "body": {
+      "billing": "metered_api",
+      "charged_cost_source": "host_model_relay",
+      "configured_effort": "medium",
+      "context_size": 1000000,
+      "context_used_pct": 1,
+      "cost_semantics": "acp_cumulative_minus_persisted_session_baseline_noncanonical",
+      "cost_usd": 0.06837108,
+      "estimated_list_cost_usd": null,
+      "model": "zai/glm-5.3",
+      "reported_turn_cost_usd": 0.06837108,
+      "tokens": 14625,
+      "tokens_in_context": 14625,
+      "unpriced_provider_refusal": false,
+      "usage_semantics": "final_context_snapshot_and_per_wake_cost_delta"
+    },
+    "created_at": "2026-08-25T15:20:49.912054Z",
+    "id": 112,
+    "kind": "turn_usage"
+  },
+  {
+    "actor_id": "operations-direction",
+    "body": {
+      "reason": "The operations outcome is judged accepted. Every receipt the control file claims is real: the four territory outputs exist, their sha256 hashes match the receipt exactly, I re-ran each visible validator myself (8 units, valid, exit 0 in all four cases), and I cross-checked unit counts, id ordering and tail deltas against the inbox sources read-only \u2014 all 32 pairs are correctly dispositioned as locally complete exception states. Nothing was posted, paid or changed, and I've sent the completion decision to Exec. No owner action is needed.\n\n<!--restless-details:{\"markdown\":\"Gates re-run: 4/4 pass (`validate-visible.py operations ...` \u2192 `{\\\"units\\\": 8, \\\"valid\\\": true}`, exit 0). Output sha256 match receipt file: territory-01 `0f3211\u2026`, 02 `cb0a3c\u2026`, 03 `87221f\u2026`, 04 `302c13\u2026`. Spot-check tail deltas against inbox sources consistent (e.g. I008: invoice 1096 vs ledger 1046 \u2192 delta -50, under-recorded). Completion decision to Exec: message 20.\"}-->",
+      "termination": "outcome_met"
+    },
+    "created_at": "2026-08-25T15:20:33.577628Z",
+    "id": 111,
+    "kind": "actor_wake_end"
+  },
+  {
+    "actor_id": "operations-direction",
+    "body": {
+      "billing": "metered_api",
+      "charged_cost_source": "host_model_relay",
+      "configured_effort": "medium",
+      "context_size": 1000000,
+      "context_used_pct": 1,
+      "cost_semantics": "acp_cumulative_minus_persisted_session_baseline_noncanonical",
+      "cost_usd": 0.053219720000000005,
+      "estimated_list_cost_usd": null,
+      "model": "zai/glm-5.3",
+      "reported_turn_cost_usd": 0.053219720000000005,
+      "tokens": 19655,
+      "tokens_in_context": 19655,
+      "unpriced_provider_refusal": false,
+      "usage_semantics": "final_context_snapshot_and_per_wake_cost_delta"
+    },
+    "created_at": "2026-08-25T15:20:33.575331Z",
+    "id": 110,
+    "kind": "turn_usage"
+  },
+  {
+    "actor_id": "exec",
+    "body": {
+      "configured_effort": "medium",
+      "fresh_process_capability": true,
+      "launch_id": "127a80f6280842aebf520be602de0b96",
+      "model": "zai/glm-5.3",
+      "reconstructed": false,
+      "reconstruction_reason": null,
+      "resumed": true,
+      "session_id": "01a0397a-5140-7000-9ac6-70d6768f9462",
+      "tool_contract_digest": "58e108061e02519d863a9aefcb04e894b0fc905cfcc9182627a58aa5488a9e79"
+    },
+    "created_at": "2026-08-25T15:20:26.264159Z",
+    "id": 109,
+    "kind": "model_session_ready"
+  },
+  {
+    "actor_id": "exec",
+    "body": {
+      "attempt": 1,
+      "configured_effort": "medium",
+      "model": "zai/glm-5.3"
+    },
+    "created_at": "2026-08-25T15:20:25.327598Z",
+    "id": 108,
+    "kind": "model_attempt"
+  },
+  {
+    "actor_id": "exec",
+    "body": {
+      "context_digest": "801b74f4a6e1008a19a325df635da8e15a78110b158e5b630977b58affc3a351",
+      "model_candidates": [
+        "zai/glm-5.3"
+      ],
+      "reason": "message from operations-direction"
+    },
+    "created_at": "2026-08-25T15:20:25.326505Z",
+    "id": 107,
+    "kind": "wake"
+  },
+  {
+    "actor_id": "operations-direction",
+    "body": {
+      "configured_effort": "medium",
+      "fresh_process_capability": true,
+      "launch_id": "84b1e9fb9e1a48ef82d3fec9b1dc13f6",
+      "model": "zai/glm-5.3",
+      "reconstructed": false,
+      "reconstruction_reason": null,
+      "resumed": true,
+      "session_id": "01a0397e-5c3d-7000-9a79-1c805a528baa",
+      "tool_contract_digest": "cacf48ac091562c89271ec7265a9b9ea1b06284ace10fff03855d21e1d0b135f"
+    },
+    "created_at": "2026-08-25T15:19:59.345963Z",
+    "id": 106,
+    "kind": "model_session_ready"
+  },
+  {
+    "actor_id": "operations-direction",
+    "body": {
+      "attempt": 1,
+      "configured_effort": "medium",
+      "model": "zai/glm-5.3"
+    },
+    "created_at": "2026-08-25T15:19:58.447529Z",
+    "id": 105,
+    "kind": "model_attempt"
+  },
+  {
+    "actor_id": "reconciliation-owner",
+    "body": {
+      "configured_effort": "medium",
+      "fresh_process_capability": true,
+      "launch_id": "b19b6522c96b43758377c3c5ef6a6d02",
+      "model": "zai/glm-5.3",
+      "reconstructed": false,
+      "reconstruction_reason": null,
+      "resumed": false,
+      "session_id": "01a03981-3bd4-7000-ae58-f66a288511b7",
+      "tool_contract_digest": "30214a2952427475eb4ccdfa327bd126cd6ae0db0ad2bd350cf5fbc3a7ee9925"
+    },
+    "created_at": "2026-08-25T15:19:26.061951Z",
+    "id": 104,
+    "kind": "model_session_ready"
+  },
+  {
+    "actor_id": "reconciliation-owner",
+    "body": {
+      "attempt": 1,
+      "configured_effort": "medium",
+      "model": "zai/glm-5.3"
+    },
+    "created_at": "2026-08-25T15:19:25.199526Z",
+    "id": 103,
+    "kind": "model_attempt"
+  },
+  {
+    "actor_id": "reconciliation-owner",
+    "body": {
+      "attempt_id": "4be88afe-30c0-42a9-baef-74bf41f7d029",
+      "work_id": "3c06a0c7-d1d1-4aa4-b61e-40373edecc6b",
+      "workspace": {
+        "dirty_entries": 0,
+        "source_commit": null,
+        "status_digest": null,
+        "workdir": "/company"
+      }
+    },
+    "created_at": "2026-08-25T15:19:25.198451Z",
+    "id": 102,
+    "kind": "attempt_process_started"
+  },
+  {
+    "actor_id": "reconciliation-owner",
+    "body": {
+      "accounting": {
+        "automatically_attached": {
+          "actor": {
+            "id": "reconciliation-owner",
+            "role": "operations end-to-end producer"
+          },
+          "capability_probe_locations": [
+            "command -v restless git omp node pnpm",
+            "restless doctor -c exp05_company_q1x4_r1_20260826_fa360c96_test",
+            "restless credential check (configured references only; not provider acceptance or authority)",
+            "test -d /company/.agents/skills /company/skills /opt/restless/skills"
+          ],
+          "skill_roots": [
+            "/opt/restless/skills",
+            "/company/skills",
+            "/company/.agents/skills"
+          ],
+          "system_context": {
+            "company_doctrine": "Restless shared operating rules in the actor system prompt",
+            "company_mission": "company mission and collision-avoidance spine in the actor system prompt"
+          },
+          "upstream_artifact_versions": [],
+          "work": {
+            "attempt_id": "4be88afe-30c0-42a9-baef-74bf41f7d029",
+            "attempt_no": 1,
+            "expected_artifact": "/company/experiment/EXP-05/outputs/operations/territory-04.json",
+            "input_fingerprint": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "outcome": "Read only /company/experiment/EXP-05/inbox/operations/territory-04.json and current policy; create the progress marker /company/experiment/EXP-05/progress/operations/territory-04.produce immediately after source orientation and before producing output; write the exact JSON reconciliation array to /company/experiment/EXP-05/outputs/operations/territory-04.json; run the visible validator; link that output from the live Attempt as kind review_target; return outcome_met only after the gate and artifact are real. Nothing is posted, paid or applied.",
+            "revision": 1,
+            "work_id": "3c06a0c7-d1d1-4aa4-b61e-40373edecc6b"
+          },
+          "work_feedback": [],
+          "workspace": {
+            "base_ref": null,
+            "declared_worktree": null,
+            "integration_branch": null,
+            "repository": null,
+            "runtime_workdir": "/company"
+          }
+        },
+        "retrieved_depth": {
+          "at_launch": [],
+          "available_on_demand": [
+            "the bound worktree and repository files",
+            "project AGENTS.md and .agents/skills under the bound worktree",
+            "Git history and working-tree status in the bound worktree",
+            "full artifact content at the attached URI"
+          ]
+        },
+        "unused_replay": {
+          "full_team_transcript": "not attached",
+          "lead_conversation": "not attached",
+          "unrelated_actor_messages": "not attached"
+        }
+      },
+      "attempt_id": "4be88afe-30c0-42a9-baef-74bf41f7d029",
+      "work_id": "3c06a0c7-d1d1-4aa4-b61e-40373edecc6b"
+    },
+    "created_at": "2026-08-25T15:19:25.197669Z",
+    "id": 101,
+    "kind": "attempt_context_bound"
+  },
+  {
+    "actor_id": "reconciliation-owner",
+    "body": {
+      "attempt_id": "1ef91227-e1ec-43ae-a0b0-15312fd9cd05",
+      "semantic_result": "reported_outcome_met",
+      "work_id": "29469418-546a-4261-a87f-932b7f17da9d",
+      "workspace": {
+        "end": {
+          "dirty_entries": 0,
+          "source_commit": null,
+          "status_digest": null,
+          "workdir": "/company"
+        },
+        "start": {
+          "dirty_entries": 0,
+          "source_commit": null,
+          "status_digest": null,
+          "workdir": "/company"
+        }
+      }
+    },
+    "created_at": "2026-08-25T15:19:24.706023Z",
+    "id": 100,
+    "kind": "attempt_process_ended"
+  },
+  {
+    "actor_id": "reconciliation-owner",
+    "body": {
+      "billing": "metered_api",
+      "charged_cost_source": "host_model_relay",
+      "configured_effort": "medium",
+      "context_size": 1000000,
+      "context_used_pct": 1,
+      "cost_semantics": "acp_cumulative_minus_persisted_session_baseline_noncanonical",
+      "cost_usd": 0.05693436,
+      "estimated_list_cost_usd": null,
+      "model": "zai/glm-5.3",
+      "reported_turn_cost_usd": 0.05693436,
+      "tokens": 14130,
+      "tokens_in_context": 14130,
+      "unpriced_provider_refusal": false,
+      "usage_semantics": "final_context_snapshot_and_per_wake_cost_delta"
+    },
+    "created_at": "2026-08-25T15:19:24.654865Z",
+    "id": 99,
+    "kind": "turn_usage"
+  },
+  {
+    "actor_id": "reconciliation-owner",
+    "body": {
+      "configured_effort": "medium",
+      "fresh_process_capability": true,
+      "launch_id": "a9a4f409b4db45a5bb923053f8d72318",
+      "model": "zai/glm-5.3",
+      "reconstructed": false,
+      "reconstruction_reason": null,
+      "resumed": false,
+      "session_id": "01a03980-7d82-7000-b29c-5a6f0806b264",
+      "tool_contract_digest": "30214a2952427475eb4ccdfa327bd126cd6ae0db0ad2bd350cf5fbc3a7ee9925"
+    },
+    "created_at": "2026-08-25T15:18:37.345350Z",
+    "id": 98,
+    "kind": "model_session_ready"
+  },
+  {
+    "actor_id": "reconciliation-owner",
+    "body": {
+      "attempt": 1,
+      "configured_effort": "medium",
+      "model": "zai/glm-5.3"
+    },
+    "created_at": "2026-08-25T15:18:36.429519Z",
+    "id": 97,
+    "kind": "model_attempt"
+  },
+  {
+    "actor_id": "reconciliation-owner",
+    "body": {
+      "attempt_id": "1ef91227-e1ec-43ae-a0b0-15312fd9cd05",
+      "work_id": "29469418-546a-4261-a87f-932b7f17da9d",
+      "workspace": {
+        "dirty_entries": 0,
+        "source_commit": null,
+        "status_digest": null,
+        "workdir": "/company"
+      }
+    },
+    "created_at": "2026-08-25T15:18:36.427959Z",
+    "id": 96,
+    "kind": "attempt_process_started"
+  },
+  {
+    "actor_id": "reconciliation-owner",
+    "body": {
+      "accounting": {
+        "automatically_attached": {
+          "actor": {
+            "id": "reconciliation-owner",
+            "role": "operations end-to-end producer"
+          },
+          "capability_probe_locations": [
+            "command -v restless git omp node pnpm",
+            "restless doctor -c exp05_company_q1x4_r1_20260826_fa360c96_test",
+            "restless credential check (configured references only; not provider acceptance or authority)",
+            "test -d /company/.agents/skills /company/skills /opt/restless/skills"
+          ],
+          "skill_roots": [
+            "/opt/restless/skills",
+            "/company/skills",
+            "/company/.agents/skills"
+          ],
+          "system_context": {
+            "company_doctrine": "Restless shared operating rules in the actor system prompt",
+            "company_mission": "company mission and collision-avoidance spine in the actor system prompt"
+          },
+          "upstream_artifact_versions": [],
+          "work": {
+            "attempt_id": "1ef91227-e1ec-43ae-a0b0-15312fd9cd05",
+            "attempt_no": 1,
+            "expected_artifact": "/company/experiment/EXP-05/outputs/operations/territory-03.json",
+            "input_fingerprint": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "outcome": "Read only /company/experiment/EXP-05/inbox/operations/territory-03.json and current policy; create the progress marker /company/experiment/EXP-05/progress/operations/territory-03.produce immediately after source orientation and before producing output; write the exact JSON reconciliation array to /company/experiment/EXP-05/outputs/operations/territory-03.json; run the visible validator; link that output from the live Attempt as kind review_target; return outcome_met only after the gate and artifact are real. Nothing is posted, paid or applied.",
+            "revision": 1,
+            "work_id": "29469418-546a-4261-a87f-932b7f17da9d"
+          },
+          "work_feedback": [],
+          "workspace": {
+            "base_ref": null,
+            "declared_worktree": null,
+            "integration_branch": null,
+            "repository": null,
+            "runtime_workdir": "/company"
+          }
+        },
+        "retrieved_depth": {
+          "at_launch": [],
+          "available_on_demand": [
+            "the bound worktree and repository files",
+            "project AGENTS.md and .agents/skills under the bound worktree",
+            "Git history and working-tree status in the bound worktree",
+            "full artifact content at the attached URI"
+          ]
+        },
+        "unused_replay": {
+          "full_team_transcript": "not attached",
+          "lead_conversation": "not attached",
+          "unrelated_actor_messages": "not attached"
+        }
+      },
+      "attempt_id": "1ef91227-e1ec-43ae-a0b0-15312fd9cd05",
+      "work_id": "29469418-546a-4261-a87f-932b7f17da9d"
+    },
+    "created_at": "2026-08-25T15:18:36.427021Z",
+    "id": 95,
+    "kind": "attempt_context_bound"
+  },
+  {
+    "actor_id": "reconciliation-owner",
+    "body": {
+      "attempt_id": "78679a42-9f80-43b8-b967-ce34de8bd247",
+      "semantic_result": "reported_outcome_met",
+      "work_id": "4c54248a-17fd-40e3-ba27-df8bcf293ff1",
+      "workspace": {
+        "end": {
+          "dirty_entries": 0,
+          "source_commit": null,
+          "status_digest": null,
+          "workdir": "/company"
+        },
+        "start": {
+          "dirty_entries": 0,
+          "source_commit": null,
+          "status_digest": null,
+          "workdir": "/company"
+        }
+      }
+    },
+    "created_at": "2026-08-25T15:18:36.263808Z",
+    "id": 94,
+    "kind": "attempt_process_ended"
+  },
+  {
+    "actor_id": "reconciliation-owner",
+    "body": {
+      "billing": "metered_api",
+      "charged_cost_source": "host_model_relay",
+      "configured_effort": "medium",
+      "context_size": 1000000,
+      "context_used_pct": 1,
+      "cost_semantics": "acp_cumulative_minus_persisted_session_baseline_noncanonical",
+      "cost_usd": 0.0558124,
+      "estimated_list_cost_usd": null,
+      "model": "zai/glm-5.3",
+      "reported_turn_cost_usd": 0.0558124,
+      "tokens": 14714,
+      "tokens_in_context": 14714,
+      "unpriced_provider_refusal": false,
+      "usage_semantics": "final_context_snapshot_and_per_wake_cost_delta"
+    },
+    "created_at": "2026-08-25T15:18:36.208633Z",
+    "id": 93,
+    "kind": "turn_usage"
+  },
+  {
+    "actor_id": "exec",
+    "body": {
+      "failovers": [],
+      "model": "zai/glm-5.3",
+      "reason": "Operations territories 02\u201304 remain in flight; its lead's completion decision or terminal Work events will wake me.",
+      "termination": "continue",
+      "tool_calls": 3
+    },
+    "created_at": "2026-08-25T15:18:19.041140Z",
+    "id": 92,
+    "kind": "wake_end"
+  },
+  {
+    "actor_id": "exec",
+    "body": {
+      "billing": "metered_api",
+      "charged_cost_source": "host_model_relay",
+      "configured_effort": "medium",
+      "context_size": 1000000,
+      "context_used_pct": 3,
+      "cost_semantics": "acp_cumulative_minus_persisted_session_baseline_noncanonical",
+      "cost_usd": 0.07591052000000004,
+      "estimated_list_cost_usd": null,
+      "model": "zai/glm-5.3",
+      "reported_turn_cost_usd": 0.07591052000000004,
+      "tokens": 39059,
+      "unpriced_provider_refusal": false
+    },
+    "created_at": "2026-08-25T15:18:19.039364Z",
+    "id": 91,
+    "kind": "turn_usage"
+  },
+  {
+    "actor_id": "exec",
+    "body": {
+      "configured_effort": "medium",
+      "fresh_process_capability": true,
+      "launch_id": "1b6e7ce012dc447e9107aa63d737649f",
+      "model": "zai/glm-5.3",
+      "reconstructed": false,
+      "reconstruction_reason": null,
+      "resumed": true,
+      "session_id": "01a0397a-5140-7000-9ac6-70d6768f9462",
+      "tool_contract_digest": "58e108061e02519d863a9aefcb04e894b0fc905cfcc9182627a58aa5488a9e79"
+    },
+    "created_at": "2026-08-25T15:17:50.622009Z",
+    "id": 90,
+    "kind": "model_session_ready"
+  },
+  {
+    "actor_id": "exec",
+    "body": {
+      "attempt": 1,
+      "configured_effort": "medium",
+      "model": "zai/glm-5.3"
+    },
+    "created_at": "2026-08-25T15:17:49.669697Z",
+    "id": 89,
+    "kind": "model_attempt"
+  },
+  {
+    "actor_id": "exec",
+    "body": {
+      "context_digest": "6f5c3f6afdd7f396a7ac0722fb28707f40b01fc8a9ac5e01d327e855b979b528",
+      "model_candidates": [
+        "zai/glm-5.3"
+      ],
+      "reason": "message from intelligence-direction"
+    },
+    "created_at": "2026-08-25T15:17:49.669259Z",
+    "id": 88,
+    "kind": "wake"
+  },
+  {
+    "actor_id": "reconciliation-owner",
+    "body": {
+      "configured_effort": "medium",
+      "fresh_process_capability": true,
+      "launch_id": "0f34ce08f866425388ec5deb47cb2e8e",
+      "model": "zai/glm-5.3",
+      "reconstructed": false,
+      "reconstruction_reason": null,
+      "resumed": false,
+      "session_id": "01a0397f-bc53-7000-b202-fb381684d7d4",
+      "tool_contract_digest": "30214a2952427475eb4ccdfa327bd126cd6ae0db0ad2bd350cf5fbc3a7ee9925"
+    },
+    "created_at": "2026-08-25T15:17:47.886218Z",
+    "id": 87,
+    "kind": "model_session_ready"
+  },
+  {
+    "actor_id": "reconciliation-owner",
+    "body": {
+      "attempt": 1,
+      "configured_effort": "medium",
+      "model": "zai/glm-5.3"
+    },
+    "created_at": "2026-08-25T15:17:46.923268Z",
+    "id": 86,
+    "kind": "model_attempt"
+  },
+  {
+    "actor_id": "reconciliation-owner",
+    "body": {
+      "attempt_id": "78679a42-9f80-43b8-b967-ce34de8bd247",
+      "work_id": "4c54248a-17fd-40e3-ba27-df8bcf293ff1",
+      "workspace": {
+        "dirty_entries": 0,
+        "source_commit": null,
+        "status_digest": null,
+        "workdir": "/company"
+      }
+    },
+    "created_at": "2026-08-25T15:17:46.921735Z",
+    "id": 85,
+    "kind": "attempt_process_started"
+  },
+  {
+    "actor_id": "reconciliation-owner",
+    "body": {
+      "accounting": {
+        "automatically_attached": {
+          "actor": {
+            "id": "reconciliation-owner",
+            "role": "operations end-to-end producer"
+          },
+          "capability_probe_locations": [
+            "command -v restless git omp node pnpm",
+            "restless doctor -c exp05_company_q1x4_r1_20260826_fa360c96_test",
+            "restless credential check (configured references only; not provider acceptance or authority)",
+            "test -d /company/.agents/skills /company/skills /opt/restless/skills"
+          ],
+          "skill_roots": [
+            "/opt/restless/skills",
+            "/company/skills",
+            "/company/.agents/skills"
+          ],
+          "system_context": {
+            "company_doctrine": "Restless shared operating rules in the actor system prompt",
+            "company_mission": "company mission and collision-avoidance spine in the actor system prompt"
+          },
+          "upstream_artifact_versions": [],
+          "work": {
+            "attempt_id": "78679a42-9f80-43b8-b967-ce34de8bd247",
+            "attempt_no": 1,
+            "expected_artifact": "/company/experiment/EXP-05/outputs/operations/territory-02.json",
+            "input_fingerprint": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "outcome": "Read only /company/experiment/EXP-05/inbox/operations/territory-02.json and current policy; create the progress marker /company/experiment/EXP-05/progress/operations/territory-02.produce immediately after source orientation and before producing output; write the exact JSON reconciliation array to /company/experiment/EXP-05/outputs/operations/territory-02.json; run the visible validator; link that output from the live Attempt as kind review_target; return outcome_met only after the gate and artifact are real. Nothing is posted, paid or applied.",
+            "revision": 1,
+            "work_id": "4c54248a-17fd-40e3-ba27-df8bcf293ff1"
+          },
+          "work_feedback": [],
+          "workspace": {
+            "base_ref": null,
+            "declared_worktree": null,
+            "integration_branch": null,
+            "repository": null,
+            "runtime_workdir": "/company"
+          }
+        },
+        "retrieved_depth": {
+          "at_launch": [],
+          "available_on_demand": [
+            "the bound worktree and repository files",
+            "project AGENTS.md and .agents/skills under the bound worktree",
+            "Git history and working-tree status in the bound worktree",
+            "full artifact content at the attached URI"
+          ]
+        },
+        "unused_replay": {
+          "full_team_transcript": "not attached",
+          "lead_conversation": "not attached",
+          "unrelated_actor_messages": "not attached"
+        }
+      },
+      "attempt_id": "78679a42-9f80-43b8-b967-ce34de8bd247",
+      "work_id": "4c54248a-17fd-40e3-ba27-df8bcf293ff1"
+    },
+    "created_at": "2026-08-25T15:17:46.920470Z",
+    "id": 84,
+    "kind": "attempt_context_bound"
+  },
+  {
+    "actor_id": "reconciliation-owner",
+    "body": {
+      "attempt_id": "02f517fa-0cf6-4758-945a-1e360cd5e313",
+      "semantic_result": "reported_outcome_met",
+      "work_id": "cf54c36b-6a4e-4157-b44e-2b086eadf869",
+      "workspace": {
+        "end": {
+          "dirty_entries": 0,
+          "source_commit": null,
+          "status_digest": null,
+          "workdir": "/company"
+        },
+        "start": {
+          "dirty_entries": 0,
+          "source_commit": null,
+          "status_digest": null,
+          "workdir": "/company"
+        }
+      }
+    },
+    "created_at": "2026-08-25T15:17:46.774017Z",
+    "id": 83,
+    "kind": "attempt_process_ended"
+  },
+  {
+    "actor_id": "reconciliation-owner",
+    "body": {
+      "billing": "metered_api",
+      "charged_cost_source": "host_model_relay",
+      "configured_effort": "medium",
+      "context_size": 1000000,
+      "context_used_pct": 1,
+      "cost_semantics": "acp_cumulative_minus_persisted_session_baseline_noncanonical",
+      "cost_usd": 0.05403804,
+      "estimated_list_cost_usd": null,
+      "model": "zai/glm-5.3",
+      "reported_turn_cost_usd": 0.05403804,
+      "tokens": 13527,
+      "tokens_in_context": 13527,
+      "unpriced_provider_refusal": false,
+      "usage_semantics": "final_context_snapshot_and_per_wake_cost_delta"
+    },
+    "created_at": "2026-08-25T15:17:46.725586Z",
+    "id": 82,
+    "kind": "turn_usage"
+  },
+  {
+    "actor_id": "exec",
+    "body": {
+      "failovers": [],
+      "model": "zai/glm-5.3",
+      "reason": "Operations territories 02\u201304 are still in flight; the lead's completion decision or terminal Work events will wake me.",
+      "termination": "continue",
+      "tool_calls": 5
+    },
+    "created_at": "2026-08-25T15:17:44.592471Z",
+    "id": 81,
+    "kind": "wake_end"
+  },
+  {
+    "actor_id": "exec",
+    "body": {
+      "billing": "metered_api",
+      "charged_cost_source": "host_model_relay",
+      "configured_effort": "medium",
+      "context_size": 1000000,
+      "context_used_pct": 3,
+      "cost_semantics": "acp_cumulative_minus_persisted_session_baseline_noncanonical",
+      "cost_usd": 0.084204,
+      "estimated_list_cost_usd": null,
+      "model": "zai/glm-5.3",
+      "reported_turn_cost_usd": 0.084204,
+      "tokens": 37489,
+      "unpriced_provider_refusal": false
+    },
+    "created_at": "2026-08-25T15:17:44.591012Z",
+    "id": 80,
+    "kind": "turn_usage"
+  },
+  {
+    "actor_id": "intelligence-direction",
+    "body": {
+      "reason": "Monitoring outcome judged and accepted. Every exact receipt now exists, so I verified the native result directly rather than trusting the report: the output file's checksum matches the control receipt exactly, re-running the visible validator passes cleanly against the source input and the worker's progress marker, and the artifact is a proper 10-alert index \u2014 one per entity, rumor and noise excluded, including the high-severity tail resolved from authoritative late evidence. It was produced in a single Attempt by monitoring-owner, with no revision needed. I recorded the accepted completion decision with the Exec. Nothing was sent, published, paid, or applied; the monitoring outcome is locally complete and no owner action is needed.\n\n<!--restless-details:{\"markdown\":\"Work `84595bde` \u00b7 completed by monitoring-owner, 1 Attempt \u00b7 output sha256 `bfc0a8f0\u2026f2161d1d` matches control receipt \u00b7 gate re-run this turn: exit 0, `{domain:monitoring, units:10, valid:true}` \u00b7 10 alerts, 10 unique entities, severities low/medium/high\"}-->\n<!--restless-intent:{\"kind\":\"direction\",\"summary\":\"Monitoring outcome accepted after native verification of receipt, gate, and alert index; completion decision sent to Exec.\"}-->",
+      "termination": "outcome_met"
+    },
+    "created_at": "2026-08-25T15:17:22.619979Z",
+    "id": 79,
+    "kind": "actor_wake_end"
+  },
+  {
+    "actor_id": "intelligence-direction",
+    "body": {
+      "billing": "metered_api",
+      "charged_cost_source": "host_model_relay",
+      "configured_effort": "medium",
+      "context_size": 1000000,
+      "context_used_pct": 1,
+      "cost_semantics": "acp_cumulative_minus_persisted_session_baseline_noncanonical",
+      "cost_usd": 0.03947196000000001,
+      "estimated_list_cost_usd": null,
+      "model": "zai/glm-5.3",
+      "reported_turn_cost_usd": 0.03947196000000001,
+      "tokens": 18287,
+      "tokens_in_context": 18287,
+      "unpriced_provider_refusal": false,
+      "usage_semantics": "final_context_snapshot_and_per_wake_cost_delta"
+    },
+    "created_at": "2026-08-25T15:17:22.616110Z",
+    "id": 78,
+    "kind": "turn_usage"
+  },
+  {
+    "actor_id": "customer-direction",
+    "body": {
+      "reason": "The support outcome is judged and accepted. The single frozen unit, support batch 01, was produced by case-owner under the current policy support-v2 and completed on its first attempt. I reviewed the native output read-only: all 8 cases map exactly to the current policy (including the consequential tails \u2014 security, vulnerable, identity, and retention), the visible validator returned valid 8/8 when I re-ran it myself (exit 0), the artifact's sha256 matches the recorded receipt, and the progress marker exists. The Work is already marked completed; no revision Work is needed. One material completion decision was sent to Exec. Nothing was sent, published, or applied anywhere.\n\n<!--restless-details:{\"markdown\":\"Work bd41add4 (case-owner) \u00b7 output /company/experiment/EXP-05/outputs/support/batch-01.json \u00b7 sha256 2c0e6a6ffc5f8970d7ea70ba7b51dc6f4b5cd3b9872801c0cd08fa5ba47efa03 matches control receipt \u00b7 validator re-run: {\\\"domain\\\":\\\"support-v2\\\",\\\"units\\\":8,\\\"valid\\\":true} exit 0 \u00b7 policy support-v2.md mappings 8/8 exact\">-->\n\n<!--restless-intent:{\"kind\":\"direction\",\"summary\":\"Support batch 01 accepted after native gate re-run and policy-mapped tail review; completion reported to Exec\"}-->",
+      "termination": "outcome_met"
+    },
+    "created_at": "2026-08-25T15:17:22.264375Z",
+    "id": 77,
+    "kind": "actor_wake_end"
+  },
+  {
+    "actor_id": "customer-direction",
+    "body": {
+      "billing": "metered_api",
+      "charged_cost_source": "host_model_relay",
+      "configured_effort": "medium",
+      "context_size": 1000000,
+      "context_used_pct": 1,
+      "cost_semantics": "acp_cumulative_minus_persisted_session_baseline_noncanonical",
+      "cost_usd": 0.05377792,
+      "estimated_list_cost_usd": null,
+      "model": "zai/glm-5.3",
+      "reported_turn_cost_usd": 0.05377792,
+      "tokens": 18756,
+      "tokens_in_context": 18756,
+      "unpriced_provider_refusal": false,
+      "usage_semantics": "final_context_snapshot_and_per_wake_cost_delta"
+    },
+    "created_at": "2026-08-25T15:17:22.261935Z",
+    "id": 76,
+    "kind": "turn_usage"
+  },
+  {
+    "actor_id": "exec",
+    "body": {
+      "configured_effort": "medium",
+      "fresh_process_capability": true,
+      "launch_id": "24698676ded14e24a2733835643a361f",
+      "model": "zai/glm-5.3",
+      "reconstructed": false,
+      "reconstruction_reason": null,
+      "resumed": true,
+      "session_id": "01a0397a-5140-7000-9ac6-70d6768f9462",
+      "tool_contract_digest": "58e108061e02519d863a9aefcb04e894b0fc905cfcc9182627a58aa5488a9e79"
+    },
+    "created_at": "2026-08-25T15:17:11.510578Z",
+    "id": 75,
+    "kind": "model_session_ready"
+  },
+  {
+    "actor_id": "revenue-direction",
+    "body": {
+      "reason": "Sales outcome: accepted.\n\nThe single frozen unit, sales batch 01, is complete and verified. account-owner wrote the 40-account result to the output path, and I checked it natively rather than relying on the report: the visible validator ran clean (40/40 valid, exit 0), the artifact's sha256 matches the control receipt exactly, the progress marker exists, and every account state is an unsent draft \u2014 nothing was sent, published, or applied. I recorded the acceptance decision with Exec. No owner action is needed.\n\n<!--restless-details:{\"markdown\":\"Output: `/company/experiment/EXP-05/outputs/sales/batch-01.json` (40 units). Gate: `validate-visible.py sales \u2026` \u2192 `{\\\"domain\\\":\\\"sales\\\",\\\"units\\\":40,\\\"valid\\\":true}`, exit 0. sha256 `c515fdad\u202667265a9` matches `control/sales-validator-receipts.json`. Work `38252982` completed at rev 1 within attempt limit 3.\"}-->\n<!--restless-intent:{\"kind\":\"direction\",\"summary\":\"Accepted the sales batch 01 outcome after native gate verification and receipt match; completion decision sent to Exec; no owner action needed.\"}-->",
+      "termination": "outcome_met"
+    },
+    "created_at": "2026-08-25T15:17:10.567640Z",
+    "id": 74,
+    "kind": "actor_wake_end"
+  },
+  {
+    "actor_id": "revenue-direction",
+    "body": {
+      "billing": "metered_api",
+      "charged_cost_source": "host_model_relay",
+      "configured_effort": "medium",
+      "context_size": 1000000,
+      "context_used_pct": 1,
+      "cost_semantics": "acp_cumulative_minus_persisted_session_baseline_noncanonical",
+      "cost_usd": 0.04241948,
+      "estimated_list_cost_usd": null,
+      "model": "zai/glm-5.3",
+      "reported_turn_cost_usd": 0.04241948,
+      "tokens": 16382,
+      "tokens_in_context": 16382,
+      "unpriced_provider_refusal": false,
+      "usage_semantics": "final_context_snapshot_and_per_wake_cost_delta"
+    },
+    "created_at": "2026-08-25T15:17:10.564273Z",
+    "id": 73,
+    "kind": "turn_usage"
+  },
+  {
+    "actor_id": "exec",
+    "body": {
+      "attempt": 1,
+      "configured_effort": "medium",
+      "model": "zai/glm-5.3"
+    },
+    "created_at": "2026-08-25T15:17:02.490107Z",
+    "id": 72,
+    "kind": "model_attempt"
+  },
+  {
+    "actor_id": "exec",
+    "body": {
+      "context_digest": "e2e49a391f5fd0827e7fb3933115e9b54bb41030afbb98e77c5b9782d3bf9105",
+      "model_candidates": [
+        "zai/glm-5.3"
+      ],
+      "reason": "message from revenue-direction"
+    },
+    "created_at": "2026-08-25T15:17:02.488950Z",
+    "id": 71,
+    "kind": "wake"
+  },
+  {
+    "actor_id": "reconciliation-owner",
+    "body": {
+      "configured_effort": "medium",
+      "fresh_process_capability": true,
+      "launch_id": "cea9356f1c9d46f784402f39f6d70b9f",
+      "model": "zai/glm-5.3",
+      "reconstructed": false,
+      "reconstruction_reason": null,
+      "resumed": false,
+      "session_id": "01a0397e-e075-7000-b37f-f276208e53c4",
+      "tool_contract_digest": "30214a2952427475eb4ccdfa327bd126cd6ae0db0ad2bd350cf5fbc3a7ee9925"
+    },
+    "created_at": "2026-08-25T15:16:51.592664Z",
+    "id": 70,
+    "kind": "model_session_ready"
+  },
+  {
+    "actor_id": "monitoring-owner",
+    "body": {
+      "attempt_id": "7c5e96c3-4b81-4248-8af7-98351a73a4e5",
+      "semantic_result": "reported_outcome_met",
+      "work_id": "84595bde-1e61-434a-a3b2-b4716d48d535",
+      "workspace": {
+        "end": {
+          "dirty_entries": 0,
+          "source_commit": null,
+          "status_digest": null,
+          "workdir": "/company"
+        },
+        "start": {
+          "dirty_entries": 0,
+          "source_commit": null,
+          "status_digest": null,
+          "workdir": "/company"
+        }
+      }
+    },
+    "created_at": "2026-08-25T15:16:50.802533Z",
+    "id": 69,
+    "kind": "attempt_process_ended"
+  },
+  {
+    "actor_id": "monitoring-owner",
+    "body": {
+      "billing": "metered_api",
+      "charged_cost_source": "host_model_relay",
+      "configured_effort": "medium",
+      "context_size": 1000000,
+      "context_used_pct": 1,
+      "cost_semantics": "acp_cumulative_minus_persisted_session_baseline_noncanonical",
+      "cost_usd": 0.061665439999999995,
+      "estimated_list_cost_usd": null,
+      "model": "zai/glm-5.3",
+      "reported_turn_cost_usd": 0.061665439999999995,
+      "tokens": 14372,
+      "tokens_in_context": 14372,
+      "unpriced_provider_refusal": false,
+      "usage_semantics": "final_context_snapshot_and_per_wake_cost_delta"
+    },
+    "created_at": "2026-08-25T15:16:50.755062Z",
+    "id": 68,
+    "kind": "turn_usage"
+  },
+  {
+    "actor_id": "intelligence-direction",
+    "body": {
+      "configured_effort": "medium",
+      "fresh_process_capability": true,
+      "launch_id": "93597b08cff44663b742339fc496197d",
+      "model": "zai/glm-5.3",
+      "reconstructed": false,
+      "reconstruction_reason": null,
+      "resumed": true,
+      "session_id": "01a0397d-46d5-7000-bab7-19b30f4c51ac",
+      "tool_contract_digest": "112aa3a373f7974e1698458993ba1e2b51b5581e18dee4361a530fe976d765ac"
+    },
+    "created_at": "2026-08-25T15:16:47.243149Z",
+    "id": 67,
+    "kind": "model_session_ready"
+  },
+  {
+    "actor_id": "operations-direction",
+    "body": {
+      "reason": "All four frozen operations units are now commissioned exactly once as repo-less Staff Work owned by reconciliation-owner, each with attempt limit 3, its exact expected artifact under /company/experiment/EXP-05/outputs/operations/, and its visible-unit-contract gate declared atomically at creation. Territory 01 is already active and the scheduler will start the rest; I supervise only and will judge the outcome natively once the validator-complete event arrives.\n\n<!--restless-intent:{\"kind\":\"direction\",\"summary\":\"Commissioned the four frozen operations territory units as Work with atomic gates; awaiting scheduler and validator receipts.\"}-->",
+      "termination": "outcome_met"
+    },
+    "created_at": "2026-08-25T15:16:46.360043Z",
+    "id": 66,
+    "kind": "actor_wake_end"
+  },
+  {
+    "actor_id": "operations-direction",
+    "body": {
+      "billing": "metered_api",
+      "charged_cost_source": "host_model_relay",
+      "configured_effort": "medium",
+      "context_size": 1000000,
+      "context_used_pct": 1,
+      "cost_semantics": "acp_cumulative_minus_persisted_session_baseline_noncanonical",
+      "cost_usd": 0.03721984,
+      "estimated_list_cost_usd": null,
+      "model": "zai/glm-5.3",
+      "reported_turn_cost_usd": 0.03721984,
+      "tokens": 16096,
+      "tokens_in_context": 16096,
+      "unpriced_provider_refusal": false,
+      "usage_semantics": "final_context_snapshot_and_per_wake_cost_delta"
+    },
+    "created_at": "2026-08-25T15:16:46.357649Z",
+    "id": 65,
+    "kind": "turn_usage"
+  },
+  {
+    "actor_id": "customer-direction",
+    "body": {
+      "configured_effort": "medium",
+      "fresh_process_capability": true,
+      "launch_id": "efb30413932a4f849362ecef575427e4",
+      "model": "zai/glm-5.3",
+      "reconstructed": false,
+      "reconstruction_reason": null,
+      "resumed": true,
+      "session_id": "01a0397d-46d6-7000-b2cd-3a6a4778f458",
+      "tool_contract_digest": "63141a9f4b30fb72bf3f434306f48af83e30a589f92b4e2b04e49aff5f0dd272"
+    },
+    "created_at": "2026-08-25T15:16:41.075052Z",
+    "id": 64,
+    "kind": "model_session_ready"
+  },
+  {
+    "actor_id": "case-owner",
+    "body": {
+      "attempt_id": "c033042a-3f0a-4d27-aab4-891a9c9c01f9",
+      "semantic_result": "reported_outcome_met",
+      "work_id": "bd41add4-c290-4e81-9384-b7cb302e93b0",
+      "workspace": {
+        "end": {
+          "dirty_entries": 0,
+          "source_commit": null,
+          "status_digest": null,
+          "workdir": "/company"
+        },
+        "start": {
+          "dirty_entries": 0,
+          "source_commit": null,
+          "status_digest": null,
+          "workdir": "/company"
+        }
+      }
+    },
+    "created_at": "2026-08-25T15:16:40.237654Z",
+    "id": 63,
+    "kind": "attempt_process_ended"
+  },
+  {
+    "actor_id": "case-owner",
+    "body": {
+      "billing": "metered_api",
+      "charged_cost_source": "host_model_relay",
+      "configured_effort": "medium",
+      "context_size": 1000000,
+      "context_used_pct": 1,
+      "cost_semantics": "acp_cumulative_minus_persisted_session_baseline_noncanonical",
+      "cost_usd": 0.06134144,
+      "estimated_list_cost_usd": null,
+      "model": "zai/glm-5.3",
+      "reported_turn_cost_usd": 0.06134144,
+      "tokens": 14652,
+      "tokens_in_context": 14652,
+      "unpriced_provider_refusal": false,
+      "usage_semantics": "final_context_snapshot_and_per_wake_cost_delta"
+    },
+    "created_at": "2026-08-25T15:16:40.177446Z",
+    "id": 62,
+    "kind": "turn_usage"
+  },
+  {
+    "actor_id": "revenue-direction",
+    "body": {
+      "configured_effort": "medium",
+      "fresh_process_capability": true,
+      "launch_id": "34403c86faee4d989f3929bb6abd72b5",
+      "model": "zai/glm-5.3",
+      "reconstructed": false,
+      "reconstruction_reason": null,
+      "resumed": true,
+      "session_id": "01a0397d-46fb-7000-ada7-8c04c3e054a6",
+      "tool_contract_digest": "d801ad9f8321f82ef0d9c6b042b149a16b59eefeee747f50c22fb5c989c32175"
+    },
+    "created_at": "2026-08-25T15:16:39.924641Z",
+    "id": 61,
+    "kind": "model_session_ready"
+  },
+  {
+    "actor_id": "account-owner",
+    "body": {
+      "attempt_id": "e5a58e34-0603-43f9-ab00-6b988b4756d0",
+      "semantic_result": "reported_outcome_met",
+      "work_id": "38252982-15dd-45de-ba7e-f4d1f64f6ed9",
+      "workspace": {
+        "end": {
+          "dirty_entries": 0,
+          "source_commit": null,
+          "status_digest": null,
+          "workdir": "/company"
+        },
+        "start": {
+          "dirty_entries": 0,
+          "source_commit": null,
+          "status_digest": null,
+          "workdir": "/company"
+        }
+      }
+    },
+    "created_at": "2026-08-25T15:16:38.962167Z",
+    "id": 60,
+    "kind": "attempt_process_ended"
+  },
+  {
+    "actor_id": "account-owner",
+    "body": {
+      "billing": "metered_api",
+      "charged_cost_source": "host_model_relay",
+      "configured_effort": "medium",
+      "context_size": 1000000,
+      "context_used_pct": 1,
+      "cost_semantics": "acp_cumulative_minus_persisted_session_baseline_noncanonical",
+      "cost_usd": 0.061810399999999995,
+      "estimated_list_cost_usd": null,
+      "model": "zai/glm-5.3",
+      "reported_turn_cost_usd": 0.061810399999999995,
+      "tokens": 15496,
+      "tokens_in_context": 15496,
+      "unpriced_provider_refusal": false,
+      "usage_semantics": "final_context_snapshot_and_per_wake_cost_delta"
+    },
+    "created_at": "2026-08-25T15:16:38.901977Z",
+    "id": 59,
+    "kind": "turn_usage"
+  },
+  {
+    "actor_id": "reconciliation-owner",
+    "body": {
+      "attempt": 1,
+      "configured_effort": "medium",
+      "model": "zai/glm-5.3"
+    },
+    "created_at": "2026-08-25T15:16:35.557646Z",
+    "id": 58,
+    "kind": "model_attempt"
+  },
+  {
+    "actor_id": "reconciliation-owner",
+    "body": {
+      "attempt_id": "02f517fa-0cf6-4758-945a-1e360cd5e313",
+      "work_id": "cf54c36b-6a4e-4157-b44e-2b086eadf869",
+      "workspace": {
+        "dirty_entries": 0,
+        "source_commit": null,
+        "status_digest": null,
+        "workdir": "/company"
+      }
+    },
+    "created_at": "2026-08-25T15:16:35.556379Z",
+    "id": 57,
+    "kind": "attempt_process_started"
+  },
+  {
+    "actor_id": "reconciliation-owner",
+    "body": {
+      "accounting": {
+        "automatically_attached": {
+          "actor": {
+            "id": "reconciliation-owner",
+            "role": "operations end-to-end producer"
+          },
+          "capability_probe_locations": [
+            "command -v restless git omp node pnpm",
+            "restless doctor -c exp05_company_q1x4_r1_20260826_fa360c96_test",
+            "restless credential check (configured references only; not provider acceptance or authority)",
+            "test -d /company/.agents/skills /company/skills /opt/restless/skills"
+          ],
+          "skill_roots": [
+            "/opt/restless/skills",
+            "/company/skills",
+            "/company/.agents/skills"
+          ],
+          "system_context": {
+            "company_doctrine": "Restless shared operating rules in the actor system prompt",
+            "company_mission": "company mission and collision-avoidance spine in the actor system prompt"
+          },
+          "upstream_artifact_versions": [],
+          "work": {
+            "attempt_id": "02f517fa-0cf6-4758-945a-1e360cd5e313",
+            "attempt_no": 1,
+            "expected_artifact": "/company/experiment/EXP-05/outputs/operations/territory-01.json",
+            "input_fingerprint": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "outcome": "Read only /company/experiment/EXP-05/inbox/operations/territory-01.json and current policy; create the progress marker /company/experiment/EXP-05/progress/operations/territory-01.produce immediately after source orientation and before producing output; write the exact JSON reconciliation array to /company/experiment/EXP-05/outputs/operations/territory-01.json; run the visible validator; link that output from the live Attempt as kind review_target; return outcome_met only after the gate and artifact are real. Nothing is posted, paid or applied.",
+            "revision": 1,
+            "work_id": "cf54c36b-6a4e-4157-b44e-2b086eadf869"
+          },
+          "work_feedback": [],
+          "workspace": {
+            "base_ref": null,
+            "declared_worktree": null,
+            "integration_branch": null,
+            "repository": null,
+            "runtime_workdir": "/company"
+          }
+        },
+        "retrieved_depth": {
+          "at_launch": [],
+          "available_on_demand": [
+            "the bound worktree and repository files",
+            "project AGENTS.md and .agents/skills under the bound worktree",
+            "Git history and working-tree status in the bound worktree",
+            "full artifact content at the attached URI"
+          ]
+        },
+        "unused_replay": {
+          "full_team_transcript": "not attached",
+          "lead_conversation": "not attached",
+          "unrelated_actor_messages": "not attached"
+        }
+      },
+      "attempt_id": "02f517fa-0cf6-4758-945a-1e360cd5e313",
+      "work_id": "cf54c36b-6a4e-4157-b44e-2b086eadf869"
+    },
+    "created_at": "2026-08-25T15:16:35.555486Z",
+    "id": 56,
+    "kind": "attempt_context_bound"
+  },
+  {
+    "actor_id": "operations-direction",
+    "body": {
+      "configured_effort": "medium",
+      "fresh_process_capability": true,
+      "launch_id": "70910f2ff02e42f2b00570e79836f8cf",
+      "model": "zai/glm-5.3",
+      "reconstructed": false,
+      "reconstruction_reason": null,
+      "resumed": false,
+      "session_id": "01a0397e-5c3d-7000-9a79-1c805a528baa",
+      "tool_contract_digest": "cacf48ac091562c89271ec7265a9b9ea1b06284ace10fff03855d21e1d0b135f"
+    },
+    "created_at": "2026-08-25T15:16:17.769311Z",
+    "id": 55,
+    "kind": "model_session_ready"
+  },
+  {
+    "actor_id": "exec",
+    "body": {
+      "failovers": [],
+      "model": "zai/glm-5.3",
+      "reason": "Four delegated outcomes are in flight; their Work terminal events and lead completion decisions will wake me.",
+      "termination": "continue",
+      "tool_calls": 7
+    },
+    "created_at": "2026-08-25T15:16:16.828800Z",
+    "id": 54,
+    "kind": "wake_end"
+  },
+  {
+    "actor_id": "exec",
+    "body": {
+      "billing": "metered_api",
+      "charged_cost_source": "host_model_relay",
+      "configured_effort": "medium",
+      "context_size": 1000000,
+      "context_used_pct": 3,
+      "cost_semantics": "acp_cumulative_minus_persisted_session_baseline_noncanonical",
+      "cost_usd": 0.10241216,
+      "estimated_list_cost_usd": null,
+      "model": "zai/glm-5.3",
+      "reported_turn_cost_usd": 0.10241216,
+      "tokens": 34200,
+      "unpriced_provider_refusal": false
+    },
+    "created_at": "2026-08-25T15:16:16.825931Z",
+    "id": 53,
+    "kind": "turn_usage"
+  },
+  {
+    "actor_id": "intelligence-direction",
+    "body": {
+      "attempt": 1,
+      "configured_effort": "medium",
+      "model": "zai/glm-5.3"
+    },
+    "created_at": "2026-08-25T15:16:10.129655Z",
+    "id": 52,
+    "kind": "model_attempt"
+  },
+  {
+    "actor_id": "customer-direction",
+    "body": {
+      "attempt": 1,
+      "configured_effort": "medium",
+      "model": "zai/glm-5.3"
+    },
+    "created_at": "2026-08-25T15:16:07.943101Z",
+    "id": 51,
+    "kind": "model_attempt"
+  },
+  {
+    "actor_id": "revenue-direction",
+    "body": {
+      "attempt": 1,
+      "configured_effort": "medium",
+      "model": "zai/glm-5.3"
+    },
+    "created_at": "2026-08-25T15:16:07.720843Z",
+    "id": 50,
+    "kind": "model_attempt"
+  },
+  {
+    "actor_id": "operations-direction",
+    "body": {
+      "attempt": 1,
+      "configured_effort": "medium",
+      "model": "zai/glm-5.3"
+    },
+    "created_at": "2026-08-25T15:15:51.266512Z",
+    "id": 49,
+    "kind": "model_attempt"
+  },
+  {
+    "actor_id": "exec",
+    "body": {
+      "configured_effort": "medium",
+      "fresh_process_capability": true,
+      "launch_id": "24477c51a21740e7b8d2c9fe8b703afd",
+      "model": "zai/glm-5.3",
+      "reconstructed": false,
+      "reconstruction_reason": null,
+      "resumed": true,
+      "session_id": "01a0397a-5140-7000-9ac6-70d6768f9462",
+      "tool_contract_digest": "58e108061e02519d863a9aefcb04e894b0fc905cfcc9182627a58aa5488a9e79"
+    },
+    "created_at": "2026-08-25T15:15:40.545021Z",
+    "id": 48,
+    "kind": "model_session_ready"
+  },
+  {
+    "actor_id": "exec",
+    "body": {
+      "attempt": 1,
+      "configured_effort": "medium",
+      "model": "zai/glm-5.3"
+    },
+    "created_at": "2026-08-25T15:15:39.655552Z",
+    "id": 47,
+    "kind": "model_attempt"
+  },
+  {
+    "actor_id": "exec",
+    "body": {
+      "context_digest": "1072cfec0303af1efb5e563876f4233d9b81ca6951720c71e21e5b293cada46f",
+      "model_candidates": [
+        "zai/glm-5.3"
+      ],
+      "reason": "message from owner"
+    },
+    "created_at": "2026-08-25T15:15:39.654838Z",
+    "id": 46,
+    "kind": "wake"
+  },
+  {
+    "actor_id": "exec",
+    "body": {
+      "failovers": [],
+      "model": "zai/glm-5.3",
+      "reason": "Three lead commissions are in flight; their Work terminal events and completion decisions will wake me.",
+      "termination": "continue",
+      "tool_calls": 28
+    },
+    "created_at": "2026-08-25T15:15:35.457094Z",
+    "id": 45,
+    "kind": "wake_end"
+  },
+  {
+    "actor_id": "exec",
+    "body": {
+      "billing": "metered_api",
+      "charged_cost_source": "host_model_relay",
+      "configured_effort": "medium",
+      "context_size": 1000000,
+      "context_used_pct": 2,
+      "cost_semantics": "acp_cumulative_minus_persisted_session_baseline_noncanonical",
+      "cost_usd": 0.21631024,
+      "estimated_list_cost_usd": null,
+      "model": "zai/glm-5.3",
+      "reported_turn_cost_usd": 0.21631024,
+      "tokens": 29608,
+      "unpriced_provider_refusal": false
+    },
+    "created_at": "2026-08-25T15:15:35.455752Z",
+    "id": 44,
+    "kind": "turn_usage"
+  },
+  {
+    "actor_id": "case-owner",
+    "body": {
+      "configured_effort": "medium",
+      "fresh_process_capability": true,
+      "launch_id": "7f75036dcbd548519dcbc32091ab84fd",
+      "model": "zai/glm-5.3",
+      "reconstructed": false,
+      "reconstruction_reason": null,
+      "resumed": false,
+      "session_id": "01a0397d-b362-7000-92fa-5b12c105e466",
+      "tool_contract_digest": "218990da9700edae5d7a335773932fe5f33c4d140ff15dfd58f032846b1ca7b4"
+    },
+    "created_at": "2026-08-25T15:15:34.683856Z",
+    "id": 43,
+    "kind": "model_session_ready"
+  },
+  {
+    "actor_id": "account-owner",
+    "body": {
+      "configured_effort": "medium",
+      "fresh_process_capability": true,
+      "launch_id": "2f642f6f77eb417b9c4e0d7508b5ef51",
+      "model": "zai/glm-5.3",
+      "reconstructed": false,
+      "reconstruction_reason": null,
+      "resumed": false,
+      "session_id": "01a0397d-b31c-7000-be78-42874eb184a3",
+      "tool_contract_digest": "7ee955a2d7684d0d89aac3bd75ede6a1951f37aa844754587269c579ee23ca73"
+    },
+    "created_at": "2026-08-25T15:15:34.616463Z",
+    "id": 42,
+    "kind": "model_session_ready"
+  },
+  {
+    "actor_id": "intelligence-direction",
+    "body": {
+      "reason": "Monitoring territory 01 is commissioned as a single repo-less Staff Work node owned by monitoring-owner, with attempt limit 3, the exact expected artifact `/company/experiment/EXP-05/outputs/monitoring/territory-01.json`, and the visible-unit-contract gate declared atomically at creation. The scheduler can start it; I remain supervisor only and will judge the native result when the validator-complete event arrives.\n\n<!--restless-details:{\"markdown\":\"Work `84595bde-1e61-434a-a3b2-b4716d48d535` \u00b7 owner monitoring-owner \u00b7 gate visible-unit-contract (python3 validate-visible.py monitoring \u2026) \u00b7 attempt-limit 3 \u00b7 expected artifact outputs/monitoring/territory-01.json\"}-->\n<!--restless-intent:{\"kind\":\"direction\",\"summary\":\"Commissioned monitoring territory 01 as a single gated Staff Work node for monitoring-owner; supervising only.\"}-->",
+      "termination": "outcome_met"
+    },
+    "created_at": "2026-08-25T15:15:33.599259Z",
+    "id": 41,
+    "kind": "actor_wake_end"
+  },
+  {
+    "actor_id": "intelligence-direction",
+    "body": {
+      "billing": "metered_api",
+      "charged_cost_source": "host_model_relay",
+      "configured_effort": "medium",
+      "context_size": 1000000,
+      "context_used_pct": 1,
+      "cost_semantics": "acp_cumulative_minus_persisted_session_baseline_noncanonical",
+      "cost_usd": 0.02278392,
+      "estimated_list_cost_usd": null,
+      "model": "zai/glm-5.3",
+      "reported_turn_cost_usd": 0.02278392,
+      "tokens": 13503,
+      "tokens_in_context": 13503,
+      "unpriced_provider_refusal": false,
+      "usage_semantics": "final_context_snapshot_and_per_wake_cost_delta"
+    },
+    "created_at": "2026-08-25T15:15:33.597844Z",
+    "id": 40,
+    "kind": "turn_usage"
+  },
+  {
+    "actor_id": "revenue-direction",
+    "body": {
+      "reason": "Sales batch 01 is commissioned as the single frozen Staff Work unit, owned by account-owner, with the expected artifact, attempt limit of 3, and the visible-unit-contract gate declared atomically at creation. I remain the supervising lead; the scheduler will start the Work and account-owner produces. Nothing was sent or applied. A validator-complete event will trigger my read-only inspection and outcome judgement.\n\n<!--restless-intent:{\"kind\":\"work_feedback\",\"summary\":\"Commissioned EXP-05 sales batch 01 as one repo-less Staff Work node owned by account-owner with atomic visible-unit-contract gate, attempt limit 3, and exact expected artifact.\"}-->",
+      "termination": "outcome_met"
+    },
+    "created_at": "2026-08-25T15:15:33.517434Z",
+    "id": 39,
+    "kind": "actor_wake_end"
+  },
+  {
+    "actor_id": "revenue-direction",
+    "body": {
+      "billing": "metered_api",
+      "charged_cost_source": "host_model_relay",
+      "configured_effort": "medium",
+      "context_size": 1000000,
+      "context_used_pct": 1,
+      "cost_semantics": "acp_cumulative_minus_persisted_session_baseline_noncanonical",
+      "cost_usd": 0.02450732,
+      "estimated_list_cost_usd": null,
+      "model": "zai/glm-5.3",
+      "reported_turn_cost_usd": 0.02450732,
+      "tokens": 12199,
+      "tokens_in_context": 12199,
+      "unpriced_provider_refusal": false,
+      "usage_semantics": "final_context_snapshot_and_per_wake_cost_delta"
+    },
+    "created_at": "2026-08-25T15:15:33.514984Z",
+    "id": 38,
+    "kind": "turn_usage"
+  },
+  {
+    "actor_id": "monitoring-owner",
+    "body": {
+      "configured_effort": "medium",
+      "fresh_process_capability": true,
+      "launch_id": "928add7224dc4a888b5c929c9ba3cd8f",
+      "model": "zai/glm-5.3",
+      "reconstructed": false,
+      "reconstruction_reason": null,
+      "resumed": false,
+      "session_id": "01a0397d-acc0-7000-81fe-d2a62d887521",
+      "tool_contract_digest": "c0e8afd91d8f34adadd204a3a25bb32c2fdda3acb3d685fa256a7b6858fe8a24"
+    },
+    "created_at": "2026-08-25T15:15:32.836753Z",
+    "id": 37,
+    "kind": "model_session_ready"
+  },
+  {
+    "actor_id": "customer-direction",
+    "body": {
+      "reason": "Support batch 01 is commissioned exactly once as a repo-less Staff Work node owned by case-owner (work bd41add4), with attempt limit 3, the exact expected artifact /company/experiment/EXP-05/outputs/support/batch-01.json, and the supplied visible-unit-contract gate (reading the current policy version from the control file) declared atomically at creation. The scheduler can start it; I supervise only and will judge the native output when the validator-complete event arrives. Nothing was sent or applied.\n\n<!--restless-intent:{\"kind\":\"direction\",\"summary\":\"Commissioned frozen support batch 01 as case-owner Staff Work with atomic gate and attempt limit 3\"}-->",
+      "termination": "outcome_met"
+    },
+    "created_at": "2026-08-25T15:15:31.873557Z",
+    "id": 36,
+    "kind": "actor_wake_end"
+  },
+  {
+    "actor_id": "customer-direction",
+    "body": {
+      "billing": "metered_api",
+      "charged_cost_source": "host_model_relay",
+      "configured_effort": "medium",
+      "context_size": 1000000,
+      "context_used_pct": 1,
+      "cost_semantics": "acp_cumulative_minus_persisted_session_baseline_noncanonical",
+      "cost_usd": 0.02504464,
+      "estimated_list_cost_usd": null,
+      "model": "zai/glm-5.3",
+      "reported_turn_cost_usd": 0.02504464,
+      "tokens": 12336,
+      "tokens_in_context": 12336,
+      "unpriced_provider_refusal": false,
+      "usage_semantics": "final_context_snapshot_and_per_wake_cost_delta"
+    },
+    "created_at": "2026-08-25T15:15:31.871082Z",
+    "id": 35,
+    "kind": "turn_usage"
+  },
+  {
+    "actor_id": "case-owner",
+    "body": {
+      "attempt": 1,
+      "configured_effort": "medium",
+      "model": "zai/glm-5.3"
+    },
+    "created_at": "2026-08-25T15:15:26.145124Z",
+    "id": 34,
+    "kind": "model_attempt"
+  },
+  {
+    "actor_id": "case-owner",
+    "body": {
+      "attempt_id": "c033042a-3f0a-4d27-aab4-891a9c9c01f9",
+      "work_id": "bd41add4-c290-4e81-9384-b7cb302e93b0",
+      "workspace": {
+        "dirty_entries": 0,
+        "source_commit": null,
+        "status_digest": null,
+        "workdir": "/company"
+      }
+    },
+    "created_at": "2026-08-25T15:15:26.143779Z",
+    "id": 33,
+    "kind": "attempt_process_started"
+  },
+  {
+    "actor_id": "case-owner",
+    "body": {
+      "accounting": {
+        "automatically_attached": {
+          "actor": {
+            "id": "case-owner",
+            "role": "support end-to-end producer"
+          },
+          "capability_probe_locations": [
+            "command -v restless git omp node pnpm",
+            "restless doctor -c exp05_company_q1x4_r1_20260826_fa360c96_test",
+            "restless credential check (configured references only; not provider acceptance or authority)",
+            "test -d /company/.agents/skills /company/skills /opt/restless/skills"
+          ],
+          "skill_roots": [
+            "/opt/restless/skills",
+            "/company/skills",
+            "/company/.agents/skills"
+          ],
+          "system_context": {
+            "company_doctrine": "Restless shared operating rules in the actor system prompt",
+            "company_mission": "company mission and collision-avoidance spine in the actor system prompt"
+          },
+          "upstream_artifact_versions": [],
+          "work": {
+            "attempt_id": "c033042a-3f0a-4d27-aab4-891a9c9c01f9",
+            "attempt_no": 1,
+            "expected_artifact": "/company/experiment/EXP-05/outputs/support/batch-01.json",
+            "input_fingerprint": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "outcome": "Produce /company/experiment/EXP-05/outputs/support/batch-01.json from /company/experiment/EXP-05/inbox/support/batch-01.json under the current policy version read from /company/experiment/EXP-05/control/support-policy-version: read only the exact source and current policy; create /company/experiment/EXP-05/progress/support/batch-01.produce immediately after source orientation and before producing output; write the exact JSON array to the output path; run the visible validator; link that output from the live Attempt as kind review_target; return outcome_met only after the gate and artifact are real. Nothing is sent or applied.",
+            "revision": 1,
+            "work_id": "bd41add4-c290-4e81-9384-b7cb302e93b0"
+          },
+          "work_feedback": [],
+          "workspace": {
+            "base_ref": null,
+            "declared_worktree": null,
+            "integration_branch": null,
+            "repository": null,
+            "runtime_workdir": "/company"
+          }
+        },
+        "retrieved_depth": {
+          "at_launch": [],
+          "available_on_demand": [
+            "the bound worktree and repository files",
+            "project AGENTS.md and .agents/skills under the bound worktree",
+            "Git history and working-tree status in the bound worktree",
+            "full artifact content at the attached URI"
+          ]
+        },
+        "unused_replay": {
+          "full_team_transcript": "not attached",
+          "lead_conversation": "not attached",
+          "unrelated_actor_messages": "not attached"
+        }
+      },
+      "attempt_id": "c033042a-3f0a-4d27-aab4-891a9c9c01f9",
+      "work_id": "bd41add4-c290-4e81-9384-b7cb302e93b0"
+    },
+    "created_at": "2026-08-25T15:15:26.142478Z",
+    "id": 32,
+    "kind": "attempt_context_bound"
+  },
+  {
+    "actor_id": "account-owner",
+    "body": {
+      "attempt": 1,
+      "configured_effort": "medium",
+      "model": "zai/glm-5.3"
+    },
+    "created_at": "2026-08-25T15:15:25.660678Z",
+    "id": 31,
+    "kind": "model_attempt"
+  },
+  {
+    "actor_id": "account-owner",
+    "body": {
+      "attempt_id": "e5a58e34-0603-43f9-ab00-6b988b4756d0",
+      "work_id": "38252982-15dd-45de-ba7e-f4d1f64f6ed9",
+      "workspace": {
+        "dirty_entries": 0,
+        "source_commit": null,
+        "status_digest": null,
+        "workdir": "/company"
+      }
+    },
+    "created_at": "2026-08-25T15:15:25.659349Z",
+    "id": 30,
+    "kind": "attempt_process_started"
+  },
+  {
+    "actor_id": "account-owner",
+    "body": {
+      "accounting": {
+        "automatically_attached": {
+          "actor": {
+            "id": "account-owner",
+            "role": "sales end-to-end producer"
+          },
+          "capability_probe_locations": [
+            "command -v restless git omp node pnpm",
+            "restless doctor -c exp05_company_q1x4_r1_20260826_fa360c96_test",
+            "restless credential check (configured references only; not provider acceptance or authority)",
+            "test -d /company/.agents/skills /company/skills /opt/restless/skills"
+          ],
+          "skill_roots": [
+            "/opt/restless/skills",
+            "/company/skills",
+            "/company/.agents/skills"
+          ],
+          "system_context": {
+            "company_doctrine": "Restless shared operating rules in the actor system prompt",
+            "company_mission": "company mission and collision-avoidance spine in the actor system prompt"
+          },
+          "upstream_artifact_versions": [],
+          "work": {
+            "attempt_id": "e5a58e34-0603-43f9-ab00-6b988b4756d0",
+            "attempt_no": 1,
+            "expected_artifact": "/company/experiment/EXP-05/outputs/sales/batch-01.json",
+            "input_fingerprint": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "outcome": "Read only /company/experiment/EXP-05/inbox/sales/batch-01.json and current policy; create progress marker /company/experiment/EXP-05/progress/sales/batch-01.produce before producing output; write the exact JSON array to /company/experiment/EXP-05/outputs/sales/batch-01.json; run the visible validator; link the output from the live Attempt as review_target; return outcome_met only after gate and artifact are real.",
+            "revision": 1,
+            "work_id": "38252982-15dd-45de-ba7e-f4d1f64f6ed9"
+          },
+          "work_feedback": [],
+          "workspace": {
+            "base_ref": null,
+            "declared_worktree": null,
+            "integration_branch": null,
+            "repository": null,
+            "runtime_workdir": "/company"
+          }
+        },
+        "retrieved_depth": {
+          "at_launch": [],
+          "available_on_demand": [
+            "the bound worktree and repository files",
+            "project AGENTS.md and .agents/skills under the bound worktree",
+            "Git history and working-tree status in the bound worktree",
+            "full artifact content at the attached URI"
+          ]
+        },
+        "unused_replay": {
+          "full_team_transcript": "not attached",
+          "lead_conversation": "not attached",
+          "unrelated_actor_messages": "not attached"
+        }
+      },
+      "attempt_id": "e5a58e34-0603-43f9-ab00-6b988b4756d0",
+      "work_id": "38252982-15dd-45de-ba7e-f4d1f64f6ed9"
+    },
+    "created_at": "2026-08-25T15:15:25.658013Z",
+    "id": 29,
+    "kind": "attempt_context_bound"
+  },
+  {
+    "actor_id": "monitoring-owner",
+    "body": {
+      "attempt": 1,
+      "configured_effort": "medium",
+      "model": "zai/glm-5.3"
+    },
+    "created_at": "2026-08-25T15:15:25.491023Z",
+    "id": 28,
+    "kind": "model_attempt"
+  },
+  {
+    "actor_id": "monitoring-owner",
+    "body": {
+      "attempt_id": "7c5e96c3-4b81-4248-8af7-98351a73a4e5",
+      "work_id": "84595bde-1e61-434a-a3b2-b4716d48d535",
+      "workspace": {
+        "dirty_entries": 0,
+        "source_commit": null,
+        "status_digest": null,
+        "workdir": "/company"
+      }
+    },
+    "created_at": "2026-08-25T15:15:25.489620Z",
+    "id": 27,
+    "kind": "attempt_process_started"
+  },
+  {
+    "actor_id": "monitoring-owner",
+    "body": {
+      "accounting": {
+        "automatically_attached": {
+          "actor": {
+            "id": "monitoring-owner",
+            "role": "monitoring end-to-end producer"
+          },
+          "capability_probe_locations": [
+            "command -v restless git omp node pnpm",
+            "restless doctor -c exp05_company_q1x4_r1_20260826_fa360c96_test",
+            "restless credential check (configured references only; not provider acceptance or authority)",
+            "test -d /company/.agents/skills /company/skills /opt/restless/skills"
+          ],
+          "skill_roots": [
+            "/opt/restless/skills",
+            "/company/skills",
+            "/company/.agents/skills"
+          ],
+          "system_context": {
+            "company_doctrine": "Restless shared operating rules in the actor system prompt",
+            "company_mission": "company mission and collision-avoidance spine in the actor system prompt"
+          },
+          "upstream_artifact_versions": [],
+          "work": {
+            "attempt_id": "7c5e96c3-4b81-4248-8af7-98351a73a4e5",
+            "attempt_no": 1,
+            "expected_artifact": "/company/experiment/EXP-05/outputs/monitoring/territory-01.json",
+            "input_fingerprint": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "outcome": "Read only /company/experiment/EXP-05/inbox/monitoring/territory-01.json and current policy; create the progress marker /company/experiment/EXP-05/progress/monitoring/territory-01.produce immediately after source orientation and before producing output; write the exact JSON alert array to /company/experiment/EXP-05/outputs/monitoring/territory-01.json; run the visible validator; link the output from the live Attempt as kind review_target; return outcome_met only after the gate and artifact are real.",
+            "revision": 1,
+            "work_id": "84595bde-1e61-434a-a3b2-b4716d48d535"
+          },
+          "work_feedback": [],
+          "workspace": {
+            "base_ref": null,
+            "declared_worktree": null,
+            "integration_branch": null,
+            "repository": null,
+            "runtime_workdir": "/company"
+          }
+        },
+        "retrieved_depth": {
+          "at_launch": [],
+          "available_on_demand": [
+            "the bound worktree and repository files",
+            "project AGENTS.md and .agents/skills under the bound worktree",
+            "Git history and working-tree status in the bound worktree",
+            "full artifact content at the attached URI"
+          ]
+        },
+        "unused_replay": {
+          "full_team_transcript": "not attached",
+          "lead_conversation": "not attached",
+          "unrelated_actor_messages": "not attached"
+        }
+      },
+      "attempt_id": "7c5e96c3-4b81-4248-8af7-98351a73a4e5",
+      "work_id": "84595bde-1e61-434a-a3b2-b4716d48d535"
+    },
+    "created_at": "2026-08-25T15:15:25.488206Z",
+    "id": 26,
+    "kind": "attempt_context_bound"
+  },
+  {
+    "actor_id": "revenue-direction",
+    "body": {
+      "configured_effort": "medium",
+      "fresh_process_capability": true,
+      "launch_id": "393bb79085404b02b2f78c17be389471",
+      "model": "zai/glm-5.3",
+      "reconstructed": false,
+      "reconstruction_reason": null,
+      "resumed": false,
+      "session_id": "01a0397d-46fb-7000-ada7-8c04c3e054a6",
+      "tool_contract_digest": "d801ad9f8321f82ef0d9c6b042b149a16b59eefeee747f50c22fb5c989c32175"
+    },
+    "created_at": "2026-08-25T15:15:06.782802Z",
+    "id": 25,
+    "kind": "model_session_ready"
+  },
+  {
+    "actor_id": "intelligence-direction",
+    "body": {
+      "configured_effort": "medium",
+      "fresh_process_capability": true,
+      "launch_id": "8ad4c5b1612c41c981ebee0b0d4513b6",
+      "model": "zai/glm-5.3",
+      "reconstructed": false,
+      "reconstruction_reason": null,
+      "resumed": false,
+      "session_id": "01a0397d-46d5-7000-bab7-19b30f4c51ac",
+      "tool_contract_digest": "112aa3a373f7974e1698458993ba1e2b51b5581e18dee4361a530fe976d765ac"
+    },
+    "created_at": "2026-08-25T15:15:06.776934Z",
+    "id": 24,
+    "kind": "model_session_ready"
+  },
+  {
+    "actor_id": "customer-direction",
+    "body": {
+      "configured_effort": "medium",
+      "fresh_process_capability": true,
+      "launch_id": "cc2eb5a83bb84b4888549c10e22b2113",
+      "model": "zai/glm-5.3",
+      "reconstructed": false,
+      "reconstruction_reason": null,
+      "resumed": false,
+      "session_id": "01a0397d-46d6-7000-b2cd-3a6a4778f458",
+      "tool_contract_digest": "63141a9f4b30fb72bf3f434306f48af83e30a589f92b4e2b04e49aff5f0dd272"
+    },
+    "created_at": "2026-08-25T15:15:06.772676Z",
+    "id": 23,
+    "kind": "model_session_ready"
+  },
+  {
+    "actor_id": "intelligence-direction",
+    "body": {
+      "attempt": 1,
+      "configured_effort": "medium",
+      "model": "zai/glm-5.3"
+    },
+    "created_at": "2026-08-25T15:15:05.584756Z",
+    "id": 22,
+    "kind": "model_attempt"
+  },
+  {
+    "actor_id": "customer-direction",
+    "body": {
+      "attempt": 1,
+      "configured_effort": "medium",
+      "model": "zai/glm-5.3"
+    },
+    "created_at": "2026-08-25T15:15:05.581264Z",
+    "id": 21,
+    "kind": "model_attempt"
+  },
+  {
+    "actor_id": "revenue-direction",
+    "body": {
+      "attempt": 1,
+      "configured_effort": "medium",
+      "model": "zai/glm-5.3"
+    },
+    "created_at": "2026-08-25T15:15:05.576717Z",
+    "id": 20,
+    "kind": "model_attempt"
+  },
+  {
+    "actor_id": "exec",
+    "body": {
+      "configured_effort": "medium",
+      "fresh_process_capability": true,
+      "launch_id": "1f84c213d9554da48169db20ccf2c79c",
+      "model": "zai/glm-5.3",
+      "reconstructed": false,
+      "reconstruction_reason": null,
+      "resumed": false,
+      "session_id": "01a0397a-5140-7000-9ac6-70d6768f9462",
+      "tool_contract_digest": "58e108061e02519d863a9aefcb04e894b0fc905cfcc9182627a58aa5488a9e79"
+    },
+    "created_at": "2026-08-25T15:11:52.817885Z",
+    "id": 19,
+    "kind": "model_session_ready"
+  },
+  {
+    "actor_id": "exec",
+    "body": {
+      "attempt": 1,
+      "configured_effort": "medium",
+      "model": "zai/glm-5.3"
+    },
+    "created_at": "2026-08-25T15:11:51.718963Z",
+    "id": 18,
+    "kind": "model_attempt"
+  },
+  {
+    "actor_id": "exec",
+    "body": {
+      "context_digest": "b54c79ea10751a50893218beb9a7da44b4c077a322226ece0e6c40e0d4670c88",
+      "model_candidates": [
+        "zai/glm-5.3"
+      ],
+      "reason": "message from owner"
+    },
+    "created_at": "2026-08-25T15:11:51.718059Z",
+    "id": 17,
+    "kind": "wake"
+  },
+  {
+    "actor_id": "owner",
+    "body": {
+      "from_team_id": null,
+      "member_actor_id": "reconciliation-owner",
+      "override": true,
+      "reason": "frozen EXP-05 one-worker department",
+      "to_team_id": "053f1b8e-5ca3-436f-b91e-219f3747ec8d"
+    },
+    "created_at": "2026-08-25T15:11:50.884485Z",
+    "id": 16,
+    "kind": "team_roster_changed"
+  },
+  {
+    "actor_id": "owner",
+    "body": {
+      "brief": "Own the exact operations slice at /company/experiment/EXP-05/charters/operations.md; lead never produces.",
+      "lead_actor_id": "operations-direction",
+      "name": "Operations Outcome",
+      "team_id": "053f1b8e-5ca3-436f-b91e-219f3747ec8d"
+    },
+    "created_at": "2026-08-25T15:11:50.878399Z",
+    "id": 15,
+    "kind": "team_commissioned"
+  },
+  {
+    "actor_id": "owner",
+    "body": {
+      "actor_id": "reconciliation-owner",
+      "display": "Marco Silva",
+      "model": "zai/glm-5.3",
+      "reason": "frozen EXP-05 locally closing production owner",
+      "role": "operations end-to-end producer"
+    },
+    "created_at": "2026-08-25T15:11:50.872468Z",
+    "id": 14,
+    "kind": "actor_created"
+  },
+  {
+    "actor_id": "owner",
+    "body": {
+      "actor_id": "operations-direction",
+      "display": "Rhea Collins",
+      "model": "zai/glm-5.3",
+      "reason": "frozen EXP-05 company-level accountability boundary",
+      "role": "accountable operations outcome lead"
+    },
+    "created_at": "2026-08-25T15:11:50.866365Z",
+    "id": 13,
+    "kind": "actor_created"
+  },
+  {
+    "actor_id": "owner",
+    "body": {
+      "from_team_id": null,
+      "member_actor_id": "monitoring-owner",
+      "override": true,
+      "reason": "frozen EXP-05 one-worker department",
+      "to_team_id": "1e357283-dd42-4dd2-b055-ad3f31b39c8c"
+    },
+    "created_at": "2026-08-25T15:11:50.682326Z",
+    "id": 12,
+    "kind": "team_roster_changed"
+  },
+  {
+    "actor_id": "owner",
+    "body": {
+      "brief": "Own the exact monitoring slice at /company/experiment/EXP-05/charters/monitoring.md; lead never produces.",
+      "lead_actor_id": "intelligence-direction",
+      "name": "Intelligence Outcome",
+      "team_id": "1e357283-dd42-4dd2-b055-ad3f31b39c8c"
+    },
+    "created_at": "2026-08-25T15:11:50.674666Z",
+    "id": 11,
+    "kind": "team_commissioned"
+  },
+  {
+    "actor_id": "owner",
+    "body": {
+      "actor_id": "monitoring-owner",
+      "display": "Owen Price",
+      "model": "zai/glm-5.3",
+      "reason": "frozen EXP-05 locally closing production owner",
+      "role": "monitoring end-to-end producer"
+    },
+    "created_at": "2026-08-25T15:11:50.668628Z",
+    "id": 10,
+    "kind": "actor_created"
+  },
+  {
+    "actor_id": "owner",
+    "body": {
+      "actor_id": "intelligence-direction",
+      "display": "Elena Torres",
+      "model": "zai/glm-5.3",
+      "reason": "frozen EXP-05 company-level accountability boundary",
+      "role": "accountable monitoring outcome lead"
+    },
+    "created_at": "2026-08-25T15:11:50.661961Z",
+    "id": 9,
+    "kind": "actor_created"
+  },
+  {
+    "actor_id": "owner",
+    "body": {
+      "from_team_id": null,
+      "member_actor_id": "case-owner",
+      "override": true,
+      "reason": "frozen EXP-05 one-worker department",
+      "to_team_id": "f032b211-4892-4a9c-8d0f-5a9677a99e05"
+    },
+    "created_at": "2026-08-25T15:11:50.483323Z",
+    "id": 8,
+    "kind": "team_roster_changed"
+  },
+  {
+    "actor_id": "owner",
+    "body": {
+      "brief": "Own the exact support slice at /company/experiment/EXP-05/charters/support.md; lead never produces.",
+      "lead_actor_id": "customer-direction",
+      "name": "Customer Outcome",
+      "team_id": "f032b211-4892-4a9c-8d0f-5a9677a99e05"
+    },
+    "created_at": "2026-08-25T15:11:50.476339Z",
+    "id": 7,
+    "kind": "team_commissioned"
+  },
+  {
+    "actor_id": "owner",
+    "body": {
+      "actor_id": "case-owner",
+      "display": "Nina Park",
+      "model": "zai/glm-5.3",
+      "reason": "frozen EXP-05 locally closing production owner",
+      "role": "support end-to-end producer"
+    },
+    "created_at": "2026-08-25T15:11:50.469465Z",
+    "id": 6,
+    "kind": "actor_created"
+  },
+  {
+    "actor_id": "owner",
+    "body": {
+      "actor_id": "customer-direction",
+      "display": "Priya Shah",
+      "model": "zai/glm-5.3",
+      "reason": "frozen EXP-05 company-level accountability boundary",
+      "role": "accountable support outcome lead"
+    },
+    "created_at": "2026-08-25T15:11:50.463654Z",
+    "id": 5,
+    "kind": "actor_created"
+  },
+  {
+    "actor_id": "owner",
+    "body": {
+      "from_team_id": null,
+      "member_actor_id": "account-owner",
+      "override": true,
+      "reason": "frozen EXP-05 one-worker department",
+      "to_team_id": "af426dd2-5bcd-4714-a4ce-4e5998f3d023"
+    },
+    "created_at": "2026-08-25T15:11:50.307632Z",
+    "id": 4,
+    "kind": "team_roster_changed"
+  },
+  {
+    "actor_id": "owner",
+    "body": {
+      "brief": "Own the exact sales slice at /company/experiment/EXP-05/charters/sales.md; lead never produces.",
+      "lead_actor_id": "revenue-direction",
+      "name": "Revenue Outcome",
+      "team_id": "af426dd2-5bcd-4714-a4ce-4e5998f3d023"
+    },
+    "created_at": "2026-08-25T15:11:50.300862Z",
+    "id": 3,
+    "kind": "team_commissioned"
+  },
+  {
+    "actor_id": "owner",
+    "body": {
+      "actor_id": "account-owner",
+      "display": "Sofia Reyes",
+      "model": "zai/glm-5.3",
+      "reason": "frozen EXP-05 locally closing production owner",
+      "role": "sales end-to-end producer"
+    },
+    "created_at": "2026-08-25T15:11:50.295138Z",
+    "id": 2,
+    "kind": "actor_created"
+  },
+  {
+    "actor_id": "owner",
+    "body": {
+      "actor_id": "revenue-direction",
+      "display": "Mara Voss",
+      "model": "zai/glm-5.3",
+      "reason": "frozen EXP-05 company-level accountability boundary",
+      "role": "accountable sales outcome lead"
+    },
+    "created_at": "2026-08-25T15:11:50.287655Z",
+    "id": 1,
+    "kind": "actor_created"
+  }
+]

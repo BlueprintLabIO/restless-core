@@ -1,0 +1,210 @@
+{
+  "artifacts": [
+    {
+      "attempt_id": "8d888884-543f-4d82-9575-067244dd7499",
+      "created_at": "2026-08-25T11:33:53.236776Z",
+      "created_by": "continuity-control",
+      "digest": null,
+      "id": "9bccf3d1-f036-4247-a6cf-8e6368eab9a1",
+      "kind": "output",
+      "label": "output",
+      "note": "",
+      "runtime_generation": null,
+      "source_commit": null,
+      "state": "available",
+      "superseded_at": null,
+      "uri": "/company/experiment/EXP-05/outputs/continuity-control.json",
+      "work_id": "d9f6cbbb-ea22-456b-b008-9b0e838197c8"
+    },
+    {
+      "attempt_id": "8d888884-543f-4d82-9575-067244dd7499",
+      "created_at": "2026-08-25T11:34:21.524664Z",
+      "created_by": "continuity-control",
+      "digest": "dd1e7cd11885559033f47ea6c9d2c69d3633edebade67913ef3ab20b9a86ed3a",
+      "id": "a7a30e23-e4c0-4d12-a9ee-83d4bee4ba84",
+      "kind": "review_target",
+      "label": "output",
+      "note": "reconciled control operations; gate valid: operations/8 units",
+      "runtime_generation": null,
+      "source_commit": null,
+      "state": "available",
+      "superseded_at": null,
+      "uri": "/company/experiment/EXP-05/outputs/continuity-control.json",
+      "work_id": "d9f6cbbb-ea22-456b-b008-9b0e838197c8"
+    },
+    {
+      "attempt_id": "734d97d2-8e66-49c8-989d-ad69033f8cb0",
+      "created_at": "2026-08-25T11:34:58.016885Z",
+      "created_by": "continuity-worker",
+      "digest": null,
+      "id": "4ac6b66b-0b81-4f26-a6fb-df4e389a957f",
+      "kind": "output",
+      "label": "output",
+      "note": "",
+      "runtime_generation": null,
+      "source_commit": null,
+      "state": "available",
+      "superseded_at": null,
+      "uri": "/company/experiment/EXP-05/outputs/continuity-target.json",
+      "work_id": "c4f2691c-55ab-407d-a62a-2d7e5b400610"
+    }
+  ],
+  "attempt_feedback": [
+    {
+      "attempt_id": "734d97d2-8e66-49c8-989d-ad69033f8cb0",
+      "message_id": 5
+    }
+  ],
+  "attempt_inputs": [],
+  "attempts": [
+    {
+      "actor_id": "continuity-worker",
+      "attempt_no": 1,
+      "feedback_cursor": 0,
+      "finished_at": "2026-08-25T11:32:52.601882Z",
+      "id": "5ee21402-4463-483b-bddb-998a9bf3107f",
+      "input_fingerprint": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "model": "zai/glm-5.3",
+      "revision": 1,
+      "session_id": "0781fb11-1469-44e5-9ba1-d2fb9e252694",
+      "started_at": "2026-08-25T11:32:11.611986Z",
+      "state": "superseded",
+      "summary": "direct Work feedback 5 arrived after this Attempt's frozen input snapshot; its terminal report is stale and the Work remains active for a successor Attempt",
+      "trigger": "dependency graph became ready",
+      "work_id": "c4f2691c-55ab-407d-a62a-2d7e5b400610"
+    },
+    {
+      "actor_id": "continuity-control",
+      "attempt_no": 1,
+      "feedback_cursor": 0,
+      "finished_at": "2026-08-25T11:34:43.875021Z",
+      "id": "8d888884-543f-4d82-9575-067244dd7499",
+      "input_fingerprint": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "model": "zai/glm-5.3",
+      "revision": 1,
+      "session_id": "138d911d-dd37-43f1-a72a-ec54f101ef26",
+      "started_at": "2026-08-25T11:32:11.683802Z",
+      "state": "produced",
+      "summary": "continuity-control.json reconciled with exact schema, gate validate-visible.py operations passed live (valid, 8 units), progress marker written, output and review_target artifacts linked to attempt 8d888884-543f-4d82-9575-067244dd7499",
+      "trigger": "dependency graph became ready",
+      "work_id": "d9f6cbbb-ea22-456b-b008-9b0e838197c8"
+    },
+    {
+      "actor_id": "continuity-worker",
+      "attempt_no": 2,
+      "feedback_cursor": 5,
+      "finished_at": "2026-08-25T11:35:23.088601Z",
+      "id": "734d97d2-8e66-49c8-989d-ad69033f8cb0",
+      "input_fingerprint": "1a29fb7eeed8fd16417f03079e325eabf4f5b56d9b2da7ca810f1841e9072996",
+      "model": "zai/glm-5.3",
+      "revision": 1,
+      "session_id": "83b90586-019b-4c21-bf99-d089f6205663",
+      "started_at": "2026-08-25T11:32:53.856410Z",
+      "state": "produced",
+      "summary": "V2 marker source read after feedback, exact JSON written and validator-confirmed, artifact linked to attempt 734d97d2-8e66-49c8-989d-ad69033f8cb0.",
+      "trigger": "dependency graph became ready",
+      "work_id": "c4f2691c-55ab-407d-a62a-2d7e5b400610"
+    }
+  ],
+  "edges": [],
+  "gate_runs": [
+    {
+      "attempt_id": "8d888884-543f-4d82-9575-067244dd7499",
+      "exit_code": 0,
+      "gate_id": "df42f4a8-c7e9-41db-9d65-a69e98059abf",
+      "id": "087dd830-da13-4313-b531-d118e9ee3bbc",
+      "output_digest": "215629fb69dbf40754e94e477e72ea8f5faecc6f7f8e14f8b8c8faa984f25d01",
+      "output_excerpt": "{\"domain\": \"operations\", \"units\": 8, \"valid\": true}\n",
+      "passed": true,
+      "ran_at": "2026-08-25T11:34:43.871201Z"
+    },
+    {
+      "attempt_id": "734d97d2-8e66-49c8-989d-ad69033f8cb0",
+      "exit_code": 0,
+      "gate_id": "f352817f-4fb6-499b-b03e-216eeddac022",
+      "id": "313a7a41-4f11-4ee3-974d-760afe9084e3",
+      "output_digest": "31e64de4c0a9409e283866bf5edbd3bedeee14fe9cbb55a1cece56a6f4943e21",
+      "output_excerpt": "{\"marker\": \"EXP05-CONTINUITY-V2\", \"valid\": true}\n",
+      "passed": true,
+      "ran_at": "2026-08-25T11:35:23.087107Z"
+    }
+  ],
+  "gates": [
+    {
+      "command": [
+        "python3",
+        "/company/experiment/EXP-05/tools/validate-marker.py",
+        "/company/experiment/EXP-05/inbox/marker-source.json",
+        "/company/experiment/EXP-05/outputs/continuity-target.json"
+      ],
+      "created_at": "2026-08-25T11:32:11.583042Z",
+      "created_by": "continuity-worker",
+      "cwd": "@attempt",
+      "id": "f352817f-4fb6-499b-b03e-216eeddac022",
+      "name": "marker-contract",
+      "sequence_no": 0,
+      "work_id": "c4f2691c-55ab-407d-a62a-2d7e5b400610"
+    },
+    {
+      "command": [
+        "python3",
+        "/company/experiment/EXP-05/tools/validate-visible.py",
+        "operations",
+        "/company/experiment/EXP-05/inbox/control-operations.json",
+        "/company/experiment/EXP-05/outputs/continuity-control.json",
+        "--progress",
+        "/company/experiment/EXP-05/progress/continuity-control.produce"
+      ],
+      "created_at": "2026-08-25T11:32:11.598848Z",
+      "created_by": "continuity-control",
+      "cwd": "@attempt",
+      "id": "df42f4a8-c7e9-41db-9d65-a69e98059abf",
+      "name": "unaffected-control-contract",
+      "sequence_no": 0,
+      "work_id": "d9f6cbbb-ea22-456b-b008-9b0e838197c8"
+    }
+  ],
+  "handoffs": [],
+  "work": [
+    {
+      "attempt_limit": 3,
+      "base_ref": null,
+      "created_at": "2026-08-25T11:32:11.583042Z",
+      "expected_artifact": "/company/experiment/EXP-05/outputs/continuity-target.json",
+      "goal_id": null,
+      "id": "c4f2691c-55ab-407d-a62a-2d7e5b400610",
+      "integration_branch": null,
+      "outcome": "Read /company/experiment/EXP-05/inbox/marker-source.json, create progress marker /company/experiment/EXP-05/progress/continuity-target.produce immediately after orientation, write the exact one-key JSON object to /company/experiment/EXP-05/outputs/continuity-target.json, validate it, link it as review_target, and return outcome_met.",
+      "owner_id": "continuity-worker",
+      "owner_review_required": false,
+      "priority": 0,
+      "repo": null,
+      "resolution": "V2 marker source read after feedback, exact JSON written and validator-confirmed, artifact linked to attempt 734d97d2-8e66-49c8-989d-ad69033f8cb0.",
+      "revision": 1,
+      "status": "completed",
+      "title": "Produce continuity-target marker artifact",
+      "updated_at": "2026-08-25T11:35:23.088601Z",
+      "worktree": null
+    },
+    {
+      "attempt_limit": 2,
+      "base_ref": null,
+      "created_at": "2026-08-25T11:32:11.598848Z",
+      "expected_artifact": "/company/experiment/EXP-05/outputs/continuity-control.json",
+      "goal_id": null,
+      "id": "d9f6cbbb-ea22-456b-b008-9b0e838197c8",
+      "integration_branch": null,
+      "outcome": "Independently reconcile /company/experiment/EXP-05/inbox/control-operations.json into /company/experiment/EXP-05/outputs/continuity-control.json with progress marker /company/experiment/EXP-05/progress/continuity-control.produce, exact ordinary operations schema, visible validation, and an attributable review_target.",
+      "owner_id": "continuity-control",
+      "owner_review_required": false,
+      "priority": 0,
+      "repo": null,
+      "resolution": "continuity-control.json reconciled with exact schema, gate validate-visible.py operations passed live (valid, 8 units), progress marker written, output and review_target artifacts linked to attempt 8d888884-543f-4d82-9575-067244dd7499",
+      "revision": 1,
+      "status": "completed",
+      "title": "Reconcile unaffected control operations",
+      "updated_at": "2026-08-25T11:34:43.875021Z",
+      "worktree": null
+    }
+  ]
+}

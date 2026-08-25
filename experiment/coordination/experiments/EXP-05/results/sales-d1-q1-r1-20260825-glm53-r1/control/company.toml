@@ -1,0 +1,5 @@
+name = "exp05_sales_d1_q1_r1_20260825_beacf0ff_test"
+mission = """Run one frozen EXP-05 fictional _test outcome through ordinary Restless coordination. Nothing may be sent, published, paid, posted, or applied. Exec delegates productive work to the named accountable lead and returns to availability. The lead remains a non-producing supervisor; Staff owns every output. Exact source paths, acceptance gates and arrival facts are in /company/experiment/EXP-05/charter.md. Arm: sales-d1-q1-r1."""
+spend_ceiling_usd = "12"
+model = "zai/glm-5.3"
+model_failover = []

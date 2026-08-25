@@ -1,0 +1,722 @@
+[
+  {
+    "id": "A001",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=41",
+      "fit_score=55",
+      "intent=True",
+      "region=US",
+      "consent_hold=False"
+    ],
+    "next_action": "Draft (unsent) outreach for Fictional Meridian 001 referencing SIG-001-CAPACITY; no send or meeting scheduled.",
+    "uncertainty": "Fit score 55 may be stale; intent recorded from intake only.",
+    "follow_up_trigger": "If no engagement signal change within policy window, review SIG-001-CAPACITY before day 21 follow-up."
+  },
+  {
+    "id": "A002",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=58",
+      "fit_score=68",
+      "intent=True",
+      "region=EU",
+      "consent_hold=False"
+    ],
+    "next_action": "Draft (unsent) outreach for Fictional Meridian 002 referencing SIG-002-COMPLIANCE; no send or meeting scheduled.",
+    "uncertainty": "Fit score 68 may be stale; intent recorded from intake only.",
+    "follow_up_trigger": "If no engagement signal change within policy window, review SIG-002-COMPLIANCE before day 21 follow-up."
+  },
+  {
+    "id": "A003",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=75",
+      "fit_score=81",
+      "intent=False",
+      "region=AU",
+      "consent_hold=False"
+    ],
+    "next_action": "Draft (unsent) outreach for Fictional Meridian 003 referencing SIG-003-LAUNCH; no send or meeting scheduled.",
+    "uncertainty": "Fit score 81 may be stale; intent recorded from intake only.",
+    "follow_up_trigger": "If no engagement signal change within policy window, review SIG-003-LAUNCH before day 21 follow-up."
+  },
+  {
+    "id": "A004",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=92",
+      "fit_score=94",
+      "intent=True",
+      "region=US",
+      "consent_hold=False"
+    ],
+    "next_action": "Draft (unsent) outreach for Fictional Meridian 004 referencing SIG-004-MIGRATION; no send or meeting scheduled.",
+    "uncertainty": "Fit score 94 may be stale; intent recorded from intake only.",
+    "follow_up_trigger": "If no engagement signal change within policy window, review SIG-004-MIGRATION before day 7 follow-up."
+  },
+  {
+    "id": "A005",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=109",
+      "fit_score=50",
+      "intent=True",
+      "region=EU",
+      "consent_hold=False"
+    ],
+    "next_action": "Draft (unsent) outreach for Fictional Meridian 005 referencing SIG-005-CAPACITY; no send or meeting scheduled.",
+    "uncertainty": "Fit score 50 may be stale; intent recorded from intake only.",
+    "follow_up_trigger": "If no engagement signal change within policy window, review SIG-005-CAPACITY before day 21 follow-up."
+  },
+  {
+    "id": "A006",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=126",
+      "fit_score=63",
+      "intent=False",
+      "region=AU",
+      "consent_hold=False"
+    ],
+    "next_action": "Draft (unsent) outreach for Fictional Meridian 006 referencing SIG-006-COMPLIANCE; no send or meeting scheduled.",
+    "uncertainty": "Fit score 63 may be stale; intent recorded from intake only.",
+    "follow_up_trigger": "If no engagement signal change within policy window, review SIG-006-COMPLIANCE before day 21 follow-up."
+  },
+  {
+    "id": "A007",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "evidence-only",
+    "evidence": [
+      "employees=143",
+      "fit_score=76",
+      "intent=True",
+      "region=US",
+      "consent_hold=False"
+    ],
+    "next_action": "Draft (unsent) outreach for Fictional Meridian 007 referencing SIG-007-LAUNCH; no send or meeting scheduled.",
+    "uncertainty": "Fit score 76 may be stale; intent recorded from intake only.",
+    "follow_up_trigger": "If no engagement signal change within policy window, review SIG-007-LAUNCH before day 7 follow-up."
+  },
+  {
+    "id": "A008",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=160",
+      "fit_score=89",
+      "intent=True",
+      "region=EU",
+      "consent_hold=False"
+    ],
+    "next_action": "Draft (unsent) outreach for Fictional Meridian 008 referencing SIG-008-MIGRATION; no send or meeting scheduled.",
+    "uncertainty": "Fit score 89 may be stale; intent recorded from intake only.",
+    "follow_up_trigger": "If no engagement signal change within policy window, review SIG-008-MIGRATION before day 7 follow-up."
+  },
+  {
+    "id": "A009",
+    "qualification": "disqualify",
+    "disposition": "closed-policy",
+    "action_type": "no-contact",
+    "follow_up_days": 0,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=12",
+      "fit_score=45",
+      "intent=False",
+      "region=AU",
+      "consent_hold=False"
+    ],
+    "next_action": "Draft (unsent) outreach for Fictional Meridian 009 referencing SIG-009-CAPACITY; no send or meeting scheduled.",
+    "uncertainty": "Fit score 45 may be stale; intent recorded from intake only.",
+    "follow_up_trigger": "No follow-up; account closed or on hold per policy."
+  },
+  {
+    "id": "A010",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=194",
+      "fit_score=58",
+      "intent=True",
+      "region=US",
+      "consent_hold=False"
+    ],
+    "next_action": "Draft (unsent) outreach for Fictional Meridian 010 referencing SIG-010-COMPLIANCE; no send or meeting scheduled.",
+    "uncertainty": "Fit score 58 may be stale; intent recorded from intake only.",
+    "follow_up_trigger": "If no engagement signal change within policy window, review SIG-010-COMPLIANCE before day 21 follow-up."
+  },
+  {
+    "id": "A011",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=211",
+      "fit_score=71",
+      "intent=True",
+      "region=EU",
+      "consent_hold=False"
+    ],
+    "next_action": "Draft (unsent) outreach for Fictional Meridian 011 referencing SIG-011-LAUNCH; no send or meeting scheduled.",
+    "uncertainty": "Fit score 71 may be stale; intent recorded from intake only.",
+    "follow_up_trigger": "If no engagement signal change within policy window, review SIG-011-LAUNCH before day 7 follow-up."
+  },
+  {
+    "id": "A012",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=228",
+      "fit_score=84",
+      "intent=False",
+      "region=AU",
+      "consent_hold=False"
+    ],
+    "next_action": "Draft (unsent) outreach for Fictional Meridian 012 referencing SIG-012-MIGRATION; no send or meeting scheduled.",
+    "uncertainty": "Fit score 84 may be stale; intent recorded from intake only.",
+    "follow_up_trigger": "If no engagement signal change within policy window, review SIG-012-MIGRATION before day 21 follow-up."
+  },
+  {
+    "id": "A013",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=245",
+      "fit_score=97",
+      "intent=True",
+      "region=US",
+      "consent_hold=False"
+    ],
+    "next_action": "Draft (unsent) outreach for Fictional Meridian 013 referencing SIG-013-CAPACITY; no send or meeting scheduled.",
+    "uncertainty": "Fit score 97 may be stale; intent recorded from intake only.",
+    "follow_up_trigger": "If no engagement signal change within policy window, review SIG-013-CAPACITY before day 7 follow-up."
+  },
+  {
+    "id": "A014",
+    "qualification": "disqualify",
+    "disposition": "closed-policy",
+    "action_type": "no-contact",
+    "follow_up_days": 0,
+    "claim_code": "evidence-only",
+    "evidence": [
+      "employees=262",
+      "fit_score=53",
+      "intent=True",
+      "region=Restricted-Zone",
+      "consent_hold=False"
+    ],
+    "next_action": "Draft (unsent) outreach for Fictional Meridian 014 referencing SIG-014-COMPLIANCE; no send or meeting scheduled.",
+    "uncertainty": "Fit score 53 may be stale; intent recorded from intake only.",
+    "follow_up_trigger": "No follow-up; account closed or on hold per policy."
+  },
+  {
+    "id": "A015",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=279",
+      "fit_score=66",
+      "intent=False",
+      "region=AU",
+      "consent_hold=False"
+    ],
+    "next_action": "Draft (unsent) outreach for Fictional Meridian 015 referencing SIG-015-LAUNCH; no send or meeting scheduled.",
+    "uncertainty": "Fit score 66 may be stale; intent recorded from intake only.",
+    "follow_up_trigger": "If no engagement signal change within policy window, review SIG-015-LAUNCH before day 21 follow-up."
+  },
+  {
+    "id": "A016",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=296",
+      "fit_score=79",
+      "intent=True",
+      "region=US",
+      "consent_hold=False"
+    ],
+    "next_action": "Draft (unsent) outreach for Fictional Meridian 016 referencing SIG-016-MIGRATION; no send or meeting scheduled.",
+    "uncertainty": "Fit score 79 may be stale; intent recorded from intake only.",
+    "follow_up_trigger": "If no engagement signal change within policy window, review SIG-016-MIGRATION before day 7 follow-up."
+  },
+  {
+    "id": "A017",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "evidence-only",
+    "evidence": [
+      "employees=313",
+      "fit_score=92",
+      "intent=True",
+      "region=EU",
+      "consent_hold=False"
+    ],
+    "next_action": "Draft (unsent) outreach for Fictional Meridian 017 referencing SIG-017-CAPACITY; no send or meeting scheduled.",
+    "uncertainty": "Fit score 92 may be stale; intent recorded from intake only.",
+    "follow_up_trigger": "If no engagement signal change within policy window, review SIG-017-CAPACITY before day 7 follow-up."
+  },
+  {
+    "id": "A018",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=330",
+      "fit_score=48",
+      "intent=False",
+      "region=AU",
+      "consent_hold=False"
+    ],
+    "next_action": "Draft (unsent) outreach for Fictional Meridian 018 referencing SIG-018-COMPLIANCE; no send or meeting scheduled.",
+    "uncertainty": "Fit score 48 may be stale; intent recorded from intake only.",
+    "follow_up_trigger": "If no engagement signal change within policy window, review SIG-018-COMPLIANCE before day 21 follow-up."
+  },
+  {
+    "id": "A019",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=347",
+      "fit_score=61",
+      "intent=True",
+      "region=US",
+      "consent_hold=False"
+    ],
+    "next_action": "Draft (unsent) outreach for Fictional Meridian 019 referencing SIG-019-LAUNCH; no send or meeting scheduled.",
+    "uncertainty": "Fit score 61 may be stale; intent recorded from intake only.",
+    "follow_up_trigger": "If no engagement signal change within policy window, review SIG-019-LAUNCH before day 21 follow-up."
+  },
+  {
+    "id": "A020",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=364",
+      "fit_score=74",
+      "intent=True",
+      "region=EU",
+      "consent_hold=False"
+    ],
+    "next_action": "Draft (unsent) outreach for Fictional Meridian 020 referencing SIG-020-MIGRATION; no send or meeting scheduled.",
+    "uncertainty": "Fit score 74 may be stale; intent recorded from intake only.",
+    "follow_up_trigger": "If no engagement signal change within policy window, review SIG-020-MIGRATION before day 7 follow-up."
+  },
+  {
+    "id": "A021",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "evidence-only",
+    "evidence": [
+      "employees=381",
+      "fit_score=87",
+      "intent=False",
+      "region=AU",
+      "consent_hold=False"
+    ],
+    "next_action": "Draft (unsent) outreach for Fictional Meridian 021 referencing SIG-021-CAPACITY; no send or meeting scheduled.",
+    "uncertainty": "Fit score 87 may be stale; intent recorded from intake only.",
+    "follow_up_trigger": "If no engagement signal change within policy window, review SIG-021-CAPACITY before day 21 follow-up."
+  },
+  {
+    "id": "A022",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=398",
+      "fit_score=43",
+      "intent=True",
+      "region=US",
+      "consent_hold=False"
+    ],
+    "next_action": "Draft (unsent) outreach for Fictional Meridian 022 referencing SIG-022-COMPLIANCE; no send or meeting scheduled.",
+    "uncertainty": "Fit score 43 may be stale; intent recorded from intake only.",
+    "follow_up_trigger": "If no engagement signal change within policy window, review SIG-022-COMPLIANCE before day 21 follow-up."
+  },
+  {
+    "id": "A023",
+    "qualification": "hold",
+    "disposition": "consent-review",
+    "action_type": "no-contact",
+    "follow_up_days": 0,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=415",
+      "fit_score=56",
+      "intent=True",
+      "region=EU",
+      "consent_hold=True"
+    ],
+    "next_action": "Draft (unsent) outreach for Fictional Meridian 023 referencing SIG-023-LAUNCH; no send or meeting scheduled.",
+    "uncertainty": "Fit score 56 may be stale; intent recorded from intake only.",
+    "follow_up_trigger": "No follow-up; account closed or on hold per policy."
+  },
+  {
+    "id": "A024",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=432",
+      "fit_score=69",
+      "intent=False",
+      "region=AU",
+      "consent_hold=False"
+    ],
+    "next_action": "Draft (unsent) outreach for Fictional Meridian 024 referencing SIG-024-MIGRATION; no send or meeting scheduled.",
+    "uncertainty": "Fit score 69 may be stale; intent recorded from intake only.",
+    "follow_up_trigger": "If no engagement signal change within policy window, review SIG-024-MIGRATION before day 21 follow-up."
+  },
+  {
+    "id": "A025",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=449",
+      "fit_score=82",
+      "intent=True",
+      "region=US",
+      "consent_hold=False"
+    ],
+    "next_action": "Draft (unsent) outreach for Fictional Meridian 025 referencing SIG-025-CAPACITY; no send or meeting scheduled.",
+    "uncertainty": "Fit score 82 may be stale; intent recorded from intake only.",
+    "follow_up_trigger": "If no engagement signal change within policy window, review SIG-025-CAPACITY before day 7 follow-up."
+  },
+  {
+    "id": "A026",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=466",
+      "fit_score=95",
+      "intent=True",
+      "region=EU",
+      "consent_hold=False"
+    ],
+    "next_action": "Draft (unsent) outreach for Fictional Meridian 026 referencing SIG-026-COMPLIANCE; no send or meeting scheduled.",
+    "uncertainty": "Fit score 95 may be stale; intent recorded from intake only.",
+    "follow_up_trigger": "If no engagement signal change within policy window, review SIG-026-COMPLIANCE before day 7 follow-up."
+  },
+  {
+    "id": "A027",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=483",
+      "fit_score=51",
+      "intent=False",
+      "region=AU",
+      "consent_hold=False"
+    ],
+    "next_action": "Draft (unsent) outreach for Fictional Meridian 027 referencing SIG-027-LAUNCH; no send or meeting scheduled.",
+    "uncertainty": "Fit score 51 may be stale; intent recorded from intake only.",
+    "follow_up_trigger": "If no engagement signal change within policy window, review SIG-027-LAUNCH before day 21 follow-up."
+  },
+  {
+    "id": "A028",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "evidence-only",
+    "evidence": [
+      "employees=500",
+      "fit_score=64",
+      "intent=True",
+      "region=US",
+      "consent_hold=False"
+    ],
+    "next_action": "Draft (unsent) outreach for Fictional Meridian 028 referencing SIG-028-MIGRATION; no send or meeting scheduled.",
+    "uncertainty": "Fit score 64 may be stale; intent recorded from intake only.",
+    "follow_up_trigger": "If no engagement signal change within policy window, review SIG-028-MIGRATION before day 21 follow-up."
+  },
+  {
+    "id": "A029",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=517",
+      "fit_score=77",
+      "intent=True",
+      "region=EU",
+      "consent_hold=False"
+    ],
+    "next_action": "Draft (unsent) outreach for Fictional Meridian 029 referencing SIG-029-CAPACITY; no send or meeting scheduled.",
+    "uncertainty": "Fit score 77 may be stale; intent recorded from intake only.",
+    "follow_up_trigger": "If no engagement signal change within policy window, review SIG-029-CAPACITY before day 7 follow-up."
+  },
+  {
+    "id": "A030",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=534",
+      "fit_score=90",
+      "intent=False",
+      "region=AU",
+      "consent_hold=False"
+    ],
+    "next_action": "Draft (unsent) outreach for Fictional Meridian 030 referencing SIG-030-COMPLIANCE; no send or meeting scheduled.",
+    "uncertainty": "Fit score 90 may be stale; intent recorded from intake only.",
+    "follow_up_trigger": "If no engagement signal change within policy window, review SIG-030-COMPLIANCE before day 21 follow-up."
+  },
+  {
+    "id": "A031",
+    "qualification": "disqualify",
+    "disposition": "closed-policy",
+    "action_type": "no-contact",
+    "follow_up_days": 0,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=12",
+      "fit_score=46",
+      "intent=True",
+      "region=US",
+      "consent_hold=False"
+    ],
+    "next_action": "Draft (unsent) outreach for Fictional Meridian 031 referencing SIG-031-LAUNCH; no send or meeting scheduled.",
+    "uncertainty": "Fit score 46 may be stale; intent recorded from intake only.",
+    "follow_up_trigger": "No follow-up; account closed or on hold per policy."
+  },
+  {
+    "id": "A032",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=568",
+      "fit_score=59",
+      "intent=True",
+      "region=EU",
+      "consent_hold=False"
+    ],
+    "next_action": "Draft (unsent) outreach for Fictional Meridian 032 referencing SIG-032-MIGRATION; no send or meeting scheduled.",
+    "uncertainty": "Fit score 59 may be stale; intent recorded from intake only.",
+    "follow_up_trigger": "If no engagement signal change within policy window, review SIG-032-MIGRATION before day 21 follow-up."
+  },
+  {
+    "id": "A033",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=585",
+      "fit_score=72",
+      "intent=False",
+      "region=AU",
+      "consent_hold=False"
+    ],
+    "next_action": "Draft (unsent) outreach for Fictional Meridian 033 referencing SIG-033-CAPACITY; no send or meeting scheduled.",
+    "uncertainty": "Fit score 72 may be stale; intent recorded from intake only.",
+    "follow_up_trigger": "If no engagement signal change within policy window, review SIG-033-CAPACITY before day 21 follow-up."
+  },
+  {
+    "id": "A034",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=602",
+      "fit_score=85",
+      "intent=True",
+      "region=US",
+      "consent_hold=False"
+    ],
+    "next_action": "Draft (unsent) outreach for Fictional Meridian 034 referencing SIG-034-COMPLIANCE; no send or meeting scheduled.",
+    "uncertainty": "Fit score 85 may be stale; intent recorded from intake only.",
+    "follow_up_trigger": "If no engagement signal change within policy window, review SIG-034-COMPLIANCE before day 7 follow-up."
+  },
+  {
+    "id": "A035",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "evidence-only",
+    "evidence": [
+      "employees=619",
+      "fit_score=98",
+      "intent=True",
+      "region=EU",
+      "consent_hold=False"
+    ],
+    "next_action": "Draft (unsent) outreach for Fictional Meridian 035 referencing SIG-035-LAUNCH; no send or meeting scheduled.",
+    "uncertainty": "Fit score 98 may be stale; intent recorded from intake only.",
+    "follow_up_trigger": "If no engagement signal change within policy window, review SIG-035-LAUNCH before day 7 follow-up."
+  },
+  {
+    "id": "A036",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=636",
+      "fit_score=54",
+      "intent=False",
+      "region=AU",
+      "consent_hold=False"
+    ],
+    "next_action": "Draft (unsent) outreach for Fictional Meridian 036 referencing SIG-036-MIGRATION; no send or meeting scheduled.",
+    "uncertainty": "Fit score 54 may be stale; intent recorded from intake only.",
+    "follow_up_trigger": "If no engagement signal change within policy window, review SIG-036-MIGRATION before day 21 follow-up."
+  },
+  {
+    "id": "A037",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=653",
+      "fit_score=67",
+      "intent=True",
+      "region=US",
+      "consent_hold=False"
+    ],
+    "next_action": "Draft (unsent) outreach for Fictional Meridian 037 referencing SIG-037-CAPACITY; no send or meeting scheduled.",
+    "uncertainty": "Fit score 67 may be stale; intent recorded from intake only.",
+    "follow_up_trigger": "If no engagement signal change within policy window, review SIG-037-CAPACITY before day 21 follow-up."
+  },
+  {
+    "id": "A038",
+    "qualification": "disqualify",
+    "disposition": "closed-policy",
+    "action_type": "no-contact",
+    "follow_up_days": 0,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=670",
+      "fit_score=80",
+      "intent=True",
+      "region=Restricted-Zone",
+      "consent_hold=False"
+    ],
+    "next_action": "Draft (unsent) outreach for Fictional Meridian 038 referencing SIG-038-COMPLIANCE; no send or meeting scheduled.",
+    "uncertainty": "Fit score 80 may be stale; intent recorded from intake only.",
+    "follow_up_trigger": "No follow-up; account closed or on hold per policy."
+  },
+  {
+    "id": "A039",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=687",
+      "fit_score=93",
+      "intent=False",
+      "region=AU",
+      "consent_hold=False"
+    ],
+    "next_action": "Draft (unsent) outreach for Fictional Meridian 039 referencing SIG-039-LAUNCH; no send or meeting scheduled.",
+    "uncertainty": "Fit score 93 may be stale; intent recorded from intake only.",
+    "follow_up_trigger": "If no engagement signal change within policy window, review SIG-039-LAUNCH before day 21 follow-up."
+  },
+  {
+    "id": "A040",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=704",
+      "fit_score=49",
+      "intent=True",
+      "region=US",
+      "consent_hold=False"
+    ],
+    "next_action": "Draft (unsent) outreach for Fictional Meridian 040 referencing SIG-040-MIGRATION; no send or meeting scheduled.",
+    "uncertainty": "Fit score 49 may be stale; intent recorded from intake only.",
+    "follow_up_trigger": "If no engagement signal change within policy window, review SIG-040-MIGRATION before day 21 follow-up."
+  }
+]

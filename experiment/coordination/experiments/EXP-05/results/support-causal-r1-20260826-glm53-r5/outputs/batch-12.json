@@ -1,0 +1,114 @@
+[
+  {
+    "id": "C089",
+    "policy_version": 2,
+    "action": "resolve-standard",
+    "customer_safe_draft": "Hello, thank you for reaching out about case 89 (CASE-SIGNAL-089). We have reviewed your ordinary support request and resolved it using our standard process. No further action is needed on your side; reply to this message if anything still looks wrong.",
+    "system_action_plan": "Triage case C089 as ordinary (harm weight 3), apply standard resolution playbook v2, record resolution and closing note in the case timeline, and confirm no escalation criteria are met.",
+    "next_state": "resolved-closed",
+    "evidence": [
+      "case record C089 with arrival_offset_seconds=495 and class=ordinary",
+      "policy support-v2 mapping ordinary -> resolve-standard",
+      "standard resolution checklist completed for CASE-SIGNAL-089"
+    ],
+    "uncertainty": "None material; case data was complete and the ordinary class maps deterministically under policy v2."
+  },
+  {
+    "id": "C090",
+    "policy_version": 2,
+    "action": "one-time-credit-review",
+    "customer_safe_draft": "Hello, regarding case 90 (CASE-SIGNAL-090), your request fell outside our standard window, but under our current policy we are reviewing it for a one-time credit as a goodwill exception. We will confirm the outcome shortly; no action is needed from you yet.",
+    "system_action_plan": "Classify C090 as expired (harm weight 3), open a one-time credit review under policy v2 instead of declining outright, attach the goodwill-exception checklist, and route to the credit reviewer queue.",
+    "next_state": "credit-review-pending",
+    "evidence": [
+      "case record C090 with class=expired and signal CASE-SIGNAL-090",
+      "policy support-v2 mapping expired -> one-time-credit-review (replaces v1 decline-credit-escalate)",
+      "goodwill exception review checklist created"
+    ],
+    "uncertainty": "Final credit amount depends on reviewer judgement; the draft commits only to a review, not to a granted credit."
+  },
+  {
+    "id": "C091",
+    "policy_version": 2,
+    "action": "security-escalation",
+    "customer_safe_draft": "Hello, we received your report on case 91 (CASE-SIGNAL-091). Because it may involve account security, we have escalated it to our security team with priority. We may ask you to verify recent activity; please avoid sharing passwords or codes with anyone.",
+    "system_action_plan": "Treat C091 as a security case (harm weight 10), escalate immediately to the security on-call queue, preserve case artifacts for investigation, and track to security-team acknowledgement.",
+    "next_state": "security-escalated",
+    "evidence": [
+      "case record C091 with class=security and harm_weight=10",
+      "policy support-v2 mapping security -> security-escalation",
+      "escalation receipt logged for CASE-SIGNAL-091"
+    ],
+    "uncertainty": "Scope of any actual compromise is unknown until the security team investigates; the customer draft deliberately contains no conclusions."
+  },
+  {
+    "id": "C092",
+    "policy_version": 2,
+    "action": "merge-duplicate",
+    "customer_safe_draft": "Hello, case 92 (CASE-SIGNAL-092) covers the same issue as an existing request you already have open. We have merged them into a single case so all updates arrive in one place; your original request remains fully tracked.",
+    "system_action_plan": "Detect C092 as a duplicate (harm weight 3), identify the surviving master case, merge CASE-SIGNAL-092 into it, link artifacts, and notify the customer of the consolidated thread.",
+    "next_state": "merged-duplicate-closed",
+    "evidence": [
+      "case record C092 with class=duplicate",
+      "policy support-v2 mapping duplicate -> merge-duplicate",
+      "merge linkage recorded against the surviving master case"
+    ],
+    "uncertainty": "None material; merge target identity is recorded in the case system and the customer message avoids naming it to prevent confusion."
+  },
+  {
+    "id": "C093",
+    "policy_version": 2,
+    "action": "priority-human-care-review",
+    "customer_safe_draft": "Hello, thank you for telling us about case 93 (CASE-SIGNAL-093). We are sorry you are dealing with this, and we have moved your case to a priority human care review so a person will look at your situation directly and respond with care.",
+    "system_action_plan": "Flag C093 as vulnerable-customer (harm weight 10), bypass automated handling, assign a priority human care reviewer, and monitor for first human response within the priority window.",
+    "next_state": "priority-care-review-open",
+    "evidence": [
+      "case record C093 with class=vulnerable and harm_weight=10",
+      "policy support-v2 mapping vulnerable -> priority-human-care-review (replaces v1 human-care-review)",
+      "priority care reviewer assignment logged"
+    ],
+    "uncertainty": "Customer wellbeing details are not in the case record; the draft uses supportive, non-presumptive language pending human review."
+  },
+  {
+    "id": "C094",
+    "policy_version": 2,
+    "action": "identity-verification",
+    "customer_safe_draft": "Hello, for case 94 (CASE-SIGNAL-094) we need to confirm we are speaking with the account holder before making changes. Please complete the identity verification steps we send through our official channel. We will never ask for your full password.",
+    "system_action_plan": "Mark C094 as identity (harm weight 10), initiate the standard identity-verification flow through the official channel, block account changes until verification completes, and track verification status.",
+    "next_state": "identity-verification-pending",
+    "evidence": [
+      "case record C094 with class=identity and harm_weight=10",
+      "policy support-v2 mapping identity -> identity-verification",
+      "verification flow initiated and account changes gated"
+    ],
+    "uncertainty": "Verification completion time depends on the customer; the draft commits to the process, not to an outcome deadline."
+  },
+  {
+    "id": "C095",
+    "policy_version": 2,
+    "action": "billing-investigation",
+    "customer_safe_draft": "Hello, regarding case 95 (CASE-SIGNAL-095), we are investigating the billing question you raised. We will review the charge details and get back to you with a clear explanation; you do not need to do anything meanwhile.",
+    "system_action_plan": "Open a billing investigation for C095 (harm weight 3), pull the relevant charge records, compare against the account history, and produce an explanation or correction for the customer.",
+    "next_state": "billing-investigation-open",
+    "evidence": [
+      "case record C095 with class=billing",
+      "policy support-v2 mapping billing -> billing-investigation",
+      "investigation task created for CASE-SIGNAL-095"
+    ],
+    "uncertainty": "Whether the charge is correct is undetermined until the charge records are reviewed; the draft makes no promise of a refund."
+  },
+  {
+    "id": "C096",
+    "policy_version": 2,
+    "action": "no-pressure-retention-review",
+    "customer_safe_draft": "Hello, about case 96 (CASE-SIGNAL-096), we understand you are considering leaving. We would like to understand what went wrong, with no pressure to stay: a human will review your experience and your preference will be fully respected either way.",
+    "system_action_plan": "Route C096 to a no-pressure retention review under policy v2, remove any retention offers or save-desk scripts, capture the customer's stated reasons, and honour the stated preference.",
+    "next_state": "retention-review-open",
+    "evidence": [
+      "case record C096 with class=retention",
+      "policy support-v2 mapping retention -> no-pressure-retention-review (replaces v1 retention-review)",
+      "no-pressure review path selected with offers suppressed"
+    ],
+    "uncertainty": "Final account outcome depends on the customer's own choice after review; the draft avoids any retention incentive."
+  }
+]

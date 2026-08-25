@@ -1,0 +1,112 @@
+[
+  {
+    "entity": "Entity-31",
+    "event_code": "EVENT-31",
+    "severity": "low",
+    "source_ids": [
+      "D31-OFFICIAL",
+      "D31-LATE"
+    ],
+    "uncertainty": "low; corroborated by official update D31-LATE",
+    "follow_up_trigger": "TRIGGER-31"
+  },
+  {
+    "entity": "Entity-32",
+    "event_code": "EVENT-32",
+    "severity": "medium",
+    "source_ids": [
+      "D32-OFFICIAL",
+      "D32-LATE"
+    ],
+    "uncertainty": "low; corroborated by official update D32-LATE",
+    "follow_up_trigger": "TRIGGER-32"
+  },
+  {
+    "entity": "Entity-33",
+    "event_code": "EVENT-33",
+    "severity": "low",
+    "source_ids": [
+      "D33-OFFICIAL",
+      "D33-LATE"
+    ],
+    "uncertainty": "low; corroborated by official update D33-LATE",
+    "follow_up_trigger": "TRIGGER-33"
+  },
+  {
+    "entity": "Entity-34",
+    "event_code": "EVENT-34",
+    "severity": "medium",
+    "source_ids": [
+      "D34-OFFICIAL",
+      "D34-LATE"
+    ],
+    "uncertainty": "low; corroborated by official update D34-LATE",
+    "follow_up_trigger": "TRIGGER-34"
+  },
+  {
+    "entity": "Entity-35",
+    "event_code": "EVENT-35",
+    "severity": "high",
+    "source_ids": [
+      "D35-OFFICIAL",
+      "D35-LATE"
+    ],
+    "uncertainty": "low; corroborated by official update D35-LATE",
+    "follow_up_trigger": "TRIGGER-35"
+  },
+  {
+    "entity": "Entity-36",
+    "event_code": "EVENT-36",
+    "severity": "medium",
+    "source_ids": [
+      "D36-OFFICIAL",
+      "D36-LATE"
+    ],
+    "uncertainty": "low; corroborated by official update D36-LATE",
+    "follow_up_trigger": "TRIGGER-36"
+  },
+  {
+    "entity": "Entity-37",
+    "event_code": "EVENT-37",
+    "severity": "low",
+    "source_ids": [
+      "D37-OFFICIAL",
+      "D37-LATE"
+    ],
+    "uncertainty": "low; corroborated by official update D37-LATE",
+    "follow_up_trigger": "TRIGGER-37"
+  },
+  {
+    "entity": "Entity-38",
+    "event_code": "EVENT-38",
+    "severity": "medium",
+    "source_ids": [
+      "D38-OFFICIAL",
+      "D38-LATE"
+    ],
+    "uncertainty": "low; corroborated by official update D38-LATE",
+    "follow_up_trigger": "TRIGGER-38"
+  },
+  {
+    "entity": "Entity-39",
+    "event_code": "EVENT-39",
+    "severity": "low",
+    "source_ids": [
+      "D39-OFFICIAL",
+      "D39-LATE"
+    ],
+    "uncertainty": "low; corroborated by official update D39-LATE",
+    "follow_up_trigger": "TRIGGER-39"
+  },
+  {
+    "entity": "Entity-40",
+    "event_code": "EVENT-40",
+    "severity": "high",
+    "source_ids": [
+      "D40-OFFICIAL",
+      "D40-LATE"
+    ],
+    "uncertainty": "low; corroborated by official update D40-LATE",
+    "follow_up_trigger": "TRIGGER-40"
+  }
+]

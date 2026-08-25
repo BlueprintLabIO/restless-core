@@ -49,6 +49,16 @@ def main() -> None:
             str(preflight_path.relative_to(REPO)) if preflight else "missing",
         )
     )
+    q4_disposed = bool(
+        analyze.resolved(grouped.get("sales-d0-q4-r1", []))
+    )
+    checks.append(
+        check(
+            "conditional Q4 run only when authorized and then disposed",
+            (not status["conditional_q4_authorized"]) or q4_disposed,
+            f"authorized={status['conditional_q4_authorized']}; disposed={q4_disposed}",
+        )
+    )
     continuity_path = latest("wave0-continuity-*/run-result.json")
     continuity = read(continuity_path) if continuity_path else {}
     checks.append(
@@ -128,6 +138,14 @@ def main() -> None:
     telemetry_complete = bool(counted_runs) and all(
         isinstance(row.get("metrics", {}).get("configured_efforts"), list)
         and isinstance(row.get("metrics", {}).get("models"), list)
+        and isinstance(
+            row.get("metrics", {}).get("charged_cost_per_accepted_unit_usd"),
+            (int, float),
+        )
+        and isinstance(
+            row.get("metrics", {}).get("spend", {}).get("accounted_usd"),
+            (int, float),
+        )
         and row.get("metrics", {}).get("unit_latency_seconds") is not None
         and row.get("metrics", {}).get("worker_active_seconds") is not None
         for row in counted_runs

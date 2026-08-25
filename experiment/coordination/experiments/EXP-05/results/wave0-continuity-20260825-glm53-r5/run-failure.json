@@ -1,0 +1,9 @@
+{
+  "arm": "wave0-continuity",
+  "command": "run-continuity-gate",
+  "company": "exp05_wave0_continuity_20260825_6acaf5e7_test",
+  "error": "EXP-05 spend is unknown for exp05_wave0_continuity_20260825_84eeddbd_test",
+  "error_type": "RunFailure",
+  "recorded_at": "2026-08-25T11:36:44.573672+00:00",
+  "validity": "invalid"
+}

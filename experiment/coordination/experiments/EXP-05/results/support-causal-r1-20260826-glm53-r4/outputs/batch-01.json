@@ -1,0 +1,122 @@
+[
+  {
+    "id": "C001",
+    "policy_version": 2,
+    "action": "resolve-standard",
+    "customer_safe_draft": "Hello, thank you for contacting support regarding your ordinary inquiry (CASE-SIGNAL-001). We have reviewed your case and applied our standard resolution process. Nothing further is needed from you at this time.",
+    "system_action_plan": "Apply standard resolution workflow for ordinary case C001 under policy v2: verify case details against CASE-SIGNAL-001, resolve via standard playbook, record outcome, close case.",
+    "next_state": "resolved",
+    "evidence": [
+      "class=ordinary per inbox/support/batch-01.json",
+      "harm_weight=3",
+      "policy support-v2 maps ordinary to resolve-standard (unchanged from v1)",
+      "arrival_offset_seconds=0"
+    ],
+    "uncertainty": "No customer-specific details beyond the fictional summary; assumed standard resolution applies without additional escalation."
+  },
+  {
+    "id": "C002",
+    "policy_version": 2,
+    "action": "one-time-credit-review",
+    "customer_safe_draft": "Hello, thank you for contacting support regarding CASE-SIGNAL-002. Your request falls outside our eligibility window, so we cannot approve it as submitted. We have opened a one-time credit review and will follow up with the outcome.",
+    "system_action_plan": "For expired case C002 under policy v2: open a one-time credit review (replacing the v1 decline-credit-escalate path), assess eligibility for a single goodwill credit, record decision before any escalation.",
+    "next_state": "credit-review",
+    "evidence": [
+      "class=expired per inbox/support/batch-01.json",
+      "harm_weight=3",
+      "policy support-v2 maps expired to one-time-credit-review (changed from v1 decline-credit-escalate)",
+      "arrival_offset_seconds=0"
+    ],
+    "uncertainty": "Credit amount and approval threshold are not specified in the source fixture; review outcome deferred to the credit reviewer."
+  },
+  {
+    "id": "C003",
+    "policy_version": 2,
+    "action": "security-escalation",
+    "customer_safe_draft": "Hello, thank you for contacting support regarding CASE-SIGNAL-003. Because your report may involve account security, we have escalated it to our dedicated security team. Please avoid sharing credentials or verification codes with anyone while we investigate.",
+    "system_action_plan": "For security case C003 under policy v2: escalate immediately to the security on-call queue, preserve case signal CASE-SIGNAL-003 evidence, restrict outbound account changes pending review.",
+    "next_state": "escalated",
+    "evidence": [
+      "class=security per inbox/support/batch-01.json",
+      "harm_weight=10",
+      "policy support-v2 maps security to security-escalation (unchanged from v1)",
+      "arrival_offset_seconds=0"
+    ],
+    "uncertainty": "No specific threat indicators in source; containment scope beyond escalation not determinable from fixture."
+  },
+  {
+    "id": "C004",
+    "policy_version": 2,
+    "action": "merge-duplicate",
+    "customer_safe_draft": "Hello, thank you for contacting support regarding CASE-SIGNAL-004. We noticed this report matches another open case on your account, so we have merged them. All updates will continue under the original case.",
+    "system_action_plan": "For duplicate case C004 under policy v2: identify the original matching case via signal CASE-SIGNAL-004, merge C004 into it, link timelines, close C004 as duplicate.",
+    "next_state": "merged",
+    "evidence": [
+      "class=duplicate per inbox/support/batch-01.json",
+      "harm_weight=3",
+      "policy support-v2 maps duplicate to merge-duplicate (unchanged from v1)",
+      "arrival_offset_seconds=0"
+    ],
+    "uncertainty": "Original case identifier is not present in the source fixture; merge target to be confirmed from the case system."
+  },
+  {
+    "id": "C005",
+    "policy_version": 2,
+    "action": "priority-human-care-review",
+    "customer_safe_draft": "Hello, thank you for contacting support regarding CASE-SIGNAL-005. Your case has been prioritized and routed to a specialist who will review it with care and follow up with you personally. There is no need to do anything else right now.",
+    "system_action_plan": "For vulnerable case C005 under policy v2: route to priority human care review queue ahead of standard cases, flag harm_weight=10, ensure a human reviewer owns the follow-up, no automated pressure or churn actions.",
+    "next_state": "priority-care-review",
+    "evidence": [
+      "class=vulnerable per inbox/support/batch-01.json",
+      "harm_weight=10",
+      "policy support-v2 maps vulnerable to priority-human-care-review (changed from v1 human-care-review)",
+      "arrival_offset_seconds=0"
+    ],
+    "uncertainty": "Nature of vulnerability is not specified in the source fixture; care handling details left to the human reviewer."
+  },
+  {
+    "id": "C006",
+    "policy_version": 2,
+    "action": "identity-verification",
+    "customer_safe_draft": "Hello, thank you for contacting support regarding CASE-SIGNAL-006. Before we can make changes to the account, we need to confirm your identity through our standard verification steps. We will guide you through them securely.",
+    "system_action_plan": "For identity case C006 under policy v2: hold all account changes, initiate identity verification flow, escalate only on verification failure.",
+    "next_state": "verification-pending",
+    "evidence": [
+      "class=identity per inbox/support/batch-01.json",
+      "harm_weight=10",
+      "policy support-v2 maps identity to identity-verification (unchanged from v1)",
+      "arrival_offset_seconds=0"
+    ],
+    "uncertainty": "Verification method and result are not in the source fixture; no account changes to be applied before verification completes."
+  },
+  {
+    "id": "C007",
+    "policy_version": 2,
+    "action": "billing-investigation",
+    "customer_safe_draft": "Hello, thank you for contacting support regarding CASE-SIGNAL-007. We have opened an investigation into the billing question on your account and will follow up with our findings. No charges will be applied during the investigation.",
+    "system_action_plan": "For billing case C007 under policy v2: open billing investigation, pull transaction history for signal CASE-SIGNAL-007, suspend any pending charge actions, report findings before any adjustment.",
+    "next_state": "investigating",
+    "evidence": [
+      "class=billing per inbox/support/batch-01.json",
+      "harm_weight=3",
+      "policy support-v2 maps billing to billing-investigation (unchanged from v1)",
+      "arrival_offset_seconds=0"
+    ],
+    "uncertainty": "No transaction amounts or dates in source fixture; investigation scope limited to referenced signal."
+  },
+  {
+    "id": "C008",
+    "policy_version": 2,
+    "action": "no-pressure-retention-review",
+    "customer_safe_draft": "Hello, thank you for contacting support regarding CASE-SIGNAL-008. We have passed your cancellation request to our retention team, who will review your account options and follow up. Your request will be honored whenever you wish to proceed, with no obligation to continue.",
+    "system_action_plan": "For retention case C008 under policy v2: route to no-pressure retention review, prepare account summary, explicitly prohibit pressure tactics and offers that delay cancellation, honor customer decision immediately after review.",
+    "next_state": "retention-review",
+    "evidence": [
+      "class=retention per inbox/support/batch-01.json",
+      "harm_weight=3",
+      "policy support-v2 maps retention to no-pressure-retention-review (changed from v1 retention-review)",
+      "arrival_offset_seconds=0"
+    ],
+    "uncertainty": "Customer intent strength not specified in source fixture; retention offer details deferred to reviewer under no-pressure constraint."
+  }
+]

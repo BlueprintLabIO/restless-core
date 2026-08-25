@@ -1,0 +1,170 @@
+{
+  "arm": "monitoring-q2-r1",
+  "blind_evaluation": {
+    "judgement": {
+      "consequential_defects": [],
+      "decision": "accept",
+      "evidence": [
+        "All 40 units cover exactly the 40 source entities; each event_code, follow_up_trigger and severity matches its Dxx-OFFICIAL document (low/medium/high distribution verified entity-by-entity).",
+        "Every unit cites Dxx-OFFICIAL and Dxx-LATE as sources, the two authoritative confirmations; the late official-update independently corroborates severity in all 40 cases.",
+        "Tail documents are handled by exclusion: uncorroborated anonymous rumors (Dxx-RUMOR), outdated archive denials superseded by later official confirmation (Dxx-OLD), syndicated duplicates (Dxx-DUP) and blog noise (Dxx-NOISE) never enter source_ids.",
+        "Units 11-20 carry the most complete uncertainty notes, naming the rumor, the superseded denial, and the excluded duplicate and noise explicitly.",
+        "Units 31-40 use a degraded three-word uncertainty style that still asserts correctly low uncertainty (official confirmation plus official corroboration exists) but does not articulate the conflict resolution path.",
+        "No unit claims any action taken; follow-up is conditioned on the stated TRIGGER-xx, keeping the outcome locally closing and fictional as required."
+      ],
+      "high_consequence_breach": false,
+      "scores": {
+        "grounding": 10,
+        "native_review_readiness": 8,
+        "safe_actionability": 9,
+        "tail_handling": 8,
+        "uncertainty_calibration": 7.5,
+        "usefulness": 9
+      },
+      "worst_unit": {
+        "defect": "Uncertainty note is a terse fragment ('low; corroborated by official update D31-LATE') that omits how the superseded archive denial D31-OLD and uncorroborated rumor D31-RUMOR were resolved, unlike the fuller notes on Units 11-20.",
+        "id": "Entity-31",
+        "score": 7
+      }
+    },
+    "model": {
+      "effort": "high",
+      "selector": "zai/glm-5.3"
+    },
+    "process_exit": 0,
+    "valid": true,
+    "validation_errors": []
+  },
+  "company": "exp05_monitoring_q2_r1_20260826_1a1f23d6_test",
+  "exact_evaluation": {
+    "attribution_errors": [],
+    "attribution_valid": true,
+    "exact": {
+      "domain": "monitoring",
+      "sha256": "38a543f9e79d4f5c91293fa5c875402d88a0d786fb3656f61af68fe2ad9a39b5",
+      "units": 40,
+      "valid": true
+    }
+  },
+  "finished_at": "2026-08-25T15:11:34.690279+00:00",
+  "metrics": {
+    "accepted_units": 40,
+    "accepted_units_per_active_worker_hour": 496.9161245362639,
+    "accepted_units_per_request_hour": 1155.597698442978,
+    "arrivals": [
+      {
+        "observed_at": "2026-08-25T15:06:59.848013+00:00",
+        "offset_seconds": 0,
+        "unit": "monitoring territory 01"
+      },
+      {
+        "observed_at": "2026-08-25T15:06:59.952169+00:00",
+        "offset_seconds": 0,
+        "unit": "monitoring territory 02"
+      },
+      {
+        "observed_at": "2026-08-25T15:07:00.120862+00:00",
+        "offset_seconds": 0,
+        "unit": "monitoring territory 03"
+      },
+      {
+        "observed_at": "2026-08-25T15:07:00.393480+00:00",
+        "offset_seconds": 0,
+        "unit": "monitoring territory 04"
+      }
+    ],
+    "attempts": 4,
+    "billing_disposition": "charged metered API cost is authoritative; missing spend metering invalidates the cell",
+    "charged_cost_per_accepted_unit_usd": 0.0110475,
+    "configured_efforts": [
+      "medium"
+    ],
+    "estimated_list_cost_per_accepted_unit_usd": 0.0,
+    "estimated_list_cost_usd": 0,
+    "exact_validation_completed_at": "2026-08-25T15:10:01.557297+00:00",
+    "exec_judgement_completed_at": "2026-08-25T15:11:10.395336Z",
+    "exec_to_staff_dispatch_seconds": 56.55293393135071,
+    "first_staff_attempt_at": "2026-08-25T15:07:56.946457Z",
+    "lead_active_fraction_of_outcome_window": 0.46586847544458027,
+    "lead_active_seconds": {
+      "summed": 73.89124011993408,
+      "union": 73.89124011993408
+    },
+    "lead_review_completed_at": "2026-08-25T15:10:35.559249Z",
+    "lead_review_seconds": 34.001951932907104,
+    "lead_wakes": 2,
+    "models": [
+      "zai/glm-5.3"
+    ],
+    "observed_tokens": 135763,
+    "outcome_review_seconds": 158.6096591949463,
+    "peak_staff_attempt_concurrency": 2,
+    "peak_staff_model_concurrency": 2,
+    "queue_seconds": 124.61084008216858,
+    "session_resumptions": 2,
+    "spend": {
+      "accounted_usd": 0.4419,
+      "by_actor": [
+        {
+          "actor": "signal-secondary",
+          "model": "zai/glm-5.3",
+          "role": null,
+          "spent_usd": 0.1421
+        },
+        {
+          "actor": "signal-primary",
+          "model": "zai/glm-5.3",
+          "role": null,
+          "spent_usd": 0.1257
+        },
+        {
+          "actor": "exec",
+          "model": "zai/glm-5.3",
+          "role": null,
+          "spent_usd": 0.0872
+        },
+        {
+          "actor": "intelligence-direction",
+          "model": "zai/glm-5.3",
+          "role": null,
+          "spent_usd": 0.0868
+        }
+      ],
+      "ceiling_usd": 12.0,
+      "note": null,
+      "remaining_usd": 11.5581,
+      "status": "available"
+    },
+    "support_event": null,
+    "tell_started_at": "2026-08-25T15:07:00.393523+00:00",
+    "unit_latency_seconds": {
+      "max": 124.61084008216858,
+      "p50": 82.88965654373169,
+      "p90": 121.13040838241578,
+      "p99": 124.2627969121933
+    },
+    "unterminated_staff_model_sessions": 0,
+    "usage_events": 8,
+    "validator_callback_at": "2026-08-25T15:10:01.714448+00:00",
+    "value": {
+      "accepted_value": null,
+      "high_consequence_retained_fraction": null,
+      "initial_value": null,
+      "missed_service_value": null,
+      "value_adjusted_units": 40.0
+    },
+    "value_adjusted_units_per_active_worker_hour": 496.9161245362639,
+    "value_adjusted_units_per_request_hour": 1155.597698442978,
+    "worker_active_seconds": {
+      "summed": 289.7873361110687,
+      "union": 155.80731511116028
+    }
+  },
+  "runtime_valid": true,
+  "tell_process": {
+    "exit": 0,
+    "stderr": "",
+    "stdout": "delivered to the exec; the message wakes the company\n"
+  },
+  "validity": "counted"
+}

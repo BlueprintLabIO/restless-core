@@ -1,0 +1,20 @@
+{
+  "created_at": "2026-08-25T15:16:07.556044+00:00",
+  "domain": "sales",
+  "kind": "exact_validator_complete",
+  "receipts": [
+    {
+      "accepted_at": "2026-08-25T15:16:07.555835+00:00",
+      "arrival_offset_seconds": 0,
+      "output": "batch-01.json",
+      "sha256": "c515fdad0e7390ceb5d5754823d781fe48da90757718bcd3d5446da23c7265a9",
+      "unit": "sales batch 01",
+      "validator": {
+        "domain": "sales",
+        "units": 40,
+        "valid": true
+      }
+    }
+  ],
+  "units": 40
+}

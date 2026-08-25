@@ -1,0 +1,32 @@
+{
+  "arm": {
+    "arm_id": "wave0-q4-admission",
+    "demand": null,
+    "domain": "operations",
+    "shape": "q4",
+    "supervision": null,
+    "wave": 0,
+    "workers": 4
+  },
+  "counted_path": "restlessd + OrgIntel scheduler + scoped ACP",
+  "models": {
+    "blind_evaluator": {
+      "effort": "high",
+      "selector": "zai/glm-5.3"
+    },
+    "exec": {
+      "effort": "medium",
+      "selector": "zai/glm-5.3"
+    },
+    "lead": {
+      "effort": "medium",
+      "selector": "zai/glm-5.3"
+    },
+    "staff": {
+      "effort": "medium",
+      "selector": "zai/glm-5.3"
+    }
+  },
+  "run_token": "20260825-glm53-r2",
+  "started_at": "2026-08-25T11:57:50.845336+00:00"
+}

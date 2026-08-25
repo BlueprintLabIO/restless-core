@@ -1,0 +1,722 @@
+[
+  {
+    "id": "A161",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "evidence-only",
+    "evidence": [
+      "employees=801",
+      "fit_score=83",
+      "intent=true",
+      "region=EU",
+      "consent_hold=false"
+    ],
+    "next_action": "[unsent draft] discovery referencing SIG-161-CAPACITY (The fictional intake explicitly mentioned capacity pressure.); no send, meeting, or customer fact invented.",
+    "uncertainty": "Policy resolution rests on fit 83 with stated intent; intake note is a claim, not observation.",
+    "follow_up_trigger": "day 7 from intake, or earlier change in SIG-161-CAPACITY"
+  },
+  {
+    "id": "A162",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=818",
+      "fit_score=96",
+      "intent=false",
+      "region=AU",
+      "consent_hold=false"
+    ],
+    "next_action": "[unsent draft] value-resource referencing SIG-162-COMPLIANCE (The fictional intake explicitly mentioned compliance review.); no send, meeting, or customer fact invented.",
+    "uncertainty": "Policy resolution rests on fit 96, intent false; intake note is a claim, not observation.",
+    "follow_up_trigger": "day 21 from intake, or earlier change in SIG-162-COMPLIANCE"
+  },
+  {
+    "id": "A163",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=835",
+      "fit_score=52",
+      "intent=true",
+      "region=US",
+      "consent_hold=false"
+    ],
+    "next_action": "[unsent draft] value-resource referencing SIG-163-LAUNCH (The fictional intake explicitly mentioned a new launch.); no send, meeting, or customer fact invented.",
+    "uncertainty": "Policy resolution rests on fit 52, intent true; intake note is a claim, not observation.",
+    "follow_up_trigger": "day 21 from intake, or earlier change in SIG-163-LAUNCH"
+  },
+  {
+    "id": "A164",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=852",
+      "fit_score=65",
+      "intent=true",
+      "region=EU",
+      "consent_hold=false"
+    ],
+    "next_action": "[unsent draft] value-resource referencing SIG-164-MIGRATION (The fictional intake explicitly mentioned migration timing.); no send, meeting, or customer fact invented.",
+    "uncertainty": "Policy resolution rests on fit 65, intent true; intake note is a claim, not observation.",
+    "follow_up_trigger": "day 21 from intake, or earlier change in SIG-164-MIGRATION"
+  },
+  {
+    "id": "A165",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=869",
+      "fit_score=78",
+      "intent=false",
+      "region=AU",
+      "consent_hold=false"
+    ],
+    "next_action": "[unsent draft] value-resource referencing SIG-165-CAPACITY (The fictional intake explicitly mentioned capacity pressure.); no send, meeting, or customer fact invented.",
+    "uncertainty": "Policy resolution rests on fit 78, intent false; intake note is a claim, not observation.",
+    "follow_up_trigger": "day 21 from intake, or earlier change in SIG-165-CAPACITY"
+  },
+  {
+    "id": "A166",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=886",
+      "fit_score=91",
+      "intent=true",
+      "region=US",
+      "consent_hold=false"
+    ],
+    "next_action": "[unsent draft] discovery referencing SIG-166-COMPLIANCE (The fictional intake explicitly mentioned compliance review.); no send, meeting, or customer fact invented.",
+    "uncertainty": "Policy resolution rests on fit 91 with stated intent; intake note is a claim, not observation.",
+    "follow_up_trigger": "day 7 from intake, or earlier change in SIG-166-COMPLIANCE"
+  },
+  {
+    "id": "A167",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=903",
+      "fit_score=47",
+      "intent=true",
+      "region=EU",
+      "consent_hold=false"
+    ],
+    "next_action": "[unsent draft] value-resource referencing SIG-167-LAUNCH (The fictional intake explicitly mentioned a new launch.); no send, meeting, or customer fact invented.",
+    "uncertainty": "Policy resolution rests on fit 47, intent true; intake note is a claim, not observation.",
+    "follow_up_trigger": "day 21 from intake, or earlier change in SIG-167-LAUNCH"
+  },
+  {
+    "id": "A168",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "evidence-only",
+    "evidence": [
+      "employees=920",
+      "fit_score=60",
+      "intent=false",
+      "region=AU",
+      "consent_hold=false"
+    ],
+    "next_action": "[unsent draft] value-resource referencing SIG-168-MIGRATION (The fictional intake explicitly mentioned migration timing.); no send, meeting, or customer fact invented.",
+    "uncertainty": "Policy resolution rests on fit 60, intent false; intake note is a claim, not observation.",
+    "follow_up_trigger": "day 21 from intake, or earlier change in SIG-168-MIGRATION"
+  },
+  {
+    "id": "A169",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=937",
+      "fit_score=73",
+      "intent=true",
+      "region=US",
+      "consent_hold=false"
+    ],
+    "next_action": "[unsent draft] discovery referencing SIG-169-CAPACITY (The fictional intake explicitly mentioned capacity pressure.); no send, meeting, or customer fact invented.",
+    "uncertainty": "Policy resolution rests on fit 73 with stated intent; intake note is a claim, not observation.",
+    "follow_up_trigger": "day 7 from intake, or earlier change in SIG-169-CAPACITY"
+  },
+  {
+    "id": "A170",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=954",
+      "fit_score=86",
+      "intent=true",
+      "region=EU",
+      "consent_hold=false"
+    ],
+    "next_action": "[unsent draft] discovery referencing SIG-170-COMPLIANCE (The fictional intake explicitly mentioned compliance review.); no send, meeting, or customer fact invented.",
+    "uncertainty": "Policy resolution rests on fit 86 with stated intent; intake note is a claim, not observation.",
+    "follow_up_trigger": "day 7 from intake, or earlier change in SIG-170-COMPLIANCE"
+  },
+  {
+    "id": "A171",
+    "qualification": "disqualify",
+    "disposition": "closed-policy",
+    "action_type": "no-contact",
+    "follow_up_days": 0,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=12",
+      "fit_score=42",
+      "intent=false",
+      "region=AU",
+      "consent_hold=false"
+    ],
+    "next_action": "[unsent draft] no-contact referencing SIG-171-LAUNCH (The fictional intake explicitly mentioned a new launch.); no send, meeting, or customer fact invented.",
+    "uncertainty": "Policy resolution rests on only 12 employees; intake note is a claim, not observation.",
+    "follow_up_trigger": "day 0 from intake, or earlier change in SIG-171-LAUNCH"
+  },
+  {
+    "id": "A172",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=988",
+      "fit_score=55",
+      "intent=true",
+      "region=US",
+      "consent_hold=false"
+    ],
+    "next_action": "[unsent draft] value-resource referencing SIG-172-MIGRATION (The fictional intake explicitly mentioned migration timing.); no send, meeting, or customer fact invented.",
+    "uncertainty": "Policy resolution rests on fit 55, intent true; intake note is a claim, not observation.",
+    "follow_up_trigger": "day 21 from intake, or earlier change in SIG-172-MIGRATION"
+  },
+  {
+    "id": "A173",
+    "qualification": "hold",
+    "disposition": "consent-review",
+    "action_type": "no-contact",
+    "follow_up_days": 0,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=25",
+      "fit_score=68",
+      "intent=true",
+      "region=EU",
+      "consent_hold=true"
+    ],
+    "next_action": "[unsent draft] no-contact referencing SIG-173-CAPACITY (The fictional intake explicitly mentioned capacity pressure.); no send, meeting, or customer fact invented.",
+    "uncertainty": "Policy resolution rests on consent hold active; intake note is a claim, not observation.",
+    "follow_up_trigger": "day 0 from intake, or earlier change in SIG-173-CAPACITY"
+  },
+  {
+    "id": "A174",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=42",
+      "fit_score=81",
+      "intent=false",
+      "region=AU",
+      "consent_hold=false"
+    ],
+    "next_action": "[unsent draft] value-resource referencing SIG-174-COMPLIANCE (The fictional intake explicitly mentioned compliance review.); no send, meeting, or customer fact invented.",
+    "uncertainty": "Policy resolution rests on fit 81, intent false; intake note is a claim, not observation.",
+    "follow_up_trigger": "day 21 from intake, or earlier change in SIG-174-COMPLIANCE"
+  },
+  {
+    "id": "A175",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "evidence-only",
+    "evidence": [
+      "employees=59",
+      "fit_score=94",
+      "intent=true",
+      "region=US",
+      "consent_hold=false"
+    ],
+    "next_action": "[unsent draft] discovery referencing SIG-175-LAUNCH (The fictional intake explicitly mentioned a new launch.); no send, meeting, or customer fact invented.",
+    "uncertainty": "Policy resolution rests on fit 94 with stated intent; intake note is a claim, not observation.",
+    "follow_up_trigger": "day 7 from intake, or earlier change in SIG-175-LAUNCH"
+  },
+  {
+    "id": "A176",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=76",
+      "fit_score=50",
+      "intent=true",
+      "region=EU",
+      "consent_hold=false"
+    ],
+    "next_action": "[unsent draft] value-resource referencing SIG-176-MIGRATION (The fictional intake explicitly mentioned migration timing.); no send, meeting, or customer fact invented.",
+    "uncertainty": "Policy resolution rests on fit 50, intent true; intake note is a claim, not observation.",
+    "follow_up_trigger": "day 21 from intake, or earlier change in SIG-176-MIGRATION"
+  },
+  {
+    "id": "A177",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "evidence-only",
+    "evidence": [
+      "employees=93",
+      "fit_score=63",
+      "intent=false",
+      "region=AU",
+      "consent_hold=false"
+    ],
+    "next_action": "[unsent draft] value-resource referencing SIG-177-CAPACITY (The fictional intake explicitly mentioned capacity pressure.); no send, meeting, or customer fact invented.",
+    "uncertainty": "Policy resolution rests on fit 63, intent false; intake note is a claim, not observation.",
+    "follow_up_trigger": "day 21 from intake, or earlier change in SIG-177-CAPACITY"
+  },
+  {
+    "id": "A178",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=110",
+      "fit_score=76",
+      "intent=true",
+      "region=US",
+      "consent_hold=false"
+    ],
+    "next_action": "[unsent draft] discovery referencing SIG-178-COMPLIANCE (The fictional intake explicitly mentioned compliance review.); no send, meeting, or customer fact invented.",
+    "uncertainty": "Policy resolution rests on fit 76 with stated intent; intake note is a claim, not observation.",
+    "follow_up_trigger": "day 7 from intake, or earlier change in SIG-178-COMPLIANCE"
+  },
+  {
+    "id": "A179",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=127",
+      "fit_score=89",
+      "intent=true",
+      "region=EU",
+      "consent_hold=false"
+    ],
+    "next_action": "[unsent draft] discovery referencing SIG-179-LAUNCH (The fictional intake explicitly mentioned a new launch.); no send, meeting, or customer fact invented.",
+    "uncertainty": "Policy resolution rests on fit 89 with stated intent; intake note is a claim, not observation.",
+    "follow_up_trigger": "day 7 from intake, or earlier change in SIG-179-LAUNCH"
+  },
+  {
+    "id": "A180",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=144",
+      "fit_score=45",
+      "intent=false",
+      "region=AU",
+      "consent_hold=false"
+    ],
+    "next_action": "[unsent draft] value-resource referencing SIG-180-MIGRATION (The fictional intake explicitly mentioned migration timing.); no send, meeting, or customer fact invented.",
+    "uncertainty": "Policy resolution rests on fit 45, intent false; intake note is a claim, not observation.",
+    "follow_up_trigger": "day 21 from intake, or earlier change in SIG-180-MIGRATION"
+  },
+  {
+    "id": "A181",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=161",
+      "fit_score=58",
+      "intent=true",
+      "region=US",
+      "consent_hold=false"
+    ],
+    "next_action": "[unsent draft] value-resource referencing SIG-181-CAPACITY (The fictional intake explicitly mentioned capacity pressure.); no send, meeting, or customer fact invented.",
+    "uncertainty": "Policy resolution rests on fit 58, intent true; intake note is a claim, not observation.",
+    "follow_up_trigger": "day 21 from intake, or earlier change in SIG-181-CAPACITY"
+  },
+  {
+    "id": "A182",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "evidence-only",
+    "evidence": [
+      "employees=178",
+      "fit_score=71",
+      "intent=true",
+      "region=EU",
+      "consent_hold=false"
+    ],
+    "next_action": "[unsent draft] discovery referencing SIG-182-COMPLIANCE (The fictional intake explicitly mentioned compliance review.); no send, meeting, or customer fact invented.",
+    "uncertainty": "Policy resolution rests on fit 71 with stated intent; intake note is a claim, not observation.",
+    "follow_up_trigger": "day 7 from intake, or earlier change in SIG-182-COMPLIANCE"
+  },
+  {
+    "id": "A183",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=195",
+      "fit_score=84",
+      "intent=false",
+      "region=AU",
+      "consent_hold=false"
+    ],
+    "next_action": "[unsent draft] value-resource referencing SIG-183-LAUNCH (The fictional intake explicitly mentioned a new launch.); no send, meeting, or customer fact invented.",
+    "uncertainty": "Policy resolution rests on fit 84, intent false; intake note is a claim, not observation.",
+    "follow_up_trigger": "day 21 from intake, or earlier change in SIG-183-LAUNCH"
+  },
+  {
+    "id": "A184",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=212",
+      "fit_score=97",
+      "intent=true",
+      "region=US",
+      "consent_hold=false"
+    ],
+    "next_action": "[unsent draft] discovery referencing SIG-184-MIGRATION (The fictional intake explicitly mentioned migration timing.); no send, meeting, or customer fact invented.",
+    "uncertainty": "Policy resolution rests on fit 97 with stated intent; intake note is a claim, not observation.",
+    "follow_up_trigger": "day 7 from intake, or earlier change in SIG-184-MIGRATION"
+  },
+  {
+    "id": "A185",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=229",
+      "fit_score=53",
+      "intent=true",
+      "region=EU",
+      "consent_hold=false"
+    ],
+    "next_action": "[unsent draft] value-resource referencing SIG-185-CAPACITY (The fictional intake explicitly mentioned capacity pressure.); no send, meeting, or customer fact invented.",
+    "uncertainty": "Policy resolution rests on fit 53, intent true; intake note is a claim, not observation.",
+    "follow_up_trigger": "day 21 from intake, or earlier change in SIG-185-CAPACITY"
+  },
+  {
+    "id": "A186",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=246",
+      "fit_score=66",
+      "intent=false",
+      "region=AU",
+      "consent_hold=false"
+    ],
+    "next_action": "[unsent draft] value-resource referencing SIG-186-COMPLIANCE (The fictional intake explicitly mentioned compliance review.); no send, meeting, or customer fact invented.",
+    "uncertainty": "Policy resolution rests on fit 66, intent false; intake note is a claim, not observation.",
+    "follow_up_trigger": "day 21 from intake, or earlier change in SIG-186-COMPLIANCE"
+  },
+  {
+    "id": "A187",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=263",
+      "fit_score=79",
+      "intent=true",
+      "region=US",
+      "consent_hold=false"
+    ],
+    "next_action": "[unsent draft] discovery referencing SIG-187-LAUNCH (The fictional intake explicitly mentioned a new launch.); no send, meeting, or customer fact invented.",
+    "uncertainty": "Policy resolution rests on fit 79 with stated intent; intake note is a claim, not observation.",
+    "follow_up_trigger": "day 7 from intake, or earlier change in SIG-187-LAUNCH"
+  },
+  {
+    "id": "A188",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=280",
+      "fit_score=92",
+      "intent=true",
+      "region=EU",
+      "consent_hold=false"
+    ],
+    "next_action": "[unsent draft] discovery referencing SIG-188-MIGRATION (The fictional intake explicitly mentioned migration timing.); no send, meeting, or customer fact invented.",
+    "uncertainty": "Policy resolution rests on fit 92 with stated intent; intake note is a claim, not observation.",
+    "follow_up_trigger": "day 7 from intake, or earlier change in SIG-188-MIGRATION"
+  },
+  {
+    "id": "A189",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "evidence-only",
+    "evidence": [
+      "employees=297",
+      "fit_score=48",
+      "intent=false",
+      "region=AU",
+      "consent_hold=false"
+    ],
+    "next_action": "[unsent draft] value-resource referencing SIG-189-CAPACITY (The fictional intake explicitly mentioned capacity pressure.); no send, meeting, or customer fact invented.",
+    "uncertainty": "Policy resolution rests on fit 48, intent false; intake note is a claim, not observation.",
+    "follow_up_trigger": "day 21 from intake, or earlier change in SIG-189-CAPACITY"
+  },
+  {
+    "id": "A190",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=314",
+      "fit_score=61",
+      "intent=true",
+      "region=US",
+      "consent_hold=false"
+    ],
+    "next_action": "[unsent draft] value-resource referencing SIG-190-COMPLIANCE (The fictional intake explicitly mentioned compliance review.); no send, meeting, or customer fact invented.",
+    "uncertainty": "Policy resolution rests on fit 61, intent true; intake note is a claim, not observation.",
+    "follow_up_trigger": "day 21 from intake, or earlier change in SIG-190-COMPLIANCE"
+  },
+  {
+    "id": "A191",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=331",
+      "fit_score=74",
+      "intent=true",
+      "region=EU",
+      "consent_hold=false"
+    ],
+    "next_action": "[unsent draft] discovery referencing SIG-191-LAUNCH (The fictional intake explicitly mentioned a new launch.); no send, meeting, or customer fact invented.",
+    "uncertainty": "Policy resolution rests on fit 74 with stated intent; intake note is a claim, not observation.",
+    "follow_up_trigger": "day 7 from intake, or earlier change in SIG-191-LAUNCH"
+  },
+  {
+    "id": "A192",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=348",
+      "fit_score=87",
+      "intent=false",
+      "region=AU",
+      "consent_hold=false"
+    ],
+    "next_action": "[unsent draft] value-resource referencing SIG-192-MIGRATION (The fictional intake explicitly mentioned migration timing.); no send, meeting, or customer fact invented.",
+    "uncertainty": "Policy resolution rests on fit 87, intent false; intake note is a claim, not observation.",
+    "follow_up_trigger": "day 21 from intake, or earlier change in SIG-192-MIGRATION"
+  },
+  {
+    "id": "A193",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=365",
+      "fit_score=43",
+      "intent=true",
+      "region=US",
+      "consent_hold=false"
+    ],
+    "next_action": "[unsent draft] value-resource referencing SIG-193-CAPACITY (The fictional intake explicitly mentioned capacity pressure.); no send, meeting, or customer fact invented.",
+    "uncertainty": "Policy resolution rests on fit 43, intent true; intake note is a claim, not observation.",
+    "follow_up_trigger": "day 21 from intake, or earlier change in SIG-193-CAPACITY"
+  },
+  {
+    "id": "A194",
+    "qualification": "disqualify",
+    "disposition": "closed-policy",
+    "action_type": "no-contact",
+    "follow_up_days": 0,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=382",
+      "fit_score=56",
+      "intent=true",
+      "region=Restricted-Zone",
+      "consent_hold=false"
+    ],
+    "next_action": "[unsent draft] no-contact referencing SIG-194-COMPLIANCE (The fictional intake explicitly mentioned compliance review.); no send, meeting, or customer fact invented.",
+    "uncertainty": "Policy resolution rests on restricted region; intake note is a claim, not observation.",
+    "follow_up_trigger": "day 0 from intake, or earlier change in SIG-194-COMPLIANCE"
+  },
+  {
+    "id": "A195",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=399",
+      "fit_score=69",
+      "intent=false",
+      "region=AU",
+      "consent_hold=false"
+    ],
+    "next_action": "[unsent draft] value-resource referencing SIG-195-LAUNCH (The fictional intake explicitly mentioned a new launch.); no send, meeting, or customer fact invented.",
+    "uncertainty": "Policy resolution rests on fit 69, intent false; intake note is a claim, not observation.",
+    "follow_up_trigger": "day 21 from intake, or earlier change in SIG-195-LAUNCH"
+  },
+  {
+    "id": "A196",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "evidence-only",
+    "evidence": [
+      "employees=416",
+      "fit_score=82",
+      "intent=true",
+      "region=US",
+      "consent_hold=false"
+    ],
+    "next_action": "[unsent draft] discovery referencing SIG-196-MIGRATION (The fictional intake explicitly mentioned migration timing.); no send, meeting, or customer fact invented.",
+    "uncertainty": "Policy resolution rests on fit 82 with stated intent; intake note is a claim, not observation.",
+    "follow_up_trigger": "day 7 from intake, or earlier change in SIG-196-MIGRATION"
+  },
+  {
+    "id": "A197",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=433",
+      "fit_score=95",
+      "intent=true",
+      "region=EU",
+      "consent_hold=false"
+    ],
+    "next_action": "[unsent draft] discovery referencing SIG-197-CAPACITY (The fictional intake explicitly mentioned capacity pressure.); no send, meeting, or customer fact invented.",
+    "uncertainty": "Policy resolution rests on fit 95 with stated intent; intake note is a claim, not observation.",
+    "follow_up_trigger": "day 7 from intake, or earlier change in SIG-197-CAPACITY"
+  },
+  {
+    "id": "A198",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=450",
+      "fit_score=51",
+      "intent=false",
+      "region=AU",
+      "consent_hold=false"
+    ],
+    "next_action": "[unsent draft] value-resource referencing SIG-198-COMPLIANCE (The fictional intake explicitly mentioned compliance review.); no send, meeting, or customer fact invented.",
+    "uncertainty": "Policy resolution rests on fit 51, intent false; intake note is a claim, not observation.",
+    "follow_up_trigger": "day 21 from intake, or earlier change in SIG-198-COMPLIANCE"
+  },
+  {
+    "id": "A199",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=467",
+      "fit_score=64",
+      "intent=true",
+      "region=US",
+      "consent_hold=false"
+    ],
+    "next_action": "[unsent draft] value-resource referencing SIG-199-LAUNCH (The fictional intake explicitly mentioned a new launch.); no send, meeting, or customer fact invented.",
+    "uncertainty": "Policy resolution rests on fit 64, intent true; intake note is a claim, not observation.",
+    "follow_up_trigger": "day 21 from intake, or earlier change in SIG-199-LAUNCH"
+  },
+  {
+    "id": "A200",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=484",
+      "fit_score=77",
+      "intent=true",
+      "region=EU",
+      "consent_hold=false"
+    ],
+    "next_action": "[unsent draft] discovery referencing SIG-200-MIGRATION (The fictional intake explicitly mentioned migration timing.); no send, meeting, or customer fact invented.",
+    "uncertainty": "Policy resolution rests on fit 77 with stated intent; intake note is a claim, not observation.",
+    "follow_up_trigger": "day 7 from intake, or earlier change in SIG-200-MIGRATION"
+  }
+]

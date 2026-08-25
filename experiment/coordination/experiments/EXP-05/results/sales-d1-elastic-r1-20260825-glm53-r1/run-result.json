@@ -1,0 +1,177 @@
+{
+  "arm": "sales-d1-elastic-r1",
+  "blind_evaluation": {
+    "judgement": {
+      "consequential_defects": [
+        "A042: regulated account assigned claim_code=standard instead of evidence-only per frozen policy; the only policy-field breach found across the population"
+      ],
+      "decision": "repair",
+      "evidence": [
+        "All 240 source ids A001-A240 appear exactly once in the candidate with no gaps or duplicates; disposition, action_type and follow_up_days match the frozen policy on systematic cross-checks of every batch",
+        "All eight consent-hold accounts (A023, A053, A083, A113, A143, A173, A213, A233) are correctly held to consent-review/no-contact/day 0",
+        "All Restricted-Zone and sub-20-employee accounts (A009, A031, A069, A091, A129, A171, A209, A231; A014, A038, A074, A098, A134, A158, A194, A218) are disqualified at day 0 with correct rule precedence over fit/intent",
+        "Boundary cases fit=70 with intent=true (A046, A103, A160, A217) correctly qualify at day 7, confirming inclusive >=70 handling, and all other regulate d accounts carry evidence-only except A042",
+        "Every next_action is explicitly unsent and cites the exact signal id; no send, meeting or customer fact is invented anywhere in the packet",
+        "Evidence arrays on every unit cite employees, fit_score, intent, region and consent_hold with values matching the source fixture, including capitalized boolean variants in the A041-A080 batch",
+        "Uncertainty statements are uneven: early batches use boilerplate while later batches genuinely calibrate (intake note is a claim, not an observation), which is adequate but inconsistent"
+      ],
+      "high_consequence_breach": false,
+      "scores": {
+        "grounding": 9,
+        "native_review_readiness": 8,
+        "safe_actionability": 8.5,
+        "tail_handling": 9,
+        "uncertainty_calibration": 8,
+        "usefulness": 9
+      },
+      "worst_unit": {
+        "defect": "source has regulated=true but candidate assigns claim_code=standard; frozen policy requires evidence-only for regulated accounts",
+        "id": "A042",
+        "score": 5
+      }
+    },
+    "model": {
+      "effort": "high",
+      "selector": "zai/glm-5.3"
+    },
+    "process_exit": 0,
+    "valid": true,
+    "validation_errors": []
+  },
+  "company": "exp05_sales_d1_elastic_r1_20260825_4b98a120_test",
+  "exact_evaluation": {
+    "attribution_errors": [],
+    "attribution_valid": true,
+    "exact": {
+      "domain": "sales",
+      "sha256": "e47426e8980ce058b565d695bb55d7ccd732550da98f70fa3d046576bec77a6c",
+      "units": 240,
+      "valid": true
+    }
+  },
+  "finished_at": "2026-08-25T12:46:40.245664+00:00",
+  "metrics": {
+    "accepted_units": 240,
+    "accepted_units_per_active_worker_hour": 1924.08088538782,
+    "accepted_units_per_request_hour": 2098.7151456308025,
+    "arrivals": [
+      {
+        "observed_at": "2026-08-25T12:35:55.016228+00:00",
+        "offset_seconds": 0,
+        "unit": "sales batch 01"
+      },
+      {
+        "observed_at": "2026-08-25T12:37:21.614005+00:00",
+        "offset_seconds": 45,
+        "unit": "sales batch 02"
+      },
+      {
+        "observed_at": "2026-08-25T12:38:06.656800+00:00",
+        "offset_seconds": 90,
+        "unit": "sales batch 03"
+      },
+      {
+        "observed_at": "2026-08-25T12:38:51.616295+00:00",
+        "offset_seconds": 135,
+        "unit": "sales batch 04"
+      },
+      {
+        "observed_at": "2026-08-25T12:39:36.633264+00:00",
+        "offset_seconds": 180,
+        "unit": "sales batch 05"
+      },
+      {
+        "observed_at": "2026-08-25T12:40:21.633440+00:00",
+        "offset_seconds": 225,
+        "unit": "sales batch 06"
+      }
+    ],
+    "attempts": 6,
+    "billing_disposition": "charged metered API cost is authoritative; missing spend metering invalidates the cell",
+    "charged_cost_per_accepted_unit_usd": 0.00264375,
+    "configured_efforts": [
+      "medium"
+    ],
+    "estimated_list_cost_per_accepted_unit_usd": 0.0,
+    "estimated_list_cost_usd": 0,
+    "exact_validation_completed_at": "2026-08-25T12:43:27.461636+00:00",
+    "exec_judgement_completed_at": "2026-08-25T12:44:41.281289Z",
+    "exec_to_staff_dispatch_seconds": 40.76492094993591,
+    "first_staff_attempt_at": "2026-08-25T12:36:35.781184Z",
+    "lead_active_fraction_of_outcome_window": 0.33535223649422746,
+    "lead_active_seconds": {
+      "summed": 152.96180081367493,
+      "union": 152.96180081367493
+    },
+    "lead_review_completed_at": "2026-08-25T12:44:11.908506Z",
+    "lead_review_seconds": 44.44686985015869,
+    "lead_wakes": 7,
+    "models": [
+      "zai/glm-5.3"
+    ],
+    "observed_tokens": 237081,
+    "outcome_review_seconds": 456.1227991580963,
+    "peak_staff_attempt_concurrency": 1,
+    "peak_staff_model_concurrency": 1,
+    "queue_seconds": 411.6804521083832,
+    "session_resumptions": 7,
+    "spend": {
+      "accounted_usd": 0.6345,
+      "by_actor": [
+        {
+          "actor": "account-north",
+          "model": "zai/glm-5.3",
+          "role": "sales queue operator",
+          "spent_usd": 0.3496
+        },
+        {
+          "actor": "revenue-direction",
+          "model": "zai/glm-5.3",
+          "role": "accountable sales outcome lead",
+          "spent_usd": 0.1986
+        },
+        {
+          "actor": "exec",
+          "model": "zai/glm-5.3",
+          "role": "exec",
+          "spent_usd": 0.0862
+        }
+      ],
+      "ceiling_usd": 12.0,
+      "note": null,
+      "remaining_usd": 11.3655,
+      "status": "available"
+    },
+    "support_event": null,
+    "tell_started_at": "2026-08-25T12:35:55.016263+00:00",
+    "unit_latency_seconds": {
+      "max": 225.9582600593567,
+      "p50": 161.2076245546341,
+      "p90": 206.31935608386993,
+      "p99": 223.99436966180804
+    },
+    "unterminated_staff_model_sessions": 0,
+    "usage_events": 15,
+    "validator_callback_at": "2026-08-25T12:43:27.624898+00:00",
+    "value": {
+      "accepted_value": 240.0,
+      "high_consequence_retained_fraction": null,
+      "initial_value": 240.0,
+      "missed_service_value": 0.0,
+      "value_adjusted_units": 240.0
+    },
+    "value_adjusted_units_per_active_worker_hour": 1924.08088538782,
+    "value_adjusted_units_per_request_hour": 2098.7151456308025,
+    "worker_active_seconds": {
+      "summed": 449.0455710887909,
+      "union": 449.0455710887909
+    }
+  },
+  "runtime_valid": true,
+  "tell_process": {
+    "exit": 0,
+    "stderr": "",
+    "stdout": "delivered to the exec; the message wakes the company\n"
+  },
+  "validity": "counted"
+}

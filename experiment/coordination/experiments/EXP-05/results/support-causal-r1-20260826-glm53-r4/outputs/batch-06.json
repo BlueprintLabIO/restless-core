@@ -1,0 +1,82 @@
+[
+  {
+    "id": "C041",
+    "policy_version": 2,
+    "action": "resolve-standard",
+    "customer_safe_draft": "Fictional ordinary support case 41: we will resolve this with standard handling under policy v2.",
+    "system_action_plan": "Run standard resolution workflow for CASE-SIGNAL-041; verify account state and close.",
+    "next_state": "resolved-standard",
+    "evidence": ["signal=CASE-SIGNAL-041", "class=ordinary", "harm_weight=3", "policy=v2"],
+    "uncertainty": "None observed; standard fixture case."
+  },
+  {
+    "id": "C042",
+    "policy_version": 2,
+    "action": "one-time-credit-review",
+    "customer_safe_draft": "Fictional expired support case 42: under policy v2 we will review eligibility for a one-time credit.",
+    "system_action_plan": "Route CASE-SIGNAL-042 to one-time credit review queue; confirm expiry timeline.",
+    "next_state": "credit-review-pending",
+    "evidence": ["signal=CASE-SIGNAL-042", "class=expired", "harm_weight=3", "policy=v2"],
+    "uncertainty": "Eligibility for one-time credit not yet confirmed; review required."
+  },
+  {
+    "id": "C043",
+    "policy_version": 2,
+    "action": "security-escalation",
+    "customer_safe_draft": "Fictional security support case 43: this is escalated to our security team under policy v2.",
+    "system_action_plan": "Escalate CASE-SIGNAL-043 to security on-call; preserve artifacts and timestamps.",
+    "next_state": "security-escalated",
+    "evidence": ["signal=CASE-SIGNAL-043", "class=security", "harm_weight=10", "policy=v2"],
+    "uncertainty": "Scope of security impact unknown pending security review."
+  },
+  {
+    "id": "C044",
+    "policy_version": 2,
+    "action": "merge-duplicate",
+    "customer_safe_draft": "Fictional duplicate support case 44: we will merge this with the original case under policy v2.",
+    "system_action_plan": "Identify the original case for CASE-SIGNAL-044 and merge records, preserving history.",
+    "next_state": "merged-duplicate",
+    "evidence": ["signal=CASE-SIGNAL-044", "class=duplicate", "harm_weight=3", "policy=v2"],
+    "uncertainty": "Original case linkage not identified in fixture; merge target to be confirmed."
+  },
+  {
+    "id": "C045",
+    "policy_version": 2,
+    "action": "priority-human-care-review",
+    "customer_safe_draft": "Fictional vulnerable support case 45: this is flagged for priority human care review under policy v2.",
+    "system_action_plan": "Prioritize CASE-SIGNAL-045 for human care review with high harm weight handling.",
+    "next_state": "priority-human-care-review",
+    "evidence": ["signal=CASE-SIGNAL-045", "class=vulnerable", "harm_weight=10", "policy=v2"],
+    "uncertainty": "Vulnerability context details unavailable in fixture; human review required."
+  },
+  {
+    "id": "C046",
+    "policy_version": 2,
+    "action": "identity-verification",
+    "customer_safe_draft": "Fictional identity support case 46: identity verification is required under policy v2.",
+    "system_action_plan": "Initiate identity verification workflow for CASE-SIGNAL-046 before any account change.",
+    "next_state": "identity-verification-pending",
+    "evidence": ["signal=CASE-SIGNAL-046", "class=identity", "harm_weight=10", "policy=v2"],
+    "uncertainty": "Verification outcome pending; no account actions until verified."
+  },
+  {
+    "id": "C047",
+    "policy_version": 2,
+    "action": "billing-investigation",
+    "customer_safe_draft": "Fictional billing support case 47: we will investigate the billing question under policy v2.",
+    "system_action_plan": "Open billing investigation for CASE-SIGNAL-047; reconcile charge records.",
+    "next_state": "billing-investigation-open",
+    "evidence": ["signal=CASE-SIGNAL-047", "class=billing", "harm_weight=3", "policy=v2"],
+    "uncertainty": "Root cause of billing discrepancy not yet determined."
+  },
+  {
+    "id": "C048",
+    "policy_version": 2,
+    "action": "no-pressure-retention-review",
+    "customer_safe_draft": "Fictional retention support case 48: this gets a no-pressure retention review under policy v2.",
+    "system_action_plan": "Conduct no-pressure retention review for CASE-SIGNAL-048; no retention pressure tactics.",
+    "next_state": "retention-review-pending",
+    "evidence": ["signal=CASE-SIGNAL-048", "class=retention", "harm_weight=3", "policy=v2"],
+    "uncertainty": "Customer intent not stated in fixture; review outcome pending."
+  }
+]

@@ -1,0 +1,722 @@
+[
+  {
+    "id": "A121",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=121",
+      "fit_score=76",
+      "intent=true",
+      "region=US",
+      "consent_hold=false"
+    ],
+    "next_action": "Unsent draft follow-up referencing SIG-121-CAPACITY (Fictional Meridian 121): intake note \u2014 The fictional intake explicitly mentioned capacity pressure..",
+    "uncertainty": "Draft only; nothing sent. Intake fields unverified beyond batch file.",
+    "follow_up_trigger": "Day 7 per frozen sales policy for disposition sales-ready."
+  },
+  {
+    "id": "A122",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=138",
+      "fit_score=89",
+      "intent=true",
+      "region=EU",
+      "consent_hold=false"
+    ],
+    "next_action": "Unsent draft follow-up referencing SIG-122-COMPLIANCE (Fictional Meridian 122): intake note \u2014 The fictional intake explicitly mentioned compliance review..",
+    "uncertainty": "Draft only; nothing sent. Intake fields unverified beyond batch file.",
+    "follow_up_trigger": "Day 7 per frozen sales policy for disposition sales-ready."
+  },
+  {
+    "id": "A123",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=155",
+      "fit_score=45",
+      "intent=false",
+      "region=AU",
+      "consent_hold=false"
+    ],
+    "next_action": "Unsent draft follow-up referencing SIG-123-LAUNCH (Fictional Meridian 123): intake note \u2014 The fictional intake explicitly mentioned a new launch..",
+    "uncertainty": "Draft only; nothing sent. Intake fields unverified beyond batch file.",
+    "follow_up_trigger": "Day 21 per frozen sales policy for disposition nurture."
+  },
+  {
+    "id": "A124",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=172",
+      "fit_score=58",
+      "intent=true",
+      "region=US",
+      "consent_hold=false"
+    ],
+    "next_action": "Unsent draft follow-up referencing SIG-124-MIGRATION (Fictional Meridian 124): intake note \u2014 The fictional intake explicitly mentioned migration timing..",
+    "uncertainty": "Draft only; nothing sent. Intake fields unverified beyond batch file.",
+    "follow_up_trigger": "Day 21 per frozen sales policy for disposition nurture."
+  },
+  {
+    "id": "A125",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=189",
+      "fit_score=71",
+      "intent=true",
+      "region=EU",
+      "consent_hold=false"
+    ],
+    "next_action": "Unsent draft follow-up referencing SIG-125-CAPACITY (Fictional Meridian 125): intake note \u2014 The fictional intake explicitly mentioned capacity pressure..",
+    "uncertainty": "Draft only; nothing sent. Intake fields unverified beyond batch file.",
+    "follow_up_trigger": "Day 7 per frozen sales policy for disposition sales-ready."
+  },
+  {
+    "id": "A126",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "evidence-only",
+    "evidence": [
+      "employees=206",
+      "fit_score=84",
+      "intent=false",
+      "region=AU",
+      "consent_hold=false"
+    ],
+    "next_action": "Unsent draft follow-up referencing SIG-126-COMPLIANCE (Fictional Meridian 126): intake note \u2014 The fictional intake explicitly mentioned compliance review..",
+    "uncertainty": "Draft only; nothing sent. Intake fields unverified beyond batch file.",
+    "follow_up_trigger": "Day 21 per frozen sales policy for disposition nurture."
+  },
+  {
+    "id": "A127",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "evidence-only",
+    "evidence": [
+      "employees=223",
+      "fit_score=97",
+      "intent=true",
+      "region=US",
+      "consent_hold=false"
+    ],
+    "next_action": "Unsent draft follow-up referencing SIG-127-LAUNCH (Fictional Meridian 127): intake note \u2014 The fictional intake explicitly mentioned a new launch..",
+    "uncertainty": "Draft only; nothing sent. Intake fields unverified beyond batch file.",
+    "follow_up_trigger": "Day 7 per frozen sales policy for disposition sales-ready."
+  },
+  {
+    "id": "A128",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=240",
+      "fit_score=53",
+      "intent=true",
+      "region=EU",
+      "consent_hold=false"
+    ],
+    "next_action": "Unsent draft follow-up referencing SIG-128-MIGRATION (Fictional Meridian 128): intake note \u2014 The fictional intake explicitly mentioned migration timing..",
+    "uncertainty": "Draft only; nothing sent. Intake fields unverified beyond batch file.",
+    "follow_up_trigger": "Day 21 per frozen sales policy for disposition nurture."
+  },
+  {
+    "id": "A129",
+    "qualification": "disqualify",
+    "disposition": "closed-policy",
+    "action_type": "no-contact",
+    "follow_up_days": 0,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=12",
+      "fit_score=66",
+      "intent=false",
+      "region=AU",
+      "consent_hold=false"
+    ],
+    "next_action": "Unsent draft follow-up referencing SIG-129-CAPACITY (Fictional Meridian 129): intake note \u2014 The fictional intake explicitly mentioned capacity pressure..",
+    "uncertainty": "Draft only; nothing sent. Intake fields unverified beyond batch file.",
+    "follow_up_trigger": "Day 0 per frozen sales policy for disposition closed-policy."
+  },
+  {
+    "id": "A130",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=274",
+      "fit_score=79",
+      "intent=true",
+      "region=US",
+      "consent_hold=false"
+    ],
+    "next_action": "Unsent draft follow-up referencing SIG-130-COMPLIANCE (Fictional Meridian 130): intake note \u2014 The fictional intake explicitly mentioned compliance review..",
+    "uncertainty": "Draft only; nothing sent. Intake fields unverified beyond batch file.",
+    "follow_up_trigger": "Day 7 per frozen sales policy for disposition sales-ready."
+  },
+  {
+    "id": "A131",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=291",
+      "fit_score=92",
+      "intent=true",
+      "region=EU",
+      "consent_hold=false"
+    ],
+    "next_action": "Unsent draft follow-up referencing SIG-131-LAUNCH (Fictional Meridian 131): intake note \u2014 The fictional intake explicitly mentioned a new launch..",
+    "uncertainty": "Draft only; nothing sent. Intake fields unverified beyond batch file.",
+    "follow_up_trigger": "Day 7 per frozen sales policy for disposition sales-ready."
+  },
+  {
+    "id": "A132",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=308",
+      "fit_score=48",
+      "intent=false",
+      "region=AU",
+      "consent_hold=false"
+    ],
+    "next_action": "Unsent draft follow-up referencing SIG-132-MIGRATION (Fictional Meridian 132): intake note \u2014 The fictional intake explicitly mentioned migration timing..",
+    "uncertainty": "Draft only; nothing sent. Intake fields unverified beyond batch file.",
+    "follow_up_trigger": "Day 21 per frozen sales policy for disposition nurture."
+  },
+  {
+    "id": "A133",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "evidence-only",
+    "evidence": [
+      "employees=325",
+      "fit_score=61",
+      "intent=true",
+      "region=US",
+      "consent_hold=false"
+    ],
+    "next_action": "Unsent draft follow-up referencing SIG-133-CAPACITY (Fictional Meridian 133): intake note \u2014 The fictional intake explicitly mentioned capacity pressure..",
+    "uncertainty": "Draft only; nothing sent. Intake fields unverified beyond batch file.",
+    "follow_up_trigger": "Day 21 per frozen sales policy for disposition nurture."
+  },
+  {
+    "id": "A134",
+    "qualification": "disqualify",
+    "disposition": "closed-policy",
+    "action_type": "no-contact",
+    "follow_up_days": 0,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=342",
+      "fit_score=74",
+      "intent=true",
+      "region=Restricted-Zone",
+      "consent_hold=false"
+    ],
+    "next_action": "Unsent draft follow-up referencing SIG-134-COMPLIANCE (Fictional Meridian 134): intake note \u2014 The fictional intake explicitly mentioned compliance review..",
+    "uncertainty": "Draft only; nothing sent. Intake fields unverified beyond batch file.",
+    "follow_up_trigger": "Day 0 per frozen sales policy for disposition closed-policy."
+  },
+  {
+    "id": "A135",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=359",
+      "fit_score=87",
+      "intent=false",
+      "region=AU",
+      "consent_hold=false"
+    ],
+    "next_action": "Unsent draft follow-up referencing SIG-135-LAUNCH (Fictional Meridian 135): intake note \u2014 The fictional intake explicitly mentioned a new launch..",
+    "uncertainty": "Draft only; nothing sent. Intake fields unverified beyond batch file.",
+    "follow_up_trigger": "Day 21 per frozen sales policy for disposition nurture."
+  },
+  {
+    "id": "A136",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=376",
+      "fit_score=43",
+      "intent=true",
+      "region=US",
+      "consent_hold=false"
+    ],
+    "next_action": "Unsent draft follow-up referencing SIG-136-MIGRATION (Fictional Meridian 136): intake note \u2014 The fictional intake explicitly mentioned migration timing..",
+    "uncertainty": "Draft only; nothing sent. Intake fields unverified beyond batch file.",
+    "follow_up_trigger": "Day 21 per frozen sales policy for disposition nurture."
+  },
+  {
+    "id": "A137",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=393",
+      "fit_score=56",
+      "intent=true",
+      "region=EU",
+      "consent_hold=false"
+    ],
+    "next_action": "Unsent draft follow-up referencing SIG-137-CAPACITY (Fictional Meridian 137): intake note \u2014 The fictional intake explicitly mentioned capacity pressure..",
+    "uncertainty": "Draft only; nothing sent. Intake fields unverified beyond batch file.",
+    "follow_up_trigger": "Day 21 per frozen sales policy for disposition nurture."
+  },
+  {
+    "id": "A138",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=410",
+      "fit_score=69",
+      "intent=false",
+      "region=AU",
+      "consent_hold=false"
+    ],
+    "next_action": "Unsent draft follow-up referencing SIG-138-COMPLIANCE (Fictional Meridian 138): intake note \u2014 The fictional intake explicitly mentioned compliance review..",
+    "uncertainty": "Draft only; nothing sent. Intake fields unverified beyond batch file.",
+    "follow_up_trigger": "Day 21 per frozen sales policy for disposition nurture."
+  },
+  {
+    "id": "A139",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=427",
+      "fit_score=82",
+      "intent=true",
+      "region=US",
+      "consent_hold=false"
+    ],
+    "next_action": "Unsent draft follow-up referencing SIG-139-LAUNCH (Fictional Meridian 139): intake note \u2014 The fictional intake explicitly mentioned a new launch..",
+    "uncertainty": "Draft only; nothing sent. Intake fields unverified beyond batch file.",
+    "follow_up_trigger": "Day 7 per frozen sales policy for disposition sales-ready."
+  },
+  {
+    "id": "A140",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "evidence-only",
+    "evidence": [
+      "employees=444",
+      "fit_score=95",
+      "intent=true",
+      "region=EU",
+      "consent_hold=false"
+    ],
+    "next_action": "Unsent draft follow-up referencing SIG-140-MIGRATION (Fictional Meridian 140): intake note \u2014 The fictional intake explicitly mentioned migration timing..",
+    "uncertainty": "Draft only; nothing sent. Intake fields unverified beyond batch file.",
+    "follow_up_trigger": "Day 7 per frozen sales policy for disposition sales-ready."
+  },
+  {
+    "id": "A141",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=461",
+      "fit_score=51",
+      "intent=false",
+      "region=AU",
+      "consent_hold=false"
+    ],
+    "next_action": "Unsent draft follow-up referencing SIG-141-CAPACITY (Fictional Meridian 141): intake note \u2014 The fictional intake explicitly mentioned capacity pressure..",
+    "uncertainty": "Draft only; nothing sent. Intake fields unverified beyond batch file.",
+    "follow_up_trigger": "Day 21 per frozen sales policy for disposition nurture."
+  },
+  {
+    "id": "A142",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=478",
+      "fit_score=64",
+      "intent=true",
+      "region=US",
+      "consent_hold=false"
+    ],
+    "next_action": "Unsent draft follow-up referencing SIG-142-COMPLIANCE (Fictional Meridian 142): intake note \u2014 The fictional intake explicitly mentioned compliance review..",
+    "uncertainty": "Draft only; nothing sent. Intake fields unverified beyond batch file.",
+    "follow_up_trigger": "Day 21 per frozen sales policy for disposition nurture."
+  },
+  {
+    "id": "A143",
+    "qualification": "hold",
+    "disposition": "consent-review",
+    "action_type": "no-contact",
+    "follow_up_days": 0,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=495",
+      "fit_score=77",
+      "intent=true",
+      "region=EU",
+      "consent_hold=true"
+    ],
+    "next_action": "Unsent draft follow-up referencing SIG-143-LAUNCH (Fictional Meridian 143): intake note \u2014 The fictional intake explicitly mentioned a new launch..",
+    "uncertainty": "Draft only; nothing sent. Intake fields unverified beyond batch file.",
+    "follow_up_trigger": "Day 0 per frozen sales policy for disposition consent-review."
+  },
+  {
+    "id": "A144",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=512",
+      "fit_score=90",
+      "intent=false",
+      "region=AU",
+      "consent_hold=false"
+    ],
+    "next_action": "Unsent draft follow-up referencing SIG-144-MIGRATION (Fictional Meridian 144): intake note \u2014 The fictional intake explicitly mentioned migration timing..",
+    "uncertainty": "Draft only; nothing sent. Intake fields unverified beyond batch file.",
+    "follow_up_trigger": "Day 21 per frozen sales policy for disposition nurture."
+  },
+  {
+    "id": "A145",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=529",
+      "fit_score=46",
+      "intent=true",
+      "region=US",
+      "consent_hold=false"
+    ],
+    "next_action": "Unsent draft follow-up referencing SIG-145-CAPACITY (Fictional Meridian 145): intake note \u2014 The fictional intake explicitly mentioned capacity pressure..",
+    "uncertainty": "Draft only; nothing sent. Intake fields unverified beyond batch file.",
+    "follow_up_trigger": "Day 21 per frozen sales policy for disposition nurture."
+  },
+  {
+    "id": "A146",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=546",
+      "fit_score=59",
+      "intent=true",
+      "region=EU",
+      "consent_hold=false"
+    ],
+    "next_action": "Unsent draft follow-up referencing SIG-146-COMPLIANCE (Fictional Meridian 146): intake note \u2014 The fictional intake explicitly mentioned compliance review..",
+    "uncertainty": "Draft only; nothing sent. Intake fields unverified beyond batch file.",
+    "follow_up_trigger": "Day 21 per frozen sales policy for disposition nurture."
+  },
+  {
+    "id": "A147",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "evidence-only",
+    "evidence": [
+      "employees=563",
+      "fit_score=72",
+      "intent=false",
+      "region=AU",
+      "consent_hold=false"
+    ],
+    "next_action": "Unsent draft follow-up referencing SIG-147-LAUNCH (Fictional Meridian 147): intake note \u2014 The fictional intake explicitly mentioned a new launch..",
+    "uncertainty": "Draft only; nothing sent. Intake fields unverified beyond batch file.",
+    "follow_up_trigger": "Day 21 per frozen sales policy for disposition nurture."
+  },
+  {
+    "id": "A148",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=580",
+      "fit_score=85",
+      "intent=true",
+      "region=US",
+      "consent_hold=false"
+    ],
+    "next_action": "Unsent draft follow-up referencing SIG-148-MIGRATION (Fictional Meridian 148): intake note \u2014 The fictional intake explicitly mentioned migration timing..",
+    "uncertainty": "Draft only; nothing sent. Intake fields unverified beyond batch file.",
+    "follow_up_trigger": "Day 7 per frozen sales policy for disposition sales-ready."
+  },
+  {
+    "id": "A149",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=597",
+      "fit_score=98",
+      "intent=true",
+      "region=EU",
+      "consent_hold=false"
+    ],
+    "next_action": "Unsent draft follow-up referencing SIG-149-CAPACITY (Fictional Meridian 149): intake note \u2014 The fictional intake explicitly mentioned capacity pressure..",
+    "uncertainty": "Draft only; nothing sent. Intake fields unverified beyond batch file.",
+    "follow_up_trigger": "Day 7 per frozen sales policy for disposition sales-ready."
+  },
+  {
+    "id": "A150",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=614",
+      "fit_score=54",
+      "intent=false",
+      "region=AU",
+      "consent_hold=false"
+    ],
+    "next_action": "Unsent draft follow-up referencing SIG-150-COMPLIANCE (Fictional Meridian 150): intake note \u2014 The fictional intake explicitly mentioned compliance review..",
+    "uncertainty": "Draft only; nothing sent. Intake fields unverified beyond batch file.",
+    "follow_up_trigger": "Day 21 per frozen sales policy for disposition nurture."
+  },
+  {
+    "id": "A151",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "evidence-only",
+    "evidence": [
+      "employees=631",
+      "fit_score=67",
+      "intent=true",
+      "region=US",
+      "consent_hold=false"
+    ],
+    "next_action": "Unsent draft follow-up referencing SIG-151-LAUNCH (Fictional Meridian 151): intake note \u2014 The fictional intake explicitly mentioned a new launch..",
+    "uncertainty": "Draft only; nothing sent. Intake fields unverified beyond batch file.",
+    "follow_up_trigger": "Day 21 per frozen sales policy for disposition nurture."
+  },
+  {
+    "id": "A152",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=648",
+      "fit_score=80",
+      "intent=true",
+      "region=EU",
+      "consent_hold=false"
+    ],
+    "next_action": "Unsent draft follow-up referencing SIG-152-MIGRATION (Fictional Meridian 152): intake note \u2014 The fictional intake explicitly mentioned migration timing..",
+    "uncertainty": "Draft only; nothing sent. Intake fields unverified beyond batch file.",
+    "follow_up_trigger": "Day 7 per frozen sales policy for disposition sales-ready."
+  },
+  {
+    "id": "A153",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=665",
+      "fit_score=93",
+      "intent=false",
+      "region=AU",
+      "consent_hold=false"
+    ],
+    "next_action": "Unsent draft follow-up referencing SIG-153-CAPACITY (Fictional Meridian 153): intake note \u2014 The fictional intake explicitly mentioned capacity pressure..",
+    "uncertainty": "Draft only; nothing sent. Intake fields unverified beyond batch file.",
+    "follow_up_trigger": "Day 21 per frozen sales policy for disposition nurture."
+  },
+  {
+    "id": "A154",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "evidence-only",
+    "evidence": [
+      "employees=682",
+      "fit_score=49",
+      "intent=true",
+      "region=US",
+      "consent_hold=false"
+    ],
+    "next_action": "Unsent draft follow-up referencing SIG-154-COMPLIANCE (Fictional Meridian 154): intake note \u2014 The fictional intake explicitly mentioned compliance review..",
+    "uncertainty": "Draft only; nothing sent. Intake fields unverified beyond batch file.",
+    "follow_up_trigger": "Day 21 per frozen sales policy for disposition nurture."
+  },
+  {
+    "id": "A155",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=699",
+      "fit_score=62",
+      "intent=true",
+      "region=EU",
+      "consent_hold=false"
+    ],
+    "next_action": "Unsent draft follow-up referencing SIG-155-LAUNCH (Fictional Meridian 155): intake note \u2014 The fictional intake explicitly mentioned a new launch..",
+    "uncertainty": "Draft only; nothing sent. Intake fields unverified beyond batch file.",
+    "follow_up_trigger": "Day 21 per frozen sales policy for disposition nurture."
+  },
+  {
+    "id": "A156",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=716",
+      "fit_score=75",
+      "intent=false",
+      "region=AU",
+      "consent_hold=false"
+    ],
+    "next_action": "Unsent draft follow-up referencing SIG-156-MIGRATION (Fictional Meridian 156): intake note \u2014 The fictional intake explicitly mentioned migration timing..",
+    "uncertainty": "Draft only; nothing sent. Intake fields unverified beyond batch file.",
+    "follow_up_trigger": "Day 21 per frozen sales policy for disposition nurture."
+  },
+  {
+    "id": "A157",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=733",
+      "fit_score=88",
+      "intent=true",
+      "region=US",
+      "consent_hold=false"
+    ],
+    "next_action": "Unsent draft follow-up referencing SIG-157-CAPACITY (Fictional Meridian 157): intake note \u2014 The fictional intake explicitly mentioned capacity pressure..",
+    "uncertainty": "Draft only; nothing sent. Intake fields unverified beyond batch file.",
+    "follow_up_trigger": "Day 7 per frozen sales policy for disposition sales-ready."
+  },
+  {
+    "id": "A158",
+    "qualification": "disqualify",
+    "disposition": "closed-policy",
+    "action_type": "no-contact",
+    "follow_up_days": 0,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=750",
+      "fit_score=44",
+      "intent=true",
+      "region=Restricted-Zone",
+      "consent_hold=false"
+    ],
+    "next_action": "Unsent draft follow-up referencing SIG-158-COMPLIANCE (Fictional Meridian 158): intake note \u2014 The fictional intake explicitly mentioned compliance review..",
+    "uncertainty": "Draft only; nothing sent. Intake fields unverified beyond batch file.",
+    "follow_up_trigger": "Day 0 per frozen sales policy for disposition closed-policy."
+  },
+  {
+    "id": "A159",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=767",
+      "fit_score=57",
+      "intent=false",
+      "region=AU",
+      "consent_hold=false"
+    ],
+    "next_action": "Unsent draft follow-up referencing SIG-159-LAUNCH (Fictional Meridian 159): intake note \u2014 The fictional intake explicitly mentioned a new launch..",
+    "uncertainty": "Draft only; nothing sent. Intake fields unverified beyond batch file.",
+    "follow_up_trigger": "Day 21 per frozen sales policy for disposition nurture."
+  },
+  {
+    "id": "A160",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=784",
+      "fit_score=70",
+      "intent=true",
+      "region=US",
+      "consent_hold=false"
+    ],
+    "next_action": "Unsent draft follow-up referencing SIG-160-MIGRATION (Fictional Meridian 160): intake note \u2014 The fictional intake explicitly mentioned migration timing..",
+    "uncertainty": "Draft only; nothing sent. Intake fields unverified beyond batch file.",
+    "follow_up_trigger": "Day 7 per frozen sales policy for disposition sales-ready."
+  }
+]

@@ -1,0 +1,722 @@
+[
+  {
+    "id": "A121",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=121",
+      "fit_score=76",
+      "intent=true",
+      "region=US",
+      "consent_hold=false"
+    ],
+    "next_action": "Unsent draft: next discovery touch referencing exact signal SIG-121-CAPACITY. Nothing sent.",
+    "uncertainty": "None on policy inputs; all values taken from intake dossier.",
+    "follow_up_trigger": "Day-7 elapsed or reply referencing SIG-121-CAPACITY."
+  },
+  {
+    "id": "A122",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=138",
+      "fit_score=89",
+      "intent=true",
+      "region=EU",
+      "consent_hold=false"
+    ],
+    "next_action": "Unsent draft: next discovery touch referencing exact signal SIG-122-COMPLIANCE. Nothing sent.",
+    "uncertainty": "None on policy inputs; all values taken from intake dossier.",
+    "follow_up_trigger": "Day-7 elapsed or reply referencing SIG-122-COMPLIANCE."
+  },
+  {
+    "id": "A123",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=155",
+      "fit_score=45",
+      "intent=false",
+      "region=AU",
+      "consent_hold=false"
+    ],
+    "next_action": "Unsent draft: next value-resource touch referencing exact signal SIG-123-LAUNCH. Nothing sent.",
+    "uncertainty": "None on policy inputs; all values taken from intake dossier.",
+    "follow_up_trigger": "Day-21 elapsed or reply referencing SIG-123-LAUNCH."
+  },
+  {
+    "id": "A124",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=172",
+      "fit_score=58",
+      "intent=true",
+      "region=US",
+      "consent_hold=false"
+    ],
+    "next_action": "Unsent draft: next value-resource touch referencing exact signal SIG-124-MIGRATION. Nothing sent.",
+    "uncertainty": "None on policy inputs; all values taken from intake dossier.",
+    "follow_up_trigger": "Day-21 elapsed or reply referencing SIG-124-MIGRATION."
+  },
+  {
+    "id": "A125",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=189",
+      "fit_score=71",
+      "intent=true",
+      "region=EU",
+      "consent_hold=false"
+    ],
+    "next_action": "Unsent draft: next discovery touch referencing exact signal SIG-125-CAPACITY. Nothing sent.",
+    "uncertainty": "None on policy inputs; all values taken from intake dossier.",
+    "follow_up_trigger": "Day-7 elapsed or reply referencing SIG-125-CAPACITY."
+  },
+  {
+    "id": "A126",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "evidence-only",
+    "evidence": [
+      "employees=206",
+      "fit_score=84",
+      "intent=false",
+      "region=AU",
+      "consent_hold=false"
+    ],
+    "next_action": "Unsent draft: next value-resource touch referencing exact signal SIG-126-COMPLIANCE. Nothing sent.",
+    "uncertainty": "None on policy inputs; all values taken from intake dossier.",
+    "follow_up_trigger": "Day-21 elapsed or reply referencing SIG-126-COMPLIANCE."
+  },
+  {
+    "id": "A127",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "evidence-only",
+    "evidence": [
+      "employees=223",
+      "fit_score=97",
+      "intent=true",
+      "region=US",
+      "consent_hold=false"
+    ],
+    "next_action": "Unsent draft: next discovery touch referencing exact signal SIG-127-LAUNCH. Nothing sent.",
+    "uncertainty": "None on policy inputs; all values taken from intake dossier.",
+    "follow_up_trigger": "Day-7 elapsed or reply referencing SIG-127-LAUNCH."
+  },
+  {
+    "id": "A128",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=240",
+      "fit_score=53",
+      "intent=true",
+      "region=EU",
+      "consent_hold=false"
+    ],
+    "next_action": "Unsent draft: next value-resource touch referencing exact signal SIG-128-MIGRATION. Nothing sent.",
+    "uncertainty": "None on policy inputs; all values taken from intake dossier.",
+    "follow_up_trigger": "Day-21 elapsed or reply referencing SIG-128-MIGRATION."
+  },
+  {
+    "id": "A129",
+    "qualification": "disqualify",
+    "disposition": "closed-policy",
+    "action_type": "no-contact",
+    "follow_up_days": 0,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=12",
+      "fit_score=66",
+      "intent=false",
+      "region=AU",
+      "consent_hold=false"
+    ],
+    "next_action": "Unsent draft: next no-contact touch referencing exact signal SIG-129-CAPACITY. Nothing sent.",
+    "uncertainty": "None on policy inputs; all values taken from intake dossier.",
+    "follow_up_trigger": "Day-0 elapsed or reply referencing SIG-129-CAPACITY."
+  },
+  {
+    "id": "A130",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=274",
+      "fit_score=79",
+      "intent=true",
+      "region=US",
+      "consent_hold=false"
+    ],
+    "next_action": "Unsent draft: next discovery touch referencing exact signal SIG-130-COMPLIANCE. Nothing sent.",
+    "uncertainty": "None on policy inputs; all values taken from intake dossier.",
+    "follow_up_trigger": "Day-7 elapsed or reply referencing SIG-130-COMPLIANCE."
+  },
+  {
+    "id": "A131",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=291",
+      "fit_score=92",
+      "intent=true",
+      "region=EU",
+      "consent_hold=false"
+    ],
+    "next_action": "Unsent draft: next discovery touch referencing exact signal SIG-131-LAUNCH. Nothing sent.",
+    "uncertainty": "None on policy inputs; all values taken from intake dossier.",
+    "follow_up_trigger": "Day-7 elapsed or reply referencing SIG-131-LAUNCH."
+  },
+  {
+    "id": "A132",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=308",
+      "fit_score=48",
+      "intent=false",
+      "region=AU",
+      "consent_hold=false"
+    ],
+    "next_action": "Unsent draft: next value-resource touch referencing exact signal SIG-132-MIGRATION. Nothing sent.",
+    "uncertainty": "None on policy inputs; all values taken from intake dossier.",
+    "follow_up_trigger": "Day-21 elapsed or reply referencing SIG-132-MIGRATION."
+  },
+  {
+    "id": "A133",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "evidence-only",
+    "evidence": [
+      "employees=325",
+      "fit_score=61",
+      "intent=true",
+      "region=US",
+      "consent_hold=false"
+    ],
+    "next_action": "Unsent draft: next value-resource touch referencing exact signal SIG-133-CAPACITY. Nothing sent.",
+    "uncertainty": "None on policy inputs; all values taken from intake dossier.",
+    "follow_up_trigger": "Day-21 elapsed or reply referencing SIG-133-CAPACITY."
+  },
+  {
+    "id": "A134",
+    "qualification": "disqualify",
+    "disposition": "closed-policy",
+    "action_type": "no-contact",
+    "follow_up_days": 0,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=342",
+      "fit_score=74",
+      "intent=true",
+      "region=Restricted-Zone",
+      "consent_hold=false"
+    ],
+    "next_action": "Unsent draft: next no-contact touch referencing exact signal SIG-134-COMPLIANCE. Nothing sent.",
+    "uncertainty": "None on policy inputs; all values taken from intake dossier.",
+    "follow_up_trigger": "Day-0 elapsed or reply referencing SIG-134-COMPLIANCE."
+  },
+  {
+    "id": "A135",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=359",
+      "fit_score=87",
+      "intent=false",
+      "region=AU",
+      "consent_hold=false"
+    ],
+    "next_action": "Unsent draft: next value-resource touch referencing exact signal SIG-135-LAUNCH. Nothing sent.",
+    "uncertainty": "None on policy inputs; all values taken from intake dossier.",
+    "follow_up_trigger": "Day-21 elapsed or reply referencing SIG-135-LAUNCH."
+  },
+  {
+    "id": "A136",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=376",
+      "fit_score=43",
+      "intent=true",
+      "region=US",
+      "consent_hold=false"
+    ],
+    "next_action": "Unsent draft: next value-resource touch referencing exact signal SIG-136-MIGRATION. Nothing sent.",
+    "uncertainty": "None on policy inputs; all values taken from intake dossier.",
+    "follow_up_trigger": "Day-21 elapsed or reply referencing SIG-136-MIGRATION."
+  },
+  {
+    "id": "A137",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=393",
+      "fit_score=56",
+      "intent=true",
+      "region=EU",
+      "consent_hold=false"
+    ],
+    "next_action": "Unsent draft: next value-resource touch referencing exact signal SIG-137-CAPACITY. Nothing sent.",
+    "uncertainty": "None on policy inputs; all values taken from intake dossier.",
+    "follow_up_trigger": "Day-21 elapsed or reply referencing SIG-137-CAPACITY."
+  },
+  {
+    "id": "A138",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=410",
+      "fit_score=69",
+      "intent=false",
+      "region=AU",
+      "consent_hold=false"
+    ],
+    "next_action": "Unsent draft: next value-resource touch referencing exact signal SIG-138-COMPLIANCE. Nothing sent.",
+    "uncertainty": "None on policy inputs; all values taken from intake dossier.",
+    "follow_up_trigger": "Day-21 elapsed or reply referencing SIG-138-COMPLIANCE."
+  },
+  {
+    "id": "A139",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=427",
+      "fit_score=82",
+      "intent=true",
+      "region=US",
+      "consent_hold=false"
+    ],
+    "next_action": "Unsent draft: next discovery touch referencing exact signal SIG-139-LAUNCH. Nothing sent.",
+    "uncertainty": "None on policy inputs; all values taken from intake dossier.",
+    "follow_up_trigger": "Day-7 elapsed or reply referencing SIG-139-LAUNCH."
+  },
+  {
+    "id": "A140",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "evidence-only",
+    "evidence": [
+      "employees=444",
+      "fit_score=95",
+      "intent=true",
+      "region=EU",
+      "consent_hold=false"
+    ],
+    "next_action": "Unsent draft: next discovery touch referencing exact signal SIG-140-MIGRATION. Nothing sent.",
+    "uncertainty": "None on policy inputs; all values taken from intake dossier.",
+    "follow_up_trigger": "Day-7 elapsed or reply referencing SIG-140-MIGRATION."
+  },
+  {
+    "id": "A141",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=461",
+      "fit_score=51",
+      "intent=false",
+      "region=AU",
+      "consent_hold=false"
+    ],
+    "next_action": "Unsent draft: next value-resource touch referencing exact signal SIG-141-CAPACITY. Nothing sent.",
+    "uncertainty": "None on policy inputs; all values taken from intake dossier.",
+    "follow_up_trigger": "Day-21 elapsed or reply referencing SIG-141-CAPACITY."
+  },
+  {
+    "id": "A142",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=478",
+      "fit_score=64",
+      "intent=true",
+      "region=US",
+      "consent_hold=false"
+    ],
+    "next_action": "Unsent draft: next value-resource touch referencing exact signal SIG-142-COMPLIANCE. Nothing sent.",
+    "uncertainty": "None on policy inputs; all values taken from intake dossier.",
+    "follow_up_trigger": "Day-21 elapsed or reply referencing SIG-142-COMPLIANCE."
+  },
+  {
+    "id": "A143",
+    "qualification": "hold",
+    "disposition": "consent-review",
+    "action_type": "no-contact",
+    "follow_up_days": 0,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=495",
+      "fit_score=77",
+      "intent=true",
+      "region=EU",
+      "consent_hold=true"
+    ],
+    "next_action": "Unsent draft: next no-contact touch referencing exact signal SIG-143-LAUNCH. Nothing sent.",
+    "uncertainty": "None on policy inputs; all values taken from intake dossier.",
+    "follow_up_trigger": "Day-0 elapsed or reply referencing SIG-143-LAUNCH."
+  },
+  {
+    "id": "A144",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=512",
+      "fit_score=90",
+      "intent=false",
+      "region=AU",
+      "consent_hold=false"
+    ],
+    "next_action": "Unsent draft: next value-resource touch referencing exact signal SIG-144-MIGRATION. Nothing sent.",
+    "uncertainty": "None on policy inputs; all values taken from intake dossier.",
+    "follow_up_trigger": "Day-21 elapsed or reply referencing SIG-144-MIGRATION."
+  },
+  {
+    "id": "A145",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=529",
+      "fit_score=46",
+      "intent=true",
+      "region=US",
+      "consent_hold=false"
+    ],
+    "next_action": "Unsent draft: next value-resource touch referencing exact signal SIG-145-CAPACITY. Nothing sent.",
+    "uncertainty": "None on policy inputs; all values taken from intake dossier.",
+    "follow_up_trigger": "Day-21 elapsed or reply referencing SIG-145-CAPACITY."
+  },
+  {
+    "id": "A146",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=546",
+      "fit_score=59",
+      "intent=true",
+      "region=EU",
+      "consent_hold=false"
+    ],
+    "next_action": "Unsent draft: next value-resource touch referencing exact signal SIG-146-COMPLIANCE. Nothing sent.",
+    "uncertainty": "None on policy inputs; all values taken from intake dossier.",
+    "follow_up_trigger": "Day-21 elapsed or reply referencing SIG-146-COMPLIANCE."
+  },
+  {
+    "id": "A147",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "evidence-only",
+    "evidence": [
+      "employees=563",
+      "fit_score=72",
+      "intent=false",
+      "region=AU",
+      "consent_hold=false"
+    ],
+    "next_action": "Unsent draft: next value-resource touch referencing exact signal SIG-147-LAUNCH. Nothing sent.",
+    "uncertainty": "None on policy inputs; all values taken from intake dossier.",
+    "follow_up_trigger": "Day-21 elapsed or reply referencing SIG-147-LAUNCH."
+  },
+  {
+    "id": "A148",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=580",
+      "fit_score=85",
+      "intent=true",
+      "region=US",
+      "consent_hold=false"
+    ],
+    "next_action": "Unsent draft: next discovery touch referencing exact signal SIG-148-MIGRATION. Nothing sent.",
+    "uncertainty": "None on policy inputs; all values taken from intake dossier.",
+    "follow_up_trigger": "Day-7 elapsed or reply referencing SIG-148-MIGRATION."
+  },
+  {
+    "id": "A149",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=597",
+      "fit_score=98",
+      "intent=true",
+      "region=EU",
+      "consent_hold=false"
+    ],
+    "next_action": "Unsent draft: next discovery touch referencing exact signal SIG-149-CAPACITY. Nothing sent.",
+    "uncertainty": "None on policy inputs; all values taken from intake dossier.",
+    "follow_up_trigger": "Day-7 elapsed or reply referencing SIG-149-CAPACITY."
+  },
+  {
+    "id": "A150",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=614",
+      "fit_score=54",
+      "intent=false",
+      "region=AU",
+      "consent_hold=false"
+    ],
+    "next_action": "Unsent draft: next value-resource touch referencing exact signal SIG-150-COMPLIANCE. Nothing sent.",
+    "uncertainty": "None on policy inputs; all values taken from intake dossier.",
+    "follow_up_trigger": "Day-21 elapsed or reply referencing SIG-150-COMPLIANCE."
+  },
+  {
+    "id": "A151",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "evidence-only",
+    "evidence": [
+      "employees=631",
+      "fit_score=67",
+      "intent=true",
+      "region=US",
+      "consent_hold=false"
+    ],
+    "next_action": "Unsent draft: next value-resource touch referencing exact signal SIG-151-LAUNCH. Nothing sent.",
+    "uncertainty": "None on policy inputs; all values taken from intake dossier.",
+    "follow_up_trigger": "Day-21 elapsed or reply referencing SIG-151-LAUNCH."
+  },
+  {
+    "id": "A152",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=648",
+      "fit_score=80",
+      "intent=true",
+      "region=EU",
+      "consent_hold=false"
+    ],
+    "next_action": "Unsent draft: next discovery touch referencing exact signal SIG-152-MIGRATION. Nothing sent.",
+    "uncertainty": "None on policy inputs; all values taken from intake dossier.",
+    "follow_up_trigger": "Day-7 elapsed or reply referencing SIG-152-MIGRATION."
+  },
+  {
+    "id": "A153",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=665",
+      "fit_score=93",
+      "intent=false",
+      "region=AU",
+      "consent_hold=false"
+    ],
+    "next_action": "Unsent draft: next value-resource touch referencing exact signal SIG-153-CAPACITY. Nothing sent.",
+    "uncertainty": "None on policy inputs; all values taken from intake dossier.",
+    "follow_up_trigger": "Day-21 elapsed or reply referencing SIG-153-CAPACITY."
+  },
+  {
+    "id": "A154",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "evidence-only",
+    "evidence": [
+      "employees=682",
+      "fit_score=49",
+      "intent=true",
+      "region=US",
+      "consent_hold=false"
+    ],
+    "next_action": "Unsent draft: next value-resource touch referencing exact signal SIG-154-COMPLIANCE. Nothing sent.",
+    "uncertainty": "None on policy inputs; all values taken from intake dossier.",
+    "follow_up_trigger": "Day-21 elapsed or reply referencing SIG-154-COMPLIANCE."
+  },
+  {
+    "id": "A155",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=699",
+      "fit_score=62",
+      "intent=true",
+      "region=EU",
+      "consent_hold=false"
+    ],
+    "next_action": "Unsent draft: next value-resource touch referencing exact signal SIG-155-LAUNCH. Nothing sent.",
+    "uncertainty": "None on policy inputs; all values taken from intake dossier.",
+    "follow_up_trigger": "Day-21 elapsed or reply referencing SIG-155-LAUNCH."
+  },
+  {
+    "id": "A156",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=716",
+      "fit_score=75",
+      "intent=false",
+      "region=AU",
+      "consent_hold=false"
+    ],
+    "next_action": "Unsent draft: next value-resource touch referencing exact signal SIG-156-MIGRATION. Nothing sent.",
+    "uncertainty": "None on policy inputs; all values taken from intake dossier.",
+    "follow_up_trigger": "Day-21 elapsed or reply referencing SIG-156-MIGRATION."
+  },
+  {
+    "id": "A157",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=733",
+      "fit_score=88",
+      "intent=true",
+      "region=US",
+      "consent_hold=false"
+    ],
+    "next_action": "Unsent draft: next discovery touch referencing exact signal SIG-157-CAPACITY. Nothing sent.",
+    "uncertainty": "None on policy inputs; all values taken from intake dossier.",
+    "follow_up_trigger": "Day-7 elapsed or reply referencing SIG-157-CAPACITY."
+  },
+  {
+    "id": "A158",
+    "qualification": "disqualify",
+    "disposition": "closed-policy",
+    "action_type": "no-contact",
+    "follow_up_days": 0,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=750",
+      "fit_score=44",
+      "intent=true",
+      "region=Restricted-Zone",
+      "consent_hold=false"
+    ],
+    "next_action": "Unsent draft: next no-contact touch referencing exact signal SIG-158-COMPLIANCE. Nothing sent.",
+    "uncertainty": "None on policy inputs; all values taken from intake dossier.",
+    "follow_up_trigger": "Day-0 elapsed or reply referencing SIG-158-COMPLIANCE."
+  },
+  {
+    "id": "A159",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=767",
+      "fit_score=57",
+      "intent=false",
+      "region=AU",
+      "consent_hold=false"
+    ],
+    "next_action": "Unsent draft: next value-resource touch referencing exact signal SIG-159-LAUNCH. Nothing sent.",
+    "uncertainty": "None on policy inputs; all values taken from intake dossier.",
+    "follow_up_trigger": "Day-21 elapsed or reply referencing SIG-159-LAUNCH."
+  },
+  {
+    "id": "A160",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=784",
+      "fit_score=70",
+      "intent=true",
+      "region=US",
+      "consent_hold=false"
+    ],
+    "next_action": "Unsent draft: next discovery touch referencing exact signal SIG-160-MIGRATION. Nothing sent.",
+    "uncertainty": "None on policy inputs; all values taken from intake dossier.",
+    "follow_up_trigger": "Day-7 elapsed or reply referencing SIG-160-MIGRATION."
+  }
+]

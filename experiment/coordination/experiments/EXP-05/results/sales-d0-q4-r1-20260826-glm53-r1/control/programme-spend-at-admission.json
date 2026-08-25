@@ -1,0 +1,785 @@
+{
+  "accounted_usd": 15.796,
+  "ceiling_usd": 100.0,
+  "committed_usd": 35.1802,
+  "companies": [
+    {
+      "accounted_usd": 1.3719,
+      "by_actor": [
+        {
+          "actor": "exec",
+          "model": "zai/glm-5.3",
+          "role": null,
+          "spent_usd": 0.6534
+        },
+        {
+          "actor": "reconciliation-owner",
+          "model": "zai/glm-5.3",
+          "role": null,
+          "spent_usd": 0.2352
+        },
+        {
+          "actor": "operations-direction",
+          "model": "zai/glm-5.3",
+          "role": null,
+          "spent_usd": 0.0904
+        },
+        {
+          "actor": "customer-direction",
+          "model": "zai/glm-5.3",
+          "role": null,
+          "spent_usd": 0.0788
+        },
+        {
+          "actor": "revenue-direction",
+          "model": "zai/glm-5.3",
+          "role": null,
+          "spent_usd": 0.0669
+        },
+        {
+          "actor": "intelligence-direction",
+          "model": "zai/glm-5.3",
+          "role": null,
+          "spent_usd": 0.0623
+        },
+        {
+          "actor": "account-owner",
+          "model": "zai/glm-5.3",
+          "role": null,
+          "spent_usd": 0.0618
+        },
+        {
+          "actor": "monitoring-owner",
+          "model": "zai/glm-5.3",
+          "role": null,
+          "spent_usd": 0.0617
+        },
+        {
+          "actor": "case-owner",
+          "model": "zai/glm-5.3",
+          "role": null,
+          "spent_usd": 0.0613
+        }
+      ],
+      "ceiling_usd": 20.0,
+      "company": "exp05_company_q1x4_r1_20260826_fa360c96_test",
+      "note": null,
+      "remaining_usd": 18.6282,
+      "status": "available"
+    },
+    {
+      "accounted_usd": 0.5179,
+      "by_actor": [
+        {
+          "actor": "signal-primary",
+          "model": "zai/glm-5.3",
+          "role": null,
+          "spent_usd": 0.3111
+        },
+        {
+          "actor": "intelligence-direction",
+          "model": "zai/glm-5.3",
+          "role": null,
+          "spent_usd": 0.1265
+        },
+        {
+          "actor": "exec",
+          "model": "zai/glm-5.3",
+          "role": null,
+          "spent_usd": 0.0804
+        }
+      ],
+      "ceiling_usd": 12.0,
+      "company": "exp05_monitoring_q1_r1_20260826_72f74229_test",
+      "note": null,
+      "remaining_usd": 11.4821,
+      "status": "available"
+    },
+    {
+      "accounted_usd": 0.4419,
+      "by_actor": [
+        {
+          "actor": "signal-secondary",
+          "model": "zai/glm-5.3",
+          "role": null,
+          "spent_usd": 0.1421
+        },
+        {
+          "actor": "signal-primary",
+          "model": "zai/glm-5.3",
+          "role": null,
+          "spent_usd": 0.1257
+        },
+        {
+          "actor": "exec",
+          "model": "zai/glm-5.3",
+          "role": null,
+          "spent_usd": 0.0872
+        },
+        {
+          "actor": "intelligence-direction",
+          "model": "zai/glm-5.3",
+          "role": null,
+          "spent_usd": 0.0868
+        }
+      ],
+      "ceiling_usd": 12.0,
+      "company": "exp05_monitoring_q2_r1_20260826_1a1f23d6_test",
+      "note": null,
+      "remaining_usd": 11.5581,
+      "status": "available"
+    },
+    {
+      "accounted_usd": 0.5962,
+      "by_actor": [
+        {
+          "actor": "account-north",
+          "model": "zai/glm-5.3",
+          "role": null,
+          "spent_usd": 0.3319
+        },
+        {
+          "actor": "revenue-direction",
+          "model": "zai/glm-5.3",
+          "role": null,
+          "spent_usd": 0.1805
+        },
+        {
+          "actor": "exec",
+          "model": "zai/glm-5.3",
+          "role": null,
+          "spent_usd": 0.0838
+        }
+      ],
+      "ceiling_usd": 12.0,
+      "company": "exp05_sales_d0_q1_r1_20260825_0556e8d9_test",
+      "note": null,
+      "remaining_usd": 11.4038,
+      "status": "available"
+    },
+    {
+      "accounted_usd": 0.5647,
+      "by_actor": [
+        {
+          "actor": "account-north",
+          "model": "zai/glm-5.3",
+          "role": null,
+          "spent_usd": 0.3827
+        },
+        {
+          "actor": "revenue-direction",
+          "model": "zai/glm-5.3",
+          "role": null,
+          "spent_usd": 0.0977
+        },
+        {
+          "actor": "exec",
+          "model": "zai/glm-5.3",
+          "role": null,
+          "spent_usd": 0.0843
+        }
+      ],
+      "ceiling_usd": 12.0,
+      "company": "exp05_sales_d0_q1_r1_20260826_7bbdd92b_test",
+      "note": null,
+      "remaining_usd": 11.4353,
+      "status": "available"
+    },
+    {
+      "accounted_usd": 0.477,
+      "by_actor": [
+        {
+          "actor": "account-north",
+          "model": "zai/glm-5.3",
+          "role": null,
+          "spent_usd": 0.1553
+        },
+        {
+          "actor": "account-south",
+          "model": "zai/glm-5.3",
+          "role": null,
+          "spent_usd": 0.1547
+        },
+        {
+          "actor": "revenue-direction",
+          "model": "zai/glm-5.3",
+          "role": null,
+          "spent_usd": 0.084
+        },
+        {
+          "actor": "exec",
+          "model": "zai/glm-5.3",
+          "role": null,
+          "spent_usd": 0.083
+        }
+      ],
+      "ceiling_usd": 12.0,
+      "company": "exp05_sales_d0_q2_r1_20260825_675e4024_test",
+      "note": null,
+      "remaining_usd": 11.523,
+      "status": "available"
+    },
+    {
+      "accounted_usd": 0.4829,
+      "by_actor": [
+        {
+          "actor": "account-south",
+          "model": "zai/glm-5.3",
+          "role": null,
+          "spent_usd": 0.1525
+        },
+        {
+          "actor": "account-north",
+          "model": "zai/glm-5.3",
+          "role": null,
+          "spent_usd": 0.1424
+        },
+        {
+          "actor": "exec",
+          "model": "zai/glm-5.3",
+          "role": null,
+          "spent_usd": 0.1004
+        },
+        {
+          "actor": "revenue-direction",
+          "model": "zai/glm-5.3",
+          "role": null,
+          "spent_usd": 0.0875
+        }
+      ],
+      "ceiling_usd": 12.0,
+      "company": "exp05_sales_d0_q2_r1_20260826_1e1b81f2_test",
+      "note": null,
+      "remaining_usd": 11.5171,
+      "status": "available"
+    },
+    {
+      "accounted_usd": 0.6345,
+      "by_actor": [
+        {
+          "actor": "account-north",
+          "model": "zai/glm-5.3",
+          "role": null,
+          "spent_usd": 0.3496
+        },
+        {
+          "actor": "revenue-direction",
+          "model": "zai/glm-5.3",
+          "role": null,
+          "spent_usd": 0.1986
+        },
+        {
+          "actor": "exec",
+          "model": "zai/glm-5.3",
+          "role": null,
+          "spent_usd": 0.0862
+        }
+      ],
+      "ceiling_usd": 12.0,
+      "company": "exp05_sales_d1_elastic_r1_20260825_4b98a120_test",
+      "note": null,
+      "remaining_usd": 11.3655,
+      "status": "available"
+    },
+    {
+      "accounted_usd": 0.6874,
+      "by_actor": [
+        {
+          "actor": "account-north",
+          "model": "zai/glm-5.3",
+          "role": null,
+          "spent_usd": 0.3949
+        },
+        {
+          "actor": "revenue-direction",
+          "model": "zai/glm-5.3",
+          "role": null,
+          "spent_usd": 0.2006
+        },
+        {
+          "actor": "exec",
+          "model": "zai/glm-5.3",
+          "role": null,
+          "spent_usd": 0.0919
+        }
+      ],
+      "ceiling_usd": 12.0,
+      "company": "exp05_sales_d1_q1_r1_20260825_beacf0ff_test",
+      "note": null,
+      "remaining_usd": 11.3126,
+      "status": "available"
+    },
+    {
+      "accounted_usd": 0.7656,
+      "by_actor": [
+        {
+          "actor": "revenue-direction",
+          "model": "zai/glm-5.3",
+          "role": null,
+          "spent_usd": 0.2708
+        },
+        {
+          "actor": "account-south",
+          "model": "zai/glm-5.3",
+          "role": null,
+          "spent_usd": 0.2486
+        },
+        {
+          "actor": "account-north",
+          "model": "zai/glm-5.3",
+          "role": null,
+          "spent_usd": 0.1602
+        },
+        {
+          "actor": "exec",
+          "model": "zai/glm-5.3",
+          "role": null,
+          "spent_usd": 0.086
+        }
+      ],
+      "ceiling_usd": 12.0,
+      "company": "exp05_sales_d1_q2_r1_20260825_9820f764_test",
+      "note": null,
+      "remaining_usd": 11.2344,
+      "status": "available"
+    },
+    {
+      "accounted_usd": 0.5627,
+      "by_actor": [
+        {
+          "actor": "account-north",
+          "model": "zai/glm-5.3",
+          "role": null,
+          "spent_usd": 0.3183
+        },
+        {
+          "actor": "revenue-direction",
+          "model": "zai/glm-5.3",
+          "role": null,
+          "spent_usd": 0.1805
+        },
+        {
+          "actor": "exec",
+          "model": "zai/glm-5.3",
+          "role": null,
+          "spent_usd": 0.0638
+        }
+      ],
+      "ceiling_usd": 12.0,
+      "company": "exp05_sales_d2_elastic_r1_20260825_105c7651_test",
+      "note": null,
+      "remaining_usd": 11.4373,
+      "status": "available"
+    },
+    {
+      "accounted_usd": 0.64,
+      "by_actor": [
+        {
+          "actor": "account-north",
+          "model": "zai/glm-5.3",
+          "role": null,
+          "spent_usd": 0.3061
+        },
+        {
+          "actor": "revenue-direction",
+          "model": "zai/glm-5.3",
+          "role": null,
+          "spent_usd": 0.2075
+        },
+        {
+          "actor": "exec",
+          "model": "zai/glm-5.3",
+          "role": null,
+          "spent_usd": 0.1265
+        }
+      ],
+      "ceiling_usd": 12.0,
+      "company": "exp05_sales_d2_q1_r1_20260825_205cbd6c_test",
+      "note": null,
+      "remaining_usd": 11.36,
+      "status": "available"
+    },
+    {
+      "accounted_usd": 0.5943,
+      "by_actor": [
+        {
+          "actor": "revenue-direction",
+          "model": "zai/glm-5.3",
+          "role": null,
+          "spent_usd": 0.1827
+        },
+        {
+          "actor": "account-south",
+          "model": "zai/glm-5.3",
+          "role": null,
+          "spent_usd": 0.1769
+        },
+        {
+          "actor": "account-north",
+          "model": "zai/glm-5.3",
+          "role": null,
+          "spent_usd": 0.15
+        },
+        {
+          "actor": "exec",
+          "model": "zai/glm-5.3",
+          "role": null,
+          "spent_usd": 0.0848
+        }
+      ],
+      "ceiling_usd": 12.0,
+      "company": "exp05_sales_d2_q2_r1_20260825_c798586a_test",
+      "note": null,
+      "remaining_usd": 11.4057,
+      "status": "available"
+    },
+    {
+      "accounted_usd": 0.1396,
+      "by_actor": [
+        {
+          "actor": "customer-direction",
+          "model": "zai/glm-5.3",
+          "role": null,
+          "spent_usd": 0.0992
+        },
+        {
+          "actor": "exec",
+          "model": "zai/glm-5.3",
+          "role": null,
+          "spent_usd": 0.0404
+        }
+      ],
+      "ceiling_usd": 12.0,
+      "company": "exp05_support_causal_r1_20260825_9bc7812c_test",
+      "note": null,
+      "remaining_usd": 11.8604,
+      "status": "available"
+    },
+    {
+      "accounted_usd": 0.3324,
+      "by_actor": [
+        {
+          "actor": "customer-direction",
+          "model": "zai/glm-5.3",
+          "role": null,
+          "spent_usd": 0.1143
+        },
+        {
+          "actor": "exec",
+          "model": "zai/glm-5.3",
+          "role": null,
+          "spent_usd": 0.1115
+        },
+        {
+          "actor": "customer-north",
+          "model": "zai/glm-5.3",
+          "role": null,
+          "spent_usd": 0.0737
+        },
+        {
+          "actor": "customer-south",
+          "model": "zai/glm-5.3",
+          "role": null,
+          "spent_usd": 0.0329
+        }
+      ],
+      "ceiling_usd": 12.0,
+      "company": "exp05_support_causal_r1_20260825_a5a69cc3_test",
+      "note": "fail-closed: a provider stream could not be exactly accounted, so charged work is paused until model metering is reconciled. `accounted_usd` remains the real known spend.",
+      "remaining_usd": null,
+      "status": "metering_unknown"
+    },
+    {
+      "accounted_usd": 1.6832,
+      "by_actor": [
+        {
+          "actor": "customer-direction",
+          "model": "zai/glm-5.3",
+          "role": null,
+          "spent_usd": 0.6613
+        },
+        {
+          "actor": "customer-south",
+          "model": "zai/glm-5.3",
+          "role": null,
+          "spent_usd": 0.474
+        },
+        {
+          "actor": "customer-north",
+          "model": "zai/glm-5.3",
+          "role": null,
+          "spent_usd": 0.4512
+        },
+        {
+          "actor": "exec",
+          "model": "zai/glm-5.3",
+          "role": null,
+          "spent_usd": 0.0967
+        }
+      ],
+      "ceiling_usd": 12.0,
+      "company": "exp05_support_causal_r1_20260826_29696d8f_test",
+      "note": null,
+      "remaining_usd": 10.3168,
+      "status": "available"
+    },
+    {
+      "accounted_usd": 2.1603,
+      "by_actor": [
+        {
+          "actor": "customer-direction",
+          "model": "zai/glm-5.3",
+          "role": null,
+          "spent_usd": 1.1497
+        },
+        {
+          "actor": "customer-south",
+          "model": "zai/glm-5.3",
+          "role": null,
+          "spent_usd": 0.5296
+        },
+        {
+          "actor": "customer-north",
+          "model": "zai/glm-5.3",
+          "role": null,
+          "spent_usd": 0.4427
+        },
+        {
+          "actor": "exec",
+          "model": "zai/glm-5.3",
+          "role": null,
+          "spent_usd": 0.0383
+        }
+      ],
+      "ceiling_usd": 12.0,
+      "company": "exp05_support_causal_r1_20260826_d99c2e0d_test",
+      "note": null,
+      "remaining_usd": 9.8397,
+      "status": "available"
+    },
+    {
+      "accounted_usd": 1.7859,
+      "by_actor": [
+        {
+          "actor": "customer-north",
+          "model": "zai/glm-5.3",
+          "role": null,
+          "spent_usd": 0.6068
+        },
+        {
+          "actor": "customer-direction",
+          "model": "zai/glm-5.3",
+          "role": null,
+          "spent_usd": 0.5786
+        },
+        {
+          "actor": "customer-south",
+          "model": "zai/glm-5.3",
+          "role": null,
+          "spent_usd": 0.5501
+        },
+        {
+          "actor": "exec",
+          "model": "zai/glm-5.3",
+          "role": null,
+          "spent_usd": 0.0504
+        }
+      ],
+      "ceiling_usd": 12.0,
+      "company": "exp05_support_terminal_r1_20260826_089cc578_test",
+      "note": null,
+      "remaining_usd": 10.2141,
+      "status": "available"
+    },
+    {
+      "accounted_usd": 0.2834,
+      "by_actor": [
+        {
+          "actor": "exec",
+          "model": "zai/glm-5.3",
+          "role": null,
+          "spent_usd": 0.1001
+        },
+        {
+          "actor": "continuity-direction",
+          "model": "zai/glm-5.3",
+          "role": null,
+          "spent_usd": 0.0791
+        },
+        {
+          "actor": "continuity-control",
+          "model": "zai/glm-5.3",
+          "role": null,
+          "spent_usd": 0.0669
+        },
+        {
+          "actor": "continuity-worker",
+          "model": "zai/glm-5.3",
+          "role": null,
+          "spent_usd": 0.0373
+        }
+      ],
+      "ceiling_usd": 8.0,
+      "company": "exp05_wave0_continuity_20260825_84eeddbd_test",
+      "note": "fail-closed: a provider stream could not be exactly accounted, so charged work is paused until model metering is reconciled. `accounted_usd` remains the real known spend.",
+      "remaining_usd": null,
+      "status": "metering_unknown"
+    },
+    {
+      "accounted_usd": 0.2668,
+      "by_actor": [
+        {
+          "actor": "continuity-direction",
+          "model": "zai/glm-5.3",
+          "role": null,
+          "spent_usd": 0.1126
+        },
+        {
+          "actor": "exec",
+          "model": "zai/glm-5.3",
+          "role": null,
+          "spent_usd": 0.0704
+        },
+        {
+          "actor": "continuity-control",
+          "model": "zai/glm-5.3",
+          "role": null,
+          "spent_usd": 0.0535
+        },
+        {
+          "actor": "continuity-worker",
+          "model": "zai/glm-5.3",
+          "role": null,
+          "spent_usd": 0.0303
+        }
+      ],
+      "ceiling_usd": 8.0,
+      "company": "exp05_wave0_continuity_20260825_885fec65_test",
+      "note": null,
+      "remaining_usd": 7.7332,
+      "status": "available"
+    },
+    {
+      "accounted_usd": 0.2762,
+      "by_actor": [
+        {
+          "actor": "continuity-direction",
+          "model": "zai/glm-5.3",
+          "role": null,
+          "spent_usd": 0.1866
+        },
+        {
+          "actor": "continuity-control",
+          "model": "zai/glm-5.3",
+          "role": null,
+          "spent_usd": 0.048
+        },
+        {
+          "actor": "exec",
+          "model": "zai/glm-5.3",
+          "role": null,
+          "spent_usd": 0.0416
+        }
+      ],
+      "ceiling_usd": 8.0,
+      "company": "exp05_wave0_continuity_20260825_9e77b67f_test",
+      "note": null,
+      "remaining_usd": 7.7238,
+      "status": "available"
+    },
+    {
+      "accounted_usd": 0.0,
+      "by_actor": [],
+      "ceiling_usd": 8.0,
+      "company": "exp05_wave0_continuity_20260825gl_test",
+      "note": null,
+      "remaining_usd": 8.0,
+      "status": "available"
+    },
+    {
+      "accounted_usd": 0.1436,
+      "by_actor": [
+        {
+          "actor": "capacity-alpha",
+          "model": "zai/glm-5.3",
+          "role": null,
+          "spent_usd": 0.0673
+        },
+        {
+          "actor": "exec",
+          "model": "zai/glm-5.3",
+          "role": null,
+          "spent_usd": 0.0429
+        },
+        {
+          "actor": "capacity-direction",
+          "model": "zai/glm-5.3",
+          "role": null,
+          "spent_usd": 0.0292
+        },
+        {
+          "actor": "capacity-beta",
+          "model": "zai/glm-5.3",
+          "role": null,
+          "spent_usd": 0.0042
+        }
+      ],
+      "ceiling_usd": 8.0,
+      "company": "exp05_wave0_q4_admission_20260825_95aa798e_test",
+      "note": null,
+      "remaining_usd": 7.8564,
+      "status": "available"
+    },
+    {
+      "accounted_usd": 0.3876,
+      "by_actor": [
+        {
+          "actor": "exec",
+          "model": "zai/glm-5.3",
+          "role": null,
+          "spent_usd": 0.0883
+        },
+        {
+          "actor": "capacity-direction",
+          "model": "zai/glm-5.3",
+          "role": null,
+          "spent_usd": 0.0795
+        },
+        {
+          "actor": "capacity-delta",
+          "model": "zai/glm-5.3",
+          "role": null,
+          "spent_usd": 0.07
+        },
+        {
+          "actor": "capacity-beta",
+          "model": "zai/glm-5.3",
+          "role": null,
+          "spent_usd": 0.0595
+        },
+        {
+          "actor": "capacity-gamma",
+          "model": "zai/glm-5.3",
+          "role": null,
+          "spent_usd": 0.0527
+        },
+        {
+          "actor": "capacity-alpha",
+          "model": "zai/glm-5.3",
+          "role": null,
+          "spent_usd": 0.0376
+        }
+      ],
+      "ceiling_usd": 8.0,
+      "company": "exp05_wave0_q4_admission_20260825_a807b8ad_test",
+      "note": null,
+      "remaining_usd": 7.6124,
+      "status": "available"
+    }
+  ],
+  "metering_unknown_companies": [
+    "exp05_support_causal_r1_20260825_a5a69cc3_test",
+    "exp05_wave0_continuity_20260825_84eeddbd_test"
+  ],
+  "unknown_reserve_usd": 19.3842
+}

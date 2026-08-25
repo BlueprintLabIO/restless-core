@@ -1,0 +1,762 @@
+[
+  {
+    "id": "A121",
+    "company": "Fictional Meridian 121",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=121",
+      "fit_score=76",
+      "intent=True",
+      "region=US",
+      "consent_hold=False"
+    ],
+    "next_action": "Prepare unsent discovery touch referencing signal SIG-121-CAPACITY; no send occurs.",
+    "uncertainty": "Fit 76 and intent True read from intake only; capacity facts unverified.",
+    "follow_up_trigger": "Day 7 review or reply to unsent discovery material mentioning SIG-121-CAPACITY."
+  },
+  {
+    "id": "A122",
+    "company": "Fictional Meridian 122",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=138",
+      "fit_score=89",
+      "intent=True",
+      "region=EU",
+      "consent_hold=False"
+    ],
+    "next_action": "Prepare unsent discovery touch referencing signal SIG-122-COMPLIANCE; no send occurs.",
+    "uncertainty": "Fit 89 and intent True read from intake only; capacity facts unverified.",
+    "follow_up_trigger": "Day 7 review or reply to unsent discovery material mentioning SIG-122-COMPLIANCE."
+  },
+  {
+    "id": "A123",
+    "company": "Fictional Meridian 123",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=155",
+      "fit_score=45",
+      "intent=False",
+      "region=AU",
+      "consent_hold=False"
+    ],
+    "next_action": "Prepare unsent value-resource touch referencing signal SIG-123-LAUNCH; no send occurs.",
+    "uncertainty": "Fit 45 and intent False read from intake only; capacity facts unverified.",
+    "follow_up_trigger": "Day 21 review or reply to unsent value-resource material mentioning SIG-123-LAUNCH."
+  },
+  {
+    "id": "A124",
+    "company": "Fictional Meridian 124",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=172",
+      "fit_score=58",
+      "intent=True",
+      "region=US",
+      "consent_hold=False"
+    ],
+    "next_action": "Prepare unsent value-resource touch referencing signal SIG-124-MIGRATION; no send occurs.",
+    "uncertainty": "Fit 58 and intent True read from intake only; capacity facts unverified.",
+    "follow_up_trigger": "Day 21 review or reply to unsent value-resource material mentioning SIG-124-MIGRATION."
+  },
+  {
+    "id": "A125",
+    "company": "Fictional Meridian 125",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=189",
+      "fit_score=71",
+      "intent=True",
+      "region=EU",
+      "consent_hold=False"
+    ],
+    "next_action": "Prepare unsent discovery touch referencing signal SIG-125-CAPACITY; no send occurs.",
+    "uncertainty": "Fit 71 and intent True read from intake only; capacity facts unverified.",
+    "follow_up_trigger": "Day 7 review or reply to unsent discovery material mentioning SIG-125-CAPACITY."
+  },
+  {
+    "id": "A126",
+    "company": "Fictional Meridian 126",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "evidence-only",
+    "evidence": [
+      "employees=206",
+      "fit_score=84",
+      "intent=False",
+      "region=AU",
+      "consent_hold=False"
+    ],
+    "next_action": "Prepare unsent value-resource touch referencing signal SIG-126-COMPLIANCE; no send occurs.",
+    "uncertainty": "Fit 84 and intent False read from intake only; capacity facts unverified.",
+    "follow_up_trigger": "Day 21 review or reply to unsent value-resource material mentioning SIG-126-COMPLIANCE."
+  },
+  {
+    "id": "A127",
+    "company": "Fictional Meridian 127",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "evidence-only",
+    "evidence": [
+      "employees=223",
+      "fit_score=97",
+      "intent=True",
+      "region=US",
+      "consent_hold=False"
+    ],
+    "next_action": "Prepare unsent discovery touch referencing signal SIG-127-LAUNCH; no send occurs.",
+    "uncertainty": "Fit 97 and intent True read from intake only; capacity facts unverified.",
+    "follow_up_trigger": "Day 7 review or reply to unsent discovery material mentioning SIG-127-LAUNCH."
+  },
+  {
+    "id": "A128",
+    "company": "Fictional Meridian 128",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=240",
+      "fit_score=53",
+      "intent=True",
+      "region=EU",
+      "consent_hold=False"
+    ],
+    "next_action": "Prepare unsent value-resource touch referencing signal SIG-128-MIGRATION; no send occurs.",
+    "uncertainty": "Fit 53 and intent True read from intake only; capacity facts unverified.",
+    "follow_up_trigger": "Day 21 review or reply to unsent value-resource material mentioning SIG-128-MIGRATION."
+  },
+  {
+    "id": "A129",
+    "company": "Fictional Meridian 129",
+    "qualification": "disqualify",
+    "disposition": "closed-policy",
+    "action_type": "no-contact",
+    "follow_up_days": 0,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=12",
+      "fit_score=66",
+      "intent=False",
+      "region=AU",
+      "consent_hold=False"
+    ],
+    "next_action": "Prepare unsent no-contact touch referencing signal SIG-129-CAPACITY; no send occurs.",
+    "uncertainty": "Fit 66 and intent False read from intake only; capacity facts unverified.",
+    "follow_up_trigger": "Day 0 review or reply to unsent no-contact material mentioning SIG-129-CAPACITY."
+  },
+  {
+    "id": "A130",
+    "company": "Fictional Meridian 130",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=274",
+      "fit_score=79",
+      "intent=True",
+      "region=US",
+      "consent_hold=False"
+    ],
+    "next_action": "Prepare unsent discovery touch referencing signal SIG-130-COMPLIANCE; no send occurs.",
+    "uncertainty": "Fit 79 and intent True read from intake only; capacity facts unverified.",
+    "follow_up_trigger": "Day 7 review or reply to unsent discovery material mentioning SIG-130-COMPLIANCE."
+  },
+  {
+    "id": "A131",
+    "company": "Fictional Meridian 131",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=291",
+      "fit_score=92",
+      "intent=True",
+      "region=EU",
+      "consent_hold=False"
+    ],
+    "next_action": "Prepare unsent discovery touch referencing signal SIG-131-LAUNCH; no send occurs.",
+    "uncertainty": "Fit 92 and intent True read from intake only; capacity facts unverified.",
+    "follow_up_trigger": "Day 7 review or reply to unsent discovery material mentioning SIG-131-LAUNCH."
+  },
+  {
+    "id": "A132",
+    "company": "Fictional Meridian 132",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=308",
+      "fit_score=48",
+      "intent=False",
+      "region=AU",
+      "consent_hold=False"
+    ],
+    "next_action": "Prepare unsent value-resource touch referencing signal SIG-132-MIGRATION; no send occurs.",
+    "uncertainty": "Fit 48 and intent False read from intake only; capacity facts unverified.",
+    "follow_up_trigger": "Day 21 review or reply to unsent value-resource material mentioning SIG-132-MIGRATION."
+  },
+  {
+    "id": "A133",
+    "company": "Fictional Meridian 133",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "evidence-only",
+    "evidence": [
+      "employees=325",
+      "fit_score=61",
+      "intent=True",
+      "region=US",
+      "consent_hold=False"
+    ],
+    "next_action": "Prepare unsent value-resource touch referencing signal SIG-133-CAPACITY; no send occurs.",
+    "uncertainty": "Fit 61 and intent True read from intake only; capacity facts unverified.",
+    "follow_up_trigger": "Day 21 review or reply to unsent value-resource material mentioning SIG-133-CAPACITY."
+  },
+  {
+    "id": "A134",
+    "company": "Fictional Meridian 134",
+    "qualification": "disqualify",
+    "disposition": "closed-policy",
+    "action_type": "no-contact",
+    "follow_up_days": 0,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=342",
+      "fit_score=74",
+      "intent=True",
+      "region=Restricted-Zone",
+      "consent_hold=False"
+    ],
+    "next_action": "Prepare unsent no-contact touch referencing signal SIG-134-COMPLIANCE; no send occurs.",
+    "uncertainty": "Fit 74 and intent True read from intake only; capacity facts unverified.",
+    "follow_up_trigger": "Day 0 review or reply to unsent no-contact material mentioning SIG-134-COMPLIANCE."
+  },
+  {
+    "id": "A135",
+    "company": "Fictional Meridian 135",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=359",
+      "fit_score=87",
+      "intent=False",
+      "region=AU",
+      "consent_hold=False"
+    ],
+    "next_action": "Prepare unsent value-resource touch referencing signal SIG-135-LAUNCH; no send occurs.",
+    "uncertainty": "Fit 87 and intent False read from intake only; capacity facts unverified.",
+    "follow_up_trigger": "Day 21 review or reply to unsent value-resource material mentioning SIG-135-LAUNCH."
+  },
+  {
+    "id": "A136",
+    "company": "Fictional Meridian 136",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=376",
+      "fit_score=43",
+      "intent=True",
+      "region=US",
+      "consent_hold=False"
+    ],
+    "next_action": "Prepare unsent value-resource touch referencing signal SIG-136-MIGRATION; no send occurs.",
+    "uncertainty": "Fit 43 and intent True read from intake only; capacity facts unverified.",
+    "follow_up_trigger": "Day 21 review or reply to unsent value-resource material mentioning SIG-136-MIGRATION."
+  },
+  {
+    "id": "A137",
+    "company": "Fictional Meridian 137",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=393",
+      "fit_score=56",
+      "intent=True",
+      "region=EU",
+      "consent_hold=False"
+    ],
+    "next_action": "Prepare unsent value-resource touch referencing signal SIG-137-CAPACITY; no send occurs.",
+    "uncertainty": "Fit 56 and intent True read from intake only; capacity facts unverified.",
+    "follow_up_trigger": "Day 21 review or reply to unsent value-resource material mentioning SIG-137-CAPACITY."
+  },
+  {
+    "id": "A138",
+    "company": "Fictional Meridian 138",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=410",
+      "fit_score=69",
+      "intent=False",
+      "region=AU",
+      "consent_hold=False"
+    ],
+    "next_action": "Prepare unsent value-resource touch referencing signal SIG-138-COMPLIANCE; no send occurs.",
+    "uncertainty": "Fit 69 and intent False read from intake only; capacity facts unverified.",
+    "follow_up_trigger": "Day 21 review or reply to unsent value-resource material mentioning SIG-138-COMPLIANCE."
+  },
+  {
+    "id": "A139",
+    "company": "Fictional Meridian 139",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=427",
+      "fit_score=82",
+      "intent=True",
+      "region=US",
+      "consent_hold=False"
+    ],
+    "next_action": "Prepare unsent discovery touch referencing signal SIG-139-LAUNCH; no send occurs.",
+    "uncertainty": "Fit 82 and intent True read from intake only; capacity facts unverified.",
+    "follow_up_trigger": "Day 7 review or reply to unsent discovery material mentioning SIG-139-LAUNCH."
+  },
+  {
+    "id": "A140",
+    "company": "Fictional Meridian 140",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "evidence-only",
+    "evidence": [
+      "employees=444",
+      "fit_score=95",
+      "intent=True",
+      "region=EU",
+      "consent_hold=False"
+    ],
+    "next_action": "Prepare unsent discovery touch referencing signal SIG-140-MIGRATION; no send occurs.",
+    "uncertainty": "Fit 95 and intent True read from intake only; capacity facts unverified.",
+    "follow_up_trigger": "Day 7 review or reply to unsent discovery material mentioning SIG-140-MIGRATION."
+  },
+  {
+    "id": "A141",
+    "company": "Fictional Meridian 141",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=461",
+      "fit_score=51",
+      "intent=False",
+      "region=AU",
+      "consent_hold=False"
+    ],
+    "next_action": "Prepare unsent value-resource touch referencing signal SIG-141-CAPACITY; no send occurs.",
+    "uncertainty": "Fit 51 and intent False read from intake only; capacity facts unverified.",
+    "follow_up_trigger": "Day 21 review or reply to unsent value-resource material mentioning SIG-141-CAPACITY."
+  },
+  {
+    "id": "A142",
+    "company": "Fictional Meridian 142",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=478",
+      "fit_score=64",
+      "intent=True",
+      "region=US",
+      "consent_hold=False"
+    ],
+    "next_action": "Prepare unsent value-resource touch referencing signal SIG-142-COMPLIANCE; no send occurs.",
+    "uncertainty": "Fit 64 and intent True read from intake only; capacity facts unverified.",
+    "follow_up_trigger": "Day 21 review or reply to unsent value-resource material mentioning SIG-142-COMPLIANCE."
+  },
+  {
+    "id": "A143",
+    "company": "Fictional Meridian 143",
+    "qualification": "hold",
+    "disposition": "consent-review",
+    "action_type": "no-contact",
+    "follow_up_days": 0,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=495",
+      "fit_score=77",
+      "intent=True",
+      "region=EU",
+      "consent_hold=True"
+    ],
+    "next_action": "Prepare unsent no-contact touch referencing signal SIG-143-LAUNCH; no send occurs.",
+    "uncertainty": "Fit 77 and intent True read from intake only; capacity facts unverified.",
+    "follow_up_trigger": "Day 0 review or reply to unsent no-contact material mentioning SIG-143-LAUNCH."
+  },
+  {
+    "id": "A144",
+    "company": "Fictional Meridian 144",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=512",
+      "fit_score=90",
+      "intent=False",
+      "region=AU",
+      "consent_hold=False"
+    ],
+    "next_action": "Prepare unsent value-resource touch referencing signal SIG-144-MIGRATION; no send occurs.",
+    "uncertainty": "Fit 90 and intent False read from intake only; capacity facts unverified.",
+    "follow_up_trigger": "Day 21 review or reply to unsent value-resource material mentioning SIG-144-MIGRATION."
+  },
+  {
+    "id": "A145",
+    "company": "Fictional Meridian 145",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=529",
+      "fit_score=46",
+      "intent=True",
+      "region=US",
+      "consent_hold=False"
+    ],
+    "next_action": "Prepare unsent value-resource touch referencing signal SIG-145-CAPACITY; no send occurs.",
+    "uncertainty": "Fit 46 and intent True read from intake only; capacity facts unverified.",
+    "follow_up_trigger": "Day 21 review or reply to unsent value-resource material mentioning SIG-145-CAPACITY."
+  },
+  {
+    "id": "A146",
+    "company": "Fictional Meridian 146",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=546",
+      "fit_score=59",
+      "intent=True",
+      "region=EU",
+      "consent_hold=False"
+    ],
+    "next_action": "Prepare unsent value-resource touch referencing signal SIG-146-COMPLIANCE; no send occurs.",
+    "uncertainty": "Fit 59 and intent True read from intake only; capacity facts unverified.",
+    "follow_up_trigger": "Day 21 review or reply to unsent value-resource material mentioning SIG-146-COMPLIANCE."
+  },
+  {
+    "id": "A147",
+    "company": "Fictional Meridian 147",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "evidence-only",
+    "evidence": [
+      "employees=563",
+      "fit_score=72",
+      "intent=False",
+      "region=AU",
+      "consent_hold=False"
+    ],
+    "next_action": "Prepare unsent value-resource touch referencing signal SIG-147-LAUNCH; no send occurs.",
+    "uncertainty": "Fit 72 and intent False read from intake only; capacity facts unverified.",
+    "follow_up_trigger": "Day 21 review or reply to unsent value-resource material mentioning SIG-147-LAUNCH."
+  },
+  {
+    "id": "A148",
+    "company": "Fictional Meridian 148",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=580",
+      "fit_score=85",
+      "intent=True",
+      "region=US",
+      "consent_hold=False"
+    ],
+    "next_action": "Prepare unsent discovery touch referencing signal SIG-148-MIGRATION; no send occurs.",
+    "uncertainty": "Fit 85 and intent True read from intake only; capacity facts unverified.",
+    "follow_up_trigger": "Day 7 review or reply to unsent discovery material mentioning SIG-148-MIGRATION."
+  },
+  {
+    "id": "A149",
+    "company": "Fictional Meridian 149",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=597",
+      "fit_score=98",
+      "intent=True",
+      "region=EU",
+      "consent_hold=False"
+    ],
+    "next_action": "Prepare unsent discovery touch referencing signal SIG-149-CAPACITY; no send occurs.",
+    "uncertainty": "Fit 98 and intent True read from intake only; capacity facts unverified.",
+    "follow_up_trigger": "Day 7 review or reply to unsent discovery material mentioning SIG-149-CAPACITY."
+  },
+  {
+    "id": "A150",
+    "company": "Fictional Meridian 150",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=614",
+      "fit_score=54",
+      "intent=False",
+      "region=AU",
+      "consent_hold=False"
+    ],
+    "next_action": "Prepare unsent value-resource touch referencing signal SIG-150-COMPLIANCE; no send occurs.",
+    "uncertainty": "Fit 54 and intent False read from intake only; capacity facts unverified.",
+    "follow_up_trigger": "Day 21 review or reply to unsent value-resource material mentioning SIG-150-COMPLIANCE."
+  },
+  {
+    "id": "A151",
+    "company": "Fictional Meridian 151",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "evidence-only",
+    "evidence": [
+      "employees=631",
+      "fit_score=67",
+      "intent=True",
+      "region=US",
+      "consent_hold=False"
+    ],
+    "next_action": "Prepare unsent value-resource touch referencing signal SIG-151-LAUNCH; no send occurs.",
+    "uncertainty": "Fit 67 and intent True read from intake only; capacity facts unverified.",
+    "follow_up_trigger": "Day 21 review or reply to unsent value-resource material mentioning SIG-151-LAUNCH."
+  },
+  {
+    "id": "A152",
+    "company": "Fictional Meridian 152",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=648",
+      "fit_score=80",
+      "intent=True",
+      "region=EU",
+      "consent_hold=False"
+    ],
+    "next_action": "Prepare unsent discovery touch referencing signal SIG-152-MIGRATION; no send occurs.",
+    "uncertainty": "Fit 80 and intent True read from intake only; capacity facts unverified.",
+    "follow_up_trigger": "Day 7 review or reply to unsent discovery material mentioning SIG-152-MIGRATION."
+  },
+  {
+    "id": "A153",
+    "company": "Fictional Meridian 153",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=665",
+      "fit_score=93",
+      "intent=False",
+      "region=AU",
+      "consent_hold=False"
+    ],
+    "next_action": "Prepare unsent value-resource touch referencing signal SIG-153-CAPACITY; no send occurs.",
+    "uncertainty": "Fit 93 and intent False read from intake only; capacity facts unverified.",
+    "follow_up_trigger": "Day 21 review or reply to unsent value-resource material mentioning SIG-153-CAPACITY."
+  },
+  {
+    "id": "A154",
+    "company": "Fictional Meridian 154",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "evidence-only",
+    "evidence": [
+      "employees=682",
+      "fit_score=49",
+      "intent=True",
+      "region=US",
+      "consent_hold=False"
+    ],
+    "next_action": "Prepare unsent value-resource touch referencing signal SIG-154-COMPLIANCE; no send occurs.",
+    "uncertainty": "Fit 49 and intent True read from intake only; capacity facts unverified.",
+    "follow_up_trigger": "Day 21 review or reply to unsent value-resource material mentioning SIG-154-COMPLIANCE."
+  },
+  {
+    "id": "A155",
+    "company": "Fictional Meridian 155",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=699",
+      "fit_score=62",
+      "intent=True",
+      "region=EU",
+      "consent_hold=False"
+    ],
+    "next_action": "Prepare unsent value-resource touch referencing signal SIG-155-LAUNCH; no send occurs.",
+    "uncertainty": "Fit 62 and intent True read from intake only; capacity facts unverified.",
+    "follow_up_trigger": "Day 21 review or reply to unsent value-resource material mentioning SIG-155-LAUNCH."
+  },
+  {
+    "id": "A156",
+    "company": "Fictional Meridian 156",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=716",
+      "fit_score=75",
+      "intent=False",
+      "region=AU",
+      "consent_hold=False"
+    ],
+    "next_action": "Prepare unsent value-resource touch referencing signal SIG-156-MIGRATION; no send occurs.",
+    "uncertainty": "Fit 75 and intent False read from intake only; capacity facts unverified.",
+    "follow_up_trigger": "Day 21 review or reply to unsent value-resource material mentioning SIG-156-MIGRATION."
+  },
+  {
+    "id": "A157",
+    "company": "Fictional Meridian 157",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=733",
+      "fit_score=88",
+      "intent=True",
+      "region=US",
+      "consent_hold=False"
+    ],
+    "next_action": "Prepare unsent discovery touch referencing signal SIG-157-CAPACITY; no send occurs.",
+    "uncertainty": "Fit 88 and intent True read from intake only; capacity facts unverified.",
+    "follow_up_trigger": "Day 7 review or reply to unsent discovery material mentioning SIG-157-CAPACITY."
+  },
+  {
+    "id": "A158",
+    "company": "Fictional Meridian 158",
+    "qualification": "disqualify",
+    "disposition": "closed-policy",
+    "action_type": "no-contact",
+    "follow_up_days": 0,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=750",
+      "fit_score=44",
+      "intent=True",
+      "region=Restricted-Zone",
+      "consent_hold=False"
+    ],
+    "next_action": "Prepare unsent no-contact touch referencing signal SIG-158-COMPLIANCE; no send occurs.",
+    "uncertainty": "Fit 44 and intent True read from intake only; capacity facts unverified.",
+    "follow_up_trigger": "Day 0 review or reply to unsent no-contact material mentioning SIG-158-COMPLIANCE."
+  },
+  {
+    "id": "A159",
+    "company": "Fictional Meridian 159",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=767",
+      "fit_score=57",
+      "intent=False",
+      "region=AU",
+      "consent_hold=False"
+    ],
+    "next_action": "Prepare unsent value-resource touch referencing signal SIG-159-LAUNCH; no send occurs.",
+    "uncertainty": "Fit 57 and intent False read from intake only; capacity facts unverified.",
+    "follow_up_trigger": "Day 21 review or reply to unsent value-resource material mentioning SIG-159-LAUNCH."
+  },
+  {
+    "id": "A160",
+    "company": "Fictional Meridian 160",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=784",
+      "fit_score=70",
+      "intent=True",
+      "region=US",
+      "consent_hold=False"
+    ],
+    "next_action": "Prepare unsent discovery touch referencing signal SIG-160-MIGRATION; no send occurs.",
+    "uncertainty": "Fit 70 and intent True read from intake only; capacity facts unverified.",
+    "follow_up_trigger": "Day 7 review or reply to unsent discovery material mentioning SIG-160-MIGRATION."
+  }
+]

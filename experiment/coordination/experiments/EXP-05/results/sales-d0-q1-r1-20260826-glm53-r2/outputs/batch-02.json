@@ -1,0 +1,722 @@
+[
+  {
+    "id": "A041",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "evidence-only",
+    "evidence": [
+      "employees=721",
+      "fit_score=62",
+      "intent=true",
+      "region=EU",
+      "consent_hold=false"
+    ],
+    "next_action": "[unsent draft] value-resource for Fictional Meridian 041 referencing SIG-041-CAPACITY: below qualification threshold or no stated intent. No send, meeting, or customer fact invented.",
+    "uncertainty": "Based only on intake dossier A041; below qualification threshold or no stated intent.",
+    "follow_up_trigger": "Day 21 review of SIG-041-CAPACITY"
+  },
+  {
+    "id": "A042",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "evidence-only",
+    "evidence": [
+      "employees=738",
+      "fit_score=75",
+      "intent=false",
+      "region=AU",
+      "consent_hold=false"
+    ],
+    "next_action": "[unsent draft] value-resource for Fictional Meridian 042 referencing SIG-042-COMPLIANCE: below qualification threshold or no stated intent. No send, meeting, or customer fact invented.",
+    "uncertainty": "Based only on intake dossier A042; below qualification threshold or no stated intent.",
+    "follow_up_trigger": "Day 21 review of SIG-042-COMPLIANCE"
+  },
+  {
+    "id": "A043",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=755",
+      "fit_score=88",
+      "intent=true",
+      "region=US",
+      "consent_hold=false"
+    ],
+    "next_action": "[unsent draft] discovery for Fictional Meridian 043 referencing SIG-043-LAUNCH: fit and intent meet qualification threshold. No send, meeting, or customer fact invented.",
+    "uncertainty": "Based only on intake dossier A043; fit and intent meet qualification threshold.",
+    "follow_up_trigger": "Day 7 review of SIG-043-LAUNCH"
+  },
+  {
+    "id": "A044",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=772",
+      "fit_score=44",
+      "intent=true",
+      "region=EU",
+      "consent_hold=false"
+    ],
+    "next_action": "[unsent draft] value-resource for Fictional Meridian 044 referencing SIG-044-MIGRATION: below qualification threshold or no stated intent. No send, meeting, or customer fact invented.",
+    "uncertainty": "Based only on intake dossier A044; below qualification threshold or no stated intent.",
+    "follow_up_trigger": "Day 21 review of SIG-044-MIGRATION"
+  },
+  {
+    "id": "A045",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=789",
+      "fit_score=57",
+      "intent=false",
+      "region=AU",
+      "consent_hold=false"
+    ],
+    "next_action": "[unsent draft] value-resource for Fictional Meridian 045 referencing SIG-045-CAPACITY: below qualification threshold or no stated intent. No send, meeting, or customer fact invented.",
+    "uncertainty": "Based only on intake dossier A045; below qualification threshold or no stated intent.",
+    "follow_up_trigger": "Day 21 review of SIG-045-CAPACITY"
+  },
+  {
+    "id": "A046",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=806",
+      "fit_score=70",
+      "intent=true",
+      "region=US",
+      "consent_hold=false"
+    ],
+    "next_action": "[unsent draft] discovery for Fictional Meridian 046 referencing SIG-046-COMPLIANCE: fit and intent meet qualification threshold. No send, meeting, or customer fact invented.",
+    "uncertainty": "Based only on intake dossier A046; fit and intent meet qualification threshold.",
+    "follow_up_trigger": "Day 7 review of SIG-046-COMPLIANCE"
+  },
+  {
+    "id": "A047",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=823",
+      "fit_score=83",
+      "intent=true",
+      "region=EU",
+      "consent_hold=false"
+    ],
+    "next_action": "[unsent draft] discovery for Fictional Meridian 047 referencing SIG-047-LAUNCH: fit and intent meet qualification threshold. No send, meeting, or customer fact invented.",
+    "uncertainty": "Based only on intake dossier A047; fit and intent meet qualification threshold.",
+    "follow_up_trigger": "Day 7 review of SIG-047-LAUNCH"
+  },
+  {
+    "id": "A048",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=840",
+      "fit_score=96",
+      "intent=false",
+      "region=AU",
+      "consent_hold=false"
+    ],
+    "next_action": "[unsent draft] value-resource for Fictional Meridian 048 referencing SIG-048-MIGRATION: below qualification threshold or no stated intent. No send, meeting, or customer fact invented.",
+    "uncertainty": "Based only on intake dossier A048; below qualification threshold or no stated intent.",
+    "follow_up_trigger": "Day 21 review of SIG-048-MIGRATION"
+  },
+  {
+    "id": "A049",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "evidence-only",
+    "evidence": [
+      "employees=857",
+      "fit_score=52",
+      "intent=true",
+      "region=US",
+      "consent_hold=false"
+    ],
+    "next_action": "[unsent draft] value-resource for Fictional Meridian 049 referencing SIG-049-CAPACITY: below qualification threshold or no stated intent. No send, meeting, or customer fact invented.",
+    "uncertainty": "Based only on intake dossier A049; below qualification threshold or no stated intent.",
+    "follow_up_trigger": "Day 21 review of SIG-049-CAPACITY"
+  },
+  {
+    "id": "A050",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=874",
+      "fit_score=65",
+      "intent=true",
+      "region=EU",
+      "consent_hold=false"
+    ],
+    "next_action": "[unsent draft] value-resource for Fictional Meridian 050 referencing SIG-050-COMPLIANCE: below qualification threshold or no stated intent. No send, meeting, or customer fact invented.",
+    "uncertainty": "Based only on intake dossier A050; below qualification threshold or no stated intent.",
+    "follow_up_trigger": "Day 21 review of SIG-050-COMPLIANCE"
+  },
+  {
+    "id": "A051",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=891",
+      "fit_score=78",
+      "intent=false",
+      "region=AU",
+      "consent_hold=false"
+    ],
+    "next_action": "[unsent draft] value-resource for Fictional Meridian 051 referencing SIG-051-LAUNCH: below qualification threshold or no stated intent. No send, meeting, or customer fact invented.",
+    "uncertainty": "Based only on intake dossier A051; below qualification threshold or no stated intent.",
+    "follow_up_trigger": "Day 21 review of SIG-051-LAUNCH"
+  },
+  {
+    "id": "A052",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=908",
+      "fit_score=91",
+      "intent=true",
+      "region=US",
+      "consent_hold=false"
+    ],
+    "next_action": "[unsent draft] discovery for Fictional Meridian 052 referencing SIG-052-MIGRATION: fit and intent meet qualification threshold. No send, meeting, or customer fact invented.",
+    "uncertainty": "Based only on intake dossier A052; fit and intent meet qualification threshold.",
+    "follow_up_trigger": "Day 7 review of SIG-052-MIGRATION"
+  },
+  {
+    "id": "A053",
+    "qualification": "hold",
+    "disposition": "consent-review",
+    "action_type": "no-contact",
+    "follow_up_days": 0,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=925",
+      "fit_score=47",
+      "intent=true",
+      "region=EU",
+      "consent_hold=true"
+    ],
+    "next_action": "[unsent draft] no-contact for Fictional Meridian 053 referencing SIG-053-CAPACITY: consent hold active; awaiting consent review. No send, meeting, or customer fact invented.",
+    "uncertainty": "Based only on intake dossier A053; consent hold active; awaiting consent review.",
+    "follow_up_trigger": "Immediate consent-review on SIG-053-CAPACITY; no follow-up scheduled"
+  },
+  {
+    "id": "A054",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=942",
+      "fit_score=60",
+      "intent=false",
+      "region=AU",
+      "consent_hold=false"
+    ],
+    "next_action": "[unsent draft] value-resource for Fictional Meridian 054 referencing SIG-054-COMPLIANCE: below qualification threshold or no stated intent. No send, meeting, or customer fact invented.",
+    "uncertainty": "Based only on intake dossier A054; below qualification threshold or no stated intent.",
+    "follow_up_trigger": "Day 21 review of SIG-054-COMPLIANCE"
+  },
+  {
+    "id": "A055",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=959",
+      "fit_score=73",
+      "intent=true",
+      "region=US",
+      "consent_hold=false"
+    ],
+    "next_action": "[unsent draft] discovery for Fictional Meridian 055 referencing SIG-055-LAUNCH: fit and intent meet qualification threshold. No send, meeting, or customer fact invented.",
+    "uncertainty": "Based only on intake dossier A055; fit and intent meet qualification threshold.",
+    "follow_up_trigger": "Day 7 review of SIG-055-LAUNCH"
+  },
+  {
+    "id": "A056",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "evidence-only",
+    "evidence": [
+      "employees=976",
+      "fit_score=86",
+      "intent=true",
+      "region=EU",
+      "consent_hold=false"
+    ],
+    "next_action": "[unsent draft] discovery for Fictional Meridian 056 referencing SIG-056-MIGRATION: fit and intent meet qualification threshold. No send, meeting, or customer fact invented.",
+    "uncertainty": "Based only on intake dossier A056; fit and intent meet qualification threshold.",
+    "follow_up_trigger": "Day 7 review of SIG-056-MIGRATION"
+  },
+  {
+    "id": "A057",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=993",
+      "fit_score=42",
+      "intent=false",
+      "region=AU",
+      "consent_hold=false"
+    ],
+    "next_action": "[unsent draft] value-resource for Fictional Meridian 057 referencing SIG-057-CAPACITY: below qualification threshold or no stated intent. No send, meeting, or customer fact invented.",
+    "uncertainty": "Based only on intake dossier A057; below qualification threshold or no stated intent.",
+    "follow_up_trigger": "Day 21 review of SIG-057-CAPACITY"
+  },
+  {
+    "id": "A058",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=30",
+      "fit_score=55",
+      "intent=true",
+      "region=US",
+      "consent_hold=false"
+    ],
+    "next_action": "[unsent draft] value-resource for Fictional Meridian 058 referencing SIG-058-COMPLIANCE: below qualification threshold or no stated intent. No send, meeting, or customer fact invented.",
+    "uncertainty": "Based only on intake dossier A058; below qualification threshold or no stated intent.",
+    "follow_up_trigger": "Day 21 review of SIG-058-COMPLIANCE"
+  },
+  {
+    "id": "A059",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=47",
+      "fit_score=68",
+      "intent=true",
+      "region=EU",
+      "consent_hold=false"
+    ],
+    "next_action": "[unsent draft] value-resource for Fictional Meridian 059 referencing SIG-059-LAUNCH: below qualification threshold or no stated intent. No send, meeting, or customer fact invented.",
+    "uncertainty": "Based only on intake dossier A059; below qualification threshold or no stated intent.",
+    "follow_up_trigger": "Day 21 review of SIG-059-LAUNCH"
+  },
+  {
+    "id": "A060",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=64",
+      "fit_score=81",
+      "intent=false",
+      "region=AU",
+      "consent_hold=false"
+    ],
+    "next_action": "[unsent draft] value-resource for Fictional Meridian 060 referencing SIG-060-MIGRATION: below qualification threshold or no stated intent. No send, meeting, or customer fact invented.",
+    "uncertainty": "Based only on intake dossier A060; below qualification threshold or no stated intent.",
+    "follow_up_trigger": "Day 21 review of SIG-060-MIGRATION"
+  },
+  {
+    "id": "A061",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=81",
+      "fit_score=94",
+      "intent=true",
+      "region=US",
+      "consent_hold=false"
+    ],
+    "next_action": "[unsent draft] discovery for Fictional Meridian 061 referencing SIG-061-CAPACITY: fit and intent meet qualification threshold. No send, meeting, or customer fact invented.",
+    "uncertainty": "Based only on intake dossier A061; fit and intent meet qualification threshold.",
+    "follow_up_trigger": "Day 7 review of SIG-061-CAPACITY"
+  },
+  {
+    "id": "A062",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=98",
+      "fit_score=50",
+      "intent=true",
+      "region=EU",
+      "consent_hold=false"
+    ],
+    "next_action": "[unsent draft] value-resource for Fictional Meridian 062 referencing SIG-062-COMPLIANCE: below qualification threshold or no stated intent. No send, meeting, or customer fact invented.",
+    "uncertainty": "Based only on intake dossier A062; below qualification threshold or no stated intent.",
+    "follow_up_trigger": "Day 21 review of SIG-062-COMPLIANCE"
+  },
+  {
+    "id": "A063",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "evidence-only",
+    "evidence": [
+      "employees=115",
+      "fit_score=63",
+      "intent=false",
+      "region=AU",
+      "consent_hold=false"
+    ],
+    "next_action": "[unsent draft] value-resource for Fictional Meridian 063 referencing SIG-063-LAUNCH: below qualification threshold or no stated intent. No send, meeting, or customer fact invented.",
+    "uncertainty": "Based only on intake dossier A063; below qualification threshold or no stated intent.",
+    "follow_up_trigger": "Day 21 review of SIG-063-LAUNCH"
+  },
+  {
+    "id": "A064",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=132",
+      "fit_score=76",
+      "intent=true",
+      "region=US",
+      "consent_hold=false"
+    ],
+    "next_action": "[unsent draft] discovery for Fictional Meridian 064 referencing SIG-064-MIGRATION: fit and intent meet qualification threshold. No send, meeting, or customer fact invented.",
+    "uncertainty": "Based only on intake dossier A064; fit and intent meet qualification threshold.",
+    "follow_up_trigger": "Day 7 review of SIG-064-MIGRATION"
+  },
+  {
+    "id": "A065",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=149",
+      "fit_score=89",
+      "intent=true",
+      "region=EU",
+      "consent_hold=false"
+    ],
+    "next_action": "[unsent draft] discovery for Fictional Meridian 065 referencing SIG-065-CAPACITY: fit and intent meet qualification threshold. No send, meeting, or customer fact invented.",
+    "uncertainty": "Based only on intake dossier A065; fit and intent meet qualification threshold.",
+    "follow_up_trigger": "Day 7 review of SIG-065-CAPACITY"
+  },
+  {
+    "id": "A066",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=166",
+      "fit_score=45",
+      "intent=false",
+      "region=AU",
+      "consent_hold=false"
+    ],
+    "next_action": "[unsent draft] value-resource for Fictional Meridian 066 referencing SIG-066-COMPLIANCE: below qualification threshold or no stated intent. No send, meeting, or customer fact invented.",
+    "uncertainty": "Based only on intake dossier A066; below qualification threshold or no stated intent.",
+    "follow_up_trigger": "Day 21 review of SIG-066-COMPLIANCE"
+  },
+  {
+    "id": "A067",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=183",
+      "fit_score=58",
+      "intent=true",
+      "region=US",
+      "consent_hold=false"
+    ],
+    "next_action": "[unsent draft] value-resource for Fictional Meridian 067 referencing SIG-067-LAUNCH: below qualification threshold or no stated intent. No send, meeting, or customer fact invented.",
+    "uncertainty": "Based only on intake dossier A067; below qualification threshold or no stated intent.",
+    "follow_up_trigger": "Day 21 review of SIG-067-LAUNCH"
+  },
+  {
+    "id": "A068",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=200",
+      "fit_score=71",
+      "intent=true",
+      "region=EU",
+      "consent_hold=false"
+    ],
+    "next_action": "[unsent draft] discovery for Fictional Meridian 068 referencing SIG-068-MIGRATION: fit and intent meet qualification threshold. No send, meeting, or customer fact invented.",
+    "uncertainty": "Based only on intake dossier A068; fit and intent meet qualification threshold.",
+    "follow_up_trigger": "Day 7 review of SIG-068-MIGRATION"
+  },
+  {
+    "id": "A069",
+    "qualification": "disqualify",
+    "disposition": "closed-policy",
+    "action_type": "no-contact",
+    "follow_up_days": 0,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=12",
+      "fit_score=84",
+      "intent=false",
+      "region=AU",
+      "consent_hold=false"
+    ],
+    "next_action": "[unsent draft] no-contact for Fictional Meridian 069 referencing SIG-069-CAPACITY: restricted region or under 20 employees; policy prohibits outreach. No send, meeting, or customer fact invented.",
+    "uncertainty": "Based only on intake dossier A069; restricted region or under 20 employees; policy prohibits outreach.",
+    "follow_up_trigger": "Immediate closed-policy on SIG-069-CAPACITY; no follow-up scheduled"
+  },
+  {
+    "id": "A070",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "evidence-only",
+    "evidence": [
+      "employees=234",
+      "fit_score=97",
+      "intent=true",
+      "region=US",
+      "consent_hold=false"
+    ],
+    "next_action": "[unsent draft] discovery for Fictional Meridian 070 referencing SIG-070-COMPLIANCE: fit and intent meet qualification threshold. No send, meeting, or customer fact invented.",
+    "uncertainty": "Based only on intake dossier A070; fit and intent meet qualification threshold.",
+    "follow_up_trigger": "Day 7 review of SIG-070-COMPLIANCE"
+  },
+  {
+    "id": "A071",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=251",
+      "fit_score=53",
+      "intent=true",
+      "region=EU",
+      "consent_hold=false"
+    ],
+    "next_action": "[unsent draft] value-resource for Fictional Meridian 071 referencing SIG-071-LAUNCH: below qualification threshold or no stated intent. No send, meeting, or customer fact invented.",
+    "uncertainty": "Based only on intake dossier A071; below qualification threshold or no stated intent.",
+    "follow_up_trigger": "Day 21 review of SIG-071-LAUNCH"
+  },
+  {
+    "id": "A072",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=268",
+      "fit_score=66",
+      "intent=false",
+      "region=AU",
+      "consent_hold=false"
+    ],
+    "next_action": "[unsent draft] value-resource for Fictional Meridian 072 referencing SIG-072-MIGRATION: below qualification threshold or no stated intent. No send, meeting, or customer fact invented.",
+    "uncertainty": "Based only on intake dossier A072; below qualification threshold or no stated intent.",
+    "follow_up_trigger": "Day 21 review of SIG-072-MIGRATION"
+  },
+  {
+    "id": "A073",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=285",
+      "fit_score=79",
+      "intent=true",
+      "region=US",
+      "consent_hold=false"
+    ],
+    "next_action": "[unsent draft] discovery for Fictional Meridian 073 referencing SIG-073-CAPACITY: fit and intent meet qualification threshold. No send, meeting, or customer fact invented.",
+    "uncertainty": "Based only on intake dossier A073; fit and intent meet qualification threshold.",
+    "follow_up_trigger": "Day 7 review of SIG-073-CAPACITY"
+  },
+  {
+    "id": "A074",
+    "qualification": "disqualify",
+    "disposition": "closed-policy",
+    "action_type": "no-contact",
+    "follow_up_days": 0,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=302",
+      "fit_score=92",
+      "intent=true",
+      "region=Restricted-Zone",
+      "consent_hold=false"
+    ],
+    "next_action": "[unsent draft] no-contact for Fictional Meridian 074 referencing SIG-074-COMPLIANCE: restricted region or under 20 employees; policy prohibits outreach. No send, meeting, or customer fact invented.",
+    "uncertainty": "Based only on intake dossier A074; restricted region or under 20 employees; policy prohibits outreach.",
+    "follow_up_trigger": "Immediate closed-policy on SIG-074-COMPLIANCE; no follow-up scheduled"
+  },
+  {
+    "id": "A075",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=319",
+      "fit_score=48",
+      "intent=false",
+      "region=AU",
+      "consent_hold=false"
+    ],
+    "next_action": "[unsent draft] value-resource for Fictional Meridian 075 referencing SIG-075-LAUNCH: below qualification threshold or no stated intent. No send, meeting, or customer fact invented.",
+    "uncertainty": "Based only on intake dossier A075; below qualification threshold or no stated intent.",
+    "follow_up_trigger": "Day 21 review of SIG-075-LAUNCH"
+  },
+  {
+    "id": "A076",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=336",
+      "fit_score=61",
+      "intent=true",
+      "region=US",
+      "consent_hold=false"
+    ],
+    "next_action": "[unsent draft] value-resource for Fictional Meridian 076 referencing SIG-076-MIGRATION: below qualification threshold or no stated intent. No send, meeting, or customer fact invented.",
+    "uncertainty": "Based only on intake dossier A076; below qualification threshold or no stated intent.",
+    "follow_up_trigger": "Day 21 review of SIG-076-MIGRATION"
+  },
+  {
+    "id": "A077",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "evidence-only",
+    "evidence": [
+      "employees=353",
+      "fit_score=74",
+      "intent=true",
+      "region=EU",
+      "consent_hold=false"
+    ],
+    "next_action": "[unsent draft] discovery for Fictional Meridian 077 referencing SIG-077-CAPACITY: fit and intent meet qualification threshold. No send, meeting, or customer fact invented.",
+    "uncertainty": "Based only on intake dossier A077; fit and intent meet qualification threshold.",
+    "follow_up_trigger": "Day 7 review of SIG-077-CAPACITY"
+  },
+  {
+    "id": "A078",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=370",
+      "fit_score=87",
+      "intent=false",
+      "region=AU",
+      "consent_hold=false"
+    ],
+    "next_action": "[unsent draft] value-resource for Fictional Meridian 078 referencing SIG-078-COMPLIANCE: below qualification threshold or no stated intent. No send, meeting, or customer fact invented.",
+    "uncertainty": "Based only on intake dossier A078; below qualification threshold or no stated intent.",
+    "follow_up_trigger": "Day 21 review of SIG-078-COMPLIANCE"
+  },
+  {
+    "id": "A079",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=387",
+      "fit_score=43",
+      "intent=true",
+      "region=US",
+      "consent_hold=false"
+    ],
+    "next_action": "[unsent draft] value-resource for Fictional Meridian 079 referencing SIG-079-LAUNCH: below qualification threshold or no stated intent. No send, meeting, or customer fact invented.",
+    "uncertainty": "Based only on intake dossier A079; below qualification threshold or no stated intent.",
+    "follow_up_trigger": "Day 21 review of SIG-079-LAUNCH"
+  },
+  {
+    "id": "A080",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=404",
+      "fit_score=56",
+      "intent=true",
+      "region=EU",
+      "consent_hold=false"
+    ],
+    "next_action": "[unsent draft] value-resource for Fictional Meridian 080 referencing SIG-080-MIGRATION: below qualification threshold or no stated intent. No send, meeting, or customer fact invented.",
+    "uncertainty": "Based only on intake dossier A080; below qualification threshold or no stated intent.",
+    "follow_up_trigger": "Day 21 review of SIG-080-MIGRATION"
+  }
+]

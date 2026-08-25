@@ -1,0 +1,80 @@
+{
+  "arm": "sales-d2-elastic-r1",
+  "created_at": "2026-08-25T13:28:14.367697+00:00",
+  "kind": "exact_validator_complete",
+  "receipts": [
+    {
+      "accepted_at": "2026-08-25T13:23:12.856870+00:00",
+      "arrival_offset_seconds": 0,
+      "output": "batch-01.json",
+      "sha256": "5c398016f102577fee6d3c5d1a16c536124855b24b081f1e358b47ccae6dd161",
+      "unit": "sales batch 01",
+      "validator": {
+        "domain": "sales",
+        "units": 40,
+        "valid": true
+      }
+    },
+    {
+      "accepted_at": "2026-08-25T13:23:12.938945+00:00",
+      "arrival_offset_seconds": 45,
+      "output": "batch-02.json",
+      "sha256": "6dff390720af10af270ff12a4b5ebcfbe460c698e93a9cd6696b815701ca9c5b",
+      "unit": "sales batch 02",
+      "validator": {
+        "domain": "sales",
+        "units": 40,
+        "valid": true
+      }
+    },
+    {
+      "accepted_at": "2026-08-25T13:23:13.005205+00:00",
+      "arrival_offset_seconds": 90,
+      "output": "batch-03.json",
+      "sha256": "dc281c3ecb89e4d3e195287caa1b49330490cb971f6015e0ddb0315d512238e2",
+      "unit": "sales batch 03",
+      "validator": {
+        "domain": "sales",
+        "units": 40,
+        "valid": true
+      }
+    },
+    {
+      "accepted_at": "2026-08-25T13:23:13.089299+00:00",
+      "arrival_offset_seconds": 135,
+      "output": "batch-04.json",
+      "sha256": "b83d71e13f7b931d3c5a8f642e1486e505a2468ed99ffee3d2d237aa873749f4",
+      "unit": "sales batch 04",
+      "validator": {
+        "domain": "sales",
+        "units": 40,
+        "valid": true
+      }
+    },
+    {
+      "accepted_at": "2026-08-25T13:24:10.398406+00:00",
+      "arrival_offset_seconds": 180,
+      "output": "batch-05.json",
+      "sha256": "b4e81cbc43da77c1d964ed86442771ac1dd3ea9de8bd12b831f939c29a3d71b3",
+      "unit": "sales batch 05",
+      "validator": {
+        "domain": "sales",
+        "units": 40,
+        "valid": true
+      }
+    },
+    {
+      "accepted_at": "2026-08-25T13:25:14.217582+00:00",
+      "arrival_offset_seconds": 225,
+      "output": "batch-06.json",
+      "sha256": "56905770375f16be82e16e573779c25a8211b989e6e31a2a4bb4aa936fd36688",
+      "unit": "sales batch 06",
+      "validator": {
+        "domain": "sales",
+        "units": 40,
+        "valid": true
+      }
+    }
+  ],
+  "units": 240
+}

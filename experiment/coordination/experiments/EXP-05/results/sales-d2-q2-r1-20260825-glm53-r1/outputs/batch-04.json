@@ -1,0 +1,722 @@
+[
+  {
+    "id": "A121",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=121",
+      "fit_score=76",
+      "intent=True",
+      "region=US",
+      "consent_hold=False"
+    ],
+    "next_action": "Unsent draft: reference SIG-121-CAPACITY in the discovery follow-up (no send).",
+    "uncertainty": "Derived only from the frozen intake record; no customer facts beyond it.",
+    "follow_up_trigger": "SIG-121-CAPACITY cited and batch-4 review window reached; day 7 checkpoint."
+  },
+  {
+    "id": "A122",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=138",
+      "fit_score=89",
+      "intent=True",
+      "region=EU",
+      "consent_hold=False"
+    ],
+    "next_action": "Unsent draft: reference SIG-122-COMPLIANCE in the discovery follow-up (no send).",
+    "uncertainty": "Derived only from the frozen intake record; no customer facts beyond it.",
+    "follow_up_trigger": "SIG-122-COMPLIANCE cited and batch-4 review window reached; day 7 checkpoint."
+  },
+  {
+    "id": "A123",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=155",
+      "fit_score=45",
+      "intent=False",
+      "region=AU",
+      "consent_hold=False"
+    ],
+    "next_action": "Unsent draft: reference SIG-123-LAUNCH in the value-resource follow-up (no send).",
+    "uncertainty": "Derived only from the frozen intake record; no customer facts beyond it.",
+    "follow_up_trigger": "SIG-123-LAUNCH cited and batch-4 review window reached; day 21 checkpoint."
+  },
+  {
+    "id": "A124",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=172",
+      "fit_score=58",
+      "intent=True",
+      "region=US",
+      "consent_hold=False"
+    ],
+    "next_action": "Unsent draft: reference SIG-124-MIGRATION in the value-resource follow-up (no send).",
+    "uncertainty": "Derived only from the frozen intake record; no customer facts beyond it.",
+    "follow_up_trigger": "SIG-124-MIGRATION cited and batch-4 review window reached; day 21 checkpoint."
+  },
+  {
+    "id": "A125",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=189",
+      "fit_score=71",
+      "intent=True",
+      "region=EU",
+      "consent_hold=False"
+    ],
+    "next_action": "Unsent draft: reference SIG-125-CAPACITY in the discovery follow-up (no send).",
+    "uncertainty": "Derived only from the frozen intake record; no customer facts beyond it.",
+    "follow_up_trigger": "SIG-125-CAPACITY cited and batch-4 review window reached; day 7 checkpoint."
+  },
+  {
+    "id": "A126",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "evidence-only",
+    "evidence": [
+      "employees=206",
+      "fit_score=84",
+      "intent=False",
+      "region=AU",
+      "consent_hold=False"
+    ],
+    "next_action": "Unsent draft: reference SIG-126-COMPLIANCE in the value-resource follow-up (no send).",
+    "uncertainty": "Derived only from the frozen intake record; no customer facts beyond it.",
+    "follow_up_trigger": "SIG-126-COMPLIANCE cited and batch-4 review window reached; day 21 checkpoint."
+  },
+  {
+    "id": "A127",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "evidence-only",
+    "evidence": [
+      "employees=223",
+      "fit_score=97",
+      "intent=True",
+      "region=US",
+      "consent_hold=False"
+    ],
+    "next_action": "Unsent draft: reference SIG-127-LAUNCH in the discovery follow-up (no send).",
+    "uncertainty": "Derived only from the frozen intake record; no customer facts beyond it.",
+    "follow_up_trigger": "SIG-127-LAUNCH cited and batch-4 review window reached; day 7 checkpoint."
+  },
+  {
+    "id": "A128",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=240",
+      "fit_score=53",
+      "intent=True",
+      "region=EU",
+      "consent_hold=False"
+    ],
+    "next_action": "Unsent draft: reference SIG-128-MIGRATION in the value-resource follow-up (no send).",
+    "uncertainty": "Derived only from the frozen intake record; no customer facts beyond it.",
+    "follow_up_trigger": "SIG-128-MIGRATION cited and batch-4 review window reached; day 21 checkpoint."
+  },
+  {
+    "id": "A129",
+    "qualification": "disqualify",
+    "disposition": "closed-policy",
+    "action_type": "no-contact",
+    "follow_up_days": 0,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=12",
+      "fit_score=66",
+      "intent=False",
+      "region=AU",
+      "consent_hold=False"
+    ],
+    "next_action": "Unsent draft: reference SIG-129-CAPACITY in the no-contact follow-up (no send).",
+    "uncertainty": "Derived only from the frozen intake record; no customer facts beyond it.",
+    "follow_up_trigger": "SIG-129-CAPACITY cited and batch-4 review window reached; day 0 checkpoint."
+  },
+  {
+    "id": "A130",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=274",
+      "fit_score=79",
+      "intent=True",
+      "region=US",
+      "consent_hold=False"
+    ],
+    "next_action": "Unsent draft: reference SIG-130-COMPLIANCE in the discovery follow-up (no send).",
+    "uncertainty": "Derived only from the frozen intake record; no customer facts beyond it.",
+    "follow_up_trigger": "SIG-130-COMPLIANCE cited and batch-4 review window reached; day 7 checkpoint."
+  },
+  {
+    "id": "A131",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=291",
+      "fit_score=92",
+      "intent=True",
+      "region=EU",
+      "consent_hold=False"
+    ],
+    "next_action": "Unsent draft: reference SIG-131-LAUNCH in the discovery follow-up (no send).",
+    "uncertainty": "Derived only from the frozen intake record; no customer facts beyond it.",
+    "follow_up_trigger": "SIG-131-LAUNCH cited and batch-4 review window reached; day 7 checkpoint."
+  },
+  {
+    "id": "A132",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=308",
+      "fit_score=48",
+      "intent=False",
+      "region=AU",
+      "consent_hold=False"
+    ],
+    "next_action": "Unsent draft: reference SIG-132-MIGRATION in the value-resource follow-up (no send).",
+    "uncertainty": "Derived only from the frozen intake record; no customer facts beyond it.",
+    "follow_up_trigger": "SIG-132-MIGRATION cited and batch-4 review window reached; day 21 checkpoint."
+  },
+  {
+    "id": "A133",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "evidence-only",
+    "evidence": [
+      "employees=325",
+      "fit_score=61",
+      "intent=True",
+      "region=US",
+      "consent_hold=False"
+    ],
+    "next_action": "Unsent draft: reference SIG-133-CAPACITY in the value-resource follow-up (no send).",
+    "uncertainty": "Derived only from the frozen intake record; no customer facts beyond it.",
+    "follow_up_trigger": "SIG-133-CAPACITY cited and batch-4 review window reached; day 21 checkpoint."
+  },
+  {
+    "id": "A134",
+    "qualification": "disqualify",
+    "disposition": "closed-policy",
+    "action_type": "no-contact",
+    "follow_up_days": 0,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=342",
+      "fit_score=74",
+      "intent=True",
+      "region=Restricted-Zone",
+      "consent_hold=False"
+    ],
+    "next_action": "Unsent draft: reference SIG-134-COMPLIANCE in the no-contact follow-up (no send).",
+    "uncertainty": "Derived only from the frozen intake record; no customer facts beyond it.",
+    "follow_up_trigger": "SIG-134-COMPLIANCE cited and batch-4 review window reached; day 0 checkpoint."
+  },
+  {
+    "id": "A135",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=359",
+      "fit_score=87",
+      "intent=False",
+      "region=AU",
+      "consent_hold=False"
+    ],
+    "next_action": "Unsent draft: reference SIG-135-LAUNCH in the value-resource follow-up (no send).",
+    "uncertainty": "Derived only from the frozen intake record; no customer facts beyond it.",
+    "follow_up_trigger": "SIG-135-LAUNCH cited and batch-4 review window reached; day 21 checkpoint."
+  },
+  {
+    "id": "A136",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=376",
+      "fit_score=43",
+      "intent=True",
+      "region=US",
+      "consent_hold=False"
+    ],
+    "next_action": "Unsent draft: reference SIG-136-MIGRATION in the value-resource follow-up (no send).",
+    "uncertainty": "Derived only from the frozen intake record; no customer facts beyond it.",
+    "follow_up_trigger": "SIG-136-MIGRATION cited and batch-4 review window reached; day 21 checkpoint."
+  },
+  {
+    "id": "A137",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=393",
+      "fit_score=56",
+      "intent=True",
+      "region=EU",
+      "consent_hold=False"
+    ],
+    "next_action": "Unsent draft: reference SIG-137-CAPACITY in the value-resource follow-up (no send).",
+    "uncertainty": "Derived only from the frozen intake record; no customer facts beyond it.",
+    "follow_up_trigger": "SIG-137-CAPACITY cited and batch-4 review window reached; day 21 checkpoint."
+  },
+  {
+    "id": "A138",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=410",
+      "fit_score=69",
+      "intent=False",
+      "region=AU",
+      "consent_hold=False"
+    ],
+    "next_action": "Unsent draft: reference SIG-138-COMPLIANCE in the value-resource follow-up (no send).",
+    "uncertainty": "Derived only from the frozen intake record; no customer facts beyond it.",
+    "follow_up_trigger": "SIG-138-COMPLIANCE cited and batch-4 review window reached; day 21 checkpoint."
+  },
+  {
+    "id": "A139",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=427",
+      "fit_score=82",
+      "intent=True",
+      "region=US",
+      "consent_hold=False"
+    ],
+    "next_action": "Unsent draft: reference SIG-139-LAUNCH in the discovery follow-up (no send).",
+    "uncertainty": "Derived only from the frozen intake record; no customer facts beyond it.",
+    "follow_up_trigger": "SIG-139-LAUNCH cited and batch-4 review window reached; day 7 checkpoint."
+  },
+  {
+    "id": "A140",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "evidence-only",
+    "evidence": [
+      "employees=444",
+      "fit_score=95",
+      "intent=True",
+      "region=EU",
+      "consent_hold=False"
+    ],
+    "next_action": "Unsent draft: reference SIG-140-MIGRATION in the discovery follow-up (no send).",
+    "uncertainty": "Derived only from the frozen intake record; no customer facts beyond it.",
+    "follow_up_trigger": "SIG-140-MIGRATION cited and batch-4 review window reached; day 7 checkpoint."
+  },
+  {
+    "id": "A141",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=461",
+      "fit_score=51",
+      "intent=False",
+      "region=AU",
+      "consent_hold=False"
+    ],
+    "next_action": "Unsent draft: reference SIG-141-CAPACITY in the value-resource follow-up (no send).",
+    "uncertainty": "Derived only from the frozen intake record; no customer facts beyond it.",
+    "follow_up_trigger": "SIG-141-CAPACITY cited and batch-4 review window reached; day 21 checkpoint."
+  },
+  {
+    "id": "A142",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=478",
+      "fit_score=64",
+      "intent=True",
+      "region=US",
+      "consent_hold=False"
+    ],
+    "next_action": "Unsent draft: reference SIG-142-COMPLIANCE in the value-resource follow-up (no send).",
+    "uncertainty": "Derived only from the frozen intake record; no customer facts beyond it.",
+    "follow_up_trigger": "SIG-142-COMPLIANCE cited and batch-4 review window reached; day 21 checkpoint."
+  },
+  {
+    "id": "A143",
+    "qualification": "hold",
+    "disposition": "consent-review",
+    "action_type": "no-contact",
+    "follow_up_days": 0,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=495",
+      "fit_score=77",
+      "intent=True",
+      "region=EU",
+      "consent_hold=True"
+    ],
+    "next_action": "Unsent draft: reference SIG-143-LAUNCH in the no-contact follow-up (no send).",
+    "uncertainty": "Derived only from the frozen intake record; no customer facts beyond it.",
+    "follow_up_trigger": "SIG-143-LAUNCH cited and batch-4 review window reached; day 0 checkpoint."
+  },
+  {
+    "id": "A144",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=512",
+      "fit_score=90",
+      "intent=False",
+      "region=AU",
+      "consent_hold=False"
+    ],
+    "next_action": "Unsent draft: reference SIG-144-MIGRATION in the value-resource follow-up (no send).",
+    "uncertainty": "Derived only from the frozen intake record; no customer facts beyond it.",
+    "follow_up_trigger": "SIG-144-MIGRATION cited and batch-4 review window reached; day 21 checkpoint."
+  },
+  {
+    "id": "A145",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=529",
+      "fit_score=46",
+      "intent=True",
+      "region=US",
+      "consent_hold=False"
+    ],
+    "next_action": "Unsent draft: reference SIG-145-CAPACITY in the value-resource follow-up (no send).",
+    "uncertainty": "Derived only from the frozen intake record; no customer facts beyond it.",
+    "follow_up_trigger": "SIG-145-CAPACITY cited and batch-4 review window reached; day 21 checkpoint."
+  },
+  {
+    "id": "A146",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=546",
+      "fit_score=59",
+      "intent=True",
+      "region=EU",
+      "consent_hold=False"
+    ],
+    "next_action": "Unsent draft: reference SIG-146-COMPLIANCE in the value-resource follow-up (no send).",
+    "uncertainty": "Derived only from the frozen intake record; no customer facts beyond it.",
+    "follow_up_trigger": "SIG-146-COMPLIANCE cited and batch-4 review window reached; day 21 checkpoint."
+  },
+  {
+    "id": "A147",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "evidence-only",
+    "evidence": [
+      "employees=563",
+      "fit_score=72",
+      "intent=False",
+      "region=AU",
+      "consent_hold=False"
+    ],
+    "next_action": "Unsent draft: reference SIG-147-LAUNCH in the value-resource follow-up (no send).",
+    "uncertainty": "Derived only from the frozen intake record; no customer facts beyond it.",
+    "follow_up_trigger": "SIG-147-LAUNCH cited and batch-4 review window reached; day 21 checkpoint."
+  },
+  {
+    "id": "A148",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=580",
+      "fit_score=85",
+      "intent=True",
+      "region=US",
+      "consent_hold=False"
+    ],
+    "next_action": "Unsent draft: reference SIG-148-MIGRATION in the discovery follow-up (no send).",
+    "uncertainty": "Derived only from the frozen intake record; no customer facts beyond it.",
+    "follow_up_trigger": "SIG-148-MIGRATION cited and batch-4 review window reached; day 7 checkpoint."
+  },
+  {
+    "id": "A149",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=597",
+      "fit_score=98",
+      "intent=True",
+      "region=EU",
+      "consent_hold=False"
+    ],
+    "next_action": "Unsent draft: reference SIG-149-CAPACITY in the discovery follow-up (no send).",
+    "uncertainty": "Derived only from the frozen intake record; no customer facts beyond it.",
+    "follow_up_trigger": "SIG-149-CAPACITY cited and batch-4 review window reached; day 7 checkpoint."
+  },
+  {
+    "id": "A150",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=614",
+      "fit_score=54",
+      "intent=False",
+      "region=AU",
+      "consent_hold=False"
+    ],
+    "next_action": "Unsent draft: reference SIG-150-COMPLIANCE in the value-resource follow-up (no send).",
+    "uncertainty": "Derived only from the frozen intake record; no customer facts beyond it.",
+    "follow_up_trigger": "SIG-150-COMPLIANCE cited and batch-4 review window reached; day 21 checkpoint."
+  },
+  {
+    "id": "A151",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "evidence-only",
+    "evidence": [
+      "employees=631",
+      "fit_score=67",
+      "intent=True",
+      "region=US",
+      "consent_hold=False"
+    ],
+    "next_action": "Unsent draft: reference SIG-151-LAUNCH in the value-resource follow-up (no send).",
+    "uncertainty": "Derived only from the frozen intake record; no customer facts beyond it.",
+    "follow_up_trigger": "SIG-151-LAUNCH cited and batch-4 review window reached; day 21 checkpoint."
+  },
+  {
+    "id": "A152",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=648",
+      "fit_score=80",
+      "intent=True",
+      "region=EU",
+      "consent_hold=False"
+    ],
+    "next_action": "Unsent draft: reference SIG-152-MIGRATION in the discovery follow-up (no send).",
+    "uncertainty": "Derived only from the frozen intake record; no customer facts beyond it.",
+    "follow_up_trigger": "SIG-152-MIGRATION cited and batch-4 review window reached; day 7 checkpoint."
+  },
+  {
+    "id": "A153",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=665",
+      "fit_score=93",
+      "intent=False",
+      "region=AU",
+      "consent_hold=False"
+    ],
+    "next_action": "Unsent draft: reference SIG-153-CAPACITY in the value-resource follow-up (no send).",
+    "uncertainty": "Derived only from the frozen intake record; no customer facts beyond it.",
+    "follow_up_trigger": "SIG-153-CAPACITY cited and batch-4 review window reached; day 21 checkpoint."
+  },
+  {
+    "id": "A154",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "evidence-only",
+    "evidence": [
+      "employees=682",
+      "fit_score=49",
+      "intent=True",
+      "region=US",
+      "consent_hold=False"
+    ],
+    "next_action": "Unsent draft: reference SIG-154-COMPLIANCE in the value-resource follow-up (no send).",
+    "uncertainty": "Derived only from the frozen intake record; no customer facts beyond it.",
+    "follow_up_trigger": "SIG-154-COMPLIANCE cited and batch-4 review window reached; day 21 checkpoint."
+  },
+  {
+    "id": "A155",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=699",
+      "fit_score=62",
+      "intent=True",
+      "region=EU",
+      "consent_hold=False"
+    ],
+    "next_action": "Unsent draft: reference SIG-155-LAUNCH in the value-resource follow-up (no send).",
+    "uncertainty": "Derived only from the frozen intake record; no customer facts beyond it.",
+    "follow_up_trigger": "SIG-155-LAUNCH cited and batch-4 review window reached; day 21 checkpoint."
+  },
+  {
+    "id": "A156",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=716",
+      "fit_score=75",
+      "intent=False",
+      "region=AU",
+      "consent_hold=False"
+    ],
+    "next_action": "Unsent draft: reference SIG-156-MIGRATION in the value-resource follow-up (no send).",
+    "uncertainty": "Derived only from the frozen intake record; no customer facts beyond it.",
+    "follow_up_trigger": "SIG-156-MIGRATION cited and batch-4 review window reached; day 21 checkpoint."
+  },
+  {
+    "id": "A157",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=733",
+      "fit_score=88",
+      "intent=True",
+      "region=US",
+      "consent_hold=False"
+    ],
+    "next_action": "Unsent draft: reference SIG-157-CAPACITY in the discovery follow-up (no send).",
+    "uncertainty": "Derived only from the frozen intake record; no customer facts beyond it.",
+    "follow_up_trigger": "SIG-157-CAPACITY cited and batch-4 review window reached; day 7 checkpoint."
+  },
+  {
+    "id": "A158",
+    "qualification": "disqualify",
+    "disposition": "closed-policy",
+    "action_type": "no-contact",
+    "follow_up_days": 0,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=750",
+      "fit_score=44",
+      "intent=True",
+      "region=Restricted-Zone",
+      "consent_hold=False"
+    ],
+    "next_action": "Unsent draft: reference SIG-158-COMPLIANCE in the no-contact follow-up (no send).",
+    "uncertainty": "Derived only from the frozen intake record; no customer facts beyond it.",
+    "follow_up_trigger": "SIG-158-COMPLIANCE cited and batch-4 review window reached; day 0 checkpoint."
+  },
+  {
+    "id": "A159",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=767",
+      "fit_score=57",
+      "intent=False",
+      "region=AU",
+      "consent_hold=False"
+    ],
+    "next_action": "Unsent draft: reference SIG-159-LAUNCH in the value-resource follow-up (no send).",
+    "uncertainty": "Derived only from the frozen intake record; no customer facts beyond it.",
+    "follow_up_trigger": "SIG-159-LAUNCH cited and batch-4 review window reached; day 21 checkpoint."
+  },
+  {
+    "id": "A160",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=784",
+      "fit_score=70",
+      "intent=True",
+      "region=US",
+      "consent_hold=False"
+    ],
+    "next_action": "Unsent draft: reference SIG-160-MIGRATION in the discovery follow-up (no send).",
+    "uncertainty": "Derived only from the frozen intake record; no customer facts beyond it.",
+    "follow_up_trigger": "SIG-160-MIGRATION cited and batch-4 review window reached; day 7 checkpoint."
+  }
+]

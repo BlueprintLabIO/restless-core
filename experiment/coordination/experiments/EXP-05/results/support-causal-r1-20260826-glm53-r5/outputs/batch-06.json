@@ -1,0 +1,82 @@
+[
+  {
+    "id": "C041",
+    "policy_version": 2,
+    "action": "resolve-standard",
+    "customer_safe_draft": "Hello, we have reviewed your case and applied the standard resolution to your issue.",
+    "system_action_plan": "Verify case details, apply standard resolution steps, close the case with confirmation to the customer.",
+    "next_state": "resolved",
+    "evidence": ["case record C041", "standard-resolution checklist completed"],
+    "uncertainty": "None known; case details were complete and unambiguous."
+  },
+  {
+    "id": "C042",
+    "policy_version": 2,
+    "action": "one-time-credit-review",
+    "customer_safe_draft": "Hello, because your case was received after its coverage window, we are reviewing it for a one-time courtesy credit.",
+    "system_action_plan": "Confirm expiry timing, route to one-time credit review queue, record decision rationale, notify customer of outcome.",
+    "next_state": "credit-review",
+    "evidence": ["case record C042", "arrival timestamp showing expired window", "policy v2 one-time credit rule"],
+    "uncertainty": "Credit approval is not guaranteed; final decision rests with the reviewer."
+  },
+  {
+    "id": "C043",
+    "policy_version": 2,
+    "action": "security-escalation",
+    "customer_safe_draft": "Hello, we take the security concern you reported seriously and have escalated it to our security team.",
+    "system_action_plan": "Contain any suspected exposure, escalate to the security on-call team, preserve logs, follow up with the customer on protective steps.",
+    "next_state": "escalated-security",
+    "evidence": ["case record C043", "security classification with harm weight 10", "escalation ticket created"],
+    "uncertainty": "Full impact assessment pending the security team's investigation."
+  },
+  {
+    "id": "C044",
+    "policy_version": 2,
+    "action": "merge-duplicate",
+    "customer_safe_draft": "Hello, we found that this case duplicates one you already have open, so we have merged them into a single case.",
+    "system_action_plan": "Identify the primary case, merge C044 into it, link all context, confirm no customer-visible information is lost.",
+    "next_state": "merged",
+    "evidence": ["case record C044", "duplicate signal CASE-SIGNAL-044 matched to an existing case", "merge log entry"],
+    "uncertainty": "Assumed duplicate target is the customer's existing open case; confirm the merge target if that assumption is wrong."
+  },
+  {
+    "id": "C045",
+    "policy_version": 2,
+    "action": "priority-human-care-review",
+    "customer_safe_draft": "Hello, given the sensitive nature of your situation, your case has been routed for priority review by our care team.",
+    "system_action_plan": "Flag as vulnerable-customer case under policy v2, assign to priority human care review queue, ensure no automated pressure tactics, document care handling.",
+    "next_state": "priority-care-review",
+    "evidence": ["case record C045", "vulnerable classification with harm weight 10", "policy v2 priority care rule"],
+    "uncertainty": "Care needs assessment outcome is pending reviewer judgement."
+  },
+  {
+    "id": "C046",
+    "policy_version": 2,
+    "action": "identity-verification",
+    "customer_safe_draft": "Hello, before we can act on this request we need to verify your identity through our standard verification steps.",
+    "system_action_plan": "Initiate identity verification workflow, avoid disclosing account details before verification passes, escalate on failure.",
+    "next_state": "identity-verification-pending",
+    "evidence": ["case record C046", "identity classification requiring verification", "verification request issued"],
+    "uncertainty": "Verification result not yet available; no account actions taken before it completes."
+  },
+  {
+    "id": "C047",
+    "policy_version": 2,
+    "action": "billing-investigation",
+    "customer_safe_draft": "Hello, we are investigating the billing question you raised and will follow up with our findings.",
+    "system_action_plan": "Pull billing history for the account, compare against the customer's claim, prepare adjustment or explanation, respond with findings.",
+    "next_state": "billing-investigation",
+    "evidence": ["case record C047", "billing classification", "billing history pulled for review"],
+    "uncertainty": "Outcome depends on the billing records; no credit issued before the investigation concludes."
+  },
+  {
+    "id": "C048",
+    "policy_version": 2,
+    "action": "no-pressure-retention-review",
+    "customer_safe_draft": "Hello, thank you for telling us you are considering leaving. We would like to understand your concerns, with no pressure to stay either way.",
+    "system_action_plan": "Route to retention review under the policy v2 no-pressure rule, gather cancellation reasons, offer help without retention pressure, honour the customer's choice.",
+    "next_state": "retention-review",
+    "evidence": ["case record C048", "retention classification", "policy v2 no-pressure retention rule applied"],
+    "uncertainty": "Final retention outcome depends on the customer's stated preferences."
+  }
+]

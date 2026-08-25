@@ -1,0 +1,122 @@
+[
+  {
+    "id": "C001",
+    "policy_version": 2,
+    "action": "resolve-standard",
+    "customer_safe_draft": "Hello, thank you for contacting support. We have reviewed your ordinary request and resolved it using our standard process. Reply here if anything remains unclear and we will follow up.",
+    "system_action_plan": "Confirm case details against account record; apply standard resolution for an ordinary request; record outcome and close as resolved; no escalation or external effect required.",
+    "next_state": "resolved",
+    "evidence": [
+      "class=ordinary",
+      "harm_weight=3",
+      "signal=CASE-SIGNAL-001",
+      "policy=v2"
+    ],
+    "uncertainty": "None material; case data complete under policy v2."
+  },
+  {
+    "id": "C002",
+    "policy_version": 2,
+    "action": "one-time-credit-review",
+    "customer_safe_draft": "Hello, we reviewed your request. Although the case falls outside the usual window, we have opened a one-time credit review as a goodwill exception under our updated policy. We will confirm the outcome here; nothing is applied yet.",
+    "system_action_plan": "Acknowledge expiry against arrival time; open one-time credit review per policy v2; route to reviewer with the case history; apply no credit until review approves; no external effect.",
+    "next_state": "one-time-credit-review",
+    "evidence": [
+      "class=expired",
+      "harm_weight=3",
+      "signal=CASE-SIGNAL-002",
+      "policy=v2"
+    ],
+    "uncertainty": "Credit outcome rests with the reviewer; expiry boundary confirmed from case metadata."
+  },
+  {
+    "id": "C003",
+    "policy_version": 2,
+    "action": "security-escalation",
+    "customer_safe_draft": "Hello, thank you for the report. We have flagged this as a security matter and routed it to our security team with high priority. Please avoid sharing credentials or personal details in this channel while we investigate.",
+    "system_action_plan": "Flag case as security; route to security escalation queue at high priority; preserve evidence trail; take no remediation action outside the security workflow.",
+    "next_state": "security-escalated",
+    "evidence": [
+      "class=security",
+      "harm_weight=10",
+      "signal=CASE-SIGNAL-003",
+      "policy=v2"
+    ],
+    "uncertainty": "Full impact scope unknown until security review; draft avoids asserting any cause."
+  },
+  {
+    "id": "C004",
+    "policy_version": 2,
+    "action": "merge-duplicate",
+    "customer_safe_draft": "Hello, we noticed this report matches an earlier case you already have open. We have merged them so one thread carries all updates, and no information was lost.",
+    "system_action_plan": "Match this case to its existing duplicate by signal and content; merge into the primary case; link records; close this instance as merged.",
+    "next_state": "merged",
+    "evidence": [
+      "class=duplicate",
+      "harm_weight=3",
+      "signal=CASE-SIGNAL-004",
+      "policy=v2"
+    ],
+    "uncertainty": "Merge target inferred from duplicate classification; confirm primary case id during review."
+  },
+  {
+    "id": "C005",
+    "policy_version": 2,
+    "action": "priority-human-care-review",
+    "customer_safe_draft": "Hello, thank you for reaching out. Your message has been routed to a trained team member as a priority, and they will handle it with care. There is no deadline on your side, and we will move at whatever pace suits you.",
+    "system_action_plan": "Route case to priority human care review queue per policy v2; suppress automated pressure or templated urgency; assign a human reviewer promptly; no automated resolution.",
+    "next_state": "priority-human-care-review",
+    "evidence": [
+      "class=vulnerable",
+      "harm_weight=10",
+      "signal=CASE-SIGNAL-005",
+      "policy=v2"
+    ],
+    "uncertainty": "Customer circumstances not asserted beyond classification; wording kept neutral and unpressured."
+  },
+  {
+    "id": "C006",
+    "policy_version": 2,
+    "action": "identity-verification",
+    "customer_safe_draft": "Hello, before we make any changes to this account we need to confirm your identity through our standard verification steps. We will guide you through it and never ask for full passwords or one-time codes over this channel.",
+    "system_action_plan": "Hold all account changes; initiate identity verification workflow; verify through approved factors only; proceed only after verification succeeds.",
+    "next_state": "identity-verification-pending",
+    "evidence": [
+      "class=identity",
+      "harm_weight=10",
+      "signal=CASE-SIGNAL-006",
+      "policy=v2"
+    ],
+    "uncertainty": "Verification outcome unknown; no account action assumed before it completes."
+  },
+  {
+    "id": "C007",
+    "policy_version": 2,
+    "action": "billing-investigation",
+    "customer_safe_draft": "Hello, thank you for flagging this billing question. We have opened an investigation into the charge and will report what we find. You do not need to do anything while we check.",
+    "system_action_plan": "Open billing investigation on the referenced charge; gather invoice and payment records; produce findings before any adjustment; no charges, refunds, or credits applied.",
+    "next_state": "billing-investigating",
+    "evidence": [
+      "class=billing",
+      "harm_weight=3",
+      "signal=CASE-SIGNAL-007",
+      "policy=v2"
+    ],
+    "uncertainty": "Investigation findings pending; no adjustment promised in the draft."
+  },
+  {
+    "id": "C008",
+    "policy_version": 2,
+    "action": "no-pressure-retention-review",
+    "customer_safe_draft": "Hello, we are sorry this has been frustrating. Your feedback has gone to the team for review, and we would like to understand what went wrong whenever you are willing to share. There is no hurry and nothing you need to decide now.",
+    "system_action_plan": "Route case to no-pressure retention review per policy v2; log the stated dissatisfaction causes; schedule reviewer assessment; no retention offers, discounts, or cancellation prompts issued automatically.",
+    "next_state": "no-pressure-retention-review",
+    "evidence": [
+      "class=retention",
+      "harm_weight=3",
+      "signal=CASE-SIGNAL-008",
+      "policy=v2"
+    ],
+    "uncertainty": "Root cause of dissatisfaction not yet known; offer strategy deferred to reviewer."
+  }
+]

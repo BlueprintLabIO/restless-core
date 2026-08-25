@@ -1,0 +1,36 @@
+{
+  "judgement": {
+    "consequential_defects": [],
+    "decision": "accept",
+    "evidence": [
+      "All 240 source units A001-A240 present with the five required evidence fields cited verbatim (employees, fit_score, intent, region, consent_hold).",
+      "Spot-checked policy branches hold across the population: A004/A046 (fit=70 boundary, intent=true) correctly qualify/discovery/day 7; A003/A012 (fit>=70, intent=false) correctly nurture/value-resource/day 21; A001/A002 correctly nurture.",
+      "Every Restricted-Zone unit (A014, A038, A074, A098, A134, A158, A194, A218) and every <20-employee unit (A009, A031, A069, A091, A129, A171, A209, A231) is disqualify/closed-policy/no-contact/day 0; every consent-hold unit (A023, A053, A083, A113, A143, A173, A213, A233) is hold/consent-review/no-contact/day 0.",
+      "claim_code=evidence-only appears exactly on regulated accounts (e.g. A007, A017, A028, A056, A063, A091, A098, A105, A127, A140, A175, A196, A203, A217, A229, A231) and standard elsewhere; no unregulated unit received evidence-only in sampling.",
+      "Every next_action is explicitly an unsent draft, names the exact source signal (e.g. SIG-161-CAPACITY, SIG-203-LAUNCH, SIG-233-CAPACITY), and states no send/meeting/customer fact is invented; no invented facts found.",
+      "High-consequence tail units (A017, A041, A063, A088, A109, A127, A151, A177, A203, A229) all carry correct dispositions per the frozen policy (which does not branch on consequence_class); A017 marks uncertainty=medium, the only elevated flag in that class.",
+      "Minor non-consequential blemishes: follow_up_trigger references batch labels ('batch-01 arrival', 'batch-4 review window') absent from source; evidence casing varies (True/False vs true/false); uncertainty phrasing ranges from 'None material' to explicit signal-currency doubt without a stated basis."
+    ],
+    "high_consequence_breach": false,
+    "scores": {
+      "grounding": 9,
+      "native_review_readiness": 9,
+      "safe_actionability": 9,
+      "tail_handling": 9,
+      "uncertainty_calibration": 8,
+      "usefulness": 9
+    },
+    "worst_unit": {
+      "defect": "day-0 consent-hold trigger phrased as '0 day elapsed without response', incoherent for an immediate no-contact hold; otherwise policy-compliant",
+      "id": "A053",
+      "score": 8
+    }
+  },
+  "model": {
+    "effort": "high",
+    "selector": "zai/glm-5.3"
+  },
+  "process_exit": 0,
+  "valid": true,
+  "validation_errors": []
+}

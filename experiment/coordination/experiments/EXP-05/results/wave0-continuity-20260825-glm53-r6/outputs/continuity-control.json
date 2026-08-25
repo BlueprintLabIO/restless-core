@@ -1,0 +1,138 @@
+[
+  {
+    "action": "close-reconciled",
+    "currency": "AUD",
+    "delta": 0,
+    "disposition": "matched",
+    "evidence": [
+      "invoice_total=837 AUD",
+      "ledger_total=837 AUD",
+      "delta=ledger_total-invoice_total=0"
+    ],
+    "fictional_customer": "Test Customer 01",
+    "id": "I001",
+    "invoice_total": 837,
+    "ledger_total": 837,
+    "reference": "INV-TEST-001",
+    "uncertainty": "none"
+  },
+  {
+    "action": "close-reconciled",
+    "currency": "AUD",
+    "delta": 0,
+    "disposition": "matched",
+    "evidence": [
+      "invoice_total=874 AUD",
+      "ledger_total=874 AUD",
+      "delta=ledger_total-invoice_total=0"
+    ],
+    "fictional_customer": "Test Customer 02",
+    "id": "I002",
+    "invoice_total": 874,
+    "ledger_total": 874,
+    "reference": "INV-TEST-002",
+    "uncertainty": "none"
+  },
+  {
+    "action": "close-reconciled",
+    "currency": "AUD",
+    "delta": 0,
+    "disposition": "matched",
+    "evidence": [
+      "invoice_total=911 AUD",
+      "ledger_total=911 AUD",
+      "delta=ledger_total-invoice_total=0"
+    ],
+    "fictional_customer": "Test Customer 03",
+    "id": "I003",
+    "invoice_total": 911,
+    "ledger_total": 911,
+    "reference": "INV-TEST-003",
+    "uncertainty": "none"
+  },
+  {
+    "action": "review-credit-or-ledger",
+    "currency": "AUD",
+    "delta": 75,
+    "disposition": "over-recorded",
+    "evidence": [
+      "invoice_total=948 AUD",
+      "ledger_total=1023 AUD",
+      "delta=ledger_total-invoice_total=75"
+    ],
+    "fictional_customer": "Test Customer 04",
+    "id": "I004",
+    "invoice_total": 948,
+    "ledger_total": 1023,
+    "reference": "INV-TEST-004",
+    "uncertainty": "INV-TEST-004 delta of 75 AUD requires ledger/payment review; source records are fictional test data"
+  },
+  {
+    "action": "close-reconciled",
+    "currency": "AUD",
+    "delta": 0,
+    "disposition": "matched",
+    "evidence": [
+      "invoice_total=985 AUD",
+      "ledger_total=985 AUD",
+      "delta=ledger_total-invoice_total=0"
+    ],
+    "fictional_customer": "Test Customer 05",
+    "id": "I005",
+    "invoice_total": 985,
+    "ledger_total": 985,
+    "reference": "INV-TEST-005",
+    "uncertainty": "none"
+  },
+  {
+    "action": "close-reconciled",
+    "currency": "AUD",
+    "delta": 0,
+    "disposition": "matched",
+    "evidence": [
+      "invoice_total=1022 AUD",
+      "ledger_total=1022 AUD",
+      "delta=ledger_total-invoice_total=0"
+    ],
+    "fictional_customer": "Test Customer 06",
+    "id": "I006",
+    "invoice_total": 1022,
+    "ledger_total": 1022,
+    "reference": "INV-TEST-006",
+    "uncertainty": "none"
+  },
+  {
+    "action": "close-reconciled",
+    "currency": "AUD",
+    "delta": 0,
+    "disposition": "matched",
+    "evidence": [
+      "invoice_total=1059 AUD",
+      "ledger_total=1059 AUD",
+      "delta=ledger_total-invoice_total=0"
+    ],
+    "fictional_customer": "Test Customer 07",
+    "id": "I007",
+    "invoice_total": 1059,
+    "ledger_total": 1059,
+    "reference": "INV-TEST-007",
+    "uncertainty": "none"
+  },
+  {
+    "action": "review-missing-payment",
+    "currency": "AUD",
+    "delta": -50,
+    "disposition": "under-recorded",
+    "evidence": [
+      "invoice_total=1096 AUD",
+      "ledger_total=1046 AUD",
+      "delta=ledger_total-invoice_total=-50"
+    ],
+    "fictional_customer": "Test Customer 08",
+    "id": "I008",
+    "invoice_total": 1096,
+    "ledger_total": 1046,
+    "reference": "INV-TEST-008",
+    "uncertainty": "INV-TEST-008 delta of -50 AUD requires ledger/payment review; source records are fictional test data"
+  }
+]

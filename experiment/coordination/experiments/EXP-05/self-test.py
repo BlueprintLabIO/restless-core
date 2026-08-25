@@ -188,6 +188,25 @@ def check_runner_contracts() -> dict[str, bool]:
     runner = importlib.util.module_from_spec(spec)
     sys.modules[spec.name] = runner
     spec.loader.exec_module(runner)
+    analyzer_spec = importlib.util.spec_from_file_location(
+        "exp05_analyzer_test", ROOT / "analyze.py"
+    )
+    if analyzer_spec is None or analyzer_spec.loader is None:
+        raise AssertionError("could not load analyzer")
+    analyzer = importlib.util.module_from_spec(analyzer_spec)
+    sys.modules[analyzer_spec.name] = analyzer
+    analyzer_spec.loader.exec_module(analyzer)
+    authoritative_cost = analyzer.charged_cost_per_unit(
+        {
+            "charged_cost_per_accepted_unit_usd": 0.25,
+            "estimated_list_cost_per_accepted_unit_usd": 0.0,
+            "observed_tokens": 999999,
+        }
+    )
+    if authoritative_cost != 0.25:
+        raise AssertionError("charged metering was replaced by a token/list-price proxy")
+    if analyzer.charged_cost_per_unit({"observed_tokens": 1}) is not None:
+        raise AssertionError("missing charged metering was inferred from token count")
     score_fields = (
         "usefulness", "grounding", "safe_actionability", "tail_handling",
         "uncertainty_calibration", "native_review_readiness",
@@ -329,6 +348,7 @@ def check_runner_contracts() -> dict[str, bool]:
     return {
         "actor_identities_are_product_valid": True,
         "blind_schema_rejects_drift": True,
+        "charged_metering_is_authoritative": True,
         "flat_and_decaying_value_curves_separate": True,
         "overlap_math_is_exact": True,
         "model_session_overlap_is_not_attempt_overlap": True,

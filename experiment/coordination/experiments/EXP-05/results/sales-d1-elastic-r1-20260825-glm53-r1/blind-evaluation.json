@@ -1,0 +1,38 @@
+{
+  "judgement": {
+    "consequential_defects": [
+      "A042: regulated account assigned claim_code=standard instead of evidence-only per frozen policy; the only policy-field breach found across the population"
+    ],
+    "decision": "repair",
+    "evidence": [
+      "All 240 source ids A001-A240 appear exactly once in the candidate with no gaps or duplicates; disposition, action_type and follow_up_days match the frozen policy on systematic cross-checks of every batch",
+      "All eight consent-hold accounts (A023, A053, A083, A113, A143, A173, A213, A233) are correctly held to consent-review/no-contact/day 0",
+      "All Restricted-Zone and sub-20-employee accounts (A009, A031, A069, A091, A129, A171, A209, A231; A014, A038, A074, A098, A134, A158, A194, A218) are disqualified at day 0 with correct rule precedence over fit/intent",
+      "Boundary cases fit=70 with intent=true (A046, A103, A160, A217) correctly qualify at day 7, confirming inclusive >=70 handling, and all other regulate d accounts carry evidence-only except A042",
+      "Every next_action is explicitly unsent and cites the exact signal id; no send, meeting or customer fact is invented anywhere in the packet",
+      "Evidence arrays on every unit cite employees, fit_score, intent, region and consent_hold with values matching the source fixture, including capitalized boolean variants in the A041-A080 batch",
+      "Uncertainty statements are uneven: early batches use boilerplate while later batches genuinely calibrate (intake note is a claim, not an observation), which is adequate but inconsistent"
+    ],
+    "high_consequence_breach": false,
+    "scores": {
+      "grounding": 9,
+      "native_review_readiness": 8,
+      "safe_actionability": 8.5,
+      "tail_handling": 9,
+      "uncertainty_calibration": 8,
+      "usefulness": 9
+    },
+    "worst_unit": {
+      "defect": "source has regulated=true but candidate assigns claim_code=standard; frozen policy requires evidence-only for regulated accounts",
+      "id": "A042",
+      "score": 5
+    }
+  },
+  "model": {
+    "effort": "high",
+    "selector": "zai/glm-5.3"
+  },
+  "process_exit": 0,
+  "valid": true,
+  "validation_errors": []
+}

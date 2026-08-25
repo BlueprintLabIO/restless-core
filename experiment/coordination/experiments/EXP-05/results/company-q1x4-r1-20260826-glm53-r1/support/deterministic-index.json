@@ -1,0 +1,138 @@
+[
+  {
+    "action": "resolve-standard",
+    "customer_safe_draft": "Fictional draft for ordinary case C001: acknowledge the report, confirm expected behavior, and offer the standard resolution.",
+    "evidence": [
+      "inbox/support/batch-01.json row C001 (class=ordinary)",
+      "policy support-v2.md mapping ordinary -> resolve-standard"
+    ],
+    "id": "C001",
+    "next_state": "resolved",
+    "policy_version": 2,
+    "system_action_plan": [
+      "verify case C001 against ordinary handling rules",
+      "apply standard resolution",
+      "close case as resolved"
+    ],
+    "uncertainty": "none; class was explicit in source"
+  },
+  {
+    "action": "one-time-credit-review",
+    "customer_safe_draft": "Fictional draft for expired case C002: confirm the lapse, explain the one-time credit review, and set expectations for the outcome.",
+    "evidence": [
+      "inbox/support/batch-01.json row C002 (class=expired)",
+      "policy support-v2.md mapping expired -> one-time-credit-review"
+    ],
+    "id": "C002",
+    "next_state": "credit-review-pending",
+    "policy_version": 2,
+    "system_action_plan": [
+      "confirm expiry details for C002",
+      "queue one-time credit review",
+      "record review outcome"
+    ],
+    "uncertainty": "credit amount not derivable from source; left to review step"
+  },
+  {
+    "action": "security-escalation",
+    "customer_safe_draft": "Fictional draft for security case C003: acknowledge the security report without sensitive detail and confirm escalation to the security track.",
+    "evidence": [
+      "inbox/support/batch-01.json row C003 (class=security, harm_weight=10)",
+      "policy support-v2.md mapping security -> security-escalation"
+    ],
+    "id": "C003",
+    "next_state": "security-escalated",
+    "policy_version": 2,
+    "system_action_plan": [
+      "flag C003 as security",
+      "escalate to security handling track",
+      "await security track disposition"
+    ],
+    "uncertainty": "none; class was explicit in source"
+  },
+  {
+    "action": "merge-duplicate",
+    "customer_safe_draft": "Fictional draft for duplicate case C004: confirm the duplicate detection and explain the merge into the original case.",
+    "evidence": [
+      "inbox/support/batch-01.json row C004 (class=duplicate)",
+      "policy support-v2.md mapping duplicate -> merge-duplicate"
+    ],
+    "id": "C004",
+    "next_state": "merged",
+    "policy_version": 2,
+    "system_action_plan": [
+      "identify original case for duplicate C004",
+      "merge C004 into original",
+      "link records"
+    ],
+    "uncertainty": "original case id not present in source; merge target resolved at execution"
+  },
+  {
+    "action": "priority-human-care-review",
+    "customer_safe_draft": "Fictional draft for vulnerable case C005: offer a plain-language summary and confirm priority review with a named human carer.",
+    "evidence": [
+      "inbox/support/batch-01.json row C005 (class=vulnerable, harm_weight=10)",
+      "policy support-v2.md mapping vulnerable -> priority-human-care-review"
+    ],
+    "id": "C005",
+    "next_state": "priority-care-review",
+    "policy_version": 2,
+    "system_action_plan": [
+      "mark C005 vulnerable",
+      "route to priority human care review queue",
+      "assign human reviewer"
+    ],
+    "uncertainty": "none; class was explicit in source"
+  },
+  {
+    "action": "identity-verification",
+    "customer_safe_draft": "Fictional draft for identity case C006: explain that identity verification is required before any account change and how to complete it.",
+    "evidence": [
+      "inbox/support/batch-01.json row C006 (class=identity, harm_weight=10)",
+      "policy support-v2.md mapping identity -> identity-verification"
+    ],
+    "id": "C006",
+    "next_state": "identity-verification-pending",
+    "policy_version": 2,
+    "system_action_plan": [
+      "request identity verification for C006",
+      "hold account changes pending verification",
+      "process verification result"
+    ],
+    "uncertainty": "verification method selection is an execution-time step; only requirement is fixed here"
+  },
+  {
+    "action": "billing-investigation",
+    "customer_safe_draft": "Fictional draft for billing case C007: acknowledge the billing question and confirm an investigation of the charge details.",
+    "evidence": [
+      "inbox/support/batch-01.json row C007 (class=billing)",
+      "policy support-v2.md mapping billing -> billing-investigation"
+    ],
+    "id": "C007",
+    "next_state": "billing-investigation-open",
+    "policy_version": 2,
+    "system_action_plan": [
+      "pull billing history for C007",
+      "investigate discrepancy",
+      "report findings and proposed adjustment"
+    ],
+    "uncertainty": "charge records not included in source; investigation scope defined only"
+  },
+  {
+    "action": "no-pressure-retention-review",
+    "customer_safe_draft": "Fictional draft for retention case C008: confirm cancellation is honored if desired, with an optional no-pressure review of options.",
+    "evidence": [
+      "inbox/support/batch-01.json row C008 (class=retention)",
+      "policy support-v2.md mapping retention -> no-pressure-retention-review"
+    ],
+    "id": "C008",
+    "next_state": "retention-review-offered",
+    "policy_version": 2,
+    "system_action_plan": [
+      "honor cancellation preference for C008",
+      "offer optional retention review without pressure",
+      "record customer choice"
+    ],
+    "uncertainty": "customer preference not in source; both outcomes prepared"
+  }
+]

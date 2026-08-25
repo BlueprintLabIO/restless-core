@@ -1,0 +1,722 @@
+[
+  {
+    "id": "A001",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=41",
+      "fit_score=55",
+      "intent=True",
+      "region=US",
+      "consent_hold=False"
+    ],
+    "next_action": "[draft, unsent] value-resource for signal SIG-001-CAPACITY (account A001); no contact made.",
+    "uncertainty": "none; derived mechanically from frozen policy fields",
+    "follow_up_trigger": "day 21 per policy, or earlier owner judgement; nothing sent"
+  },
+  {
+    "id": "A002",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=58",
+      "fit_score=68",
+      "intent=True",
+      "region=EU",
+      "consent_hold=False"
+    ],
+    "next_action": "[draft, unsent] value-resource for signal SIG-002-COMPLIANCE (account A002); no contact made.",
+    "uncertainty": "none; derived mechanically from frozen policy fields",
+    "follow_up_trigger": "day 21 per policy, or earlier owner judgement; nothing sent"
+  },
+  {
+    "id": "A003",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=75",
+      "fit_score=81",
+      "intent=False",
+      "region=AU",
+      "consent_hold=False"
+    ],
+    "next_action": "[draft, unsent] value-resource for signal SIG-003-LAUNCH (account A003); no contact made.",
+    "uncertainty": "none; derived mechanically from frozen policy fields",
+    "follow_up_trigger": "day 21 per policy, or earlier owner judgement; nothing sent"
+  },
+  {
+    "id": "A004",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=92",
+      "fit_score=94",
+      "intent=True",
+      "region=US",
+      "consent_hold=False"
+    ],
+    "next_action": "[draft, unsent] discovery for signal SIG-004-MIGRATION (account A004); no contact made.",
+    "uncertainty": "none; derived mechanically from frozen policy fields",
+    "follow_up_trigger": "day 7 per policy, or earlier owner judgement; nothing sent"
+  },
+  {
+    "id": "A005",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=109",
+      "fit_score=50",
+      "intent=True",
+      "region=EU",
+      "consent_hold=False"
+    ],
+    "next_action": "[draft, unsent] value-resource for signal SIG-005-CAPACITY (account A005); no contact made.",
+    "uncertainty": "none; derived mechanically from frozen policy fields",
+    "follow_up_trigger": "day 21 per policy, or earlier owner judgement; nothing sent"
+  },
+  {
+    "id": "A006",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=126",
+      "fit_score=63",
+      "intent=False",
+      "region=AU",
+      "consent_hold=False"
+    ],
+    "next_action": "[draft, unsent] value-resource for signal SIG-006-COMPLIANCE (account A006); no contact made.",
+    "uncertainty": "none; derived mechanically from frozen policy fields",
+    "follow_up_trigger": "day 21 per policy, or earlier owner judgement; nothing sent"
+  },
+  {
+    "id": "A007",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "evidence-only",
+    "evidence": [
+      "employees=143",
+      "fit_score=76",
+      "intent=True",
+      "region=US",
+      "consent_hold=False"
+    ],
+    "next_action": "[draft, unsent] discovery for signal SIG-007-LAUNCH (account A007); no contact made.",
+    "uncertainty": "none; derived mechanically from frozen policy fields",
+    "follow_up_trigger": "day 7 per policy, or earlier owner judgement; nothing sent"
+  },
+  {
+    "id": "A008",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=160",
+      "fit_score=89",
+      "intent=True",
+      "region=EU",
+      "consent_hold=False"
+    ],
+    "next_action": "[draft, unsent] discovery for signal SIG-008-MIGRATION (account A008); no contact made.",
+    "uncertainty": "none; derived mechanically from frozen policy fields",
+    "follow_up_trigger": "day 7 per policy, or earlier owner judgement; nothing sent"
+  },
+  {
+    "id": "A009",
+    "qualification": "disqualify",
+    "disposition": "closed-policy",
+    "action_type": "no-contact",
+    "follow_up_days": 0,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=12",
+      "fit_score=45",
+      "intent=False",
+      "region=AU",
+      "consent_hold=False"
+    ],
+    "next_action": "[draft, unsent] no-contact for signal SIG-009-CAPACITY (account A009); no contact made.",
+    "uncertainty": "none; derived mechanically from frozen policy fields",
+    "follow_up_trigger": "day 0 per policy, or earlier owner judgement; nothing sent"
+  },
+  {
+    "id": "A010",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=194",
+      "fit_score=58",
+      "intent=True",
+      "region=US",
+      "consent_hold=False"
+    ],
+    "next_action": "[draft, unsent] value-resource for signal SIG-010-COMPLIANCE (account A010); no contact made.",
+    "uncertainty": "none; derived mechanically from frozen policy fields",
+    "follow_up_trigger": "day 21 per policy, or earlier owner judgement; nothing sent"
+  },
+  {
+    "id": "A011",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=211",
+      "fit_score=71",
+      "intent=True",
+      "region=EU",
+      "consent_hold=False"
+    ],
+    "next_action": "[draft, unsent] discovery for signal SIG-011-LAUNCH (account A011); no contact made.",
+    "uncertainty": "none; derived mechanically from frozen policy fields",
+    "follow_up_trigger": "day 7 per policy, or earlier owner judgement; nothing sent"
+  },
+  {
+    "id": "A012",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=228",
+      "fit_score=84",
+      "intent=False",
+      "region=AU",
+      "consent_hold=False"
+    ],
+    "next_action": "[draft, unsent] value-resource for signal SIG-012-MIGRATION (account A012); no contact made.",
+    "uncertainty": "none; derived mechanically from frozen policy fields",
+    "follow_up_trigger": "day 21 per policy, or earlier owner judgement; nothing sent"
+  },
+  {
+    "id": "A013",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=245",
+      "fit_score=97",
+      "intent=True",
+      "region=US",
+      "consent_hold=False"
+    ],
+    "next_action": "[draft, unsent] discovery for signal SIG-013-CAPACITY (account A013); no contact made.",
+    "uncertainty": "none; derived mechanically from frozen policy fields",
+    "follow_up_trigger": "day 7 per policy, or earlier owner judgement; nothing sent"
+  },
+  {
+    "id": "A014",
+    "qualification": "disqualify",
+    "disposition": "closed-policy",
+    "action_type": "no-contact",
+    "follow_up_days": 0,
+    "claim_code": "evidence-only",
+    "evidence": [
+      "employees=262",
+      "fit_score=53",
+      "intent=True",
+      "region=Restricted-Zone",
+      "consent_hold=False"
+    ],
+    "next_action": "[draft, unsent] no-contact for signal SIG-014-COMPLIANCE (account A014); no contact made.",
+    "uncertainty": "none; derived mechanically from frozen policy fields",
+    "follow_up_trigger": "day 0 per policy, or earlier owner judgement; nothing sent"
+  },
+  {
+    "id": "A015",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=279",
+      "fit_score=66",
+      "intent=False",
+      "region=AU",
+      "consent_hold=False"
+    ],
+    "next_action": "[draft, unsent] value-resource for signal SIG-015-LAUNCH (account A015); no contact made.",
+    "uncertainty": "none; derived mechanically from frozen policy fields",
+    "follow_up_trigger": "day 21 per policy, or earlier owner judgement; nothing sent"
+  },
+  {
+    "id": "A016",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=296",
+      "fit_score=79",
+      "intent=True",
+      "region=US",
+      "consent_hold=False"
+    ],
+    "next_action": "[draft, unsent] discovery for signal SIG-016-MIGRATION (account A016); no contact made.",
+    "uncertainty": "none; derived mechanically from frozen policy fields",
+    "follow_up_trigger": "day 7 per policy, or earlier owner judgement; nothing sent"
+  },
+  {
+    "id": "A017",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "evidence-only",
+    "evidence": [
+      "employees=313",
+      "fit_score=92",
+      "intent=True",
+      "region=EU",
+      "consent_hold=False"
+    ],
+    "next_action": "[draft, unsent] discovery for signal SIG-017-CAPACITY (account A017); no contact made.",
+    "uncertainty": "none; derived mechanically from frozen policy fields",
+    "follow_up_trigger": "day 7 per policy, or earlier owner judgement; nothing sent"
+  },
+  {
+    "id": "A018",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=330",
+      "fit_score=48",
+      "intent=False",
+      "region=AU",
+      "consent_hold=False"
+    ],
+    "next_action": "[draft, unsent] value-resource for signal SIG-018-COMPLIANCE (account A018); no contact made.",
+    "uncertainty": "none; derived mechanically from frozen policy fields",
+    "follow_up_trigger": "day 21 per policy, or earlier owner judgement; nothing sent"
+  },
+  {
+    "id": "A019",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=347",
+      "fit_score=61",
+      "intent=True",
+      "region=US",
+      "consent_hold=False"
+    ],
+    "next_action": "[draft, unsent] value-resource for signal SIG-019-LAUNCH (account A019); no contact made.",
+    "uncertainty": "none; derived mechanically from frozen policy fields",
+    "follow_up_trigger": "day 21 per policy, or earlier owner judgement; nothing sent"
+  },
+  {
+    "id": "A020",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=364",
+      "fit_score=74",
+      "intent=True",
+      "region=EU",
+      "consent_hold=False"
+    ],
+    "next_action": "[draft, unsent] discovery for signal SIG-020-MIGRATION (account A020); no contact made.",
+    "uncertainty": "none; derived mechanically from frozen policy fields",
+    "follow_up_trigger": "day 7 per policy, or earlier owner judgement; nothing sent"
+  },
+  {
+    "id": "A021",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "evidence-only",
+    "evidence": [
+      "employees=381",
+      "fit_score=87",
+      "intent=False",
+      "region=AU",
+      "consent_hold=False"
+    ],
+    "next_action": "[draft, unsent] value-resource for signal SIG-021-CAPACITY (account A021); no contact made.",
+    "uncertainty": "none; derived mechanically from frozen policy fields",
+    "follow_up_trigger": "day 21 per policy, or earlier owner judgement; nothing sent"
+  },
+  {
+    "id": "A022",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=398",
+      "fit_score=43",
+      "intent=True",
+      "region=US",
+      "consent_hold=False"
+    ],
+    "next_action": "[draft, unsent] value-resource for signal SIG-022-COMPLIANCE (account A022); no contact made.",
+    "uncertainty": "none; derived mechanically from frozen policy fields",
+    "follow_up_trigger": "day 21 per policy, or earlier owner judgement; nothing sent"
+  },
+  {
+    "id": "A023",
+    "qualification": "hold",
+    "disposition": "consent-review",
+    "action_type": "no-contact",
+    "follow_up_days": 0,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=415",
+      "fit_score=56",
+      "intent=True",
+      "region=EU",
+      "consent_hold=True"
+    ],
+    "next_action": "[draft, unsent] no-contact for signal SIG-023-LAUNCH (account A023); no contact made.",
+    "uncertainty": "none; derived mechanically from frozen policy fields",
+    "follow_up_trigger": "day 0 per policy, or earlier owner judgement; nothing sent"
+  },
+  {
+    "id": "A024",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=432",
+      "fit_score=69",
+      "intent=False",
+      "region=AU",
+      "consent_hold=False"
+    ],
+    "next_action": "[draft, unsent] value-resource for signal SIG-024-MIGRATION (account A024); no contact made.",
+    "uncertainty": "none; derived mechanically from frozen policy fields",
+    "follow_up_trigger": "day 21 per policy, or earlier owner judgement; nothing sent"
+  },
+  {
+    "id": "A025",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=449",
+      "fit_score=82",
+      "intent=True",
+      "region=US",
+      "consent_hold=False"
+    ],
+    "next_action": "[draft, unsent] discovery for signal SIG-025-CAPACITY (account A025); no contact made.",
+    "uncertainty": "none; derived mechanically from frozen policy fields",
+    "follow_up_trigger": "day 7 per policy, or earlier owner judgement; nothing sent"
+  },
+  {
+    "id": "A026",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=466",
+      "fit_score=95",
+      "intent=True",
+      "region=EU",
+      "consent_hold=False"
+    ],
+    "next_action": "[draft, unsent] discovery for signal SIG-026-COMPLIANCE (account A026); no contact made.",
+    "uncertainty": "none; derived mechanically from frozen policy fields",
+    "follow_up_trigger": "day 7 per policy, or earlier owner judgement; nothing sent"
+  },
+  {
+    "id": "A027",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=483",
+      "fit_score=51",
+      "intent=False",
+      "region=AU",
+      "consent_hold=False"
+    ],
+    "next_action": "[draft, unsent] value-resource for signal SIG-027-LAUNCH (account A027); no contact made.",
+    "uncertainty": "none; derived mechanically from frozen policy fields",
+    "follow_up_trigger": "day 21 per policy, or earlier owner judgement; nothing sent"
+  },
+  {
+    "id": "A028",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "evidence-only",
+    "evidence": [
+      "employees=500",
+      "fit_score=64",
+      "intent=True",
+      "region=US",
+      "consent_hold=False"
+    ],
+    "next_action": "[draft, unsent] value-resource for signal SIG-028-MIGRATION (account A028); no contact made.",
+    "uncertainty": "none; derived mechanically from frozen policy fields",
+    "follow_up_trigger": "day 21 per policy, or earlier owner judgement; nothing sent"
+  },
+  {
+    "id": "A029",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=517",
+      "fit_score=77",
+      "intent=True",
+      "region=EU",
+      "consent_hold=False"
+    ],
+    "next_action": "[draft, unsent] discovery for signal SIG-029-CAPACITY (account A029); no contact made.",
+    "uncertainty": "none; derived mechanically from frozen policy fields",
+    "follow_up_trigger": "day 7 per policy, or earlier owner judgement; nothing sent"
+  },
+  {
+    "id": "A030",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=534",
+      "fit_score=90",
+      "intent=False",
+      "region=AU",
+      "consent_hold=False"
+    ],
+    "next_action": "[draft, unsent] value-resource for signal SIG-030-COMPLIANCE (account A030); no contact made.",
+    "uncertainty": "none; derived mechanically from frozen policy fields",
+    "follow_up_trigger": "day 21 per policy, or earlier owner judgement; nothing sent"
+  },
+  {
+    "id": "A031",
+    "qualification": "disqualify",
+    "disposition": "closed-policy",
+    "action_type": "no-contact",
+    "follow_up_days": 0,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=12",
+      "fit_score=46",
+      "intent=True",
+      "region=US",
+      "consent_hold=False"
+    ],
+    "next_action": "[draft, unsent] no-contact for signal SIG-031-LAUNCH (account A031); no contact made.",
+    "uncertainty": "none; derived mechanically from frozen policy fields",
+    "follow_up_trigger": "day 0 per policy, or earlier owner judgement; nothing sent"
+  },
+  {
+    "id": "A032",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=568",
+      "fit_score=59",
+      "intent=True",
+      "region=EU",
+      "consent_hold=False"
+    ],
+    "next_action": "[draft, unsent] value-resource for signal SIG-032-MIGRATION (account A032); no contact made.",
+    "uncertainty": "none; derived mechanically from frozen policy fields",
+    "follow_up_trigger": "day 21 per policy, or earlier owner judgement; nothing sent"
+  },
+  {
+    "id": "A033",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=585",
+      "fit_score=72",
+      "intent=False",
+      "region=AU",
+      "consent_hold=False"
+    ],
+    "next_action": "[draft, unsent] value-resource for signal SIG-033-CAPACITY (account A033); no contact made.",
+    "uncertainty": "none; derived mechanically from frozen policy fields",
+    "follow_up_trigger": "day 21 per policy, or earlier owner judgement; nothing sent"
+  },
+  {
+    "id": "A034",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=602",
+      "fit_score=85",
+      "intent=True",
+      "region=US",
+      "consent_hold=False"
+    ],
+    "next_action": "[draft, unsent] discovery for signal SIG-034-COMPLIANCE (account A034); no contact made.",
+    "uncertainty": "none; derived mechanically from frozen policy fields",
+    "follow_up_trigger": "day 7 per policy, or earlier owner judgement; nothing sent"
+  },
+  {
+    "id": "A035",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "evidence-only",
+    "evidence": [
+      "employees=619",
+      "fit_score=98",
+      "intent=True",
+      "region=EU",
+      "consent_hold=False"
+    ],
+    "next_action": "[draft, unsent] discovery for signal SIG-035-LAUNCH (account A035); no contact made.",
+    "uncertainty": "none; derived mechanically from frozen policy fields",
+    "follow_up_trigger": "day 7 per policy, or earlier owner judgement; nothing sent"
+  },
+  {
+    "id": "A036",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=636",
+      "fit_score=54",
+      "intent=False",
+      "region=AU",
+      "consent_hold=False"
+    ],
+    "next_action": "[draft, unsent] value-resource for signal SIG-036-MIGRATION (account A036); no contact made.",
+    "uncertainty": "none; derived mechanically from frozen policy fields",
+    "follow_up_trigger": "day 21 per policy, or earlier owner judgement; nothing sent"
+  },
+  {
+    "id": "A037",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=653",
+      "fit_score=67",
+      "intent=True",
+      "region=US",
+      "consent_hold=False"
+    ],
+    "next_action": "[draft, unsent] value-resource for signal SIG-037-CAPACITY (account A037); no contact made.",
+    "uncertainty": "none; derived mechanically from frozen policy fields",
+    "follow_up_trigger": "day 21 per policy, or earlier owner judgement; nothing sent"
+  },
+  {
+    "id": "A038",
+    "qualification": "disqualify",
+    "disposition": "closed-policy",
+    "action_type": "no-contact",
+    "follow_up_days": 0,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=670",
+      "fit_score=80",
+      "intent=True",
+      "region=Restricted-Zone",
+      "consent_hold=False"
+    ],
+    "next_action": "[draft, unsent] no-contact for signal SIG-038-COMPLIANCE (account A038); no contact made.",
+    "uncertainty": "none; derived mechanically from frozen policy fields",
+    "follow_up_trigger": "day 0 per policy, or earlier owner judgement; nothing sent"
+  },
+  {
+    "id": "A039",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=687",
+      "fit_score=93",
+      "intent=False",
+      "region=AU",
+      "consent_hold=False"
+    ],
+    "next_action": "[draft, unsent] value-resource for signal SIG-039-LAUNCH (account A039); no contact made.",
+    "uncertainty": "none; derived mechanically from frozen policy fields",
+    "follow_up_trigger": "day 21 per policy, or earlier owner judgement; nothing sent"
+  },
+  {
+    "id": "A040",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=704",
+      "fit_score=49",
+      "intent=True",
+      "region=US",
+      "consent_hold=False"
+    ],
+    "next_action": "[draft, unsent] value-resource for signal SIG-040-MIGRATION (account A040); no contact made.",
+    "uncertainty": "none; derived mechanically from frozen policy fields",
+    "follow_up_trigger": "day 21 per policy, or earlier owner judgement; nothing sent"
+  }
+]

@@ -1,0 +1,122 @@
+[
+ {
+  "id": "C065",
+  "policy_version": 2,
+  "action": "resolve-standard",
+  "customer_safe_draft": "Hello, thank you for contacting support regarding case C065. We reviewed your ordinary request and applied our standard resolution steps. No further action is needed; reply here if anything is still unclear.",
+  "system_action_plan": "Acknowledge CASE-SIGNAL-065, apply standard resolution playbook, confirm fix with customer, close on acknowledgement.",
+  "next_state": "resolved-standard",
+  "evidence": [
+   "class=ordinary",
+   "harm_weight=3",
+   "policy_version=2",
+   "signal=CASE-SIGNAL-065"
+  ],
+  "uncertainty": "No open questions; standard playbook applied."
+ },
+ {
+  "id": "C066",
+  "policy_version": 2,
+  "action": "one-time-credit-review",
+  "customer_safe_draft": "Hello, regarding case C066 your benefit window had lapsed, but under policy v2 we are offering a one-time credit review. We will confirm the outcome shortly; no action is needed from you yet.",
+  "system_action_plan": "Acknowledge CASE-SIGNAL-066, open one-time credit review under policy v2, record decision, close after communicating outcome.",
+  "next_state": "credit-review-complete",
+  "evidence": [
+   "class=expired",
+   "harm_weight=3",
+   "policy_version=2",
+   "signal=CASE-SIGNAL-066"
+  ],
+  "uncertainty": "Assumes one-time credit review applies per policy v2; eligibility confirmed during review."
+ },
+ {
+  "id": "C067",
+  "policy_version": 2,
+  "action": "security-escalation",
+  "customer_safe_draft": "Hello, regarding case C067 we treat this as a security matter and have escalated it to our security team with priority. We will guide you through protective steps; please follow any instructions we send from official channels only.",
+  "system_action_plan": "Acknowledge CASE-SIGNAL-067, escalate to security on-call, contain and investigate, guide customer protective steps, close on containment confirmation.",
+  "next_state": "security-escalated",
+  "evidence": [
+   "class=security",
+   "harm_weight=10",
+   "policy_version=2",
+   "signal=CASE-SIGNAL-067"
+  ],
+  "uncertainty": "Assumes escalation queue accepts immediate routing; containment steps pending security on-call."
+ },
+ {
+  "id": "C068",
+  "policy_version": 2,
+  "action": "merge-duplicate",
+  "customer_safe_draft": "Hello, regarding case C068 we found this duplicates an earlier case already in progress, so we have merged the two. All updates will continue under the original case; no action is needed from you.",
+  "system_action_plan": "Acknowledge CASE-SIGNAL-068, identify original case, merge records into original, notify customer of merged thread, close duplicate.",
+  "next_state": "merged-duplicate",
+  "evidence": [
+   "class=duplicate",
+   "harm_weight=3",
+   "policy_version=2",
+   "signal=CASE-SIGNAL-068"
+  ],
+  "uncertainty": "Assumes the original case is identifiable; merge target confirmed during handling."
+ },
+ {
+  "id": "C069",
+  "policy_version": 2,
+  "action": "priority-human-care-review",
+  "customer_safe_draft": "Hello, regarding case C069 we recognize this may involve a vulnerable situation. Your case has been routed to a priority human care review, and a specialist will follow up with you personally.",
+  "system_action_plan": "Acknowledge CASE-SIGNAL-069, flag priority-human-care-review under policy v2, assign care specialist, schedule follow-up, close after specialist confirms.",
+  "next_state": "priority-care-review-open",
+  "evidence": [
+   "class=vulnerable",
+   "harm_weight=10",
+   "policy_version=2",
+   "signal=CASE-SIGNAL-069"
+  ],
+  "uncertainty": "Assumes care specialist availability; sensitivity details to be confirmed at review."
+ },
+ {
+  "id": "C070",
+  "policy_version": 2,
+  "action": "identity-verification",
+  "customer_safe_draft": "Hello, regarding case C070 we need to confirm your identity before making account changes. We will guide you through a short verification process over official channels; please never share passwords or codes.",
+  "system_action_plan": "Acknowledge CASE-SIGNAL-070, initiate identity-verification flow over official channels, hold account changes until verified, close on verification outcome.",
+  "next_state": "identity-verification-pending",
+  "evidence": [
+   "class=identity",
+   "harm_weight=10",
+   "policy_version=2",
+   "signal=CASE-SIGNAL-070"
+  ],
+  "uncertainty": "Assumes customer completes official-channel verification; no account changes before that."
+ },
+ {
+  "id": "C071",
+  "policy_version": 2,
+  "action": "billing-investigation",
+  "customer_safe_draft": "Hello, regarding case C071 we have opened a billing investigation and will review the charges you flagged. We will report findings and any correction; no payment is required while we investigate.",
+  "system_action_plan": "Acknowledge CASE-SIGNAL-071, open billing investigation, audit flagged charges, apply any correction, close after customer confirmation.",
+  "next_state": "billing-investigation-open",
+  "evidence": [
+   "class=billing",
+   "harm_weight=3",
+   "policy_version=2",
+   "signal=CASE-SIGNAL-071"
+  ],
+  "uncertainty": "Assumes charge details are as flagged; audit outcome may adjust correction."
+ },
+ {
+  "id": "C072",
+  "policy_version": 2,
+  "action": "no-pressure-retention-review",
+  "customer_safe_draft": "Hello, regarding case C072 thank you for letting us know you are considering leaving. Under our no-pressure retention review we will look at what we can fairly improve for you, with no obligation to stay.",
+  "system_action_plan": "Acknowledge CASE-SIGNAL-072, run no-pressure retention review, present fair options without pressure, close on customer decision.",
+  "next_state": "retention-review-complete",
+  "evidence": [
+   "class=retention",
+   "harm_weight=3",
+   "policy_version=2",
+   "signal=CASE-SIGNAL-072"
+  ],
+  "uncertainty": "Assumes no contractual blockers; final offer subject to review."
+ }
+]

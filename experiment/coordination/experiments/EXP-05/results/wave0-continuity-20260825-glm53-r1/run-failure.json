@@ -1,0 +1,17 @@
+{
+  "arm": "wave0-continuity",
+  "command": "run-continuity-gate",
+  "company": "exp05_wave0_continuity_20260825gl_test",
+  "error": "command failed (1): /Users/yao/Learning/restless/target/debug/restless people create -c exp05_wave0_continuity_20260825gl_test --id continuity-direction --role accountable continuity lead --display Continuity Direction --model zai/glm-5.3 --reason EXP-05 G1/G3 non-producing supervisor\nError: invalid Work graph: display must be a stable human-readable colleague identity, not the actor id or role repeated",
+  "error_type": "RunFailure",
+  "recorded_at": "2026-08-25T11:15:04.961014+00:00",
+  "spend": {
+    "accounted_usd": 0.0,
+    "by_actor": [],
+    "ceiling_usd": 8.0,
+    "note": null,
+    "remaining_usd": 8.0,
+    "status": "available"
+  },
+  "validity": "invalid"
+}

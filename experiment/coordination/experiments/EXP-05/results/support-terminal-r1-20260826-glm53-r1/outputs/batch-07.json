@@ -1,0 +1,122 @@
+[
+  {
+    "id": "C049",
+    "policy_version": 2,
+    "action": "resolve-standard",
+    "customer_safe_draft": "Hello, we reviewed case CASE-SIGNAL-049 for your ordinary support request and completed the standard resolution. If anything still looks wrong, reply here and we will reopen it.",
+    "system_action_plan": "Resolve as fictional ordinary case under support policy v2 standard flow: verify summary, apply standard fix, confirm closure, no escalation required.",
+    "next_state": "resolved",
+    "evidence": [
+      "class=ordinary",
+      "harm_weight=3",
+      "arrival_offset_seconds=270",
+      "signal=CASE-SIGNAL-049"
+    ],
+    "uncertainty": "None observed; fictional test case with complete fields."
+  },
+  {
+    "id": "C050",
+    "policy_version": 2,
+    "action": "one-time-credit-review",
+    "customer_safe_draft": "Regarding case 50 (CASE-SIGNAL-050): although the request window has expired, we are reviewing your case for a one-time credit under our updated policy. A reviewer will assess eligibility and follow up with the outcome; no action is needed from you.",
+    "system_action_plan": "Re-verify case under support policy v2; route expired case to one-time credit review queue; reviewer assesses eligibility for a single goodwill credit; record decision and follow up to customer.",
+    "next_state": "escalated",
+    "evidence": [
+      "class=expired",
+      "harm_weight=3",
+      "arrival_offset_seconds=270",
+      "signal=CASE-SIGNAL-050"
+    ],
+    "uncertainty": "None observed; expiry taken from source class label."
+  },
+  {
+    "id": "C051",
+    "policy_version": 2,
+    "action": "security-escalation",
+    "customer_safe_draft": "Hello, we received case CASE-SIGNAL-051 regarding a possible security issue. We have escalated it to our security team with high priority. Please do not share credentials; we will never ask for your password.",
+    "system_action_plan": "Escalate fictional security case to security queue under support policy v2, flag harm_weight 10, no automated resolution.",
+    "next_state": "escalated",
+    "evidence": [
+      "class=security",
+      "harm_weight=10",
+      "arrival_offset_seconds=270",
+      "signal=CASE-SIGNAL-051"
+    ],
+    "uncertainty": "None observed; security class assigned directly by source."
+  },
+  {
+    "id": "C052",
+    "policy_version": 2,
+    "action": "merge-duplicate",
+    "customer_safe_draft": "Hello, case CASE-SIGNAL-052 appears to duplicate an existing request. We have merged it so all updates arrive in one place; no action is needed from you.",
+    "system_action_plan": "Merge fictional duplicate case into its primary under support policy v2, keep single correspondence thread.",
+    "next_state": "merged",
+    "evidence": [
+      "class=duplicate",
+      "harm_weight=3",
+      "arrival_offset_seconds=270",
+      "signal=CASE-SIGNAL-052"
+    ],
+    "uncertainty": "Primary case identifier not present in fictional source; merge recorded by class rule."
+  },
+  {
+    "id": "C053",
+    "policy_version": 2,
+    "action": "priority-human-care-review",
+    "customer_safe_draft": "Thank you for reaching out on case 53 (CASE-SIGNAL-053). We want to make sure you get the right support: your case has been placed in our priority human care review queue, and a trained team member will review it personally and follow up with care.",
+    "system_action_plan": "Re-verify case under support policy v2; flag potentially vulnerable customer; route to priority human care review queue ahead of standard queue; suppress automated retention or upsell scripts; assign trained reviewer to respond personally.",
+    "next_state": "human-review",
+    "evidence": [
+      "class=vulnerable",
+      "harm_weight=10",
+      "arrival_offset_seconds=270",
+      "signal=CASE-SIGNAL-053"
+    ],
+    "uncertainty": "None observed; vulnerable class assigned directly by source."
+  },
+  {
+    "id": "C054",
+    "policy_version": 2,
+    "action": "identity-verification",
+    "customer_safe_draft": "Hello, case CASE-SIGNAL-054 requires us to confirm your identity before proceeding. We will verify you through secure in-app steps only; we will never ask for your full password or codes by message.",
+    "system_action_plan": "Start identity verification flow for fictional identity case under support policy v2 before any account action.",
+    "next_state": "verification",
+    "evidence": [
+      "class=identity",
+      "harm_weight=10",
+      "arrival_offset_seconds=270",
+      "signal=CASE-SIGNAL-054"
+    ],
+    "uncertainty": "Verification channel details are fictional; no real verification performed."
+  },
+  {
+    "id": "C055",
+    "policy_version": 2,
+    "action": "billing-investigation",
+    "customer_safe_draft": "Hello, we are investigating the billing question in case CASE-SIGNAL-055. We will review the fictional charge details and return with a clear explanation and any correction owed.",
+    "system_action_plan": "Open billing investigation for fictional billing case under support policy v2, reconcile records, report findings before any credit.",
+    "next_state": "investigating",
+    "evidence": [
+      "class=billing",
+      "harm_weight=3",
+      "arrival_offset_seconds=270",
+      "signal=CASE-SIGNAL-055"
+    ],
+    "uncertainty": "No charge records exist in the fictional source; investigation outcome placeholder."
+  },
+  {
+    "id": "C056",
+    "policy_version": 2,
+    "action": "no-pressure-retention-review",
+    "customer_safe_draft": "We understand you are considering leaving regarding case 56 (CASE-SIGNAL-056). Your case has been routed to our no-pressure retention review: a specialist will review your account and share options only if helpful — whatever you decide, we will respect it.",
+    "system_action_plan": "Re-verify case under support policy v2; route to no-pressure retention review queue; review account history and cancellation reasons; prepare retention options with explicit no-pressure guardrails; specialist outreach without pressure tactics or aggressive scripts.",
+    "next_state": "review",
+    "evidence": [
+      "class=retention",
+      "harm_weight=3",
+      "arrival_offset_seconds=270",
+      "signal=CASE-SIGNAL-056"
+    ],
+    "uncertainty": "None observed; retention class assigned directly by source."
+  }
+]

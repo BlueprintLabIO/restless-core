@@ -1,0 +1,722 @@
+[
+  {
+    "id": "A041",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "evidence-only",
+    "evidence": [
+      "employees=721",
+      "fit_score=62",
+      "intent=True",
+      "region=EU",
+      "consent_hold=False"
+    ],
+    "next_action": "Unsent draft: value-resource for Fictional Meridian 041 referencing SIG-041-CAPACITY (The fictional intake explicitly mentioned capacity pressure.)",
+    "uncertainty": "Fictional _test dossier; no live customer contact attempted.",
+    "follow_up_trigger": "Day 21 internal review trigger for A041 based on SIG-041-CAPACITY."
+  },
+  {
+    "id": "A042",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "evidence-only",
+    "evidence": [
+      "employees=738",
+      "fit_score=75",
+      "intent=False",
+      "region=AU",
+      "consent_hold=False"
+    ],
+    "next_action": "Unsent draft: value-resource for Fictional Meridian 042 referencing SIG-042-COMPLIANCE (The fictional intake explicitly mentioned compliance review.)",
+    "uncertainty": "Fictional _test dossier; no live customer contact attempted.",
+    "follow_up_trigger": "Day 21 internal review trigger for A042 based on SIG-042-COMPLIANCE."
+  },
+  {
+    "id": "A043",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=755",
+      "fit_score=88",
+      "intent=True",
+      "region=US",
+      "consent_hold=False"
+    ],
+    "next_action": "Unsent draft: discovery for Fictional Meridian 043 referencing SIG-043-LAUNCH (The fictional intake explicitly mentioned a new launch.)",
+    "uncertainty": "Fictional _test dossier; no live customer contact attempted.",
+    "follow_up_trigger": "Day 7 internal review trigger for A043 based on SIG-043-LAUNCH."
+  },
+  {
+    "id": "A044",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=772",
+      "fit_score=44",
+      "intent=True",
+      "region=EU",
+      "consent_hold=False"
+    ],
+    "next_action": "Unsent draft: value-resource for Fictional Meridian 044 referencing SIG-044-MIGRATION (The fictional intake explicitly mentioned migration timing.)",
+    "uncertainty": "Fictional _test dossier; no live customer contact attempted.",
+    "follow_up_trigger": "Day 21 internal review trigger for A044 based on SIG-044-MIGRATION."
+  },
+  {
+    "id": "A045",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=789",
+      "fit_score=57",
+      "intent=False",
+      "region=AU",
+      "consent_hold=False"
+    ],
+    "next_action": "Unsent draft: value-resource for Fictional Meridian 045 referencing SIG-045-CAPACITY (The fictional intake explicitly mentioned capacity pressure.)",
+    "uncertainty": "Fictional _test dossier; no live customer contact attempted.",
+    "follow_up_trigger": "Day 21 internal review trigger for A045 based on SIG-045-CAPACITY."
+  },
+  {
+    "id": "A046",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=806",
+      "fit_score=70",
+      "intent=True",
+      "region=US",
+      "consent_hold=False"
+    ],
+    "next_action": "Unsent draft: discovery for Fictional Meridian 046 referencing SIG-046-COMPLIANCE (The fictional intake explicitly mentioned compliance review.)",
+    "uncertainty": "Fictional _test dossier; no live customer contact attempted.",
+    "follow_up_trigger": "Day 7 internal review trigger for A046 based on SIG-046-COMPLIANCE."
+  },
+  {
+    "id": "A047",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=823",
+      "fit_score=83",
+      "intent=True",
+      "region=EU",
+      "consent_hold=False"
+    ],
+    "next_action": "Unsent draft: discovery for Fictional Meridian 047 referencing SIG-047-LAUNCH (The fictional intake explicitly mentioned a new launch.)",
+    "uncertainty": "Fictional _test dossier; no live customer contact attempted.",
+    "follow_up_trigger": "Day 7 internal review trigger for A047 based on SIG-047-LAUNCH."
+  },
+  {
+    "id": "A048",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=840",
+      "fit_score=96",
+      "intent=False",
+      "region=AU",
+      "consent_hold=False"
+    ],
+    "next_action": "Unsent draft: value-resource for Fictional Meridian 048 referencing SIG-048-MIGRATION (The fictional intake explicitly mentioned migration timing.)",
+    "uncertainty": "Fictional _test dossier; no live customer contact attempted.",
+    "follow_up_trigger": "Day 21 internal review trigger for A048 based on SIG-048-MIGRATION."
+  },
+  {
+    "id": "A049",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "evidence-only",
+    "evidence": [
+      "employees=857",
+      "fit_score=52",
+      "intent=True",
+      "region=US",
+      "consent_hold=False"
+    ],
+    "next_action": "Unsent draft: value-resource for Fictional Meridian 049 referencing SIG-049-CAPACITY (The fictional intake explicitly mentioned capacity pressure.)",
+    "uncertainty": "Fictional _test dossier; no live customer contact attempted.",
+    "follow_up_trigger": "Day 21 internal review trigger for A049 based on SIG-049-CAPACITY."
+  },
+  {
+    "id": "A050",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=874",
+      "fit_score=65",
+      "intent=True",
+      "region=EU",
+      "consent_hold=False"
+    ],
+    "next_action": "Unsent draft: value-resource for Fictional Meridian 050 referencing SIG-050-COMPLIANCE (The fictional intake explicitly mentioned compliance review.)",
+    "uncertainty": "Fictional _test dossier; no live customer contact attempted.",
+    "follow_up_trigger": "Day 21 internal review trigger for A050 based on SIG-050-COMPLIANCE."
+  },
+  {
+    "id": "A051",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=891",
+      "fit_score=78",
+      "intent=False",
+      "region=AU",
+      "consent_hold=False"
+    ],
+    "next_action": "Unsent draft: value-resource for Fictional Meridian 051 referencing SIG-051-LAUNCH (The fictional intake explicitly mentioned a new launch.)",
+    "uncertainty": "Fictional _test dossier; no live customer contact attempted.",
+    "follow_up_trigger": "Day 21 internal review trigger for A051 based on SIG-051-LAUNCH."
+  },
+  {
+    "id": "A052",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=908",
+      "fit_score=91",
+      "intent=True",
+      "region=US",
+      "consent_hold=False"
+    ],
+    "next_action": "Unsent draft: discovery for Fictional Meridian 052 referencing SIG-052-MIGRATION (The fictional intake explicitly mentioned migration timing.)",
+    "uncertainty": "Fictional _test dossier; no live customer contact attempted.",
+    "follow_up_trigger": "Day 7 internal review trigger for A052 based on SIG-052-MIGRATION."
+  },
+  {
+    "id": "A053",
+    "qualification": "hold",
+    "disposition": "consent-review",
+    "action_type": "no-contact",
+    "follow_up_days": 0,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=925",
+      "fit_score=47",
+      "intent=True",
+      "region=EU",
+      "consent_hold=True"
+    ],
+    "next_action": "Unsent draft: no-contact for Fictional Meridian 053 referencing SIG-053-CAPACITY (The fictional intake explicitly mentioned capacity pressure.)",
+    "uncertainty": "Fictional _test dossier; no live customer contact attempted.",
+    "follow_up_trigger": "Day 0 internal review trigger for A053 based on SIG-053-CAPACITY."
+  },
+  {
+    "id": "A054",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=942",
+      "fit_score=60",
+      "intent=False",
+      "region=AU",
+      "consent_hold=False"
+    ],
+    "next_action": "Unsent draft: value-resource for Fictional Meridian 054 referencing SIG-054-COMPLIANCE (The fictional intake explicitly mentioned compliance review.)",
+    "uncertainty": "Fictional _test dossier; no live customer contact attempted.",
+    "follow_up_trigger": "Day 21 internal review trigger for A054 based on SIG-054-COMPLIANCE."
+  },
+  {
+    "id": "A055",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=959",
+      "fit_score=73",
+      "intent=True",
+      "region=US",
+      "consent_hold=False"
+    ],
+    "next_action": "Unsent draft: discovery for Fictional Meridian 055 referencing SIG-055-LAUNCH (The fictional intake explicitly mentioned a new launch.)",
+    "uncertainty": "Fictional _test dossier; no live customer contact attempted.",
+    "follow_up_trigger": "Day 7 internal review trigger for A055 based on SIG-055-LAUNCH."
+  },
+  {
+    "id": "A056",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "evidence-only",
+    "evidence": [
+      "employees=976",
+      "fit_score=86",
+      "intent=True",
+      "region=EU",
+      "consent_hold=False"
+    ],
+    "next_action": "Unsent draft: discovery for Fictional Meridian 056 referencing SIG-056-MIGRATION (The fictional intake explicitly mentioned migration timing.)",
+    "uncertainty": "Fictional _test dossier; no live customer contact attempted.",
+    "follow_up_trigger": "Day 7 internal review trigger for A056 based on SIG-056-MIGRATION."
+  },
+  {
+    "id": "A057",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=993",
+      "fit_score=42",
+      "intent=False",
+      "region=AU",
+      "consent_hold=False"
+    ],
+    "next_action": "Unsent draft: value-resource for Fictional Meridian 057 referencing SIG-057-CAPACITY (The fictional intake explicitly mentioned capacity pressure.)",
+    "uncertainty": "Fictional _test dossier; no live customer contact attempted.",
+    "follow_up_trigger": "Day 21 internal review trigger for A057 based on SIG-057-CAPACITY."
+  },
+  {
+    "id": "A058",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=30",
+      "fit_score=55",
+      "intent=True",
+      "region=US",
+      "consent_hold=False"
+    ],
+    "next_action": "Unsent draft: value-resource for Fictional Meridian 058 referencing SIG-058-COMPLIANCE (The fictional intake explicitly mentioned compliance review.)",
+    "uncertainty": "Fictional _test dossier; no live customer contact attempted.",
+    "follow_up_trigger": "Day 21 internal review trigger for A058 based on SIG-058-COMPLIANCE."
+  },
+  {
+    "id": "A059",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=47",
+      "fit_score=68",
+      "intent=True",
+      "region=EU",
+      "consent_hold=False"
+    ],
+    "next_action": "Unsent draft: value-resource for Fictional Meridian 059 referencing SIG-059-LAUNCH (The fictional intake explicitly mentioned a new launch.)",
+    "uncertainty": "Fictional _test dossier; no live customer contact attempted.",
+    "follow_up_trigger": "Day 21 internal review trigger for A059 based on SIG-059-LAUNCH."
+  },
+  {
+    "id": "A060",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=64",
+      "fit_score=81",
+      "intent=False",
+      "region=AU",
+      "consent_hold=False"
+    ],
+    "next_action": "Unsent draft: value-resource for Fictional Meridian 060 referencing SIG-060-MIGRATION (The fictional intake explicitly mentioned migration timing.)",
+    "uncertainty": "Fictional _test dossier; no live customer contact attempted.",
+    "follow_up_trigger": "Day 21 internal review trigger for A060 based on SIG-060-MIGRATION."
+  },
+  {
+    "id": "A061",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=81",
+      "fit_score=94",
+      "intent=True",
+      "region=US",
+      "consent_hold=False"
+    ],
+    "next_action": "Unsent draft: discovery for Fictional Meridian 061 referencing SIG-061-CAPACITY (The fictional intake explicitly mentioned capacity pressure.)",
+    "uncertainty": "Fictional _test dossier; no live customer contact attempted.",
+    "follow_up_trigger": "Day 7 internal review trigger for A061 based on SIG-061-CAPACITY."
+  },
+  {
+    "id": "A062",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=98",
+      "fit_score=50",
+      "intent=True",
+      "region=EU",
+      "consent_hold=False"
+    ],
+    "next_action": "Unsent draft: value-resource for Fictional Meridian 062 referencing SIG-062-COMPLIANCE (The fictional intake explicitly mentioned compliance review.)",
+    "uncertainty": "Fictional _test dossier; no live customer contact attempted.",
+    "follow_up_trigger": "Day 21 internal review trigger for A062 based on SIG-062-COMPLIANCE."
+  },
+  {
+    "id": "A063",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "evidence-only",
+    "evidence": [
+      "employees=115",
+      "fit_score=63",
+      "intent=False",
+      "region=AU",
+      "consent_hold=False"
+    ],
+    "next_action": "Unsent draft: value-resource for Fictional Meridian 063 referencing SIG-063-LAUNCH (The fictional intake explicitly mentioned a new launch.)",
+    "uncertainty": "Fictional _test dossier; no live customer contact attempted.",
+    "follow_up_trigger": "Day 21 internal review trigger for A063 based on SIG-063-LAUNCH."
+  },
+  {
+    "id": "A064",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=132",
+      "fit_score=76",
+      "intent=True",
+      "region=US",
+      "consent_hold=False"
+    ],
+    "next_action": "Unsent draft: discovery for Fictional Meridian 064 referencing SIG-064-MIGRATION (The fictional intake explicitly mentioned migration timing.)",
+    "uncertainty": "Fictional _test dossier; no live customer contact attempted.",
+    "follow_up_trigger": "Day 7 internal review trigger for A064 based on SIG-064-MIGRATION."
+  },
+  {
+    "id": "A065",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=149",
+      "fit_score=89",
+      "intent=True",
+      "region=EU",
+      "consent_hold=False"
+    ],
+    "next_action": "Unsent draft: discovery for Fictional Meridian 065 referencing SIG-065-CAPACITY (The fictional intake explicitly mentioned capacity pressure.)",
+    "uncertainty": "Fictional _test dossier; no live customer contact attempted.",
+    "follow_up_trigger": "Day 7 internal review trigger for A065 based on SIG-065-CAPACITY."
+  },
+  {
+    "id": "A066",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=166",
+      "fit_score=45",
+      "intent=False",
+      "region=AU",
+      "consent_hold=False"
+    ],
+    "next_action": "Unsent draft: value-resource for Fictional Meridian 066 referencing SIG-066-COMPLIANCE (The fictional intake explicitly mentioned compliance review.)",
+    "uncertainty": "Fictional _test dossier; no live customer contact attempted.",
+    "follow_up_trigger": "Day 21 internal review trigger for A066 based on SIG-066-COMPLIANCE."
+  },
+  {
+    "id": "A067",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=183",
+      "fit_score=58",
+      "intent=True",
+      "region=US",
+      "consent_hold=False"
+    ],
+    "next_action": "Unsent draft: value-resource for Fictional Meridian 067 referencing SIG-067-LAUNCH (The fictional intake explicitly mentioned a new launch.)",
+    "uncertainty": "Fictional _test dossier; no live customer contact attempted.",
+    "follow_up_trigger": "Day 21 internal review trigger for A067 based on SIG-067-LAUNCH."
+  },
+  {
+    "id": "A068",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=200",
+      "fit_score=71",
+      "intent=True",
+      "region=EU",
+      "consent_hold=False"
+    ],
+    "next_action": "Unsent draft: discovery for Fictional Meridian 068 referencing SIG-068-MIGRATION (The fictional intake explicitly mentioned migration timing.)",
+    "uncertainty": "Fictional _test dossier; no live customer contact attempted.",
+    "follow_up_trigger": "Day 7 internal review trigger for A068 based on SIG-068-MIGRATION."
+  },
+  {
+    "id": "A069",
+    "qualification": "disqualify",
+    "disposition": "closed-policy",
+    "action_type": "no-contact",
+    "follow_up_days": 0,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=12",
+      "fit_score=84",
+      "intent=False",
+      "region=AU",
+      "consent_hold=False"
+    ],
+    "next_action": "Unsent draft: no-contact for Fictional Meridian 069 referencing SIG-069-CAPACITY (The fictional intake explicitly mentioned capacity pressure.)",
+    "uncertainty": "Fictional _test dossier; no live customer contact attempted.",
+    "follow_up_trigger": "Day 0 internal review trigger for A069 based on SIG-069-CAPACITY."
+  },
+  {
+    "id": "A070",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "evidence-only",
+    "evidence": [
+      "employees=234",
+      "fit_score=97",
+      "intent=True",
+      "region=US",
+      "consent_hold=False"
+    ],
+    "next_action": "Unsent draft: discovery for Fictional Meridian 070 referencing SIG-070-COMPLIANCE (The fictional intake explicitly mentioned compliance review.)",
+    "uncertainty": "Fictional _test dossier; no live customer contact attempted.",
+    "follow_up_trigger": "Day 7 internal review trigger for A070 based on SIG-070-COMPLIANCE."
+  },
+  {
+    "id": "A071",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=251",
+      "fit_score=53",
+      "intent=True",
+      "region=EU",
+      "consent_hold=False"
+    ],
+    "next_action": "Unsent draft: value-resource for Fictional Meridian 071 referencing SIG-071-LAUNCH (The fictional intake explicitly mentioned a new launch.)",
+    "uncertainty": "Fictional _test dossier; no live customer contact attempted.",
+    "follow_up_trigger": "Day 21 internal review trigger for A071 based on SIG-071-LAUNCH."
+  },
+  {
+    "id": "A072",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=268",
+      "fit_score=66",
+      "intent=False",
+      "region=AU",
+      "consent_hold=False"
+    ],
+    "next_action": "Unsent draft: value-resource for Fictional Meridian 072 referencing SIG-072-MIGRATION (The fictional intake explicitly mentioned migration timing.)",
+    "uncertainty": "Fictional _test dossier; no live customer contact attempted.",
+    "follow_up_trigger": "Day 21 internal review trigger for A072 based on SIG-072-MIGRATION."
+  },
+  {
+    "id": "A073",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=285",
+      "fit_score=79",
+      "intent=True",
+      "region=US",
+      "consent_hold=False"
+    ],
+    "next_action": "Unsent draft: discovery for Fictional Meridian 073 referencing SIG-073-CAPACITY (The fictional intake explicitly mentioned capacity pressure.)",
+    "uncertainty": "Fictional _test dossier; no live customer contact attempted.",
+    "follow_up_trigger": "Day 7 internal review trigger for A073 based on SIG-073-CAPACITY."
+  },
+  {
+    "id": "A074",
+    "qualification": "disqualify",
+    "disposition": "closed-policy",
+    "action_type": "no-contact",
+    "follow_up_days": 0,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=302",
+      "fit_score=92",
+      "intent=True",
+      "region=Restricted-Zone",
+      "consent_hold=False"
+    ],
+    "next_action": "Unsent draft: no-contact for Fictional Meridian 074 referencing SIG-074-COMPLIANCE (The fictional intake explicitly mentioned compliance review.)",
+    "uncertainty": "Fictional _test dossier; no live customer contact attempted.",
+    "follow_up_trigger": "Day 0 internal review trigger for A074 based on SIG-074-COMPLIANCE."
+  },
+  {
+    "id": "A075",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=319",
+      "fit_score=48",
+      "intent=False",
+      "region=AU",
+      "consent_hold=False"
+    ],
+    "next_action": "Unsent draft: value-resource for Fictional Meridian 075 referencing SIG-075-LAUNCH (The fictional intake explicitly mentioned a new launch.)",
+    "uncertainty": "Fictional _test dossier; no live customer contact attempted.",
+    "follow_up_trigger": "Day 21 internal review trigger for A075 based on SIG-075-LAUNCH."
+  },
+  {
+    "id": "A076",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=336",
+      "fit_score=61",
+      "intent=True",
+      "region=US",
+      "consent_hold=False"
+    ],
+    "next_action": "Unsent draft: value-resource for Fictional Meridian 076 referencing SIG-076-MIGRATION (The fictional intake explicitly mentioned migration timing.)",
+    "uncertainty": "Fictional _test dossier; no live customer contact attempted.",
+    "follow_up_trigger": "Day 21 internal review trigger for A076 based on SIG-076-MIGRATION."
+  },
+  {
+    "id": "A077",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "evidence-only",
+    "evidence": [
+      "employees=353",
+      "fit_score=74",
+      "intent=True",
+      "region=EU",
+      "consent_hold=False"
+    ],
+    "next_action": "Unsent draft: discovery for Fictional Meridian 077 referencing SIG-077-CAPACITY (The fictional intake explicitly mentioned capacity pressure.)",
+    "uncertainty": "Fictional _test dossier; no live customer contact attempted.",
+    "follow_up_trigger": "Day 7 internal review trigger for A077 based on SIG-077-CAPACITY."
+  },
+  {
+    "id": "A078",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=370",
+      "fit_score=87",
+      "intent=False",
+      "region=AU",
+      "consent_hold=False"
+    ],
+    "next_action": "Unsent draft: value-resource for Fictional Meridian 078 referencing SIG-078-COMPLIANCE (The fictional intake explicitly mentioned compliance review.)",
+    "uncertainty": "Fictional _test dossier; no live customer contact attempted.",
+    "follow_up_trigger": "Day 21 internal review trigger for A078 based on SIG-078-COMPLIANCE."
+  },
+  {
+    "id": "A079",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=387",
+      "fit_score=43",
+      "intent=True",
+      "region=US",
+      "consent_hold=False"
+    ],
+    "next_action": "Unsent draft: value-resource for Fictional Meridian 079 referencing SIG-079-LAUNCH (The fictional intake explicitly mentioned a new launch.)",
+    "uncertainty": "Fictional _test dossier; no live customer contact attempted.",
+    "follow_up_trigger": "Day 21 internal review trigger for A079 based on SIG-079-LAUNCH."
+  },
+  {
+    "id": "A080",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=404",
+      "fit_score=56",
+      "intent=True",
+      "region=EU",
+      "consent_hold=False"
+    ],
+    "next_action": "Unsent draft: value-resource for Fictional Meridian 080 referencing SIG-080-MIGRATION (The fictional intake explicitly mentioned migration timing.)",
+    "uncertainty": "Fictional _test dossier; no live customer contact attempted.",
+    "follow_up_trigger": "Day 21 internal review trigger for A080 based on SIG-080-MIGRATION."
+  }
+]

@@ -1,0 +1,809 @@
+[
+  {
+    "actor_id": "exec",
+    "body": {
+      "failovers": [],
+      "model": "zai/glm-5.3",
+      "reason": "Both EXP-05 artifacts produced by Staff, lead-reviewed, and independently re-validated by Exec; owner briefed; no remaining gate in the charter's outcome contract.",
+      "termination": "outcome_met",
+      "tool_calls": 4
+    },
+    "created_at": "2026-08-25T11:44:53.935345Z",
+    "id": 42,
+    "kind": "wake_end"
+  },
+  {
+    "actor_id": "exec",
+    "body": {
+      "billing": "metered_api",
+      "charged_cost_source": "host_model_relay",
+      "configured_effort": "medium",
+      "context_size": 1000000,
+      "context_used_pct": 1,
+      "cost_semantics": "acp_cumulative_minus_persisted_session_baseline_noncanonical",
+      "cost_usd": 0.03377168,
+      "estimated_list_cost_usd": null,
+      "model": "zai/glm-5.3",
+      "reported_turn_cost_usd": 0.03377168,
+      "tokens": 17145,
+      "unpriced_provider_refusal": false
+    },
+    "created_at": "2026-08-25T11:44:53.933644Z",
+    "id": 41,
+    "kind": "turn_usage"
+  },
+  {
+    "actor_id": "continuity-direction",
+    "body": {
+      "attempt": 1,
+      "configured_effort": "medium",
+      "model": "zai/glm-5.3"
+    },
+    "created_at": "2026-08-25T11:44:08.664403Z",
+    "id": 40,
+    "kind": "model_attempt"
+  },
+  {
+    "actor_id": "exec",
+    "body": {
+      "configured_effort": "medium",
+      "fresh_process_capability": true,
+      "launch_id": "bdbcf2eb9ac944a89af81d60015ba0bf",
+      "model": "zai/glm-5.3",
+      "reconstructed": false,
+      "reconstruction_reason": null,
+      "resumed": true,
+      "session_id": "01a038b7-5bf0-7000-9327-1f7b49811c99",
+      "tool_contract_digest": "58e108061e02519d863a9aefcb04e894b0fc905cfcc9182627a58aa5488a9e79"
+    },
+    "created_at": "2026-08-25T11:44:08.427986Z",
+    "id": 39,
+    "kind": "model_session_ready"
+  },
+  {
+    "actor_id": "continuity-direction",
+    "body": {
+      "reason": "Both EXP-05 artifacts are complete and independently verified. The target artifact carries exactly the one-key marker contract (EXP05-CONTINUITY-V2), and the control reconciliation covers all 8 operations \u2014 6 matched, I004 over-recorded by 75 AUD, I008 under-recorded by 50 AUD, each with per-row evidence and uncertainty. I re-ran both validators myself read-only; both returned valid, and each artifact is linked to its Staff attempt as an attributable review target. No external effects occurred anywhere. I've sent the single G1/G3 judgement to Exec: charter outcome met with attributable Staff production on both arms; the team is ready to stand down.\n\n<!--restless-details:{\"markdown\":\"- Target: Work b13af8c5 (continuity-worker, attempt 54ea9bf2), gate re-run `validate-marker.py` \u2192 `{\\\"marker\\\":\\\"EXP05-CONTINUITY-V2\\\",\\\"valid\\\":true}`\\n- Control: Work 919264d5 (continuity-control, attempt ac12489d), gate re-run `validate-visible.py operations \u2026 --progress \u2026` \u2192 `{\\\"domain\\\":\\\"operations\\\",\\\"units\\\":8,\\\"valid\\\":true}`\\n- Judgement message to Exec: id 7\"}-->\n<!--restless-intent:{\"kind\":\"conversation\",\"summary\":\"Both EXP-05 Staff artifacts natively verified valid; G1/G3 judgement sent to Exec; no external effects.\"}-->",
+      "termination": "outcome_met"
+    },
+    "created_at": "2026-08-25T11:44:07.340769Z",
+    "id": 38,
+    "kind": "actor_wake_end"
+  },
+  {
+    "actor_id": "continuity-direction",
+    "body": {
+      "billing": "metered_api",
+      "charged_cost_source": "host_model_relay",
+      "configured_effort": "medium",
+      "context_size": 1000000,
+      "context_used_pct": 1,
+      "cost_semantics": "acp_cumulative_minus_persisted_session_baseline_noncanonical",
+      "cost_usd": 0.044369839999999994,
+      "estimated_list_cost_usd": null,
+      "model": "zai/glm-5.3",
+      "reported_turn_cost_usd": 0.044369839999999994,
+      "tokens": 16946,
+      "tokens_in_context": 16946,
+      "unpriced_provider_refusal": false,
+      "usage_semantics": "final_context_snapshot_and_per_wake_cost_delta"
+    },
+    "created_at": "2026-08-25T11:44:07.337900Z",
+    "id": 37,
+    "kind": "turn_usage"
+  },
+  {
+    "actor_id": "exec",
+    "body": {
+      "attempt": 1,
+      "configured_effort": "medium",
+      "model": "zai/glm-5.3"
+    },
+    "created_at": "2026-08-25T11:43:55.616848Z",
+    "id": 36,
+    "kind": "model_attempt"
+  },
+  {
+    "actor_id": "exec",
+    "body": {
+      "context_digest": "aa9d0a6bd46e3daaae3439679e9384e65cb48ffffb9c291c96d3aa39b5f57bec",
+      "model_candidates": [
+        "zai/glm-5.3"
+      ],
+      "reason": "message from continuity-direction"
+    },
+    "created_at": "2026-08-25T11:43:55.615584Z",
+    "id": 35,
+    "kind": "wake"
+  },
+  {
+    "actor_id": "continuity-direction",
+    "body": {
+      "configured_effort": "medium",
+      "fresh_process_capability": true,
+      "launch_id": "05e2c671d20a4564a9b41be6721e16f9",
+      "model": "zai/glm-5.3",
+      "reconstructed": false,
+      "reconstruction_reason": null,
+      "resumed": true,
+      "session_id": "01a038b8-a734-7000-8369-37ace9fddbb4",
+      "tool_contract_digest": "2827842d689400657e3efbcf5d707208c305dc096c99771e2f5ae8a63833b1bf"
+    },
+    "created_at": "2026-08-25T11:43:18.561953Z",
+    "id": 34,
+    "kind": "model_session_ready"
+  },
+  {
+    "actor_id": "continuity-worker",
+    "body": {
+      "attempt_id": "54ea9bf2-1bcd-42c5-bef3-f8e3e50e7224",
+      "semantic_result": "reported_outcome_met",
+      "work_id": "b13af8c5-bfd1-4484-b222-9e2fc37456bd",
+      "workspace": {
+        "end": {
+          "dirty_entries": 0,
+          "source_commit": null,
+          "status_digest": null,
+          "workdir": "/company"
+        },
+        "start": {
+          "dirty_entries": 0,
+          "source_commit": null,
+          "status_digest": null,
+          "workdir": "/company"
+        }
+      }
+    },
+    "created_at": "2026-08-25T11:43:17.696247Z",
+    "id": 33,
+    "kind": "attempt_process_ended"
+  },
+  {
+    "actor_id": "continuity-worker",
+    "body": {
+      "billing": "metered_api",
+      "charged_cost_source": "host_model_relay",
+      "configured_effort": "medium",
+      "context_size": 1000000,
+      "context_used_pct": 1,
+      "cost_semantics": "acp_cumulative_minus_persisted_session_baseline_noncanonical",
+      "cost_usd": 0.03026924,
+      "estimated_list_cost_usd": null,
+      "model": "zai/glm-5.3",
+      "reported_turn_cost_usd": 0.03026924,
+      "tokens": 10363,
+      "tokens_in_context": 10363,
+      "unpriced_provider_refusal": false,
+      "usage_semantics": "final_context_snapshot_and_per_wake_cost_delta"
+    },
+    "created_at": "2026-08-25T11:43:17.636835Z",
+    "id": 32,
+    "kind": "turn_usage"
+  },
+  {
+    "actor_id": "continuity-worker",
+    "body": {
+      "configured_effort": "medium",
+      "fresh_process_capability": true,
+      "launch_id": "d6980153b9204a08b0fe1636038b7a6f",
+      "model": "zai/glm-5.3",
+      "reconstructed": false,
+      "reconstruction_reason": null,
+      "resumed": true,
+      "session_id": "01a038b9-8505-7000-ae59-5a06f980a894",
+      "tool_contract_digest": "8165a042c21318ab2079dccd0015bf24a03e2934177ff5744befa85ec6168962"
+    },
+    "created_at": "2026-08-25T11:42:48.456527Z",
+    "id": 31,
+    "kind": "model_session_ready"
+  },
+  {
+    "actor_id": "continuity-control",
+    "body": {
+      "attempt_id": "ac12489d-10b8-4ba5-ab90-4bd81b5ac5c8",
+      "semantic_result": "reported_outcome_met",
+      "work_id": "919264d5-6fcc-4275-9149-0d63bbf4342f",
+      "workspace": {
+        "end": {
+          "dirty_entries": 0,
+          "source_commit": null,
+          "status_digest": null,
+          "workdir": "/company"
+        },
+        "start": {
+          "dirty_entries": 0,
+          "source_commit": null,
+          "status_digest": null,
+          "workdir": "/company"
+        }
+      }
+    },
+    "created_at": "2026-08-25T11:42:47.510445Z",
+    "id": 30,
+    "kind": "attempt_process_ended"
+  },
+  {
+    "actor_id": "continuity-control",
+    "body": {
+      "billing": "metered_api",
+      "charged_cost_source": "host_model_relay",
+      "configured_effort": "medium",
+      "context_size": 1000000,
+      "context_used_pct": 1,
+      "cost_semantics": "acp_cumulative_minus_persisted_session_baseline_noncanonical",
+      "cost_usd": 0.0535256,
+      "estimated_list_cost_usd": null,
+      "model": "zai/glm-5.3",
+      "reported_turn_cost_usd": 0.0535256,
+      "tokens": 14361,
+      "tokens_in_context": 14361,
+      "unpriced_provider_refusal": false,
+      "usage_semantics": "final_context_snapshot_and_per_wake_cost_delta"
+    },
+    "created_at": "2026-08-25T11:42:47.451027Z",
+    "id": 29,
+    "kind": "turn_usage"
+  },
+  {
+    "actor_id": "continuity-direction",
+    "body": {
+      "attempt": 1,
+      "configured_effort": "medium",
+      "model": "zai/glm-5.3"
+    },
+    "created_at": "2026-08-25T11:42:34.702974Z",
+    "id": 28,
+    "kind": "model_attempt"
+  },
+  {
+    "actor_id": "continuity-control",
+    "body": {
+      "configured_effort": "medium",
+      "fresh_process_capability": true,
+      "launch_id": "79754567f067403aa2763848b1a7a996",
+      "model": "zai/glm-5.3",
+      "reconstructed": false,
+      "reconstruction_reason": null,
+      "resumed": false,
+      "session_id": "01a038b9-8a0b-7000-addd-bf8977db4b6f",
+      "tool_contract_digest": "dd3aa0b783953604cd243b0fdeba213cac9f7e6f934369467e9c9091595c291a"
+    },
+    "created_at": "2026-08-25T11:41:18.916869Z",
+    "id": 27,
+    "kind": "model_session_ready"
+  },
+  {
+    "actor_id": "continuity-worker",
+    "body": {
+      "attempt": 1,
+      "configured_effort": "medium",
+      "model": "zai/glm-5.3"
+    },
+    "created_at": "2026-08-25T11:41:18.707383Z",
+    "id": 26,
+    "kind": "model_attempt"
+  },
+  {
+    "actor_id": "continuity-worker",
+    "body": {
+      "attempt_id": "54ea9bf2-1bcd-42c5-bef3-f8e3e50e7224",
+      "work_id": "b13af8c5-bfd1-4484-b222-9e2fc37456bd",
+      "workspace": {
+        "dirty_entries": 0,
+        "source_commit": null,
+        "status_digest": null,
+        "workdir": "/company"
+      }
+    },
+    "created_at": "2026-08-25T11:41:18.705868Z",
+    "id": 25,
+    "kind": "attempt_process_started"
+  },
+  {
+    "actor_id": "continuity-worker",
+    "body": {
+      "accounting": {
+        "automatically_attached": {
+          "actor": {
+            "id": "continuity-worker",
+            "role": "bounded continuity producer"
+          },
+          "capability_probe_locations": [
+            "command -v restless git omp node pnpm",
+            "restless doctor -c exp05_wave0_continuity_20260825_885fec65_test",
+            "restless credential check (configured references only; not provider acceptance or authority)",
+            "test -d /company/.agents/skills /company/skills /opt/restless/skills"
+          ],
+          "skill_roots": [
+            "/opt/restless/skills",
+            "/company/skills",
+            "/company/.agents/skills"
+          ],
+          "system_context": {
+            "company_doctrine": "Restless shared operating rules in the actor system prompt",
+            "company_mission": "company mission and collision-avoidance spine in the actor system prompt"
+          },
+          "upstream_artifact_versions": [],
+          "work": {
+            "attempt_id": "54ea9bf2-1bcd-42c5-bef3-f8e3e50e7224",
+            "attempt_no": 2,
+            "expected_artifact": "/company/experiment/EXP-05/outputs/continuity-target.json",
+            "input_fingerprint": "475c459aa48c5daa9ba277ba1116b42957d0e324692f8e1cfe9c5bbb87ef5a6c",
+            "outcome": "Read /company/experiment/EXP-05/inbox/marker-source.json, create progress marker /company/experiment/EXP-05/progress/continuity-target.produce immediately after orientation, write the one-key JSON object to /company/experiment/EXP-05/outputs/continuity-target.json, validate it, link it as review_target, and return outcome_met.",
+            "revision": 1,
+            "work_id": "b13af8c5-bfd1-4484-b222-9e2fc37456bd"
+          },
+          "work_feedback": [
+            {
+              "from_actor": "owner",
+              "message_id": 4
+            }
+          ],
+          "workspace": {
+            "base_ref": null,
+            "declared_worktree": null,
+            "integration_branch": null,
+            "repository": null,
+            "runtime_workdir": "/company"
+          }
+        },
+        "retrieved_depth": {
+          "at_launch": [],
+          "available_on_demand": [
+            "the bound worktree and repository files",
+            "project AGENTS.md and .agents/skills under the bound worktree",
+            "Git history and working-tree status in the bound worktree",
+            "full artifact content at the attached URI"
+          ]
+        },
+        "unused_replay": {
+          "full_team_transcript": "not attached",
+          "lead_conversation": "not attached",
+          "unrelated_actor_messages": "not attached"
+        }
+      },
+      "attempt_id": "54ea9bf2-1bcd-42c5-bef3-f8e3e50e7224",
+      "work_id": "b13af8c5-bfd1-4484-b222-9e2fc37456bd"
+    },
+    "created_at": "2026-08-25T11:41:18.704954Z",
+    "id": 24,
+    "kind": "attempt_context_bound"
+  },
+  {
+    "actor_id": "continuity-worker",
+    "body": {
+      "attempt_id": "ad26ab87-f644-44fd-a979-9096ec3ac16a",
+      "semantic_result": "blocked",
+      "work_id": "b13af8c5-bfd1-4484-b222-9e2fc37456bd",
+      "workspace": {
+        "end": {
+          "dirty_entries": 0,
+          "source_commit": null,
+          "status_digest": null,
+          "workdir": "/company"
+        },
+        "start": {
+          "dirty_entries": 0,
+          "source_commit": null,
+          "status_digest": null,
+          "workdir": "/company"
+        }
+      }
+    },
+    "created_at": "2026-08-25T11:41:18.092382Z",
+    "id": 23,
+    "kind": "attempt_process_ended"
+  },
+  {
+    "actor_id": "continuity-worker",
+    "body": {
+      "configured_effort": "medium",
+      "fresh_process_capability": true,
+      "launch_id": "65c3ebc4431346838afc4efc3fe24354",
+      "model": "zai/glm-5.3",
+      "reconstructed": false,
+      "reconstruction_reason": null,
+      "resumed": false,
+      "session_id": "01a038b9-8505-7000-ae59-5a06f980a894",
+      "tool_contract_digest": "8165a042c21318ab2079dccd0015bf24a03e2934177ff5744befa85ec6168962"
+    },
+    "created_at": "2026-08-25T11:41:17.632795Z",
+    "id": 22,
+    "kind": "model_session_ready"
+  },
+  {
+    "actor_id": "continuity-direction",
+    "body": {
+      "reason": "Both Staff Work nodes are commissioned per the charter and the Exec's brief: continuity-worker owns the continuity-target artifact (attempt limit 3, atomic marker-contract gate) and continuity-control independently owns the continuity-control artifact (attempt limit 2, atomic unaffected-control-contract gate). Both are repo-less, active, and ready for the scheduler \u2014 no dependencies between them, so each can start independently. I made no artifact or file changes myself and will review both artifacts read-only and send one material G1/G3 judgement to Exec once the validator-complete event arrives.\n\n<!--restless-intent:{\"kind\":\"direction\",\"summary\":\"Commissioned the two charter-defined repo-less Staff Work nodes for EXP-05 G1/G3; both active with atomic gates; awaiting scheduler attempts.\"}-->",
+      "termination": "outcome_met"
+    },
+    "created_at": "2026-08-25T11:41:16.609677Z",
+    "id": 21,
+    "kind": "actor_wake_end"
+  },
+  {
+    "actor_id": "continuity-direction",
+    "body": {
+      "billing": "metered_api",
+      "charged_cost_source": "host_model_relay",
+      "configured_effort": "medium",
+      "context_size": 1000000,
+      "context_used_pct": 1,
+      "cost_semantics": "acp_cumulative_minus_persisted_session_baseline_noncanonical",
+      "cost_usd": 0.03920284,
+      "estimated_list_cost_usd": null,
+      "model": "zai/glm-5.3",
+      "reported_turn_cost_usd": 0.03920284,
+      "tokens": 13758,
+      "tokens_in_context": 13758,
+      "unpriced_provider_refusal": false,
+      "usage_semantics": "final_context_snapshot_and_per_wake_cost_delta"
+    },
+    "created_at": "2026-08-25T11:41:16.606097Z",
+    "id": 20,
+    "kind": "turn_usage"
+  },
+  {
+    "actor_id": "continuity-control",
+    "body": {
+      "attempt": 1,
+      "configured_effort": "medium",
+      "model": "zai/glm-5.3"
+    },
+    "created_at": "2026-08-25T11:41:03.149752Z",
+    "id": 19,
+    "kind": "model_attempt"
+  },
+  {
+    "actor_id": "continuity-control",
+    "body": {
+      "attempt_id": "ac12489d-10b8-4ba5-ab90-4bd81b5ac5c8",
+      "work_id": "919264d5-6fcc-4275-9149-0d63bbf4342f",
+      "workspace": {
+        "dirty_entries": 0,
+        "source_commit": null,
+        "status_digest": null,
+        "workdir": "/company"
+      }
+    },
+    "created_at": "2026-08-25T11:41:03.141012Z",
+    "id": 18,
+    "kind": "attempt_process_started"
+  },
+  {
+    "actor_id": "continuity-control",
+    "body": {
+      "accounting": {
+        "automatically_attached": {
+          "actor": {
+            "id": "continuity-control",
+            "role": "bounded continuity producer"
+          },
+          "capability_probe_locations": [
+            "command -v restless git omp node pnpm",
+            "restless doctor -c exp05_wave0_continuity_20260825_885fec65_test",
+            "restless credential check (configured references only; not provider acceptance or authority)",
+            "test -d /company/.agents/skills /company/skills /opt/restless/skills"
+          ],
+          "skill_roots": [
+            "/opt/restless/skills",
+            "/company/skills",
+            "/company/.agents/skills"
+          ],
+          "system_context": {
+            "company_doctrine": "Restless shared operating rules in the actor system prompt",
+            "company_mission": "company mission and collision-avoidance spine in the actor system prompt"
+          },
+          "upstream_artifact_versions": [],
+          "work": {
+            "attempt_id": "ac12489d-10b8-4ba5-ab90-4bd81b5ac5c8",
+            "attempt_no": 1,
+            "expected_artifact": "/company/experiment/EXP-05/outputs/continuity-control.json",
+            "input_fingerprint": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "outcome": "Reconcile /company/experiment/EXP-05/inbox/control-operations.json into /company/experiment/EXP-05/outputs/continuity-control.json with progress marker /company/experiment/EXP-05/progress/continuity-control.produce, exact ordinary operations schema, visible validation, and an attributable review_target.",
+            "revision": 1,
+            "work_id": "919264d5-6fcc-4275-9149-0d63bbf4342f"
+          },
+          "work_feedback": [],
+          "workspace": {
+            "base_ref": null,
+            "declared_worktree": null,
+            "integration_branch": null,
+            "repository": null,
+            "runtime_workdir": "/company"
+          }
+        },
+        "retrieved_depth": {
+          "at_launch": [],
+          "available_on_demand": [
+            "the bound worktree and repository files",
+            "project AGENTS.md and .agents/skills under the bound worktree",
+            "Git history and working-tree status in the bound worktree",
+            "full artifact content at the attached URI"
+          ]
+        },
+        "unused_replay": {
+          "full_team_transcript": "not attached",
+          "lead_conversation": "not attached",
+          "unrelated_actor_messages": "not attached"
+        }
+      },
+      "attempt_id": "ac12489d-10b8-4ba5-ab90-4bd81b5ac5c8",
+      "work_id": "919264d5-6fcc-4275-9149-0d63bbf4342f"
+    },
+    "created_at": "2026-08-25T11:41:03.140051Z",
+    "id": 17,
+    "kind": "attempt_context_bound"
+  },
+  {
+    "actor_id": "continuity-worker",
+    "body": {
+      "attempt": 1,
+      "configured_effort": "medium",
+      "model": "zai/glm-5.3"
+    },
+    "created_at": "2026-08-25T11:41:03.091267Z",
+    "id": 16,
+    "kind": "model_attempt"
+  },
+  {
+    "actor_id": "continuity-worker",
+    "body": {
+      "attempt_id": "ad26ab87-f644-44fd-a979-9096ec3ac16a",
+      "work_id": "b13af8c5-bfd1-4484-b222-9e2fc37456bd",
+      "workspace": {
+        "dirty_entries": 0,
+        "source_commit": null,
+        "status_digest": null,
+        "workdir": "/company"
+      }
+    },
+    "created_at": "2026-08-25T11:41:03.080112Z",
+    "id": 15,
+    "kind": "attempt_process_started"
+  },
+  {
+    "actor_id": "continuity-worker",
+    "body": {
+      "accounting": {
+        "automatically_attached": {
+          "actor": {
+            "id": "continuity-worker",
+            "role": "bounded continuity producer"
+          },
+          "capability_probe_locations": [
+            "command -v restless git omp node pnpm",
+            "restless doctor -c exp05_wave0_continuity_20260825_885fec65_test",
+            "restless credential check (configured references only; not provider acceptance or authority)",
+            "test -d /company/.agents/skills /company/skills /opt/restless/skills"
+          ],
+          "skill_roots": [
+            "/opt/restless/skills",
+            "/company/skills",
+            "/company/.agents/skills"
+          ],
+          "system_context": {
+            "company_doctrine": "Restless shared operating rules in the actor system prompt",
+            "company_mission": "company mission and collision-avoidance spine in the actor system prompt"
+          },
+          "upstream_artifact_versions": [],
+          "work": {
+            "attempt_id": "ad26ab87-f644-44fd-a979-9096ec3ac16a",
+            "attempt_no": 1,
+            "expected_artifact": "/company/experiment/EXP-05/outputs/continuity-target.json",
+            "input_fingerprint": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "outcome": "Read /company/experiment/EXP-05/inbox/marker-source.json, create progress marker /company/experiment/EXP-05/progress/continuity-target.produce immediately after orientation, write the one-key JSON object to /company/experiment/EXP-05/outputs/continuity-target.json, validate it, link it as review_target, and return outcome_met.",
+            "revision": 1,
+            "work_id": "b13af8c5-bfd1-4484-b222-9e2fc37456bd"
+          },
+          "work_feedback": [],
+          "workspace": {
+            "base_ref": null,
+            "declared_worktree": null,
+            "integration_branch": null,
+            "repository": null,
+            "runtime_workdir": "/company"
+          }
+        },
+        "retrieved_depth": {
+          "at_launch": [],
+          "available_on_demand": [
+            "the bound worktree and repository files",
+            "project AGENTS.md and .agents/skills under the bound worktree",
+            "Git history and working-tree status in the bound worktree",
+            "full artifact content at the attached URI"
+          ]
+        },
+        "unused_replay": {
+          "full_team_transcript": "not attached",
+          "lead_conversation": "not attached",
+          "unrelated_actor_messages": "not attached"
+        }
+      },
+      "attempt_id": "ad26ab87-f644-44fd-a979-9096ec3ac16a",
+      "work_id": "b13af8c5-bfd1-4484-b222-9e2fc37456bd"
+    },
+    "created_at": "2026-08-25T11:41:03.079184Z",
+    "id": 14,
+    "kind": "attempt_context_bound"
+  },
+  {
+    "actor_id": "continuity-direction",
+    "body": {
+      "configured_effort": "medium",
+      "fresh_process_capability": true,
+      "launch_id": "65c36783cb574e2d99dd3f8eb4551800",
+      "model": "zai/glm-5.3",
+      "reconstructed": false,
+      "reconstruction_reason": null,
+      "resumed": false,
+      "session_id": "01a038b8-a734-7000-8369-37ace9fddbb4",
+      "tool_contract_digest": "2827842d689400657e3efbcf5d707208c305dc096c99771e2f5ae8a63833b1bf"
+    },
+    "created_at": "2026-08-25T11:40:20.837220Z",
+    "id": 13,
+    "kind": "model_session_ready"
+  },
+  {
+    "actor_id": "exec",
+    "body": {
+      "failovers": [],
+      "model": "zai/glm-5.3",
+      "reason": "Charter dispatched to lead continuity-direction; the two Work nodes and the lead's G1/G3 judgement will wake me \u2014 no polling.",
+      "termination": "continue",
+      "tool_calls": 5
+    },
+    "created_at": "2026-08-25T11:40:19.884225Z",
+    "id": 12,
+    "kind": "wake_end"
+  },
+  {
+    "actor_id": "exec",
+    "body": {
+      "billing": "metered_api",
+      "charged_cost_source": "host_model_relay",
+      "configured_effort": "medium",
+      "context_size": 1000000,
+      "context_used_pct": 1,
+      "cost_semantics": "acp_cumulative_minus_persisted_session_baseline_noncanonical",
+      "cost_usd": 0.02704452,
+      "estimated_list_cost_usd": null,
+      "model": "zai/glm-5.3",
+      "reported_turn_cost_usd": 0.02704452,
+      "tokens": 13789,
+      "unpriced_provider_refusal": false
+    },
+    "created_at": "2026-08-25T11:40:19.882065Z",
+    "id": 11,
+    "kind": "turn_usage"
+  },
+  {
+    "actor_id": "continuity-direction",
+    "body": {
+      "attempt": 1,
+      "configured_effort": "medium",
+      "model": "zai/glm-5.3"
+    },
+    "created_at": "2026-08-25T11:39:46.337481Z",
+    "id": 10,
+    "kind": "model_attempt"
+  },
+  {
+    "actor_id": "exec",
+    "body": {
+      "configured_effort": "medium",
+      "fresh_process_capability": true,
+      "launch_id": "647aca9ded844f21a14d42dc35233102",
+      "model": "zai/glm-5.3",
+      "reconstructed": false,
+      "reconstruction_reason": null,
+      "resumed": false,
+      "session_id": "01a038b7-5bf0-7000-9327-1f7b49811c99",
+      "tool_contract_digest": "58e108061e02519d863a9aefcb04e894b0fc905cfcc9182627a58aa5488a9e79"
+    },
+    "created_at": "2026-08-25T11:38:56.082204Z",
+    "id": 9,
+    "kind": "model_session_ready"
+  },
+  {
+    "actor_id": "exec",
+    "body": {
+      "attempt": 1,
+      "configured_effort": "medium",
+      "model": "zai/glm-5.3"
+    },
+    "created_at": "2026-08-25T11:38:54.580412Z",
+    "id": 8,
+    "kind": "model_attempt"
+  },
+  {
+    "actor_id": "exec",
+    "body": {
+      "context_digest": "407966031aedd25b64d93f4e3b031dbfa2195516cf5dca23fded71bc1ad2a4e6",
+      "model_candidates": [
+        "zai/glm-5.3"
+      ],
+      "reason": "message from owner"
+    },
+    "created_at": "2026-08-25T11:38:54.579420Z",
+    "id": 7,
+    "kind": "wake"
+  },
+  {
+    "actor_id": "owner",
+    "body": {
+      "from_team_id": null,
+      "member_actor_id": "continuity-control",
+      "override": true,
+      "reason": "frozen G1/G3 roster",
+      "to_team_id": "a5c5cedd-aae2-44ce-a3ca-0a30b786d4c0"
+    },
+    "created_at": "2026-08-25T11:38:53.582146Z",
+    "id": 6,
+    "kind": "team_roster_changed"
+  },
+  {
+    "actor_id": "owner",
+    "body": {
+      "from_team_id": null,
+      "member_actor_id": "continuity-worker",
+      "override": true,
+      "reason": "frozen G1/G3 roster",
+      "to_team_id": "a5c5cedd-aae2-44ce-a3ca-0a30b786d4c0"
+    },
+    "created_at": "2026-08-25T11:38:53.574003Z",
+    "id": 5,
+    "kind": "team_roster_changed"
+  },
+  {
+    "actor_id": "owner",
+    "body": {
+      "brief": "Own G1/G3; exact charter at /company/experiment/EXP-05/charter.md; lead never produces.",
+      "lead_actor_id": "continuity-direction",
+      "name": "Continuity Probe",
+      "team_id": "a5c5cedd-aae2-44ce-a3ca-0a30b786d4c0"
+    },
+    "created_at": "2026-08-25T11:38:53.566584Z",
+    "id": 4,
+    "kind": "team_commissioned"
+  },
+  {
+    "actor_id": "owner",
+    "body": {
+      "actor_id": "continuity-control",
+      "display": "Robin Foster",
+      "model": "zai/glm-5.3",
+      "reason": "EXP-05 G1/G3 exact Staff process",
+      "role": "bounded continuity producer"
+    },
+    "created_at": "2026-08-25T11:38:53.561726Z",
+    "id": 3,
+    "kind": "actor_created"
+  },
+  {
+    "actor_id": "owner",
+    "body": {
+      "actor_id": "continuity-worker",
+      "display": "Jamie Chen",
+      "model": "zai/glm-5.3",
+      "reason": "EXP-05 G1/G3 exact Staff process",
+      "role": "bounded continuity producer"
+    },
+    "created_at": "2026-08-25T11:38:53.556522Z",
+    "id": 2,
+    "kind": "actor_created"
+  },
+  {
+    "actor_id": "owner",
+    "body": {
+      "actor_id": "continuity-direction",
+      "display": "Anika Rao",
+      "model": "zai/glm-5.3",
+      "reason": "EXP-05 G1/G3 non-producing supervisor",
+      "role": "accountable continuity lead"
+    },
+    "created_at": "2026-08-25T11:38:53.548116Z",
+    "id": 1,
+    "kind": "actor_created"
+  }
+]

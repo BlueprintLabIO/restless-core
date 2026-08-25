@@ -1,0 +1,148 @@
+{
+  "cancellation_observed_seconds": 0.3823418617248535,
+  "checks": {
+    "exact_models": true,
+    "first_target_not_accepted": true,
+    "lead_process_cold_hot_session": true,
+    "production_effort": true,
+    "second_target_produced": true,
+    "target_relaunched": true,
+    "unaffected_control_single_attempt": true,
+    "usage_attributable": true,
+    "worker_process_cold_hot_session": true,
+    "workspace_progress_preserved": true
+  },
+  "company": "exp05_wave0_continuity_20260825_885fec65_test",
+  "control_attempts": [
+    {
+      "actor_id": "continuity-control",
+      "attempt_no": 1,
+      "feedback_cursor": 0,
+      "finished_at": "2026-08-25T11:42:47.590603Z",
+      "id": "ac12489d-10b8-4ba5-ab90-4bd81b5ac5c8",
+      "input_fingerprint": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "model": "zai/glm-5.3",
+      "revision": 1,
+      "session_id": "9d057949-d170-4cb1-bef4-767695c85bfb",
+      "started_at": "2026-08-25T11:41:03.081440Z",
+      "state": "produced",
+      "summary": "continuity-control.json produced and validated by the exact gate (valid:true, 8 units), marker written, artifact linked as output and review_target.",
+      "trigger": "dependency graph became ready",
+      "work_id": "919264d5-6fcc-4275-9149-0d63bbf4342f"
+    }
+  ],
+  "feedback_at": "2026-08-25T11:41:17.710040+00:00",
+  "finished_at": "2026-08-25T11:44:54.396911+00:00",
+  "first_target_readiness": {
+    "actor_id": "continuity-worker",
+    "body": {
+      "configured_effort": "medium",
+      "fresh_process_capability": true,
+      "launch_id": "65c3ebc4431346838afc4efc3fe24354",
+      "model": "zai/glm-5.3",
+      "reconstructed": false,
+      "reconstruction_reason": null,
+      "resumed": false,
+      "session_id": "01a038b9-8505-7000-ae59-5a06f980a894",
+      "tool_contract_digest": "8165a042c21318ab2079dccd0015bf24a03e2934177ff5744befa85ec6168962"
+    },
+    "created_at": "2026-08-25T11:41:17.632795Z",
+    "id": 22,
+    "kind": "model_session_ready"
+  },
+  "gate": "G1+G3",
+  "lead_readiness": [
+    {
+      "actor_id": "continuity-direction",
+      "body": {
+        "configured_effort": "medium",
+        "fresh_process_capability": true,
+        "launch_id": "65c36783cb574e2d99dd3f8eb4551800",
+        "model": "zai/glm-5.3",
+        "reconstructed": false,
+        "reconstruction_reason": null,
+        "resumed": false,
+        "session_id": "01a038b8-a734-7000-8369-37ace9fddbb4",
+        "tool_contract_digest": "2827842d689400657e3efbcf5d707208c305dc096c99771e2f5ae8a63833b1bf"
+      },
+      "created_at": "2026-08-25T11:40:20.837220Z",
+      "id": 13,
+      "kind": "model_session_ready"
+    },
+    {
+      "actor_id": "continuity-direction",
+      "body": {
+        "configured_effort": "medium",
+        "fresh_process_capability": true,
+        "launch_id": "05e2c671d20a4564a9b41be6721e16f9",
+        "model": "zai/glm-5.3",
+        "reconstructed": false,
+        "reconstruction_reason": null,
+        "resumed": true,
+        "session_id": "01a038b8-a734-7000-8369-37ace9fddbb4",
+        "tool_contract_digest": "2827842d689400657e3efbcf5d707208c305dc096c99771e2f5ae8a63833b1bf"
+      },
+      "created_at": "2026-08-25T11:43:18.561953Z",
+      "id": 34,
+      "kind": "model_session_ready"
+    }
+  ],
+  "second_target_readiness": {
+    "actor_id": "continuity-worker",
+    "body": {
+      "configured_effort": "medium",
+      "fresh_process_capability": true,
+      "launch_id": "d6980153b9204a08b0fe1636038b7a6f",
+      "model": "zai/glm-5.3",
+      "reconstructed": false,
+      "reconstruction_reason": null,
+      "resumed": true,
+      "session_id": "01a038b9-8505-7000-ae59-5a06f980a894",
+      "tool_contract_digest": "8165a042c21318ab2079dccd0015bf24a03e2934177ff5744befa85ec6168962"
+    },
+    "created_at": "2026-08-25T11:42:48.456527Z",
+    "id": 31,
+    "kind": "model_session_ready"
+  },
+  "target_attempts": [
+    {
+      "actor_id": "continuity-worker",
+      "attempt_no": 1,
+      "feedback_cursor": 0,
+      "finished_at": "2026-08-25T11:41:18.093036Z",
+      "id": "ad26ab87-f644-44fd-a979-9096ec3ac16a",
+      "input_fingerprint": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "model": "zai/glm-5.3",
+      "revision": 1,
+      "session_id": "e798d213-62f8-4c5b-abcd-28fd09d42d40",
+      "started_at": "2026-08-25T11:41:03.010118Z",
+      "state": "superseded",
+      "summary": "direct Work feedback 4 arrived after this Attempt's frozen input snapshot; its terminal report is stale and the Work remains active for a successor Attempt",
+      "trigger": "dependency graph became ready",
+      "work_id": "b13af8c5-bfd1-4484-b222-9e2fc37456bd"
+    },
+    {
+      "actor_id": "continuity-worker",
+      "attempt_no": 2,
+      "feedback_cursor": 4,
+      "finished_at": "2026-08-25T11:43:17.766712Z",
+      "id": "54ea9bf2-1bcd-42c5-bef3-f8e3e50e7224",
+      "input_fingerprint": "475c459aa48c5daa9ba277ba1116b42957d0e324692f8e1cfe9c5bbb87ef5a6c",
+      "model": "zai/glm-5.3",
+      "revision": 1,
+      "session_id": "d932e299-abc4-4aec-9a03-0c4b891804c7",
+      "started_at": "2026-08-25T11:41:18.645491Z",
+      "state": "produced",
+      "summary": "V2 marker source read, output written, validator passed, artifact linked to attempt 54ea9bf2 as review_target output",
+      "trigger": "dependency graph became ready",
+      "work_id": "b13af8c5-bfd1-4484-b222-9e2fc37456bd"
+    }
+  ],
+  "tell_process": {
+    "exit": 0,
+    "stderr": "",
+    "stdout": "delivered to the exec; the message wakes the company\n"
+  },
+  "tell_started_at": "2026-08-25T11:38:54.342315+00:00",
+  "valid": true
+}

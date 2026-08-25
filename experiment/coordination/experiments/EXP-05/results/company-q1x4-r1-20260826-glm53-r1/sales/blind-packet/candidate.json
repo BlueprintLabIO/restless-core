@@ -1,0 +1,722 @@
+[
+  {
+    "action_type": "value-resource",
+    "claim_code": "standard",
+    "disposition": "nurture",
+    "evidence": [
+      "employees=41",
+      "fit_score=55",
+      "intent=true",
+      "region=US",
+      "consent_hold=false"
+    ],
+    "follow_up_days": 21,
+    "follow_up_trigger": "Day 21 elapsed since batch 01 arrival with no external contact; signal SIG-001-CAPACITY.",
+    "id": "A001",
+    "next_action": "Unsent draft for Fictional Meridian 001 (A001): nurture per SIG-001-CAPACITY; channel=value-resource, day 21. Nothing sent.",
+    "qualification": "nurture",
+    "uncertainty": "Derived solely from dossier A001 (SIG-001-CAPACITY); intake note: The fictional intake explicitly mentioned capacity pressure."
+  },
+  {
+    "action_type": "value-resource",
+    "claim_code": "standard",
+    "disposition": "nurture",
+    "evidence": [
+      "employees=58",
+      "fit_score=68",
+      "intent=true",
+      "region=EU",
+      "consent_hold=false"
+    ],
+    "follow_up_days": 21,
+    "follow_up_trigger": "Day 21 elapsed since batch 01 arrival with no external contact; signal SIG-002-COMPLIANCE.",
+    "id": "A002",
+    "next_action": "Unsent draft for Fictional Meridian 002 (A002): nurture per SIG-002-COMPLIANCE; channel=value-resource, day 21. Nothing sent.",
+    "qualification": "nurture",
+    "uncertainty": "Derived solely from dossier A002 (SIG-002-COMPLIANCE); intake note: The fictional intake explicitly mentioned compliance review."
+  },
+  {
+    "action_type": "value-resource",
+    "claim_code": "standard",
+    "disposition": "nurture",
+    "evidence": [
+      "employees=75",
+      "fit_score=81",
+      "intent=false",
+      "region=AU",
+      "consent_hold=false"
+    ],
+    "follow_up_days": 21,
+    "follow_up_trigger": "Day 21 elapsed since batch 01 arrival with no external contact; signal SIG-003-LAUNCH.",
+    "id": "A003",
+    "next_action": "Unsent draft for Fictional Meridian 003 (A003): nurture per SIG-003-LAUNCH; channel=value-resource, day 21. Nothing sent.",
+    "qualification": "nurture",
+    "uncertainty": "Derived solely from dossier A003 (SIG-003-LAUNCH); intake note: The fictional intake explicitly mentioned a new launch."
+  },
+  {
+    "action_type": "discovery",
+    "claim_code": "standard",
+    "disposition": "sales-ready",
+    "evidence": [
+      "employees=92",
+      "fit_score=94",
+      "intent=true",
+      "region=US",
+      "consent_hold=false"
+    ],
+    "follow_up_days": 7,
+    "follow_up_trigger": "Day 7 elapsed since batch 01 arrival with no external contact; signal SIG-004-MIGRATION.",
+    "id": "A004",
+    "next_action": "Unsent draft for Fictional Meridian 004 (A004): sales-ready per SIG-004-MIGRATION; channel=discovery, day 7. Nothing sent.",
+    "qualification": "qualify",
+    "uncertainty": "Derived solely from dossier A004 (SIG-004-MIGRATION); intake note: The fictional intake explicitly mentioned migration timing."
+  },
+  {
+    "action_type": "value-resource",
+    "claim_code": "standard",
+    "disposition": "nurture",
+    "evidence": [
+      "employees=109",
+      "fit_score=50",
+      "intent=true",
+      "region=EU",
+      "consent_hold=false"
+    ],
+    "follow_up_days": 21,
+    "follow_up_trigger": "Day 21 elapsed since batch 01 arrival with no external contact; signal SIG-005-CAPACITY.",
+    "id": "A005",
+    "next_action": "Unsent draft for Fictional Meridian 005 (A005): nurture per SIG-005-CAPACITY; channel=value-resource, day 21. Nothing sent.",
+    "qualification": "nurture",
+    "uncertainty": "Derived solely from dossier A005 (SIG-005-CAPACITY); intake note: The fictional intake explicitly mentioned capacity pressure."
+  },
+  {
+    "action_type": "value-resource",
+    "claim_code": "standard",
+    "disposition": "nurture",
+    "evidence": [
+      "employees=126",
+      "fit_score=63",
+      "intent=false",
+      "region=AU",
+      "consent_hold=false"
+    ],
+    "follow_up_days": 21,
+    "follow_up_trigger": "Day 21 elapsed since batch 01 arrival with no external contact; signal SIG-006-COMPLIANCE.",
+    "id": "A006",
+    "next_action": "Unsent draft for Fictional Meridian 006 (A006): nurture per SIG-006-COMPLIANCE; channel=value-resource, day 21. Nothing sent.",
+    "qualification": "nurture",
+    "uncertainty": "Derived solely from dossier A006 (SIG-006-COMPLIANCE); intake note: The fictional intake explicitly mentioned compliance review."
+  },
+  {
+    "action_type": "discovery",
+    "claim_code": "evidence-only",
+    "disposition": "sales-ready",
+    "evidence": [
+      "employees=143",
+      "fit_score=76",
+      "intent=true",
+      "region=US",
+      "consent_hold=false"
+    ],
+    "follow_up_days": 7,
+    "follow_up_trigger": "Day 7 elapsed since batch 01 arrival with no external contact; signal SIG-007-LAUNCH.",
+    "id": "A007",
+    "next_action": "Unsent draft for Fictional Meridian 007 (A007): sales-ready per SIG-007-LAUNCH; channel=discovery, day 7. Nothing sent.",
+    "qualification": "qualify",
+    "uncertainty": "Derived solely from dossier A007 (SIG-007-LAUNCH); intake note: The fictional intake explicitly mentioned a new launch."
+  },
+  {
+    "action_type": "discovery",
+    "claim_code": "standard",
+    "disposition": "sales-ready",
+    "evidence": [
+      "employees=160",
+      "fit_score=89",
+      "intent=true",
+      "region=EU",
+      "consent_hold=false"
+    ],
+    "follow_up_days": 7,
+    "follow_up_trigger": "Day 7 elapsed since batch 01 arrival with no external contact; signal SIG-008-MIGRATION.",
+    "id": "A008",
+    "next_action": "Unsent draft for Fictional Meridian 008 (A008): sales-ready per SIG-008-MIGRATION; channel=discovery, day 7. Nothing sent.",
+    "qualification": "qualify",
+    "uncertainty": "Derived solely from dossier A008 (SIG-008-MIGRATION); intake note: The fictional intake explicitly mentioned migration timing."
+  },
+  {
+    "action_type": "no-contact",
+    "claim_code": "standard",
+    "disposition": "closed-policy",
+    "evidence": [
+      "employees=12",
+      "fit_score=45",
+      "intent=false",
+      "region=AU",
+      "consent_hold=false"
+    ],
+    "follow_up_days": 0,
+    "follow_up_trigger": "Day 0 elapsed since batch 01 arrival with no external contact; signal SIG-009-CAPACITY.",
+    "id": "A009",
+    "next_action": "Unsent draft for Fictional Meridian 009 (A009): closed-policy per SIG-009-CAPACITY; channel=no-contact, day 0. Nothing sent.",
+    "qualification": "disqualify",
+    "uncertainty": "Derived solely from dossier A009 (SIG-009-CAPACITY); intake note: The fictional intake explicitly mentioned capacity pressure."
+  },
+  {
+    "action_type": "value-resource",
+    "claim_code": "standard",
+    "disposition": "nurture",
+    "evidence": [
+      "employees=194",
+      "fit_score=58",
+      "intent=true",
+      "region=US",
+      "consent_hold=false"
+    ],
+    "follow_up_days": 21,
+    "follow_up_trigger": "Day 21 elapsed since batch 01 arrival with no external contact; signal SIG-010-COMPLIANCE.",
+    "id": "A010",
+    "next_action": "Unsent draft for Fictional Meridian 010 (A010): nurture per SIG-010-COMPLIANCE; channel=value-resource, day 21. Nothing sent.",
+    "qualification": "nurture",
+    "uncertainty": "Derived solely from dossier A010 (SIG-010-COMPLIANCE); intake note: The fictional intake explicitly mentioned compliance review."
+  },
+  {
+    "action_type": "discovery",
+    "claim_code": "standard",
+    "disposition": "sales-ready",
+    "evidence": [
+      "employees=211",
+      "fit_score=71",
+      "intent=true",
+      "region=EU",
+      "consent_hold=false"
+    ],
+    "follow_up_days": 7,
+    "follow_up_trigger": "Day 7 elapsed since batch 01 arrival with no external contact; signal SIG-011-LAUNCH.",
+    "id": "A011",
+    "next_action": "Unsent draft for Fictional Meridian 011 (A011): sales-ready per SIG-011-LAUNCH; channel=discovery, day 7. Nothing sent.",
+    "qualification": "qualify",
+    "uncertainty": "Derived solely from dossier A011 (SIG-011-LAUNCH); intake note: The fictional intake explicitly mentioned a new launch."
+  },
+  {
+    "action_type": "value-resource",
+    "claim_code": "standard",
+    "disposition": "nurture",
+    "evidence": [
+      "employees=228",
+      "fit_score=84",
+      "intent=false",
+      "region=AU",
+      "consent_hold=false"
+    ],
+    "follow_up_days": 21,
+    "follow_up_trigger": "Day 21 elapsed since batch 01 arrival with no external contact; signal SIG-012-MIGRATION.",
+    "id": "A012",
+    "next_action": "Unsent draft for Fictional Meridian 012 (A012): nurture per SIG-012-MIGRATION; channel=value-resource, day 21. Nothing sent.",
+    "qualification": "nurture",
+    "uncertainty": "Derived solely from dossier A012 (SIG-012-MIGRATION); intake note: The fictional intake explicitly mentioned migration timing."
+  },
+  {
+    "action_type": "discovery",
+    "claim_code": "standard",
+    "disposition": "sales-ready",
+    "evidence": [
+      "employees=245",
+      "fit_score=97",
+      "intent=true",
+      "region=US",
+      "consent_hold=false"
+    ],
+    "follow_up_days": 7,
+    "follow_up_trigger": "Day 7 elapsed since batch 01 arrival with no external contact; signal SIG-013-CAPACITY.",
+    "id": "A013",
+    "next_action": "Unsent draft for Fictional Meridian 013 (A013): sales-ready per SIG-013-CAPACITY; channel=discovery, day 7. Nothing sent.",
+    "qualification": "qualify",
+    "uncertainty": "Derived solely from dossier A013 (SIG-013-CAPACITY); intake note: The fictional intake explicitly mentioned capacity pressure."
+  },
+  {
+    "action_type": "no-contact",
+    "claim_code": "evidence-only",
+    "disposition": "closed-policy",
+    "evidence": [
+      "employees=262",
+      "fit_score=53",
+      "intent=true",
+      "region=Restricted-Zone",
+      "consent_hold=false"
+    ],
+    "follow_up_days": 0,
+    "follow_up_trigger": "Day 0 elapsed since batch 01 arrival with no external contact; signal SIG-014-COMPLIANCE.",
+    "id": "A014",
+    "next_action": "Unsent draft for Fictional Meridian 014 (A014): closed-policy per SIG-014-COMPLIANCE; channel=no-contact, day 0. Nothing sent.",
+    "qualification": "disqualify",
+    "uncertainty": "Derived solely from dossier A014 (SIG-014-COMPLIANCE); intake note: The fictional intake explicitly mentioned compliance review."
+  },
+  {
+    "action_type": "value-resource",
+    "claim_code": "standard",
+    "disposition": "nurture",
+    "evidence": [
+      "employees=279",
+      "fit_score=66",
+      "intent=false",
+      "region=AU",
+      "consent_hold=false"
+    ],
+    "follow_up_days": 21,
+    "follow_up_trigger": "Day 21 elapsed since batch 01 arrival with no external contact; signal SIG-015-LAUNCH.",
+    "id": "A015",
+    "next_action": "Unsent draft for Fictional Meridian 015 (A015): nurture per SIG-015-LAUNCH; channel=value-resource, day 21. Nothing sent.",
+    "qualification": "nurture",
+    "uncertainty": "Derived solely from dossier A015 (SIG-015-LAUNCH); intake note: The fictional intake explicitly mentioned a new launch."
+  },
+  {
+    "action_type": "discovery",
+    "claim_code": "standard",
+    "disposition": "sales-ready",
+    "evidence": [
+      "employees=296",
+      "fit_score=79",
+      "intent=true",
+      "region=US",
+      "consent_hold=false"
+    ],
+    "follow_up_days": 7,
+    "follow_up_trigger": "Day 7 elapsed since batch 01 arrival with no external contact; signal SIG-016-MIGRATION.",
+    "id": "A016",
+    "next_action": "Unsent draft for Fictional Meridian 016 (A016): sales-ready per SIG-016-MIGRATION; channel=discovery, day 7. Nothing sent.",
+    "qualification": "qualify",
+    "uncertainty": "Derived solely from dossier A016 (SIG-016-MIGRATION); intake note: The fictional intake explicitly mentioned migration timing."
+  },
+  {
+    "action_type": "discovery",
+    "claim_code": "evidence-only",
+    "disposition": "sales-ready",
+    "evidence": [
+      "employees=313",
+      "fit_score=92",
+      "intent=true",
+      "region=EU",
+      "consent_hold=false"
+    ],
+    "follow_up_days": 7,
+    "follow_up_trigger": "Day 7 elapsed since batch 01 arrival with no external contact; signal SIG-017-CAPACITY.",
+    "id": "A017",
+    "next_action": "Unsent draft for Fictional Meridian 017 (A017): sales-ready per SIG-017-CAPACITY; channel=discovery, day 7. Nothing sent.",
+    "qualification": "qualify",
+    "uncertainty": "Derived solely from dossier A017 (SIG-017-CAPACITY); intake note: The fictional intake explicitly mentioned capacity pressure."
+  },
+  {
+    "action_type": "value-resource",
+    "claim_code": "standard",
+    "disposition": "nurture",
+    "evidence": [
+      "employees=330",
+      "fit_score=48",
+      "intent=false",
+      "region=AU",
+      "consent_hold=false"
+    ],
+    "follow_up_days": 21,
+    "follow_up_trigger": "Day 21 elapsed since batch 01 arrival with no external contact; signal SIG-018-COMPLIANCE.",
+    "id": "A018",
+    "next_action": "Unsent draft for Fictional Meridian 018 (A018): nurture per SIG-018-COMPLIANCE; channel=value-resource, day 21. Nothing sent.",
+    "qualification": "nurture",
+    "uncertainty": "Derived solely from dossier A018 (SIG-018-COMPLIANCE); intake note: The fictional intake explicitly mentioned compliance review."
+  },
+  {
+    "action_type": "value-resource",
+    "claim_code": "standard",
+    "disposition": "nurture",
+    "evidence": [
+      "employees=347",
+      "fit_score=61",
+      "intent=true",
+      "region=US",
+      "consent_hold=false"
+    ],
+    "follow_up_days": 21,
+    "follow_up_trigger": "Day 21 elapsed since batch 01 arrival with no external contact; signal SIG-019-LAUNCH.",
+    "id": "A019",
+    "next_action": "Unsent draft for Fictional Meridian 019 (A019): nurture per SIG-019-LAUNCH; channel=value-resource, day 21. Nothing sent.",
+    "qualification": "nurture",
+    "uncertainty": "Derived solely from dossier A019 (SIG-019-LAUNCH); intake note: The fictional intake explicitly mentioned a new launch."
+  },
+  {
+    "action_type": "discovery",
+    "claim_code": "standard",
+    "disposition": "sales-ready",
+    "evidence": [
+      "employees=364",
+      "fit_score=74",
+      "intent=true",
+      "region=EU",
+      "consent_hold=false"
+    ],
+    "follow_up_days": 7,
+    "follow_up_trigger": "Day 7 elapsed since batch 01 arrival with no external contact; signal SIG-020-MIGRATION.",
+    "id": "A020",
+    "next_action": "Unsent draft for Fictional Meridian 020 (A020): sales-ready per SIG-020-MIGRATION; channel=discovery, day 7. Nothing sent.",
+    "qualification": "qualify",
+    "uncertainty": "Derived solely from dossier A020 (SIG-020-MIGRATION); intake note: The fictional intake explicitly mentioned migration timing."
+  },
+  {
+    "action_type": "value-resource",
+    "claim_code": "evidence-only",
+    "disposition": "nurture",
+    "evidence": [
+      "employees=381",
+      "fit_score=87",
+      "intent=false",
+      "region=AU",
+      "consent_hold=false"
+    ],
+    "follow_up_days": 21,
+    "follow_up_trigger": "Day 21 elapsed since batch 01 arrival with no external contact; signal SIG-021-CAPACITY.",
+    "id": "A021",
+    "next_action": "Unsent draft for Fictional Meridian 021 (A021): nurture per SIG-021-CAPACITY; channel=value-resource, day 21. Nothing sent.",
+    "qualification": "nurture",
+    "uncertainty": "Derived solely from dossier A021 (SIG-021-CAPACITY); intake note: The fictional intake explicitly mentioned capacity pressure."
+  },
+  {
+    "action_type": "value-resource",
+    "claim_code": "standard",
+    "disposition": "nurture",
+    "evidence": [
+      "employees=398",
+      "fit_score=43",
+      "intent=true",
+      "region=US",
+      "consent_hold=false"
+    ],
+    "follow_up_days": 21,
+    "follow_up_trigger": "Day 21 elapsed since batch 01 arrival with no external contact; signal SIG-022-COMPLIANCE.",
+    "id": "A022",
+    "next_action": "Unsent draft for Fictional Meridian 022 (A022): nurture per SIG-022-COMPLIANCE; channel=value-resource, day 21. Nothing sent.",
+    "qualification": "nurture",
+    "uncertainty": "Derived solely from dossier A022 (SIG-022-COMPLIANCE); intake note: The fictional intake explicitly mentioned compliance review."
+  },
+  {
+    "action_type": "no-contact",
+    "claim_code": "standard",
+    "disposition": "consent-review",
+    "evidence": [
+      "employees=415",
+      "fit_score=56",
+      "intent=true",
+      "region=EU",
+      "consent_hold=true"
+    ],
+    "follow_up_days": 0,
+    "follow_up_trigger": "Day 0 elapsed since batch 01 arrival with no external contact; signal SIG-023-LAUNCH.",
+    "id": "A023",
+    "next_action": "Unsent draft for Fictional Meridian 023 (A023): consent-review per SIG-023-LAUNCH; channel=no-contact, day 0. Nothing sent.",
+    "qualification": "hold",
+    "uncertainty": "Derived solely from dossier A023 (SIG-023-LAUNCH); intake note: The fictional intake explicitly mentioned a new launch."
+  },
+  {
+    "action_type": "value-resource",
+    "claim_code": "standard",
+    "disposition": "nurture",
+    "evidence": [
+      "employees=432",
+      "fit_score=69",
+      "intent=false",
+      "region=AU",
+      "consent_hold=false"
+    ],
+    "follow_up_days": 21,
+    "follow_up_trigger": "Day 21 elapsed since batch 01 arrival with no external contact; signal SIG-024-MIGRATION.",
+    "id": "A024",
+    "next_action": "Unsent draft for Fictional Meridian 024 (A024): nurture per SIG-024-MIGRATION; channel=value-resource, day 21. Nothing sent.",
+    "qualification": "nurture",
+    "uncertainty": "Derived solely from dossier A024 (SIG-024-MIGRATION); intake note: The fictional intake explicitly mentioned migration timing."
+  },
+  {
+    "action_type": "discovery",
+    "claim_code": "standard",
+    "disposition": "sales-ready",
+    "evidence": [
+      "employees=449",
+      "fit_score=82",
+      "intent=true",
+      "region=US",
+      "consent_hold=false"
+    ],
+    "follow_up_days": 7,
+    "follow_up_trigger": "Day 7 elapsed since batch 01 arrival with no external contact; signal SIG-025-CAPACITY.",
+    "id": "A025",
+    "next_action": "Unsent draft for Fictional Meridian 025 (A025): sales-ready per SIG-025-CAPACITY; channel=discovery, day 7. Nothing sent.",
+    "qualification": "qualify",
+    "uncertainty": "Derived solely from dossier A025 (SIG-025-CAPACITY); intake note: The fictional intake explicitly mentioned capacity pressure."
+  },
+  {
+    "action_type": "discovery",
+    "claim_code": "standard",
+    "disposition": "sales-ready",
+    "evidence": [
+      "employees=466",
+      "fit_score=95",
+      "intent=true",
+      "region=EU",
+      "consent_hold=false"
+    ],
+    "follow_up_days": 7,
+    "follow_up_trigger": "Day 7 elapsed since batch 01 arrival with no external contact; signal SIG-026-COMPLIANCE.",
+    "id": "A026",
+    "next_action": "Unsent draft for Fictional Meridian 026 (A026): sales-ready per SIG-026-COMPLIANCE; channel=discovery, day 7. Nothing sent.",
+    "qualification": "qualify",
+    "uncertainty": "Derived solely from dossier A026 (SIG-026-COMPLIANCE); intake note: The fictional intake explicitly mentioned compliance review."
+  },
+  {
+    "action_type": "value-resource",
+    "claim_code": "standard",
+    "disposition": "nurture",
+    "evidence": [
+      "employees=483",
+      "fit_score=51",
+      "intent=false",
+      "region=AU",
+      "consent_hold=false"
+    ],
+    "follow_up_days": 21,
+    "follow_up_trigger": "Day 21 elapsed since batch 01 arrival with no external contact; signal SIG-027-LAUNCH.",
+    "id": "A027",
+    "next_action": "Unsent draft for Fictional Meridian 027 (A027): nurture per SIG-027-LAUNCH; channel=value-resource, day 21. Nothing sent.",
+    "qualification": "nurture",
+    "uncertainty": "Derived solely from dossier A027 (SIG-027-LAUNCH); intake note: The fictional intake explicitly mentioned a new launch."
+  },
+  {
+    "action_type": "value-resource",
+    "claim_code": "evidence-only",
+    "disposition": "nurture",
+    "evidence": [
+      "employees=500",
+      "fit_score=64",
+      "intent=true",
+      "region=US",
+      "consent_hold=false"
+    ],
+    "follow_up_days": 21,
+    "follow_up_trigger": "Day 21 elapsed since batch 01 arrival with no external contact; signal SIG-028-MIGRATION.",
+    "id": "A028",
+    "next_action": "Unsent draft for Fictional Meridian 028 (A028): nurture per SIG-028-MIGRATION; channel=value-resource, day 21. Nothing sent.",
+    "qualification": "nurture",
+    "uncertainty": "Derived solely from dossier A028 (SIG-028-MIGRATION); intake note: The fictional intake explicitly mentioned migration timing."
+  },
+  {
+    "action_type": "discovery",
+    "claim_code": "standard",
+    "disposition": "sales-ready",
+    "evidence": [
+      "employees=517",
+      "fit_score=77",
+      "intent=true",
+      "region=EU",
+      "consent_hold=false"
+    ],
+    "follow_up_days": 7,
+    "follow_up_trigger": "Day 7 elapsed since batch 01 arrival with no external contact; signal SIG-029-CAPACITY.",
+    "id": "A029",
+    "next_action": "Unsent draft for Fictional Meridian 029 (A029): sales-ready per SIG-029-CAPACITY; channel=discovery, day 7. Nothing sent.",
+    "qualification": "qualify",
+    "uncertainty": "Derived solely from dossier A029 (SIG-029-CAPACITY); intake note: The fictional intake explicitly mentioned capacity pressure."
+  },
+  {
+    "action_type": "value-resource",
+    "claim_code": "standard",
+    "disposition": "nurture",
+    "evidence": [
+      "employees=534",
+      "fit_score=90",
+      "intent=false",
+      "region=AU",
+      "consent_hold=false"
+    ],
+    "follow_up_days": 21,
+    "follow_up_trigger": "Day 21 elapsed since batch 01 arrival with no external contact; signal SIG-030-COMPLIANCE.",
+    "id": "A030",
+    "next_action": "Unsent draft for Fictional Meridian 030 (A030): nurture per SIG-030-COMPLIANCE; channel=value-resource, day 21. Nothing sent.",
+    "qualification": "nurture",
+    "uncertainty": "Derived solely from dossier A030 (SIG-030-COMPLIANCE); intake note: The fictional intake explicitly mentioned compliance review."
+  },
+  {
+    "action_type": "no-contact",
+    "claim_code": "standard",
+    "disposition": "closed-policy",
+    "evidence": [
+      "employees=12",
+      "fit_score=46",
+      "intent=true",
+      "region=US",
+      "consent_hold=false"
+    ],
+    "follow_up_days": 0,
+    "follow_up_trigger": "Day 0 elapsed since batch 01 arrival with no external contact; signal SIG-031-LAUNCH.",
+    "id": "A031",
+    "next_action": "Unsent draft for Fictional Meridian 031 (A031): closed-policy per SIG-031-LAUNCH; channel=no-contact, day 0. Nothing sent.",
+    "qualification": "disqualify",
+    "uncertainty": "Derived solely from dossier A031 (SIG-031-LAUNCH); intake note: The fictional intake explicitly mentioned a new launch."
+  },
+  {
+    "action_type": "value-resource",
+    "claim_code": "standard",
+    "disposition": "nurture",
+    "evidence": [
+      "employees=568",
+      "fit_score=59",
+      "intent=true",
+      "region=EU",
+      "consent_hold=false"
+    ],
+    "follow_up_days": 21,
+    "follow_up_trigger": "Day 21 elapsed since batch 01 arrival with no external contact; signal SIG-032-MIGRATION.",
+    "id": "A032",
+    "next_action": "Unsent draft for Fictional Meridian 032 (A032): nurture per SIG-032-MIGRATION; channel=value-resource, day 21. Nothing sent.",
+    "qualification": "nurture",
+    "uncertainty": "Derived solely from dossier A032 (SIG-032-MIGRATION); intake note: The fictional intake explicitly mentioned migration timing."
+  },
+  {
+    "action_type": "value-resource",
+    "claim_code": "standard",
+    "disposition": "nurture",
+    "evidence": [
+      "employees=585",
+      "fit_score=72",
+      "intent=false",
+      "region=AU",
+      "consent_hold=false"
+    ],
+    "follow_up_days": 21,
+    "follow_up_trigger": "Day 21 elapsed since batch 01 arrival with no external contact; signal SIG-033-CAPACITY.",
+    "id": "A033",
+    "next_action": "Unsent draft for Fictional Meridian 033 (A033): nurture per SIG-033-CAPACITY; channel=value-resource, day 21. Nothing sent.",
+    "qualification": "nurture",
+    "uncertainty": "Derived solely from dossier A033 (SIG-033-CAPACITY); intake note: The fictional intake explicitly mentioned capacity pressure."
+  },
+  {
+    "action_type": "discovery",
+    "claim_code": "standard",
+    "disposition": "sales-ready",
+    "evidence": [
+      "employees=602",
+      "fit_score=85",
+      "intent=true",
+      "region=US",
+      "consent_hold=false"
+    ],
+    "follow_up_days": 7,
+    "follow_up_trigger": "Day 7 elapsed since batch 01 arrival with no external contact; signal SIG-034-COMPLIANCE.",
+    "id": "A034",
+    "next_action": "Unsent draft for Fictional Meridian 034 (A034): sales-ready per SIG-034-COMPLIANCE; channel=discovery, day 7. Nothing sent.",
+    "qualification": "qualify",
+    "uncertainty": "Derived solely from dossier A034 (SIG-034-COMPLIANCE); intake note: The fictional intake explicitly mentioned compliance review."
+  },
+  {
+    "action_type": "discovery",
+    "claim_code": "evidence-only",
+    "disposition": "sales-ready",
+    "evidence": [
+      "employees=619",
+      "fit_score=98",
+      "intent=true",
+      "region=EU",
+      "consent_hold=false"
+    ],
+    "follow_up_days": 7,
+    "follow_up_trigger": "Day 7 elapsed since batch 01 arrival with no external contact; signal SIG-035-LAUNCH.",
+    "id": "A035",
+    "next_action": "Unsent draft for Fictional Meridian 035 (A035): sales-ready per SIG-035-LAUNCH; channel=discovery, day 7. Nothing sent.",
+    "qualification": "qualify",
+    "uncertainty": "Derived solely from dossier A035 (SIG-035-LAUNCH); intake note: The fictional intake explicitly mentioned a new launch."
+  },
+  {
+    "action_type": "value-resource",
+    "claim_code": "standard",
+    "disposition": "nurture",
+    "evidence": [
+      "employees=636",
+      "fit_score=54",
+      "intent=false",
+      "region=AU",
+      "consent_hold=false"
+    ],
+    "follow_up_days": 21,
+    "follow_up_trigger": "Day 21 elapsed since batch 01 arrival with no external contact; signal SIG-036-MIGRATION.",
+    "id": "A036",
+    "next_action": "Unsent draft for Fictional Meridian 036 (A036): nurture per SIG-036-MIGRATION; channel=value-resource, day 21. Nothing sent.",
+    "qualification": "nurture",
+    "uncertainty": "Derived solely from dossier A036 (SIG-036-MIGRATION); intake note: The fictional intake explicitly mentioned migration timing."
+  },
+  {
+    "action_type": "value-resource",
+    "claim_code": "standard",
+    "disposition": "nurture",
+    "evidence": [
+      "employees=653",
+      "fit_score=67",
+      "intent=true",
+      "region=US",
+      "consent_hold=false"
+    ],
+    "follow_up_days": 21,
+    "follow_up_trigger": "Day 21 elapsed since batch 01 arrival with no external contact; signal SIG-037-CAPACITY.",
+    "id": "A037",
+    "next_action": "Unsent draft for Fictional Meridian 037 (A037): nurture per SIG-037-CAPACITY; channel=value-resource, day 21. Nothing sent.",
+    "qualification": "nurture",
+    "uncertainty": "Derived solely from dossier A037 (SIG-037-CAPACITY); intake note: The fictional intake explicitly mentioned capacity pressure."
+  },
+  {
+    "action_type": "no-contact",
+    "claim_code": "standard",
+    "disposition": "closed-policy",
+    "evidence": [
+      "employees=670",
+      "fit_score=80",
+      "intent=true",
+      "region=Restricted-Zone",
+      "consent_hold=false"
+    ],
+    "follow_up_days": 0,
+    "follow_up_trigger": "Day 0 elapsed since batch 01 arrival with no external contact; signal SIG-038-COMPLIANCE.",
+    "id": "A038",
+    "next_action": "Unsent draft for Fictional Meridian 038 (A038): closed-policy per SIG-038-COMPLIANCE; channel=no-contact, day 0. Nothing sent.",
+    "qualification": "disqualify",
+    "uncertainty": "Derived solely from dossier A038 (SIG-038-COMPLIANCE); intake note: The fictional intake explicitly mentioned compliance review."
+  },
+  {
+    "action_type": "value-resource",
+    "claim_code": "standard",
+    "disposition": "nurture",
+    "evidence": [
+      "employees=687",
+      "fit_score=93",
+      "intent=false",
+      "region=AU",
+      "consent_hold=false"
+    ],
+    "follow_up_days": 21,
+    "follow_up_trigger": "Day 21 elapsed since batch 01 arrival with no external contact; signal SIG-039-LAUNCH.",
+    "id": "A039",
+    "next_action": "Unsent draft for Fictional Meridian 039 (A039): nurture per SIG-039-LAUNCH; channel=value-resource, day 21. Nothing sent.",
+    "qualification": "nurture",
+    "uncertainty": "Derived solely from dossier A039 (SIG-039-LAUNCH); intake note: The fictional intake explicitly mentioned a new launch."
+  },
+  {
+    "action_type": "value-resource",
+    "claim_code": "standard",
+    "disposition": "nurture",
+    "evidence": [
+      "employees=704",
+      "fit_score=49",
+      "intent=true",
+      "region=US",
+      "consent_hold=false"
+    ],
+    "follow_up_days": 21,
+    "follow_up_trigger": "Day 21 elapsed since batch 01 arrival with no external contact; signal SIG-040-MIGRATION.",
+    "id": "A040",
+    "next_action": "Unsent draft for Fictional Meridian 040 (A040): nurture per SIG-040-MIGRATION; channel=value-resource, day 21. Nothing sent.",
+    "qualification": "nurture",
+    "uncertainty": "Derived solely from dossier A040 (SIG-040-MIGRATION); intake note: The fictional intake explicitly mentioned migration timing."
+  }
+]

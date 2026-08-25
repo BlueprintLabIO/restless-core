@@ -1,0 +1,49 @@
+{
+  "arm": {
+    "arm_id": "company-q1x4-r1",
+    "demand": null,
+    "domain": "company",
+    "shape": "q1x4",
+    "supervision": null,
+    "wave": 4,
+    "workers": 4
+  },
+  "counted_path": "restlessd + OrgIntel scheduler + scoped ACP",
+  "frozen_slices": {
+    "monitoring": [
+      "monitoring territory 01"
+    ],
+    "operations": [
+      "operations territory 01",
+      "operations territory 02",
+      "operations territory 03",
+      "operations territory 04"
+    ],
+    "sales": [
+      "sales batch 01"
+    ],
+    "support": [
+      "support batch 01"
+    ]
+  },
+  "models": {
+    "blind_evaluator": {
+      "effort": "high",
+      "selector": "zai/glm-5.3"
+    },
+    "exec": {
+      "effort": "medium",
+      "selector": "zai/glm-5.3"
+    },
+    "lead": {
+      "effort": "medium",
+      "selector": "zai/glm-5.3"
+    },
+    "staff": {
+      "effort": "medium",
+      "selector": "zai/glm-5.3"
+    }
+  },
+  "run_token": "20260826-glm53-r1",
+  "started_at": "2026-08-25T15:11:49.041545+00:00"
+}

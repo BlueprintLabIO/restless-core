@@ -1,0 +1,722 @@
+[
+  {
+    "id": "A161",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "evidence-only",
+    "evidence": [
+      "employees=801",
+      "fit_score=83",
+      "intent=True",
+      "region=EU",
+      "consent_hold=False"
+    ],
+    "next_action": "[unsent draft] discovery referencing signal SIG-161-CAPACITY (fit_score 83 with stated intent); no send, meeting or customer fact invented.",
+    "uncertainty": "none beyond recorded intake fields",
+    "follow_up_trigger": "day 7 follow-up if no change"
+  },
+  {
+    "id": "A162",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=818",
+      "fit_score=96",
+      "intent=False",
+      "region=AU",
+      "consent_hold=False"
+    ],
+    "next_action": "[unsent draft] value-resource referencing signal SIG-162-COMPLIANCE (fit_score 96 / intent=False); no send, meeting or customer fact invented.",
+    "uncertainty": "none beyond recorded intake fields",
+    "follow_up_trigger": "day 21 follow-up if no change"
+  },
+  {
+    "id": "A163",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=835",
+      "fit_score=52",
+      "intent=True",
+      "region=US",
+      "consent_hold=False"
+    ],
+    "next_action": "[unsent draft] value-resource referencing signal SIG-163-LAUNCH (fit_score 52 / intent=True); no send, meeting or customer fact invented.",
+    "uncertainty": "none beyond recorded intake fields",
+    "follow_up_trigger": "day 21 follow-up if no change"
+  },
+  {
+    "id": "A164",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=852",
+      "fit_score=65",
+      "intent=True",
+      "region=EU",
+      "consent_hold=False"
+    ],
+    "next_action": "[unsent draft] value-resource referencing signal SIG-164-MIGRATION (fit_score 65 / intent=True); no send, meeting or customer fact invented.",
+    "uncertainty": "none beyond recorded intake fields",
+    "follow_up_trigger": "day 21 follow-up if no change"
+  },
+  {
+    "id": "A165",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=869",
+      "fit_score=78",
+      "intent=False",
+      "region=AU",
+      "consent_hold=False"
+    ],
+    "next_action": "[unsent draft] value-resource referencing signal SIG-165-CAPACITY (fit_score 78 / intent=False); no send, meeting or customer fact invented.",
+    "uncertainty": "none beyond recorded intake fields",
+    "follow_up_trigger": "day 21 follow-up if no change"
+  },
+  {
+    "id": "A166",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=886",
+      "fit_score=91",
+      "intent=True",
+      "region=US",
+      "consent_hold=False"
+    ],
+    "next_action": "[unsent draft] discovery referencing signal SIG-166-COMPLIANCE (fit_score 91 with stated intent); no send, meeting or customer fact invented.",
+    "uncertainty": "none beyond recorded intake fields",
+    "follow_up_trigger": "day 7 follow-up if no change"
+  },
+  {
+    "id": "A167",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=903",
+      "fit_score=47",
+      "intent=True",
+      "region=EU",
+      "consent_hold=False"
+    ],
+    "next_action": "[unsent draft] value-resource referencing signal SIG-167-LAUNCH (fit_score 47 / intent=True); no send, meeting or customer fact invented.",
+    "uncertainty": "none beyond recorded intake fields",
+    "follow_up_trigger": "day 21 follow-up if no change"
+  },
+  {
+    "id": "A168",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "evidence-only",
+    "evidence": [
+      "employees=920",
+      "fit_score=60",
+      "intent=False",
+      "region=AU",
+      "consent_hold=False"
+    ],
+    "next_action": "[unsent draft] value-resource referencing signal SIG-168-MIGRATION (fit_score 60 / intent=False); no send, meeting or customer fact invented.",
+    "uncertainty": "none beyond recorded intake fields",
+    "follow_up_trigger": "day 21 follow-up if no change"
+  },
+  {
+    "id": "A169",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=937",
+      "fit_score=73",
+      "intent=True",
+      "region=US",
+      "consent_hold=False"
+    ],
+    "next_action": "[unsent draft] discovery referencing signal SIG-169-CAPACITY (fit_score 73 with stated intent); no send, meeting or customer fact invented.",
+    "uncertainty": "none beyond recorded intake fields",
+    "follow_up_trigger": "day 7 follow-up if no change"
+  },
+  {
+    "id": "A170",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=954",
+      "fit_score=86",
+      "intent=True",
+      "region=EU",
+      "consent_hold=False"
+    ],
+    "next_action": "[unsent draft] discovery referencing signal SIG-170-COMPLIANCE (fit_score 86 with stated intent); no send, meeting or customer fact invented.",
+    "uncertainty": "none beyond recorded intake fields",
+    "follow_up_trigger": "day 7 follow-up if no change"
+  },
+  {
+    "id": "A171",
+    "qualification": "disqualify",
+    "disposition": "closed-policy",
+    "action_type": "no-contact",
+    "follow_up_days": 0,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=12",
+      "fit_score=42",
+      "intent=False",
+      "region=AU",
+      "consent_hold=False"
+    ],
+    "next_action": "[unsent draft] no-contact referencing signal SIG-171-LAUNCH (employees below 20); no send, meeting or customer fact invented.",
+    "uncertainty": "none beyond recorded intake fields",
+    "follow_up_trigger": "day 0 follow-up if no change"
+  },
+  {
+    "id": "A172",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=988",
+      "fit_score=55",
+      "intent=True",
+      "region=US",
+      "consent_hold=False"
+    ],
+    "next_action": "[unsent draft] value-resource referencing signal SIG-172-MIGRATION (fit_score 55 / intent=True); no send, meeting or customer fact invented.",
+    "uncertainty": "none beyond recorded intake fields",
+    "follow_up_trigger": "day 21 follow-up if no change"
+  },
+  {
+    "id": "A173",
+    "qualification": "hold",
+    "disposition": "consent-review",
+    "action_type": "no-contact",
+    "follow_up_days": 0,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=25",
+      "fit_score=68",
+      "intent=True",
+      "region=EU",
+      "consent_hold=True"
+    ],
+    "next_action": "[unsent draft] no-contact referencing signal SIG-173-CAPACITY (consent hold active); no send, meeting or customer fact invented.",
+    "uncertainty": "none beyond recorded intake fields",
+    "follow_up_trigger": "day 0 follow-up if no change"
+  },
+  {
+    "id": "A174",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=42",
+      "fit_score=81",
+      "intent=False",
+      "region=AU",
+      "consent_hold=False"
+    ],
+    "next_action": "[unsent draft] value-resource referencing signal SIG-174-COMPLIANCE (fit_score 81 / intent=False); no send, meeting or customer fact invented.",
+    "uncertainty": "none beyond recorded intake fields",
+    "follow_up_trigger": "day 21 follow-up if no change"
+  },
+  {
+    "id": "A175",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "evidence-only",
+    "evidence": [
+      "employees=59",
+      "fit_score=94",
+      "intent=True",
+      "region=US",
+      "consent_hold=False"
+    ],
+    "next_action": "[unsent draft] discovery referencing signal SIG-175-LAUNCH (fit_score 94 with stated intent); no send, meeting or customer fact invented.",
+    "uncertainty": "none beyond recorded intake fields",
+    "follow_up_trigger": "day 7 follow-up if no change"
+  },
+  {
+    "id": "A176",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=76",
+      "fit_score=50",
+      "intent=True",
+      "region=EU",
+      "consent_hold=False"
+    ],
+    "next_action": "[unsent draft] value-resource referencing signal SIG-176-MIGRATION (fit_score 50 / intent=True); no send, meeting or customer fact invented.",
+    "uncertainty": "none beyond recorded intake fields",
+    "follow_up_trigger": "day 21 follow-up if no change"
+  },
+  {
+    "id": "A177",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "evidence-only",
+    "evidence": [
+      "employees=93",
+      "fit_score=63",
+      "intent=False",
+      "region=AU",
+      "consent_hold=False"
+    ],
+    "next_action": "[unsent draft] value-resource referencing signal SIG-177-CAPACITY (fit_score 63 / intent=False); no send, meeting or customer fact invented.",
+    "uncertainty": "none beyond recorded intake fields",
+    "follow_up_trigger": "day 21 follow-up if no change"
+  },
+  {
+    "id": "A178",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=110",
+      "fit_score=76",
+      "intent=True",
+      "region=US",
+      "consent_hold=False"
+    ],
+    "next_action": "[unsent draft] discovery referencing signal SIG-178-COMPLIANCE (fit_score 76 with stated intent); no send, meeting or customer fact invented.",
+    "uncertainty": "none beyond recorded intake fields",
+    "follow_up_trigger": "day 7 follow-up if no change"
+  },
+  {
+    "id": "A179",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=127",
+      "fit_score=89",
+      "intent=True",
+      "region=EU",
+      "consent_hold=False"
+    ],
+    "next_action": "[unsent draft] discovery referencing signal SIG-179-LAUNCH (fit_score 89 with stated intent); no send, meeting or customer fact invented.",
+    "uncertainty": "none beyond recorded intake fields",
+    "follow_up_trigger": "day 7 follow-up if no change"
+  },
+  {
+    "id": "A180",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=144",
+      "fit_score=45",
+      "intent=False",
+      "region=AU",
+      "consent_hold=False"
+    ],
+    "next_action": "[unsent draft] value-resource referencing signal SIG-180-MIGRATION (fit_score 45 / intent=False); no send, meeting or customer fact invented.",
+    "uncertainty": "none beyond recorded intake fields",
+    "follow_up_trigger": "day 21 follow-up if no change"
+  },
+  {
+    "id": "A181",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=161",
+      "fit_score=58",
+      "intent=True",
+      "region=US",
+      "consent_hold=False"
+    ],
+    "next_action": "[unsent draft] value-resource referencing signal SIG-181-CAPACITY (fit_score 58 / intent=True); no send, meeting or customer fact invented.",
+    "uncertainty": "none beyond recorded intake fields",
+    "follow_up_trigger": "day 21 follow-up if no change"
+  },
+  {
+    "id": "A182",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "evidence-only",
+    "evidence": [
+      "employees=178",
+      "fit_score=71",
+      "intent=True",
+      "region=EU",
+      "consent_hold=False"
+    ],
+    "next_action": "[unsent draft] discovery referencing signal SIG-182-COMPLIANCE (fit_score 71 with stated intent); no send, meeting or customer fact invented.",
+    "uncertainty": "none beyond recorded intake fields",
+    "follow_up_trigger": "day 7 follow-up if no change"
+  },
+  {
+    "id": "A183",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=195",
+      "fit_score=84",
+      "intent=False",
+      "region=AU",
+      "consent_hold=False"
+    ],
+    "next_action": "[unsent draft] value-resource referencing signal SIG-183-LAUNCH (fit_score 84 / intent=False); no send, meeting or customer fact invented.",
+    "uncertainty": "none beyond recorded intake fields",
+    "follow_up_trigger": "day 21 follow-up if no change"
+  },
+  {
+    "id": "A184",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=212",
+      "fit_score=97",
+      "intent=True",
+      "region=US",
+      "consent_hold=False"
+    ],
+    "next_action": "[unsent draft] discovery referencing signal SIG-184-MIGRATION (fit_score 97 with stated intent); no send, meeting or customer fact invented.",
+    "uncertainty": "none beyond recorded intake fields",
+    "follow_up_trigger": "day 7 follow-up if no change"
+  },
+  {
+    "id": "A185",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=229",
+      "fit_score=53",
+      "intent=True",
+      "region=EU",
+      "consent_hold=False"
+    ],
+    "next_action": "[unsent draft] value-resource referencing signal SIG-185-CAPACITY (fit_score 53 / intent=True); no send, meeting or customer fact invented.",
+    "uncertainty": "none beyond recorded intake fields",
+    "follow_up_trigger": "day 21 follow-up if no change"
+  },
+  {
+    "id": "A186",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=246",
+      "fit_score=66",
+      "intent=False",
+      "region=AU",
+      "consent_hold=False"
+    ],
+    "next_action": "[unsent draft] value-resource referencing signal SIG-186-COMPLIANCE (fit_score 66 / intent=False); no send, meeting or customer fact invented.",
+    "uncertainty": "none beyond recorded intake fields",
+    "follow_up_trigger": "day 21 follow-up if no change"
+  },
+  {
+    "id": "A187",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=263",
+      "fit_score=79",
+      "intent=True",
+      "region=US",
+      "consent_hold=False"
+    ],
+    "next_action": "[unsent draft] discovery referencing signal SIG-187-LAUNCH (fit_score 79 with stated intent); no send, meeting or customer fact invented.",
+    "uncertainty": "none beyond recorded intake fields",
+    "follow_up_trigger": "day 7 follow-up if no change"
+  },
+  {
+    "id": "A188",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=280",
+      "fit_score=92",
+      "intent=True",
+      "region=EU",
+      "consent_hold=False"
+    ],
+    "next_action": "[unsent draft] discovery referencing signal SIG-188-MIGRATION (fit_score 92 with stated intent); no send, meeting or customer fact invented.",
+    "uncertainty": "none beyond recorded intake fields",
+    "follow_up_trigger": "day 7 follow-up if no change"
+  },
+  {
+    "id": "A189",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "evidence-only",
+    "evidence": [
+      "employees=297",
+      "fit_score=48",
+      "intent=False",
+      "region=AU",
+      "consent_hold=False"
+    ],
+    "next_action": "[unsent draft] value-resource referencing signal SIG-189-CAPACITY (fit_score 48 / intent=False); no send, meeting or customer fact invented.",
+    "uncertainty": "none beyond recorded intake fields",
+    "follow_up_trigger": "day 21 follow-up if no change"
+  },
+  {
+    "id": "A190",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=314",
+      "fit_score=61",
+      "intent=True",
+      "region=US",
+      "consent_hold=False"
+    ],
+    "next_action": "[unsent draft] value-resource referencing signal SIG-190-COMPLIANCE (fit_score 61 / intent=True); no send, meeting or customer fact invented.",
+    "uncertainty": "none beyond recorded intake fields",
+    "follow_up_trigger": "day 21 follow-up if no change"
+  },
+  {
+    "id": "A191",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=331",
+      "fit_score=74",
+      "intent=True",
+      "region=EU",
+      "consent_hold=False"
+    ],
+    "next_action": "[unsent draft] discovery referencing signal SIG-191-LAUNCH (fit_score 74 with stated intent); no send, meeting or customer fact invented.",
+    "uncertainty": "none beyond recorded intake fields",
+    "follow_up_trigger": "day 7 follow-up if no change"
+  },
+  {
+    "id": "A192",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=348",
+      "fit_score=87",
+      "intent=False",
+      "region=AU",
+      "consent_hold=False"
+    ],
+    "next_action": "[unsent draft] value-resource referencing signal SIG-192-MIGRATION (fit_score 87 / intent=False); no send, meeting or customer fact invented.",
+    "uncertainty": "none beyond recorded intake fields",
+    "follow_up_trigger": "day 21 follow-up if no change"
+  },
+  {
+    "id": "A193",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=365",
+      "fit_score=43",
+      "intent=True",
+      "region=US",
+      "consent_hold=False"
+    ],
+    "next_action": "[unsent draft] value-resource referencing signal SIG-193-CAPACITY (fit_score 43 / intent=True); no send, meeting or customer fact invented.",
+    "uncertainty": "none beyond recorded intake fields",
+    "follow_up_trigger": "day 21 follow-up if no change"
+  },
+  {
+    "id": "A194",
+    "qualification": "disqualify",
+    "disposition": "closed-policy",
+    "action_type": "no-contact",
+    "follow_up_days": 0,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=382",
+      "fit_score=56",
+      "intent=True",
+      "region=Restricted-Zone",
+      "consent_hold=False"
+    ],
+    "next_action": "[unsent draft] no-contact referencing signal SIG-194-COMPLIANCE (region=Restricted-Zone); no send, meeting or customer fact invented.",
+    "uncertainty": "none beyond recorded intake fields",
+    "follow_up_trigger": "day 0 follow-up if no change"
+  },
+  {
+    "id": "A195",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=399",
+      "fit_score=69",
+      "intent=False",
+      "region=AU",
+      "consent_hold=False"
+    ],
+    "next_action": "[unsent draft] value-resource referencing signal SIG-195-LAUNCH (fit_score 69 / intent=False); no send, meeting or customer fact invented.",
+    "uncertainty": "none beyond recorded intake fields",
+    "follow_up_trigger": "day 21 follow-up if no change"
+  },
+  {
+    "id": "A196",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "evidence-only",
+    "evidence": [
+      "employees=416",
+      "fit_score=82",
+      "intent=True",
+      "region=US",
+      "consent_hold=False"
+    ],
+    "next_action": "[unsent draft] discovery referencing signal SIG-196-MIGRATION (fit_score 82 with stated intent); no send, meeting or customer fact invented.",
+    "uncertainty": "none beyond recorded intake fields",
+    "follow_up_trigger": "day 7 follow-up if no change"
+  },
+  {
+    "id": "A197",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=433",
+      "fit_score=95",
+      "intent=True",
+      "region=EU",
+      "consent_hold=False"
+    ],
+    "next_action": "[unsent draft] discovery referencing signal SIG-197-CAPACITY (fit_score 95 with stated intent); no send, meeting or customer fact invented.",
+    "uncertainty": "none beyond recorded intake fields",
+    "follow_up_trigger": "day 7 follow-up if no change"
+  },
+  {
+    "id": "A198",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=450",
+      "fit_score=51",
+      "intent=False",
+      "region=AU",
+      "consent_hold=False"
+    ],
+    "next_action": "[unsent draft] value-resource referencing signal SIG-198-COMPLIANCE (fit_score 51 / intent=False); no send, meeting or customer fact invented.",
+    "uncertainty": "none beyond recorded intake fields",
+    "follow_up_trigger": "day 21 follow-up if no change"
+  },
+  {
+    "id": "A199",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=467",
+      "fit_score=64",
+      "intent=True",
+      "region=US",
+      "consent_hold=False"
+    ],
+    "next_action": "[unsent draft] value-resource referencing signal SIG-199-LAUNCH (fit_score 64 / intent=True); no send, meeting or customer fact invented.",
+    "uncertainty": "none beyond recorded intake fields",
+    "follow_up_trigger": "day 21 follow-up if no change"
+  },
+  {
+    "id": "A200",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=484",
+      "fit_score=77",
+      "intent=True",
+      "region=EU",
+      "consent_hold=False"
+    ],
+    "next_action": "[unsent draft] discovery referencing signal SIG-200-MIGRATION (fit_score 77 with stated intent); no send, meeting or customer fact invented.",
+    "uncertainty": "none beyond recorded intake fields",
+    "follow_up_trigger": "day 7 follow-up if no change"
+  }
+]

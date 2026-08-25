@@ -1,0 +1,30 @@
+{
+  "arm": "support-causal-r1",
+  "command": "run-arm support-causal-r1",
+  "company": "exp05_support_causal_r1_20260825_9bc7812c_test",
+  "error": "command failed (1): /Users/yao/Learning/restless/target/debug/restless work graph -c exp05_support_causal_r1_20260825_9bc7812c_test\nError: pool timed out while waiting for an open connection",
+  "error_type": "RunFailure",
+  "recorded_at": "2026-08-25T13:55:06.880585+00:00",
+  "spend": {
+    "accounted_usd": 0.1063,
+    "by_actor": [
+      {
+        "actor": "customer-direction",
+        "model": "zai/glm-5.3",
+        "role": "accountable support outcome lead",
+        "spent_usd": 0.0659
+      },
+      {
+        "actor": "exec",
+        "model": "zai/glm-5.3",
+        "role": "exec",
+        "spent_usd": 0.0404
+      }
+    ],
+    "ceiling_usd": 12.0,
+    "note": null,
+    "remaining_usd": 11.8937,
+    "status": "available"
+  },
+  "validity": "invalid"
+}

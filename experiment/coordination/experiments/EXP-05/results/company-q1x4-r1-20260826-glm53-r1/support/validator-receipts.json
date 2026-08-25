@@ -1,0 +1,20 @@
+{
+  "created_at": "2026-08-25T15:16:07.796116+00:00",
+  "domain": "support",
+  "kind": "exact_validator_complete",
+  "receipts": [
+    {
+      "accepted_at": "2026-08-25T15:16:07.796002+00:00",
+      "arrival_offset_seconds": 0,
+      "output": "batch-01.json",
+      "sha256": "2c0e6a6ffc5f8970d7ea70ba7b51dc6f4b5cd3b9872801c0cd08fa5ba47efa03",
+      "unit": "support batch 01",
+      "validator": {
+        "domain": "support-v2",
+        "units": 8,
+        "valid": true
+      }
+    }
+  ],
+  "units": 8
+}

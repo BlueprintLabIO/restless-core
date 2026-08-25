@@ -1,0 +1,178 @@
+{
+  "arm": "sales-d0-q2-r1",
+  "blind_evaluation": {
+    "judgement": {
+      "consequential_defects": [],
+      "decision": "accept",
+      "evidence": [
+        "Sampled policy fields match source throughout: A017 (regulated, fit 92, intent true) \u2192 evidence-only/discovery/day 7; A098 (Restricted-Zone, regulated) \u2192 disqualify/no-contact/day 0/evidence-only; A046 (fit=70 boundary, intent true) \u2192 sales-ready/day 7; A012 (fit 84, intent false) \u2192 nurture/day 21.",
+        "Every unit carries the five required evidence fields (employees, fit_score, intent, region, consent_hold) with values matching source, and every unsent next action names the exact SIG identifier; no invented send, meeting, or customer fact found.",
+        "All tail populations resolve correctly: eight consent holds (A023, A053, A083, A113, A143, A173, A213, A233) \u2192 hold/consent-review/no-contact/day 0; all Restricted-Zone (A014, A038, A074, A098, A134, A158, A194, A218) and <20-employee accounts (A009, A031, A069, A091, A129, A171, A209, A231) \u2192 disqualify/no-contact/day 0 with correct claim codes.",
+        "Uncertainty calibration is inconsistent across otherwise identical units: 'Moderate: relies on intake snapshot...' (A001\u2013A040), 'Fictional _test dossier; no live customer contact attempted.' (A041\u2013A080), 'None beyond stated dossier fields' (A121\u2013A160, understates), 'Fit X, intent Y; based on fictional intake note only.' (A201\u2013A240); no differentiation by fit/intent strength.",
+        "Day-0 units mix trigger wording \u2014 'Day 0 elapsed without response...' (e.g. A009, A023, A053, A143, A173, A213) versus the apt 'Any new intake update or policy change; no scheduled contact' (A083, A091, A098, A113) \u2014 a wording inconsistency, not a policy breach, since all remain unsent and no-contact gated by action_type."
+      ],
+      "high_consequence_breach": false,
+      "scores": {
+        "grounding": 9.5,
+        "native_review_readiness": 8.5,
+        "safe_actionability": 9,
+        "tail_handling": 8,
+        "uncertainty_calibration": 7,
+        "usefulness": 9
+      },
+      "worst_unit": {
+        "defect": "Consent-hold account's unsent next action reads 'prepare no-contact outreach' with trigger 'Day 0 elapsed without response' \u2014 wording invites drafting outreach on a held account and awaits a response that cannot arrive; contrast A083/A113 which correctly state no scheduled contact.",
+        "id": "A023",
+        "score": 6
+      }
+    },
+    "model": {
+      "effort": "high",
+      "selector": "zai/glm-5.3"
+    },
+    "process_exit": 0,
+    "valid": true,
+    "validation_errors": []
+  },
+  "company": "exp05_sales_d0_q2_r1_20260825_675e4024_test",
+  "exact_evaluation": {
+    "attribution_errors": [],
+    "attribution_valid": true,
+    "exact": {
+      "domain": "sales",
+      "sha256": "ca51f02c3268c141713ffd0d7df725c644226384bead5fd763d7d7628ae24c3d",
+      "units": 240,
+      "valid": true
+    }
+  },
+  "finished_at": "2026-08-25T12:09:12.191239+00:00",
+  "metrics": {
+    "accepted_units": 240,
+    "accepted_units_per_active_worker_hour": 1941.078430651594,
+    "accepted_units_per_request_hour": 4164.475854929156,
+    "arrivals": [
+      {
+        "observed_at": "2026-08-25T12:01:54.942310+00:00",
+        "offset_seconds": 0,
+        "unit": "sales batch 01"
+      },
+      {
+        "observed_at": "2026-08-25T12:01:55.071978+00:00",
+        "offset_seconds": 0,
+        "unit": "sales batch 02"
+      },
+      {
+        "observed_at": "2026-08-25T12:01:55.314887+00:00",
+        "offset_seconds": 0,
+        "unit": "sales batch 03"
+      },
+      {
+        "observed_at": "2026-08-25T12:01:55.482130+00:00",
+        "offset_seconds": 0,
+        "unit": "sales batch 04"
+      },
+      {
+        "observed_at": "2026-08-25T12:01:55.641347+00:00",
+        "offset_seconds": 0,
+        "unit": "sales batch 05"
+      },
+      {
+        "observed_at": "2026-08-25T12:01:55.814596+00:00",
+        "offset_seconds": 0,
+        "unit": "sales batch 06"
+      }
+    ],
+    "attempts": 6,
+    "billing_disposition": "charged metered API cost is authoritative; missing spend metering invalidates the cell",
+    "charged_cost_per_accepted_unit_usd": 0.0019875,
+    "configured_efforts": [
+      "medium"
+    ],
+    "estimated_list_cost_per_accepted_unit_usd": 0.0,
+    "estimated_list_cost_usd": 0,
+    "exec_judgement_completed_at": "2026-08-25T12:07:28.830424Z",
+    "exec_to_staff_dispatch_seconds": 50.45942282676697,
+    "first_staff_attempt_at": "2026-08-25T12:02:46.274052Z",
+    "lead_active_fraction_of_outcome_window": 0.35645076973604406,
+    "lead_active_seconds": {
+      "summed": 90.32359099388123,
+      "union": 90.32359099388123
+    },
+    "lead_review_completed_at": "2026-08-25T12:06:59.676136Z",
+    "lead_review_seconds": 45.799001932144165,
+    "lead_wakes": 2,
+    "models": [
+      "zai/glm-5.3"
+    ],
+    "observed_tokens": 151833,
+    "outcome_review_seconds": 253.39709901809692,
+    "peak_staff_attempt_concurrency": 2,
+    "peak_staff_model_concurrency": 2,
+    "queue_seconds": 207.46908617019653,
+    "session_resumptions": 2,
+    "spend": {
+      "accounted_usd": 0.477,
+      "by_actor": [
+        {
+          "actor": "account-north",
+          "model": "zai/glm-5.3",
+          "role": "sales queue operator",
+          "spent_usd": 0.1553
+        },
+        {
+          "actor": "account-south",
+          "model": "zai/glm-5.3",
+          "role": "sales queue operator",
+          "spent_usd": 0.1547
+        },
+        {
+          "actor": "revenue-direction",
+          "model": "zai/glm-5.3",
+          "role": "accountable sales outcome lead",
+          "spent_usd": 0.084
+        },
+        {
+          "actor": "exec",
+          "model": "zai/glm-5.3",
+          "role": "exec",
+          "spent_usd": 0.083
+        }
+      ],
+      "ceiling_usd": 12.0,
+      "note": null,
+      "remaining_usd": 11.523,
+      "status": "available"
+    },
+    "support_event": null,
+    "tell_started_at": "2026-08-25T12:01:55.814629+00:00",
+    "unit_latency_seconds": {
+      "max": 207.46908617019653,
+      "p50": 117.09500813484192,
+      "p90": 203.33192360401154,
+      "p99": 207.05536991357803
+    },
+    "unterminated_staff_model_sessions": 0,
+    "usage_events": 10,
+    "validator_callback_at": "2026-08-25T12:06:13.877134+00:00",
+    "value": {
+      "accepted_value": 240.0,
+      "high_consequence_retained_fraction": null,
+      "initial_value": 240.0,
+      "missed_service_value": 0.0,
+      "value_adjusted_units": 240.0
+    },
+    "value_adjusted_units_per_active_worker_hour": 1941.078430651594,
+    "value_adjusted_units_per_request_hour": 4164.475854929156,
+    "worker_active_seconds": {
+      "summed": 445.1133897304535,
+      "union": 227.41789507865906
+    }
+  },
+  "runtime_valid": true,
+  "tell_process": {
+    "exit": 0,
+    "stderr": "",
+    "stdout": "delivered to the exec; the message wakes the company\n"
+  },
+  "validity": "counted"
+}

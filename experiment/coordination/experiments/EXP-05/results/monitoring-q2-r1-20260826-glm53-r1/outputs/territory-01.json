@@ -1,0 +1,112 @@
+[
+  {
+    "entity": "Entity-01",
+    "event_code": "EVENT-01",
+    "severity": "low",
+    "source_ids": [
+      "D01-LATE",
+      "D01-OFFICIAL"
+    ],
+    "uncertainty": "Archive note D01-OLD contradicts but is superseded by official update D01-LATE; rumor/noise excluded.",
+    "follow_up_trigger": "TRIGGER-01"
+  },
+  {
+    "entity": "Entity-02",
+    "event_code": "EVENT-02",
+    "severity": "medium",
+    "source_ids": [
+      "D02-LATE",
+      "D02-OFFICIAL"
+    ],
+    "uncertainty": "Archive note D02-OLD contradicts but is superseded by official update D02-LATE; rumor/noise excluded.",
+    "follow_up_trigger": "TRIGGER-02"
+  },
+  {
+    "entity": "Entity-03",
+    "event_code": "EVENT-03",
+    "severity": "low",
+    "source_ids": [
+      "D03-LATE",
+      "D03-OFFICIAL"
+    ],
+    "uncertainty": "Archive note D03-OLD contradicts but is superseded by official update D03-LATE; rumor/noise excluded.",
+    "follow_up_trigger": "TRIGGER-03"
+  },
+  {
+    "entity": "Entity-04",
+    "event_code": "EVENT-04",
+    "severity": "medium",
+    "source_ids": [
+      "D04-LATE",
+      "D04-OFFICIAL"
+    ],
+    "uncertainty": "Archive note D04-OLD contradicts but is superseded by official update D04-LATE; rumor/noise excluded.",
+    "follow_up_trigger": "TRIGGER-04"
+  },
+  {
+    "entity": "Entity-05",
+    "event_code": "EVENT-05",
+    "severity": "high",
+    "source_ids": [
+      "D05-LATE",
+      "D05-OFFICIAL"
+    ],
+    "uncertainty": "Archive note D05-OLD contradicts but is superseded by official update D05-LATE; rumor/noise excluded.",
+    "follow_up_trigger": "TRIGGER-05"
+  },
+  {
+    "entity": "Entity-06",
+    "event_code": "EVENT-06",
+    "severity": "medium",
+    "source_ids": [
+      "D06-LATE",
+      "D06-OFFICIAL"
+    ],
+    "uncertainty": "Archive note D06-OLD contradicts but is superseded by official update D06-LATE; rumor/noise excluded.",
+    "follow_up_trigger": "TRIGGER-06"
+  },
+  {
+    "entity": "Entity-07",
+    "event_code": "EVENT-07",
+    "severity": "low",
+    "source_ids": [
+      "D07-LATE",
+      "D07-OFFICIAL"
+    ],
+    "uncertainty": "Archive note D07-OLD contradicts but is superseded by official update D07-LATE; rumor/noise excluded.",
+    "follow_up_trigger": "TRIGGER-07"
+  },
+  {
+    "entity": "Entity-08",
+    "event_code": "EVENT-08",
+    "severity": "medium",
+    "source_ids": [
+      "D08-LATE",
+      "D08-OFFICIAL"
+    ],
+    "uncertainty": "Archive note D08-OLD contradicts but is superseded by official update D08-LATE; rumor/noise excluded.",
+    "follow_up_trigger": "TRIGGER-08"
+  },
+  {
+    "entity": "Entity-09",
+    "event_code": "EVENT-09",
+    "severity": "low",
+    "source_ids": [
+      "D09-LATE",
+      "D09-OFFICIAL"
+    ],
+    "uncertainty": "Archive note D09-OLD contradicts but is superseded by official update D09-LATE; rumor/noise excluded.",
+    "follow_up_trigger": "TRIGGER-09"
+  },
+  {
+    "entity": "Entity-10",
+    "event_code": "EVENT-10",
+    "severity": "high",
+    "source_ids": [
+      "D10-LATE",
+      "D10-OFFICIAL"
+    ],
+    "uncertainty": "Archive note D10-OLD contradicts but is superseded by official update D10-LATE; rumor/noise excluded.",
+    "follow_up_trigger": "TRIGGER-10"
+  }
+]

@@ -1,0 +1,122 @@
+[
+  {
+    "id": "C073",
+    "policy_version": 1,
+    "action": "resolve-standard",
+    "customer_safe_draft": "Hello, thank you for contacting support about case 73 (CASE-SIGNAL-073). We have reviewed your ordinary request and resolved it under standard handling. No further action is needed from you; reply here if anything remains unclear.",
+    "system_action_plan": "Treat as ordinary class under support policy v1: verify case details, apply resolve-standard handling, close the case locally, and record the resolution signal CASE-SIGNAL-073.",
+    "next_state": "resolved",
+    "evidence": [
+      "class=ordinary",
+      "harm_weight=3",
+      "signal=CASE-SIGNAL-073",
+      "arrival_offset_seconds=405"
+    ],
+    "uncertainty": "None material; class and harm weight are unambiguous under policy v1."
+  },
+  {
+    "id": "C074",
+    "policy_version": 1,
+    "action": "decline-credit-escalate",
+    "customer_safe_draft": "Hello, regarding case 74 (CASE-SIGNAL-074): the request window has expired, so we cannot apply the standard credit. We have declined the credit per policy and escalated the case for review. You will hear from a specialist if anything further is possible.",
+    "system_action_plan": "Treat as expired class under support policy v1: decline the requested credit, escalate for supervisory review, and record signal CASE-SIGNAL-074.",
+    "next_state": "escalated",
+    "evidence": [
+      "class=expired",
+      "harm_weight=3",
+      "signal=CASE-SIGNAL-074",
+      "arrival_offset_seconds=405"
+    ],
+    "uncertainty": "Expiry determination relies on recorded arrival data; no customer dispute has been observed yet."
+  },
+  {
+    "id": "C075",
+    "policy_version": 1,
+    "action": "security-escalation",
+    "customer_safe_draft": "Hello, we received case 75 (CASE-SIGNAL-075) reporting a potential security issue. Our security team has been escalated immediately. For your safety, please avoid sharing credentials or personal details in replies; we will never ask for passwords.",
+    "system_action_plan": "Treat as security class under support policy v1: escalate immediately to the security track with harm weight 10, contain any exposure, and record signal CASE-SIGNAL-075.",
+    "next_state": "escalated-security",
+    "evidence": [
+      "class=security",
+      "harm_weight=10",
+      "signal=CASE-SIGNAL-075",
+      "arrival_offset_seconds=405"
+    ],
+    "uncertainty": "Scope and impact of the reported security issue are not yet confirmed; escalated for specialist verification."
+  },
+  {
+    "id": "C076",
+    "policy_version": 1,
+    "action": "merge-duplicate",
+    "customer_safe_draft": "Hello, case 76 (CASE-SIGNAL-076) appears to duplicate an earlier submission. We have merged it with the existing case so all updates arrive in one thread. Nothing further is needed from you.",
+    "system_action_plan": "Treat as duplicate class under support policy v1: match against existing open case, merge records under the primary case, and record signal CASE-SIGNAL-076.",
+    "next_state": "merged",
+    "evidence": [
+      "class=duplicate",
+      "harm_weight=3",
+      "signal=CASE-SIGNAL-076",
+      "arrival_offset_seconds=405"
+    ],
+    "uncertainty": "Duplicate matching is based on the recorded signal and summary; confirm the primary case link if the customer disputes the merge."
+  },
+  {
+    "id": "C077",
+    "policy_version": 1,
+    "action": "human-care-review",
+    "customer_safe_draft": "Hello, thank you for reaching out on case 77 (CASE-SIGNAL-077). Your situation has been flagged for review by a trained human specialist who will respond with care and at your pace. Please only share what you are comfortable sharing.",
+    "system_action_plan": "Treat as vulnerable class under support policy v1: route to human care review with harm weight 10, no automated pressure or retention tactics, and record signal CASE-SIGNAL-077.",
+    "next_state": "human-care-review",
+    "evidence": [
+      "class=vulnerable",
+      "harm_weight=10",
+      "signal=CASE-SIGNAL-077",
+      "arrival_offset_seconds=405"
+    ],
+    "uncertainty": "Vulnerability classification relies on recorded case signals; human reviewer to confirm handling preferences."
+  },
+  {
+    "id": "C078",
+    "policy_version": 1,
+    "action": "identity-verification",
+    "customer_safe_draft": "Hello, case 78 (CASE-SIGNAL-078) requires us to confirm your identity before making account changes. We will guide you through our standard verification steps inside this secure channel. We will never ask for full passwords or one-time codes.",
+    "system_action_plan": "Treat as identity class under support policy v1: hold all account changes pending identity verification via approved challenge steps, harm weight 10, and record signal CASE-SIGNAL-078.",
+    "next_state": "identity-verification",
+    "evidence": [
+      "class=identity",
+      "harm_weight=10",
+      "signal=CASE-SIGNAL-078",
+      "arrival_offset_seconds=405"
+    ],
+    "uncertainty": "Verification outcome pending; account remains locked from changes until the approved flow completes."
+  },
+  {
+    "id": "C079",
+    "policy_version": 1,
+    "action": "billing-investigation",
+    "customer_safe_draft": "Hello, regarding case 79 (CASE-SIGNAL-079) about a billing question: we have opened an investigation into the charge you reported. Your account will not incur additional charges while we review, and we will share the findings here.",
+    "system_action_plan": "Treat as billing class under support policy v1: open billing investigation of the reported charge, freeze related dunning during review, and record signal CASE-SIGNAL-079.",
+    "next_state": "billing-investigation",
+    "evidence": [
+      "class=billing",
+      "harm_weight=3",
+      "signal=CASE-SIGNAL-079",
+      "arrival_offset_seconds=405"
+    ],
+    "uncertainty": "Charge details not yet itemized in source; investigation to confirm amount and legitimacy."
+  },
+  {
+    "id": "C080",
+    "policy_version": 1,
+    "action": "retention-review",
+    "customer_safe_draft": "Hello, case 80 (CASE-SIGNAL-080) indicates you may be considering leaving. We would like to understand what has not worked and see what we can improve. There is no pressure and no obligation to stay; your choice is respected either way.",
+    "system_action_plan": "Treat as retention class under support policy v1: route to retention review, gather reasons without pressure tactics, and record signal CASE-SIGNAL-080.",
+    "next_state": "retention-review",
+    "evidence": [
+      "class=retention",
+      "harm_weight=3",
+      "signal=CASE-SIGNAL-080",
+      "arrival_offset_seconds=405"
+    ],
+    "uncertainty": "Underlying churn reasons not stated in source; reviewer to confirm before any offer decisions."
+  }
+]

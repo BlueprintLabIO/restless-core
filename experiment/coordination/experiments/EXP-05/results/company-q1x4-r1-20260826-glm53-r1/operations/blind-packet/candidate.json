@@ -1,0 +1,258 @@
+[
+  {
+    "action": "close-reconciled",
+    "delta": 0,
+    "disposition": "matched",
+    "evidence": "invoice_total 837 equals ledger_total 837 (INV-TEST-001, AUD)",
+    "id": "I001",
+    "uncertainty": "none; totals agree exactly"
+  },
+  {
+    "action": "close-reconciled",
+    "delta": 0,
+    "disposition": "matched",
+    "evidence": "invoice_total 874 equals ledger_total 874 (INV-TEST-002, AUD)",
+    "id": "I002",
+    "uncertainty": "none; totals agree exactly"
+  },
+  {
+    "action": "close-reconciled",
+    "delta": 0,
+    "disposition": "matched",
+    "evidence": "invoice_total 911 equals ledger_total 911 (INV-TEST-003, AUD)",
+    "id": "I003",
+    "uncertainty": "none; totals agree exactly"
+  },
+  {
+    "action": "review-credit-or-ledger",
+    "delta": 75,
+    "disposition": "over-recorded",
+    "evidence": "ledger_total 1023 exceeds invoice_total 948 by 75 (INV-TEST-004, AUD)",
+    "id": "I004",
+    "uncertainty": "ledger may include an unapplied credit or duplicate entry; source totals alone cannot distinguish"
+  },
+  {
+    "action": "close-reconciled",
+    "delta": 0,
+    "disposition": "matched",
+    "evidence": "invoice_total 985 equals ledger_total 985 (INV-TEST-005, AUD)",
+    "id": "I005",
+    "uncertainty": "none; totals agree exactly"
+  },
+  {
+    "action": "close-reconciled",
+    "delta": 0,
+    "disposition": "matched",
+    "evidence": "invoice_total 1022 equals ledger_total 1022 (INV-TEST-006, AUD)",
+    "id": "I006",
+    "uncertainty": "none; totals agree exactly"
+  },
+  {
+    "action": "close-reconciled",
+    "delta": 0,
+    "disposition": "matched",
+    "evidence": "invoice_total 1059 equals ledger_total 1059 (INV-TEST-007, AUD)",
+    "id": "I007",
+    "uncertainty": "none; totals agree exactly"
+  },
+  {
+    "action": "review-missing-payment",
+    "delta": -50,
+    "disposition": "under-recorded",
+    "evidence": "ledger_total 1046 is 50 below invoice_total 1096 (INV-TEST-008, AUD)",
+    "id": "I008",
+    "uncertainty": "a payment may be missing or partially recorded in the ledger; source totals alone cannot distinguish"
+  },
+  {
+    "action": "close-reconciled",
+    "delta": 0,
+    "disposition": "matched",
+    "evidence": "invoice_total 1133 equals ledger_total 1133 (INV-TEST-009, AUD)",
+    "id": "I009",
+    "uncertainty": "none; totals agree exactly"
+  },
+  {
+    "action": "close-reconciled",
+    "delta": 0,
+    "disposition": "matched",
+    "evidence": "invoice_total 1170 equals ledger_total 1170 (INV-TEST-010, AUD)",
+    "id": "I010",
+    "uncertainty": "none; totals agree exactly"
+  },
+  {
+    "action": "close-reconciled",
+    "delta": 0,
+    "disposition": "matched",
+    "evidence": "invoice_total 1207 equals ledger_total 1207 (INV-TEST-011, AUD)",
+    "id": "I011",
+    "uncertainty": "none; totals agree exactly"
+  },
+  {
+    "action": "review-credit-or-ledger",
+    "delta": 75,
+    "disposition": "over-recorded",
+    "evidence": "ledger_total 1319 exceeds invoice_total 1244 by 75 (INV-TEST-012, AUD)",
+    "id": "I012",
+    "uncertainty": "ledger may include an unapplied credit or duplicate entry; source totals alone cannot distinguish"
+  },
+  {
+    "action": "close-reconciled",
+    "delta": 0,
+    "disposition": "matched",
+    "evidence": "invoice_total 1281 equals ledger_total 1281 (INV-TEST-013, AUD)",
+    "id": "I013",
+    "uncertainty": "none; totals agree exactly"
+  },
+  {
+    "action": "close-reconciled",
+    "delta": 0,
+    "disposition": "matched",
+    "evidence": "invoice_total 1318 equals ledger_total 1318 (INV-TEST-014, AUD)",
+    "id": "I014",
+    "uncertainty": "none; totals agree exactly"
+  },
+  {
+    "action": "close-reconciled",
+    "delta": 0,
+    "disposition": "matched",
+    "evidence": "invoice_total 1355 equals ledger_total 1355 (INV-TEST-015, AUD)",
+    "id": "I015",
+    "uncertainty": "none; totals agree exactly"
+  },
+  {
+    "action": "review-missing-payment",
+    "delta": -50,
+    "disposition": "under-recorded",
+    "evidence": "ledger_total 1342 is 50 below invoice_total 1392 (INV-TEST-016, AUD)",
+    "id": "I016",
+    "uncertainty": "a payment may be missing or partially recorded in the ledger; source totals alone cannot distinguish"
+  },
+  {
+    "action": "close-reconciled",
+    "delta": 0,
+    "disposition": "matched",
+    "evidence": "INV-TEST-017 invoice_total 1429 equals ledger_total 1429 (AUD, Test Customer 17)",
+    "id": "I017",
+    "uncertainty": "none; both source totals read directly from territory-03.json"
+  },
+  {
+    "action": "close-reconciled",
+    "delta": 0,
+    "disposition": "matched",
+    "evidence": "INV-TEST-018 invoice_total 1466 equals ledger_total 1466 (AUD, Test Customer 18)",
+    "id": "I018",
+    "uncertainty": "none; both source totals read directly from territory-03.json"
+  },
+  {
+    "action": "close-reconciled",
+    "delta": 0,
+    "disposition": "matched",
+    "evidence": "INV-TEST-019 invoice_total 1503 equals ledger_total 1503 (AUD, Test Customer 19)",
+    "id": "I019",
+    "uncertainty": "none; both source totals read directly from territory-03.json"
+  },
+  {
+    "action": "review-credit-or-ledger",
+    "delta": 75,
+    "disposition": "over-recorded",
+    "evidence": "INV-TEST-020 ledger_total 1615 exceeds invoice_total 1540 by 75 (AUD, Test Customer 20)",
+    "id": "I020",
+    "uncertainty": "cause of the 75 ledger excess not determinable from the source pair alone; no external documents consulted"
+  },
+  {
+    "action": "close-reconciled",
+    "delta": 0,
+    "disposition": "matched",
+    "evidence": "INV-TEST-021 invoice_total 1577 equals ledger_total 1577 (AUD, Test Customer 21)",
+    "id": "I021",
+    "uncertainty": "none; both source totals read directly from territory-03.json"
+  },
+  {
+    "action": "close-reconciled",
+    "delta": 0,
+    "disposition": "matched",
+    "evidence": "INV-TEST-022 invoice_total 1614 equals ledger_total 1614 (AUD, Test Customer 22)",
+    "id": "I022",
+    "uncertainty": "none; both source totals read directly from territory-03.json"
+  },
+  {
+    "action": "close-reconciled",
+    "delta": 0,
+    "disposition": "matched",
+    "evidence": "INV-TEST-023 invoice_total 1651 equals ledger_total 1651 (AUD, Test Customer 23)",
+    "id": "I023",
+    "uncertainty": "none; both source totals read directly from territory-03.json"
+  },
+  {
+    "action": "review-missing-payment",
+    "delta": -50,
+    "disposition": "under-recorded",
+    "evidence": "INV-TEST-024 ledger_total 1638 is below invoice_total 1688 by 50 (AUD, Test Customer 24)",
+    "id": "I024",
+    "uncertainty": "which payment is missing not determinable from the source pair alone; no external documents consulted"
+  },
+  {
+    "action": "close-reconciled",
+    "delta": 0,
+    "disposition": "matched",
+    "evidence": "invoice_total 1725 equals ledger_total 1725 for INV-TEST-025",
+    "id": "I025",
+    "uncertainty": "none"
+  },
+  {
+    "action": "close-reconciled",
+    "delta": 0,
+    "disposition": "matched",
+    "evidence": "invoice_total 1762 equals ledger_total 1762 for INV-TEST-026",
+    "id": "I026",
+    "uncertainty": "none"
+  },
+  {
+    "action": "close-reconciled",
+    "delta": 0,
+    "disposition": "matched",
+    "evidence": "invoice_total 1799 equals ledger_total 1799 for INV-TEST-027",
+    "id": "I027",
+    "uncertainty": "none"
+  },
+  {
+    "action": "review-credit-or-ledger",
+    "delta": 75,
+    "disposition": "over-recorded",
+    "evidence": "ledger_total 1911 exceeds invoice_total 1836 by 75 for INV-TEST-028",
+    "id": "I028",
+    "uncertainty": "none"
+  },
+  {
+    "action": "close-reconciled",
+    "delta": 0,
+    "disposition": "matched",
+    "evidence": "invoice_total 1873 equals ledger_total 1873 for INV-TEST-029",
+    "id": "I029",
+    "uncertainty": "none"
+  },
+  {
+    "action": "close-reconciled",
+    "delta": 0,
+    "disposition": "matched",
+    "evidence": "invoice_total 1910 equals ledger_total 1910 for INV-TEST-030",
+    "id": "I030",
+    "uncertainty": "none"
+  },
+  {
+    "action": "close-reconciled",
+    "delta": 0,
+    "disposition": "matched",
+    "evidence": "invoice_total 1947 equals ledger_total 1947 for INV-TEST-031",
+    "id": "I031",
+    "uncertainty": "none"
+  },
+  {
+    "action": "review-missing-payment",
+    "delta": -50,
+    "disposition": "under-recorded",
+    "evidence": "ledger_total 1934 is 50 below invoice_total 1984 for INV-TEST-032",
+    "id": "I032",
+    "uncertainty": "none"
+  }
+]

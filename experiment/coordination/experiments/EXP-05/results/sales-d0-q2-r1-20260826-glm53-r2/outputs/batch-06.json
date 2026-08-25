@@ -1,0 +1,722 @@
+[
+  {
+    "id": "A201",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=501",
+      "fit_score=90",
+      "intent=false",
+      "region=AU",
+      "consent_hold=false"
+    ],
+    "next_action": "Draft-only (unsent) value-resource outreach for Fictional Meridian 201 referencing signal SIG-201-CAPACITY (below qualification threshold or intent not confirmed).",
+    "uncertainty": "Based solely on intake note: The fictional intake explicitly mentioned capacity pressure.",
+    "follow_up_trigger": "21 days after arrival if no response; signal SIG-201-CAPACITY unchanged"
+  },
+  {
+    "id": "A202",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=518",
+      "fit_score=46",
+      "intent=true",
+      "region=US",
+      "consent_hold=false"
+    ],
+    "next_action": "Draft-only (unsent) value-resource outreach for Fictional Meridian 202 referencing signal SIG-202-COMPLIANCE (below qualification threshold or intent not confirmed).",
+    "uncertainty": "Based solely on intake note: The fictional intake explicitly mentioned compliance review.",
+    "follow_up_trigger": "21 days after arrival if no response; signal SIG-202-COMPLIANCE unchanged"
+  },
+  {
+    "id": "A203",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "evidence-only",
+    "evidence": [
+      "employees=535",
+      "fit_score=59",
+      "intent=true",
+      "region=EU",
+      "consent_hold=false"
+    ],
+    "next_action": "Draft-only (unsent) value-resource outreach for Fictional Meridian 203 referencing signal SIG-203-LAUNCH (below qualification threshold or intent not confirmed).",
+    "uncertainty": "Based solely on intake note: The fictional intake explicitly mentioned a new launch.",
+    "follow_up_trigger": "21 days after arrival if no response; signal SIG-203-LAUNCH unchanged"
+  },
+  {
+    "id": "A204",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=552",
+      "fit_score=72",
+      "intent=false",
+      "region=AU",
+      "consent_hold=false"
+    ],
+    "next_action": "Draft-only (unsent) value-resource outreach for Fictional Meridian 204 referencing signal SIG-204-MIGRATION (below qualification threshold or intent not confirmed).",
+    "uncertainty": "Based solely on intake note: The fictional intake explicitly mentioned migration timing.",
+    "follow_up_trigger": "21 days after arrival if no response; signal SIG-204-MIGRATION unchanged"
+  },
+  {
+    "id": "A205",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=569",
+      "fit_score=85",
+      "intent=true",
+      "region=US",
+      "consent_hold=false"
+    ],
+    "next_action": "Draft-only (unsent) discovery outreach for Fictional Meridian 205 referencing signal SIG-205-CAPACITY (fit_score 85 >= 70 with confirmed intent).",
+    "uncertainty": "Based solely on intake note: The fictional intake explicitly mentioned capacity pressure.",
+    "follow_up_trigger": "7 days after arrival if no response; signal SIG-205-CAPACITY unchanged"
+  },
+  {
+    "id": "A206",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=586",
+      "fit_score=98",
+      "intent=true",
+      "region=EU",
+      "consent_hold=false"
+    ],
+    "next_action": "Draft-only (unsent) discovery outreach for Fictional Meridian 206 referencing signal SIG-206-COMPLIANCE (fit_score 98 >= 70 with confirmed intent).",
+    "uncertainty": "Based solely on intake note: The fictional intake explicitly mentioned compliance review.",
+    "follow_up_trigger": "7 days after arrival if no response; signal SIG-206-COMPLIANCE unchanged"
+  },
+  {
+    "id": "A207",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=603",
+      "fit_score=54",
+      "intent=false",
+      "region=AU",
+      "consent_hold=false"
+    ],
+    "next_action": "Draft-only (unsent) value-resource outreach for Fictional Meridian 207 referencing signal SIG-207-LAUNCH (below qualification threshold or intent not confirmed).",
+    "uncertainty": "Based solely on intake note: The fictional intake explicitly mentioned a new launch.",
+    "follow_up_trigger": "21 days after arrival if no response; signal SIG-207-LAUNCH unchanged"
+  },
+  {
+    "id": "A208",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=620",
+      "fit_score=67",
+      "intent=true",
+      "region=US",
+      "consent_hold=false"
+    ],
+    "next_action": "Draft-only (unsent) value-resource outreach for Fictional Meridian 208 referencing signal SIG-208-MIGRATION (below qualification threshold or intent not confirmed).",
+    "uncertainty": "Based solely on intake note: The fictional intake explicitly mentioned migration timing.",
+    "follow_up_trigger": "21 days after arrival if no response; signal SIG-208-MIGRATION unchanged"
+  },
+  {
+    "id": "A209",
+    "qualification": "disqualify",
+    "disposition": "closed-policy",
+    "action_type": "no-contact",
+    "follow_up_days": 0,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=12",
+      "fit_score=80",
+      "intent=true",
+      "region=EU",
+      "consent_hold=false"
+    ],
+    "next_action": "Draft-only (unsent) no-contact outreach for Fictional Meridian 209 referencing signal SIG-209-CAPACITY (fewer than 20 employees).",
+    "uncertainty": "Based solely on intake note: The fictional intake explicitly mentioned capacity pressure.",
+    "follow_up_trigger": "0 days after arrival if no response; signal SIG-209-CAPACITY unchanged"
+  },
+  {
+    "id": "A210",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "evidence-only",
+    "evidence": [
+      "employees=654",
+      "fit_score=93",
+      "intent=false",
+      "region=AU",
+      "consent_hold=false"
+    ],
+    "next_action": "Draft-only (unsent) value-resource outreach for Fictional Meridian 210 referencing signal SIG-210-COMPLIANCE (below qualification threshold or intent not confirmed).",
+    "uncertainty": "Based solely on intake note: The fictional intake explicitly mentioned compliance review.",
+    "follow_up_trigger": "21 days after arrival if no response; signal SIG-210-COMPLIANCE unchanged"
+  },
+  {
+    "id": "A211",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=671",
+      "fit_score=49",
+      "intent=true",
+      "region=US",
+      "consent_hold=false"
+    ],
+    "next_action": "Draft-only (unsent) value-resource outreach for Fictional Meridian 211 referencing signal SIG-211-LAUNCH (below qualification threshold or intent not confirmed).",
+    "uncertainty": "Based solely on intake note: The fictional intake explicitly mentioned a new launch.",
+    "follow_up_trigger": "21 days after arrival if no response; signal SIG-211-LAUNCH unchanged"
+  },
+  {
+    "id": "A212",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=688",
+      "fit_score=62",
+      "intent=true",
+      "region=EU",
+      "consent_hold=false"
+    ],
+    "next_action": "Draft-only (unsent) value-resource outreach for Fictional Meridian 212 referencing signal SIG-212-MIGRATION (below qualification threshold or intent not confirmed).",
+    "uncertainty": "Based solely on intake note: The fictional intake explicitly mentioned migration timing.",
+    "follow_up_trigger": "21 days after arrival if no response; signal SIG-212-MIGRATION unchanged"
+  },
+  {
+    "id": "A213",
+    "qualification": "hold",
+    "disposition": "consent-review",
+    "action_type": "no-contact",
+    "follow_up_days": 0,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=705",
+      "fit_score=75",
+      "intent=false",
+      "region=AU",
+      "consent_hold=true"
+    ],
+    "next_action": "Draft-only (unsent) no-contact outreach for Fictional Meridian 213 referencing signal SIG-213-CAPACITY (consent hold active).",
+    "uncertainty": "Based solely on intake note: The fictional intake explicitly mentioned capacity pressure.",
+    "follow_up_trigger": "0 days after arrival if no response; signal SIG-213-CAPACITY unchanged"
+  },
+  {
+    "id": "A214",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=722",
+      "fit_score=88",
+      "intent=true",
+      "region=US",
+      "consent_hold=false"
+    ],
+    "next_action": "Draft-only (unsent) discovery outreach for Fictional Meridian 214 referencing signal SIG-214-COMPLIANCE (fit_score 88 >= 70 with confirmed intent).",
+    "uncertainty": "Based solely on intake note: The fictional intake explicitly mentioned compliance review.",
+    "follow_up_trigger": "7 days after arrival if no response; signal SIG-214-COMPLIANCE unchanged"
+  },
+  {
+    "id": "A215",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=739",
+      "fit_score=44",
+      "intent=true",
+      "region=EU",
+      "consent_hold=false"
+    ],
+    "next_action": "Draft-only (unsent) value-resource outreach for Fictional Meridian 215 referencing signal SIG-215-LAUNCH (below qualification threshold or intent not confirmed).",
+    "uncertainty": "Based solely on intake note: The fictional intake explicitly mentioned a new launch.",
+    "follow_up_trigger": "21 days after arrival if no response; signal SIG-215-LAUNCH unchanged"
+  },
+  {
+    "id": "A216",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=756",
+      "fit_score=57",
+      "intent=false",
+      "region=AU",
+      "consent_hold=false"
+    ],
+    "next_action": "Draft-only (unsent) value-resource outreach for Fictional Meridian 216 referencing signal SIG-216-MIGRATION (below qualification threshold or intent not confirmed).",
+    "uncertainty": "Based solely on intake note: The fictional intake explicitly mentioned migration timing.",
+    "follow_up_trigger": "21 days after arrival if no response; signal SIG-216-MIGRATION unchanged"
+  },
+  {
+    "id": "A217",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "evidence-only",
+    "evidence": [
+      "employees=773",
+      "fit_score=70",
+      "intent=true",
+      "region=US",
+      "consent_hold=false"
+    ],
+    "next_action": "Draft-only (unsent) discovery outreach for Fictional Meridian 217 referencing signal SIG-217-CAPACITY (fit_score 70 >= 70 with confirmed intent).",
+    "uncertainty": "Based solely on intake note: The fictional intake explicitly mentioned capacity pressure.",
+    "follow_up_trigger": "7 days after arrival if no response; signal SIG-217-CAPACITY unchanged"
+  },
+  {
+    "id": "A218",
+    "qualification": "disqualify",
+    "disposition": "closed-policy",
+    "action_type": "no-contact",
+    "follow_up_days": 0,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=790",
+      "fit_score=83",
+      "intent=true",
+      "region=Restricted-Zone",
+      "consent_hold=false"
+    ],
+    "next_action": "Draft-only (unsent) no-contact outreach for Fictional Meridian 218 referencing signal SIG-218-COMPLIANCE (restricted region).",
+    "uncertainty": "Based solely on intake note: The fictional intake explicitly mentioned compliance review.",
+    "follow_up_trigger": "0 days after arrival if no response; signal SIG-218-COMPLIANCE unchanged"
+  },
+  {
+    "id": "A219",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=807",
+      "fit_score=96",
+      "intent=false",
+      "region=AU",
+      "consent_hold=false"
+    ],
+    "next_action": "Draft-only (unsent) value-resource outreach for Fictional Meridian 219 referencing signal SIG-219-LAUNCH (below qualification threshold or intent not confirmed).",
+    "uncertainty": "Based solely on intake note: The fictional intake explicitly mentioned a new launch.",
+    "follow_up_trigger": "21 days after arrival if no response; signal SIG-219-LAUNCH unchanged"
+  },
+  {
+    "id": "A220",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=824",
+      "fit_score=52",
+      "intent=true",
+      "region=US",
+      "consent_hold=false"
+    ],
+    "next_action": "Draft-only (unsent) value-resource outreach for Fictional Meridian 220 referencing signal SIG-220-MIGRATION (below qualification threshold or intent not confirmed).",
+    "uncertainty": "Based solely on intake note: The fictional intake explicitly mentioned migration timing.",
+    "follow_up_trigger": "21 days after arrival if no response; signal SIG-220-MIGRATION unchanged"
+  },
+  {
+    "id": "A221",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=841",
+      "fit_score=65",
+      "intent=true",
+      "region=EU",
+      "consent_hold=false"
+    ],
+    "next_action": "Draft-only (unsent) value-resource outreach for Fictional Meridian 221 referencing signal SIG-221-CAPACITY (below qualification threshold or intent not confirmed).",
+    "uncertainty": "Based solely on intake note: The fictional intake explicitly mentioned capacity pressure.",
+    "follow_up_trigger": "21 days after arrival if no response; signal SIG-221-CAPACITY unchanged"
+  },
+  {
+    "id": "A222",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=858",
+      "fit_score=78",
+      "intent=false",
+      "region=AU",
+      "consent_hold=false"
+    ],
+    "next_action": "Draft-only (unsent) value-resource outreach for Fictional Meridian 222 referencing signal SIG-222-COMPLIANCE (below qualification threshold or intent not confirmed).",
+    "uncertainty": "Based solely on intake note: The fictional intake explicitly mentioned compliance review.",
+    "follow_up_trigger": "21 days after arrival if no response; signal SIG-222-COMPLIANCE unchanged"
+  },
+  {
+    "id": "A223",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=875",
+      "fit_score=91",
+      "intent=true",
+      "region=US",
+      "consent_hold=false"
+    ],
+    "next_action": "Draft-only (unsent) discovery outreach for Fictional Meridian 223 referencing signal SIG-223-LAUNCH (fit_score 91 >= 70 with confirmed intent).",
+    "uncertainty": "Based solely on intake note: The fictional intake explicitly mentioned a new launch.",
+    "follow_up_trigger": "7 days after arrival if no response; signal SIG-223-LAUNCH unchanged"
+  },
+  {
+    "id": "A224",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "evidence-only",
+    "evidence": [
+      "employees=892",
+      "fit_score=47",
+      "intent=true",
+      "region=EU",
+      "consent_hold=false"
+    ],
+    "next_action": "Draft-only (unsent) value-resource outreach for Fictional Meridian 224 referencing signal SIG-224-MIGRATION (below qualification threshold or intent not confirmed).",
+    "uncertainty": "Based solely on intake note: The fictional intake explicitly mentioned migration timing.",
+    "follow_up_trigger": "21 days after arrival if no response; signal SIG-224-MIGRATION unchanged"
+  },
+  {
+    "id": "A225",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=909",
+      "fit_score=60",
+      "intent=false",
+      "region=AU",
+      "consent_hold=false"
+    ],
+    "next_action": "Draft-only (unsent) value-resource outreach for Fictional Meridian 225 referencing signal SIG-225-CAPACITY (below qualification threshold or intent not confirmed).",
+    "uncertainty": "Based solely on intake note: The fictional intake explicitly mentioned capacity pressure.",
+    "follow_up_trigger": "21 days after arrival if no response; signal SIG-225-CAPACITY unchanged"
+  },
+  {
+    "id": "A226",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=926",
+      "fit_score=73",
+      "intent=true",
+      "region=US",
+      "consent_hold=false"
+    ],
+    "next_action": "Draft-only (unsent) discovery outreach for Fictional Meridian 226 referencing signal SIG-226-COMPLIANCE (fit_score 73 >= 70 with confirmed intent).",
+    "uncertainty": "Based solely on intake note: The fictional intake explicitly mentioned compliance review.",
+    "follow_up_trigger": "7 days after arrival if no response; signal SIG-226-COMPLIANCE unchanged"
+  },
+  {
+    "id": "A227",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=943",
+      "fit_score=86",
+      "intent=true",
+      "region=EU",
+      "consent_hold=false"
+    ],
+    "next_action": "Draft-only (unsent) discovery outreach for Fictional Meridian 227 referencing signal SIG-227-LAUNCH (fit_score 86 >= 70 with confirmed intent).",
+    "uncertainty": "Based solely on intake note: The fictional intake explicitly mentioned a new launch.",
+    "follow_up_trigger": "7 days after arrival if no response; signal SIG-227-LAUNCH unchanged"
+  },
+  {
+    "id": "A228",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=960",
+      "fit_score=42",
+      "intent=false",
+      "region=AU",
+      "consent_hold=false"
+    ],
+    "next_action": "Draft-only (unsent) value-resource outreach for Fictional Meridian 228 referencing signal SIG-228-MIGRATION (below qualification threshold or intent not confirmed).",
+    "uncertainty": "Based solely on intake note: The fictional intake explicitly mentioned migration timing.",
+    "follow_up_trigger": "21 days after arrival if no response; signal SIG-228-MIGRATION unchanged"
+  },
+  {
+    "id": "A229",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "evidence-only",
+    "evidence": [
+      "employees=977",
+      "fit_score=55",
+      "intent=true",
+      "region=US",
+      "consent_hold=false"
+    ],
+    "next_action": "Draft-only (unsent) value-resource outreach for Fictional Meridian 229 referencing signal SIG-229-CAPACITY (below qualification threshold or intent not confirmed).",
+    "uncertainty": "Based solely on intake note: The fictional intake explicitly mentioned capacity pressure.",
+    "follow_up_trigger": "21 days after arrival if no response; signal SIG-229-CAPACITY unchanged"
+  },
+  {
+    "id": "A230",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=994",
+      "fit_score=68",
+      "intent=true",
+      "region=EU",
+      "consent_hold=false"
+    ],
+    "next_action": "Draft-only (unsent) value-resource outreach for Fictional Meridian 230 referencing signal SIG-230-COMPLIANCE (below qualification threshold or intent not confirmed).",
+    "uncertainty": "Based solely on intake note: The fictional intake explicitly mentioned compliance review.",
+    "follow_up_trigger": "21 days after arrival if no response; signal SIG-230-COMPLIANCE unchanged"
+  },
+  {
+    "id": "A231",
+    "qualification": "disqualify",
+    "disposition": "closed-policy",
+    "action_type": "no-contact",
+    "follow_up_days": 0,
+    "claim_code": "evidence-only",
+    "evidence": [
+      "employees=12",
+      "fit_score=81",
+      "intent=false",
+      "region=AU",
+      "consent_hold=false"
+    ],
+    "next_action": "Draft-only (unsent) no-contact outreach for Fictional Meridian 231 referencing signal SIG-231-LAUNCH (fewer than 20 employees).",
+    "uncertainty": "Based solely on intake note: The fictional intake explicitly mentioned a new launch.",
+    "follow_up_trigger": "0 days after arrival if no response; signal SIG-231-LAUNCH unchanged"
+  },
+  {
+    "id": "A232",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=48",
+      "fit_score=94",
+      "intent=true",
+      "region=US",
+      "consent_hold=false"
+    ],
+    "next_action": "Draft-only (unsent) discovery outreach for Fictional Meridian 232 referencing signal SIG-232-MIGRATION (fit_score 94 >= 70 with confirmed intent).",
+    "uncertainty": "Based solely on intake note: The fictional intake explicitly mentioned migration timing.",
+    "follow_up_trigger": "7 days after arrival if no response; signal SIG-232-MIGRATION unchanged"
+  },
+  {
+    "id": "A233",
+    "qualification": "hold",
+    "disposition": "consent-review",
+    "action_type": "no-contact",
+    "follow_up_days": 0,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=65",
+      "fit_score=50",
+      "intent=true",
+      "region=EU",
+      "consent_hold=true"
+    ],
+    "next_action": "Draft-only (unsent) no-contact outreach for Fictional Meridian 233 referencing signal SIG-233-CAPACITY (consent hold active).",
+    "uncertainty": "Based solely on intake note: The fictional intake explicitly mentioned capacity pressure.",
+    "follow_up_trigger": "0 days after arrival if no response; signal SIG-233-CAPACITY unchanged"
+  },
+  {
+    "id": "A234",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=82",
+      "fit_score=63",
+      "intent=false",
+      "region=AU",
+      "consent_hold=false"
+    ],
+    "next_action": "Draft-only (unsent) value-resource outreach for Fictional Meridian 234 referencing signal SIG-234-COMPLIANCE (below qualification threshold or intent not confirmed).",
+    "uncertainty": "Based solely on intake note: The fictional intake explicitly mentioned compliance review.",
+    "follow_up_trigger": "21 days after arrival if no response; signal SIG-234-COMPLIANCE unchanged"
+  },
+  {
+    "id": "A235",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=99",
+      "fit_score=76",
+      "intent=true",
+      "region=US",
+      "consent_hold=false"
+    ],
+    "next_action": "Draft-only (unsent) discovery outreach for Fictional Meridian 235 referencing signal SIG-235-LAUNCH (fit_score 76 >= 70 with confirmed intent).",
+    "uncertainty": "Based solely on intake note: The fictional intake explicitly mentioned a new launch.",
+    "follow_up_trigger": "7 days after arrival if no response; signal SIG-235-LAUNCH unchanged"
+  },
+  {
+    "id": "A236",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=116",
+      "fit_score=89",
+      "intent=true",
+      "region=EU",
+      "consent_hold=false"
+    ],
+    "next_action": "Draft-only (unsent) discovery outreach for Fictional Meridian 236 referencing signal SIG-236-MIGRATION (fit_score 89 >= 70 with confirmed intent).",
+    "uncertainty": "Based solely on intake note: The fictional intake explicitly mentioned migration timing.",
+    "follow_up_trigger": "7 days after arrival if no response; signal SIG-236-MIGRATION unchanged"
+  },
+  {
+    "id": "A237",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=133",
+      "fit_score=45",
+      "intent=false",
+      "region=AU",
+      "consent_hold=false"
+    ],
+    "next_action": "Draft-only (unsent) value-resource outreach for Fictional Meridian 237 referencing signal SIG-237-CAPACITY (below qualification threshold or intent not confirmed).",
+    "uncertainty": "Based solely on intake note: The fictional intake explicitly mentioned capacity pressure.",
+    "follow_up_trigger": "21 days after arrival if no response; signal SIG-237-CAPACITY unchanged"
+  },
+  {
+    "id": "A238",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "evidence-only",
+    "evidence": [
+      "employees=150",
+      "fit_score=58",
+      "intent=true",
+      "region=US",
+      "consent_hold=false"
+    ],
+    "next_action": "Draft-only (unsent) value-resource outreach for Fictional Meridian 238 referencing signal SIG-238-COMPLIANCE (below qualification threshold or intent not confirmed).",
+    "uncertainty": "Based solely on intake note: The fictional intake explicitly mentioned compliance review.",
+    "follow_up_trigger": "21 days after arrival if no response; signal SIG-238-COMPLIANCE unchanged"
+  },
+  {
+    "id": "A239",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=167",
+      "fit_score=71",
+      "intent=true",
+      "region=EU",
+      "consent_hold=false"
+    ],
+    "next_action": "Draft-only (unsent) discovery outreach for Fictional Meridian 239 referencing signal SIG-239-LAUNCH (fit_score 71 >= 70 with confirmed intent).",
+    "uncertainty": "Based solely on intake note: The fictional intake explicitly mentioned a new launch.",
+    "follow_up_trigger": "7 days after arrival if no response; signal SIG-239-LAUNCH unchanged"
+  },
+  {
+    "id": "A240",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=184",
+      "fit_score=84",
+      "intent=false",
+      "region=AU",
+      "consent_hold=false"
+    ],
+    "next_action": "Draft-only (unsent) value-resource outreach for Fictional Meridian 240 referencing signal SIG-240-MIGRATION (below qualification threshold or intent not confirmed).",
+    "uncertainty": "Based solely on intake note: The fictional intake explicitly mentioned migration timing.",
+    "follow_up_trigger": "21 days after arrival if no response; signal SIG-240-MIGRATION unchanged"
+  }
+]

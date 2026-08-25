@@ -1,0 +1,112 @@
+[
+  {
+    "entity": "Entity-21",
+    "event_code": "EVENT-21",
+    "severity": "low",
+    "source_ids": [
+      "D21-LATE",
+      "D21-OFFICIAL"
+    ],
+    "uncertainty": "Rumor, stale denial, and duplicate were rejected; official and official-update corroborate; severity consistent across both.",
+    "follow_up_trigger": "TRIGGER-21"
+  },
+  {
+    "entity": "Entity-22",
+    "event_code": "EVENT-22",
+    "severity": "medium",
+    "source_ids": [
+      "D22-LATE",
+      "D22-OFFICIAL"
+    ],
+    "uncertainty": "Rumor, stale denial, and duplicate were rejected; official and official-update corroborate; severity consistent across both.",
+    "follow_up_trigger": "TRIGGER-22"
+  },
+  {
+    "entity": "Entity-23",
+    "event_code": "EVENT-23",
+    "severity": "low",
+    "source_ids": [
+      "D23-LATE",
+      "D23-OFFICIAL"
+    ],
+    "uncertainty": "Rumor, stale denial, and duplicate were rejected; official and official-update corroborate; severity consistent across both.",
+    "follow_up_trigger": "TRIGGER-23"
+  },
+  {
+    "entity": "Entity-24",
+    "event_code": "EVENT-24",
+    "severity": "medium",
+    "source_ids": [
+      "D24-LATE",
+      "D24-OFFICIAL"
+    ],
+    "uncertainty": "Rumor, stale denial, and duplicate were rejected; official and official-update corroborate; severity consistent across both.",
+    "follow_up_trigger": "TRIGGER-24"
+  },
+  {
+    "entity": "Entity-25",
+    "event_code": "EVENT-25",
+    "severity": "high",
+    "source_ids": [
+      "D25-LATE",
+      "D25-OFFICIAL"
+    ],
+    "uncertainty": "Rumor, stale denial, and duplicate were rejected; official and official-update corroborate; severity consistent across both.",
+    "follow_up_trigger": "TRIGGER-25"
+  },
+  {
+    "entity": "Entity-26",
+    "event_code": "EVENT-26",
+    "severity": "medium",
+    "source_ids": [
+      "D26-LATE",
+      "D26-OFFICIAL"
+    ],
+    "uncertainty": "Rumor, stale denial, and duplicate were rejected; official and official-update corroborate; severity consistent across both.",
+    "follow_up_trigger": "TRIGGER-26"
+  },
+  {
+    "entity": "Entity-27",
+    "event_code": "EVENT-27",
+    "severity": "low",
+    "source_ids": [
+      "D27-LATE",
+      "D27-OFFICIAL"
+    ],
+    "uncertainty": "Rumor, stale denial, and duplicate were rejected; official and official-update corroborate; severity consistent across both.",
+    "follow_up_trigger": "TRIGGER-27"
+  },
+  {
+    "entity": "Entity-28",
+    "event_code": "EVENT-28",
+    "severity": "medium",
+    "source_ids": [
+      "D28-LATE",
+      "D28-OFFICIAL"
+    ],
+    "uncertainty": "Rumor, stale denial, and duplicate were rejected; official and official-update corroborate; severity consistent across both.",
+    "follow_up_trigger": "TRIGGER-28"
+  },
+  {
+    "entity": "Entity-29",
+    "event_code": "EVENT-29",
+    "severity": "low",
+    "source_ids": [
+      "D29-LATE",
+      "D29-OFFICIAL"
+    ],
+    "uncertainty": "Rumor, stale denial, and duplicate were rejected; official and official-update corroborate; severity consistent across both.",
+    "follow_up_trigger": "TRIGGER-29"
+  },
+  {
+    "entity": "Entity-30",
+    "event_code": "EVENT-30",
+    "severity": "high",
+    "source_ids": [
+      "D30-LATE",
+      "D30-OFFICIAL"
+    ],
+    "uncertainty": "Rumor, stale denial, and duplicate were rejected; official and official-update corroborate; severity consistent across both.",
+    "follow_up_trigger": "TRIGGER-30"
+  }
+]

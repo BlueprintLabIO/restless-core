@@ -1,0 +1,42 @@
+{
+  "arm": "support-causal-r1",
+  "command": "run-arm support-causal-r1",
+  "company": "exp05_support_causal_r1_20260826_d99c2e0d_test",
+  "error": "Work-linked feedback for batch 08 interrupted the same actor's unrelated active batch 06 Attempt because live cancellation was keyed by actor rather than exact Work; after three linkage-only recovery Attempts, the lead created a closure Work requiring the blocked original and the graph could not release it",
+  "error_type": "CrossWorkInterruptionAndRepairDeadlock",
+  "recorded_at": "2026-08-25T14:17:00Z",
+  "spend": {
+    "accounted_usd": 2.1603,
+    "by_actor": [
+      {
+        "actor": "customer-direction",
+        "model": "zai/glm-5.3",
+        "role": null,
+        "spent_usd": 1.1497
+      },
+      {
+        "actor": "customer-south",
+        "model": "zai/glm-5.3",
+        "role": null,
+        "spent_usd": 0.5296
+      },
+      {
+        "actor": "customer-north",
+        "model": "zai/glm-5.3",
+        "role": null,
+        "spent_usd": 0.4427
+      },
+      {
+        "actor": "exec",
+        "model": "zai/glm-5.3",
+        "role": null,
+        "spent_usd": 0.0383
+      }
+    ],
+    "ceiling_usd": 12.0,
+    "note": null,
+    "remaining_usd": 9.8397,
+    "status": "available"
+  },
+  "validity": "invalid"
+}

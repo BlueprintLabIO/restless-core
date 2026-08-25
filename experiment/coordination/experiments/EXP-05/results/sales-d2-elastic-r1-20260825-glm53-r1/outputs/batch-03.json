@@ -1,0 +1,722 @@
+[
+ {
+  "id": "A081",
+  "qualification": "nurture",
+  "disposition": "nurture",
+  "action_type": "value-resource",
+  "follow_up_days": 21,
+  "claim_code": "standard",
+  "evidence": [
+   "employees=421",
+   "fit_score=69",
+   "intent=False",
+   "region=AU",
+   "consent_hold=False"
+  ],
+  "next_action": "Unsent draft: follow up on SIG-081-CAPACITY (The fictional intake explicitly mentioned capacity pressure.); fit/intent below qualification threshold.",
+  "uncertainty": "Fictional _test record; no verification beyond intake fields.",
+  "follow_up_trigger": "Day-21 follow-up if no change in account state."
+ },
+ {
+  "id": "A082",
+  "qualification": "qualify",
+  "disposition": "sales-ready",
+  "action_type": "discovery",
+  "follow_up_days": 7,
+  "claim_code": "standard",
+  "evidence": [
+   "employees=438",
+   "fit_score=82",
+   "intent=True",
+   "region=US",
+   "consent_hold=False"
+  ],
+  "next_action": "Unsent draft: follow up on SIG-082-COMPLIANCE (The fictional intake explicitly mentioned compliance review.); fit>=70 with intent.",
+  "uncertainty": "Fictional _test record; no verification beyond intake fields.",
+  "follow_up_trigger": "Day-7 discovery follow-up if no response."
+ },
+ {
+  "id": "A083",
+  "qualification": "hold",
+  "disposition": "consent-review",
+  "action_type": "no-contact",
+  "follow_up_days": 0,
+  "claim_code": "standard",
+  "evidence": [
+   "employees=455",
+   "fit_score=95",
+   "intent=True",
+   "region=EU",
+   "consent_hold=True"
+  ],
+  "next_action": "Unsent draft: follow up on SIG-083-LAUNCH (The fictional intake explicitly mentioned a new launch.); consent-hold.",
+  "uncertainty": "Fictional _test record; no verification beyond intake fields.",
+  "follow_up_trigger": "Re-review when consent hold clears."
+ },
+ {
+  "id": "A084",
+  "qualification": "nurture",
+  "disposition": "nurture",
+  "action_type": "value-resource",
+  "follow_up_days": 21,
+  "claim_code": "evidence-only",
+  "evidence": [
+   "employees=472",
+   "fit_score=51",
+   "intent=False",
+   "region=AU",
+   "consent_hold=False"
+  ],
+  "next_action": "Unsent draft: follow up on SIG-084-MIGRATION (The fictional intake explicitly mentioned migration timing.); fit/intent below qualification threshold.",
+  "uncertainty": "Fictional _test record; no verification beyond intake fields.",
+  "follow_up_trigger": "Day-21 follow-up if no change in account state."
+ },
+ {
+  "id": "A085",
+  "qualification": "nurture",
+  "disposition": "nurture",
+  "action_type": "value-resource",
+  "follow_up_days": 21,
+  "claim_code": "standard",
+  "evidence": [
+   "employees=489",
+   "fit_score=64",
+   "intent=True",
+   "region=US",
+   "consent_hold=False"
+  ],
+  "next_action": "Unsent draft: follow up on SIG-085-CAPACITY (The fictional intake explicitly mentioned capacity pressure.); fit/intent below qualification threshold.",
+  "uncertainty": "Fictional _test record; no verification beyond intake fields.",
+  "follow_up_trigger": "Day-21 follow-up if no change in account state."
+ },
+ {
+  "id": "A086",
+  "qualification": "qualify",
+  "disposition": "sales-ready",
+  "action_type": "discovery",
+  "follow_up_days": 7,
+  "claim_code": "standard",
+  "evidence": [
+   "employees=506",
+   "fit_score=77",
+   "intent=True",
+   "region=EU",
+   "consent_hold=False"
+  ],
+  "next_action": "Unsent draft: follow up on SIG-086-COMPLIANCE (The fictional intake explicitly mentioned compliance review.); fit>=70 with intent.",
+  "uncertainty": "Fictional _test record; no verification beyond intake fields.",
+  "follow_up_trigger": "Day-7 discovery follow-up if no response."
+ },
+ {
+  "id": "A087",
+  "qualification": "nurture",
+  "disposition": "nurture",
+  "action_type": "value-resource",
+  "follow_up_days": 21,
+  "claim_code": "standard",
+  "evidence": [
+   "employees=523",
+   "fit_score=90",
+   "intent=False",
+   "region=AU",
+   "consent_hold=False"
+  ],
+  "next_action": "Unsent draft: follow up on SIG-087-LAUNCH (The fictional intake explicitly mentioned a new launch.); fit/intent below qualification threshold.",
+  "uncertainty": "Fictional _test record; no verification beyond intake fields.",
+  "follow_up_trigger": "Day-21 follow-up if no change in account state."
+ },
+ {
+  "id": "A088",
+  "qualification": "nurture",
+  "disposition": "nurture",
+  "action_type": "value-resource",
+  "follow_up_days": 21,
+  "claim_code": "evidence-only",
+  "evidence": [
+   "employees=540",
+   "fit_score=46",
+   "intent=True",
+   "region=US",
+   "consent_hold=False"
+  ],
+  "next_action": "Unsent draft: follow up on SIG-088-MIGRATION (The fictional intake explicitly mentioned migration timing.); fit/intent below qualification threshold.",
+  "uncertainty": "Fictional _test record; no verification beyond intake fields.",
+  "follow_up_trigger": "Day-21 follow-up if no change in account state."
+ },
+ {
+  "id": "A089",
+  "qualification": "nurture",
+  "disposition": "nurture",
+  "action_type": "value-resource",
+  "follow_up_days": 21,
+  "claim_code": "standard",
+  "evidence": [
+   "employees=557",
+   "fit_score=59",
+   "intent=True",
+   "region=EU",
+   "consent_hold=False"
+  ],
+  "next_action": "Unsent draft: follow up on SIG-089-CAPACITY (The fictional intake explicitly mentioned capacity pressure.); fit/intent below qualification threshold.",
+  "uncertainty": "Fictional _test record; no verification beyond intake fields.",
+  "follow_up_trigger": "Day-21 follow-up if no change in account state."
+ },
+ {
+  "id": "A090",
+  "qualification": "nurture",
+  "disposition": "nurture",
+  "action_type": "value-resource",
+  "follow_up_days": 21,
+  "claim_code": "standard",
+  "evidence": [
+   "employees=574",
+   "fit_score=72",
+   "intent=False",
+   "region=AU",
+   "consent_hold=False"
+  ],
+  "next_action": "Unsent draft: follow up on SIG-090-COMPLIANCE (The fictional intake explicitly mentioned compliance review.); fit/intent below qualification threshold.",
+  "uncertainty": "Fictional _test record; no verification beyond intake fields.",
+  "follow_up_trigger": "Day-21 follow-up if no change in account state."
+ },
+ {
+  "id": "A091",
+  "qualification": "disqualify",
+  "disposition": "closed-policy",
+  "action_type": "no-contact",
+  "follow_up_days": 0,
+  "claim_code": "evidence-only",
+  "evidence": [
+   "employees=12",
+   "fit_score=85",
+   "intent=True",
+   "region=US",
+   "consent_hold=False"
+  ],
+  "next_action": "Unsent draft: follow up on SIG-091-LAUNCH (The fictional intake explicitly mentioned a new launch.); under-20-employees.",
+  "uncertainty": "Fictional _test record; no verification beyond intake fields.",
+  "follow_up_trigger": "No follow-up; account closed by policy."
+ },
+ {
+  "id": "A092",
+  "qualification": "qualify",
+  "disposition": "sales-ready",
+  "action_type": "discovery",
+  "follow_up_days": 7,
+  "claim_code": "standard",
+  "evidence": [
+   "employees=608",
+   "fit_score=98",
+   "intent=True",
+   "region=EU",
+   "consent_hold=False"
+  ],
+  "next_action": "Unsent draft: follow up on SIG-092-MIGRATION (The fictional intake explicitly mentioned migration timing.); fit>=70 with intent.",
+  "uncertainty": "Fictional _test record; no verification beyond intake fields.",
+  "follow_up_trigger": "Day-7 discovery follow-up if no response."
+ },
+ {
+  "id": "A093",
+  "qualification": "nurture",
+  "disposition": "nurture",
+  "action_type": "value-resource",
+  "follow_up_days": 21,
+  "claim_code": "standard",
+  "evidence": [
+   "employees=625",
+   "fit_score=54",
+   "intent=False",
+   "region=AU",
+   "consent_hold=False"
+  ],
+  "next_action": "Unsent draft: follow up on SIG-093-CAPACITY (The fictional intake explicitly mentioned capacity pressure.); fit/intent below qualification threshold.",
+  "uncertainty": "Fictional _test record; no verification beyond intake fields.",
+  "follow_up_trigger": "Day-21 follow-up if no change in account state."
+ },
+ {
+  "id": "A094",
+  "qualification": "nurture",
+  "disposition": "nurture",
+  "action_type": "value-resource",
+  "follow_up_days": 21,
+  "claim_code": "standard",
+  "evidence": [
+   "employees=642",
+   "fit_score=67",
+   "intent=True",
+   "region=US",
+   "consent_hold=False"
+  ],
+  "next_action": "Unsent draft: follow up on SIG-094-COMPLIANCE (The fictional intake explicitly mentioned compliance review.); fit/intent below qualification threshold.",
+  "uncertainty": "Fictional _test record; no verification beyond intake fields.",
+  "follow_up_trigger": "Day-21 follow-up if no change in account state."
+ },
+ {
+  "id": "A095",
+  "qualification": "qualify",
+  "disposition": "sales-ready",
+  "action_type": "discovery",
+  "follow_up_days": 7,
+  "claim_code": "standard",
+  "evidence": [
+   "employees=659",
+   "fit_score=80",
+   "intent=True",
+   "region=EU",
+   "consent_hold=False"
+  ],
+  "next_action": "Unsent draft: follow up on SIG-095-LAUNCH (The fictional intake explicitly mentioned a new launch.); fit>=70 with intent.",
+  "uncertainty": "Fictional _test record; no verification beyond intake fields.",
+  "follow_up_trigger": "Day-7 discovery follow-up if no response."
+ },
+ {
+  "id": "A096",
+  "qualification": "nurture",
+  "disposition": "nurture",
+  "action_type": "value-resource",
+  "follow_up_days": 21,
+  "claim_code": "standard",
+  "evidence": [
+   "employees=676",
+   "fit_score=93",
+   "intent=False",
+   "region=AU",
+   "consent_hold=False"
+  ],
+  "next_action": "Unsent draft: follow up on SIG-096-MIGRATION (The fictional intake explicitly mentioned migration timing.); fit/intent below qualification threshold.",
+  "uncertainty": "Fictional _test record; no verification beyond intake fields.",
+  "follow_up_trigger": "Day-21 follow-up if no change in account state."
+ },
+ {
+  "id": "A097",
+  "qualification": "nurture",
+  "disposition": "nurture",
+  "action_type": "value-resource",
+  "follow_up_days": 21,
+  "claim_code": "standard",
+  "evidence": [
+   "employees=693",
+   "fit_score=49",
+   "intent=True",
+   "region=US",
+   "consent_hold=False"
+  ],
+  "next_action": "Unsent draft: follow up on SIG-097-CAPACITY (The fictional intake explicitly mentioned capacity pressure.); fit/intent below qualification threshold.",
+  "uncertainty": "Fictional _test record; no verification beyond intake fields.",
+  "follow_up_trigger": "Day-21 follow-up if no change in account state."
+ },
+ {
+  "id": "A098",
+  "qualification": "disqualify",
+  "disposition": "closed-policy",
+  "action_type": "no-contact",
+  "follow_up_days": 0,
+  "claim_code": "evidence-only",
+  "evidence": [
+   "employees=710",
+   "fit_score=62",
+   "intent=True",
+   "region=Restricted-Zone",
+   "consent_hold=False"
+  ],
+  "next_action": "Unsent draft: follow up on SIG-098-COMPLIANCE (The fictional intake explicitly mentioned compliance review.); restricted-zone.",
+  "uncertainty": "Fictional _test record; no verification beyond intake fields.",
+  "follow_up_trigger": "No follow-up; account closed by policy."
+ },
+ {
+  "id": "A099",
+  "qualification": "nurture",
+  "disposition": "nurture",
+  "action_type": "value-resource",
+  "follow_up_days": 21,
+  "claim_code": "standard",
+  "evidence": [
+   "employees=727",
+   "fit_score=75",
+   "intent=False",
+   "region=AU",
+   "consent_hold=False"
+  ],
+  "next_action": "Unsent draft: follow up on SIG-099-LAUNCH (The fictional intake explicitly mentioned a new launch.); fit/intent below qualification threshold.",
+  "uncertainty": "Fictional _test record; no verification beyond intake fields.",
+  "follow_up_trigger": "Day-21 follow-up if no change in account state."
+ },
+ {
+  "id": "A100",
+  "qualification": "qualify",
+  "disposition": "sales-ready",
+  "action_type": "discovery",
+  "follow_up_days": 7,
+  "claim_code": "standard",
+  "evidence": [
+   "employees=744",
+   "fit_score=88",
+   "intent=True",
+   "region=US",
+   "consent_hold=False"
+  ],
+  "next_action": "Unsent draft: follow up on SIG-100-MIGRATION (The fictional intake explicitly mentioned migration timing.); fit>=70 with intent.",
+  "uncertainty": "Fictional _test record; no verification beyond intake fields.",
+  "follow_up_trigger": "Day-7 discovery follow-up if no response."
+ },
+ {
+  "id": "A101",
+  "qualification": "nurture",
+  "disposition": "nurture",
+  "action_type": "value-resource",
+  "follow_up_days": 21,
+  "claim_code": "standard",
+  "evidence": [
+   "employees=761",
+   "fit_score=44",
+   "intent=True",
+   "region=EU",
+   "consent_hold=False"
+  ],
+  "next_action": "Unsent draft: follow up on SIG-101-CAPACITY (The fictional intake explicitly mentioned capacity pressure.); fit/intent below qualification threshold.",
+  "uncertainty": "Fictional _test record; no verification beyond intake fields.",
+  "follow_up_trigger": "Day-21 follow-up if no change in account state."
+ },
+ {
+  "id": "A102",
+  "qualification": "nurture",
+  "disposition": "nurture",
+  "action_type": "value-resource",
+  "follow_up_days": 21,
+  "claim_code": "standard",
+  "evidence": [
+   "employees=778",
+   "fit_score=57",
+   "intent=False",
+   "region=AU",
+   "consent_hold=False"
+  ],
+  "next_action": "Unsent draft: follow up on SIG-102-COMPLIANCE (The fictional intake explicitly mentioned compliance review.); fit/intent below qualification threshold.",
+  "uncertainty": "Fictional _test record; no verification beyond intake fields.",
+  "follow_up_trigger": "Day-21 follow-up if no change in account state."
+ },
+ {
+  "id": "A103",
+  "qualification": "qualify",
+  "disposition": "sales-ready",
+  "action_type": "discovery",
+  "follow_up_days": 7,
+  "claim_code": "standard",
+  "evidence": [
+   "employees=795",
+   "fit_score=70",
+   "intent=True",
+   "region=US",
+   "consent_hold=False"
+  ],
+  "next_action": "Unsent draft: follow up on SIG-103-LAUNCH (The fictional intake explicitly mentioned a new launch.); fit>=70 with intent.",
+  "uncertainty": "Fictional _test record; no verification beyond intake fields.",
+  "follow_up_trigger": "Day-7 discovery follow-up if no response."
+ },
+ {
+  "id": "A104",
+  "qualification": "qualify",
+  "disposition": "sales-ready",
+  "action_type": "discovery",
+  "follow_up_days": 7,
+  "claim_code": "standard",
+  "evidence": [
+   "employees=812",
+   "fit_score=83",
+   "intent=True",
+   "region=EU",
+   "consent_hold=False"
+  ],
+  "next_action": "Unsent draft: follow up on SIG-104-MIGRATION (The fictional intake explicitly mentioned migration timing.); fit>=70 with intent.",
+  "uncertainty": "Fictional _test record; no verification beyond intake fields.",
+  "follow_up_trigger": "Day-7 discovery follow-up if no response."
+ },
+ {
+  "id": "A105",
+  "qualification": "nurture",
+  "disposition": "nurture",
+  "action_type": "value-resource",
+  "follow_up_days": 21,
+  "claim_code": "evidence-only",
+  "evidence": [
+   "employees=829",
+   "fit_score=96",
+   "intent=False",
+   "region=AU",
+   "consent_hold=False"
+  ],
+  "next_action": "Unsent draft: follow up on SIG-105-CAPACITY (The fictional intake explicitly mentioned capacity pressure.); fit/intent below qualification threshold.",
+  "uncertainty": "Fictional _test record; no verification beyond intake fields.",
+  "follow_up_trigger": "Day-21 follow-up if no change in account state."
+ },
+ {
+  "id": "A106",
+  "qualification": "nurture",
+  "disposition": "nurture",
+  "action_type": "value-resource",
+  "follow_up_days": 21,
+  "claim_code": "standard",
+  "evidence": [
+   "employees=846",
+   "fit_score=52",
+   "intent=True",
+   "region=US",
+   "consent_hold=False"
+  ],
+  "next_action": "Unsent draft: follow up on SIG-106-COMPLIANCE (The fictional intake explicitly mentioned compliance review.); fit/intent below qualification threshold.",
+  "uncertainty": "Fictional _test record; no verification beyond intake fields.",
+  "follow_up_trigger": "Day-21 follow-up if no change in account state."
+ },
+ {
+  "id": "A107",
+  "qualification": "nurture",
+  "disposition": "nurture",
+  "action_type": "value-resource",
+  "follow_up_days": 21,
+  "claim_code": "standard",
+  "evidence": [
+   "employees=863",
+   "fit_score=65",
+   "intent=True",
+   "region=EU",
+   "consent_hold=False"
+  ],
+  "next_action": "Unsent draft: follow up on SIG-107-LAUNCH (The fictional intake explicitly mentioned a new launch.); fit/intent below qualification threshold.",
+  "uncertainty": "Fictional _test record; no verification beyond intake fields.",
+  "follow_up_trigger": "Day-21 follow-up if no change in account state."
+ },
+ {
+  "id": "A108",
+  "qualification": "nurture",
+  "disposition": "nurture",
+  "action_type": "value-resource",
+  "follow_up_days": 21,
+  "claim_code": "standard",
+  "evidence": [
+   "employees=880",
+   "fit_score=78",
+   "intent=False",
+   "region=AU",
+   "consent_hold=False"
+  ],
+  "next_action": "Unsent draft: follow up on SIG-108-MIGRATION (The fictional intake explicitly mentioned migration timing.); fit/intent below qualification threshold.",
+  "uncertainty": "Fictional _test record; no verification beyond intake fields.",
+  "follow_up_trigger": "Day-21 follow-up if no change in account state."
+ },
+ {
+  "id": "A109",
+  "qualification": "qualify",
+  "disposition": "sales-ready",
+  "action_type": "discovery",
+  "follow_up_days": 7,
+  "claim_code": "evidence-only",
+  "evidence": [
+   "employees=897",
+   "fit_score=91",
+   "intent=True",
+   "region=US",
+   "consent_hold=False"
+  ],
+  "next_action": "Unsent draft: follow up on SIG-109-CAPACITY (The fictional intake explicitly mentioned capacity pressure.); fit>=70 with intent.",
+  "uncertainty": "Fictional _test record; no verification beyond intake fields.",
+  "follow_up_trigger": "Day-7 discovery follow-up if no response."
+ },
+ {
+  "id": "A110",
+  "qualification": "nurture",
+  "disposition": "nurture",
+  "action_type": "value-resource",
+  "follow_up_days": 21,
+  "claim_code": "standard",
+  "evidence": [
+   "employees=914",
+   "fit_score=47",
+   "intent=True",
+   "region=EU",
+   "consent_hold=False"
+  ],
+  "next_action": "Unsent draft: follow up on SIG-110-COMPLIANCE (The fictional intake explicitly mentioned compliance review.); fit/intent below qualification threshold.",
+  "uncertainty": "Fictional _test record; no verification beyond intake fields.",
+  "follow_up_trigger": "Day-21 follow-up if no change in account state."
+ },
+ {
+  "id": "A111",
+  "qualification": "nurture",
+  "disposition": "nurture",
+  "action_type": "value-resource",
+  "follow_up_days": 21,
+  "claim_code": "standard",
+  "evidence": [
+   "employees=931",
+   "fit_score=60",
+   "intent=False",
+   "region=AU",
+   "consent_hold=False"
+  ],
+  "next_action": "Unsent draft: follow up on SIG-111-LAUNCH (The fictional intake explicitly mentioned a new launch.); fit/intent below qualification threshold.",
+  "uncertainty": "Fictional _test record; no verification beyond intake fields.",
+  "follow_up_trigger": "Day-21 follow-up if no change in account state."
+ },
+ {
+  "id": "A112",
+  "qualification": "qualify",
+  "disposition": "sales-ready",
+  "action_type": "discovery",
+  "follow_up_days": 7,
+  "claim_code": "evidence-only",
+  "evidence": [
+   "employees=948",
+   "fit_score=73",
+   "intent=True",
+   "region=US",
+   "consent_hold=False"
+  ],
+  "next_action": "Unsent draft: follow up on SIG-112-MIGRATION (The fictional intake explicitly mentioned migration timing.); fit>=70 with intent.",
+  "uncertainty": "Fictional _test record; no verification beyond intake fields.",
+  "follow_up_trigger": "Day-7 discovery follow-up if no response."
+ },
+ {
+  "id": "A113",
+  "qualification": "hold",
+  "disposition": "consent-review",
+  "action_type": "no-contact",
+  "follow_up_days": 0,
+  "claim_code": "standard",
+  "evidence": [
+   "employees=965",
+   "fit_score=86",
+   "intent=True",
+   "region=EU",
+   "consent_hold=True"
+  ],
+  "next_action": "Unsent draft: follow up on SIG-113-CAPACITY (The fictional intake explicitly mentioned capacity pressure.); consent-hold.",
+  "uncertainty": "Fictional _test record; no verification beyond intake fields.",
+  "follow_up_trigger": "Re-review when consent hold clears."
+ },
+ {
+  "id": "A114",
+  "qualification": "nurture",
+  "disposition": "nurture",
+  "action_type": "value-resource",
+  "follow_up_days": 21,
+  "claim_code": "standard",
+  "evidence": [
+   "employees=982",
+   "fit_score=42",
+   "intent=False",
+   "region=AU",
+   "consent_hold=False"
+  ],
+  "next_action": "Unsent draft: follow up on SIG-114-COMPLIANCE (The fictional intake explicitly mentioned compliance review.); fit/intent below qualification threshold.",
+  "uncertainty": "Fictional _test record; no verification beyond intake fields.",
+  "follow_up_trigger": "Day-21 follow-up if no change in account state."
+ },
+ {
+  "id": "A115",
+  "qualification": "nurture",
+  "disposition": "nurture",
+  "action_type": "value-resource",
+  "follow_up_days": 21,
+  "claim_code": "standard",
+  "evidence": [
+   "employees=999",
+   "fit_score=55",
+   "intent=True",
+   "region=US",
+   "consent_hold=False"
+  ],
+  "next_action": "Unsent draft: follow up on SIG-115-LAUNCH (The fictional intake explicitly mentioned a new launch.); fit/intent below qualification threshold.",
+  "uncertainty": "Fictional _test record; no verification beyond intake fields.",
+  "follow_up_trigger": "Day-21 follow-up if no change in account state."
+ },
+ {
+  "id": "A116",
+  "qualification": "nurture",
+  "disposition": "nurture",
+  "action_type": "value-resource",
+  "follow_up_days": 21,
+  "claim_code": "standard",
+  "evidence": [
+   "employees=36",
+   "fit_score=68",
+   "intent=True",
+   "region=EU",
+   "consent_hold=False"
+  ],
+  "next_action": "Unsent draft: follow up on SIG-116-MIGRATION (The fictional intake explicitly mentioned migration timing.); fit/intent below qualification threshold.",
+  "uncertainty": "Fictional _test record; no verification beyond intake fields.",
+  "follow_up_trigger": "Day-21 follow-up if no change in account state."
+ },
+ {
+  "id": "A117",
+  "qualification": "nurture",
+  "disposition": "nurture",
+  "action_type": "value-resource",
+  "follow_up_days": 21,
+  "claim_code": "standard",
+  "evidence": [
+   "employees=53",
+   "fit_score=81",
+   "intent=False",
+   "region=AU",
+   "consent_hold=False"
+  ],
+  "next_action": "Unsent draft: follow up on SIG-117-CAPACITY (The fictional intake explicitly mentioned capacity pressure.); fit/intent below qualification threshold.",
+  "uncertainty": "Fictional _test record; no verification beyond intake fields.",
+  "follow_up_trigger": "Day-21 follow-up if no change in account state."
+ },
+ {
+  "id": "A118",
+  "qualification": "qualify",
+  "disposition": "sales-ready",
+  "action_type": "discovery",
+  "follow_up_days": 7,
+  "claim_code": "standard",
+  "evidence": [
+   "employees=70",
+   "fit_score=94",
+   "intent=True",
+   "region=US",
+   "consent_hold=False"
+  ],
+  "next_action": "Unsent draft: follow up on SIG-118-COMPLIANCE (The fictional intake explicitly mentioned compliance review.); fit>=70 with intent.",
+  "uncertainty": "Fictional _test record; no verification beyond intake fields.",
+  "follow_up_trigger": "Day-7 discovery follow-up if no response."
+ },
+ {
+  "id": "A119",
+  "qualification": "nurture",
+  "disposition": "nurture",
+  "action_type": "value-resource",
+  "follow_up_days": 21,
+  "claim_code": "evidence-only",
+  "evidence": [
+   "employees=87",
+   "fit_score=50",
+   "intent=True",
+   "region=EU",
+   "consent_hold=False"
+  ],
+  "next_action": "Unsent draft: follow up on SIG-119-LAUNCH (The fictional intake explicitly mentioned a new launch.); fit/intent below qualification threshold.",
+  "uncertainty": "Fictional _test record; no verification beyond intake fields.",
+  "follow_up_trigger": "Day-21 follow-up if no change in account state."
+ },
+ {
+  "id": "A120",
+  "qualification": "nurture",
+  "disposition": "nurture",
+  "action_type": "value-resource",
+  "follow_up_days": 21,
+  "claim_code": "standard",
+  "evidence": [
+   "employees=104",
+   "fit_score=63",
+   "intent=False",
+   "region=AU",
+   "consent_hold=False"
+  ],
+  "next_action": "Unsent draft: follow up on SIG-120-MIGRATION (The fictional intake explicitly mentioned migration timing.); fit/intent below qualification threshold.",
+  "uncertainty": "Fictional _test record; no verification beyond intake fields.",
+  "follow_up_trigger": "Day-21 follow-up if no change in account state."
+ }
+]

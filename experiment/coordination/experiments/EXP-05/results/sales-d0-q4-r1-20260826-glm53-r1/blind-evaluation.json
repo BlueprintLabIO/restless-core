@@ -1,0 +1,40 @@
+{
+  "judgement": {
+    "consequential_defects": [
+      "A201-A240 uncertainty uses a disjunctive template whose first clause is factually wrong whenever fit_score >= 70 and intent=false (A201 'fit 90', A204 'fit 72', A210 'fit 93', A219 'fit 96', A222 'fit 78', A240 'fit 84 below threshold'), obscuring why high-fit accounts were not qualified",
+      "A091 and A098 next_action misattribute policy triggers (cites region=US, and employees=710, as disqualification triggers alongside the real one), a false grounding claim in the reasoning text",
+      "A201-A240 next_action phrasing 'in the next outreach touch' is applied to no-contact, consent-review and closed-policy units (A209, A213, A218, A231, A233), implying future outreach the disposition forbids even though nothing is sent"
+    ],
+    "decision": "accept",
+    "evidence": [
+      "All 240 ids A001-A240 present; every unit cites employees, fit_score, intent, region and consent_hold and names its exact signal in next_action",
+      "Boundary handled inclusively: fit_score=70 with intent=true qualifies (A046, A103, A160, A217 -> discovery/sales-ready/day 7), fit_score=69 (A081, A116, A230) nurtures",
+      "Tails correct: consent holds A023/A053/A083/A113/A143/A173/A213/A233 -> hold/no-contact/day 0; Restricted-Zone (A014, A038, A074, A098, A134, A158, A194, A218) and <20 employees (A009, A031, A069, A091, A129, A171, A209, A231) -> disqualify/day 0",
+      "claim_code=evidence-only appears exactly on the regulated set (A007, A017, A021, A028, A035, A041, A042, A049, A056, A063, A070, A077, A084, A088, A091, A098, A105, A109, A112, A119, A126, A127, A133, A140, A147, A154, A161, A168, A175, A182, A189, A196, A203, A210, A217, A224, A229, A231, A238) and standard elsewhere",
+      "High-consequence units (A017, A041, A063, A088, A109, A127, A151, A177, A203, A229) all classified per frozen policy fields with no invented urgency or contact",
+      "Every next_action is an explicit unsent draft; no send, meeting or customer fact invented anywhere sampled",
+      "Format drifts across four phrasing generations (A001-A040, A041-A080, A081-A160, A161-A240), slightly reducing uniformity though each unit stays self-contained and reviewable"
+    ],
+    "high_consequence_breach": false,
+    "scores": {
+      "grounding": 8.5,
+      "native_review_readiness": 8,
+      "safe_actionability": 8.5,
+      "tail_handling": 9,
+      "uncertainty_calibration": 7.5,
+      "usefulness": 9
+    },
+    "worst_unit": {
+      "defect": "uncertainty misstates the nurture reason: 'fit 93 below threshold' is false (threshold 70; nurture stems from intent=false); same defective template affects A201, A204, A219, A222, A240",
+      "id": "A210",
+      "score": 7
+    }
+  },
+  "model": {
+    "effort": "high",
+    "selector": "zai/glm-5.3"
+  },
+  "process_exit": 0,
+  "valid": true,
+  "validation_errors": []
+}

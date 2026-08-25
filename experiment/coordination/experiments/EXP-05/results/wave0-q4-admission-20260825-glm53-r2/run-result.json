@@ -1,0 +1,147 @@
+{
+  "arm": "wave0-q4-admission",
+  "blind_evaluation": null,
+  "company": "exp05_wave0_q4_admission_20260825_a807b8ad_test",
+  "exact_evaluation": {
+    "attribution_errors": [],
+    "attribution_valid": true,
+    "exact": {
+      "domain": "operations",
+      "sha256": "de6fdb494f61a7012dfa3c811311343897c14596f7b8d091a258819caef5de77",
+      "units": 32,
+      "valid": true
+    }
+  },
+  "finished_at": "2026-08-25T12:01:27.592104+00:00",
+  "metrics": {
+    "accepted_units": 32,
+    "accepted_units_per_active_worker_hour": 347.6743897289862,
+    "accepted_units_per_request_hour": 2342.8763378522767,
+    "arrivals": [
+      {
+        "observed_at": "2026-08-25T11:57:52.096373+00:00",
+        "offset_seconds": 0,
+        "unit": "operations territory 01"
+      },
+      {
+        "observed_at": "2026-08-25T11:57:52.254599+00:00",
+        "offset_seconds": 0,
+        "unit": "operations territory 02"
+      },
+      {
+        "observed_at": "2026-08-25T11:57:52.396427+00:00",
+        "offset_seconds": 0,
+        "unit": "operations territory 03"
+      },
+      {
+        "observed_at": "2026-08-25T11:57:52.680441+00:00",
+        "offset_seconds": 0,
+        "unit": "operations territory 04"
+      }
+    ],
+    "attempts": 4,
+    "billing_disposition": "charged metered API cost is authoritative; missing spend metering invalidates the cell",
+    "charged_cost_per_accepted_unit_usd": 0.0121125,
+    "configured_efforts": [
+      "medium"
+    ],
+    "estimated_list_cost_per_accepted_unit_usd": 0.0,
+    "estimated_list_cost_usd": 0,
+    "exec_judgement_completed_at": "2026-08-25T12:01:27.174245Z",
+    "exec_to_staff_dispatch_seconds": 58.54871201515198,
+    "first_staff_attempt_at": "2026-08-25T11:58:51.229185Z",
+    "lead_active_fraction_of_outcome_window": 0.8618000821142611,
+    "lead_active_seconds": {
+      "summed": 97.58815312385559,
+      "union": 97.58815312385559
+    },
+    "lead_review_completed_at": "2026-08-25T12:00:44.470776Z",
+    "lead_review_seconds": 63.928744077682495,
+    "lead_wakes": 2,
+    "models": [
+      "zai/glm-5.3"
+    ],
+    "observed_tokens": 126907,
+    "outcome_review_seconds": 113.23757696151733,
+    "peak_staff_attempt_concurrency": 4,
+    "peak_staff_model_concurrency": 4,
+    "queue_seconds": 49.170328855514526,
+    "session_resumptions": 2,
+    "spend": {
+      "accounted_usd": 0.3876,
+      "by_actor": [
+        {
+          "actor": "exec",
+          "model": "zai/glm-5.3",
+          "role": "exec",
+          "spent_usd": 0.0883
+        },
+        {
+          "actor": "capacity-direction",
+          "model": "zai/glm-5.3",
+          "role": "accountable operations outcome lead",
+          "spent_usd": 0.0795
+        },
+        {
+          "actor": "capacity-delta",
+          "model": "zai/glm-5.3",
+          "role": "operations queue operator",
+          "spent_usd": 0.07
+        },
+        {
+          "actor": "capacity-beta",
+          "model": "zai/glm-5.3",
+          "role": "operations queue operator",
+          "spent_usd": 0.0595
+        },
+        {
+          "actor": "capacity-gamma",
+          "model": "zai/glm-5.3",
+          "role": "operations queue operator",
+          "spent_usd": 0.0527
+        },
+        {
+          "actor": "capacity-alpha",
+          "model": "zai/glm-5.3",
+          "role": "operations queue operator",
+          "spent_usd": 0.0376
+        }
+      ],
+      "ceiling_usd": 8.0,
+      "note": null,
+      "remaining_usd": 7.6124,
+      "status": "available"
+    },
+    "support_event": null,
+    "tell_started_at": "2026-08-25T11:57:52.680473+00:00",
+    "unit_latency_seconds": {
+      "max": 49.170328855514526,
+      "p50": 42.10916292667389,
+      "p90": 48.643762302398684,
+      "p99": 49.117672200202946
+    },
+    "unterminated_staff_model_sessions": 0,
+    "usage_events": 8,
+    "validator_callback_at": "2026-08-25T11:59:40.542032+00:00",
+    "value": {
+      "accepted_value": null,
+      "high_consequence_retained_fraction": null,
+      "initial_value": null,
+      "missed_service_value": null,
+      "value_adjusted_units": 32.0
+    },
+    "value_adjusted_units_per_active_worker_hour": 347.6743897289862,
+    "value_adjusted_units_per_request_hour": 2342.8763378522767,
+    "worker_active_seconds": {
+      "summed": 331.34450912475586,
+      "union": 118.52999091148376
+    }
+  },
+  "runtime_valid": true,
+  "tell_process": {
+    "exit": 0,
+    "stderr": "",
+    "stdout": "delivered to the exec; the message wakes the company\n"
+  },
+  "validity": "counted"
+}

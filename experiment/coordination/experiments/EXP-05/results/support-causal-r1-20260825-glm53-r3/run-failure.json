@@ -1,0 +1,9 @@
+{
+  "arm": "support-causal-r1",
+  "command": "run-arm support-causal-r1",
+  "company": "exp05_support_causal_r1_20260825_f244ff74_test",
+  "error": "could not read authoritative spend for exp05_sales_d0_q1_r1_20260825_0556e8d9_test",
+  "error_type": "RunFailure",
+  "recorded_at": "2026-08-25T13:57:31.677851+00:00",
+  "validity": "invalid"
+}

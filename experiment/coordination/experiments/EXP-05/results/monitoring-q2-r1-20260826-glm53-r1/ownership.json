@@ -1,0 +1,50 @@
+{
+  "territory-01.json": [
+    "Entity-01",
+    "Entity-02",
+    "Entity-03",
+    "Entity-04",
+    "Entity-05",
+    "Entity-06",
+    "Entity-07",
+    "Entity-08",
+    "Entity-09",
+    "Entity-10"
+  ],
+  "territory-02.json": [
+    "Entity-11",
+    "Entity-12",
+    "Entity-13",
+    "Entity-14",
+    "Entity-15",
+    "Entity-16",
+    "Entity-17",
+    "Entity-18",
+    "Entity-19",
+    "Entity-20"
+  ],
+  "territory-03.json": [
+    "Entity-21",
+    "Entity-22",
+    "Entity-23",
+    "Entity-24",
+    "Entity-25",
+    "Entity-26",
+    "Entity-27",
+    "Entity-28",
+    "Entity-29",
+    "Entity-30"
+  ],
+  "territory-04.json": [
+    "Entity-31",
+    "Entity-32",
+    "Entity-33",
+    "Entity-34",
+    "Entity-35",
+    "Entity-36",
+    "Entity-37",
+    "Entity-38",
+    "Entity-39",
+    "Entity-40"
+  ]
+}

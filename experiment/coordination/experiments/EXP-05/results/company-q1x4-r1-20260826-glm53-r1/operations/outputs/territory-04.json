@@ -1,0 +1,66 @@
+[
+  {
+    "id": "I025",
+    "disposition": "matched",
+    "action": "close-reconciled",
+    "delta": 0,
+    "evidence": "invoice_total 1725 equals ledger_total 1725 for INV-TEST-025",
+    "uncertainty": "none"
+  },
+  {
+    "id": "I026",
+    "disposition": "matched",
+    "action": "close-reconciled",
+    "delta": 0,
+    "evidence": "invoice_total 1762 equals ledger_total 1762 for INV-TEST-026",
+    "uncertainty": "none"
+  },
+  {
+    "id": "I027",
+    "disposition": "matched",
+    "action": "close-reconciled",
+    "delta": 0,
+    "evidence": "invoice_total 1799 equals ledger_total 1799 for INV-TEST-027",
+    "uncertainty": "none"
+  },
+  {
+    "id": "I028",
+    "disposition": "over-recorded",
+    "action": "review-credit-or-ledger",
+    "delta": 75,
+    "evidence": "ledger_total 1911 exceeds invoice_total 1836 by 75 for INV-TEST-028",
+    "uncertainty": "none"
+  },
+  {
+    "id": "I029",
+    "disposition": "matched",
+    "action": "close-reconciled",
+    "delta": 0,
+    "evidence": "invoice_total 1873 equals ledger_total 1873 for INV-TEST-029",
+    "uncertainty": "none"
+  },
+  {
+    "id": "I030",
+    "disposition": "matched",
+    "action": "close-reconciled",
+    "delta": 0,
+    "evidence": "invoice_total 1910 equals ledger_total 1910 for INV-TEST-030",
+    "uncertainty": "none"
+  },
+  {
+    "id": "I031",
+    "disposition": "matched",
+    "action": "close-reconciled",
+    "delta": 0,
+    "evidence": "invoice_total 1947 equals ledger_total 1947 for INV-TEST-031",
+    "uncertainty": "none"
+  },
+  {
+    "id": "I032",
+    "disposition": "under-recorded",
+    "action": "review-missing-payment",
+    "delta": -50,
+    "evidence": "ledger_total 1934 is 50 below invoice_total 1984 for INV-TEST-032",
+    "uncertainty": "none"
+  }
+]

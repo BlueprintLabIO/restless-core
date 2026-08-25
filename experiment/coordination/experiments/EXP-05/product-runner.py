@@ -1332,7 +1332,7 @@ async def finalize_completed_arm(
     if blind is not None:
         json_write(result_dir / "blind-evaluation.json", blind)
     evaluation_valid = skip_blind or (blind is not None and bool(blind.get("valid")))
-    expected_concurrency = 4 if arm.arm_id == "wave0-q4-admission" else 1
+    expected_concurrency = arm.workers
     runtime_valid = (
         set(measured["models"]) == {LEAD_MODEL, STAFF_MODEL}
         and measured["configured_efforts"] == [PRODUCTION_EFFORT]

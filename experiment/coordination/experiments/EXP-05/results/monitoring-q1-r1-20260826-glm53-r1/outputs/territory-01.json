@@ -1,0 +1,82 @@
+[
+  {
+    "entity": "Entity-01",
+    "event_code": "EVENT-01",
+    "severity": "low",
+    "source_ids": ["D01-OFFICIAL", "D01-LATE"],
+    "uncertainty": "Low: officially confirmed and corroborated by late official update; rumor and stale denial rejected.",
+    "follow_up_trigger": "TRIGGER-01"
+  },
+  {
+    "entity": "Entity-02",
+    "event_code": "EVENT-02",
+    "severity": "medium",
+    "source_ids": ["D02-OFFICIAL", "D02-LATE"],
+    "uncertainty": "Low: officially confirmed and corroborated by late official update; rumor and stale denial rejected.",
+    "follow_up_trigger": "TRIGGER-02"
+  },
+  {
+    "entity": "Entity-03",
+    "event_code": "EVENT-03",
+    "severity": "low",
+    "source_ids": ["D03-OFFICIAL", "D03-LATE"],
+    "uncertainty": "Low: officially confirmed and corroborated by late official update; rumor and stale denial rejected.",
+    "follow_up_trigger": "TRIGGER-03"
+  },
+  {
+    "entity": "Entity-04",
+    "event_code": "EVENT-04",
+    "severity": "medium",
+    "source_ids": ["D04-OFFICIAL", "D04-LATE"],
+    "uncertainty": "Low: officially confirmed and corroborated by late official update; rumor and stale denial rejected.",
+    "follow_up_trigger": "TRIGGER-04"
+  },
+  {
+    "entity": "Entity-05",
+    "event_code": "EVENT-05",
+    "severity": "high",
+    "source_ids": ["D05-OFFICIAL", "D05-LATE"],
+    "uncertainty": "Low: officially confirmed and corroborated by late official update; rumor and stale denial rejected.",
+    "follow_up_trigger": "TRIGGER-05"
+  },
+  {
+    "entity": "Entity-06",
+    "event_code": "EVENT-06",
+    "severity": "medium",
+    "source_ids": ["D06-OFFICIAL", "D06-LATE"],
+    "uncertainty": "Low: officially confirmed and corroborated by late official update; rumor and stale denial rejected.",
+    "follow_up_trigger": "TRIGGER-06"
+  },
+  {
+    "entity": "Entity-07",
+    "event_code": "EVENT-07",
+    "severity": "low",
+    "source_ids": ["D07-OFFICIAL", "D07-LATE"],
+    "uncertainty": "Low: officially confirmed and corroborated by late official update; rumor and stale denial rejected.",
+    "follow_up_trigger": "TRIGGER-07"
+  },
+  {
+    "entity": "Entity-08",
+    "event_code": "EVENT-08",
+    "severity": "medium",
+    "source_ids": ["D08-OFFICIAL", "D08-LATE"],
+    "uncertainty": "Low: officially confirmed and corroborated by late official update; rumor and stale denial rejected.",
+    "follow_up_trigger": "TRIGGER-08"
+  },
+  {
+    "entity": "Entity-09",
+    "event_code": "EVENT-09",
+    "severity": "low",
+    "source_ids": ["D09-OFFICIAL", "D09-LATE"],
+    "uncertainty": "Low: officially confirmed and corroborated by late official update; rumor and stale denial rejected.",
+    "follow_up_trigger": "TRIGGER-09"
+  },
+  {
+    "entity": "Entity-10",
+    "event_code": "EVENT-10",
+    "severity": "high",
+    "source_ids": ["D10-OFFICIAL", "D10-LATE"],
+    "uncertainty": "Low: officially confirmed and corroborated by late official update; rumor and stale denial rejected.",
+    "follow_up_trigger": "TRIGGER-10"
+  }
+]

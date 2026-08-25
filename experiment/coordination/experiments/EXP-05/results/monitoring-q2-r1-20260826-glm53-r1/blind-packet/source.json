@@ -1,0 +1,1962 @@
+[
+  {
+    "body": "Routine baseline with no material change.",
+    "date": "2026-07-01",
+    "entity": "Entity-01",
+    "id": "D01-BASE",
+    "source": "filing"
+  },
+  {
+    "body": "Unrelated hiring and office trivia.",
+    "date": "2026-07-04",
+    "entity": "Entity-01",
+    "id": "D01-NOISE",
+    "source": "blog"
+  },
+  {
+    "body": "Uncorroborated rumor mentions EVENT-01.",
+    "date": "2026-07-06",
+    "entity": "Entity-01",
+    "id": "D01-RUMOR",
+    "source": "anonymous"
+  },
+  {
+    "body": "Outdated note denies EVENT-01; superseded later.",
+    "date": "2026-07-08",
+    "entity": "Entity-01",
+    "id": "D01-OLD",
+    "source": "archive"
+  },
+  {
+    "body": "Confirmed EVENT-01; classified low; follow when TRIGGER-01 occurs.",
+    "date": "2026-07-12",
+    "entity": "Entity-01",
+    "id": "D01-OFFICIAL",
+    "source": "official"
+  },
+  {
+    "body": "Duplicate of confirmed EVENT-01.",
+    "date": "2026-07-12",
+    "entity": "Entity-01",
+    "id": "D01-DUP",
+    "source": "syndicated"
+  },
+  {
+    "body": "Late update corroborates EVENT-01 and keeps severity low.",
+    "date": "2026-07-19",
+    "entity": "Entity-01",
+    "id": "D01-LATE",
+    "source": "official-update"
+  },
+  {
+    "body": "Routine baseline with no material change.",
+    "date": "2026-07-01",
+    "entity": "Entity-02",
+    "id": "D02-BASE",
+    "source": "filing"
+  },
+  {
+    "body": "Unrelated hiring and office trivia.",
+    "date": "2026-07-04",
+    "entity": "Entity-02",
+    "id": "D02-NOISE",
+    "source": "blog"
+  },
+  {
+    "body": "Uncorroborated rumor mentions EVENT-02.",
+    "date": "2026-07-06",
+    "entity": "Entity-02",
+    "id": "D02-RUMOR",
+    "source": "anonymous"
+  },
+  {
+    "body": "Outdated note denies EVENT-02; superseded later.",
+    "date": "2026-07-08",
+    "entity": "Entity-02",
+    "id": "D02-OLD",
+    "source": "archive"
+  },
+  {
+    "body": "Confirmed EVENT-02; classified medium; follow when TRIGGER-02 occurs.",
+    "date": "2026-07-12",
+    "entity": "Entity-02",
+    "id": "D02-OFFICIAL",
+    "source": "official"
+  },
+  {
+    "body": "Duplicate of confirmed EVENT-02.",
+    "date": "2026-07-12",
+    "entity": "Entity-02",
+    "id": "D02-DUP",
+    "source": "syndicated"
+  },
+  {
+    "body": "Late update corroborates EVENT-02 and keeps severity medium.",
+    "date": "2026-07-19",
+    "entity": "Entity-02",
+    "id": "D02-LATE",
+    "source": "official-update"
+  },
+  {
+    "body": "Routine baseline with no material change.",
+    "date": "2026-07-01",
+    "entity": "Entity-03",
+    "id": "D03-BASE",
+    "source": "filing"
+  },
+  {
+    "body": "Unrelated hiring and office trivia.",
+    "date": "2026-07-04",
+    "entity": "Entity-03",
+    "id": "D03-NOISE",
+    "source": "blog"
+  },
+  {
+    "body": "Uncorroborated rumor mentions EVENT-03.",
+    "date": "2026-07-06",
+    "entity": "Entity-03",
+    "id": "D03-RUMOR",
+    "source": "anonymous"
+  },
+  {
+    "body": "Outdated note denies EVENT-03; superseded later.",
+    "date": "2026-07-08",
+    "entity": "Entity-03",
+    "id": "D03-OLD",
+    "source": "archive"
+  },
+  {
+    "body": "Confirmed EVENT-03; classified low; follow when TRIGGER-03 occurs.",
+    "date": "2026-07-12",
+    "entity": "Entity-03",
+    "id": "D03-OFFICIAL",
+    "source": "official"
+  },
+  {
+    "body": "Duplicate of confirmed EVENT-03.",
+    "date": "2026-07-12",
+    "entity": "Entity-03",
+    "id": "D03-DUP",
+    "source": "syndicated"
+  },
+  {
+    "body": "Late update corroborates EVENT-03 and keeps severity low.",
+    "date": "2026-07-19",
+    "entity": "Entity-03",
+    "id": "D03-LATE",
+    "source": "official-update"
+  },
+  {
+    "body": "Routine baseline with no material change.",
+    "date": "2026-07-01",
+    "entity": "Entity-04",
+    "id": "D04-BASE",
+    "source": "filing"
+  },
+  {
+    "body": "Unrelated hiring and office trivia.",
+    "date": "2026-07-04",
+    "entity": "Entity-04",
+    "id": "D04-NOISE",
+    "source": "blog"
+  },
+  {
+    "body": "Uncorroborated rumor mentions EVENT-04.",
+    "date": "2026-07-06",
+    "entity": "Entity-04",
+    "id": "D04-RUMOR",
+    "source": "anonymous"
+  },
+  {
+    "body": "Outdated note denies EVENT-04; superseded later.",
+    "date": "2026-07-08",
+    "entity": "Entity-04",
+    "id": "D04-OLD",
+    "source": "archive"
+  },
+  {
+    "body": "Confirmed EVENT-04; classified medium; follow when TRIGGER-04 occurs.",
+    "date": "2026-07-12",
+    "entity": "Entity-04",
+    "id": "D04-OFFICIAL",
+    "source": "official"
+  },
+  {
+    "body": "Duplicate of confirmed EVENT-04.",
+    "date": "2026-07-12",
+    "entity": "Entity-04",
+    "id": "D04-DUP",
+    "source": "syndicated"
+  },
+  {
+    "body": "Late update corroborates EVENT-04 and keeps severity medium.",
+    "date": "2026-07-19",
+    "entity": "Entity-04",
+    "id": "D04-LATE",
+    "source": "official-update"
+  },
+  {
+    "body": "Routine baseline with no material change.",
+    "date": "2026-07-01",
+    "entity": "Entity-05",
+    "id": "D05-BASE",
+    "source": "filing"
+  },
+  {
+    "body": "Unrelated hiring and office trivia.",
+    "date": "2026-07-04",
+    "entity": "Entity-05",
+    "id": "D05-NOISE",
+    "source": "blog"
+  },
+  {
+    "body": "Uncorroborated rumor mentions EVENT-05.",
+    "date": "2026-07-06",
+    "entity": "Entity-05",
+    "id": "D05-RUMOR",
+    "source": "anonymous"
+  },
+  {
+    "body": "Outdated note denies EVENT-05; superseded later.",
+    "date": "2026-07-08",
+    "entity": "Entity-05",
+    "id": "D05-OLD",
+    "source": "archive"
+  },
+  {
+    "body": "Confirmed EVENT-05; classified high; follow when TRIGGER-05 occurs.",
+    "date": "2026-07-12",
+    "entity": "Entity-05",
+    "id": "D05-OFFICIAL",
+    "source": "official"
+  },
+  {
+    "body": "Duplicate of confirmed EVENT-05.",
+    "date": "2026-07-12",
+    "entity": "Entity-05",
+    "id": "D05-DUP",
+    "source": "syndicated"
+  },
+  {
+    "body": "Late update corroborates EVENT-05 and keeps severity high.",
+    "date": "2026-07-19",
+    "entity": "Entity-05",
+    "id": "D05-LATE",
+    "source": "official-update"
+  },
+  {
+    "body": "Routine baseline with no material change.",
+    "date": "2026-07-01",
+    "entity": "Entity-06",
+    "id": "D06-BASE",
+    "source": "filing"
+  },
+  {
+    "body": "Unrelated hiring and office trivia.",
+    "date": "2026-07-04",
+    "entity": "Entity-06",
+    "id": "D06-NOISE",
+    "source": "blog"
+  },
+  {
+    "body": "Uncorroborated rumor mentions EVENT-06.",
+    "date": "2026-07-06",
+    "entity": "Entity-06",
+    "id": "D06-RUMOR",
+    "source": "anonymous"
+  },
+  {
+    "body": "Outdated note denies EVENT-06; superseded later.",
+    "date": "2026-07-08",
+    "entity": "Entity-06",
+    "id": "D06-OLD",
+    "source": "archive"
+  },
+  {
+    "body": "Confirmed EVENT-06; classified medium; follow when TRIGGER-06 occurs.",
+    "date": "2026-07-12",
+    "entity": "Entity-06",
+    "id": "D06-OFFICIAL",
+    "source": "official"
+  },
+  {
+    "body": "Duplicate of confirmed EVENT-06.",
+    "date": "2026-07-12",
+    "entity": "Entity-06",
+    "id": "D06-DUP",
+    "source": "syndicated"
+  },
+  {
+    "body": "Late update corroborates EVENT-06 and keeps severity medium.",
+    "date": "2026-07-19",
+    "entity": "Entity-06",
+    "id": "D06-LATE",
+    "source": "official-update"
+  },
+  {
+    "body": "Routine baseline with no material change.",
+    "date": "2026-07-01",
+    "entity": "Entity-07",
+    "id": "D07-BASE",
+    "source": "filing"
+  },
+  {
+    "body": "Unrelated hiring and office trivia.",
+    "date": "2026-07-04",
+    "entity": "Entity-07",
+    "id": "D07-NOISE",
+    "source": "blog"
+  },
+  {
+    "body": "Uncorroborated rumor mentions EVENT-07.",
+    "date": "2026-07-06",
+    "entity": "Entity-07",
+    "id": "D07-RUMOR",
+    "source": "anonymous"
+  },
+  {
+    "body": "Outdated note denies EVENT-07; superseded later.",
+    "date": "2026-07-08",
+    "entity": "Entity-07",
+    "id": "D07-OLD",
+    "source": "archive"
+  },
+  {
+    "body": "Confirmed EVENT-07; classified low; follow when TRIGGER-07 occurs.",
+    "date": "2026-07-12",
+    "entity": "Entity-07",
+    "id": "D07-OFFICIAL",
+    "source": "official"
+  },
+  {
+    "body": "Duplicate of confirmed EVENT-07.",
+    "date": "2026-07-12",
+    "entity": "Entity-07",
+    "id": "D07-DUP",
+    "source": "syndicated"
+  },
+  {
+    "body": "Late update corroborates EVENT-07 and keeps severity low.",
+    "date": "2026-07-19",
+    "entity": "Entity-07",
+    "id": "D07-LATE",
+    "source": "official-update"
+  },
+  {
+    "body": "Routine baseline with no material change.",
+    "date": "2026-07-01",
+    "entity": "Entity-08",
+    "id": "D08-BASE",
+    "source": "filing"
+  },
+  {
+    "body": "Unrelated hiring and office trivia.",
+    "date": "2026-07-04",
+    "entity": "Entity-08",
+    "id": "D08-NOISE",
+    "source": "blog"
+  },
+  {
+    "body": "Uncorroborated rumor mentions EVENT-08.",
+    "date": "2026-07-06",
+    "entity": "Entity-08",
+    "id": "D08-RUMOR",
+    "source": "anonymous"
+  },
+  {
+    "body": "Outdated note denies EVENT-08; superseded later.",
+    "date": "2026-07-08",
+    "entity": "Entity-08",
+    "id": "D08-OLD",
+    "source": "archive"
+  },
+  {
+    "body": "Confirmed EVENT-08; classified medium; follow when TRIGGER-08 occurs.",
+    "date": "2026-07-12",
+    "entity": "Entity-08",
+    "id": "D08-OFFICIAL",
+    "source": "official"
+  },
+  {
+    "body": "Duplicate of confirmed EVENT-08.",
+    "date": "2026-07-12",
+    "entity": "Entity-08",
+    "id": "D08-DUP",
+    "source": "syndicated"
+  },
+  {
+    "body": "Late update corroborates EVENT-08 and keeps severity medium.",
+    "date": "2026-07-19",
+    "entity": "Entity-08",
+    "id": "D08-LATE",
+    "source": "official-update"
+  },
+  {
+    "body": "Routine baseline with no material change.",
+    "date": "2026-07-01",
+    "entity": "Entity-09",
+    "id": "D09-BASE",
+    "source": "filing"
+  },
+  {
+    "body": "Unrelated hiring and office trivia.",
+    "date": "2026-07-04",
+    "entity": "Entity-09",
+    "id": "D09-NOISE",
+    "source": "blog"
+  },
+  {
+    "body": "Uncorroborated rumor mentions EVENT-09.",
+    "date": "2026-07-06",
+    "entity": "Entity-09",
+    "id": "D09-RUMOR",
+    "source": "anonymous"
+  },
+  {
+    "body": "Outdated note denies EVENT-09; superseded later.",
+    "date": "2026-07-08",
+    "entity": "Entity-09",
+    "id": "D09-OLD",
+    "source": "archive"
+  },
+  {
+    "body": "Confirmed EVENT-09; classified low; follow when TRIGGER-09 occurs.",
+    "date": "2026-07-12",
+    "entity": "Entity-09",
+    "id": "D09-OFFICIAL",
+    "source": "official"
+  },
+  {
+    "body": "Duplicate of confirmed EVENT-09.",
+    "date": "2026-07-12",
+    "entity": "Entity-09",
+    "id": "D09-DUP",
+    "source": "syndicated"
+  },
+  {
+    "body": "Late update corroborates EVENT-09 and keeps severity low.",
+    "date": "2026-07-19",
+    "entity": "Entity-09",
+    "id": "D09-LATE",
+    "source": "official-update"
+  },
+  {
+    "body": "Routine baseline with no material change.",
+    "date": "2026-07-01",
+    "entity": "Entity-10",
+    "id": "D10-BASE",
+    "source": "filing"
+  },
+  {
+    "body": "Unrelated hiring and office trivia.",
+    "date": "2026-07-04",
+    "entity": "Entity-10",
+    "id": "D10-NOISE",
+    "source": "blog"
+  },
+  {
+    "body": "Uncorroborated rumor mentions EVENT-10.",
+    "date": "2026-07-06",
+    "entity": "Entity-10",
+    "id": "D10-RUMOR",
+    "source": "anonymous"
+  },
+  {
+    "body": "Outdated note denies EVENT-10; superseded later.",
+    "date": "2026-07-08",
+    "entity": "Entity-10",
+    "id": "D10-OLD",
+    "source": "archive"
+  },
+  {
+    "body": "Confirmed EVENT-10; classified high; follow when TRIGGER-10 occurs.",
+    "date": "2026-07-12",
+    "entity": "Entity-10",
+    "id": "D10-OFFICIAL",
+    "source": "official"
+  },
+  {
+    "body": "Duplicate of confirmed EVENT-10.",
+    "date": "2026-07-12",
+    "entity": "Entity-10",
+    "id": "D10-DUP",
+    "source": "syndicated"
+  },
+  {
+    "body": "Late update corroborates EVENT-10 and keeps severity high.",
+    "date": "2026-07-19",
+    "entity": "Entity-10",
+    "id": "D10-LATE",
+    "source": "official-update"
+  },
+  {
+    "body": "Routine baseline with no material change.",
+    "date": "2026-07-01",
+    "entity": "Entity-11",
+    "id": "D11-BASE",
+    "source": "filing"
+  },
+  {
+    "body": "Unrelated hiring and office trivia.",
+    "date": "2026-07-04",
+    "entity": "Entity-11",
+    "id": "D11-NOISE",
+    "source": "blog"
+  },
+  {
+    "body": "Uncorroborated rumor mentions EVENT-11.",
+    "date": "2026-07-06",
+    "entity": "Entity-11",
+    "id": "D11-RUMOR",
+    "source": "anonymous"
+  },
+  {
+    "body": "Outdated note denies EVENT-11; superseded later.",
+    "date": "2026-07-08",
+    "entity": "Entity-11",
+    "id": "D11-OLD",
+    "source": "archive"
+  },
+  {
+    "body": "Confirmed EVENT-11; classified low; follow when TRIGGER-11 occurs.",
+    "date": "2026-07-12",
+    "entity": "Entity-11",
+    "id": "D11-OFFICIAL",
+    "source": "official"
+  },
+  {
+    "body": "Duplicate of confirmed EVENT-11.",
+    "date": "2026-07-12",
+    "entity": "Entity-11",
+    "id": "D11-DUP",
+    "source": "syndicated"
+  },
+  {
+    "body": "Late update corroborates EVENT-11 and keeps severity low.",
+    "date": "2026-07-19",
+    "entity": "Entity-11",
+    "id": "D11-LATE",
+    "source": "official-update"
+  },
+  {
+    "body": "Routine baseline with no material change.",
+    "date": "2026-07-01",
+    "entity": "Entity-12",
+    "id": "D12-BASE",
+    "source": "filing"
+  },
+  {
+    "body": "Unrelated hiring and office trivia.",
+    "date": "2026-07-04",
+    "entity": "Entity-12",
+    "id": "D12-NOISE",
+    "source": "blog"
+  },
+  {
+    "body": "Uncorroborated rumor mentions EVENT-12.",
+    "date": "2026-07-06",
+    "entity": "Entity-12",
+    "id": "D12-RUMOR",
+    "source": "anonymous"
+  },
+  {
+    "body": "Outdated note denies EVENT-12; superseded later.",
+    "date": "2026-07-08",
+    "entity": "Entity-12",
+    "id": "D12-OLD",
+    "source": "archive"
+  },
+  {
+    "body": "Confirmed EVENT-12; classified medium; follow when TRIGGER-12 occurs.",
+    "date": "2026-07-12",
+    "entity": "Entity-12",
+    "id": "D12-OFFICIAL",
+    "source": "official"
+  },
+  {
+    "body": "Duplicate of confirmed EVENT-12.",
+    "date": "2026-07-12",
+    "entity": "Entity-12",
+    "id": "D12-DUP",
+    "source": "syndicated"
+  },
+  {
+    "body": "Late update corroborates EVENT-12 and keeps severity medium.",
+    "date": "2026-07-19",
+    "entity": "Entity-12",
+    "id": "D12-LATE",
+    "source": "official-update"
+  },
+  {
+    "body": "Routine baseline with no material change.",
+    "date": "2026-07-01",
+    "entity": "Entity-13",
+    "id": "D13-BASE",
+    "source": "filing"
+  },
+  {
+    "body": "Unrelated hiring and office trivia.",
+    "date": "2026-07-04",
+    "entity": "Entity-13",
+    "id": "D13-NOISE",
+    "source": "blog"
+  },
+  {
+    "body": "Uncorroborated rumor mentions EVENT-13.",
+    "date": "2026-07-06",
+    "entity": "Entity-13",
+    "id": "D13-RUMOR",
+    "source": "anonymous"
+  },
+  {
+    "body": "Outdated note denies EVENT-13; superseded later.",
+    "date": "2026-07-08",
+    "entity": "Entity-13",
+    "id": "D13-OLD",
+    "source": "archive"
+  },
+  {
+    "body": "Confirmed EVENT-13; classified low; follow when TRIGGER-13 occurs.",
+    "date": "2026-07-12",
+    "entity": "Entity-13",
+    "id": "D13-OFFICIAL",
+    "source": "official"
+  },
+  {
+    "body": "Duplicate of confirmed EVENT-13.",
+    "date": "2026-07-12",
+    "entity": "Entity-13",
+    "id": "D13-DUP",
+    "source": "syndicated"
+  },
+  {
+    "body": "Late update corroborates EVENT-13 and keeps severity low.",
+    "date": "2026-07-19",
+    "entity": "Entity-13",
+    "id": "D13-LATE",
+    "source": "official-update"
+  },
+  {
+    "body": "Routine baseline with no material change.",
+    "date": "2026-07-01",
+    "entity": "Entity-14",
+    "id": "D14-BASE",
+    "source": "filing"
+  },
+  {
+    "body": "Unrelated hiring and office trivia.",
+    "date": "2026-07-04",
+    "entity": "Entity-14",
+    "id": "D14-NOISE",
+    "source": "blog"
+  },
+  {
+    "body": "Uncorroborated rumor mentions EVENT-14.",
+    "date": "2026-07-06",
+    "entity": "Entity-14",
+    "id": "D14-RUMOR",
+    "source": "anonymous"
+  },
+  {
+    "body": "Outdated note denies EVENT-14; superseded later.",
+    "date": "2026-07-08",
+    "entity": "Entity-14",
+    "id": "D14-OLD",
+    "source": "archive"
+  },
+  {
+    "body": "Confirmed EVENT-14; classified medium; follow when TRIGGER-14 occurs.",
+    "date": "2026-07-12",
+    "entity": "Entity-14",
+    "id": "D14-OFFICIAL",
+    "source": "official"
+  },
+  {
+    "body": "Duplicate of confirmed EVENT-14.",
+    "date": "2026-07-12",
+    "entity": "Entity-14",
+    "id": "D14-DUP",
+    "source": "syndicated"
+  },
+  {
+    "body": "Late update corroborates EVENT-14 and keeps severity medium.",
+    "date": "2026-07-19",
+    "entity": "Entity-14",
+    "id": "D14-LATE",
+    "source": "official-update"
+  },
+  {
+    "body": "Routine baseline with no material change.",
+    "date": "2026-07-01",
+    "entity": "Entity-15",
+    "id": "D15-BASE",
+    "source": "filing"
+  },
+  {
+    "body": "Unrelated hiring and office trivia.",
+    "date": "2026-07-04",
+    "entity": "Entity-15",
+    "id": "D15-NOISE",
+    "source": "blog"
+  },
+  {
+    "body": "Uncorroborated rumor mentions EVENT-15.",
+    "date": "2026-07-06",
+    "entity": "Entity-15",
+    "id": "D15-RUMOR",
+    "source": "anonymous"
+  },
+  {
+    "body": "Outdated note denies EVENT-15; superseded later.",
+    "date": "2026-07-08",
+    "entity": "Entity-15",
+    "id": "D15-OLD",
+    "source": "archive"
+  },
+  {
+    "body": "Confirmed EVENT-15; classified high; follow when TRIGGER-15 occurs.",
+    "date": "2026-07-12",
+    "entity": "Entity-15",
+    "id": "D15-OFFICIAL",
+    "source": "official"
+  },
+  {
+    "body": "Duplicate of confirmed EVENT-15.",
+    "date": "2026-07-12",
+    "entity": "Entity-15",
+    "id": "D15-DUP",
+    "source": "syndicated"
+  },
+  {
+    "body": "Late update corroborates EVENT-15 and keeps severity high.",
+    "date": "2026-07-19",
+    "entity": "Entity-15",
+    "id": "D15-LATE",
+    "source": "official-update"
+  },
+  {
+    "body": "Routine baseline with no material change.",
+    "date": "2026-07-01",
+    "entity": "Entity-16",
+    "id": "D16-BASE",
+    "source": "filing"
+  },
+  {
+    "body": "Unrelated hiring and office trivia.",
+    "date": "2026-07-04",
+    "entity": "Entity-16",
+    "id": "D16-NOISE",
+    "source": "blog"
+  },
+  {
+    "body": "Uncorroborated rumor mentions EVENT-16.",
+    "date": "2026-07-06",
+    "entity": "Entity-16",
+    "id": "D16-RUMOR",
+    "source": "anonymous"
+  },
+  {
+    "body": "Outdated note denies EVENT-16; superseded later.",
+    "date": "2026-07-08",
+    "entity": "Entity-16",
+    "id": "D16-OLD",
+    "source": "archive"
+  },
+  {
+    "body": "Confirmed EVENT-16; classified medium; follow when TRIGGER-16 occurs.",
+    "date": "2026-07-12",
+    "entity": "Entity-16",
+    "id": "D16-OFFICIAL",
+    "source": "official"
+  },
+  {
+    "body": "Duplicate of confirmed EVENT-16.",
+    "date": "2026-07-12",
+    "entity": "Entity-16",
+    "id": "D16-DUP",
+    "source": "syndicated"
+  },
+  {
+    "body": "Late update corroborates EVENT-16 and keeps severity medium.",
+    "date": "2026-07-19",
+    "entity": "Entity-16",
+    "id": "D16-LATE",
+    "source": "official-update"
+  },
+  {
+    "body": "Routine baseline with no material change.",
+    "date": "2026-07-01",
+    "entity": "Entity-17",
+    "id": "D17-BASE",
+    "source": "filing"
+  },
+  {
+    "body": "Unrelated hiring and office trivia.",
+    "date": "2026-07-04",
+    "entity": "Entity-17",
+    "id": "D17-NOISE",
+    "source": "blog"
+  },
+  {
+    "body": "Uncorroborated rumor mentions EVENT-17.",
+    "date": "2026-07-06",
+    "entity": "Entity-17",
+    "id": "D17-RUMOR",
+    "source": "anonymous"
+  },
+  {
+    "body": "Outdated note denies EVENT-17; superseded later.",
+    "date": "2026-07-08",
+    "entity": "Entity-17",
+    "id": "D17-OLD",
+    "source": "archive"
+  },
+  {
+    "body": "Confirmed EVENT-17; classified low; follow when TRIGGER-17 occurs.",
+    "date": "2026-07-12",
+    "entity": "Entity-17",
+    "id": "D17-OFFICIAL",
+    "source": "official"
+  },
+  {
+    "body": "Duplicate of confirmed EVENT-17.",
+    "date": "2026-07-12",
+    "entity": "Entity-17",
+    "id": "D17-DUP",
+    "source": "syndicated"
+  },
+  {
+    "body": "Late update corroborates EVENT-17 and keeps severity low.",
+    "date": "2026-07-19",
+    "entity": "Entity-17",
+    "id": "D17-LATE",
+    "source": "official-update"
+  },
+  {
+    "body": "Routine baseline with no material change.",
+    "date": "2026-07-01",
+    "entity": "Entity-18",
+    "id": "D18-BASE",
+    "source": "filing"
+  },
+  {
+    "body": "Unrelated hiring and office trivia.",
+    "date": "2026-07-04",
+    "entity": "Entity-18",
+    "id": "D18-NOISE",
+    "source": "blog"
+  },
+  {
+    "body": "Uncorroborated rumor mentions EVENT-18.",
+    "date": "2026-07-06",
+    "entity": "Entity-18",
+    "id": "D18-RUMOR",
+    "source": "anonymous"
+  },
+  {
+    "body": "Outdated note denies EVENT-18; superseded later.",
+    "date": "2026-07-08",
+    "entity": "Entity-18",
+    "id": "D18-OLD",
+    "source": "archive"
+  },
+  {
+    "body": "Confirmed EVENT-18; classified medium; follow when TRIGGER-18 occurs.",
+    "date": "2026-07-12",
+    "entity": "Entity-18",
+    "id": "D18-OFFICIAL",
+    "source": "official"
+  },
+  {
+    "body": "Duplicate of confirmed EVENT-18.",
+    "date": "2026-07-12",
+    "entity": "Entity-18",
+    "id": "D18-DUP",
+    "source": "syndicated"
+  },
+  {
+    "body": "Late update corroborates EVENT-18 and keeps severity medium.",
+    "date": "2026-07-19",
+    "entity": "Entity-18",
+    "id": "D18-LATE",
+    "source": "official-update"
+  },
+  {
+    "body": "Routine baseline with no material change.",
+    "date": "2026-07-01",
+    "entity": "Entity-19",
+    "id": "D19-BASE",
+    "source": "filing"
+  },
+  {
+    "body": "Unrelated hiring and office trivia.",
+    "date": "2026-07-04",
+    "entity": "Entity-19",
+    "id": "D19-NOISE",
+    "source": "blog"
+  },
+  {
+    "body": "Uncorroborated rumor mentions EVENT-19.",
+    "date": "2026-07-06",
+    "entity": "Entity-19",
+    "id": "D19-RUMOR",
+    "source": "anonymous"
+  },
+  {
+    "body": "Outdated note denies EVENT-19; superseded later.",
+    "date": "2026-07-08",
+    "entity": "Entity-19",
+    "id": "D19-OLD",
+    "source": "archive"
+  },
+  {
+    "body": "Confirmed EVENT-19; classified low; follow when TRIGGER-19 occurs.",
+    "date": "2026-07-12",
+    "entity": "Entity-19",
+    "id": "D19-OFFICIAL",
+    "source": "official"
+  },
+  {
+    "body": "Duplicate of confirmed EVENT-19.",
+    "date": "2026-07-12",
+    "entity": "Entity-19",
+    "id": "D19-DUP",
+    "source": "syndicated"
+  },
+  {
+    "body": "Late update corroborates EVENT-19 and keeps severity low.",
+    "date": "2026-07-19",
+    "entity": "Entity-19",
+    "id": "D19-LATE",
+    "source": "official-update"
+  },
+  {
+    "body": "Routine baseline with no material change.",
+    "date": "2026-07-01",
+    "entity": "Entity-20",
+    "id": "D20-BASE",
+    "source": "filing"
+  },
+  {
+    "body": "Unrelated hiring and office trivia.",
+    "date": "2026-07-04",
+    "entity": "Entity-20",
+    "id": "D20-NOISE",
+    "source": "blog"
+  },
+  {
+    "body": "Uncorroborated rumor mentions EVENT-20.",
+    "date": "2026-07-06",
+    "entity": "Entity-20",
+    "id": "D20-RUMOR",
+    "source": "anonymous"
+  },
+  {
+    "body": "Outdated note denies EVENT-20; superseded later.",
+    "date": "2026-07-08",
+    "entity": "Entity-20",
+    "id": "D20-OLD",
+    "source": "archive"
+  },
+  {
+    "body": "Confirmed EVENT-20; classified high; follow when TRIGGER-20 occurs.",
+    "date": "2026-07-12",
+    "entity": "Entity-20",
+    "id": "D20-OFFICIAL",
+    "source": "official"
+  },
+  {
+    "body": "Duplicate of confirmed EVENT-20.",
+    "date": "2026-07-12",
+    "entity": "Entity-20",
+    "id": "D20-DUP",
+    "source": "syndicated"
+  },
+  {
+    "body": "Late update corroborates EVENT-20 and keeps severity high.",
+    "date": "2026-07-19",
+    "entity": "Entity-20",
+    "id": "D20-LATE",
+    "source": "official-update"
+  },
+  {
+    "body": "Routine baseline with no material change.",
+    "date": "2026-07-01",
+    "entity": "Entity-21",
+    "id": "D21-BASE",
+    "source": "filing"
+  },
+  {
+    "body": "Unrelated hiring and office trivia.",
+    "date": "2026-07-04",
+    "entity": "Entity-21",
+    "id": "D21-NOISE",
+    "source": "blog"
+  },
+  {
+    "body": "Uncorroborated rumor mentions EVENT-21.",
+    "date": "2026-07-06",
+    "entity": "Entity-21",
+    "id": "D21-RUMOR",
+    "source": "anonymous"
+  },
+  {
+    "body": "Outdated note denies EVENT-21; superseded later.",
+    "date": "2026-07-08",
+    "entity": "Entity-21",
+    "id": "D21-OLD",
+    "source": "archive"
+  },
+  {
+    "body": "Confirmed EVENT-21; classified low; follow when TRIGGER-21 occurs.",
+    "date": "2026-07-12",
+    "entity": "Entity-21",
+    "id": "D21-OFFICIAL",
+    "source": "official"
+  },
+  {
+    "body": "Duplicate of confirmed EVENT-21.",
+    "date": "2026-07-12",
+    "entity": "Entity-21",
+    "id": "D21-DUP",
+    "source": "syndicated"
+  },
+  {
+    "body": "Late update corroborates EVENT-21 and keeps severity low.",
+    "date": "2026-07-19",
+    "entity": "Entity-21",
+    "id": "D21-LATE",
+    "source": "official-update"
+  },
+  {
+    "body": "Routine baseline with no material change.",
+    "date": "2026-07-01",
+    "entity": "Entity-22",
+    "id": "D22-BASE",
+    "source": "filing"
+  },
+  {
+    "body": "Unrelated hiring and office trivia.",
+    "date": "2026-07-04",
+    "entity": "Entity-22",
+    "id": "D22-NOISE",
+    "source": "blog"
+  },
+  {
+    "body": "Uncorroborated rumor mentions EVENT-22.",
+    "date": "2026-07-06",
+    "entity": "Entity-22",
+    "id": "D22-RUMOR",
+    "source": "anonymous"
+  },
+  {
+    "body": "Outdated note denies EVENT-22; superseded later.",
+    "date": "2026-07-08",
+    "entity": "Entity-22",
+    "id": "D22-OLD",
+    "source": "archive"
+  },
+  {
+    "body": "Confirmed EVENT-22; classified medium; follow when TRIGGER-22 occurs.",
+    "date": "2026-07-12",
+    "entity": "Entity-22",
+    "id": "D22-OFFICIAL",
+    "source": "official"
+  },
+  {
+    "body": "Duplicate of confirmed EVENT-22.",
+    "date": "2026-07-12",
+    "entity": "Entity-22",
+    "id": "D22-DUP",
+    "source": "syndicated"
+  },
+  {
+    "body": "Late update corroborates EVENT-22 and keeps severity medium.",
+    "date": "2026-07-19",
+    "entity": "Entity-22",
+    "id": "D22-LATE",
+    "source": "official-update"
+  },
+  {
+    "body": "Routine baseline with no material change.",
+    "date": "2026-07-01",
+    "entity": "Entity-23",
+    "id": "D23-BASE",
+    "source": "filing"
+  },
+  {
+    "body": "Unrelated hiring and office trivia.",
+    "date": "2026-07-04",
+    "entity": "Entity-23",
+    "id": "D23-NOISE",
+    "source": "blog"
+  },
+  {
+    "body": "Uncorroborated rumor mentions EVENT-23.",
+    "date": "2026-07-06",
+    "entity": "Entity-23",
+    "id": "D23-RUMOR",
+    "source": "anonymous"
+  },
+  {
+    "body": "Outdated note denies EVENT-23; superseded later.",
+    "date": "2026-07-08",
+    "entity": "Entity-23",
+    "id": "D23-OLD",
+    "source": "archive"
+  },
+  {
+    "body": "Confirmed EVENT-23; classified low; follow when TRIGGER-23 occurs.",
+    "date": "2026-07-12",
+    "entity": "Entity-23",
+    "id": "D23-OFFICIAL",
+    "source": "official"
+  },
+  {
+    "body": "Duplicate of confirmed EVENT-23.",
+    "date": "2026-07-12",
+    "entity": "Entity-23",
+    "id": "D23-DUP",
+    "source": "syndicated"
+  },
+  {
+    "body": "Late update corroborates EVENT-23 and keeps severity low.",
+    "date": "2026-07-19",
+    "entity": "Entity-23",
+    "id": "D23-LATE",
+    "source": "official-update"
+  },
+  {
+    "body": "Routine baseline with no material change.",
+    "date": "2026-07-01",
+    "entity": "Entity-24",
+    "id": "D24-BASE",
+    "source": "filing"
+  },
+  {
+    "body": "Unrelated hiring and office trivia.",
+    "date": "2026-07-04",
+    "entity": "Entity-24",
+    "id": "D24-NOISE",
+    "source": "blog"
+  },
+  {
+    "body": "Uncorroborated rumor mentions EVENT-24.",
+    "date": "2026-07-06",
+    "entity": "Entity-24",
+    "id": "D24-RUMOR",
+    "source": "anonymous"
+  },
+  {
+    "body": "Outdated note denies EVENT-24; superseded later.",
+    "date": "2026-07-08",
+    "entity": "Entity-24",
+    "id": "D24-OLD",
+    "source": "archive"
+  },
+  {
+    "body": "Confirmed EVENT-24; classified medium; follow when TRIGGER-24 occurs.",
+    "date": "2026-07-12",
+    "entity": "Entity-24",
+    "id": "D24-OFFICIAL",
+    "source": "official"
+  },
+  {
+    "body": "Duplicate of confirmed EVENT-24.",
+    "date": "2026-07-12",
+    "entity": "Entity-24",
+    "id": "D24-DUP",
+    "source": "syndicated"
+  },
+  {
+    "body": "Late update corroborates EVENT-24 and keeps severity medium.",
+    "date": "2026-07-19",
+    "entity": "Entity-24",
+    "id": "D24-LATE",
+    "source": "official-update"
+  },
+  {
+    "body": "Routine baseline with no material change.",
+    "date": "2026-07-01",
+    "entity": "Entity-25",
+    "id": "D25-BASE",
+    "source": "filing"
+  },
+  {
+    "body": "Unrelated hiring and office trivia.",
+    "date": "2026-07-04",
+    "entity": "Entity-25",
+    "id": "D25-NOISE",
+    "source": "blog"
+  },
+  {
+    "body": "Uncorroborated rumor mentions EVENT-25.",
+    "date": "2026-07-06",
+    "entity": "Entity-25",
+    "id": "D25-RUMOR",
+    "source": "anonymous"
+  },
+  {
+    "body": "Outdated note denies EVENT-25; superseded later.",
+    "date": "2026-07-08",
+    "entity": "Entity-25",
+    "id": "D25-OLD",
+    "source": "archive"
+  },
+  {
+    "body": "Confirmed EVENT-25; classified high; follow when TRIGGER-25 occurs.",
+    "date": "2026-07-12",
+    "entity": "Entity-25",
+    "id": "D25-OFFICIAL",
+    "source": "official"
+  },
+  {
+    "body": "Duplicate of confirmed EVENT-25.",
+    "date": "2026-07-12",
+    "entity": "Entity-25",
+    "id": "D25-DUP",
+    "source": "syndicated"
+  },
+  {
+    "body": "Late update corroborates EVENT-25 and keeps severity high.",
+    "date": "2026-07-19",
+    "entity": "Entity-25",
+    "id": "D25-LATE",
+    "source": "official-update"
+  },
+  {
+    "body": "Routine baseline with no material change.",
+    "date": "2026-07-01",
+    "entity": "Entity-26",
+    "id": "D26-BASE",
+    "source": "filing"
+  },
+  {
+    "body": "Unrelated hiring and office trivia.",
+    "date": "2026-07-04",
+    "entity": "Entity-26",
+    "id": "D26-NOISE",
+    "source": "blog"
+  },
+  {
+    "body": "Uncorroborated rumor mentions EVENT-26.",
+    "date": "2026-07-06",
+    "entity": "Entity-26",
+    "id": "D26-RUMOR",
+    "source": "anonymous"
+  },
+  {
+    "body": "Outdated note denies EVENT-26; superseded later.",
+    "date": "2026-07-08",
+    "entity": "Entity-26",
+    "id": "D26-OLD",
+    "source": "archive"
+  },
+  {
+    "body": "Confirmed EVENT-26; classified medium; follow when TRIGGER-26 occurs.",
+    "date": "2026-07-12",
+    "entity": "Entity-26",
+    "id": "D26-OFFICIAL",
+    "source": "official"
+  },
+  {
+    "body": "Duplicate of confirmed EVENT-26.",
+    "date": "2026-07-12",
+    "entity": "Entity-26",
+    "id": "D26-DUP",
+    "source": "syndicated"
+  },
+  {
+    "body": "Late update corroborates EVENT-26 and keeps severity medium.",
+    "date": "2026-07-19",
+    "entity": "Entity-26",
+    "id": "D26-LATE",
+    "source": "official-update"
+  },
+  {
+    "body": "Routine baseline with no material change.",
+    "date": "2026-07-01",
+    "entity": "Entity-27",
+    "id": "D27-BASE",
+    "source": "filing"
+  },
+  {
+    "body": "Unrelated hiring and office trivia.",
+    "date": "2026-07-04",
+    "entity": "Entity-27",
+    "id": "D27-NOISE",
+    "source": "blog"
+  },
+  {
+    "body": "Uncorroborated rumor mentions EVENT-27.",
+    "date": "2026-07-06",
+    "entity": "Entity-27",
+    "id": "D27-RUMOR",
+    "source": "anonymous"
+  },
+  {
+    "body": "Outdated note denies EVENT-27; superseded later.",
+    "date": "2026-07-08",
+    "entity": "Entity-27",
+    "id": "D27-OLD",
+    "source": "archive"
+  },
+  {
+    "body": "Confirmed EVENT-27; classified low; follow when TRIGGER-27 occurs.",
+    "date": "2026-07-12",
+    "entity": "Entity-27",
+    "id": "D27-OFFICIAL",
+    "source": "official"
+  },
+  {
+    "body": "Duplicate of confirmed EVENT-27.",
+    "date": "2026-07-12",
+    "entity": "Entity-27",
+    "id": "D27-DUP",
+    "source": "syndicated"
+  },
+  {
+    "body": "Late update corroborates EVENT-27 and keeps severity low.",
+    "date": "2026-07-19",
+    "entity": "Entity-27",
+    "id": "D27-LATE",
+    "source": "official-update"
+  },
+  {
+    "body": "Routine baseline with no material change.",
+    "date": "2026-07-01",
+    "entity": "Entity-28",
+    "id": "D28-BASE",
+    "source": "filing"
+  },
+  {
+    "body": "Unrelated hiring and office trivia.",
+    "date": "2026-07-04",
+    "entity": "Entity-28",
+    "id": "D28-NOISE",
+    "source": "blog"
+  },
+  {
+    "body": "Uncorroborated rumor mentions EVENT-28.",
+    "date": "2026-07-06",
+    "entity": "Entity-28",
+    "id": "D28-RUMOR",
+    "source": "anonymous"
+  },
+  {
+    "body": "Outdated note denies EVENT-28; superseded later.",
+    "date": "2026-07-08",
+    "entity": "Entity-28",
+    "id": "D28-OLD",
+    "source": "archive"
+  },
+  {
+    "body": "Confirmed EVENT-28; classified medium; follow when TRIGGER-28 occurs.",
+    "date": "2026-07-12",
+    "entity": "Entity-28",
+    "id": "D28-OFFICIAL",
+    "source": "official"
+  },
+  {
+    "body": "Duplicate of confirmed EVENT-28.",
+    "date": "2026-07-12",
+    "entity": "Entity-28",
+    "id": "D28-DUP",
+    "source": "syndicated"
+  },
+  {
+    "body": "Late update corroborates EVENT-28 and keeps severity medium.",
+    "date": "2026-07-19",
+    "entity": "Entity-28",
+    "id": "D28-LATE",
+    "source": "official-update"
+  },
+  {
+    "body": "Routine baseline with no material change.",
+    "date": "2026-07-01",
+    "entity": "Entity-29",
+    "id": "D29-BASE",
+    "source": "filing"
+  },
+  {
+    "body": "Unrelated hiring and office trivia.",
+    "date": "2026-07-04",
+    "entity": "Entity-29",
+    "id": "D29-NOISE",
+    "source": "blog"
+  },
+  {
+    "body": "Uncorroborated rumor mentions EVENT-29.",
+    "date": "2026-07-06",
+    "entity": "Entity-29",
+    "id": "D29-RUMOR",
+    "source": "anonymous"
+  },
+  {
+    "body": "Outdated note denies EVENT-29; superseded later.",
+    "date": "2026-07-08",
+    "entity": "Entity-29",
+    "id": "D29-OLD",
+    "source": "archive"
+  },
+  {
+    "body": "Confirmed EVENT-29; classified low; follow when TRIGGER-29 occurs.",
+    "date": "2026-07-12",
+    "entity": "Entity-29",
+    "id": "D29-OFFICIAL",
+    "source": "official"
+  },
+  {
+    "body": "Duplicate of confirmed EVENT-29.",
+    "date": "2026-07-12",
+    "entity": "Entity-29",
+    "id": "D29-DUP",
+    "source": "syndicated"
+  },
+  {
+    "body": "Late update corroborates EVENT-29 and keeps severity low.",
+    "date": "2026-07-19",
+    "entity": "Entity-29",
+    "id": "D29-LATE",
+    "source": "official-update"
+  },
+  {
+    "body": "Routine baseline with no material change.",
+    "date": "2026-07-01",
+    "entity": "Entity-30",
+    "id": "D30-BASE",
+    "source": "filing"
+  },
+  {
+    "body": "Unrelated hiring and office trivia.",
+    "date": "2026-07-04",
+    "entity": "Entity-30",
+    "id": "D30-NOISE",
+    "source": "blog"
+  },
+  {
+    "body": "Uncorroborated rumor mentions EVENT-30.",
+    "date": "2026-07-06",
+    "entity": "Entity-30",
+    "id": "D30-RUMOR",
+    "source": "anonymous"
+  },
+  {
+    "body": "Outdated note denies EVENT-30; superseded later.",
+    "date": "2026-07-08",
+    "entity": "Entity-30",
+    "id": "D30-OLD",
+    "source": "archive"
+  },
+  {
+    "body": "Confirmed EVENT-30; classified high; follow when TRIGGER-30 occurs.",
+    "date": "2026-07-12",
+    "entity": "Entity-30",
+    "id": "D30-OFFICIAL",
+    "source": "official"
+  },
+  {
+    "body": "Duplicate of confirmed EVENT-30.",
+    "date": "2026-07-12",
+    "entity": "Entity-30",
+    "id": "D30-DUP",
+    "source": "syndicated"
+  },
+  {
+    "body": "Late update corroborates EVENT-30 and keeps severity high.",
+    "date": "2026-07-19",
+    "entity": "Entity-30",
+    "id": "D30-LATE",
+    "source": "official-update"
+  },
+  {
+    "body": "Routine baseline with no material change.",
+    "date": "2026-07-01",
+    "entity": "Entity-31",
+    "id": "D31-BASE",
+    "source": "filing"
+  },
+  {
+    "body": "Unrelated hiring and office trivia.",
+    "date": "2026-07-04",
+    "entity": "Entity-31",
+    "id": "D31-NOISE",
+    "source": "blog"
+  },
+  {
+    "body": "Uncorroborated rumor mentions EVENT-31.",
+    "date": "2026-07-06",
+    "entity": "Entity-31",
+    "id": "D31-RUMOR",
+    "source": "anonymous"
+  },
+  {
+    "body": "Outdated note denies EVENT-31; superseded later.",
+    "date": "2026-07-08",
+    "entity": "Entity-31",
+    "id": "D31-OLD",
+    "source": "archive"
+  },
+  {
+    "body": "Confirmed EVENT-31; classified low; follow when TRIGGER-31 occurs.",
+    "date": "2026-07-12",
+    "entity": "Entity-31",
+    "id": "D31-OFFICIAL",
+    "source": "official"
+  },
+  {
+    "body": "Duplicate of confirmed EVENT-31.",
+    "date": "2026-07-12",
+    "entity": "Entity-31",
+    "id": "D31-DUP",
+    "source": "syndicated"
+  },
+  {
+    "body": "Late update corroborates EVENT-31 and keeps severity low.",
+    "date": "2026-07-19",
+    "entity": "Entity-31",
+    "id": "D31-LATE",
+    "source": "official-update"
+  },
+  {
+    "body": "Routine baseline with no material change.",
+    "date": "2026-07-01",
+    "entity": "Entity-32",
+    "id": "D32-BASE",
+    "source": "filing"
+  },
+  {
+    "body": "Unrelated hiring and office trivia.",
+    "date": "2026-07-04",
+    "entity": "Entity-32",
+    "id": "D32-NOISE",
+    "source": "blog"
+  },
+  {
+    "body": "Uncorroborated rumor mentions EVENT-32.",
+    "date": "2026-07-06",
+    "entity": "Entity-32",
+    "id": "D32-RUMOR",
+    "source": "anonymous"
+  },
+  {
+    "body": "Outdated note denies EVENT-32; superseded later.",
+    "date": "2026-07-08",
+    "entity": "Entity-32",
+    "id": "D32-OLD",
+    "source": "archive"
+  },
+  {
+    "body": "Confirmed EVENT-32; classified medium; follow when TRIGGER-32 occurs.",
+    "date": "2026-07-12",
+    "entity": "Entity-32",
+    "id": "D32-OFFICIAL",
+    "source": "official"
+  },
+  {
+    "body": "Duplicate of confirmed EVENT-32.",
+    "date": "2026-07-12",
+    "entity": "Entity-32",
+    "id": "D32-DUP",
+    "source": "syndicated"
+  },
+  {
+    "body": "Late update corroborates EVENT-32 and keeps severity medium.",
+    "date": "2026-07-19",
+    "entity": "Entity-32",
+    "id": "D32-LATE",
+    "source": "official-update"
+  },
+  {
+    "body": "Routine baseline with no material change.",
+    "date": "2026-07-01",
+    "entity": "Entity-33",
+    "id": "D33-BASE",
+    "source": "filing"
+  },
+  {
+    "body": "Unrelated hiring and office trivia.",
+    "date": "2026-07-04",
+    "entity": "Entity-33",
+    "id": "D33-NOISE",
+    "source": "blog"
+  },
+  {
+    "body": "Uncorroborated rumor mentions EVENT-33.",
+    "date": "2026-07-06",
+    "entity": "Entity-33",
+    "id": "D33-RUMOR",
+    "source": "anonymous"
+  },
+  {
+    "body": "Outdated note denies EVENT-33; superseded later.",
+    "date": "2026-07-08",
+    "entity": "Entity-33",
+    "id": "D33-OLD",
+    "source": "archive"
+  },
+  {
+    "body": "Confirmed EVENT-33; classified low; follow when TRIGGER-33 occurs.",
+    "date": "2026-07-12",
+    "entity": "Entity-33",
+    "id": "D33-OFFICIAL",
+    "source": "official"
+  },
+  {
+    "body": "Duplicate of confirmed EVENT-33.",
+    "date": "2026-07-12",
+    "entity": "Entity-33",
+    "id": "D33-DUP",
+    "source": "syndicated"
+  },
+  {
+    "body": "Late update corroborates EVENT-33 and keeps severity low.",
+    "date": "2026-07-19",
+    "entity": "Entity-33",
+    "id": "D33-LATE",
+    "source": "official-update"
+  },
+  {
+    "body": "Routine baseline with no material change.",
+    "date": "2026-07-01",
+    "entity": "Entity-34",
+    "id": "D34-BASE",
+    "source": "filing"
+  },
+  {
+    "body": "Unrelated hiring and office trivia.",
+    "date": "2026-07-04",
+    "entity": "Entity-34",
+    "id": "D34-NOISE",
+    "source": "blog"
+  },
+  {
+    "body": "Uncorroborated rumor mentions EVENT-34.",
+    "date": "2026-07-06",
+    "entity": "Entity-34",
+    "id": "D34-RUMOR",
+    "source": "anonymous"
+  },
+  {
+    "body": "Outdated note denies EVENT-34; superseded later.",
+    "date": "2026-07-08",
+    "entity": "Entity-34",
+    "id": "D34-OLD",
+    "source": "archive"
+  },
+  {
+    "body": "Confirmed EVENT-34; classified medium; follow when TRIGGER-34 occurs.",
+    "date": "2026-07-12",
+    "entity": "Entity-34",
+    "id": "D34-OFFICIAL",
+    "source": "official"
+  },
+  {
+    "body": "Duplicate of confirmed EVENT-34.",
+    "date": "2026-07-12",
+    "entity": "Entity-34",
+    "id": "D34-DUP",
+    "source": "syndicated"
+  },
+  {
+    "body": "Late update corroborates EVENT-34 and keeps severity medium.",
+    "date": "2026-07-19",
+    "entity": "Entity-34",
+    "id": "D34-LATE",
+    "source": "official-update"
+  },
+  {
+    "body": "Routine baseline with no material change.",
+    "date": "2026-07-01",
+    "entity": "Entity-35",
+    "id": "D35-BASE",
+    "source": "filing"
+  },
+  {
+    "body": "Unrelated hiring and office trivia.",
+    "date": "2026-07-04",
+    "entity": "Entity-35",
+    "id": "D35-NOISE",
+    "source": "blog"
+  },
+  {
+    "body": "Uncorroborated rumor mentions EVENT-35.",
+    "date": "2026-07-06",
+    "entity": "Entity-35",
+    "id": "D35-RUMOR",
+    "source": "anonymous"
+  },
+  {
+    "body": "Outdated note denies EVENT-35; superseded later.",
+    "date": "2026-07-08",
+    "entity": "Entity-35",
+    "id": "D35-OLD",
+    "source": "archive"
+  },
+  {
+    "body": "Confirmed EVENT-35; classified high; follow when TRIGGER-35 occurs.",
+    "date": "2026-07-12",
+    "entity": "Entity-35",
+    "id": "D35-OFFICIAL",
+    "source": "official"
+  },
+  {
+    "body": "Duplicate of confirmed EVENT-35.",
+    "date": "2026-07-12",
+    "entity": "Entity-35",
+    "id": "D35-DUP",
+    "source": "syndicated"
+  },
+  {
+    "body": "Late update corroborates EVENT-35 and keeps severity high.",
+    "date": "2026-07-19",
+    "entity": "Entity-35",
+    "id": "D35-LATE",
+    "source": "official-update"
+  },
+  {
+    "body": "Routine baseline with no material change.",
+    "date": "2026-07-01",
+    "entity": "Entity-36",
+    "id": "D36-BASE",
+    "source": "filing"
+  },
+  {
+    "body": "Unrelated hiring and office trivia.",
+    "date": "2026-07-04",
+    "entity": "Entity-36",
+    "id": "D36-NOISE",
+    "source": "blog"
+  },
+  {
+    "body": "Uncorroborated rumor mentions EVENT-36.",
+    "date": "2026-07-06",
+    "entity": "Entity-36",
+    "id": "D36-RUMOR",
+    "source": "anonymous"
+  },
+  {
+    "body": "Outdated note denies EVENT-36; superseded later.",
+    "date": "2026-07-08",
+    "entity": "Entity-36",
+    "id": "D36-OLD",
+    "source": "archive"
+  },
+  {
+    "body": "Confirmed EVENT-36; classified medium; follow when TRIGGER-36 occurs.",
+    "date": "2026-07-12",
+    "entity": "Entity-36",
+    "id": "D36-OFFICIAL",
+    "source": "official"
+  },
+  {
+    "body": "Duplicate of confirmed EVENT-36.",
+    "date": "2026-07-12",
+    "entity": "Entity-36",
+    "id": "D36-DUP",
+    "source": "syndicated"
+  },
+  {
+    "body": "Late update corroborates EVENT-36 and keeps severity medium.",
+    "date": "2026-07-19",
+    "entity": "Entity-36",
+    "id": "D36-LATE",
+    "source": "official-update"
+  },
+  {
+    "body": "Routine baseline with no material change.",
+    "date": "2026-07-01",
+    "entity": "Entity-37",
+    "id": "D37-BASE",
+    "source": "filing"
+  },
+  {
+    "body": "Unrelated hiring and office trivia.",
+    "date": "2026-07-04",
+    "entity": "Entity-37",
+    "id": "D37-NOISE",
+    "source": "blog"
+  },
+  {
+    "body": "Uncorroborated rumor mentions EVENT-37.",
+    "date": "2026-07-06",
+    "entity": "Entity-37",
+    "id": "D37-RUMOR",
+    "source": "anonymous"
+  },
+  {
+    "body": "Outdated note denies EVENT-37; superseded later.",
+    "date": "2026-07-08",
+    "entity": "Entity-37",
+    "id": "D37-OLD",
+    "source": "archive"
+  },
+  {
+    "body": "Confirmed EVENT-37; classified low; follow when TRIGGER-37 occurs.",
+    "date": "2026-07-12",
+    "entity": "Entity-37",
+    "id": "D37-OFFICIAL",
+    "source": "official"
+  },
+  {
+    "body": "Duplicate of confirmed EVENT-37.",
+    "date": "2026-07-12",
+    "entity": "Entity-37",
+    "id": "D37-DUP",
+    "source": "syndicated"
+  },
+  {
+    "body": "Late update corroborates EVENT-37 and keeps severity low.",
+    "date": "2026-07-19",
+    "entity": "Entity-37",
+    "id": "D37-LATE",
+    "source": "official-update"
+  },
+  {
+    "body": "Routine baseline with no material change.",
+    "date": "2026-07-01",
+    "entity": "Entity-38",
+    "id": "D38-BASE",
+    "source": "filing"
+  },
+  {
+    "body": "Unrelated hiring and office trivia.",
+    "date": "2026-07-04",
+    "entity": "Entity-38",
+    "id": "D38-NOISE",
+    "source": "blog"
+  },
+  {
+    "body": "Uncorroborated rumor mentions EVENT-38.",
+    "date": "2026-07-06",
+    "entity": "Entity-38",
+    "id": "D38-RUMOR",
+    "source": "anonymous"
+  },
+  {
+    "body": "Outdated note denies EVENT-38; superseded later.",
+    "date": "2026-07-08",
+    "entity": "Entity-38",
+    "id": "D38-OLD",
+    "source": "archive"
+  },
+  {
+    "body": "Confirmed EVENT-38; classified medium; follow when TRIGGER-38 occurs.",
+    "date": "2026-07-12",
+    "entity": "Entity-38",
+    "id": "D38-OFFICIAL",
+    "source": "official"
+  },
+  {
+    "body": "Duplicate of confirmed EVENT-38.",
+    "date": "2026-07-12",
+    "entity": "Entity-38",
+    "id": "D38-DUP",
+    "source": "syndicated"
+  },
+  {
+    "body": "Late update corroborates EVENT-38 and keeps severity medium.",
+    "date": "2026-07-19",
+    "entity": "Entity-38",
+    "id": "D38-LATE",
+    "source": "official-update"
+  },
+  {
+    "body": "Routine baseline with no material change.",
+    "date": "2026-07-01",
+    "entity": "Entity-39",
+    "id": "D39-BASE",
+    "source": "filing"
+  },
+  {
+    "body": "Unrelated hiring and office trivia.",
+    "date": "2026-07-04",
+    "entity": "Entity-39",
+    "id": "D39-NOISE",
+    "source": "blog"
+  },
+  {
+    "body": "Uncorroborated rumor mentions EVENT-39.",
+    "date": "2026-07-06",
+    "entity": "Entity-39",
+    "id": "D39-RUMOR",
+    "source": "anonymous"
+  },
+  {
+    "body": "Outdated note denies EVENT-39; superseded later.",
+    "date": "2026-07-08",
+    "entity": "Entity-39",
+    "id": "D39-OLD",
+    "source": "archive"
+  },
+  {
+    "body": "Confirmed EVENT-39; classified low; follow when TRIGGER-39 occurs.",
+    "date": "2026-07-12",
+    "entity": "Entity-39",
+    "id": "D39-OFFICIAL",
+    "source": "official"
+  },
+  {
+    "body": "Duplicate of confirmed EVENT-39.",
+    "date": "2026-07-12",
+    "entity": "Entity-39",
+    "id": "D39-DUP",
+    "source": "syndicated"
+  },
+  {
+    "body": "Late update corroborates EVENT-39 and keeps severity low.",
+    "date": "2026-07-19",
+    "entity": "Entity-39",
+    "id": "D39-LATE",
+    "source": "official-update"
+  },
+  {
+    "body": "Routine baseline with no material change.",
+    "date": "2026-07-01",
+    "entity": "Entity-40",
+    "id": "D40-BASE",
+    "source": "filing"
+  },
+  {
+    "body": "Unrelated hiring and office trivia.",
+    "date": "2026-07-04",
+    "entity": "Entity-40",
+    "id": "D40-NOISE",
+    "source": "blog"
+  },
+  {
+    "body": "Uncorroborated rumor mentions EVENT-40.",
+    "date": "2026-07-06",
+    "entity": "Entity-40",
+    "id": "D40-RUMOR",
+    "source": "anonymous"
+  },
+  {
+    "body": "Outdated note denies EVENT-40; superseded later.",
+    "date": "2026-07-08",
+    "entity": "Entity-40",
+    "id": "D40-OLD",
+    "source": "archive"
+  },
+  {
+    "body": "Confirmed EVENT-40; classified high; follow when TRIGGER-40 occurs.",
+    "date": "2026-07-12",
+    "entity": "Entity-40",
+    "id": "D40-OFFICIAL",
+    "source": "official"
+  },
+  {
+    "body": "Duplicate of confirmed EVENT-40.",
+    "date": "2026-07-12",
+    "entity": "Entity-40",
+    "id": "D40-DUP",
+    "source": "syndicated"
+  },
+  {
+    "body": "Late update corroborates EVENT-40 and keeps severity high.",
+    "date": "2026-07-19",
+    "entity": "Entity-40",
+    "id": "D40-LATE",
+    "source": "official-update"
+  }
+]

@@ -2,7 +2,7 @@
   "fixture_manifest_sha256": "d299cb39b0b158b15639858043088101b20ec34d96ccfd71dd2a3ccdb9655996",
   "frozen_contract_sha256": "926ea9ba6a3d4598917ba41676991cf77a9323179423b88e4a275cebac4509fc",
   "gate": "G4-deterministic-local-closure",
-  "recorded_at": "2026-08-25T09:45:39.255158+00:00",
+  "recorded_at": "2026-08-25T11:45:59.717515+00:00",
   "result": {
     "records": [
       {
@@ -47,10 +47,13 @@
       }
     ],
     "runner_contracts": {
+      "actor_identities_are_product_valid": true,
       "blind_schema_rejects_drift": true,
       "flat_and_decaying_value_curves_separate": true,
       "overlap_math_is_exact": true,
-      "programme_spend_guard_is_fail_closed": true
+      "programme_spend_guard_is_fail_closed": true,
+      "retry_company_names_are_unique": true,
+      "unknown_spend_reserves_company_ceiling": true
     },
     "valid": true
   },

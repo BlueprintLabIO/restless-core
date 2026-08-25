@@ -1,0 +1,66 @@
+[
+  {
+    "id": "I017",
+    "disposition": "matched",
+    "action": "close-reconciled",
+    "delta": 0,
+    "evidence": "invoice_total 1429 equals ledger_total 1429 for INV-TEST-017 (AUD)",
+    "uncertainty": "none: totals agree exactly from frozen source"
+  },
+  {
+    "id": "I018",
+    "disposition": "matched",
+    "action": "close-reconciled",
+    "delta": 0,
+    "evidence": "invoice_total 1466 equals ledger_total 1466 for INV-TEST-018 (AUD)",
+    "uncertainty": "none: totals agree exactly from frozen source"
+  },
+  {
+    "id": "I019",
+    "disposition": "matched",
+    "action": "close-reconciled",
+    "delta": 0,
+    "evidence": "invoice_total 1503 equals ledger_total 1503 for INV-TEST-019 (AUD)",
+    "uncertainty": "none: totals agree exactly from frozen source"
+  },
+  {
+    "id": "I020",
+    "disposition": "over-recorded",
+    "action": "review-credit-or-ledger",
+    "delta": 75,
+    "evidence": "ledger_total 1615 exceeds invoice_total 1540 by 75 for INV-TEST-020 (AUD)",
+    "uncertainty": "source gives no line detail; over-recording cause (credit note vs ledger entry) unresolved"
+  },
+  {
+    "id": "I021",
+    "disposition": "matched",
+    "action": "close-reconciled",
+    "delta": 0,
+    "evidence": "invoice_total 1577 equals ledger_total 1577 for INV-TEST-021 (AUD)",
+    "uncertainty": "none: totals agree exactly from frozen source"
+  },
+  {
+    "id": "I022",
+    "disposition": "matched",
+    "action": "close-reconciled",
+    "delta": 0,
+    "evidence": "invoice_total 1614 equals ledger_total 1614 for INV-TEST-022 (AUD)",
+    "uncertainty": "none: totals agree exactly from frozen source"
+  },
+  {
+    "id": "I023",
+    "disposition": "matched",
+    "action": "close-reconciled",
+    "delta": 0,
+    "evidence": "invoice_total 1651 equals ledger_total 1651 for INV-TEST-023 (AUD)",
+    "uncertainty": "none: totals agree exactly from frozen source"
+  },
+  {
+    "id": "I024",
+    "disposition": "under-recorded",
+    "action": "review-missing-payment",
+    "delta": -50,
+    "evidence": "ledger_total 1638 is 50 below invoice_total 1688 for INV-TEST-024 (AUD)",
+    "uncertainty": "source gives no line detail; missing payment vs invoice error unresolved"
+  }
+]

@@ -1,0 +1,112 @@
+[
+  {
+    "entity": "Entity-11",
+    "event_code": "EVENT-11",
+    "severity": "low",
+    "source_ids": [
+      "D11-OFFICIAL",
+      "D11-LATE"
+    ],
+    "uncertainty": "Rumor (anonymous) uncorroborated by authoritative sources; stale archive denial superseded by official confirmation and late corroboration.",
+    "follow_up_trigger": "TRIGGER-11"
+  },
+  {
+    "entity": "Entity-12",
+    "event_code": "EVENT-12",
+    "severity": "medium",
+    "source_ids": [
+      "D12-OFFICIAL",
+      "D12-LATE"
+    ],
+    "uncertainty": "Rumor (anonymous) uncorroborated by authoritative sources; stale archive denial superseded by official confirmation and late corroboration.",
+    "follow_up_trigger": "TRIGGER-12"
+  },
+  {
+    "entity": "Entity-13",
+    "event_code": "EVENT-13",
+    "severity": "low",
+    "source_ids": [
+      "D13-OFFICIAL",
+      "D13-LATE"
+    ],
+    "uncertainty": "Rumor (anonymous) uncorroborated by authoritative sources; stale archive denial superseded by official confirmation and late corroboration.",
+    "follow_up_trigger": "TRIGGER-13"
+  },
+  {
+    "entity": "Entity-14",
+    "event_code": "EVENT-14",
+    "severity": "medium",
+    "source_ids": [
+      "D14-OFFICIAL",
+      "D14-LATE"
+    ],
+    "uncertainty": "Rumor (anonymous) uncorroborated by authoritative sources; stale archive denial superseded by official confirmation and late corroboration.",
+    "follow_up_trigger": "TRIGGER-14"
+  },
+  {
+    "entity": "Entity-15",
+    "event_code": "EVENT-15",
+    "severity": "high",
+    "source_ids": [
+      "D15-OFFICIAL",
+      "D15-LATE"
+    ],
+    "uncertainty": "Rumor (anonymous) uncorroborated by authoritative sources; stale archive denial superseded by official confirmation and late corroboration.",
+    "follow_up_trigger": "TRIGGER-15"
+  },
+  {
+    "entity": "Entity-16",
+    "event_code": "EVENT-16",
+    "severity": "medium",
+    "source_ids": [
+      "D16-OFFICIAL",
+      "D16-LATE"
+    ],
+    "uncertainty": "Rumor (anonymous) uncorroborated by authoritative sources; stale archive denial superseded by official confirmation and late corroboration.",
+    "follow_up_trigger": "TRIGGER-16"
+  },
+  {
+    "entity": "Entity-17",
+    "event_code": "EVENT-17",
+    "severity": "low",
+    "source_ids": [
+      "D17-OFFICIAL",
+      "D17-LATE"
+    ],
+    "uncertainty": "Rumor (anonymous) uncorroborated by authoritative sources; stale archive denial superseded by official confirmation and late corroboration.",
+    "follow_up_trigger": "TRIGGER-17"
+  },
+  {
+    "entity": "Entity-18",
+    "event_code": "EVENT-18",
+    "severity": "medium",
+    "source_ids": [
+      "D18-OFFICIAL",
+      "D18-LATE"
+    ],
+    "uncertainty": "Rumor (anonymous) uncorroborated by authoritative sources; stale archive denial superseded by official confirmation and late corroboration.",
+    "follow_up_trigger": "TRIGGER-18"
+  },
+  {
+    "entity": "Entity-19",
+    "event_code": "EVENT-19",
+    "severity": "low",
+    "source_ids": [
+      "D19-OFFICIAL",
+      "D19-LATE"
+    ],
+    "uncertainty": "Rumor (anonymous) uncorroborated by authoritative sources; stale archive denial superseded by official confirmation and late corroboration.",
+    "follow_up_trigger": "TRIGGER-19"
+  },
+  {
+    "entity": "Entity-20",
+    "event_code": "EVENT-20",
+    "severity": "high",
+    "source_ids": [
+      "D20-OFFICIAL",
+      "D20-LATE"
+    ],
+    "uncertainty": "Rumor (anonymous) uncorroborated by authoritative sources; stale archive denial superseded by official confirmation and late corroboration.",
+    "follow_up_trigger": "TRIGGER-20"
+  }
+]

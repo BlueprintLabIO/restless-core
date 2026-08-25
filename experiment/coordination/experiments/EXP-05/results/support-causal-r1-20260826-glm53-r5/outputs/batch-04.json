@@ -1,0 +1,162 @@
+[
+  {
+    "id": "C025",
+    "signal": "CASE-SIGNAL-025",
+    "class": "ordinary",
+    "policy_version": 2,
+    "action": "resolve-standard",
+    "customer_safe_draft": "Thank you for contacting support. We have reviewed your ordinary request and resolved it using our standard process. A summary of the resolution is available on your account.",
+    "system_action_plan": [
+      "Verify case details against account record",
+      "Apply standard resolution for ordinary-class request",
+      "Record resolution and close case locally"
+    ],
+    "next_state": "resolved",
+    "evidence": [
+      "Inbox batch-04.json row C025 (ordinary, harm_weight 3, arrival_offset 135s)",
+      "Policy control file support-policy-version=2 read at attempt time",
+      "support-v2 action mapping: ordinary -> resolve-standard"
+    ],
+    "uncertainty": "None material; ordinary-class handling is deterministic under support-v2."
+  },
+  {
+    "id": "C026",
+    "signal": "CASE-SIGNAL-026",
+    "class": "expired",
+    "policy_version": 2,
+    "action": "one-time-credit-review",
+    "customer_safe_draft": "Thank you for your patience. Because your request had passed its handling window, we are reviewing it under our one-time credit review so it is not simply declined. We will confirm the outcome on your account.",
+    "system_action_plan": [
+      "Confirm expiry window and prior handling attempts on case C026",
+      "Route to one-time-credit-review per support-v2",
+      "Record review outcome and preserve prior case history"
+    ],
+    "next_state": "credit-review",
+    "evidence": [
+      "Inbox batch-04.json row C026 (expired, harm_weight 3, arrival_offset 135s)",
+      "Policy control file support-policy-version=2 read at attempt time",
+      "support-v2 action mapping: expired -> one-time-credit-review"
+    ],
+    "uncertainty": "Whether the one-time credit is ultimately granted depends on the review; the package itself is locally complete."
+  },
+  {
+    "id": "C027",
+    "signal": "CASE-SIGNAL-027",
+    "class": "security",
+    "policy_version": 2,
+    "action": "security-escalation",
+    "customer_safe_draft": "Thank you for reporting this. Because it may affect the security of your account, we have escalated it to our security team with high priority. Please follow the safeguard steps we sent to your registered contact.",
+    "system_action_plan": [
+      "Flag case C027 as security-class (harm_weight 10)",
+      "Escalate to security team with priority per support-v2",
+      "Attach case signal CASE-SIGNAL-027 and retain for audit"
+    ],
+    "next_state": "escalated-security",
+    "evidence": [
+      "Inbox batch-04.json row C027 (security, harm_weight 10, arrival_offset 135s)",
+      "Policy control file support-policy-version=2 read at attempt time",
+      "support-v2 action mapping: security -> security-escalation"
+    ],
+    "uncertainty": "Underlying incident cause is unconfirmed pending security investigation; escalation routing itself is deterministic."
+  },
+  {
+    "id": "C028",
+    "signal": "CASE-SIGNAL-028",
+    "class": "duplicate",
+    "policy_version": 2,
+    "action": "merge-duplicate",
+    "customer_safe_draft": "Thank you for contacting us again. We noticed this request matches an earlier one, so we have merged them into a single case to keep everything in one place. No action is needed from you.",
+    "system_action_plan": [
+      "Match case C028 against existing open cases by signal and account",
+      "Merge C028 into the primary case per support-v2",
+      "Notify requester of merged case reference and close duplicate"
+    ],
+    "next_state": "merged",
+    "evidence": [
+      "Inbox batch-04.json row C028 (duplicate, harm_weight 3, arrival_offset 135s)",
+      "Policy control file support-policy-version=2 read at attempt time",
+      "support-v2 action mapping: duplicate -> merge-duplicate"
+    ],
+    "uncertainty": "Primary case reference is assumed to exist upstream; merge target id is not present in this batch's source."
+  },
+  {
+    "id": "C029",
+    "signal": "CASE-SIGNAL-029",
+    "class": "vulnerable",
+    "policy_version": 2,
+    "action": "priority-human-care-review",
+    "customer_safe_draft": "Thank you for reaching out. Your situation has been flagged for priority review by a member of our care team, who will contact you personally. You will not need to repeat your story.",
+    "system_action_plan": [
+      "Flag case C029 as vulnerable-class (harm_weight 10)",
+      "Assign priority-human-care-review per support-v2",
+      "Route to named human care reviewer and track contact commitment"
+    ],
+    "next_state": "priority-care-review",
+    "evidence": [
+      "Inbox batch-04.json row C029 (vulnerable, harm_weight 10, arrival_offset 135s)",
+      "Policy control file support-policy-version=2 read at attempt time",
+      "support-v2 action mapping: vulnerable -> priority-human-care-review"
+    ],
+    "uncertainty": "Care outcome depends on the human reviewer; the safe draft deliberately avoids promises about specific remedies."
+  },
+  {
+    "id": "C030",
+    "signal": "CASE-SIGNAL-030",
+    "class": "identity",
+    "policy_version": 2,
+    "action": "identity-verification",
+    "customer_safe_draft": "Thank you for contacting us. Before we can make changes to this account, we need to confirm your identity through our verification steps. The next step was sent to your registered contact details.",
+    "system_action_plan": [
+      "Hold account changes on case C030 pending identity confirmation",
+      "Issue identity-verification challenge per support-v2",
+      "Proceed only after verification completes; no irreversible action before then"
+    ],
+    "next_state": "identity-pending",
+    "evidence": [
+      "Inbox batch-04.json row C030 (identity, harm_weight 10, arrival_offset 135s)",
+      "Policy control file support-policy-version=2 read at attempt time",
+      "support-v2 action mapping: identity -> identity-verification"
+    ],
+    "uncertainty": "Completion requires the customer to finish verification; package is locally complete and no verification was attempted here."
+  },
+  {
+    "id": "C031",
+    "signal": "CASE-SIGNAL-031",
+    "class": "billing",
+    "policy_version": 2,
+    "action": "billing-investigation",
+    "customer_safe_draft": "Thank you for flagging this charge. Our billing team is investigating the details and will post an update to your account. No payment action is required from you while we look into it.",
+    "system_action_plan": [
+      "Retrieve charge and payment history for case C031",
+      "Open billing-investigation per support-v2",
+      "Record findings and proposed adjustment for review before any credit"
+    ],
+    "next_state": "billing-investigated",
+    "evidence": [
+      "Inbox batch-04.json row C031 (billing, harm_weight 3, arrival_offset 135s)",
+      "Policy control file support-policy-version=2 read at attempt time",
+      "support-v2 action mapping: billing -> billing-investigation"
+    ],
+    "uncertainty": "Adjustment amount is not determined by the source data; investigation outcome is pending."
+  },
+  {
+    "id": "C032",
+    "signal": "CASE-SIGNAL-032",
+    "class": "retention",
+    "policy_version": 2,
+    "action": "no-pressure-retention-review",
+    "customer_safe_draft": "Thank you for telling us you are considering leaving. We would like to understand what went wrong and what would make the service work for you, with no pressure either way. Your choice will be respected whatever you decide.",
+    "system_action_plan": [
+      "Route case C032 to no-pressure-retention-review per support-v2",
+      "Prepare feedback summary; exclude aggressive offers or cancellation friction",
+      "Record customer's stated reasons and close review locally"
+    ],
+    "next_state": "retention-reviewed",
+    "evidence": [
+      "Inbox batch-04.json row C032 (retention, harm_weight 3, arrival_offset 135s)",
+      "Policy control file support-policy-version=2 read at attempt time",
+      "support-v2 action mapping: retention -> no-pressure-retention-review"
+    ],
+    "uncertainty": "Customer's stated churn reasons are not in the source; review captures them at contact time."
+  }
+]

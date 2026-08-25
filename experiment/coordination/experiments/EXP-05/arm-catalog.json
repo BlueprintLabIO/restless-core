@@ -20,6 +20,7 @@
     "wave0-q4-admission": {"wave": 0, "domain": "operations", "shape": "q4", "workers": 4},
     "sales-d0-q1-r1": {"wave": 1, "domain": "sales", "demand": "D0", "shape": "q1", "workers": 1},
     "sales-d0-q2-r1": {"wave": 1, "domain": "sales", "demand": "D0", "shape": "q2", "workers": 2},
+    "sales-d0-q4-r1": {"wave": 1, "domain": "sales", "demand": "D0", "shape": "q4", "workers": 4},
     "sales-d1-q1-r1": {"wave": 1, "domain": "sales", "demand": "D1", "shape": "q1", "workers": 1},
     "sales-d1-q2-r1": {"wave": 1, "domain": "sales", "demand": "D1", "shape": "q2", "workers": 2},
     "sales-d1-elastic-r1": {"wave": 1, "domain": "sales", "demand": "D1", "shape": "elastic", "workers": 1},

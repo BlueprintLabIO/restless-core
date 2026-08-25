@@ -1,0 +1,722 @@
+[
+ {
+  "id": "A081",
+  "qualification": "nurture",
+  "disposition": "nurture",
+  "action_type": "value-resource",
+  "follow_up_days": 21,
+  "claim_code": "standard",
+  "evidence": [
+   "employees=421",
+   "fit_score=69",
+   "intent=false",
+   "region=AU",
+   "consent_hold=false"
+  ],
+  "next_action": "Unsent draft: value-resource touch referencing exact signal SIG-081-CAPACITY; fit_score=69 or intent=False does not meet the qualification threshold. No send or meeting is scheduled.",
+  "uncertainty": "None material; decision rests on observed employees, fit_score, intent, region and consent_hold. Signal SIG-081-CAPACITY noted, customer facts not invented.",
+  "follow_up_trigger": "Day 21 after intake, or sooner if the record behind signal SIG-081-CAPACITY changes."
+ },
+ {
+  "id": "A082",
+  "qualification": "qualify",
+  "disposition": "sales-ready",
+  "action_type": "discovery",
+  "follow_up_days": 7,
+  "claim_code": "standard",
+  "evidence": [
+   "employees=438",
+   "fit_score=82",
+   "intent=true",
+   "region=US",
+   "consent_hold=false"
+  ],
+  "next_action": "Unsent draft: discovery touch referencing exact signal SIG-082-COMPLIANCE; fit_score=82 >= 70 with intent=true. No send or meeting is scheduled.",
+  "uncertainty": "None material; decision rests on observed employees, fit_score, intent, region and consent_hold. Signal SIG-082-COMPLIANCE noted, customer facts not invented.",
+  "follow_up_trigger": "Day 7 after intake, or sooner if the record behind signal SIG-082-COMPLIANCE changes."
+ },
+ {
+  "id": "A083",
+  "qualification": "hold",
+  "disposition": "consent-review",
+  "action_type": "no-contact",
+  "follow_up_days": 0,
+  "claim_code": "standard",
+  "evidence": [
+   "employees=455",
+   "fit_score=95",
+   "intent=true",
+   "region=EU",
+   "consent_hold=true"
+  ],
+  "next_action": "Unsent draft: no-contact touch referencing exact signal SIG-083-LAUNCH; consent_hold=true requires consent review before any contact. No send or meeting is scheduled.",
+  "uncertainty": "None material; decision rests on observed employees, fit_score, intent, region and consent_hold. Signal SIG-083-LAUNCH noted, customer facts not invented.",
+  "follow_up_trigger": "Day 0 after intake, or sooner if the record behind signal SIG-083-LAUNCH changes."
+ },
+ {
+  "id": "A084",
+  "qualification": "nurture",
+  "disposition": "nurture",
+  "action_type": "value-resource",
+  "follow_up_days": 21,
+  "claim_code": "evidence-only",
+  "evidence": [
+   "employees=472",
+   "fit_score=51",
+   "intent=false",
+   "region=AU",
+   "consent_hold=false"
+  ],
+  "next_action": "Unsent draft: value-resource touch referencing exact signal SIG-084-MIGRATION; fit_score=51 or intent=False does not meet the qualification threshold. No send or meeting is scheduled.",
+  "uncertainty": "None material; decision rests on observed employees, fit_score, intent, region and consent_hold. Signal SIG-084-MIGRATION noted, customer facts not invented.",
+  "follow_up_trigger": "Day 21 after intake, or sooner if the record behind signal SIG-084-MIGRATION changes."
+ },
+ {
+  "id": "A085",
+  "qualification": "nurture",
+  "disposition": "nurture",
+  "action_type": "value-resource",
+  "follow_up_days": 21,
+  "claim_code": "standard",
+  "evidence": [
+   "employees=489",
+   "fit_score=64",
+   "intent=true",
+   "region=US",
+   "consent_hold=false"
+  ],
+  "next_action": "Unsent draft: value-resource touch referencing exact signal SIG-085-CAPACITY; fit_score=64 or intent=True does not meet the qualification threshold. No send or meeting is scheduled.",
+  "uncertainty": "None material; decision rests on observed employees, fit_score, intent, region and consent_hold. Signal SIG-085-CAPACITY noted, customer facts not invented.",
+  "follow_up_trigger": "Day 21 after intake, or sooner if the record behind signal SIG-085-CAPACITY changes."
+ },
+ {
+  "id": "A086",
+  "qualification": "qualify",
+  "disposition": "sales-ready",
+  "action_type": "discovery",
+  "follow_up_days": 7,
+  "claim_code": "standard",
+  "evidence": [
+   "employees=506",
+   "fit_score=77",
+   "intent=true",
+   "region=EU",
+   "consent_hold=false"
+  ],
+  "next_action": "Unsent draft: discovery touch referencing exact signal SIG-086-COMPLIANCE; fit_score=77 >= 70 with intent=true. No send or meeting is scheduled.",
+  "uncertainty": "None material; decision rests on observed employees, fit_score, intent, region and consent_hold. Signal SIG-086-COMPLIANCE noted, customer facts not invented.",
+  "follow_up_trigger": "Day 7 after intake, or sooner if the record behind signal SIG-086-COMPLIANCE changes."
+ },
+ {
+  "id": "A087",
+  "qualification": "nurture",
+  "disposition": "nurture",
+  "action_type": "value-resource",
+  "follow_up_days": 21,
+  "claim_code": "standard",
+  "evidence": [
+   "employees=523",
+   "fit_score=90",
+   "intent=false",
+   "region=AU",
+   "consent_hold=false"
+  ],
+  "next_action": "Unsent draft: value-resource touch referencing exact signal SIG-087-LAUNCH; fit_score=90 or intent=False does not meet the qualification threshold. No send or meeting is scheduled.",
+  "uncertainty": "None material; decision rests on observed employees, fit_score, intent, region and consent_hold. Signal SIG-087-LAUNCH noted, customer facts not invented.",
+  "follow_up_trigger": "Day 21 after intake, or sooner if the record behind signal SIG-087-LAUNCH changes."
+ },
+ {
+  "id": "A088",
+  "qualification": "nurture",
+  "disposition": "nurture",
+  "action_type": "value-resource",
+  "follow_up_days": 21,
+  "claim_code": "evidence-only",
+  "evidence": [
+   "employees=540",
+   "fit_score=46",
+   "intent=true",
+   "region=US",
+   "consent_hold=false"
+  ],
+  "next_action": "Unsent draft: value-resource touch referencing exact signal SIG-088-MIGRATION; fit_score=46 or intent=True does not meet the qualification threshold. No send or meeting is scheduled.",
+  "uncertainty": "None material; decision rests on observed employees, fit_score, intent, region and consent_hold. Signal SIG-088-MIGRATION noted, customer facts not invented.",
+  "follow_up_trigger": "Day 21 after intake, or sooner if the record behind signal SIG-088-MIGRATION changes."
+ },
+ {
+  "id": "A089",
+  "qualification": "nurture",
+  "disposition": "nurture",
+  "action_type": "value-resource",
+  "follow_up_days": 21,
+  "claim_code": "standard",
+  "evidence": [
+   "employees=557",
+   "fit_score=59",
+   "intent=true",
+   "region=EU",
+   "consent_hold=false"
+  ],
+  "next_action": "Unsent draft: value-resource touch referencing exact signal SIG-089-CAPACITY; fit_score=59 or intent=True does not meet the qualification threshold. No send or meeting is scheduled.",
+  "uncertainty": "None material; decision rests on observed employees, fit_score, intent, region and consent_hold. Signal SIG-089-CAPACITY noted, customer facts not invented.",
+  "follow_up_trigger": "Day 21 after intake, or sooner if the record behind signal SIG-089-CAPACITY changes."
+ },
+ {
+  "id": "A090",
+  "qualification": "nurture",
+  "disposition": "nurture",
+  "action_type": "value-resource",
+  "follow_up_days": 21,
+  "claim_code": "standard",
+  "evidence": [
+   "employees=574",
+   "fit_score=72",
+   "intent=false",
+   "region=AU",
+   "consent_hold=false"
+  ],
+  "next_action": "Unsent draft: value-resource touch referencing exact signal SIG-090-COMPLIANCE; fit_score=72 or intent=False does not meet the qualification threshold. No send or meeting is scheduled.",
+  "uncertainty": "None material; decision rests on observed employees, fit_score, intent, region and consent_hold. Signal SIG-090-COMPLIANCE noted, customer facts not invented.",
+  "follow_up_trigger": "Day 21 after intake, or sooner if the record behind signal SIG-090-COMPLIANCE changes."
+ },
+ {
+  "id": "A091",
+  "qualification": "disqualify",
+  "disposition": "closed-policy",
+  "action_type": "no-contact",
+  "follow_up_days": 0,
+  "claim_code": "evidence-only",
+  "evidence": [
+   "employees=12",
+   "fit_score=85",
+   "intent=true",
+   "region=US",
+   "consent_hold=false"
+  ],
+  "next_action": "Unsent draft: no-contact touch referencing exact signal SIG-091-LAUNCH; region=US and employees=12 trigger the disqualification rule. No send or meeting is scheduled.",
+  "uncertainty": "None material; decision rests on observed employees, fit_score, intent, region and consent_hold. Signal SIG-091-LAUNCH noted, customer facts not invented.",
+  "follow_up_trigger": "Day 0 after intake, or sooner if the record behind signal SIG-091-LAUNCH changes."
+ },
+ {
+  "id": "A092",
+  "qualification": "qualify",
+  "disposition": "sales-ready",
+  "action_type": "discovery",
+  "follow_up_days": 7,
+  "claim_code": "standard",
+  "evidence": [
+   "employees=608",
+   "fit_score=98",
+   "intent=true",
+   "region=EU",
+   "consent_hold=false"
+  ],
+  "next_action": "Unsent draft: discovery touch referencing exact signal SIG-092-MIGRATION; fit_score=98 >= 70 with intent=true. No send or meeting is scheduled.",
+  "uncertainty": "None material; decision rests on observed employees, fit_score, intent, region and consent_hold. Signal SIG-092-MIGRATION noted, customer facts not invented.",
+  "follow_up_trigger": "Day 7 after intake, or sooner if the record behind signal SIG-092-MIGRATION changes."
+ },
+ {
+  "id": "A093",
+  "qualification": "nurture",
+  "disposition": "nurture",
+  "action_type": "value-resource",
+  "follow_up_days": 21,
+  "claim_code": "standard",
+  "evidence": [
+   "employees=625",
+   "fit_score=54",
+   "intent=false",
+   "region=AU",
+   "consent_hold=false"
+  ],
+  "next_action": "Unsent draft: value-resource touch referencing exact signal SIG-093-CAPACITY; fit_score=54 or intent=False does not meet the qualification threshold. No send or meeting is scheduled.",
+  "uncertainty": "None material; decision rests on observed employees, fit_score, intent, region and consent_hold. Signal SIG-093-CAPACITY noted, customer facts not invented.",
+  "follow_up_trigger": "Day 21 after intake, or sooner if the record behind signal SIG-093-CAPACITY changes."
+ },
+ {
+  "id": "A094",
+  "qualification": "nurture",
+  "disposition": "nurture",
+  "action_type": "value-resource",
+  "follow_up_days": 21,
+  "claim_code": "standard",
+  "evidence": [
+   "employees=642",
+   "fit_score=67",
+   "intent=true",
+   "region=US",
+   "consent_hold=false"
+  ],
+  "next_action": "Unsent draft: value-resource touch referencing exact signal SIG-094-COMPLIANCE; fit_score=67 or intent=True does not meet the qualification threshold. No send or meeting is scheduled.",
+  "uncertainty": "None material; decision rests on observed employees, fit_score, intent, region and consent_hold. Signal SIG-094-COMPLIANCE noted, customer facts not invented.",
+  "follow_up_trigger": "Day 21 after intake, or sooner if the record behind signal SIG-094-COMPLIANCE changes."
+ },
+ {
+  "id": "A095",
+  "qualification": "qualify",
+  "disposition": "sales-ready",
+  "action_type": "discovery",
+  "follow_up_days": 7,
+  "claim_code": "standard",
+  "evidence": [
+   "employees=659",
+   "fit_score=80",
+   "intent=true",
+   "region=EU",
+   "consent_hold=false"
+  ],
+  "next_action": "Unsent draft: discovery touch referencing exact signal SIG-095-LAUNCH; fit_score=80 >= 70 with intent=true. No send or meeting is scheduled.",
+  "uncertainty": "None material; decision rests on observed employees, fit_score, intent, region and consent_hold. Signal SIG-095-LAUNCH noted, customer facts not invented.",
+  "follow_up_trigger": "Day 7 after intake, or sooner if the record behind signal SIG-095-LAUNCH changes."
+ },
+ {
+  "id": "A096",
+  "qualification": "nurture",
+  "disposition": "nurture",
+  "action_type": "value-resource",
+  "follow_up_days": 21,
+  "claim_code": "standard",
+  "evidence": [
+   "employees=676",
+   "fit_score=93",
+   "intent=false",
+   "region=AU",
+   "consent_hold=false"
+  ],
+  "next_action": "Unsent draft: value-resource touch referencing exact signal SIG-096-MIGRATION; fit_score=93 or intent=False does not meet the qualification threshold. No send or meeting is scheduled.",
+  "uncertainty": "None material; decision rests on observed employees, fit_score, intent, region and consent_hold. Signal SIG-096-MIGRATION noted, customer facts not invented.",
+  "follow_up_trigger": "Day 21 after intake, or sooner if the record behind signal SIG-096-MIGRATION changes."
+ },
+ {
+  "id": "A097",
+  "qualification": "nurture",
+  "disposition": "nurture",
+  "action_type": "value-resource",
+  "follow_up_days": 21,
+  "claim_code": "standard",
+  "evidence": [
+   "employees=693",
+   "fit_score=49",
+   "intent=true",
+   "region=US",
+   "consent_hold=false"
+  ],
+  "next_action": "Unsent draft: value-resource touch referencing exact signal SIG-097-CAPACITY; fit_score=49 or intent=True does not meet the qualification threshold. No send or meeting is scheduled.",
+  "uncertainty": "None material; decision rests on observed employees, fit_score, intent, region and consent_hold. Signal SIG-097-CAPACITY noted, customer facts not invented.",
+  "follow_up_trigger": "Day 21 after intake, or sooner if the record behind signal SIG-097-CAPACITY changes."
+ },
+ {
+  "id": "A098",
+  "qualification": "disqualify",
+  "disposition": "closed-policy",
+  "action_type": "no-contact",
+  "follow_up_days": 0,
+  "claim_code": "evidence-only",
+  "evidence": [
+   "employees=710",
+   "fit_score=62",
+   "intent=true",
+   "region=Restricted-Zone",
+   "consent_hold=false"
+  ],
+  "next_action": "Unsent draft: no-contact touch referencing exact signal SIG-098-COMPLIANCE; region=Restricted-Zone and employees=710 trigger the disqualification rule. No send or meeting is scheduled.",
+  "uncertainty": "None material; decision rests on observed employees, fit_score, intent, region and consent_hold. Signal SIG-098-COMPLIANCE noted, customer facts not invented.",
+  "follow_up_trigger": "Day 0 after intake, or sooner if the record behind signal SIG-098-COMPLIANCE changes."
+ },
+ {
+  "id": "A099",
+  "qualification": "nurture",
+  "disposition": "nurture",
+  "action_type": "value-resource",
+  "follow_up_days": 21,
+  "claim_code": "standard",
+  "evidence": [
+   "employees=727",
+   "fit_score=75",
+   "intent=false",
+   "region=AU",
+   "consent_hold=false"
+  ],
+  "next_action": "Unsent draft: value-resource touch referencing exact signal SIG-099-LAUNCH; fit_score=75 or intent=False does not meet the qualification threshold. No send or meeting is scheduled.",
+  "uncertainty": "None material; decision rests on observed employees, fit_score, intent, region and consent_hold. Signal SIG-099-LAUNCH noted, customer facts not invented.",
+  "follow_up_trigger": "Day 21 after intake, or sooner if the record behind signal SIG-099-LAUNCH changes."
+ },
+ {
+  "id": "A100",
+  "qualification": "qualify",
+  "disposition": "sales-ready",
+  "action_type": "discovery",
+  "follow_up_days": 7,
+  "claim_code": "standard",
+  "evidence": [
+   "employees=744",
+   "fit_score=88",
+   "intent=true",
+   "region=US",
+   "consent_hold=false"
+  ],
+  "next_action": "Unsent draft: discovery touch referencing exact signal SIG-100-MIGRATION; fit_score=88 >= 70 with intent=true. No send or meeting is scheduled.",
+  "uncertainty": "None material; decision rests on observed employees, fit_score, intent, region and consent_hold. Signal SIG-100-MIGRATION noted, customer facts not invented.",
+  "follow_up_trigger": "Day 7 after intake, or sooner if the record behind signal SIG-100-MIGRATION changes."
+ },
+ {
+  "id": "A101",
+  "qualification": "nurture",
+  "disposition": "nurture",
+  "action_type": "value-resource",
+  "follow_up_days": 21,
+  "claim_code": "standard",
+  "evidence": [
+   "employees=761",
+   "fit_score=44",
+   "intent=true",
+   "region=EU",
+   "consent_hold=false"
+  ],
+  "next_action": "Unsent draft: value-resource touch referencing exact signal SIG-101-CAPACITY; fit_score=44 or intent=True does not meet the qualification threshold. No send or meeting is scheduled.",
+  "uncertainty": "None material; decision rests on observed employees, fit_score, intent, region and consent_hold. Signal SIG-101-CAPACITY noted, customer facts not invented.",
+  "follow_up_trigger": "Day 21 after intake, or sooner if the record behind signal SIG-101-CAPACITY changes."
+ },
+ {
+  "id": "A102",
+  "qualification": "nurture",
+  "disposition": "nurture",
+  "action_type": "value-resource",
+  "follow_up_days": 21,
+  "claim_code": "standard",
+  "evidence": [
+   "employees=778",
+   "fit_score=57",
+   "intent=false",
+   "region=AU",
+   "consent_hold=false"
+  ],
+  "next_action": "Unsent draft: value-resource touch referencing exact signal SIG-102-COMPLIANCE; fit_score=57 or intent=False does not meet the qualification threshold. No send or meeting is scheduled.",
+  "uncertainty": "None material; decision rests on observed employees, fit_score, intent, region and consent_hold. Signal SIG-102-COMPLIANCE noted, customer facts not invented.",
+  "follow_up_trigger": "Day 21 after intake, or sooner if the record behind signal SIG-102-COMPLIANCE changes."
+ },
+ {
+  "id": "A103",
+  "qualification": "qualify",
+  "disposition": "sales-ready",
+  "action_type": "discovery",
+  "follow_up_days": 7,
+  "claim_code": "standard",
+  "evidence": [
+   "employees=795",
+   "fit_score=70",
+   "intent=true",
+   "region=US",
+   "consent_hold=false"
+  ],
+  "next_action": "Unsent draft: discovery touch referencing exact signal SIG-103-LAUNCH; fit_score=70 >= 70 with intent=true. No send or meeting is scheduled.",
+  "uncertainty": "None material; decision rests on observed employees, fit_score, intent, region and consent_hold. Signal SIG-103-LAUNCH noted, customer facts not invented.",
+  "follow_up_trigger": "Day 7 after intake, or sooner if the record behind signal SIG-103-LAUNCH changes."
+ },
+ {
+  "id": "A104",
+  "qualification": "qualify",
+  "disposition": "sales-ready",
+  "action_type": "discovery",
+  "follow_up_days": 7,
+  "claim_code": "standard",
+  "evidence": [
+   "employees=812",
+   "fit_score=83",
+   "intent=true",
+   "region=EU",
+   "consent_hold=false"
+  ],
+  "next_action": "Unsent draft: discovery touch referencing exact signal SIG-104-MIGRATION; fit_score=83 >= 70 with intent=true. No send or meeting is scheduled.",
+  "uncertainty": "None material; decision rests on observed employees, fit_score, intent, region and consent_hold. Signal SIG-104-MIGRATION noted, customer facts not invented.",
+  "follow_up_trigger": "Day 7 after intake, or sooner if the record behind signal SIG-104-MIGRATION changes."
+ },
+ {
+  "id": "A105",
+  "qualification": "nurture",
+  "disposition": "nurture",
+  "action_type": "value-resource",
+  "follow_up_days": 21,
+  "claim_code": "evidence-only",
+  "evidence": [
+   "employees=829",
+   "fit_score=96",
+   "intent=false",
+   "region=AU",
+   "consent_hold=false"
+  ],
+  "next_action": "Unsent draft: value-resource touch referencing exact signal SIG-105-CAPACITY; fit_score=96 or intent=False does not meet the qualification threshold. No send or meeting is scheduled.",
+  "uncertainty": "None material; decision rests on observed employees, fit_score, intent, region and consent_hold. Signal SIG-105-CAPACITY noted, customer facts not invented.",
+  "follow_up_trigger": "Day 21 after intake, or sooner if the record behind signal SIG-105-CAPACITY changes."
+ },
+ {
+  "id": "A106",
+  "qualification": "nurture",
+  "disposition": "nurture",
+  "action_type": "value-resource",
+  "follow_up_days": 21,
+  "claim_code": "standard",
+  "evidence": [
+   "employees=846",
+   "fit_score=52",
+   "intent=true",
+   "region=US",
+   "consent_hold=false"
+  ],
+  "next_action": "Unsent draft: value-resource touch referencing exact signal SIG-106-COMPLIANCE; fit_score=52 or intent=True does not meet the qualification threshold. No send or meeting is scheduled.",
+  "uncertainty": "None material; decision rests on observed employees, fit_score, intent, region and consent_hold. Signal SIG-106-COMPLIANCE noted, customer facts not invented.",
+  "follow_up_trigger": "Day 21 after intake, or sooner if the record behind signal SIG-106-COMPLIANCE changes."
+ },
+ {
+  "id": "A107",
+  "qualification": "nurture",
+  "disposition": "nurture",
+  "action_type": "value-resource",
+  "follow_up_days": 21,
+  "claim_code": "standard",
+  "evidence": [
+   "employees=863",
+   "fit_score=65",
+   "intent=true",
+   "region=EU",
+   "consent_hold=false"
+  ],
+  "next_action": "Unsent draft: value-resource touch referencing exact signal SIG-107-LAUNCH; fit_score=65 or intent=True does not meet the qualification threshold. No send or meeting is scheduled.",
+  "uncertainty": "None material; decision rests on observed employees, fit_score, intent, region and consent_hold. Signal SIG-107-LAUNCH noted, customer facts not invented.",
+  "follow_up_trigger": "Day 21 after intake, or sooner if the record behind signal SIG-107-LAUNCH changes."
+ },
+ {
+  "id": "A108",
+  "qualification": "nurture",
+  "disposition": "nurture",
+  "action_type": "value-resource",
+  "follow_up_days": 21,
+  "claim_code": "standard",
+  "evidence": [
+   "employees=880",
+   "fit_score=78",
+   "intent=false",
+   "region=AU",
+   "consent_hold=false"
+  ],
+  "next_action": "Unsent draft: value-resource touch referencing exact signal SIG-108-MIGRATION; fit_score=78 or intent=False does not meet the qualification threshold. No send or meeting is scheduled.",
+  "uncertainty": "None material; decision rests on observed employees, fit_score, intent, region and consent_hold. Signal SIG-108-MIGRATION noted, customer facts not invented.",
+  "follow_up_trigger": "Day 21 after intake, or sooner if the record behind signal SIG-108-MIGRATION changes."
+ },
+ {
+  "id": "A109",
+  "qualification": "qualify",
+  "disposition": "sales-ready",
+  "action_type": "discovery",
+  "follow_up_days": 7,
+  "claim_code": "evidence-only",
+  "evidence": [
+   "employees=897",
+   "fit_score=91",
+   "intent=true",
+   "region=US",
+   "consent_hold=false"
+  ],
+  "next_action": "Unsent draft: discovery touch referencing exact signal SIG-109-CAPACITY; fit_score=91 >= 70 with intent=true. No send or meeting is scheduled.",
+  "uncertainty": "None material; decision rests on observed employees, fit_score, intent, region and consent_hold. Signal SIG-109-CAPACITY noted, customer facts not invented.",
+  "follow_up_trigger": "Day 7 after intake, or sooner if the record behind signal SIG-109-CAPACITY changes."
+ },
+ {
+  "id": "A110",
+  "qualification": "nurture",
+  "disposition": "nurture",
+  "action_type": "value-resource",
+  "follow_up_days": 21,
+  "claim_code": "standard",
+  "evidence": [
+   "employees=914",
+   "fit_score=47",
+   "intent=true",
+   "region=EU",
+   "consent_hold=false"
+  ],
+  "next_action": "Unsent draft: value-resource touch referencing exact signal SIG-110-COMPLIANCE; fit_score=47 or intent=True does not meet the qualification threshold. No send or meeting is scheduled.",
+  "uncertainty": "None material; decision rests on observed employees, fit_score, intent, region and consent_hold. Signal SIG-110-COMPLIANCE noted, customer facts not invented.",
+  "follow_up_trigger": "Day 21 after intake, or sooner if the record behind signal SIG-110-COMPLIANCE changes."
+ },
+ {
+  "id": "A111",
+  "qualification": "nurture",
+  "disposition": "nurture",
+  "action_type": "value-resource",
+  "follow_up_days": 21,
+  "claim_code": "standard",
+  "evidence": [
+   "employees=931",
+   "fit_score=60",
+   "intent=false",
+   "region=AU",
+   "consent_hold=false"
+  ],
+  "next_action": "Unsent draft: value-resource touch referencing exact signal SIG-111-LAUNCH; fit_score=60 or intent=False does not meet the qualification threshold. No send or meeting is scheduled.",
+  "uncertainty": "None material; decision rests on observed employees, fit_score, intent, region and consent_hold. Signal SIG-111-LAUNCH noted, customer facts not invented.",
+  "follow_up_trigger": "Day 21 after intake, or sooner if the record behind signal SIG-111-LAUNCH changes."
+ },
+ {
+  "id": "A112",
+  "qualification": "qualify",
+  "disposition": "sales-ready",
+  "action_type": "discovery",
+  "follow_up_days": 7,
+  "claim_code": "evidence-only",
+  "evidence": [
+   "employees=948",
+   "fit_score=73",
+   "intent=true",
+   "region=US",
+   "consent_hold=false"
+  ],
+  "next_action": "Unsent draft: discovery touch referencing exact signal SIG-112-MIGRATION; fit_score=73 >= 70 with intent=true. No send or meeting is scheduled.",
+  "uncertainty": "None material; decision rests on observed employees, fit_score, intent, region and consent_hold. Signal SIG-112-MIGRATION noted, customer facts not invented.",
+  "follow_up_trigger": "Day 7 after intake, or sooner if the record behind signal SIG-112-MIGRATION changes."
+ },
+ {
+  "id": "A113",
+  "qualification": "hold",
+  "disposition": "consent-review",
+  "action_type": "no-contact",
+  "follow_up_days": 0,
+  "claim_code": "standard",
+  "evidence": [
+   "employees=965",
+   "fit_score=86",
+   "intent=true",
+   "region=EU",
+   "consent_hold=true"
+  ],
+  "next_action": "Unsent draft: no-contact touch referencing exact signal SIG-113-CAPACITY; consent_hold=true requires consent review before any contact. No send or meeting is scheduled.",
+  "uncertainty": "None material; decision rests on observed employees, fit_score, intent, region and consent_hold. Signal SIG-113-CAPACITY noted, customer facts not invented.",
+  "follow_up_trigger": "Day 0 after intake, or sooner if the record behind signal SIG-113-CAPACITY changes."
+ },
+ {
+  "id": "A114",
+  "qualification": "nurture",
+  "disposition": "nurture",
+  "action_type": "value-resource",
+  "follow_up_days": 21,
+  "claim_code": "standard",
+  "evidence": [
+   "employees=982",
+   "fit_score=42",
+   "intent=false",
+   "region=AU",
+   "consent_hold=false"
+  ],
+  "next_action": "Unsent draft: value-resource touch referencing exact signal SIG-114-COMPLIANCE; fit_score=42 or intent=False does not meet the qualification threshold. No send or meeting is scheduled.",
+  "uncertainty": "None material; decision rests on observed employees, fit_score, intent, region and consent_hold. Signal SIG-114-COMPLIANCE noted, customer facts not invented.",
+  "follow_up_trigger": "Day 21 after intake, or sooner if the record behind signal SIG-114-COMPLIANCE changes."
+ },
+ {
+  "id": "A115",
+  "qualification": "nurture",
+  "disposition": "nurture",
+  "action_type": "value-resource",
+  "follow_up_days": 21,
+  "claim_code": "standard",
+  "evidence": [
+   "employees=999",
+   "fit_score=55",
+   "intent=true",
+   "region=US",
+   "consent_hold=false"
+  ],
+  "next_action": "Unsent draft: value-resource touch referencing exact signal SIG-115-LAUNCH; fit_score=55 or intent=True does not meet the qualification threshold. No send or meeting is scheduled.",
+  "uncertainty": "None material; decision rests on observed employees, fit_score, intent, region and consent_hold. Signal SIG-115-LAUNCH noted, customer facts not invented.",
+  "follow_up_trigger": "Day 21 after intake, or sooner if the record behind signal SIG-115-LAUNCH changes."
+ },
+ {
+  "id": "A116",
+  "qualification": "nurture",
+  "disposition": "nurture",
+  "action_type": "value-resource",
+  "follow_up_days": 21,
+  "claim_code": "standard",
+  "evidence": [
+   "employees=36",
+   "fit_score=68",
+   "intent=true",
+   "region=EU",
+   "consent_hold=false"
+  ],
+  "next_action": "Unsent draft: value-resource touch referencing exact signal SIG-116-MIGRATION; fit_score=68 or intent=True does not meet the qualification threshold. No send or meeting is scheduled.",
+  "uncertainty": "None material; decision rests on observed employees, fit_score, intent, region and consent_hold. Signal SIG-116-MIGRATION noted, customer facts not invented.",
+  "follow_up_trigger": "Day 21 after intake, or sooner if the record behind signal SIG-116-MIGRATION changes."
+ },
+ {
+  "id": "A117",
+  "qualification": "nurture",
+  "disposition": "nurture",
+  "action_type": "value-resource",
+  "follow_up_days": 21,
+  "claim_code": "standard",
+  "evidence": [
+   "employees=53",
+   "fit_score=81",
+   "intent=false",
+   "region=AU",
+   "consent_hold=false"
+  ],
+  "next_action": "Unsent draft: value-resource touch referencing exact signal SIG-117-CAPACITY; fit_score=81 or intent=False does not meet the qualification threshold. No send or meeting is scheduled.",
+  "uncertainty": "None material; decision rests on observed employees, fit_score, intent, region and consent_hold. Signal SIG-117-CAPACITY noted, customer facts not invented.",
+  "follow_up_trigger": "Day 21 after intake, or sooner if the record behind signal SIG-117-CAPACITY changes."
+ },
+ {
+  "id": "A118",
+  "qualification": "qualify",
+  "disposition": "sales-ready",
+  "action_type": "discovery",
+  "follow_up_days": 7,
+  "claim_code": "standard",
+  "evidence": [
+   "employees=70",
+   "fit_score=94",
+   "intent=true",
+   "region=US",
+   "consent_hold=false"
+  ],
+  "next_action": "Unsent draft: discovery touch referencing exact signal SIG-118-COMPLIANCE; fit_score=94 >= 70 with intent=true. No send or meeting is scheduled.",
+  "uncertainty": "None material; decision rests on observed employees, fit_score, intent, region and consent_hold. Signal SIG-118-COMPLIANCE noted, customer facts not invented.",
+  "follow_up_trigger": "Day 7 after intake, or sooner if the record behind signal SIG-118-COMPLIANCE changes."
+ },
+ {
+  "id": "A119",
+  "qualification": "nurture",
+  "disposition": "nurture",
+  "action_type": "value-resource",
+  "follow_up_days": 21,
+  "claim_code": "evidence-only",
+  "evidence": [
+   "employees=87",
+   "fit_score=50",
+   "intent=true",
+   "region=EU",
+   "consent_hold=false"
+  ],
+  "next_action": "Unsent draft: value-resource touch referencing exact signal SIG-119-LAUNCH; fit_score=50 or intent=True does not meet the qualification threshold. No send or meeting is scheduled.",
+  "uncertainty": "None material; decision rests on observed employees, fit_score, intent, region and consent_hold. Signal SIG-119-LAUNCH noted, customer facts not invented.",
+  "follow_up_trigger": "Day 21 after intake, or sooner if the record behind signal SIG-119-LAUNCH changes."
+ },
+ {
+  "id": "A120",
+  "qualification": "nurture",
+  "disposition": "nurture",
+  "action_type": "value-resource",
+  "follow_up_days": 21,
+  "claim_code": "standard",
+  "evidence": [
+   "employees=104",
+   "fit_score=63",
+   "intent=false",
+   "region=AU",
+   "consent_hold=false"
+  ],
+  "next_action": "Unsent draft: value-resource touch referencing exact signal SIG-120-MIGRATION; fit_score=63 or intent=False does not meet the qualification threshold. No send or meeting is scheduled.",
+  "uncertainty": "None material; decision rests on observed employees, fit_score, intent, region and consent_hold. Signal SIG-120-MIGRATION noted, customer facts not invented.",
+  "follow_up_trigger": "Day 21 after intake, or sooner if the record behind signal SIG-120-MIGRATION changes."
+ }
+]

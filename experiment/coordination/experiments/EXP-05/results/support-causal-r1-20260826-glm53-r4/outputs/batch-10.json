@@ -1,0 +1,122 @@
+[
+  {
+    "id": "C073",
+    "policy_version": 2,
+    "action": "resolve-standard",
+    "customer_safe_draft": "Hello, thank you for contacting support about case C073. We have reviewed your ordinary request (CASE-SIGNAL-073) and applied our standard resolution process under policy v2. No further action is needed from you; if anything still looks wrong, just reply here.",
+    "system_action_plan": "Triage as ordinary class under support-v2; apply standard resolution template; verify case fields (class=ordinary, harm_weight=3) consistent; close case C073 with resolution note; no escalation required.",
+    "next_state": "resolved-closed",
+    "evidence": [
+      "class=ordinary",
+      "harm_weight=3",
+      "signal=CASE-SIGNAL-073",
+      "policy=v2 action=resolve-standard"
+    ],
+    "uncertainty": "None material; ordinary class with low harm weight maps deterministically to standard resolution under v2."
+  },
+  {
+    "id": "C074",
+    "policy_version": 2,
+    "action": "one-time-credit-review",
+    "customer_safe_draft": "Hello, regarding case C074 (CASE-SIGNAL-074): your request arrived outside the standard window, but under our current policy (v2) it qualifies for a one-time credit review. We will confirm the outcome of that review shortly; no action is needed from you right now.",
+    "system_action_plan": "Classify as expired case under support-v2; route to one-time-credit-review queue instead of outright decline; record harm_weight=3 and eligibility for one-time exception; flag for reviewer confirmation before any credit is applied.",
+    "next_state": "credit-review-pending",
+    "evidence": [
+      "class=expired",
+      "harm_weight=3",
+      "signal=CASE-SIGNAL-074",
+      "policy=v2 action=one-time-credit-review (v1 would decline-credit-escalate)"
+    ],
+    "uncertainty": "Final credit grant depends on reviewer confirmation of one-time eligibility; draft promises review, not a credit."
+  },
+  {
+    "id": "C075",
+    "policy_version": 2,
+    "action": "security-escalation",
+    "customer_safe_draft": "Hello, we received your report for case C075 (CASE-SIGNAL-075). Because it may involve account security, we have escalated it to our security team with priority. Please avoid sharing passwords or codes with anyone meanwhile; we will follow up through secure channels.",
+    "system_action_plan": "Treat as security class under support-v2; escalate immediately to security on-call; preserve signals and case metadata; suppress any automated account changes pending review; track harm_weight=10 for prioritization.",
+    "next_state": "security-escalated",
+    "evidence": [
+      "class=security",
+      "harm_weight=10",
+      "signal=CASE-SIGNAL-075",
+      "policy=v2 action=security-escalation"
+    ],
+    "uncertainty": "Extent of any compromise unknown until security review completes; no remediation steps promised to customer beyond escalation."
+  },
+  {
+    "id": "C076",
+    "policy_version": 2,
+    "action": "merge-duplicate",
+    "customer_safe_draft": "Hello, case C076 (CASE-SIGNAL-076) appears to duplicate another open request from you. We have merged it into your primary case so nothing is lost, and all updates will continue there. If you believe this is not a duplicate, reply and we will re-open it.",
+    "system_action_plan": "Detect duplicate relationship for case C076 under support-v2; merge into primary case retaining all context; close C076 as merged; notify customer of consolidated thread; keep merge linkage recorded for audit.",
+    "next_state": "merged-closed",
+    "evidence": [
+      "class=duplicate",
+      "harm_weight=3",
+      "signal=CASE-SIGNAL-076",
+      "policy=v2 action=merge-duplicate"
+    ],
+    "uncertainty": "Primary case identity assumed from duplicate classification; customer confirmation requested in draft in case classification is wrong."
+  },
+  {
+    "id": "C077",
+    "policy_version": 2,
+    "action": "priority-human-care-review",
+    "customer_safe_draft": "Hello, thank you for reaching out on case C077 (CASE-SIGNAL-077). Your situation has been flagged for priority review by a trained human care specialist, who will contact you shortly. You are not alone in this, and we are treating your case with the highest care priority.",
+    "system_action_plan": "Classify as vulnerable-customer case under support-v2; assign priority-human-care-review (upgraded from v1 human-care-review); route to trained care specialist queue at top priority given harm_weight=10; no automated closure permitted; schedule proactive follow-up.",
+    "next_state": "priority-care-review",
+    "evidence": [
+      "class=vulnerable",
+      "harm_weight=10",
+      "signal=CASE-SIGNAL-077",
+      "policy=v2 action=priority-human-care-review"
+    ],
+    "uncertainty": "Customer's current wellbeing status unknown; specialist review required before any resolution. Care language kept non-clinical and supportive."
+  },
+  {
+    "id": "C078",
+    "policy_version": 2,
+    "action": "identity-verification",
+    "customer_safe_draft": "Hello, regarding case C078 (CASE-SIGNAL-078): before we can make account changes, we need to verify your identity through our secure verification process. We will guide you through the steps and will never ask for your full password. Thank you for helping us keep your account safe.",
+    "system_action_plan": "Initiate identity-verification workflow under support-v2 for case C078; hold all account changes pending verification; use approved verification channels only (no password requests); record harm_weight=10 given identity risk; escalate on verification failure.",
+    "next_state": "identity-verification-pending",
+    "evidence": [
+      "class=identity",
+      "harm_weight=10",
+      "signal=CASE-SIGNAL-078",
+      "policy=v2 action=identity-verification"
+    ],
+    "uncertainty": "Verification outcome pending; account ownership not yet established. No commitments about specific account changes made in draft."
+  },
+  {
+    "id": "C079",
+    "policy_version": 2,
+    "action": "billing-investigation",
+    "customer_safe_draft": "Hello, thank you for contacting us about case C079 (CASE-SIGNAL-079). We have opened a billing investigation into the charge you reported and will get back to you with our findings. You do not need to do anything else right now.",
+    "system_action_plan": "Open billing-investigation for case C079 under support-v2; pull billing records and transaction history; verify charge legitimacy; prepare refund/adjustment options per findings; record harm_weight=3; timeline communicated once records reviewed.",
+    "next_state": "billing-investigation-open",
+    "evidence": [
+      "class=billing",
+      "harm_weight=3",
+      "signal=CASE-SIGNAL-079",
+      "policy=v2 action=billing-investigation"
+    ],
+    "uncertainty": "Charge details not yet reviewed; no refund or outcome promised until billing records are examined."
+  },
+  {
+    "id": "C080",
+    "policy_version": 2,
+    "action": "no-pressure-retention-review",
+    "customer_safe_draft": "Hello, we understand you are considering leaving, regarding case C080 (CASE-SIGNAL-080). We would like to understand your experience better, with no pressure to stay. Whatever you decide, we will make the process smooth and respect your choice.",
+    "system_action_plan": "Route case C080 to no-pressure-retention-review under support-v2 (replacing v1 retention-review); gather cancellation reason feedback without retention pressure tactics; offer help options neutrally; honor cancellation if confirmed; record harm_weight=3.",
+    "next_state": "retention-review-open",
+    "evidence": [
+      "class=retention",
+      "harm_weight=3",
+      "signal=CASE-SIGNAL-080",
+      "policy=v2 action=no-pressure-retention-review"
+    ],
+    "uncertainty": "Customer's final decision not yet known; draft deliberately avoids pressure or incentive promises pending review."
+  }
+]

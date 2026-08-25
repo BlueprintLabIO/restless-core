@@ -1,0 +1,232 @@
+{
+  "arm": "support-causal-r1",
+  "blind_evaluation": {
+    "judgement": {
+      "consequential_defects": [
+        "C057: internal inconsistency between action (resolve-standard) and next_state/plan (duplicate-parent escalation); would misroute an ordinary harm_weight-3 case into a pending-escalation state instead of standard closure.",
+        "Units C041-C048 and C089-C096 cite performed or logged internal artifacts ('standard-resolution checklist completed', 'merge log entry', 'escalation ticket created', 'verification request issued', 'escalation receipt logged') that are not present in the packet, so part of the evidence is unverifiable against the source.",
+        "C092 asserts merge linkage is 'recorded against the surviving master case' although source.json contains no duplicate-parent reference for any duplicate case, inconsistent with the honest unavailable-in-source handling in C060 and C076.",
+        "Non-uniform unit schema (class/signal as top-level fields in only some batches) and roughly 40 distinct next_state labels for 8 policy actions (e.g., resolved / resolved-closed / resolved-standard; credit-review / credit-review-pending / credit-review-complete) impede deterministic alignment and native review.",
+        "C066 next_state 'credit-review-complete' and similar 'reviewed/complete' labels (C032, C072) presume a review outcome before it occurs, overstating closure in the proposed state."
+      ],
+      "decision": "repair",
+      "evidence": [
+        "All 96 candidate units match source ids C001-C096 exactly, and every unit's action follows the v2 class mapping (verified unit-by-unit across all 12 batches of 8 classes).",
+        "C060 and C076 handle the missing duplicate-parent tail correctly: linkage recorded as unavailable-in-source, merge held as prepared/pending-linkage, reversible until reviewer confirmation, no external action.",
+        "C062 and C078 stage identity verification as an explicit owner-handoff boundary and refuse to simulate or bypass it; every identity draft (C006, C014, C022, C030, C038, C046, C054, C062, C070, C078, C086, C094) states the company will never ask for full passwords or codes.",
+        "No draft promises a credit, refund, or charge reversal; expired drafts (e.g., C002, C010, C090) commit only to a review outcome, and billing drafts (C007, C055, C087, C095) make no refund commitment.",
+        "Retention and vulnerable drafts are consistently no-pressure with human ownership (C005, C008, C029, C037, C053, C093, C096), matching the v2 mappings.",
+        "Security units C003, C011, C019, C027, C035, C043, C051, C059, C067, C075, C083, C091 all escalate at harm_weight 10 with credential-safety guidance and no conclusions asserted about cause.",
+        "C057 evidence includes 'duplicate-parent-reference=unavailable-in-source' and 'escalation=internal-only' on an ordinary-class case, confirming cross-class contamination within that single unit.",
+        "Uncertainty fields are generally well calibrated (pending reviewer judgement for credit/care/billing, pending customer for verification), but the C065-C072 batch misdirects hedging as 'Assumes policy v2 applies' where the mapping is deterministic."
+      ],
+      "high_consequence_breach": false,
+      "scores": {
+        "grounding": 8,
+        "native_review_readiness": 8,
+        "safe_actionability": 9,
+        "tail_handling": 8.5,
+        "uncertainty_calibration": 8,
+        "usefulness": 9
+      },
+      "worst_unit": {
+        "defect": "Ordinary-class unit carries duplicate-class contamination: action is resolve-standard but next_state is 'internally-escalated-pending-reference' and the plan/uncertainty revolve around an unavailable duplicate-parent reference, contradicting the action and parking an ordinary case instead of closing it.",
+        "id": "C057",
+        "score": 5
+      }
+    },
+    "model": {
+      "effort": "high",
+      "selector": "zai/glm-5.3"
+    },
+    "process_exit": 0,
+    "valid": true,
+    "validation_errors": []
+  },
+  "company": "exp05_support_causal_r1_20260826_29696d8f_test",
+  "exact_evaluation": {
+    "attribution_errors": [],
+    "attribution_valid": true,
+    "exact": {
+      "domain": "support-v2",
+      "sha256": "f163499091123e716099d56878bec6ba29c190e41102dcb3344ddb38654961b5",
+      "units": 96,
+      "valid": true
+    }
+  },
+  "finished_at": "2026-08-25T14:34:57.199281+00:00",
+  "metrics": {
+    "accepted_units": 96,
+    "accepted_units_per_active_worker_hour": 297.7042984856049,
+    "accepted_units_per_request_hour": 558.6456171322443,
+    "arrivals": [
+      {
+        "observed_at": "2026-08-25T14:18:15.286689+00:00",
+        "offset_seconds": 0,
+        "unit": "support batch 01"
+      },
+      {
+        "observed_at": "2026-08-25T14:19:36.345903+00:00",
+        "offset_seconds": 45,
+        "unit": "support batch 02"
+      },
+      {
+        "observed_at": "2026-08-25T14:20:21.368563+00:00",
+        "offset_seconds": 90,
+        "unit": "support batch 03"
+      },
+      {
+        "observed_at": "2026-08-25T14:21:06.364151+00:00",
+        "offset_seconds": 135,
+        "unit": "support batch 04"
+      },
+      {
+        "observed_at": "2026-08-25T14:21:51.404777+00:00",
+        "offset_seconds": 180,
+        "unit": "support batch 05"
+      },
+      {
+        "observed_at": "2026-08-25T14:22:36.352090+00:00",
+        "offset_seconds": 225,
+        "unit": "support batch 06"
+      },
+      {
+        "observed_at": "2026-08-25T14:23:21.370094+00:00",
+        "offset_seconds": 270,
+        "unit": "support batch 07"
+      },
+      {
+        "observed_at": "2026-08-25T14:24:06.374946+00:00",
+        "offset_seconds": 315,
+        "unit": "support batch 08"
+      },
+      {
+        "observed_at": "2026-08-25T14:24:51.386236+00:00",
+        "offset_seconds": 360,
+        "unit": "support batch 09"
+      },
+      {
+        "observed_at": "2026-08-25T14:25:36.360866+00:00",
+        "offset_seconds": 405,
+        "unit": "support batch 10"
+      },
+      {
+        "observed_at": "2026-08-25T14:26:21.362690+00:00",
+        "offset_seconds": 450,
+        "unit": "support batch 11"
+      },
+      {
+        "observed_at": "2026-08-25T14:27:06.387063+00:00",
+        "offset_seconds": 495,
+        "unit": "support batch 12"
+      }
+    ],
+    "attempts": 14,
+    "billing_disposition": "charged metered API cost is authoritative; missing spend metering invalidates the cell",
+    "charged_cost_per_accepted_unit_usd": 0.017533333333333335,
+    "configured_efforts": [
+      "medium"
+    ],
+    "estimated_list_cost_per_accepted_unit_usd": 0.0,
+    "estimated_list_cost_usd": 0,
+    "exact_validation_completed_at": "2026-08-25T14:29:09.266402+00:00",
+    "exec_judgement_completed_at": "2026-08-25T14:30:10.332338Z",
+    "exec_to_staff_dispatch_seconds": 35.34062695503235,
+    "first_staff_attempt_at": "2026-08-25T14:18:50.627341Z",
+    "lead_active_fraction_of_outcome_window": 0.38176626744214776,
+    "lead_active_seconds": {
+      "summed": 267.0963168144226,
+      "union": 267.0963168144226
+    },
+    "lead_review_completed_at": "2026-08-25T14:29:45.215965Z",
+    "lead_review_seconds": 35.94956302642822,
+    "lead_wakes": 15,
+    "models": [
+      "zai/glm-5.3"
+    ],
+    "observed_tokens": 675628,
+    "outcome_review_seconds": 699.6330990791321,
+    "peak_staff_attempt_concurrency": 2,
+    "peak_staff_model_concurrency": 2,
+    "queue_seconds": 618.6390609741211,
+    "session_resumptions": 18,
+    "spend": {
+      "accounted_usd": 1.6832,
+      "by_actor": [
+        {
+          "actor": "customer-direction",
+          "model": "zai/glm-5.3",
+          "role": null,
+          "spent_usd": 0.6613
+        },
+        {
+          "actor": "customer-south",
+          "model": "zai/glm-5.3",
+          "role": null,
+          "spent_usd": 0.474
+        },
+        {
+          "actor": "customer-north",
+          "model": "zai/glm-5.3",
+          "role": null,
+          "spent_usd": 0.4512
+        },
+        {
+          "actor": "exec",
+          "model": "zai/glm-5.3",
+          "role": null,
+          "spent_usd": 0.0967
+        }
+      ],
+      "ceiling_usd": 12.0,
+      "note": null,
+      "remaining_usd": 10.3168,
+      "status": "available"
+    },
+    "support_change": {
+      "attempt_feedback_inputs": 3,
+      "final_policy_version": 2,
+      "final_stale_outputs_accepted": 0,
+      "first_replacement_attempt_from_effective_seconds": 33.992311000823975,
+      "first_stale_attempt_end_from_delivery_seconds": 31.866612911224365,
+      "repair_attempts": 2,
+      "running_attempts_at_effective_time": 2,
+      "withheld_v1_first_pass_outputs": 0
+    },
+    "support_event": {
+      "delivered_at": "2026-08-25T14:19:47.797254+00:00",
+      "delivery": "causal",
+      "effective_at": "2026-08-25T14:19:47.136868+00:00"
+    },
+    "tell_started_at": "2026-08-25T14:18:15.286714+00:00",
+    "unit_latency_seconds": {
+      "max": 495.8635609149933,
+      "p50": 248.8031804561615,
+      "p90": 446.4380979537964,
+      "p99": 490.9209145402908
+    },
+    "unterminated_staff_model_sessions": 0,
+    "usage_events": 30,
+    "validator_callback_at": null,
+    "value": {
+      "accepted_value": null,
+      "high_consequence_retained_fraction": null,
+      "initial_value": null,
+      "missed_service_value": null,
+      "value_adjusted_units": 96.0
+    },
+    "value_adjusted_units_per_active_worker_hour": 297.7042984856049,
+    "value_adjusted_units_per_request_hour": 558.6456171322443,
+    "worker_active_seconds": {
+      "summed": 1160.8834731578827,
+      "union": 641.4326729774475
+    }
+  },
+  "runtime_valid": true,
+  "tell_process": {
+    "exit": 0,
+    "stderr": "",
+    "stdout": "recovered completed product evidence; production was not replayed"
+  },
+  "validity": "counted"
+}

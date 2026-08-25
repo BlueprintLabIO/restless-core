@@ -1,0 +1,181 @@
+{
+  "arm": "sales-d1-q2-r1",
+  "blind_evaluation": {
+    "judgement": {
+      "consequential_defects": [],
+      "decision": "accept",
+      "evidence": [
+        "All 240 source ids covered exactly once with no duplicates; every unit's qualification, disposition, action_type and follow_up_days match the frozen policy branch, including all 8 consent holds (hold/consent-review/no-contact/day 0), all 16 disqualifications (Restricted-Zone or employees<20), and all 4 boundary fit_score=70 intent=true units routed to qualify/discovery/day 7.",
+        "claim_code is evidence-only on every regulated account (A007, A014, A017, A021, A028, A035, A041\u2013A042, A049, A056, A063, A070, A077, A084, A088, A091, A098, A105, A109, A112, A119, A126\u2013A127, A133, A140, A147, A154, A161, A168, A175, A177, A182, A189, A196, A203, A210, A217, A224, A229, A231, A238) and standard elsewhere \u2014 zero mismatches.",
+        "Every unit's evidence cites employees, fit_score, intent, region and consent_hold with values matching the source (only defect is capitalised True/False literals in A081\u2013A120 boolean evidence strings, a cosmetic parser hazard, not a value error).",
+        "Every next_action explicitly marks an unsent draft, cites the exact SIG-### signal, and invents no send, meeting or customer fact; all 10 high-consequence accounts and all 24 day-0 no-contact accounts keep action_type=no-contact.",
+        "13 of 24 day-0 units use follow_up_trigger phrasing implying an awaited reply/response on accounts where no contact is permitted (e.g. A009, A023, A173, A233), a semantic blemish that does not alter any policy field or cause contact.",
+        "Uncertainty field drifts across six incompatible formats ('low'/'medium' 40 units, 'None material: \u2026' 40, two prose variants 80, 'none noted\u2026' 80); blanket 'none noted' on high-consequence regulated accounts understates residual uncertainty versus blocks that note the signal is unverified, weakening calibration and review comparability.",
+        "next_action uses three distinct template families ('Unsent draft: ' 120, 'Draft (unsent)' 80, '[unsent draft]' 40); structured fields (id, disposition, action_type, claim_code, follow_up_days, trigger) remain uniform, so owner review stays machine-scannable."
+      ],
+      "high_consequence_breach": false,
+      "scores": {
+        "grounding": 8.5,
+        "native_review_readiness": 8,
+        "safe_actionability": 9,
+        "tail_handling": 8,
+        "uncertainty_calibration": 7,
+        "usefulness": 9
+      },
+      "worst_unit": {
+        "defect": "Consent-hold no-contact account whose follow_up_trigger reads '0 days after SIG-173-CAPACITY intake, if no response' \u2014 internally contradictory awaiting-reply semantics on the most sensitive tail case (same pattern on A233, A009, A014, A231 and 9 other day-0 units)",
+        "id": "A173",
+        "score": 6
+      }
+    },
+    "model": {
+      "effort": "high",
+      "selector": "zai/glm-5.3"
+    },
+    "process_exit": 0,
+    "valid": true,
+    "validation_errors": []
+  },
+  "company": "exp05_sales_d1_q2_r1_20260825_9820f764_test",
+  "exact_evaluation": {
+    "attribution_errors": [],
+    "attribution_valid": true,
+    "exact": {
+      "domain": "sales",
+      "sha256": "5844c7075230bec23c6c66ee248542533aab478b2255191ccb3bba2327d11c35",
+      "units": 240,
+      "valid": true
+    }
+  },
+  "finished_at": "2026-08-25T13:08:32.503751+00:00",
+  "metrics": {
+    "accepted_units": 240,
+    "accepted_units_per_active_worker_hour": 1772.6913321014556,
+    "accepted_units_per_request_hour": 2686.7874878647335,
+    "arrivals": [
+      {
+        "observed_at": "2026-08-25T12:58:24.988387+00:00",
+        "offset_seconds": 0,
+        "unit": "sales batch 01"
+      },
+      {
+        "observed_at": "2026-08-25T12:59:56.679285+00:00",
+        "offset_seconds": 45,
+        "unit": "sales batch 02"
+      },
+      {
+        "observed_at": "2026-08-25T13:00:41.674595+00:00",
+        "offset_seconds": 90,
+        "unit": "sales batch 03"
+      },
+      {
+        "observed_at": "2026-08-25T13:01:26.709405+00:00",
+        "offset_seconds": 135,
+        "unit": "sales batch 04"
+      },
+      {
+        "observed_at": "2026-08-25T13:02:11.728355+00:00",
+        "offset_seconds": 180,
+        "unit": "sales batch 05"
+      },
+      {
+        "observed_at": "2026-08-25T13:02:56.680033+00:00",
+        "offset_seconds": 225,
+        "unit": "sales batch 06"
+      }
+    ],
+    "attempts": 6,
+    "billing_disposition": "charged metered API cost is authoritative; missing spend metering invalidates the cell",
+    "charged_cost_per_accepted_unit_usd": 0.0031899999999999997,
+    "configured_efforts": [
+      "medium"
+    ],
+    "estimated_list_cost_per_accepted_unit_usd": 0.0,
+    "estimated_list_cost_usd": 0,
+    "exact_validation_completed_at": "2026-08-25T13:04:32.777724+00:00",
+    "exec_judgement_completed_at": "2026-08-25T13:06:32.929383Z",
+    "exec_to_staff_dispatch_seconds": 46.215665102005005,
+    "first_staff_attempt_at": "2026-08-25T12:59:11.204096Z",
+    "lead_active_fraction_of_outcome_window": 0.5556129927347818,
+    "lead_active_seconds": {
+      "summed": 218.45761489868164,
+      "union": 218.45761489868164
+    },
+    "lead_review_completed_at": "2026-08-25T13:05:44.390223Z",
+    "lead_review_seconds": 71.61249899864197,
+    "lead_wakes": 8,
+    "models": [
+      "zai/glm-5.3"
+    ],
+    "observed_tokens": 269396,
+    "outcome_review_seconds": 393.18305683135986,
+    "peak_staff_attempt_concurrency": 2,
+    "peak_staff_model_concurrency": 2,
+    "queue_seconds": 321.573627948761,
+    "session_resumptions": 8,
+    "spend": {
+      "accounted_usd": 0.7656,
+      "by_actor": [
+        {
+          "actor": "revenue-direction",
+          "model": "zai/glm-5.3",
+          "role": "accountable sales outcome lead",
+          "spent_usd": 0.2708
+        },
+        {
+          "actor": "account-south",
+          "model": "zai/glm-5.3",
+          "role": "sales queue operator",
+          "spent_usd": 0.2486
+        },
+        {
+          "actor": "account-north",
+          "model": "zai/glm-5.3",
+          "role": "sales queue operator",
+          "spent_usd": 0.1602
+        },
+        {
+          "actor": "exec",
+          "model": "zai/glm-5.3",
+          "role": "exec",
+          "spent_usd": 0.086
+        }
+      ],
+      "ceiling_usd": 12.0,
+      "note": null,
+      "remaining_usd": 11.2344,
+      "status": "available"
+    },
+    "support_event": null,
+    "tell_started_at": "2026-08-25T12:58:24.988431+00:00",
+    "unit_latency_seconds": {
+      "max": 225.61063194274902,
+      "p50": 116.18766248226166,
+      "p90": 203.1560479402542,
+      "p99": 223.36517354249955
+    },
+    "unterminated_staff_model_sessions": 0,
+    "usage_events": 16,
+    "validator_callback_at": "2026-08-25T13:04:32.911230+00:00",
+    "value": {
+      "accepted_value": 240.0,
+      "high_consequence_retained_fraction": null,
+      "initial_value": 240.0,
+      "missed_service_value": 0.0,
+      "value_adjusted_units": 240.0
+    },
+    "value_adjusted_units_per_active_worker_hour": 1772.6913321014556,
+    "value_adjusted_units_per_request_hour": 2686.7874878647335,
+    "worker_active_seconds": {
+      "summed": 487.3944969177246,
+      "union": 358.8747909069061
+    }
+  },
+  "runtime_valid": true,
+  "tell_process": {
+    "exit": 0,
+    "stderr": "",
+    "stdout": "delivered to the exec; the message wakes the company\n"
+  },
+  "validity": "counted"
+}

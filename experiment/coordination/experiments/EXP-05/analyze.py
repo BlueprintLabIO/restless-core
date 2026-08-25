@@ -100,6 +100,12 @@ def ratio(candidate: float | None, baseline: float | None) -> float | None:
     return candidate / baseline
 
 
+def charged_cost_per_unit(metrics: dict[str, Any]) -> float | None:
+    """Return the authoritative metered cost; never infer money from tokens."""
+    value = metrics.get("charged_cost_per_accepted_unit_usd")
+    return float(value) if isinstance(value, (int, float)) else None
+
+
 def sales_pair_comparison(
     demand: str,
     q1: dict[str, Any],
@@ -117,15 +123,7 @@ def sales_pair_comparison(
         m2.get("unit_latency_seconds", {}).get("p90"),
         m1.get("unit_latency_seconds", {}).get("p90"),
     )
-    cost_ratio = ratio(
-        m2.get("estimated_list_cost_per_accepted_unit_usd"),
-        m1.get("estimated_list_cost_per_accepted_unit_usd"),
-    )
-    if cost_ratio is None:
-        cost_ratio = ratio(
-            m2.get("observed_tokens", 0) / max(1, m2.get("accepted_units", 0)),
-            m1.get("observed_tokens", 0) / max(1, m1.get("accepted_units", 0)),
-        )
+    cost_ratio = ratio(charged_cost_per_unit(m2), charged_cost_per_unit(m1))
     quality_gate = bool(
         quality1
         and quality2
@@ -196,6 +194,46 @@ def sales_comparison(demand: str, grouped: dict[str, list[dict[str, Any]]]) -> d
     return result
 
 
+def conditional_q4_comparison(
+    grouped: dict[str, list[dict[str, Any]]],
+) -> dict[str, Any]:
+    q2_rows = counted(grouped.get("sales-d0-q2-r1", []))
+    q4 = first_resolved(grouped, "sales-d0-q4-r1")
+    if len(q2_rows) < 2 or q4 is None:
+        return {
+            "ready": False,
+            "missing": [
+                name
+                for name, present in (
+                    ("replicated-q2", len(q2_rows) >= 2),
+                    ("q4", q4 is not None),
+                )
+                if not present
+            ],
+        }
+    if q4.get("validity") != "counted":
+        return {
+            "ready": True,
+            "q2": {"path": q2_rows[1]["_path"]},
+            "q4": {
+                "path": q4["_path"],
+                "validity": q4.get("validity"),
+                "outcome_failure": q4.get("outcome_failure"),
+                "infrastructure_failure": q4.get("infrastructure_failure"),
+            },
+            "q4_marginal_win": False,
+        }
+    comparison = sales_pair_comparison("D0", q2_rows[1], q4)
+    return {
+        "ready": True,
+        "q2": comparison["q1"],
+        "q4": comparison["q2"],
+        "ratios": comparison["ratios"],
+        "gates": comparison["gates"],
+        "q4_marginal_win": comparison["q2_crossover"],
+    }
+
+
 def latest_gate(pattern: str) -> dict[str, Any] | None:
     paths = sorted(RESULTS.glob(pattern), key=lambda path: path.stat().st_mtime)
     return read(paths[-1]) if paths else None
@@ -263,9 +301,8 @@ def matched_comparison(
                 cand.get("unit_latency_seconds", {}).get("p90"),
                 base.get("unit_latency_seconds", {}).get("p90"),
             ),
-            "estimated_cost_per_unit": ratio(
-                cand.get("estimated_list_cost_per_accepted_unit_usd"),
-                base.get("estimated_list_cost_per_accepted_unit_usd"),
+            "charged_cost_per_unit": ratio(
+                charged_cost_per_unit(cand), charged_cost_per_unit(base)
             ),
         },
     }
@@ -338,6 +375,7 @@ def analyze() -> dict[str, Any]:
         and wave0["G2_sustained_q4"]
         and replicated_crossover
     )
+    q4_comparison = conditional_q4_comparison(grouped)
     if not wave0["G1_G3_continuity"]:
         next_action = "run Wave 0 G1+G3 continuity gate"
     elif not wave0["G2_sustained_q4"]:
@@ -346,8 +384,10 @@ def analyze() -> dict[str, Any]:
         next_action = f"run next frozen base arm: {missing_base[0]}"
     elif first_crossover and not replication_complete:
         next_action = f"replicate first provisional crossover with reversed order: {first_crossover['demand']} Q1/Q2"
-    elif conditional_q4_authorized:
+    elif conditional_q4_authorized and not q4_comparison["ready"]:
         next_action = f"run conditional Q4 arm at replicated crossover: {first_crossover['demand']}"
+    elif conditional_q4_authorized:
+        next_action = "compile final result; conditional Q4 has its terminal disposition"
     elif first_crossover:
         next_action = "compile bounded unreplicated crossover result; do not activate Q4 or a wildcard"
     else:
@@ -373,7 +413,13 @@ def analyze() -> dict[str, Any]:
                         == "branch_stopped_infrastructure_invalid"
                     ]
                 ),
-                "invalid": len(grouped.get(arm, [])) - len(counted(grouped.get(arm, []))),
+                "invalid": len(
+                    [
+                        row
+                        for row in grouped.get(arm, [])
+                        if row.get("validity") == "invalid"
+                    ]
+                ),
             }
             for arm in CATALOG["base_order"]
         },
@@ -386,6 +432,7 @@ def analyze() -> dict[str, Any]:
         "first_crossover_replication_complete": replication_complete,
         "first_crossover_replicated": replicated_crossover,
         "conditional_q4_authorized": conditional_q4_authorized,
+        "conditional_q4_comparison": q4_comparison,
         "wildcard_authorized": False,
         "missing_base_arms": missing_base,
         "malformed_results": malformed,

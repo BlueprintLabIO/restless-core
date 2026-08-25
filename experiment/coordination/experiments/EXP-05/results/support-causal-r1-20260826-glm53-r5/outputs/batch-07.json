@@ -1,0 +1,122 @@
+[
+  {
+    "id": "C049",
+    "policy_version": 2,
+    "action": "resolve-standard",
+    "customer_safe_draft": "Hello, thank you for contacting support regarding case C049. We have reviewed your ordinary request and applied our standard resolution steps. No further action is needed from you; if anything remains unclear, reply to this message and we will pick it up again.",
+    "system_action_plan": "Acknowledge CASE-SIGNAL-049, apply the standard resolution playbook for ordinary class, confirm the fix with the customer, and close once acknowledged.",
+    "next_state": "resolved-standard",
+    "evidence": [
+      "class=ordinary",
+      "harm_weight=3",
+      "policy_version=2",
+      "signal=CASE-SIGNAL-049"
+    ],
+    "uncertainty": "No open questions; standard playbook applied verbatim."
+  },
+  {
+    "id": "C050",
+    "policy_version": 2,
+    "action": "one-time-credit-review",
+    "customer_safe_draft": "Hello, regarding case C050, we understand your request falls outside the standard window. As a one-time courtesy, we have queued it for a credit review. We will confirm the outcome; no payment or personal details are needed from you for this step.",
+    "system_action_plan": "Acknowledge CASE-SIGNAL-050, verify the account history against the expiry rule, open a one-time credit review under policy v2, record the decision, and notify the customer of the outcome without requesting payment details.",
+    "next_state": "credit-review",
+    "evidence": [
+      "class=expired",
+      "harm_weight=3",
+      "policy_version=2",
+      "signal=CASE-SIGNAL-050"
+    ],
+    "uncertainty": "Exact expiry timestamp on file unconfirmed until credit review opens; harm is low and one-time credit scope is limited."
+  },
+  {
+    "id": "C051",
+    "policy_version": 2,
+    "action": "security-escalation",
+    "customer_safe_draft": "Hello, regarding case C051, we have flagged this as a potential security matter and escalated it to our security team. Please do not share credentials or codes with anyone. We will contact you through this verified channel with next steps.",
+    "system_action_plan": "Acknowledge CASE-SIGNAL-051, classify under the security escalation path, engage the security on-call team, preserve relevant traces, and coordinate verified-channel customer guidance; never request credentials.",
+    "next_state": "escalated-security",
+    "evidence": [
+      "class=security",
+      "harm_weight=10",
+      "policy_version=2",
+      "signal=CASE-SIGNAL-051"
+    ],
+    "uncertainty": "Full scope of the reported activity not yet confirmed by the security team; treat as potentially broader until triaged."
+  },
+  {
+    "id": "C052",
+    "policy_version": 2,
+    "action": "merge-duplicate",
+    "customer_safe_draft": "Hello, regarding case C052, we noticed this request matches an earlier one already in progress. We have merged the two so nothing is lost; all updates will continue on the original case, and no action is needed from you.",
+    "system_action_plan": "Acknowledge CASE-SIGNAL-052, detect the matching existing case by signal and account, merge this case into the master with a cross-reference note, and confirm the merge to the customer.",
+    "next_state": "merged",
+    "evidence": [
+      "class=duplicate",
+      "harm_weight=3",
+      "policy_version=2",
+      "signal=CASE-SIGNAL-052"
+    ],
+    "uncertainty": "Match to the earlier case is based on signal and account; a human should confirm the merge target before closure."
+  },
+  {
+    "id": "C053",
+    "policy_version": 2,
+    "action": "priority-human-care-review",
+    "customer_safe_draft": "Hello, regarding case C053, thank you for trusting us. We have prioritised your case for a human care review, and a specialist will follow up with you personally and at your pace. If anything feels urgent meanwhile, reply here and we will respond.",
+    "system_action_plan": "Acknowledge CASE-SIGNAL-053, flag vulnerable-customer handling under policy v2 priority care, assign a named human specialist, schedule proactive follow-up, and review tone and pacing of all outbound contact.",
+    "next_state": "priority-care-review",
+    "evidence": [
+      "class=vulnerable",
+      "harm_weight=10",
+      "policy_version=2",
+      "signal=CASE-SIGNAL-053"
+    ],
+    "uncertainty": "Customer's support needs are self-declared so far; specialist assessment will refine the care plan."
+  },
+  {
+    "id": "C054",
+    "policy_version": 2,
+    "action": "identity-verification",
+    "customer_safe_draft": "Hello, regarding case C054, we need to verify your identity before making changes. We will send a secure, in-app verification step; we will never ask for your full password, and you can stop the process at any time.",
+    "system_action_plan": "Acknowledge CASE-SIGNAL-054, trigger identity-verification, send the secure in-product verification step, hold all account changes until verification completes, and log the verification result.",
+    "next_state": "verification-pending",
+    "evidence": [
+      "class=identity",
+      "harm_weight=10",
+      "policy_version=2",
+      "signal=CASE-SIGNAL-054"
+    ],
+    "uncertainty": "Document sufficiency for verification is unknown until the customer attempts the secure step."
+  },
+  {
+    "id": "C055",
+    "policy_version": 2,
+    "action": "billing-investigation",
+    "customer_safe_draft": "Hello, regarding case C055, we have opened a billing investigation into the charges you described. We will review the account history and come back with a clear explanation or correction; no payment is due while this is under review.",
+    "system_action_plan": "Acknowledge CASE-SIGNAL-055, open a billing investigation, reconcile the disputed charges against the ledger, determine refund or correction, and communicate the outcome with a clear breakdown.",
+    "next_state": "billing-investigation-open",
+    "evidence": [
+      "class=billing",
+      "harm_weight=3",
+      "policy_version=2",
+      "signal=CASE-SIGNAL-055"
+    ],
+    "uncertainty": "Root cause of the charge not yet determined; refund eligibility depends on ledger reconciliation."
+  },
+  {
+    "id": "C056",
+    "policy_version": 2,
+    "action": "no-pressure-retention-review",
+    "customer_safe_draft": "Hello, regarding case C056, we are sorry you are considering leaving. We would like to understand what went wrong, with no pressure and no counteroffer tactics; you stay in control of any decision, and we will simply share the options that honestly apply.",
+    "system_action_plan": "Acknowledge CASE-SIGNAL-056, route to a no-pressure retention review under policy v2, gather the customer's stated reasons, present only honest applicable options, and accept the customer's decision without pushback.",
+    "next_state": "retention-review-open",
+    "evidence": [
+      "class=retention",
+      "harm_weight=3",
+      "policy_version=2",
+      "signal=CASE-SIGNAL-056"
+    ],
+    "uncertainty": "Underlying dissatisfaction reasons are not yet documented; retention options depend on that input."
+  }
+]

@@ -16,7 +16,7 @@
     },
     {
       "arm": "sales-d1-elastic-r1",
-      "charter_sha256": "f0daf8bc02a8bea1df5b1824c02ecfb8a2c766e432a6850652cbe0e93007c856",
+      "charter_sha256": "c561c7f157b3327d6e8e36b05164a3d17455f78cbb646c396ae29e5086804a42",
       "errors": [],
       "units": 6,
       "valid": true
@@ -44,7 +44,7 @@
     },
     {
       "arm": "sales-d2-elastic-r1",
-      "charter_sha256": "de96154c1080aa3db6c76b7057d92694adc34859c5335589e271b047f2db5778",
+      "charter_sha256": "46f0921275ca7cebaa675f494809bc4f63bec4c10994596163567cfefc8e39ca",
       "errors": [],
       "units": 6,
       "valid": true
@@ -104,8 +104,8 @@
     }
   ],
   "cli": "/Users/yao/Learning/restless/target/debug/restless",
-  "exact_execution_probe": "not_run",
-  "exact_frozen_selectors_advertised": false,
+  "exact_execution_probe": "passed",
+  "exact_frozen_selectors_advertised": true,
   "fixture_self_test": {
     "records": [
       {
@@ -150,15 +150,35 @@
       }
     ],
     "runner_contracts": {
+      "actor_identities_are_product_valid": true,
       "blind_schema_rejects_drift": true,
       "flat_and_decaying_value_curves_separate": true,
-      "overlap_math_is_exact": true
+      "overlap_math_is_exact": true,
+      "programme_spend_guard_is_fail_closed": true,
+      "retry_company_names_are_unique": true,
+      "unknown_spend_reserves_company_ceiling": true
     },
     "valid": true
   },
   "omp_usage_exit": 0,
-  "openai_route_observed": false,
-  "recorded_at": "2026-08-25T09:05:53.087101+00:00",
-  "subscription_catalog_selectors": [],
-  "valid": false
+  "provider_catalog_selectors": [
+    "zai/glm-4.5",
+    "zai/glm-4.5-air",
+    "zai/glm-4.5-flash",
+    "zai/glm-4.5v",
+    "zai/glm-4.6",
+    "zai/glm-4.6v",
+    "zai/glm-4.7",
+    "zai/glm-4.7-flash",
+    "zai/glm-4.7-flashx",
+    "zai/glm-5",
+    "zai/glm-5-turbo",
+    "zai/glm-5.1",
+    "zai/glm-5.2",
+    "zai/glm-5.3",
+    "zai/glm-5v-turbo"
+  ],
+  "provider_route_observed": true,
+  "recorded_at": "2026-08-25T11:45:55.610841+00:00",
+  "valid": true
 }

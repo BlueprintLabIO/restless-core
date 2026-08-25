@@ -1,0 +1,722 @@
+[
+  {
+    "id": "A081",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=421",
+      "fit_score=69",
+      "intent=False",
+      "region=AU",
+      "consent_hold=False"
+    ],
+    "next_action": "[unsent draft] Prepare value-resource outreach referencing exact signal SIG-081-CAPACITY (note: The fictional intake explicitly mentioned capacity pressure.); no send, meeting or customer contact occurs.",
+    "uncertainty": "Fit/intent derived solely from intake dossier A081; fictional account, unverified beyond provided fields.",
+    "follow_up_trigger": "Day 21 after intake, or earlier if SIG-081-CAPACITY status changes."
+  },
+  {
+    "id": "A082",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=438",
+      "fit_score=82",
+      "intent=True",
+      "region=US",
+      "consent_hold=False"
+    ],
+    "next_action": "[unsent draft] Prepare discovery outreach referencing exact signal SIG-082-COMPLIANCE (note: The fictional intake explicitly mentioned compliance review.); no send, meeting or customer contact occurs.",
+    "uncertainty": "Fit/intent derived solely from intake dossier A082; fictional account, unverified beyond provided fields.",
+    "follow_up_trigger": "Day 7 after intake, or earlier if SIG-082-COMPLIANCE status changes."
+  },
+  {
+    "id": "A083",
+    "qualification": "hold",
+    "disposition": "consent-review",
+    "action_type": "no-contact",
+    "follow_up_days": 0,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=455",
+      "fit_score=95",
+      "intent=True",
+      "region=EU",
+      "consent_hold=True"
+    ],
+    "next_action": "[unsent draft] Prepare no-contact outreach referencing exact signal SIG-083-LAUNCH (note: The fictional intake explicitly mentioned a new launch.); no send, meeting or customer contact occurs.",
+    "uncertainty": "Fit/intent derived solely from intake dossier A083; fictional account, unverified beyond provided fields.",
+    "follow_up_trigger": "Day 0 after intake, or earlier if SIG-083-LAUNCH status changes."
+  },
+  {
+    "id": "A084",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "evidence-only",
+    "evidence": [
+      "employees=472",
+      "fit_score=51",
+      "intent=False",
+      "region=AU",
+      "consent_hold=False"
+    ],
+    "next_action": "[unsent draft] Prepare value-resource outreach referencing exact signal SIG-084-MIGRATION (note: The fictional intake explicitly mentioned migration timing.); no send, meeting or customer contact occurs.",
+    "uncertainty": "Fit/intent derived solely from intake dossier A084; fictional account, unverified beyond provided fields.",
+    "follow_up_trigger": "Day 21 after intake, or earlier if SIG-084-MIGRATION status changes."
+  },
+  {
+    "id": "A085",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=489",
+      "fit_score=64",
+      "intent=True",
+      "region=US",
+      "consent_hold=False"
+    ],
+    "next_action": "[unsent draft] Prepare value-resource outreach referencing exact signal SIG-085-CAPACITY (note: The fictional intake explicitly mentioned capacity pressure.); no send, meeting or customer contact occurs.",
+    "uncertainty": "Fit/intent derived solely from intake dossier A085; fictional account, unverified beyond provided fields.",
+    "follow_up_trigger": "Day 21 after intake, or earlier if SIG-085-CAPACITY status changes."
+  },
+  {
+    "id": "A086",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=506",
+      "fit_score=77",
+      "intent=True",
+      "region=EU",
+      "consent_hold=False"
+    ],
+    "next_action": "[unsent draft] Prepare discovery outreach referencing exact signal SIG-086-COMPLIANCE (note: The fictional intake explicitly mentioned compliance review.); no send, meeting or customer contact occurs.",
+    "uncertainty": "Fit/intent derived solely from intake dossier A086; fictional account, unverified beyond provided fields.",
+    "follow_up_trigger": "Day 7 after intake, or earlier if SIG-086-COMPLIANCE status changes."
+  },
+  {
+    "id": "A087",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=523",
+      "fit_score=90",
+      "intent=False",
+      "region=AU",
+      "consent_hold=False"
+    ],
+    "next_action": "[unsent draft] Prepare value-resource outreach referencing exact signal SIG-087-LAUNCH (note: The fictional intake explicitly mentioned a new launch.); no send, meeting or customer contact occurs.",
+    "uncertainty": "Fit/intent derived solely from intake dossier A087; fictional account, unverified beyond provided fields.",
+    "follow_up_trigger": "Day 21 after intake, or earlier if SIG-087-LAUNCH status changes."
+  },
+  {
+    "id": "A088",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "evidence-only",
+    "evidence": [
+      "employees=540",
+      "fit_score=46",
+      "intent=True",
+      "region=US",
+      "consent_hold=False"
+    ],
+    "next_action": "[unsent draft] Prepare value-resource outreach referencing exact signal SIG-088-MIGRATION (note: The fictional intake explicitly mentioned migration timing.); no send, meeting or customer contact occurs.",
+    "uncertainty": "Fit/intent derived solely from intake dossier A088; fictional account, unverified beyond provided fields.",
+    "follow_up_trigger": "Day 21 after intake, or earlier if SIG-088-MIGRATION status changes."
+  },
+  {
+    "id": "A089",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=557",
+      "fit_score=59",
+      "intent=True",
+      "region=EU",
+      "consent_hold=False"
+    ],
+    "next_action": "[unsent draft] Prepare value-resource outreach referencing exact signal SIG-089-CAPACITY (note: The fictional intake explicitly mentioned capacity pressure.); no send, meeting or customer contact occurs.",
+    "uncertainty": "Fit/intent derived solely from intake dossier A089; fictional account, unverified beyond provided fields.",
+    "follow_up_trigger": "Day 21 after intake, or earlier if SIG-089-CAPACITY status changes."
+  },
+  {
+    "id": "A090",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=574",
+      "fit_score=72",
+      "intent=False",
+      "region=AU",
+      "consent_hold=False"
+    ],
+    "next_action": "[unsent draft] Prepare value-resource outreach referencing exact signal SIG-090-COMPLIANCE (note: The fictional intake explicitly mentioned compliance review.); no send, meeting or customer contact occurs.",
+    "uncertainty": "Fit/intent derived solely from intake dossier A090; fictional account, unverified beyond provided fields.",
+    "follow_up_trigger": "Day 21 after intake, or earlier if SIG-090-COMPLIANCE status changes."
+  },
+  {
+    "id": "A091",
+    "qualification": "disqualify",
+    "disposition": "closed-policy",
+    "action_type": "no-contact",
+    "follow_up_days": 0,
+    "claim_code": "evidence-only",
+    "evidence": [
+      "employees=12",
+      "fit_score=85",
+      "intent=True",
+      "region=US",
+      "consent_hold=False"
+    ],
+    "next_action": "[unsent draft] Prepare no-contact outreach referencing exact signal SIG-091-LAUNCH (note: The fictional intake explicitly mentioned a new launch.); no send, meeting or customer contact occurs.",
+    "uncertainty": "Fit/intent derived solely from intake dossier A091; fictional account, unverified beyond provided fields.",
+    "follow_up_trigger": "Day 0 after intake, or earlier if SIG-091-LAUNCH status changes."
+  },
+  {
+    "id": "A092",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=608",
+      "fit_score=98",
+      "intent=True",
+      "region=EU",
+      "consent_hold=False"
+    ],
+    "next_action": "[unsent draft] Prepare discovery outreach referencing exact signal SIG-092-MIGRATION (note: The fictional intake explicitly mentioned migration timing.); no send, meeting or customer contact occurs.",
+    "uncertainty": "Fit/intent derived solely from intake dossier A092; fictional account, unverified beyond provided fields.",
+    "follow_up_trigger": "Day 7 after intake, or earlier if SIG-092-MIGRATION status changes."
+  },
+  {
+    "id": "A093",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=625",
+      "fit_score=54",
+      "intent=False",
+      "region=AU",
+      "consent_hold=False"
+    ],
+    "next_action": "[unsent draft] Prepare value-resource outreach referencing exact signal SIG-093-CAPACITY (note: The fictional intake explicitly mentioned capacity pressure.); no send, meeting or customer contact occurs.",
+    "uncertainty": "Fit/intent derived solely from intake dossier A093; fictional account, unverified beyond provided fields.",
+    "follow_up_trigger": "Day 21 after intake, or earlier if SIG-093-CAPACITY status changes."
+  },
+  {
+    "id": "A094",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=642",
+      "fit_score=67",
+      "intent=True",
+      "region=US",
+      "consent_hold=False"
+    ],
+    "next_action": "[unsent draft] Prepare value-resource outreach referencing exact signal SIG-094-COMPLIANCE (note: The fictional intake explicitly mentioned compliance review.); no send, meeting or customer contact occurs.",
+    "uncertainty": "Fit/intent derived solely from intake dossier A094; fictional account, unverified beyond provided fields.",
+    "follow_up_trigger": "Day 21 after intake, or earlier if SIG-094-COMPLIANCE status changes."
+  },
+  {
+    "id": "A095",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=659",
+      "fit_score=80",
+      "intent=True",
+      "region=EU",
+      "consent_hold=False"
+    ],
+    "next_action": "[unsent draft] Prepare discovery outreach referencing exact signal SIG-095-LAUNCH (note: The fictional intake explicitly mentioned a new launch.); no send, meeting or customer contact occurs.",
+    "uncertainty": "Fit/intent derived solely from intake dossier A095; fictional account, unverified beyond provided fields.",
+    "follow_up_trigger": "Day 7 after intake, or earlier if SIG-095-LAUNCH status changes."
+  },
+  {
+    "id": "A096",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=676",
+      "fit_score=93",
+      "intent=False",
+      "region=AU",
+      "consent_hold=False"
+    ],
+    "next_action": "[unsent draft] Prepare value-resource outreach referencing exact signal SIG-096-MIGRATION (note: The fictional intake explicitly mentioned migration timing.); no send, meeting or customer contact occurs.",
+    "uncertainty": "Fit/intent derived solely from intake dossier A096; fictional account, unverified beyond provided fields.",
+    "follow_up_trigger": "Day 21 after intake, or earlier if SIG-096-MIGRATION status changes."
+  },
+  {
+    "id": "A097",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=693",
+      "fit_score=49",
+      "intent=True",
+      "region=US",
+      "consent_hold=False"
+    ],
+    "next_action": "[unsent draft] Prepare value-resource outreach referencing exact signal SIG-097-CAPACITY (note: The fictional intake explicitly mentioned capacity pressure.); no send, meeting or customer contact occurs.",
+    "uncertainty": "Fit/intent derived solely from intake dossier A097; fictional account, unverified beyond provided fields.",
+    "follow_up_trigger": "Day 21 after intake, or earlier if SIG-097-CAPACITY status changes."
+  },
+  {
+    "id": "A098",
+    "qualification": "disqualify",
+    "disposition": "closed-policy",
+    "action_type": "no-contact",
+    "follow_up_days": 0,
+    "claim_code": "evidence-only",
+    "evidence": [
+      "employees=710",
+      "fit_score=62",
+      "intent=True",
+      "region=Restricted-Zone",
+      "consent_hold=False"
+    ],
+    "next_action": "[unsent draft] Prepare no-contact outreach referencing exact signal SIG-098-COMPLIANCE (note: The fictional intake explicitly mentioned compliance review.); no send, meeting or customer contact occurs.",
+    "uncertainty": "Fit/intent derived solely from intake dossier A098; fictional account, unverified beyond provided fields.",
+    "follow_up_trigger": "Day 0 after intake, or earlier if SIG-098-COMPLIANCE status changes."
+  },
+  {
+    "id": "A099",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=727",
+      "fit_score=75",
+      "intent=False",
+      "region=AU",
+      "consent_hold=False"
+    ],
+    "next_action": "[unsent draft] Prepare value-resource outreach referencing exact signal SIG-099-LAUNCH (note: The fictional intake explicitly mentioned a new launch.); no send, meeting or customer contact occurs.",
+    "uncertainty": "Fit/intent derived solely from intake dossier A099; fictional account, unverified beyond provided fields.",
+    "follow_up_trigger": "Day 21 after intake, or earlier if SIG-099-LAUNCH status changes."
+  },
+  {
+    "id": "A100",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=744",
+      "fit_score=88",
+      "intent=True",
+      "region=US",
+      "consent_hold=False"
+    ],
+    "next_action": "[unsent draft] Prepare discovery outreach referencing exact signal SIG-100-MIGRATION (note: The fictional intake explicitly mentioned migration timing.); no send, meeting or customer contact occurs.",
+    "uncertainty": "Fit/intent derived solely from intake dossier A100; fictional account, unverified beyond provided fields.",
+    "follow_up_trigger": "Day 7 after intake, or earlier if SIG-100-MIGRATION status changes."
+  },
+  {
+    "id": "A101",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=761",
+      "fit_score=44",
+      "intent=True",
+      "region=EU",
+      "consent_hold=False"
+    ],
+    "next_action": "[unsent draft] Prepare value-resource outreach referencing exact signal SIG-101-CAPACITY (note: The fictional intake explicitly mentioned capacity pressure.); no send, meeting or customer contact occurs.",
+    "uncertainty": "Fit/intent derived solely from intake dossier A101; fictional account, unverified beyond provided fields.",
+    "follow_up_trigger": "Day 21 after intake, or earlier if SIG-101-CAPACITY status changes."
+  },
+  {
+    "id": "A102",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=778",
+      "fit_score=57",
+      "intent=False",
+      "region=AU",
+      "consent_hold=False"
+    ],
+    "next_action": "[unsent draft] Prepare value-resource outreach referencing exact signal SIG-102-COMPLIANCE (note: The fictional intake explicitly mentioned compliance review.); no send, meeting or customer contact occurs.",
+    "uncertainty": "Fit/intent derived solely from intake dossier A102; fictional account, unverified beyond provided fields.",
+    "follow_up_trigger": "Day 21 after intake, or earlier if SIG-102-COMPLIANCE status changes."
+  },
+  {
+    "id": "A103",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=795",
+      "fit_score=70",
+      "intent=True",
+      "region=US",
+      "consent_hold=False"
+    ],
+    "next_action": "[unsent draft] Prepare discovery outreach referencing exact signal SIG-103-LAUNCH (note: The fictional intake explicitly mentioned a new launch.); no send, meeting or customer contact occurs.",
+    "uncertainty": "Fit/intent derived solely from intake dossier A103; fictional account, unverified beyond provided fields.",
+    "follow_up_trigger": "Day 7 after intake, or earlier if SIG-103-LAUNCH status changes."
+  },
+  {
+    "id": "A104",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=812",
+      "fit_score=83",
+      "intent=True",
+      "region=EU",
+      "consent_hold=False"
+    ],
+    "next_action": "[unsent draft] Prepare discovery outreach referencing exact signal SIG-104-MIGRATION (note: The fictional intake explicitly mentioned migration timing.); no send, meeting or customer contact occurs.",
+    "uncertainty": "Fit/intent derived solely from intake dossier A104; fictional account, unverified beyond provided fields.",
+    "follow_up_trigger": "Day 7 after intake, or earlier if SIG-104-MIGRATION status changes."
+  },
+  {
+    "id": "A105",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "evidence-only",
+    "evidence": [
+      "employees=829",
+      "fit_score=96",
+      "intent=False",
+      "region=AU",
+      "consent_hold=False"
+    ],
+    "next_action": "[unsent draft] Prepare value-resource outreach referencing exact signal SIG-105-CAPACITY (note: The fictional intake explicitly mentioned capacity pressure.); no send, meeting or customer contact occurs.",
+    "uncertainty": "Fit/intent derived solely from intake dossier A105; fictional account, unverified beyond provided fields.",
+    "follow_up_trigger": "Day 21 after intake, or earlier if SIG-105-CAPACITY status changes."
+  },
+  {
+    "id": "A106",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=846",
+      "fit_score=52",
+      "intent=True",
+      "region=US",
+      "consent_hold=False"
+    ],
+    "next_action": "[unsent draft] Prepare value-resource outreach referencing exact signal SIG-106-COMPLIANCE (note: The fictional intake explicitly mentioned compliance review.); no send, meeting or customer contact occurs.",
+    "uncertainty": "Fit/intent derived solely from intake dossier A106; fictional account, unverified beyond provided fields.",
+    "follow_up_trigger": "Day 21 after intake, or earlier if SIG-106-COMPLIANCE status changes."
+  },
+  {
+    "id": "A107",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=863",
+      "fit_score=65",
+      "intent=True",
+      "region=EU",
+      "consent_hold=False"
+    ],
+    "next_action": "[unsent draft] Prepare value-resource outreach referencing exact signal SIG-107-LAUNCH (note: The fictional intake explicitly mentioned a new launch.); no send, meeting or customer contact occurs.",
+    "uncertainty": "Fit/intent derived solely from intake dossier A107; fictional account, unverified beyond provided fields.",
+    "follow_up_trigger": "Day 21 after intake, or earlier if SIG-107-LAUNCH status changes."
+  },
+  {
+    "id": "A108",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=880",
+      "fit_score=78",
+      "intent=False",
+      "region=AU",
+      "consent_hold=False"
+    ],
+    "next_action": "[unsent draft] Prepare value-resource outreach referencing exact signal SIG-108-MIGRATION (note: The fictional intake explicitly mentioned migration timing.); no send, meeting or customer contact occurs.",
+    "uncertainty": "Fit/intent derived solely from intake dossier A108; fictional account, unverified beyond provided fields.",
+    "follow_up_trigger": "Day 21 after intake, or earlier if SIG-108-MIGRATION status changes."
+  },
+  {
+    "id": "A109",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "evidence-only",
+    "evidence": [
+      "employees=897",
+      "fit_score=91",
+      "intent=True",
+      "region=US",
+      "consent_hold=False"
+    ],
+    "next_action": "[unsent draft] Prepare discovery outreach referencing exact signal SIG-109-CAPACITY (note: The fictional intake explicitly mentioned capacity pressure.); no send, meeting or customer contact occurs.",
+    "uncertainty": "Fit/intent derived solely from intake dossier A109; fictional account, unverified beyond provided fields.",
+    "follow_up_trigger": "Day 7 after intake, or earlier if SIG-109-CAPACITY status changes."
+  },
+  {
+    "id": "A110",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=914",
+      "fit_score=47",
+      "intent=True",
+      "region=EU",
+      "consent_hold=False"
+    ],
+    "next_action": "[unsent draft] Prepare value-resource outreach referencing exact signal SIG-110-COMPLIANCE (note: The fictional intake explicitly mentioned compliance review.); no send, meeting or customer contact occurs.",
+    "uncertainty": "Fit/intent derived solely from intake dossier A110; fictional account, unverified beyond provided fields.",
+    "follow_up_trigger": "Day 21 after intake, or earlier if SIG-110-COMPLIANCE status changes."
+  },
+  {
+    "id": "A111",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=931",
+      "fit_score=60",
+      "intent=False",
+      "region=AU",
+      "consent_hold=False"
+    ],
+    "next_action": "[unsent draft] Prepare value-resource outreach referencing exact signal SIG-111-LAUNCH (note: The fictional intake explicitly mentioned a new launch.); no send, meeting or customer contact occurs.",
+    "uncertainty": "Fit/intent derived solely from intake dossier A111; fictional account, unverified beyond provided fields.",
+    "follow_up_trigger": "Day 21 after intake, or earlier if SIG-111-LAUNCH status changes."
+  },
+  {
+    "id": "A112",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "evidence-only",
+    "evidence": [
+      "employees=948",
+      "fit_score=73",
+      "intent=True",
+      "region=US",
+      "consent_hold=False"
+    ],
+    "next_action": "[unsent draft] Prepare discovery outreach referencing exact signal SIG-112-MIGRATION (note: The fictional intake explicitly mentioned migration timing.); no send, meeting or customer contact occurs.",
+    "uncertainty": "Fit/intent derived solely from intake dossier A112; fictional account, unverified beyond provided fields.",
+    "follow_up_trigger": "Day 7 after intake, or earlier if SIG-112-MIGRATION status changes."
+  },
+  {
+    "id": "A113",
+    "qualification": "hold",
+    "disposition": "consent-review",
+    "action_type": "no-contact",
+    "follow_up_days": 0,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=965",
+      "fit_score=86",
+      "intent=True",
+      "region=EU",
+      "consent_hold=True"
+    ],
+    "next_action": "[unsent draft] Prepare no-contact outreach referencing exact signal SIG-113-CAPACITY (note: The fictional intake explicitly mentioned capacity pressure.); no send, meeting or customer contact occurs.",
+    "uncertainty": "Fit/intent derived solely from intake dossier A113; fictional account, unverified beyond provided fields.",
+    "follow_up_trigger": "Day 0 after intake, or earlier if SIG-113-CAPACITY status changes."
+  },
+  {
+    "id": "A114",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=982",
+      "fit_score=42",
+      "intent=False",
+      "region=AU",
+      "consent_hold=False"
+    ],
+    "next_action": "[unsent draft] Prepare value-resource outreach referencing exact signal SIG-114-COMPLIANCE (note: The fictional intake explicitly mentioned compliance review.); no send, meeting or customer contact occurs.",
+    "uncertainty": "Fit/intent derived solely from intake dossier A114; fictional account, unverified beyond provided fields.",
+    "follow_up_trigger": "Day 21 after intake, or earlier if SIG-114-COMPLIANCE status changes."
+  },
+  {
+    "id": "A115",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=999",
+      "fit_score=55",
+      "intent=True",
+      "region=US",
+      "consent_hold=False"
+    ],
+    "next_action": "[unsent draft] Prepare value-resource outreach referencing exact signal SIG-115-LAUNCH (note: The fictional intake explicitly mentioned a new launch.); no send, meeting or customer contact occurs.",
+    "uncertainty": "Fit/intent derived solely from intake dossier A115; fictional account, unverified beyond provided fields.",
+    "follow_up_trigger": "Day 21 after intake, or earlier if SIG-115-LAUNCH status changes."
+  },
+  {
+    "id": "A116",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=36",
+      "fit_score=68",
+      "intent=True",
+      "region=EU",
+      "consent_hold=False"
+    ],
+    "next_action": "[unsent draft] Prepare value-resource outreach referencing exact signal SIG-116-MIGRATION (note: The fictional intake explicitly mentioned migration timing.); no send, meeting or customer contact occurs.",
+    "uncertainty": "Fit/intent derived solely from intake dossier A116; fictional account, unverified beyond provided fields.",
+    "follow_up_trigger": "Day 21 after intake, or earlier if SIG-116-MIGRATION status changes."
+  },
+  {
+    "id": "A117",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=53",
+      "fit_score=81",
+      "intent=False",
+      "region=AU",
+      "consent_hold=False"
+    ],
+    "next_action": "[unsent draft] Prepare value-resource outreach referencing exact signal SIG-117-CAPACITY (note: The fictional intake explicitly mentioned capacity pressure.); no send, meeting or customer contact occurs.",
+    "uncertainty": "Fit/intent derived solely from intake dossier A117; fictional account, unverified beyond provided fields.",
+    "follow_up_trigger": "Day 21 after intake, or earlier if SIG-117-CAPACITY status changes."
+  },
+  {
+    "id": "A118",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=70",
+      "fit_score=94",
+      "intent=True",
+      "region=US",
+      "consent_hold=False"
+    ],
+    "next_action": "[unsent draft] Prepare discovery outreach referencing exact signal SIG-118-COMPLIANCE (note: The fictional intake explicitly mentioned compliance review.); no send, meeting or customer contact occurs.",
+    "uncertainty": "Fit/intent derived solely from intake dossier A118; fictional account, unverified beyond provided fields.",
+    "follow_up_trigger": "Day 7 after intake, or earlier if SIG-118-COMPLIANCE status changes."
+  },
+  {
+    "id": "A119",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "evidence-only",
+    "evidence": [
+      "employees=87",
+      "fit_score=50",
+      "intent=True",
+      "region=EU",
+      "consent_hold=False"
+    ],
+    "next_action": "[unsent draft] Prepare value-resource outreach referencing exact signal SIG-119-LAUNCH (note: The fictional intake explicitly mentioned a new launch.); no send, meeting or customer contact occurs.",
+    "uncertainty": "Fit/intent derived solely from intake dossier A119; fictional account, unverified beyond provided fields.",
+    "follow_up_trigger": "Day 21 after intake, or earlier if SIG-119-LAUNCH status changes."
+  },
+  {
+    "id": "A120",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=104",
+      "fit_score=63",
+      "intent=False",
+      "region=AU",
+      "consent_hold=False"
+    ],
+    "next_action": "[unsent draft] Prepare value-resource outreach referencing exact signal SIG-120-MIGRATION (note: The fictional intake explicitly mentioned migration timing.); no send, meeting or customer contact occurs.",
+    "uncertainty": "Fit/intent derived solely from intake dossier A120; fictional account, unverified beyond provided fields.",
+    "follow_up_trigger": "Day 21 after intake, or earlier if SIG-120-MIGRATION status changes."
+  }
+]

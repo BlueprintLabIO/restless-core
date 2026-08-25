@@ -1,0 +1,56 @@
+{
+  "arm": "monitoring-q1-r1",
+  "created_at": "2026-08-25T15:04:48.174758+00:00",
+  "kind": "exact_validator_complete",
+  "receipts": [
+    {
+      "accepted_at": "2026-08-25T15:01:28.280560+00:00",
+      "arrival_offset_seconds": 0,
+      "output": "territory-01.json",
+      "sha256": "a5e63c4ec4ba5451c24d77c4641dbd9aab427a5054bbbb327480469c8c9369fe",
+      "unit": "monitoring territory 01",
+      "validator": {
+        "domain": "monitoring",
+        "units": 10,
+        "valid": true
+      }
+    },
+    {
+      "accepted_at": "2026-08-25T15:02:46.790186+00:00",
+      "arrival_offset_seconds": 0,
+      "output": "territory-02.json",
+      "sha256": "1db3a48b7213bcce6b30b79dd04ff7adecd12e39febe66d39f45434662570098",
+      "unit": "monitoring territory 02",
+      "validator": {
+        "domain": "monitoring",
+        "units": 10,
+        "valid": true
+      }
+    },
+    {
+      "accepted_at": "2026-08-25T15:03:40.992102+00:00",
+      "arrival_offset_seconds": 0,
+      "output": "territory-03.json",
+      "sha256": "7c92b0962dad988c7b3c5eeb71f8728860899a27ae7ea564b4c2834958145e4e",
+      "unit": "monitoring territory 03",
+      "validator": {
+        "domain": "monitoring",
+        "units": 10,
+        "valid": true
+      }
+    },
+    {
+      "accepted_at": "2026-08-25T15:04:48.174379+00:00",
+      "arrival_offset_seconds": 0,
+      "output": "territory-04.json",
+      "sha256": "0157e7fb0bda02c453ccdb918e499d87c55fd5594c3836c0cf1fd59a7c3a621c",
+      "unit": "monitoring territory 04",
+      "validator": {
+        "domain": "monitoring",
+        "units": 10,
+        "valid": true
+      }
+    }
+  ],
+  "units": 40
+}

@@ -1,0 +1,66 @@
+[
+  {
+    "id": "I025",
+    "delta": 0,
+    "disposition": "matched",
+    "action": "close-reconciled",
+    "evidence": "invoice_total 1725 equals ledger_total 1725 (AUD, INV-TEST-025)",
+    "uncertainty": "none; totals agree exactly on source row I025"
+  },
+  {
+    "id": "I026",
+    "delta": 0,
+    "disposition": "matched",
+    "action": "close-reconciled",
+    "evidence": "invoice_total 1762 equals ledger_total 1762 (AUD, INV-TEST-026)",
+    "uncertainty": "none; totals agree exactly on source row I026"
+  },
+  {
+    "id": "I027",
+    "delta": 0,
+    "disposition": "matched",
+    "action": "close-reconciled",
+    "evidence": "invoice_total 1799 equals ledger_total 1799 (AUD, INV-TEST-027)",
+    "uncertainty": "none; totals agree exactly on source row I027"
+  },
+  {
+    "id": "I028",
+    "delta": 75,
+    "disposition": "over-recorded",
+    "action": "review-credit-or-ledger",
+    "evidence": "ledger_total 1911 exceeds invoice_total 1836 by 75 (AUD, INV-TEST-028)",
+    "uncertainty": "cause of the 75 over-recorded ledger amount is not stated in the source row"
+  },
+  {
+    "id": "I029",
+    "delta": 0,
+    "disposition": "matched",
+    "action": "close-reconciled",
+    "evidence": "invoice_total 1873 equals ledger_total 1873 (AUD, INV-TEST-029)",
+    "uncertainty": "none; totals agree exactly on source row I029"
+  },
+  {
+    "id": "I030",
+    "delta": 0,
+    "disposition": "matched",
+    "action": "close-reconciled",
+    "evidence": "invoice_total 1910 equals ledger_total 1910 (AUD, INV-TEST-030)",
+    "uncertainty": "none; totals agree exactly on source row I030"
+  },
+  {
+    "id": "I031",
+    "delta": 0,
+    "disposition": "matched",
+    "action": "close-reconciled",
+    "evidence": "invoice_total 1947 equals ledger_total 1947 (AUD, INV-TEST-031)",
+    "uncertainty": "none; totals agree exactly on source row I031"
+  },
+  {
+    "id": "I032",
+    "delta": -50,
+    "disposition": "under-recorded",
+    "action": "review-missing-payment",
+    "evidence": "ledger_total 1934 falls short of invoice_total 1984 by 50 (AUD, INV-TEST-032)",
+    "uncertainty": "cause of the 50 under-recorded ledger amount is not stated in the source row"
+  }
+]

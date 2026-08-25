@@ -1,0 +1,722 @@
+[
+  {
+    "id": "A001",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=41",
+      "fit_score=55",
+      "intent=true",
+      "region=US",
+      "consent_hold=false"
+    ],
+    "next_action": "[unsent draft] value-resource step for A001 (Fictional Meridian 001) referencing signal SIG-001-CAPACITY: below qualification threshold; no send, meeting, or customer contact has occurred.",
+    "uncertainty": "Fictional dossier only; policy outcome derived solely from cited fields (below qualification threshold). No customer contact attempted.",
+    "follow_up_trigger": "day 21 after batch arrival"
+  },
+  {
+    "id": "A002",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=58",
+      "fit_score=68",
+      "intent=true",
+      "region=EU",
+      "consent_hold=false"
+    ],
+    "next_action": "[unsent draft] value-resource step for A002 (Fictional Meridian 002) referencing signal SIG-002-COMPLIANCE: below qualification threshold; no send, meeting, or customer contact has occurred.",
+    "uncertainty": "Fictional dossier only; policy outcome derived solely from cited fields (below qualification threshold). No customer contact attempted.",
+    "follow_up_trigger": "day 21 after batch arrival"
+  },
+  {
+    "id": "A003",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=75",
+      "fit_score=81",
+      "intent=false",
+      "region=AU",
+      "consent_hold=false"
+    ],
+    "next_action": "[unsent draft] value-resource step for A003 (Fictional Meridian 003) referencing signal SIG-003-LAUNCH: below qualification threshold; no send, meeting, or customer contact has occurred.",
+    "uncertainty": "Fictional dossier only; policy outcome derived solely from cited fields (below qualification threshold). No customer contact attempted.",
+    "follow_up_trigger": "day 21 after batch arrival"
+  },
+  {
+    "id": "A004",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=92",
+      "fit_score=94",
+      "intent=true",
+      "region=US",
+      "consent_hold=false"
+    ],
+    "next_action": "[unsent draft] discovery step for A004 (Fictional Meridian 004) referencing signal SIG-004-MIGRATION: fit_score >= 70 with intent; no send, meeting, or customer contact has occurred.",
+    "uncertainty": "Fictional dossier only; policy outcome derived solely from cited fields (fit_score >= 70 with intent). No customer contact attempted.",
+    "follow_up_trigger": "day 7 after batch arrival"
+  },
+  {
+    "id": "A005",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=109",
+      "fit_score=50",
+      "intent=true",
+      "region=EU",
+      "consent_hold=false"
+    ],
+    "next_action": "[unsent draft] value-resource step for A005 (Fictional Meridian 005) referencing signal SIG-005-CAPACITY: below qualification threshold; no send, meeting, or customer contact has occurred.",
+    "uncertainty": "Fictional dossier only; policy outcome derived solely from cited fields (below qualification threshold). No customer contact attempted.",
+    "follow_up_trigger": "day 21 after batch arrival"
+  },
+  {
+    "id": "A006",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=126",
+      "fit_score=63",
+      "intent=false",
+      "region=AU",
+      "consent_hold=false"
+    ],
+    "next_action": "[unsent draft] value-resource step for A006 (Fictional Meridian 006) referencing signal SIG-006-COMPLIANCE: below qualification threshold; no send, meeting, or customer contact has occurred.",
+    "uncertainty": "Fictional dossier only; policy outcome derived solely from cited fields (below qualification threshold). No customer contact attempted.",
+    "follow_up_trigger": "day 21 after batch arrival"
+  },
+  {
+    "id": "A007",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "evidence-only",
+    "evidence": [
+      "employees=143",
+      "fit_score=76",
+      "intent=true",
+      "region=US",
+      "consent_hold=false"
+    ],
+    "next_action": "[unsent draft] discovery step for A007 (Fictional Meridian 007) referencing signal SIG-007-LAUNCH: fit_score >= 70 with intent; no send, meeting, or customer contact has occurred.",
+    "uncertainty": "Fictional dossier only; policy outcome derived solely from cited fields (fit_score >= 70 with intent). No customer contact attempted.",
+    "follow_up_trigger": "day 7 after batch arrival"
+  },
+  {
+    "id": "A008",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=160",
+      "fit_score=89",
+      "intent=true",
+      "region=EU",
+      "consent_hold=false"
+    ],
+    "next_action": "[unsent draft] discovery step for A008 (Fictional Meridian 008) referencing signal SIG-008-MIGRATION: fit_score >= 70 with intent; no send, meeting, or customer contact has occurred.",
+    "uncertainty": "Fictional dossier only; policy outcome derived solely from cited fields (fit_score >= 70 with intent). No customer contact attempted.",
+    "follow_up_trigger": "day 7 after batch arrival"
+  },
+  {
+    "id": "A009",
+    "qualification": "disqualify",
+    "disposition": "closed-policy",
+    "action_type": "no-contact",
+    "follow_up_days": 0,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=12",
+      "fit_score=45",
+      "intent=false",
+      "region=AU",
+      "consent_hold=false"
+    ],
+    "next_action": "[unsent draft] no-contact step for A009 (Fictional Meridian 009) referencing signal SIG-009-CAPACITY: fewer than 20 employees; no send, meeting, or customer contact has occurred.",
+    "uncertainty": "Fictional dossier only; policy outcome derived solely from cited fields (fewer than 20 employees). No customer contact attempted.",
+    "follow_up_trigger": "no follow-up; account closed by policy"
+  },
+  {
+    "id": "A010",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=194",
+      "fit_score=58",
+      "intent=true",
+      "region=US",
+      "consent_hold=false"
+    ],
+    "next_action": "[unsent draft] value-resource step for A010 (Fictional Meridian 010) referencing signal SIG-010-COMPLIANCE: below qualification threshold; no send, meeting, or customer contact has occurred.",
+    "uncertainty": "Fictional dossier only; policy outcome derived solely from cited fields (below qualification threshold). No customer contact attempted.",
+    "follow_up_trigger": "day 21 after batch arrival"
+  },
+  {
+    "id": "A011",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=211",
+      "fit_score=71",
+      "intent=true",
+      "region=EU",
+      "consent_hold=false"
+    ],
+    "next_action": "[unsent draft] discovery step for A011 (Fictional Meridian 011) referencing signal SIG-011-LAUNCH: fit_score >= 70 with intent; no send, meeting, or customer contact has occurred.",
+    "uncertainty": "Fictional dossier only; policy outcome derived solely from cited fields (fit_score >= 70 with intent). No customer contact attempted.",
+    "follow_up_trigger": "day 7 after batch arrival"
+  },
+  {
+    "id": "A012",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=228",
+      "fit_score=84",
+      "intent=false",
+      "region=AU",
+      "consent_hold=false"
+    ],
+    "next_action": "[unsent draft] value-resource step for A012 (Fictional Meridian 012) referencing signal SIG-012-MIGRATION: below qualification threshold; no send, meeting, or customer contact has occurred.",
+    "uncertainty": "Fictional dossier only; policy outcome derived solely from cited fields (below qualification threshold). No customer contact attempted.",
+    "follow_up_trigger": "day 21 after batch arrival"
+  },
+  {
+    "id": "A013",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=245",
+      "fit_score=97",
+      "intent=true",
+      "region=US",
+      "consent_hold=false"
+    ],
+    "next_action": "[unsent draft] discovery step for A013 (Fictional Meridian 013) referencing signal SIG-013-CAPACITY: fit_score >= 70 with intent; no send, meeting, or customer contact has occurred.",
+    "uncertainty": "Fictional dossier only; policy outcome derived solely from cited fields (fit_score >= 70 with intent). No customer contact attempted.",
+    "follow_up_trigger": "day 7 after batch arrival"
+  },
+  {
+    "id": "A014",
+    "qualification": "disqualify",
+    "disposition": "closed-policy",
+    "action_type": "no-contact",
+    "follow_up_days": 0,
+    "claim_code": "evidence-only",
+    "evidence": [
+      "employees=262",
+      "fit_score=53",
+      "intent=true",
+      "region=Restricted-Zone",
+      "consent_hold=false"
+    ],
+    "next_action": "[unsent draft] no-contact step for A014 (Fictional Meridian 014) referencing signal SIG-014-COMPLIANCE: restricted zone; no send, meeting, or customer contact has occurred.",
+    "uncertainty": "Fictional dossier only; policy outcome derived solely from cited fields (restricted zone). No customer contact attempted.",
+    "follow_up_trigger": "no follow-up; account closed by policy"
+  },
+  {
+    "id": "A015",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=279",
+      "fit_score=66",
+      "intent=false",
+      "region=AU",
+      "consent_hold=false"
+    ],
+    "next_action": "[unsent draft] value-resource step for A015 (Fictional Meridian 015) referencing signal SIG-015-LAUNCH: below qualification threshold; no send, meeting, or customer contact has occurred.",
+    "uncertainty": "Fictional dossier only; policy outcome derived solely from cited fields (below qualification threshold). No customer contact attempted.",
+    "follow_up_trigger": "day 21 after batch arrival"
+  },
+  {
+    "id": "A016",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=296",
+      "fit_score=79",
+      "intent=true",
+      "region=US",
+      "consent_hold=false"
+    ],
+    "next_action": "[unsent draft] discovery step for A016 (Fictional Meridian 016) referencing signal SIG-016-MIGRATION: fit_score >= 70 with intent; no send, meeting, or customer contact has occurred.",
+    "uncertainty": "Fictional dossier only; policy outcome derived solely from cited fields (fit_score >= 70 with intent). No customer contact attempted.",
+    "follow_up_trigger": "day 7 after batch arrival"
+  },
+  {
+    "id": "A017",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "evidence-only",
+    "evidence": [
+      "employees=313",
+      "fit_score=92",
+      "intent=true",
+      "region=EU",
+      "consent_hold=false"
+    ],
+    "next_action": "[unsent draft] discovery step for A017 (Fictional Meridian 017) referencing signal SIG-017-CAPACITY: fit_score >= 70 with intent; no send, meeting, or customer contact has occurred.",
+    "uncertainty": "Fictional dossier only; policy outcome derived solely from cited fields (fit_score >= 70 with intent). No customer contact attempted.",
+    "follow_up_trigger": "day 7 after batch arrival"
+  },
+  {
+    "id": "A018",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=330",
+      "fit_score=48",
+      "intent=false",
+      "region=AU",
+      "consent_hold=false"
+    ],
+    "next_action": "[unsent draft] value-resource step for A018 (Fictional Meridian 018) referencing signal SIG-018-COMPLIANCE: below qualification threshold; no send, meeting, or customer contact has occurred.",
+    "uncertainty": "Fictional dossier only; policy outcome derived solely from cited fields (below qualification threshold). No customer contact attempted.",
+    "follow_up_trigger": "day 21 after batch arrival"
+  },
+  {
+    "id": "A019",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=347",
+      "fit_score=61",
+      "intent=true",
+      "region=US",
+      "consent_hold=false"
+    ],
+    "next_action": "[unsent draft] value-resource step for A019 (Fictional Meridian 019) referencing signal SIG-019-LAUNCH: below qualification threshold; no send, meeting, or customer contact has occurred.",
+    "uncertainty": "Fictional dossier only; policy outcome derived solely from cited fields (below qualification threshold). No customer contact attempted.",
+    "follow_up_trigger": "day 21 after batch arrival"
+  },
+  {
+    "id": "A020",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=364",
+      "fit_score=74",
+      "intent=true",
+      "region=EU",
+      "consent_hold=false"
+    ],
+    "next_action": "[unsent draft] discovery step for A020 (Fictional Meridian 020) referencing signal SIG-020-MIGRATION: fit_score >= 70 with intent; no send, meeting, or customer contact has occurred.",
+    "uncertainty": "Fictional dossier only; policy outcome derived solely from cited fields (fit_score >= 70 with intent). No customer contact attempted.",
+    "follow_up_trigger": "day 7 after batch arrival"
+  },
+  {
+    "id": "A021",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "evidence-only",
+    "evidence": [
+      "employees=381",
+      "fit_score=87",
+      "intent=false",
+      "region=AU",
+      "consent_hold=false"
+    ],
+    "next_action": "[unsent draft] value-resource step for A021 (Fictional Meridian 021) referencing signal SIG-021-CAPACITY: below qualification threshold; no send, meeting, or customer contact has occurred.",
+    "uncertainty": "Fictional dossier only; policy outcome derived solely from cited fields (below qualification threshold). No customer contact attempted.",
+    "follow_up_trigger": "day 21 after batch arrival"
+  },
+  {
+    "id": "A022",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=398",
+      "fit_score=43",
+      "intent=true",
+      "region=US",
+      "consent_hold=false"
+    ],
+    "next_action": "[unsent draft] value-resource step for A022 (Fictional Meridian 022) referencing signal SIG-022-COMPLIANCE: below qualification threshold; no send, meeting, or customer contact has occurred.",
+    "uncertainty": "Fictional dossier only; policy outcome derived solely from cited fields (below qualification threshold). No customer contact attempted.",
+    "follow_up_trigger": "day 21 after batch arrival"
+  },
+  {
+    "id": "A023",
+    "qualification": "hold",
+    "disposition": "consent-review",
+    "action_type": "no-contact",
+    "follow_up_days": 0,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=415",
+      "fit_score=56",
+      "intent=true",
+      "region=EU",
+      "consent_hold=true"
+    ],
+    "next_action": "[unsent draft] no-contact step for A023 (Fictional Meridian 023) referencing signal SIG-023-LAUNCH: consent hold; no send, meeting, or customer contact has occurred.",
+    "uncertainty": "Fictional dossier only; policy outcome derived solely from cited fields (consent hold). No customer contact attempted.",
+    "follow_up_trigger": "consent hold release"
+  },
+  {
+    "id": "A024",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=432",
+      "fit_score=69",
+      "intent=false",
+      "region=AU",
+      "consent_hold=false"
+    ],
+    "next_action": "[unsent draft] value-resource step for A024 (Fictional Meridian 024) referencing signal SIG-024-MIGRATION: below qualification threshold; no send, meeting, or customer contact has occurred.",
+    "uncertainty": "Fictional dossier only; policy outcome derived solely from cited fields (below qualification threshold). No customer contact attempted.",
+    "follow_up_trigger": "day 21 after batch arrival"
+  },
+  {
+    "id": "A025",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=449",
+      "fit_score=82",
+      "intent=true",
+      "region=US",
+      "consent_hold=false"
+    ],
+    "next_action": "[unsent draft] discovery step for A025 (Fictional Meridian 025) referencing signal SIG-025-CAPACITY: fit_score >= 70 with intent; no send, meeting, or customer contact has occurred.",
+    "uncertainty": "Fictional dossier only; policy outcome derived solely from cited fields (fit_score >= 70 with intent). No customer contact attempted.",
+    "follow_up_trigger": "day 7 after batch arrival"
+  },
+  {
+    "id": "A026",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=466",
+      "fit_score=95",
+      "intent=true",
+      "region=EU",
+      "consent_hold=false"
+    ],
+    "next_action": "[unsent draft] discovery step for A026 (Fictional Meridian 026) referencing signal SIG-026-COMPLIANCE: fit_score >= 70 with intent; no send, meeting, or customer contact has occurred.",
+    "uncertainty": "Fictional dossier only; policy outcome derived solely from cited fields (fit_score >= 70 with intent). No customer contact attempted.",
+    "follow_up_trigger": "day 7 after batch arrival"
+  },
+  {
+    "id": "A027",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=483",
+      "fit_score=51",
+      "intent=false",
+      "region=AU",
+      "consent_hold=false"
+    ],
+    "next_action": "[unsent draft] value-resource step for A027 (Fictional Meridian 027) referencing signal SIG-027-LAUNCH: below qualification threshold; no send, meeting, or customer contact has occurred.",
+    "uncertainty": "Fictional dossier only; policy outcome derived solely from cited fields (below qualification threshold). No customer contact attempted.",
+    "follow_up_trigger": "day 21 after batch arrival"
+  },
+  {
+    "id": "A028",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "evidence-only",
+    "evidence": [
+      "employees=500",
+      "fit_score=64",
+      "intent=true",
+      "region=US",
+      "consent_hold=false"
+    ],
+    "next_action": "[unsent draft] value-resource step for A028 (Fictional Meridian 028) referencing signal SIG-028-MIGRATION: below qualification threshold; no send, meeting, or customer contact has occurred.",
+    "uncertainty": "Fictional dossier only; policy outcome derived solely from cited fields (below qualification threshold). No customer contact attempted.",
+    "follow_up_trigger": "day 21 after batch arrival"
+  },
+  {
+    "id": "A029",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=517",
+      "fit_score=77",
+      "intent=true",
+      "region=EU",
+      "consent_hold=false"
+    ],
+    "next_action": "[unsent draft] discovery step for A029 (Fictional Meridian 029) referencing signal SIG-029-CAPACITY: fit_score >= 70 with intent; no send, meeting, or customer contact has occurred.",
+    "uncertainty": "Fictional dossier only; policy outcome derived solely from cited fields (fit_score >= 70 with intent). No customer contact attempted.",
+    "follow_up_trigger": "day 7 after batch arrival"
+  },
+  {
+    "id": "A030",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=534",
+      "fit_score=90",
+      "intent=false",
+      "region=AU",
+      "consent_hold=false"
+    ],
+    "next_action": "[unsent draft] value-resource step for A030 (Fictional Meridian 030) referencing signal SIG-030-COMPLIANCE: below qualification threshold; no send, meeting, or customer contact has occurred.",
+    "uncertainty": "Fictional dossier only; policy outcome derived solely from cited fields (below qualification threshold). No customer contact attempted.",
+    "follow_up_trigger": "day 21 after batch arrival"
+  },
+  {
+    "id": "A031",
+    "qualification": "disqualify",
+    "disposition": "closed-policy",
+    "action_type": "no-contact",
+    "follow_up_days": 0,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=12",
+      "fit_score=46",
+      "intent=true",
+      "region=US",
+      "consent_hold=false"
+    ],
+    "next_action": "[unsent draft] no-contact step for A031 (Fictional Meridian 031) referencing signal SIG-031-LAUNCH: fewer than 20 employees; no send, meeting, or customer contact has occurred.",
+    "uncertainty": "Fictional dossier only; policy outcome derived solely from cited fields (fewer than 20 employees). No customer contact attempted.",
+    "follow_up_trigger": "no follow-up; account closed by policy"
+  },
+  {
+    "id": "A032",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=568",
+      "fit_score=59",
+      "intent=true",
+      "region=EU",
+      "consent_hold=false"
+    ],
+    "next_action": "[unsent draft] value-resource step for A032 (Fictional Meridian 032) referencing signal SIG-032-MIGRATION: below qualification threshold; no send, meeting, or customer contact has occurred.",
+    "uncertainty": "Fictional dossier only; policy outcome derived solely from cited fields (below qualification threshold). No customer contact attempted.",
+    "follow_up_trigger": "day 21 after batch arrival"
+  },
+  {
+    "id": "A033",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=585",
+      "fit_score=72",
+      "intent=false",
+      "region=AU",
+      "consent_hold=false"
+    ],
+    "next_action": "[unsent draft] value-resource step for A033 (Fictional Meridian 033) referencing signal SIG-033-CAPACITY: below qualification threshold; no send, meeting, or customer contact has occurred.",
+    "uncertainty": "Fictional dossier only; policy outcome derived solely from cited fields (below qualification threshold). No customer contact attempted.",
+    "follow_up_trigger": "day 21 after batch arrival"
+  },
+  {
+    "id": "A034",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=602",
+      "fit_score=85",
+      "intent=true",
+      "region=US",
+      "consent_hold=false"
+    ],
+    "next_action": "[unsent draft] discovery step for A034 (Fictional Meridian 034) referencing signal SIG-034-COMPLIANCE: fit_score >= 70 with intent; no send, meeting, or customer contact has occurred.",
+    "uncertainty": "Fictional dossier only; policy outcome derived solely from cited fields (fit_score >= 70 with intent). No customer contact attempted.",
+    "follow_up_trigger": "day 7 after batch arrival"
+  },
+  {
+    "id": "A035",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "evidence-only",
+    "evidence": [
+      "employees=619",
+      "fit_score=98",
+      "intent=true",
+      "region=EU",
+      "consent_hold=false"
+    ],
+    "next_action": "[unsent draft] discovery step for A035 (Fictional Meridian 035) referencing signal SIG-035-LAUNCH: fit_score >= 70 with intent; no send, meeting, or customer contact has occurred.",
+    "uncertainty": "Fictional dossier only; policy outcome derived solely from cited fields (fit_score >= 70 with intent). No customer contact attempted.",
+    "follow_up_trigger": "day 7 after batch arrival"
+  },
+  {
+    "id": "A036",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=636",
+      "fit_score=54",
+      "intent=false",
+      "region=AU",
+      "consent_hold=false"
+    ],
+    "next_action": "[unsent draft] value-resource step for A036 (Fictional Meridian 036) referencing signal SIG-036-MIGRATION: below qualification threshold; no send, meeting, or customer contact has occurred.",
+    "uncertainty": "Fictional dossier only; policy outcome derived solely from cited fields (below qualification threshold). No customer contact attempted.",
+    "follow_up_trigger": "day 21 after batch arrival"
+  },
+  {
+    "id": "A037",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=653",
+      "fit_score=67",
+      "intent=true",
+      "region=US",
+      "consent_hold=false"
+    ],
+    "next_action": "[unsent draft] value-resource step for A037 (Fictional Meridian 037) referencing signal SIG-037-CAPACITY: below qualification threshold; no send, meeting, or customer contact has occurred.",
+    "uncertainty": "Fictional dossier only; policy outcome derived solely from cited fields (below qualification threshold). No customer contact attempted.",
+    "follow_up_trigger": "day 21 after batch arrival"
+  },
+  {
+    "id": "A038",
+    "qualification": "disqualify",
+    "disposition": "closed-policy",
+    "action_type": "no-contact",
+    "follow_up_days": 0,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=670",
+      "fit_score=80",
+      "intent=true",
+      "region=Restricted-Zone",
+      "consent_hold=false"
+    ],
+    "next_action": "[unsent draft] no-contact step for A038 (Fictional Meridian 038) referencing signal SIG-038-COMPLIANCE: restricted zone; no send, meeting, or customer contact has occurred.",
+    "uncertainty": "Fictional dossier only; policy outcome derived solely from cited fields (restricted zone). No customer contact attempted.",
+    "follow_up_trigger": "no follow-up; account closed by policy"
+  },
+  {
+    "id": "A039",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=687",
+      "fit_score=93",
+      "intent=false",
+      "region=AU",
+      "consent_hold=false"
+    ],
+    "next_action": "[unsent draft] value-resource step for A039 (Fictional Meridian 039) referencing signal SIG-039-LAUNCH: below qualification threshold; no send, meeting, or customer contact has occurred.",
+    "uncertainty": "Fictional dossier only; policy outcome derived solely from cited fields (below qualification threshold). No customer contact attempted.",
+    "follow_up_trigger": "day 21 after batch arrival"
+  },
+  {
+    "id": "A040",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=704",
+      "fit_score=49",
+      "intent=true",
+      "region=US",
+      "consent_hold=false"
+    ],
+    "next_action": "[unsent draft] value-resource step for A040 (Fictional Meridian 040) referencing signal SIG-040-MIGRATION: below qualification threshold; no send, meeting, or customer contact has occurred.",
+    "uncertainty": "Fictional dossier only; policy outcome derived solely from cited fields (below qualification threshold). No customer contact attempted.",
+    "follow_up_trigger": "day 21 after batch arrival"
+  }
+]

@@ -1,0 +1,722 @@
+[
+  {
+    "id": "A161",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "evidence-only",
+    "evidence": [
+      "employees=801",
+      "fit_score=83",
+      "intent=True",
+      "region=EU",
+      "consent_hold=False"
+    ],
+    "next_action": "Unsent draft: reference SIG-161-CAPACITY (discovery) for Fictional Meridian 161.",
+    "uncertainty": "Low: classification derived directly from frozen intake fields.",
+    "follow_up_trigger": "Recheck SIG-161-CAPACITY after 7 days or on next intake change."
+  },
+  {
+    "id": "A162",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=818",
+      "fit_score=96",
+      "intent=False",
+      "region=AU",
+      "consent_hold=False"
+    ],
+    "next_action": "Unsent draft: reference SIG-162-COMPLIANCE (value-resource) for Fictional Meridian 162.",
+    "uncertainty": "Low: classification derived directly from frozen intake fields.",
+    "follow_up_trigger": "Recheck SIG-162-COMPLIANCE after 21 days or on next intake change."
+  },
+  {
+    "id": "A163",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=835",
+      "fit_score=52",
+      "intent=True",
+      "region=US",
+      "consent_hold=False"
+    ],
+    "next_action": "Unsent draft: reference SIG-163-LAUNCH (value-resource) for Fictional Meridian 163.",
+    "uncertainty": "Low: classification derived directly from frozen intake fields.",
+    "follow_up_trigger": "Recheck SIG-163-LAUNCH after 21 days or on next intake change."
+  },
+  {
+    "id": "A164",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=852",
+      "fit_score=65",
+      "intent=True",
+      "region=EU",
+      "consent_hold=False"
+    ],
+    "next_action": "Unsent draft: reference SIG-164-MIGRATION (value-resource) for Fictional Meridian 164.",
+    "uncertainty": "Low: classification derived directly from frozen intake fields.",
+    "follow_up_trigger": "Recheck SIG-164-MIGRATION after 21 days or on next intake change."
+  },
+  {
+    "id": "A165",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=869",
+      "fit_score=78",
+      "intent=False",
+      "region=AU",
+      "consent_hold=False"
+    ],
+    "next_action": "Unsent draft: reference SIG-165-CAPACITY (value-resource) for Fictional Meridian 165.",
+    "uncertainty": "Low: classification derived directly from frozen intake fields.",
+    "follow_up_trigger": "Recheck SIG-165-CAPACITY after 21 days or on next intake change."
+  },
+  {
+    "id": "A166",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=886",
+      "fit_score=91",
+      "intent=True",
+      "region=US",
+      "consent_hold=False"
+    ],
+    "next_action": "Unsent draft: reference SIG-166-COMPLIANCE (discovery) for Fictional Meridian 166.",
+    "uncertainty": "Low: classification derived directly from frozen intake fields.",
+    "follow_up_trigger": "Recheck SIG-166-COMPLIANCE after 7 days or on next intake change."
+  },
+  {
+    "id": "A167",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=903",
+      "fit_score=47",
+      "intent=True",
+      "region=EU",
+      "consent_hold=False"
+    ],
+    "next_action": "Unsent draft: reference SIG-167-LAUNCH (value-resource) for Fictional Meridian 167.",
+    "uncertainty": "Low: classification derived directly from frozen intake fields.",
+    "follow_up_trigger": "Recheck SIG-167-LAUNCH after 21 days or on next intake change."
+  },
+  {
+    "id": "A168",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "evidence-only",
+    "evidence": [
+      "employees=920",
+      "fit_score=60",
+      "intent=False",
+      "region=AU",
+      "consent_hold=False"
+    ],
+    "next_action": "Unsent draft: reference SIG-168-MIGRATION (value-resource) for Fictional Meridian 168.",
+    "uncertainty": "Low: classification derived directly from frozen intake fields.",
+    "follow_up_trigger": "Recheck SIG-168-MIGRATION after 21 days or on next intake change."
+  },
+  {
+    "id": "A169",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=937",
+      "fit_score=73",
+      "intent=True",
+      "region=US",
+      "consent_hold=False"
+    ],
+    "next_action": "Unsent draft: reference SIG-169-CAPACITY (discovery) for Fictional Meridian 169.",
+    "uncertainty": "Low: classification derived directly from frozen intake fields.",
+    "follow_up_trigger": "Recheck SIG-169-CAPACITY after 7 days or on next intake change."
+  },
+  {
+    "id": "A170",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=954",
+      "fit_score=86",
+      "intent=True",
+      "region=EU",
+      "consent_hold=False"
+    ],
+    "next_action": "Unsent draft: reference SIG-170-COMPLIANCE (discovery) for Fictional Meridian 170.",
+    "uncertainty": "Low: classification derived directly from frozen intake fields.",
+    "follow_up_trigger": "Recheck SIG-170-COMPLIANCE after 7 days or on next intake change."
+  },
+  {
+    "id": "A171",
+    "qualification": "disqualify",
+    "disposition": "closed-policy",
+    "action_type": "no-contact",
+    "follow_up_days": 0,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=12",
+      "fit_score=42",
+      "intent=False",
+      "region=AU",
+      "consent_hold=False"
+    ],
+    "next_action": "Unsent draft: reference SIG-171-LAUNCH (no-contact) for Fictional Meridian 171.",
+    "uncertainty": "Low: classification derived directly from frozen intake fields.",
+    "follow_up_trigger": "Recheck SIG-171-LAUNCH after 0 days or on next intake change."
+  },
+  {
+    "id": "A172",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=988",
+      "fit_score=55",
+      "intent=True",
+      "region=US",
+      "consent_hold=False"
+    ],
+    "next_action": "Unsent draft: reference SIG-172-MIGRATION (value-resource) for Fictional Meridian 172.",
+    "uncertainty": "Low: classification derived directly from frozen intake fields.",
+    "follow_up_trigger": "Recheck SIG-172-MIGRATION after 21 days or on next intake change."
+  },
+  {
+    "id": "A173",
+    "qualification": "hold",
+    "disposition": "consent-review",
+    "action_type": "no-contact",
+    "follow_up_days": 0,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=25",
+      "fit_score=68",
+      "intent=True",
+      "region=EU",
+      "consent_hold=True"
+    ],
+    "next_action": "Unsent draft: reference SIG-173-CAPACITY (no-contact) for Fictional Meridian 173.",
+    "uncertainty": "Low: classification derived directly from frozen intake fields.",
+    "follow_up_trigger": "Recheck SIG-173-CAPACITY after 0 days or on next intake change."
+  },
+  {
+    "id": "A174",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=42",
+      "fit_score=81",
+      "intent=False",
+      "region=AU",
+      "consent_hold=False"
+    ],
+    "next_action": "Unsent draft: reference SIG-174-COMPLIANCE (value-resource) for Fictional Meridian 174.",
+    "uncertainty": "Low: classification derived directly from frozen intake fields.",
+    "follow_up_trigger": "Recheck SIG-174-COMPLIANCE after 21 days or on next intake change."
+  },
+  {
+    "id": "A175",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "evidence-only",
+    "evidence": [
+      "employees=59",
+      "fit_score=94",
+      "intent=True",
+      "region=US",
+      "consent_hold=False"
+    ],
+    "next_action": "Unsent draft: reference SIG-175-LAUNCH (discovery) for Fictional Meridian 175.",
+    "uncertainty": "Low: classification derived directly from frozen intake fields.",
+    "follow_up_trigger": "Recheck SIG-175-LAUNCH after 7 days or on next intake change."
+  },
+  {
+    "id": "A176",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=76",
+      "fit_score=50",
+      "intent=True",
+      "region=EU",
+      "consent_hold=False"
+    ],
+    "next_action": "Unsent draft: reference SIG-176-MIGRATION (value-resource) for Fictional Meridian 176.",
+    "uncertainty": "Low: classification derived directly from frozen intake fields.",
+    "follow_up_trigger": "Recheck SIG-176-MIGRATION after 21 days or on next intake change."
+  },
+  {
+    "id": "A177",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "evidence-only",
+    "evidence": [
+      "employees=93",
+      "fit_score=63",
+      "intent=False",
+      "region=AU",
+      "consent_hold=False"
+    ],
+    "next_action": "Unsent draft: reference SIG-177-CAPACITY (value-resource) for Fictional Meridian 177.",
+    "uncertainty": "Low: classification derived directly from frozen intake fields.",
+    "follow_up_trigger": "Recheck SIG-177-CAPACITY after 21 days or on next intake change."
+  },
+  {
+    "id": "A178",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=110",
+      "fit_score=76",
+      "intent=True",
+      "region=US",
+      "consent_hold=False"
+    ],
+    "next_action": "Unsent draft: reference SIG-178-COMPLIANCE (discovery) for Fictional Meridian 178.",
+    "uncertainty": "Low: classification derived directly from frozen intake fields.",
+    "follow_up_trigger": "Recheck SIG-178-COMPLIANCE after 7 days or on next intake change."
+  },
+  {
+    "id": "A179",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=127",
+      "fit_score=89",
+      "intent=True",
+      "region=EU",
+      "consent_hold=False"
+    ],
+    "next_action": "Unsent draft: reference SIG-179-LAUNCH (discovery) for Fictional Meridian 179.",
+    "uncertainty": "Low: classification derived directly from frozen intake fields.",
+    "follow_up_trigger": "Recheck SIG-179-LAUNCH after 7 days or on next intake change."
+  },
+  {
+    "id": "A180",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=144",
+      "fit_score=45",
+      "intent=False",
+      "region=AU",
+      "consent_hold=False"
+    ],
+    "next_action": "Unsent draft: reference SIG-180-MIGRATION (value-resource) for Fictional Meridian 180.",
+    "uncertainty": "Low: classification derived directly from frozen intake fields.",
+    "follow_up_trigger": "Recheck SIG-180-MIGRATION after 21 days or on next intake change."
+  },
+  {
+    "id": "A181",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=161",
+      "fit_score=58",
+      "intent=True",
+      "region=US",
+      "consent_hold=False"
+    ],
+    "next_action": "Unsent draft: reference SIG-181-CAPACITY (value-resource) for Fictional Meridian 181.",
+    "uncertainty": "Low: classification derived directly from frozen intake fields.",
+    "follow_up_trigger": "Recheck SIG-181-CAPACITY after 21 days or on next intake change."
+  },
+  {
+    "id": "A182",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "evidence-only",
+    "evidence": [
+      "employees=178",
+      "fit_score=71",
+      "intent=True",
+      "region=EU",
+      "consent_hold=False"
+    ],
+    "next_action": "Unsent draft: reference SIG-182-COMPLIANCE (discovery) for Fictional Meridian 182.",
+    "uncertainty": "Low: classification derived directly from frozen intake fields.",
+    "follow_up_trigger": "Recheck SIG-182-COMPLIANCE after 7 days or on next intake change."
+  },
+  {
+    "id": "A183",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=195",
+      "fit_score=84",
+      "intent=False",
+      "region=AU",
+      "consent_hold=False"
+    ],
+    "next_action": "Unsent draft: reference SIG-183-LAUNCH (value-resource) for Fictional Meridian 183.",
+    "uncertainty": "Low: classification derived directly from frozen intake fields.",
+    "follow_up_trigger": "Recheck SIG-183-LAUNCH after 21 days or on next intake change."
+  },
+  {
+    "id": "A184",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=212",
+      "fit_score=97",
+      "intent=True",
+      "region=US",
+      "consent_hold=False"
+    ],
+    "next_action": "Unsent draft: reference SIG-184-MIGRATION (discovery) for Fictional Meridian 184.",
+    "uncertainty": "Low: classification derived directly from frozen intake fields.",
+    "follow_up_trigger": "Recheck SIG-184-MIGRATION after 7 days or on next intake change."
+  },
+  {
+    "id": "A185",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=229",
+      "fit_score=53",
+      "intent=True",
+      "region=EU",
+      "consent_hold=False"
+    ],
+    "next_action": "Unsent draft: reference SIG-185-CAPACITY (value-resource) for Fictional Meridian 185.",
+    "uncertainty": "Low: classification derived directly from frozen intake fields.",
+    "follow_up_trigger": "Recheck SIG-185-CAPACITY after 21 days or on next intake change."
+  },
+  {
+    "id": "A186",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=246",
+      "fit_score=66",
+      "intent=False",
+      "region=AU",
+      "consent_hold=False"
+    ],
+    "next_action": "Unsent draft: reference SIG-186-COMPLIANCE (value-resource) for Fictional Meridian 186.",
+    "uncertainty": "Low: classification derived directly from frozen intake fields.",
+    "follow_up_trigger": "Recheck SIG-186-COMPLIANCE after 21 days or on next intake change."
+  },
+  {
+    "id": "A187",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=263",
+      "fit_score=79",
+      "intent=True",
+      "region=US",
+      "consent_hold=False"
+    ],
+    "next_action": "Unsent draft: reference SIG-187-LAUNCH (discovery) for Fictional Meridian 187.",
+    "uncertainty": "Low: classification derived directly from frozen intake fields.",
+    "follow_up_trigger": "Recheck SIG-187-LAUNCH after 7 days or on next intake change."
+  },
+  {
+    "id": "A188",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=280",
+      "fit_score=92",
+      "intent=True",
+      "region=EU",
+      "consent_hold=False"
+    ],
+    "next_action": "Unsent draft: reference SIG-188-MIGRATION (discovery) for Fictional Meridian 188.",
+    "uncertainty": "Low: classification derived directly from frozen intake fields.",
+    "follow_up_trigger": "Recheck SIG-188-MIGRATION after 7 days or on next intake change."
+  },
+  {
+    "id": "A189",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "evidence-only",
+    "evidence": [
+      "employees=297",
+      "fit_score=48",
+      "intent=False",
+      "region=AU",
+      "consent_hold=False"
+    ],
+    "next_action": "Unsent draft: reference SIG-189-CAPACITY (value-resource) for Fictional Meridian 189.",
+    "uncertainty": "Low: classification derived directly from frozen intake fields.",
+    "follow_up_trigger": "Recheck SIG-189-CAPACITY after 21 days or on next intake change."
+  },
+  {
+    "id": "A190",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=314",
+      "fit_score=61",
+      "intent=True",
+      "region=US",
+      "consent_hold=False"
+    ],
+    "next_action": "Unsent draft: reference SIG-190-COMPLIANCE (value-resource) for Fictional Meridian 190.",
+    "uncertainty": "Low: classification derived directly from frozen intake fields.",
+    "follow_up_trigger": "Recheck SIG-190-COMPLIANCE after 21 days or on next intake change."
+  },
+  {
+    "id": "A191",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=331",
+      "fit_score=74",
+      "intent=True",
+      "region=EU",
+      "consent_hold=False"
+    ],
+    "next_action": "Unsent draft: reference SIG-191-LAUNCH (discovery) for Fictional Meridian 191.",
+    "uncertainty": "Low: classification derived directly from frozen intake fields.",
+    "follow_up_trigger": "Recheck SIG-191-LAUNCH after 7 days or on next intake change."
+  },
+  {
+    "id": "A192",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=348",
+      "fit_score=87",
+      "intent=False",
+      "region=AU",
+      "consent_hold=False"
+    ],
+    "next_action": "Unsent draft: reference SIG-192-MIGRATION (value-resource) for Fictional Meridian 192.",
+    "uncertainty": "Low: classification derived directly from frozen intake fields.",
+    "follow_up_trigger": "Recheck SIG-192-MIGRATION after 21 days or on next intake change."
+  },
+  {
+    "id": "A193",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=365",
+      "fit_score=43",
+      "intent=True",
+      "region=US",
+      "consent_hold=False"
+    ],
+    "next_action": "Unsent draft: reference SIG-193-CAPACITY (value-resource) for Fictional Meridian 193.",
+    "uncertainty": "Low: classification derived directly from frozen intake fields.",
+    "follow_up_trigger": "Recheck SIG-193-CAPACITY after 21 days or on next intake change."
+  },
+  {
+    "id": "A194",
+    "qualification": "disqualify",
+    "disposition": "closed-policy",
+    "action_type": "no-contact",
+    "follow_up_days": 0,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=382",
+      "fit_score=56",
+      "intent=True",
+      "region=Restricted-Zone",
+      "consent_hold=False"
+    ],
+    "next_action": "Unsent draft: reference SIG-194-COMPLIANCE (no-contact) for Fictional Meridian 194.",
+    "uncertainty": "Low: classification derived directly from frozen intake fields.",
+    "follow_up_trigger": "Recheck SIG-194-COMPLIANCE after 0 days or on next intake change."
+  },
+  {
+    "id": "A195",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=399",
+      "fit_score=69",
+      "intent=False",
+      "region=AU",
+      "consent_hold=False"
+    ],
+    "next_action": "Unsent draft: reference SIG-195-LAUNCH (value-resource) for Fictional Meridian 195.",
+    "uncertainty": "Low: classification derived directly from frozen intake fields.",
+    "follow_up_trigger": "Recheck SIG-195-LAUNCH after 21 days or on next intake change."
+  },
+  {
+    "id": "A196",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "evidence-only",
+    "evidence": [
+      "employees=416",
+      "fit_score=82",
+      "intent=True",
+      "region=US",
+      "consent_hold=False"
+    ],
+    "next_action": "Unsent draft: reference SIG-196-MIGRATION (discovery) for Fictional Meridian 196.",
+    "uncertainty": "Low: classification derived directly from frozen intake fields.",
+    "follow_up_trigger": "Recheck SIG-196-MIGRATION after 7 days or on next intake change."
+  },
+  {
+    "id": "A197",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=433",
+      "fit_score=95",
+      "intent=True",
+      "region=EU",
+      "consent_hold=False"
+    ],
+    "next_action": "Unsent draft: reference SIG-197-CAPACITY (discovery) for Fictional Meridian 197.",
+    "uncertainty": "Low: classification derived directly from frozen intake fields.",
+    "follow_up_trigger": "Recheck SIG-197-CAPACITY after 7 days or on next intake change."
+  },
+  {
+    "id": "A198",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=450",
+      "fit_score=51",
+      "intent=False",
+      "region=AU",
+      "consent_hold=False"
+    ],
+    "next_action": "Unsent draft: reference SIG-198-COMPLIANCE (value-resource) for Fictional Meridian 198.",
+    "uncertainty": "Low: classification derived directly from frozen intake fields.",
+    "follow_up_trigger": "Recheck SIG-198-COMPLIANCE after 21 days or on next intake change."
+  },
+  {
+    "id": "A199",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=467",
+      "fit_score=64",
+      "intent=True",
+      "region=US",
+      "consent_hold=False"
+    ],
+    "next_action": "Unsent draft: reference SIG-199-LAUNCH (value-resource) for Fictional Meridian 199.",
+    "uncertainty": "Low: classification derived directly from frozen intake fields.",
+    "follow_up_trigger": "Recheck SIG-199-LAUNCH after 21 days or on next intake change."
+  },
+  {
+    "id": "A200",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=484",
+      "fit_score=77",
+      "intent=True",
+      "region=EU",
+      "consent_hold=False"
+    ],
+    "next_action": "Unsent draft: reference SIG-200-MIGRATION (discovery) for Fictional Meridian 200.",
+    "uncertainty": "Low: classification derived directly from frozen intake fields.",
+    "follow_up_trigger": "Recheck SIG-200-MIGRATION after 7 days or on next intake change."
+  }
+]

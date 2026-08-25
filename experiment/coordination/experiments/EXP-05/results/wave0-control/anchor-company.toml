@@ -1,7 +1,7 @@
 name = "exp05_model_anchor_test"
-mission = "Host-only GPT-5.6 route anchor for fictional EXP-05 tests."
+mission = "Host-only GLM-5.3 route anchor for fictional EXP-05 tests."
 spend_ceiling_usd = "1"
-model = "openai-codex/gpt-5.6-sol"
+model = "zai/glm-5.3"
 model_failover = []
 [credentials]
-"model.inference.openai-codex" = "omp-oauth:openai-codex"
+"model.inference.zai" = "infisical:/providers/zai/ZAI_API_KEY"

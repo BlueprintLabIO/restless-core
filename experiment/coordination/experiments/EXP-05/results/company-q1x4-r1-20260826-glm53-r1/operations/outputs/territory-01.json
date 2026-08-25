@@ -1,0 +1,66 @@
+[
+  {
+    "id": "I001",
+    "disposition": "matched",
+    "action": "close-reconciled",
+    "delta": 0,
+    "evidence": "invoice_total 837 equals ledger_total 837 (INV-TEST-001, AUD)",
+    "uncertainty": "none; totals agree exactly"
+  },
+  {
+    "id": "I002",
+    "disposition": "matched",
+    "action": "close-reconciled",
+    "delta": 0,
+    "evidence": "invoice_total 874 equals ledger_total 874 (INV-TEST-002, AUD)",
+    "uncertainty": "none; totals agree exactly"
+  },
+  {
+    "id": "I003",
+    "disposition": "matched",
+    "action": "close-reconciled",
+    "delta": 0,
+    "evidence": "invoice_total 911 equals ledger_total 911 (INV-TEST-003, AUD)",
+    "uncertainty": "none; totals agree exactly"
+  },
+  {
+    "id": "I004",
+    "disposition": "over-recorded",
+    "action": "review-credit-or-ledger",
+    "delta": 75,
+    "evidence": "ledger_total 1023 exceeds invoice_total 948 by 75 (INV-TEST-004, AUD)",
+    "uncertainty": "ledger may include an unapplied credit or duplicate entry; source totals alone cannot distinguish"
+  },
+  {
+    "id": "I005",
+    "disposition": "matched",
+    "action": "close-reconciled",
+    "delta": 0,
+    "evidence": "invoice_total 985 equals ledger_total 985 (INV-TEST-005, AUD)",
+    "uncertainty": "none; totals agree exactly"
+  },
+  {
+    "id": "I006",
+    "disposition": "matched",
+    "action": "close-reconciled",
+    "delta": 0,
+    "evidence": "invoice_total 1022 equals ledger_total 1022 (INV-TEST-006, AUD)",
+    "uncertainty": "none; totals agree exactly"
+  },
+  {
+    "id": "I007",
+    "disposition": "matched",
+    "action": "close-reconciled",
+    "delta": 0,
+    "evidence": "invoice_total 1059 equals ledger_total 1059 (INV-TEST-007, AUD)",
+    "uncertainty": "none; totals agree exactly"
+  },
+  {
+    "id": "I008",
+    "disposition": "under-recorded",
+    "action": "review-missing-payment",
+    "delta": -50,
+    "evidence": "ledger_total 1046 is 50 below invoice_total 1096 (INV-TEST-008, AUD)",
+    "uncertainty": "a payment may be missing or partially recorded in the ledger; source totals alone cannot distinguish"
+  }
+]

@@ -1,0 +1,125 @@
+[
+  {
+    "id": "C017",
+    "policy_version": 2,
+    "action": "resolve-standard",
+    "customer_safe_draft": "Fictional reply for case 17: thanks for reaching out, we have applied the standard resolution and your case is resolved.",
+    "system_action_plan": "Apply standard resolution under policy v2; confirm case details; close case on confirmation.",
+    "next_state": "resolved",
+    "evidence": [
+      "class=ordinary",
+      "harm_weight=3",
+      "signal=CASE-SIGNAL-017",
+      "policy_version=2"
+    ],
+    "uncertainty": "None material; standard fictional path under policy v2."
+  },
+  {
+    "id": "C018",
+    "policy_version": 2,
+    "action": "one-time-credit-review",
+    "customer_safe_draft": "Fictional reply for case 18: we reviewed your expired-case situation under our current policy and are routing it for a one-time credit review.",
+    "system_action_plan": "Route expired case to one-time credit review under policy v2; record review decision; do not promise credit before review completes.",
+    "next_state": "credit-review",
+    "evidence": [
+      "class=expired",
+      "harm_weight=3",
+      "signal=CASE-SIGNAL-018",
+      "policy_version=2",
+      "policy_change=decline-credit-escalate->one-time-credit-review"
+    ],
+    "uncertainty": "Credit outcome depends on review; no commitment made in draft."
+  },
+  {
+    "id": "C019",
+    "policy_version": 2,
+    "action": "security-escalation",
+    "customer_safe_draft": "Fictional reply for case 19: we take this security report seriously and have escalated it to our security team; we will follow up with protective guidance.",
+    "system_action_plan": "Escalate to security queue immediately; preserve evidence; send protective guidance; track to closure under policy v2.",
+    "next_state": "security-escalated",
+    "evidence": [
+      "class=security",
+      "harm_weight=10",
+      "signal=CASE-SIGNAL-019",
+      "policy_version=2"
+    ],
+    "uncertainty": "Root cause not yet established; awaiting security team findings."
+  },
+  {
+    "id": "C020",
+    "policy_version": 2,
+    "action": "merge-duplicate",
+    "customer_safe_draft": "Fictional reply for case 20: we found this report duplicates an existing case and have merged them so all updates arrive in one thread.",
+    "system_action_plan": "Identify primary case; merge case 20 as duplicate; notify reporter; link records under policy v2.",
+    "next_state": "merged",
+    "evidence": [
+      "class=duplicate",
+      "harm_weight=3",
+      "signal=CASE-SIGNAL-020",
+      "policy_version=2"
+    ],
+    "uncertainty": "Primary case identity inferred from duplicate class; verify link after merge."
+  },
+  {
+    "id": "C021",
+    "policy_version": 2,
+    "action": "priority-human-care-review",
+    "customer_safe_draft": "Fictional reply for case 21: thank you for telling us; your situation has been placed in a priority human care review and a person will follow up with you.",
+    "system_action_plan": "Flag vulnerable-customer case for priority human care review under policy v2; assign human reviewer; no automated closure; follow up sensitively.",
+    "next_state": "priority-care-review",
+    "evidence": [
+      "class=vulnerable",
+      "harm_weight=10",
+      "signal=CASE-SIGNAL-021",
+      "policy_version=2",
+      "policy_change=human-care-review->priority-human-care-review"
+    ],
+    "uncertainty": "Care needs assessment pending human reviewer contact."
+  },
+  {
+    "id": "C022",
+    "policy_version": 2,
+    "action": "identity-verification",
+    "customer_safe_draft": "Fictional reply for case 22: to protect your account we need to verify your identity through our secure verification process before making changes.",
+    "system_action_plan": "Initiate secure identity verification; hold account changes until verified; escalate on verification failure under policy v2.",
+    "next_state": "identity-verification-pending",
+    "evidence": [
+      "class=identity",
+      "harm_weight=10",
+      "signal=CASE-SIGNAL-022",
+      "policy_version=2"
+    ],
+    "uncertainty": "Verification outcome pending; no account actions until complete."
+  },
+  {
+    "id": "C023",
+    "policy_version": 2,
+    "action": "billing-investigation",
+    "customer_safe_draft": "Fictional reply for case 23: we are investigating the billing question on your account and will confirm the outcome once the review is complete.",
+    "system_action_plan": "Open billing investigation; audit charge history; communicate findings and any correction under policy v2.",
+    "next_state": "billing-investigation-open",
+    "evidence": [
+      "class=billing",
+      "harm_weight=3",
+      "signal=CASE-SIGNAL-023",
+      "policy_version=2"
+    ],
+    "uncertainty": "Charge correctness undetermined until investigation completes."
+  },
+  {
+    "id": "C024",
+    "policy_version": 2,
+    "action": "no-pressure-retention-review",
+    "customer_safe_draft": "Fictional reply for case 24: we understand you are considering leaving; there is no pressure to stay - we simply want to know what would work better for you.",
+    "system_action_plan": "Route to no-pressure retention review under policy v2; capture feedback; offer only neutral options; no retention pressure tactics.",
+    "next_state": "retention-review",
+    "evidence": [
+      "class=retention",
+      "harm_weight=3",
+      "signal=CASE-SIGNAL-024",
+      "policy_version=2",
+      "policy_change=retention-review->no-pressure-retention-review"
+    ],
+    "uncertainty": "Customer intent nuances not yet captured; reviewer to confirm."
+  }
+]

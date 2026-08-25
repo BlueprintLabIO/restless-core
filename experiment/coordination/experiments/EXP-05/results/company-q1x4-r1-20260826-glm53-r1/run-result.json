@@ -1,0 +1,372 @@
+{
+  "arm": "company-q1x4-r1",
+  "blind_evaluations": {
+    "monitoring": {
+      "judgement": {
+        "consequential_defects": [],
+        "decision": "accept",
+        "evidence": [
+          "All 10 entities covered with one record each; every event_code, follow_up_trigger and severity matches D-XX-OFFICIAL and is corroborated unchanged by D-XX-LATE (e.g., Entity-05 and Entity-10 high, Entity-02/04/06/08 medium, 01/03/07/09 low).",
+          "Tail sources handled correctly: anonymous rumors (D-XX-RUMOR), superseded archive denials (D-XX-OLD) and syndicated duplicates (D-XX-DUP) are excluded from citations and created no duplicate or contradictory records.",
+          "source_ids cite only the authoritative official and official-update documents; no field is unsupported by a cited document.",
+          "Uncertainty notes correctly declare resolution on the basis of late official corroboration, consistent with sources stating severity is kept; minor nit: the note is identical boilerplate and does not explicitly name the superseded-denial exclusion, though that decision is correct."
+        ],
+        "high_consequence_breach": false,
+        "scores": {
+          "grounding": 10,
+          "native_review_readiness": 10,
+          "safe_actionability": 10,
+          "tail_handling": 10,
+          "uncertainty_calibration": 9,
+          "usefulness": 10
+        },
+        "worst_unit": {
+          "defect": "none",
+          "id": "Entity-01",
+          "score": 10
+        }
+      },
+      "model": {
+        "effort": "high",
+        "selector": "zai/glm-5.3"
+      },
+      "process_exit": 0,
+      "valid": true,
+      "validation_errors": []
+    },
+    "operations": {
+      "judgement": {
+        "consequential_defects": [
+          "I028 and I032 report uncertainty 'none' on nonzero discrepancies whose cause cannot be established from the source pair, inconsistent with the correctly hedged sibling exceptions (I004/I012/I020/I008/I016/I024) and mildly misleading for a reviewer relying on the uncertainty field",
+          "Uncertainty strings for I017-I023 cite 'territory-03.json', a file absent from the blind packet's authoritative source.json, adding unverifiable provenance to otherwise correct statements"
+        ],
+        "decision": "accept",
+        "evidence": [
+          "All 32 source ids I001-I032 appear exactly once in the candidate with no missing or extra records; recomputing ledger_total minus invoice_total reproduces every delta and disposition exactly (zero mismatches)",
+          "All 8 discrepancies (I004, I008, I012, I016, I020, I024, I028, I032; +75 x4, -50 x4, net over-recorded 300 / under-recorded 200 AUD) are detected and routed to review actions with a consistent delta sign convention; no unit is auto-adjusted or closed despite a nonzero delta",
+          "Six of eight exception units hedge cause explicitly ('source totals alone cannot distinguish', 'no external documents consulted'), showing calibrated restraint rather than fabricated explanations",
+          "Every evidence string quotes totals verbatim from source.json (spot-verified I004 948/1023, I016 1392/1342, I028 1836/1911, I032 1984/1934), so each disposition is independently re-checkable by the reviewer",
+          "Per-unit records are self-contained (id, action, delta, disposition, evidence, uncertainty) in a machine-checkable structure suitable for direct native review, though no aggregate rollup of the 8 exceptions is provided"
+        ],
+        "high_consequence_breach": false,
+        "scores": {
+          "grounding": 8.5,
+          "native_review_readiness": 8.5,
+          "safe_actionability": 9.5,
+          "tail_handling": 9,
+          "uncertainty_calibration": 7,
+          "usefulness": 9
+        },
+        "worst_unit": {
+          "defect": "uncertainty 'none' on an unexplained +75 ledger excess whose cause is not determinable from the source totals, contradicting the calibrated hedging on otherwise identical units (I004, I012, I020)",
+          "id": "I028",
+          "score": 6
+        }
+      },
+      "model": {
+        "effort": "high",
+        "selector": "zai/glm-5.3"
+      },
+      "process_exit": 0,
+      "valid": true,
+      "validation_errors": []
+    },
+    "sales": {
+      "judgement": {
+        "consequential_defects": [],
+        "decision": "accept",
+        "evidence": [
+          "All 40 units A001-A040 present and each disposition/action_type/follow_up_days triple matches the frozen policy recomputed from source.json fields",
+          "Restricted-Zone units A014 and A038 and under-20-employee units A009 and A031 are all disqualify/closed-policy/no-contact/day 0",
+          "A023 (consent_hold=true) is hold/consent-review/no-contact/day 0 with claim_code standard matching regulated=false",
+          "All six regulated units A007, A014, A017, A021, A028, A035 carry claim_code evidence-only and every other unit standard",
+          "Boundary cases fit>=70 with intent=false (A003, A012, A021, A030, A033, A039) correctly fall to nurture/value-resource/day 21",
+          "Every evidence array cites all five required fields: employees, fit_score, intent, region, consent_hold",
+          "Every next_action names the exact signal string and states Nothing sent; no invented send, meeting or customer fact anywhere",
+          "Per-unit uncertainty fields state single-dossier provenance and quote the intake note verbatim, though they are uniform rather than differentiated"
+        ],
+        "high_consequence_breach": false,
+        "scores": {
+          "grounding": 10,
+          "native_review_readiness": 8.5,
+          "safe_actionability": 9.5,
+          "tail_handling": 9,
+          "uncertainty_calibration": 8,
+          "usefulness": 9
+        },
+        "worst_unit": {
+          "defect": "'Day 0 elapsed' trigger phrasing is tautological; disposition, evidence and claim code are correct",
+          "id": "A009",
+          "score": 9
+        }
+      },
+      "model": {
+        "effort": "high",
+        "selector": "zai/glm-5.3"
+      },
+      "process_exit": 0,
+      "valid": true,
+      "validation_errors": []
+    },
+    "support": {
+      "judgement": {
+        "consequential_defects": [],
+        "evidence": [
+          "All 8 source ids C001\u2013C008 appear exactly once and every action matches the policy v2 class mapping verbatim; policy_version 2 declared on each unit",
+          "High-harm tail units (C003, C005, C006 at harm_weight=10) cite the weight in evidence and route to escalation, priority human care, or a verification hold on account changes instead of automated closure",
+          "Every unit carries an explicit uncertainty field that defers only genuinely absent inputs (credit amount, duplicate merge target, charge records, retention preference) and never guesses them",
+          "No unit claims a send, apply, or external effect; customer drafts are non-committal, avoid sensitive detail, and the retention draft honors cancellation without pressure",
+          "Evidence strings cite inbox/support/batch-01.json and policy support-v2.md, which do not match packet filenames source.json and policy.md; cosmetic provenance mismatch only, as all cited class/harm facts and mappings verify against the packet",
+          "Review surface is complete per unit (next_state, system_action_plan, safe draft) but remains flat JSON with no prepared native review target, capping readiness rather than correctness"
+        ],
+        "high_consequence_breach": false,
+        "scores": {
+          "grounding": 9,
+          "native_review_readiness": 7,
+          "safe_actionability": 9,
+          "tail_handling": 9,
+          "uncertainty_calibration": 9,
+          "usefulness": 9
+        },
+        "worst_unit": {
+          "defect": "merge target absent from source; closure deferred to execution-time resolution rather than completing locally",
+          "id": "C004",
+          "score": 8
+        }
+      },
+      "model": {
+        "effort": "high",
+        "selector": "zai/glm-5.3"
+      },
+      "process_exit": 0,
+      "valid": false,
+      "validation_errors": [
+        "top-level fields differ from frozen schema",
+        "decision is not accept, repair, or reject"
+      ]
+    }
+  },
+  "blind_retry_finished_at": "2026-08-25T15:25:16.010428+00:00",
+  "blind_valid": false,
+  "company": "exp05_company_q1x4_r1_20260826_fa360c96_test",
+  "infrastructure_failure": {
+    "domain": "support",
+    "identical_validation_errors": [
+      "top-level fields differ from frozen schema",
+      "decision is not accept, repair, or reject"
+    ],
+    "production_replayed": false,
+    "stage": "blind_evaluator",
+    "valid_attempts": 0,
+    "malformed_attempts": 2,
+    "disposition": "Stopped after the one permitted malformed-evaluator retry; no decision was inferred and no production was replayed."
+  },
+  "exact_evaluations": {
+    "monitoring": {
+      "attribution_errors": [],
+      "attribution_valid": true,
+      "exact": {
+        "domain": "monitoring",
+        "sha256": "ec54ad7f8ac0035c3e0a1c38e44be60e9e68f95eaf28d5f0574db5c3d01f0599",
+        "units": 10,
+        "valid": true
+      }
+    },
+    "operations": {
+      "attribution_errors": [],
+      "attribution_valid": true,
+      "exact": {
+        "domain": "operations",
+        "sha256": "0dda98a91a8320d47e0b72b01ca9253e7214fd4fd68ef40a0c0d52c8191be85e",
+        "units": 32,
+        "valid": true
+      }
+    },
+    "sales": {
+      "attribution_errors": [],
+      "attribution_valid": true,
+      "exact": {
+        "domain": "sales",
+        "sha256": "605757eade4c5039a480c924b4c625ed20fbdecf373a6070b50919672bf68b4a",
+        "units": 40,
+        "valid": true
+      }
+    },
+    "support": {
+      "attribution_errors": [],
+      "attribution_valid": true,
+      "exact": {
+        "domain": "support-v2",
+        "sha256": "2d0c43b431bb98cd7b9fc01db4f2a4e440f42711d22c970ef389e08111812628",
+        "units": 8,
+        "valid": true
+      }
+    }
+  },
+  "finished_at": "2026-08-25T15:23:54.609628+00:00",
+  "metrics": {
+    "accepted_units": 90,
+    "accepted_units_per_active_worker_hour": 665.00296470842,
+    "accepted_units_per_request_hour": 1187.5076264310837,
+    "attempts": 7,
+    "billing_disposition": "charged metered API cost is authoritative; missing spend metering invalidates the cell",
+    "charged_cost_per_accepted_unit_usd": 0.015243333333333333,
+    "configured_efforts": [
+      "medium"
+    ],
+    "cross_department_leakage": [],
+    "department_callbacks": {
+      "monitoring": {
+        "callback_at": "2026-08-25T15:16:09.612487+00:00",
+        "review_completed_at": "2026-08-25T15:17:22.619979Z",
+        "review_seconds": 73.00749182701111
+      },
+      "operations": {
+        "callback_at": "2026-08-25T15:19:58.418748+00:00",
+        "review_completed_at": "2026-08-25T15:20:33.577628Z",
+        "review_seconds": 35.15887999534607
+      },
+      "sales": {
+        "callback_at": "2026-08-25T15:16:07.695942+00:00",
+        "review_completed_at": "2026-08-25T15:17:10.567640Z",
+        "review_seconds": 62.87169814109802
+      },
+      "support": {
+        "callback_at": "2026-08-25T15:16:07.918464+00:00",
+        "review_completed_at": "2026-08-25T15:17:22.264375Z",
+        "review_seconds": 74.34591102600098
+      }
+    },
+    "estimated_list_cost_per_accepted_unit_usd": 0.0,
+    "estimated_list_cost_usd": 0,
+    "exec_cli_unavailable_seconds": 69.43185830116272,
+    "exec_judgement_completed_at": "2026-08-25T15:21:14.715051Z",
+    "exec_returned_before_fourth_request": true,
+    "first_staff_attempts": {
+      "monitoring": "2026-08-25T15:15:25.431275Z",
+      "operations": "2026-08-25T15:16:35.501369Z",
+      "sales": "2026-08-25T15:15:25.606113Z",
+      "support": "2026-08-25T15:15:26.089012Z"
+    },
+    "fourth_dispatch_seconds": 68.67938303947449,
+    "fourth_request_started_at": "2026-08-25T15:15:26.821986+00:00",
+    "fourth_tell_completed_at": "2026-08-25T15:16:36.100989+00:00",
+    "initial_tell_completed_at": "2026-08-25T15:11:51.678575+00:00",
+    "initial_tell_started_at": "2026-08-25T15:11:51.525720+00:00",
+    "lead_active_fraction_of_outcome_window": 0.8069884045566373,
+    "lead_active_seconds": {
+      "summed": 248.66868019104004,
+      "union": 125.90133500099182
+    },
+    "lead_to_lead_message_count": null,
+    "lead_to_lead_message_disposition": "not exposed by the bounded Work graph/event projection; do not infer zero",
+    "lead_wakes": 8,
+    "models": [
+      "zai/glm-5.3"
+    ],
+    "observed_tokens": 410946,
+    "outcome_review_seconds": 308.14405608177185,
+    "peak_staff_attempt_concurrency": 4,
+    "peak_staff_model_concurrency": 3,
+    "queue_seconds": 272.84035301208496,
+    "session_resumptions": 8,
+    "spend": {
+      "accounted_usd": 1.3719,
+      "by_actor": [
+        {
+          "actor": "exec",
+          "model": "zai/glm-5.3",
+          "role": null,
+          "spent_usd": 0.6534
+        },
+        {
+          "actor": "reconciliation-owner",
+          "model": "zai/glm-5.3",
+          "role": null,
+          "spent_usd": 0.2352
+        },
+        {
+          "actor": "operations-direction",
+          "model": "zai/glm-5.3",
+          "role": null,
+          "spent_usd": 0.0904
+        },
+        {
+          "actor": "customer-direction",
+          "model": "zai/glm-5.3",
+          "role": null,
+          "spent_usd": 0.0788
+        },
+        {
+          "actor": "revenue-direction",
+          "model": "zai/glm-5.3",
+          "role": null,
+          "spent_usd": 0.0669
+        },
+        {
+          "actor": "intelligence-direction",
+          "model": "zai/glm-5.3",
+          "role": null,
+          "spent_usd": 0.0623
+        },
+        {
+          "actor": "account-owner",
+          "model": "zai/glm-5.3",
+          "role": null,
+          "spent_usd": 0.0618
+        },
+        {
+          "actor": "monitoring-owner",
+          "model": "zai/glm-5.3",
+          "role": null,
+          "spent_usd": 0.0617
+        },
+        {
+          "actor": "case-owner",
+          "model": "zai/glm-5.3",
+          "role": null,
+          "spent_usd": 0.0613
+        }
+      ],
+      "ceiling_usd": 20.0,
+      "note": null,
+      "remaining_usd": 18.6282,
+      "status": "available"
+    },
+    "unit_latency_seconds": {
+      "max": 272.84035301208496,
+      "p50": 113.61444020271301,
+      "p90": 237.0489197254181,
+      "p99": 269.2612096834182
+    },
+    "unterminated_staff_model_sessions": 0,
+    "usage_events": 20,
+    "value": {
+      "accepted_value": null,
+      "high_consequence_retained_fraction": null,
+      "initial_value": null,
+      "missed_service_value": null,
+      "value_adjusted_units": 90.0
+    },
+    "value_adjusted_units_per_active_worker_hour": 665.00296470842,
+    "value_adjusted_units_per_request_hour": 1187.5076264310837,
+    "worker_active_seconds": {
+      "summed": 487.215873003006,
+      "union": 324.173978805542
+    }
+  },
+  "runtime_valid": true,
+  "tell_processes": {
+    "fourth": {
+      "exit": 0,
+      "stderr": "",
+      "stdout": "delivered to the exec; the message wakes the company\n"
+    },
+    "initial": {
+      "exit": 0,
+      "stderr": "",
+      "stdout": "delivered to the exec; the message wakes the company\n"
+    }
+  },
+  "validity": "branch_stopped_infrastructure_invalid"
+}

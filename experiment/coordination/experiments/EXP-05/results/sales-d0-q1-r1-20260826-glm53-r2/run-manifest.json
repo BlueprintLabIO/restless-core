@@ -1,0 +1,32 @@
+{
+  "arm": {
+    "arm_id": "sales-d0-q1-r1",
+    "demand": "D0",
+    "domain": "sales",
+    "shape": "q1",
+    "supervision": null,
+    "wave": 1,
+    "workers": 1
+  },
+  "counted_path": "restlessd + OrgIntel scheduler + scoped ACP",
+  "models": {
+    "blind_evaluator": {
+      "effort": "high",
+      "selector": "zai/glm-5.3"
+    },
+    "exec": {
+      "effort": "medium",
+      "selector": "zai/glm-5.3"
+    },
+    "lead": {
+      "effort": "medium",
+      "selector": "zai/glm-5.3"
+    },
+    "staff": {
+      "effort": "medium",
+      "selector": "zai/glm-5.3"
+    }
+  },
+  "run_token": "20260826-glm53-r2",
+  "started_at": "2026-08-25T15:26:39.739212+00:00"
+}

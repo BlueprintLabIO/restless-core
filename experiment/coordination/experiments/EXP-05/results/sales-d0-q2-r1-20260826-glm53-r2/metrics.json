@@ -1,0 +1,123 @@
+{
+  "accepted_units": 240,
+  "accepted_units_per_active_worker_hour": 2675.6578613254587,
+  "accepted_units_per_request_hour": 5805.076961606713,
+  "arrivals": [
+    {
+      "observed_at": "2026-08-25T15:37:04.597283+00:00",
+      "offset_seconds": 0,
+      "unit": "sales batch 01"
+    },
+    {
+      "observed_at": "2026-08-25T15:37:04.709632+00:00",
+      "offset_seconds": 0,
+      "unit": "sales batch 02"
+    },
+    {
+      "observed_at": "2026-08-25T15:37:04.903128+00:00",
+      "offset_seconds": 0,
+      "unit": "sales batch 03"
+    },
+    {
+      "observed_at": "2026-08-25T15:37:05.071095+00:00",
+      "offset_seconds": 0,
+      "unit": "sales batch 04"
+    },
+    {
+      "observed_at": "2026-08-25T15:37:05.218041+00:00",
+      "offset_seconds": 0,
+      "unit": "sales batch 05"
+    },
+    {
+      "observed_at": "2026-08-25T15:37:05.485689+00:00",
+      "offset_seconds": 0,
+      "unit": "sales batch 06"
+    }
+  ],
+  "attempts": 6,
+  "billing_disposition": "charged metered API cost is authoritative; missing spend metering invalidates the cell",
+  "charged_cost_per_accepted_unit_usd": 0.002012083333333333,
+  "configured_efforts": [
+    "medium"
+  ],
+  "estimated_list_cost_per_accepted_unit_usd": 0.0,
+  "estimated_list_cost_usd": 0,
+  "exact_validation_completed_at": "2026-08-25T15:40:27.331785+00:00",
+  "exec_judgement_completed_at": "2026-08-25T15:41:44.413864Z",
+  "exec_to_staff_dispatch_seconds": 53.01080894470215,
+  "first_staff_attempt_at": "2026-08-25T15:37:58.496549Z",
+  "lead_active_fraction_of_outcome_window": 0.4023687840115083,
+  "lead_active_seconds": {
+    "summed": 71.49816989898682,
+    "union": 71.49816989898682
+  },
+  "lead_review_completed_at": "2026-08-25T15:40:56.193055Z",
+  "lead_review_seconds": 28.8612699508667,
+  "lead_wakes": 2,
+  "models": [
+    "zai/glm-5.3"
+  ],
+  "observed_tokens": 153381,
+  "outcome_review_seconds": 177.69313311576843,
+  "peak_staff_attempt_concurrency": 2,
+  "peak_staff_model_concurrency": 2,
+  "queue_seconds": 148.83523607254028,
+  "session_resumptions": 2,
+  "spend": {
+    "accounted_usd": 0.4829,
+    "by_actor": [
+      {
+        "actor": "account-south",
+        "model": "zai/glm-5.3",
+        "role": null,
+        "spent_usd": 0.1525
+      },
+      {
+        "actor": "account-north",
+        "model": "zai/glm-5.3",
+        "role": null,
+        "spent_usd": 0.1424
+      },
+      {
+        "actor": "exec",
+        "model": "zai/glm-5.3",
+        "role": null,
+        "spent_usd": 0.1004
+      },
+      {
+        "actor": "revenue-direction",
+        "model": "zai/glm-5.3",
+        "role": null,
+        "spent_usd": 0.0875
+      }
+    ],
+    "ceiling_usd": 12.0,
+    "note": null,
+    "remaining_usd": 11.5171,
+    "status": "available"
+  },
+  "support_event": null,
+  "tell_started_at": "2026-08-25T15:37:05.485740+00:00",
+  "unit_latency_seconds": {
+    "max": 148.83523607254028,
+    "p50": 94.54161012172699,
+    "p90": 146.7100191116333,
+    "p99": 148.6227143764496
+  },
+  "unterminated_staff_model_sessions": 0,
+  "usage_events": 10,
+  "validator_callback_at": "2026-08-25T15:40:27.494383+00:00",
+  "value": {
+    "accepted_value": 240.0,
+    "high_consequence_retained_fraction": null,
+    "initial_value": 240.0,
+    "missed_service_value": 0.0,
+    "value_adjusted_units": 240.0
+  },
+  "value_adjusted_units_per_active_worker_hour": 2675.6578613254587,
+  "value_adjusted_units_per_request_hour": 5805.076961606713,
+  "worker_active_seconds": {
+    "summed": 322.91124081611633,
+    "union": 163.46508502960205
+  }
+}

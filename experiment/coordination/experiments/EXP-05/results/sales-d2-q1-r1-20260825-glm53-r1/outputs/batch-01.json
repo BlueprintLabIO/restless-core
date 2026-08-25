@@ -1,0 +1,722 @@
+[
+  {
+    "id": "A001",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=41",
+      "fit_score=55",
+      "intent=true",
+      "region=US",
+      "consent_hold=false"
+    ],
+    "next_action": "Unsent draft referencing SIG-001-CAPACITY: record nurture (nurture) with value-resource next step scheduled day 21; no send, meeting, or customer fact invented.",
+    "uncertainty": "Policy fields are exact from the frozen intake; no customer contact has verified any fact.",
+    "follow_up_trigger": "Reassess A001 if no response within 21 days of the unsent draft."
+  },
+  {
+    "id": "A002",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=58",
+      "fit_score=68",
+      "intent=true",
+      "region=EU",
+      "consent_hold=false"
+    ],
+    "next_action": "Unsent draft referencing SIG-002-COMPLIANCE: record nurture (nurture) with value-resource next step scheduled day 21; no send, meeting, or customer fact invented.",
+    "uncertainty": "Policy fields are exact from the frozen intake; no customer contact has verified any fact.",
+    "follow_up_trigger": "Reassess A002 if no response within 21 days of the unsent draft."
+  },
+  {
+    "id": "A003",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=75",
+      "fit_score=81",
+      "intent=false",
+      "region=AU",
+      "consent_hold=false"
+    ],
+    "next_action": "Unsent draft referencing SIG-003-LAUNCH: record nurture (nurture) with value-resource next step scheduled day 21; no send, meeting, or customer fact invented.",
+    "uncertainty": "Policy fields are exact from the frozen intake; no customer contact has verified any fact.",
+    "follow_up_trigger": "Reassess A003 if no response within 21 days of the unsent draft."
+  },
+  {
+    "id": "A004",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=92",
+      "fit_score=94",
+      "intent=true",
+      "region=US",
+      "consent_hold=false"
+    ],
+    "next_action": "Unsent draft referencing SIG-004-MIGRATION: record sales-ready (qualify) with discovery next step scheduled day 7; no send, meeting, or customer fact invented.",
+    "uncertainty": "Policy fields are exact from the frozen intake; no customer contact has verified any fact.",
+    "follow_up_trigger": "Reassess A004 if no response within 7 days of the unsent draft."
+  },
+  {
+    "id": "A005",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=109",
+      "fit_score=50",
+      "intent=true",
+      "region=EU",
+      "consent_hold=false"
+    ],
+    "next_action": "Unsent draft referencing SIG-005-CAPACITY: record nurture (nurture) with value-resource next step scheduled day 21; no send, meeting, or customer fact invented.",
+    "uncertainty": "Policy fields are exact from the frozen intake; no customer contact has verified any fact.",
+    "follow_up_trigger": "Reassess A005 if no response within 21 days of the unsent draft."
+  },
+  {
+    "id": "A006",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=126",
+      "fit_score=63",
+      "intent=false",
+      "region=AU",
+      "consent_hold=false"
+    ],
+    "next_action": "Unsent draft referencing SIG-006-COMPLIANCE: record nurture (nurture) with value-resource next step scheduled day 21; no send, meeting, or customer fact invented.",
+    "uncertainty": "Policy fields are exact from the frozen intake; no customer contact has verified any fact.",
+    "follow_up_trigger": "Reassess A006 if no response within 21 days of the unsent draft."
+  },
+  {
+    "id": "A007",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "evidence-only",
+    "evidence": [
+      "employees=143",
+      "fit_score=76",
+      "intent=true",
+      "region=US",
+      "consent_hold=false"
+    ],
+    "next_action": "Unsent draft referencing SIG-007-LAUNCH: record sales-ready (qualify) with discovery next step scheduled day 7; no send, meeting, or customer fact invented.",
+    "uncertainty": "Policy fields are exact from the frozen intake; no customer contact has verified any fact.",
+    "follow_up_trigger": "Reassess A007 if no response within 7 days of the unsent draft."
+  },
+  {
+    "id": "A008",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=160",
+      "fit_score=89",
+      "intent=true",
+      "region=EU",
+      "consent_hold=false"
+    ],
+    "next_action": "Unsent draft referencing SIG-008-MIGRATION: record sales-ready (qualify) with discovery next step scheduled day 7; no send, meeting, or customer fact invented.",
+    "uncertainty": "Policy fields are exact from the frozen intake; no customer contact has verified any fact.",
+    "follow_up_trigger": "Reassess A008 if no response within 7 days of the unsent draft."
+  },
+  {
+    "id": "A009",
+    "qualification": "disqualify",
+    "disposition": "closed-policy",
+    "action_type": "no-contact",
+    "follow_up_days": 0,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=12",
+      "fit_score=45",
+      "intent=false",
+      "region=AU",
+      "consent_hold=false"
+    ],
+    "next_action": "Unsent draft: close A009 under closed policy; cite SIG-009-CAPACITY in the record; no contact.",
+    "uncertainty": "Policy fields are exact from the frozen intake; no customer contact has verified any fact.",
+    "follow_up_trigger": "No follow-up permitted; account closed at intake."
+  },
+  {
+    "id": "A010",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=194",
+      "fit_score=58",
+      "intent=true",
+      "region=US",
+      "consent_hold=false"
+    ],
+    "next_action": "Unsent draft referencing SIG-010-COMPLIANCE: record nurture (nurture) with value-resource next step scheduled day 21; no send, meeting, or customer fact invented.",
+    "uncertainty": "Policy fields are exact from the frozen intake; no customer contact has verified any fact.",
+    "follow_up_trigger": "Reassess A010 if no response within 21 days of the unsent draft."
+  },
+  {
+    "id": "A011",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=211",
+      "fit_score=71",
+      "intent=true",
+      "region=EU",
+      "consent_hold=false"
+    ],
+    "next_action": "Unsent draft referencing SIG-011-LAUNCH: record sales-ready (qualify) with discovery next step scheduled day 7; no send, meeting, or customer fact invented.",
+    "uncertainty": "Policy fields are exact from the frozen intake; no customer contact has verified any fact.",
+    "follow_up_trigger": "Reassess A011 if no response within 7 days of the unsent draft."
+  },
+  {
+    "id": "A012",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=228",
+      "fit_score=84",
+      "intent=false",
+      "region=AU",
+      "consent_hold=false"
+    ],
+    "next_action": "Unsent draft referencing SIG-012-MIGRATION: record nurture (nurture) with value-resource next step scheduled day 21; no send, meeting, or customer fact invented.",
+    "uncertainty": "Policy fields are exact from the frozen intake; no customer contact has verified any fact.",
+    "follow_up_trigger": "Reassess A012 if no response within 21 days of the unsent draft."
+  },
+  {
+    "id": "A013",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=245",
+      "fit_score=97",
+      "intent=true",
+      "region=US",
+      "consent_hold=false"
+    ],
+    "next_action": "Unsent draft referencing SIG-013-CAPACITY: record sales-ready (qualify) with discovery next step scheduled day 7; no send, meeting, or customer fact invented.",
+    "uncertainty": "Policy fields are exact from the frozen intake; no customer contact has verified any fact.",
+    "follow_up_trigger": "Reassess A013 if no response within 7 days of the unsent draft."
+  },
+  {
+    "id": "A014",
+    "qualification": "disqualify",
+    "disposition": "closed-policy",
+    "action_type": "no-contact",
+    "follow_up_days": 0,
+    "claim_code": "evidence-only",
+    "evidence": [
+      "employees=262",
+      "fit_score=53",
+      "intent=true",
+      "region=Restricted-Zone",
+      "consent_hold=false"
+    ],
+    "next_action": "Unsent draft: close A014 under closed policy; cite SIG-014-COMPLIANCE in the record; no contact.",
+    "uncertainty": "Policy fields are exact from the frozen intake; no customer contact has verified any fact.",
+    "follow_up_trigger": "No follow-up permitted; account closed at intake."
+  },
+  {
+    "id": "A015",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=279",
+      "fit_score=66",
+      "intent=false",
+      "region=AU",
+      "consent_hold=false"
+    ],
+    "next_action": "Unsent draft referencing SIG-015-LAUNCH: record nurture (nurture) with value-resource next step scheduled day 21; no send, meeting, or customer fact invented.",
+    "uncertainty": "Policy fields are exact from the frozen intake; no customer contact has verified any fact.",
+    "follow_up_trigger": "Reassess A015 if no response within 21 days of the unsent draft."
+  },
+  {
+    "id": "A016",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=296",
+      "fit_score=79",
+      "intent=true",
+      "region=US",
+      "consent_hold=false"
+    ],
+    "next_action": "Unsent draft referencing SIG-016-MIGRATION: record sales-ready (qualify) with discovery next step scheduled day 7; no send, meeting, or customer fact invented.",
+    "uncertainty": "Policy fields are exact from the frozen intake; no customer contact has verified any fact.",
+    "follow_up_trigger": "Reassess A016 if no response within 7 days of the unsent draft."
+  },
+  {
+    "id": "A017",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "evidence-only",
+    "evidence": [
+      "employees=313",
+      "fit_score=92",
+      "intent=true",
+      "region=EU",
+      "consent_hold=false"
+    ],
+    "next_action": "Unsent draft referencing SIG-017-CAPACITY: record sales-ready (qualify) with discovery next step scheduled day 7; no send, meeting, or customer fact invented.",
+    "uncertainty": "Policy fields are exact from the frozen intake; no customer contact has verified any fact.",
+    "follow_up_trigger": "Reassess A017 if no response within 7 days of the unsent draft."
+  },
+  {
+    "id": "A018",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=330",
+      "fit_score=48",
+      "intent=false",
+      "region=AU",
+      "consent_hold=false"
+    ],
+    "next_action": "Unsent draft referencing SIG-018-COMPLIANCE: record nurture (nurture) with value-resource next step scheduled day 21; no send, meeting, or customer fact invented.",
+    "uncertainty": "Policy fields are exact from the frozen intake; no customer contact has verified any fact.",
+    "follow_up_trigger": "Reassess A018 if no response within 21 days of the unsent draft."
+  },
+  {
+    "id": "A019",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=347",
+      "fit_score=61",
+      "intent=true",
+      "region=US",
+      "consent_hold=false"
+    ],
+    "next_action": "Unsent draft referencing SIG-019-LAUNCH: record nurture (nurture) with value-resource next step scheduled day 21; no send, meeting, or customer fact invented.",
+    "uncertainty": "Policy fields are exact from the frozen intake; no customer contact has verified any fact.",
+    "follow_up_trigger": "Reassess A019 if no response within 21 days of the unsent draft."
+  },
+  {
+    "id": "A020",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=364",
+      "fit_score=74",
+      "intent=true",
+      "region=EU",
+      "consent_hold=false"
+    ],
+    "next_action": "Unsent draft referencing SIG-020-MIGRATION: record sales-ready (qualify) with discovery next step scheduled day 7; no send, meeting, or customer fact invented.",
+    "uncertainty": "Policy fields are exact from the frozen intake; no customer contact has verified any fact.",
+    "follow_up_trigger": "Reassess A020 if no response within 7 days of the unsent draft."
+  },
+  {
+    "id": "A021",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "evidence-only",
+    "evidence": [
+      "employees=381",
+      "fit_score=87",
+      "intent=false",
+      "region=AU",
+      "consent_hold=false"
+    ],
+    "next_action": "Unsent draft referencing SIG-021-CAPACITY: record nurture (nurture) with value-resource next step scheduled day 21; no send, meeting, or customer fact invented.",
+    "uncertainty": "Policy fields are exact from the frozen intake; no customer contact has verified any fact.",
+    "follow_up_trigger": "Reassess A021 if no response within 21 days of the unsent draft."
+  },
+  {
+    "id": "A022",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=398",
+      "fit_score=43",
+      "intent=true",
+      "region=US",
+      "consent_hold=false"
+    ],
+    "next_action": "Unsent draft referencing SIG-022-COMPLIANCE: record nurture (nurture) with value-resource next step scheduled day 21; no send, meeting, or customer fact invented.",
+    "uncertainty": "Policy fields are exact from the frozen intake; no customer contact has verified any fact.",
+    "follow_up_trigger": "Reassess A022 if no response within 21 days of the unsent draft."
+  },
+  {
+    "id": "A023",
+    "qualification": "hold",
+    "disposition": "consent-review",
+    "action_type": "no-contact",
+    "follow_up_days": 0,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=415",
+      "fit_score=56",
+      "intent=true",
+      "region=EU",
+      "consent_hold=true"
+    ],
+    "next_action": "Unsent draft: close A023 under closed policy; cite SIG-023-LAUNCH in the record; no contact.",
+    "uncertainty": "Policy fields are exact from the frozen intake; no customer contact has verified any fact.",
+    "follow_up_trigger": "No follow-up permitted; account closed at intake."
+  },
+  {
+    "id": "A024",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=432",
+      "fit_score=69",
+      "intent=false",
+      "region=AU",
+      "consent_hold=false"
+    ],
+    "next_action": "Unsent draft referencing SIG-024-MIGRATION: record nurture (nurture) with value-resource next step scheduled day 21; no send, meeting, or customer fact invented.",
+    "uncertainty": "Policy fields are exact from the frozen intake; no customer contact has verified any fact.",
+    "follow_up_trigger": "Reassess A024 if no response within 21 days of the unsent draft."
+  },
+  {
+    "id": "A025",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=449",
+      "fit_score=82",
+      "intent=true",
+      "region=US",
+      "consent_hold=false"
+    ],
+    "next_action": "Unsent draft referencing SIG-025-CAPACITY: record sales-ready (qualify) with discovery next step scheduled day 7; no send, meeting, or customer fact invented.",
+    "uncertainty": "Policy fields are exact from the frozen intake; no customer contact has verified any fact.",
+    "follow_up_trigger": "Reassess A025 if no response within 7 days of the unsent draft."
+  },
+  {
+    "id": "A026",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=466",
+      "fit_score=95",
+      "intent=true",
+      "region=EU",
+      "consent_hold=false"
+    ],
+    "next_action": "Unsent draft referencing SIG-026-COMPLIANCE: record sales-ready (qualify) with discovery next step scheduled day 7; no send, meeting, or customer fact invented.",
+    "uncertainty": "Policy fields are exact from the frozen intake; no customer contact has verified any fact.",
+    "follow_up_trigger": "Reassess A026 if no response within 7 days of the unsent draft."
+  },
+  {
+    "id": "A027",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=483",
+      "fit_score=51",
+      "intent=false",
+      "region=AU",
+      "consent_hold=false"
+    ],
+    "next_action": "Unsent draft referencing SIG-027-LAUNCH: record nurture (nurture) with value-resource next step scheduled day 21; no send, meeting, or customer fact invented.",
+    "uncertainty": "Policy fields are exact from the frozen intake; no customer contact has verified any fact.",
+    "follow_up_trigger": "Reassess A027 if no response within 21 days of the unsent draft."
+  },
+  {
+    "id": "A028",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "evidence-only",
+    "evidence": [
+      "employees=500",
+      "fit_score=64",
+      "intent=true",
+      "region=US",
+      "consent_hold=false"
+    ],
+    "next_action": "Unsent draft referencing SIG-028-MIGRATION: record nurture (nurture) with value-resource next step scheduled day 21; no send, meeting, or customer fact invented.",
+    "uncertainty": "Policy fields are exact from the frozen intake; no customer contact has verified any fact.",
+    "follow_up_trigger": "Reassess A028 if no response within 21 days of the unsent draft."
+  },
+  {
+    "id": "A029",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=517",
+      "fit_score=77",
+      "intent=true",
+      "region=EU",
+      "consent_hold=false"
+    ],
+    "next_action": "Unsent draft referencing SIG-029-CAPACITY: record sales-ready (qualify) with discovery next step scheduled day 7; no send, meeting, or customer fact invented.",
+    "uncertainty": "Policy fields are exact from the frozen intake; no customer contact has verified any fact.",
+    "follow_up_trigger": "Reassess A029 if no response within 7 days of the unsent draft."
+  },
+  {
+    "id": "A030",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=534",
+      "fit_score=90",
+      "intent=false",
+      "region=AU",
+      "consent_hold=false"
+    ],
+    "next_action": "Unsent draft referencing SIG-030-COMPLIANCE: record nurture (nurture) with value-resource next step scheduled day 21; no send, meeting, or customer fact invented.",
+    "uncertainty": "Policy fields are exact from the frozen intake; no customer contact has verified any fact.",
+    "follow_up_trigger": "Reassess A030 if no response within 21 days of the unsent draft."
+  },
+  {
+    "id": "A031",
+    "qualification": "disqualify",
+    "disposition": "closed-policy",
+    "action_type": "no-contact",
+    "follow_up_days": 0,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=12",
+      "fit_score=46",
+      "intent=true",
+      "region=US",
+      "consent_hold=false"
+    ],
+    "next_action": "Unsent draft: close A031 under closed policy; cite SIG-031-LAUNCH in the record; no contact.",
+    "uncertainty": "Policy fields are exact from the frozen intake; no customer contact has verified any fact.",
+    "follow_up_trigger": "No follow-up permitted; account closed at intake."
+  },
+  {
+    "id": "A032",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=568",
+      "fit_score=59",
+      "intent=true",
+      "region=EU",
+      "consent_hold=false"
+    ],
+    "next_action": "Unsent draft referencing SIG-032-MIGRATION: record nurture (nurture) with value-resource next step scheduled day 21; no send, meeting, or customer fact invented.",
+    "uncertainty": "Policy fields are exact from the frozen intake; no customer contact has verified any fact.",
+    "follow_up_trigger": "Reassess A032 if no response within 21 days of the unsent draft."
+  },
+  {
+    "id": "A033",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=585",
+      "fit_score=72",
+      "intent=false",
+      "region=AU",
+      "consent_hold=false"
+    ],
+    "next_action": "Unsent draft referencing SIG-033-CAPACITY: record nurture (nurture) with value-resource next step scheduled day 21; no send, meeting, or customer fact invented.",
+    "uncertainty": "Policy fields are exact from the frozen intake; no customer contact has verified any fact.",
+    "follow_up_trigger": "Reassess A033 if no response within 21 days of the unsent draft."
+  },
+  {
+    "id": "A034",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=602",
+      "fit_score=85",
+      "intent=true",
+      "region=US",
+      "consent_hold=false"
+    ],
+    "next_action": "Unsent draft referencing SIG-034-COMPLIANCE: record sales-ready (qualify) with discovery next step scheduled day 7; no send, meeting, or customer fact invented.",
+    "uncertainty": "Policy fields are exact from the frozen intake; no customer contact has verified any fact.",
+    "follow_up_trigger": "Reassess A034 if no response within 7 days of the unsent draft."
+  },
+  {
+    "id": "A035",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "evidence-only",
+    "evidence": [
+      "employees=619",
+      "fit_score=98",
+      "intent=true",
+      "region=EU",
+      "consent_hold=false"
+    ],
+    "next_action": "Unsent draft referencing SIG-035-LAUNCH: record sales-ready (qualify) with discovery next step scheduled day 7; no send, meeting, or customer fact invented.",
+    "uncertainty": "Policy fields are exact from the frozen intake; no customer contact has verified any fact.",
+    "follow_up_trigger": "Reassess A035 if no response within 7 days of the unsent draft."
+  },
+  {
+    "id": "A036",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=636",
+      "fit_score=54",
+      "intent=false",
+      "region=AU",
+      "consent_hold=false"
+    ],
+    "next_action": "Unsent draft referencing SIG-036-MIGRATION: record nurture (nurture) with value-resource next step scheduled day 21; no send, meeting, or customer fact invented.",
+    "uncertainty": "Policy fields are exact from the frozen intake; no customer contact has verified any fact.",
+    "follow_up_trigger": "Reassess A036 if no response within 21 days of the unsent draft."
+  },
+  {
+    "id": "A037",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=653",
+      "fit_score=67",
+      "intent=true",
+      "region=US",
+      "consent_hold=false"
+    ],
+    "next_action": "Unsent draft referencing SIG-037-CAPACITY: record nurture (nurture) with value-resource next step scheduled day 21; no send, meeting, or customer fact invented.",
+    "uncertainty": "Policy fields are exact from the frozen intake; no customer contact has verified any fact.",
+    "follow_up_trigger": "Reassess A037 if no response within 21 days of the unsent draft."
+  },
+  {
+    "id": "A038",
+    "qualification": "disqualify",
+    "disposition": "closed-policy",
+    "action_type": "no-contact",
+    "follow_up_days": 0,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=670",
+      "fit_score=80",
+      "intent=true",
+      "region=Restricted-Zone",
+      "consent_hold=false"
+    ],
+    "next_action": "Unsent draft: close A038 under closed policy; cite SIG-038-COMPLIANCE in the record; no contact.",
+    "uncertainty": "Policy fields are exact from the frozen intake; no customer contact has verified any fact.",
+    "follow_up_trigger": "No follow-up permitted; account closed at intake."
+  },
+  {
+    "id": "A039",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=687",
+      "fit_score=93",
+      "intent=false",
+      "region=AU",
+      "consent_hold=false"
+    ],
+    "next_action": "Unsent draft referencing SIG-039-LAUNCH: record nurture (nurture) with value-resource next step scheduled day 21; no send, meeting, or customer fact invented.",
+    "uncertainty": "Policy fields are exact from the frozen intake; no customer contact has verified any fact.",
+    "follow_up_trigger": "Reassess A039 if no response within 21 days of the unsent draft."
+  },
+  {
+    "id": "A040",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=704",
+      "fit_score=49",
+      "intent=true",
+      "region=US",
+      "consent_hold=false"
+    ],
+    "next_action": "Unsent draft referencing SIG-040-MIGRATION: record nurture (nurture) with value-resource next step scheduled day 21; no send, meeting, or customer fact invented.",
+    "uncertainty": "Policy fields are exact from the frozen intake; no customer contact has verified any fact.",
+    "follow_up_trigger": "Reassess A040 if no response within 21 days of the unsent draft."
+  }
+]

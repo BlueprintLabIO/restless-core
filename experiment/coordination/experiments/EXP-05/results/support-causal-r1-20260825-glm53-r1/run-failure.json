@@ -1,0 +1,42 @@
+{
+  "arm": "support-causal-r1",
+  "command": "run-arm support-causal-r1",
+  "company": "exp05_support_causal_r1_20260825_a5a69cc3_test",
+  "error": "intentional material Work interruption closed the Runtime response before the host relay observed terminal charged usage; exact metering became unknown and charged work fail-closed",
+  "error_type": "MeteringUnknownAfterCancellation",
+  "recorded_at": "2026-08-25T13:52:01Z",
+  "spend": {
+    "accounted_usd": 0.3324,
+    "by_actor": [
+      {
+        "actor": "customer-direction",
+        "model": "zai/glm-5.3",
+        "role": "accountable support outcome lead",
+        "spent_usd": 0.1143
+      },
+      {
+        "actor": "exec",
+        "model": "zai/glm-5.3",
+        "role": "exec",
+        "spent_usd": 0.1115
+      },
+      {
+        "actor": "customer-north",
+        "model": "zai/glm-5.3",
+        "role": "support queue operator",
+        "spent_usd": 0.0737
+      },
+      {
+        "actor": "customer-south",
+        "model": "zai/glm-5.3",
+        "role": "support queue operator",
+        "spent_usd": 0.0329
+      }
+    ],
+    "ceiling_usd": 12.0,
+    "note": "fail-closed: a provider stream could not be exactly accounted, so charged work is paused until model metering is reconciled. accounted_usd remains the real known spend.",
+    "remaining_usd": null,
+    "status": "metering_unknown"
+  },
+  "validity": "invalid"
+}

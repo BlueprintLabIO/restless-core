@@ -1,0 +1,722 @@
+[
+  {
+    "id": "A121",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=121",
+      "fit_score=76",
+      "intent=true",
+      "region=US",
+      "consent_hold=false"
+    ],
+    "next_action": "Unsent draft for Fictional Meridian 121: discovery step referencing observed signal SIG-121-CAPACITY. No send, meeting, or customer fact invented.",
+    "uncertainty": "Derived solely from intake dossier A121; no external verification performed.",
+    "follow_up_trigger": "Day 7 per policy, or sooner if the account's signal SIG-121-CAPACITY changes."
+  },
+  {
+    "id": "A122",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=138",
+      "fit_score=89",
+      "intent=true",
+      "region=EU",
+      "consent_hold=false"
+    ],
+    "next_action": "Unsent draft for Fictional Meridian 122: discovery step referencing observed signal SIG-122-COMPLIANCE. No send, meeting, or customer fact invented.",
+    "uncertainty": "Derived solely from intake dossier A122; no external verification performed.",
+    "follow_up_trigger": "Day 7 per policy, or sooner if the account's signal SIG-122-COMPLIANCE changes."
+  },
+  {
+    "id": "A123",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=155",
+      "fit_score=45",
+      "intent=false",
+      "region=AU",
+      "consent_hold=false"
+    ],
+    "next_action": "Unsent draft for Fictional Meridian 123: value-resource step referencing observed signal SIG-123-LAUNCH. No send, meeting, or customer fact invented.",
+    "uncertainty": "Derived solely from intake dossier A123; no external verification performed.",
+    "follow_up_trigger": "Day 21 per policy, or sooner if the account's signal SIG-123-LAUNCH changes."
+  },
+  {
+    "id": "A124",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=172",
+      "fit_score=58",
+      "intent=true",
+      "region=US",
+      "consent_hold=false"
+    ],
+    "next_action": "Unsent draft for Fictional Meridian 124: value-resource step referencing observed signal SIG-124-MIGRATION. No send, meeting, or customer fact invented.",
+    "uncertainty": "Derived solely from intake dossier A124; no external verification performed.",
+    "follow_up_trigger": "Day 21 per policy, or sooner if the account's signal SIG-124-MIGRATION changes."
+  },
+  {
+    "id": "A125",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=189",
+      "fit_score=71",
+      "intent=true",
+      "region=EU",
+      "consent_hold=false"
+    ],
+    "next_action": "Unsent draft for Fictional Meridian 125: discovery step referencing observed signal SIG-125-CAPACITY. No send, meeting, or customer fact invented.",
+    "uncertainty": "Derived solely from intake dossier A125; no external verification performed.",
+    "follow_up_trigger": "Day 7 per policy, or sooner if the account's signal SIG-125-CAPACITY changes."
+  },
+  {
+    "id": "A126",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "evidence-only",
+    "evidence": [
+      "employees=206",
+      "fit_score=84",
+      "intent=false",
+      "region=AU",
+      "consent_hold=false"
+    ],
+    "next_action": "Unsent draft for Fictional Meridian 126: value-resource step referencing observed signal SIG-126-COMPLIANCE. No send, meeting, or customer fact invented.",
+    "uncertainty": "Derived solely from intake dossier A126; no external verification performed.",
+    "follow_up_trigger": "Day 21 per policy, or sooner if the account's signal SIG-126-COMPLIANCE changes."
+  },
+  {
+    "id": "A127",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "evidence-only",
+    "evidence": [
+      "employees=223",
+      "fit_score=97",
+      "intent=true",
+      "region=US",
+      "consent_hold=false"
+    ],
+    "next_action": "Unsent draft for Fictional Meridian 127: discovery step referencing observed signal SIG-127-LAUNCH. No send, meeting, or customer fact invented.",
+    "uncertainty": "Derived solely from intake dossier A127; no external verification performed.",
+    "follow_up_trigger": "Day 7 per policy, or sooner if the account's signal SIG-127-LAUNCH changes."
+  },
+  {
+    "id": "A128",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=240",
+      "fit_score=53",
+      "intent=true",
+      "region=EU",
+      "consent_hold=false"
+    ],
+    "next_action": "Unsent draft for Fictional Meridian 128: value-resource step referencing observed signal SIG-128-MIGRATION. No send, meeting, or customer fact invented.",
+    "uncertainty": "Derived solely from intake dossier A128; no external verification performed.",
+    "follow_up_trigger": "Day 21 per policy, or sooner if the account's signal SIG-128-MIGRATION changes."
+  },
+  {
+    "id": "A129",
+    "qualification": "disqualify",
+    "disposition": "closed-policy",
+    "action_type": "no-contact",
+    "follow_up_days": 0,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=12",
+      "fit_score=66",
+      "intent=false",
+      "region=AU",
+      "consent_hold=false"
+    ],
+    "next_action": "Unsent draft for Fictional Meridian 129: no-contact step referencing observed signal SIG-129-CAPACITY. No send, meeting, or customer fact invented.",
+    "uncertainty": "Derived solely from intake dossier A129; no external verification performed.",
+    "follow_up_trigger": "Day 0 per policy, or sooner if the account's signal SIG-129-CAPACITY changes."
+  },
+  {
+    "id": "A130",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=274",
+      "fit_score=79",
+      "intent=true",
+      "region=US",
+      "consent_hold=false"
+    ],
+    "next_action": "Unsent draft for Fictional Meridian 130: discovery step referencing observed signal SIG-130-COMPLIANCE. No send, meeting, or customer fact invented.",
+    "uncertainty": "Derived solely from intake dossier A130; no external verification performed.",
+    "follow_up_trigger": "Day 7 per policy, or sooner if the account's signal SIG-130-COMPLIANCE changes."
+  },
+  {
+    "id": "A131",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=291",
+      "fit_score=92",
+      "intent=true",
+      "region=EU",
+      "consent_hold=false"
+    ],
+    "next_action": "Unsent draft for Fictional Meridian 131: discovery step referencing observed signal SIG-131-LAUNCH. No send, meeting, or customer fact invented.",
+    "uncertainty": "Derived solely from intake dossier A131; no external verification performed.",
+    "follow_up_trigger": "Day 7 per policy, or sooner if the account's signal SIG-131-LAUNCH changes."
+  },
+  {
+    "id": "A132",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=308",
+      "fit_score=48",
+      "intent=false",
+      "region=AU",
+      "consent_hold=false"
+    ],
+    "next_action": "Unsent draft for Fictional Meridian 132: value-resource step referencing observed signal SIG-132-MIGRATION. No send, meeting, or customer fact invented.",
+    "uncertainty": "Derived solely from intake dossier A132; no external verification performed.",
+    "follow_up_trigger": "Day 21 per policy, or sooner if the account's signal SIG-132-MIGRATION changes."
+  },
+  {
+    "id": "A133",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "evidence-only",
+    "evidence": [
+      "employees=325",
+      "fit_score=61",
+      "intent=true",
+      "region=US",
+      "consent_hold=false"
+    ],
+    "next_action": "Unsent draft for Fictional Meridian 133: value-resource step referencing observed signal SIG-133-CAPACITY. No send, meeting, or customer fact invented.",
+    "uncertainty": "Derived solely from intake dossier A133; no external verification performed.",
+    "follow_up_trigger": "Day 21 per policy, or sooner if the account's signal SIG-133-CAPACITY changes."
+  },
+  {
+    "id": "A134",
+    "qualification": "disqualify",
+    "disposition": "closed-policy",
+    "action_type": "no-contact",
+    "follow_up_days": 0,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=342",
+      "fit_score=74",
+      "intent=true",
+      "region=Restricted-Zone",
+      "consent_hold=false"
+    ],
+    "next_action": "Unsent draft for Fictional Meridian 134: no-contact step referencing observed signal SIG-134-COMPLIANCE. No send, meeting, or customer fact invented.",
+    "uncertainty": "Derived solely from intake dossier A134; no external verification performed.",
+    "follow_up_trigger": "Day 0 per policy, or sooner if the account's signal SIG-134-COMPLIANCE changes."
+  },
+  {
+    "id": "A135",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=359",
+      "fit_score=87",
+      "intent=false",
+      "region=AU",
+      "consent_hold=false"
+    ],
+    "next_action": "Unsent draft for Fictional Meridian 135: value-resource step referencing observed signal SIG-135-LAUNCH. No send, meeting, or customer fact invented.",
+    "uncertainty": "Derived solely from intake dossier A135; no external verification performed.",
+    "follow_up_trigger": "Day 21 per policy, or sooner if the account's signal SIG-135-LAUNCH changes."
+  },
+  {
+    "id": "A136",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=376",
+      "fit_score=43",
+      "intent=true",
+      "region=US",
+      "consent_hold=false"
+    ],
+    "next_action": "Unsent draft for Fictional Meridian 136: value-resource step referencing observed signal SIG-136-MIGRATION. No send, meeting, or customer fact invented.",
+    "uncertainty": "Derived solely from intake dossier A136; no external verification performed.",
+    "follow_up_trigger": "Day 21 per policy, or sooner if the account's signal SIG-136-MIGRATION changes."
+  },
+  {
+    "id": "A137",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=393",
+      "fit_score=56",
+      "intent=true",
+      "region=EU",
+      "consent_hold=false"
+    ],
+    "next_action": "Unsent draft for Fictional Meridian 137: value-resource step referencing observed signal SIG-137-CAPACITY. No send, meeting, or customer fact invented.",
+    "uncertainty": "Derived solely from intake dossier A137; no external verification performed.",
+    "follow_up_trigger": "Day 21 per policy, or sooner if the account's signal SIG-137-CAPACITY changes."
+  },
+  {
+    "id": "A138",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=410",
+      "fit_score=69",
+      "intent=false",
+      "region=AU",
+      "consent_hold=false"
+    ],
+    "next_action": "Unsent draft for Fictional Meridian 138: value-resource step referencing observed signal SIG-138-COMPLIANCE. No send, meeting, or customer fact invented.",
+    "uncertainty": "Derived solely from intake dossier A138; no external verification performed.",
+    "follow_up_trigger": "Day 21 per policy, or sooner if the account's signal SIG-138-COMPLIANCE changes."
+  },
+  {
+    "id": "A139",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=427",
+      "fit_score=82",
+      "intent=true",
+      "region=US",
+      "consent_hold=false"
+    ],
+    "next_action": "Unsent draft for Fictional Meridian 139: discovery step referencing observed signal SIG-139-LAUNCH. No send, meeting, or customer fact invented.",
+    "uncertainty": "Derived solely from intake dossier A139; no external verification performed.",
+    "follow_up_trigger": "Day 7 per policy, or sooner if the account's signal SIG-139-LAUNCH changes."
+  },
+  {
+    "id": "A140",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "evidence-only",
+    "evidence": [
+      "employees=444",
+      "fit_score=95",
+      "intent=true",
+      "region=EU",
+      "consent_hold=false"
+    ],
+    "next_action": "Unsent draft for Fictional Meridian 140: discovery step referencing observed signal SIG-140-MIGRATION. No send, meeting, or customer fact invented.",
+    "uncertainty": "Derived solely from intake dossier A140; no external verification performed.",
+    "follow_up_trigger": "Day 7 per policy, or sooner if the account's signal SIG-140-MIGRATION changes."
+  },
+  {
+    "id": "A141",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=461",
+      "fit_score=51",
+      "intent=false",
+      "region=AU",
+      "consent_hold=false"
+    ],
+    "next_action": "Unsent draft for Fictional Meridian 141: value-resource step referencing observed signal SIG-141-CAPACITY. No send, meeting, or customer fact invented.",
+    "uncertainty": "Derived solely from intake dossier A141; no external verification performed.",
+    "follow_up_trigger": "Day 21 per policy, or sooner if the account's signal SIG-141-CAPACITY changes."
+  },
+  {
+    "id": "A142",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=478",
+      "fit_score=64",
+      "intent=true",
+      "region=US",
+      "consent_hold=false"
+    ],
+    "next_action": "Unsent draft for Fictional Meridian 142: value-resource step referencing observed signal SIG-142-COMPLIANCE. No send, meeting, or customer fact invented.",
+    "uncertainty": "Derived solely from intake dossier A142; no external verification performed.",
+    "follow_up_trigger": "Day 21 per policy, or sooner if the account's signal SIG-142-COMPLIANCE changes."
+  },
+  {
+    "id": "A143",
+    "qualification": "hold",
+    "disposition": "consent-review",
+    "action_type": "no-contact",
+    "follow_up_days": 0,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=495",
+      "fit_score=77",
+      "intent=true",
+      "region=EU",
+      "consent_hold=true"
+    ],
+    "next_action": "Unsent draft for Fictional Meridian 143: no-contact step referencing observed signal SIG-143-LAUNCH. No send, meeting, or customer fact invented.",
+    "uncertainty": "Derived solely from intake dossier A143; no external verification performed.",
+    "follow_up_trigger": "Day 0 per policy, or sooner if the account's signal SIG-143-LAUNCH changes."
+  },
+  {
+    "id": "A144",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=512",
+      "fit_score=90",
+      "intent=false",
+      "region=AU",
+      "consent_hold=false"
+    ],
+    "next_action": "Unsent draft for Fictional Meridian 144: value-resource step referencing observed signal SIG-144-MIGRATION. No send, meeting, or customer fact invented.",
+    "uncertainty": "Derived solely from intake dossier A144; no external verification performed.",
+    "follow_up_trigger": "Day 21 per policy, or sooner if the account's signal SIG-144-MIGRATION changes."
+  },
+  {
+    "id": "A145",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=529",
+      "fit_score=46",
+      "intent=true",
+      "region=US",
+      "consent_hold=false"
+    ],
+    "next_action": "Unsent draft for Fictional Meridian 145: value-resource step referencing observed signal SIG-145-CAPACITY. No send, meeting, or customer fact invented.",
+    "uncertainty": "Derived solely from intake dossier A145; no external verification performed.",
+    "follow_up_trigger": "Day 21 per policy, or sooner if the account's signal SIG-145-CAPACITY changes."
+  },
+  {
+    "id": "A146",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=546",
+      "fit_score=59",
+      "intent=true",
+      "region=EU",
+      "consent_hold=false"
+    ],
+    "next_action": "Unsent draft for Fictional Meridian 146: value-resource step referencing observed signal SIG-146-COMPLIANCE. No send, meeting, or customer fact invented.",
+    "uncertainty": "Derived solely from intake dossier A146; no external verification performed.",
+    "follow_up_trigger": "Day 21 per policy, or sooner if the account's signal SIG-146-COMPLIANCE changes."
+  },
+  {
+    "id": "A147",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "evidence-only",
+    "evidence": [
+      "employees=563",
+      "fit_score=72",
+      "intent=false",
+      "region=AU",
+      "consent_hold=false"
+    ],
+    "next_action": "Unsent draft for Fictional Meridian 147: value-resource step referencing observed signal SIG-147-LAUNCH. No send, meeting, or customer fact invented.",
+    "uncertainty": "Derived solely from intake dossier A147; no external verification performed.",
+    "follow_up_trigger": "Day 21 per policy, or sooner if the account's signal SIG-147-LAUNCH changes."
+  },
+  {
+    "id": "A148",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=580",
+      "fit_score=85",
+      "intent=true",
+      "region=US",
+      "consent_hold=false"
+    ],
+    "next_action": "Unsent draft for Fictional Meridian 148: discovery step referencing observed signal SIG-148-MIGRATION. No send, meeting, or customer fact invented.",
+    "uncertainty": "Derived solely from intake dossier A148; no external verification performed.",
+    "follow_up_trigger": "Day 7 per policy, or sooner if the account's signal SIG-148-MIGRATION changes."
+  },
+  {
+    "id": "A149",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=597",
+      "fit_score=98",
+      "intent=true",
+      "region=EU",
+      "consent_hold=false"
+    ],
+    "next_action": "Unsent draft for Fictional Meridian 149: discovery step referencing observed signal SIG-149-CAPACITY. No send, meeting, or customer fact invented.",
+    "uncertainty": "Derived solely from intake dossier A149; no external verification performed.",
+    "follow_up_trigger": "Day 7 per policy, or sooner if the account's signal SIG-149-CAPACITY changes."
+  },
+  {
+    "id": "A150",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=614",
+      "fit_score=54",
+      "intent=false",
+      "region=AU",
+      "consent_hold=false"
+    ],
+    "next_action": "Unsent draft for Fictional Meridian 150: value-resource step referencing observed signal SIG-150-COMPLIANCE. No send, meeting, or customer fact invented.",
+    "uncertainty": "Derived solely from intake dossier A150; no external verification performed.",
+    "follow_up_trigger": "Day 21 per policy, or sooner if the account's signal SIG-150-COMPLIANCE changes."
+  },
+  {
+    "id": "A151",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "evidence-only",
+    "evidence": [
+      "employees=631",
+      "fit_score=67",
+      "intent=true",
+      "region=US",
+      "consent_hold=false"
+    ],
+    "next_action": "Unsent draft for Fictional Meridian 151: value-resource step referencing observed signal SIG-151-LAUNCH. No send, meeting, or customer fact invented.",
+    "uncertainty": "Derived solely from intake dossier A151; no external verification performed.",
+    "follow_up_trigger": "Day 21 per policy, or sooner if the account's signal SIG-151-LAUNCH changes."
+  },
+  {
+    "id": "A152",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=648",
+      "fit_score=80",
+      "intent=true",
+      "region=EU",
+      "consent_hold=false"
+    ],
+    "next_action": "Unsent draft for Fictional Meridian 152: discovery step referencing observed signal SIG-152-MIGRATION. No send, meeting, or customer fact invented.",
+    "uncertainty": "Derived solely from intake dossier A152; no external verification performed.",
+    "follow_up_trigger": "Day 7 per policy, or sooner if the account's signal SIG-152-MIGRATION changes."
+  },
+  {
+    "id": "A153",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=665",
+      "fit_score=93",
+      "intent=false",
+      "region=AU",
+      "consent_hold=false"
+    ],
+    "next_action": "Unsent draft for Fictional Meridian 153: value-resource step referencing observed signal SIG-153-CAPACITY. No send, meeting, or customer fact invented.",
+    "uncertainty": "Derived solely from intake dossier A153; no external verification performed.",
+    "follow_up_trigger": "Day 21 per policy, or sooner if the account's signal SIG-153-CAPACITY changes."
+  },
+  {
+    "id": "A154",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "evidence-only",
+    "evidence": [
+      "employees=682",
+      "fit_score=49",
+      "intent=true",
+      "region=US",
+      "consent_hold=false"
+    ],
+    "next_action": "Unsent draft for Fictional Meridian 154: value-resource step referencing observed signal SIG-154-COMPLIANCE. No send, meeting, or customer fact invented.",
+    "uncertainty": "Derived solely from intake dossier A154; no external verification performed.",
+    "follow_up_trigger": "Day 21 per policy, or sooner if the account's signal SIG-154-COMPLIANCE changes."
+  },
+  {
+    "id": "A155",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=699",
+      "fit_score=62",
+      "intent=true",
+      "region=EU",
+      "consent_hold=false"
+    ],
+    "next_action": "Unsent draft for Fictional Meridian 155: value-resource step referencing observed signal SIG-155-LAUNCH. No send, meeting, or customer fact invented.",
+    "uncertainty": "Derived solely from intake dossier A155; no external verification performed.",
+    "follow_up_trigger": "Day 21 per policy, or sooner if the account's signal SIG-155-LAUNCH changes."
+  },
+  {
+    "id": "A156",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=716",
+      "fit_score=75",
+      "intent=false",
+      "region=AU",
+      "consent_hold=false"
+    ],
+    "next_action": "Unsent draft for Fictional Meridian 156: value-resource step referencing observed signal SIG-156-MIGRATION. No send, meeting, or customer fact invented.",
+    "uncertainty": "Derived solely from intake dossier A156; no external verification performed.",
+    "follow_up_trigger": "Day 21 per policy, or sooner if the account's signal SIG-156-MIGRATION changes."
+  },
+  {
+    "id": "A157",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=733",
+      "fit_score=88",
+      "intent=true",
+      "region=US",
+      "consent_hold=false"
+    ],
+    "next_action": "Unsent draft for Fictional Meridian 157: discovery step referencing observed signal SIG-157-CAPACITY. No send, meeting, or customer fact invented.",
+    "uncertainty": "Derived solely from intake dossier A157; no external verification performed.",
+    "follow_up_trigger": "Day 7 per policy, or sooner if the account's signal SIG-157-CAPACITY changes."
+  },
+  {
+    "id": "A158",
+    "qualification": "disqualify",
+    "disposition": "closed-policy",
+    "action_type": "no-contact",
+    "follow_up_days": 0,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=750",
+      "fit_score=44",
+      "intent=true",
+      "region=Restricted-Zone",
+      "consent_hold=false"
+    ],
+    "next_action": "Unsent draft for Fictional Meridian 158: no-contact step referencing observed signal SIG-158-COMPLIANCE. No send, meeting, or customer fact invented.",
+    "uncertainty": "Derived solely from intake dossier A158; no external verification performed.",
+    "follow_up_trigger": "Day 0 per policy, or sooner if the account's signal SIG-158-COMPLIANCE changes."
+  },
+  {
+    "id": "A159",
+    "qualification": "nurture",
+    "disposition": "nurture",
+    "action_type": "value-resource",
+    "follow_up_days": 21,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=767",
+      "fit_score=57",
+      "intent=false",
+      "region=AU",
+      "consent_hold=false"
+    ],
+    "next_action": "Unsent draft for Fictional Meridian 159: value-resource step referencing observed signal SIG-159-LAUNCH. No send, meeting, or customer fact invented.",
+    "uncertainty": "Derived solely from intake dossier A159; no external verification performed.",
+    "follow_up_trigger": "Day 21 per policy, or sooner if the account's signal SIG-159-LAUNCH changes."
+  },
+  {
+    "id": "A160",
+    "qualification": "qualify",
+    "disposition": "sales-ready",
+    "action_type": "discovery",
+    "follow_up_days": 7,
+    "claim_code": "standard",
+    "evidence": [
+      "employees=784",
+      "fit_score=70",
+      "intent=true",
+      "region=US",
+      "consent_hold=false"
+    ],
+    "next_action": "Unsent draft for Fictional Meridian 160: discovery step referencing observed signal SIG-160-MIGRATION. No send, meeting, or customer fact invented.",
+    "uncertainty": "Derived solely from intake dossier A160; no external verification performed.",
+    "follow_up_trigger": "Day 7 per policy, or sooner if the account's signal SIG-160-MIGRATION changes."
+  }
+]

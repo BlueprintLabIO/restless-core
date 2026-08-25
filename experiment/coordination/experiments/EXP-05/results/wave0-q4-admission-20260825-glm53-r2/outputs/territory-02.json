@@ -1,0 +1,66 @@
+[
+  {
+    "id": "I009",
+    "delta": 0,
+    "disposition": "matched",
+    "action": "close-reconciled",
+    "evidence": "invoice_total 1133 equals ledger_total 1133 for INV-TEST-009",
+    "uncertainty": "none; totals agree exactly in source"
+  },
+  {
+    "id": "I010",
+    "delta": 0,
+    "disposition": "matched",
+    "action": "close-reconciled",
+    "evidence": "invoice_total 1170 equals ledger_total 1170 for INV-TEST-010",
+    "uncertainty": "none; totals agree exactly in source"
+  },
+  {
+    "id": "I011",
+    "delta": 0,
+    "disposition": "matched",
+    "action": "close-reconciled",
+    "evidence": "invoice_total 1207 equals ledger_total 1207 for INV-TEST-011",
+    "uncertainty": "none; totals agree exactly in source"
+  },
+  {
+    "id": "I012",
+    "delta": 75,
+    "disposition": "over-recorded",
+    "action": "review-credit-or-ledger",
+    "evidence": "ledger_total 1319 exceeds invoice_total 1244 by 75 for INV-TEST-012",
+    "uncertainty": "cause not determinable from source; possible credit or ledger entry error"
+  },
+  {
+    "id": "I013",
+    "delta": 0,
+    "disposition": "matched",
+    "action": "close-reconciled",
+    "evidence": "invoice_total 1281 equals ledger_total 1281 for INV-TEST-013",
+    "uncertainty": "none; totals agree exactly in source"
+  },
+  {
+    "id": "I014",
+    "delta": 0,
+    "disposition": "matched",
+    "action": "close-reconciled",
+    "evidence": "invoice_total 1318 equals ledger_total 1318 for INV-TEST-014",
+    "uncertainty": "none; totals agree exactly in source"
+  },
+  {
+    "id": "I015",
+    "delta": 0,
+    "disposition": "matched",
+    "action": "close-reconciled",
+    "evidence": "invoice_total 1355 equals ledger_total 1355 for INV-TEST-015",
+    "uncertainty": "none; totals agree exactly in source"
+  },
+  {
+    "id": "I016",
+    "delta": -50,
+    "disposition": "under-recorded",
+    "action": "review-missing-payment",
+    "evidence": "ledger_total 1342 is 50 below invoice_total 1392 for INV-TEST-016",
+    "uncertainty": "cause not determinable from source; possible missing or partial payment"
+  }
+]

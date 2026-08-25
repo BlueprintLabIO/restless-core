@@ -1,0 +1,66 @@
+[
+  {
+    "id": "I009",
+    "disposition": "matched",
+    "action": "close-reconciled",
+    "delta": 0,
+    "evidence": "invoice_total 1133 equals ledger_total 1133 (INV-TEST-009, AUD)",
+    "uncertainty": "none; totals agree exactly"
+  },
+  {
+    "id": "I010",
+    "disposition": "matched",
+    "action": "close-reconciled",
+    "delta": 0,
+    "evidence": "invoice_total 1170 equals ledger_total 1170 (INV-TEST-010, AUD)",
+    "uncertainty": "none; totals agree exactly"
+  },
+  {
+    "id": "I011",
+    "disposition": "matched",
+    "action": "close-reconciled",
+    "delta": 0,
+    "evidence": "invoice_total 1207 equals ledger_total 1207 (INV-TEST-011, AUD)",
+    "uncertainty": "none; totals agree exactly"
+  },
+  {
+    "id": "I012",
+    "disposition": "over-recorded",
+    "action": "review-credit-or-ledger",
+    "delta": 75,
+    "evidence": "ledger_total 1319 exceeds invoice_total 1244 by 75 (INV-TEST-012, AUD)",
+    "uncertainty": "ledger may include an unapplied credit or duplicate entry; source totals alone cannot distinguish"
+  },
+  {
+    "id": "I013",
+    "disposition": "matched",
+    "action": "close-reconciled",
+    "delta": 0,
+    "evidence": "invoice_total 1281 equals ledger_total 1281 (INV-TEST-013, AUD)",
+    "uncertainty": "none; totals agree exactly"
+  },
+  {
+    "id": "I014",
+    "disposition": "matched",
+    "action": "close-reconciled",
+    "delta": 0,
+    "evidence": "invoice_total 1318 equals ledger_total 1318 (INV-TEST-014, AUD)",
+    "uncertainty": "none; totals agree exactly"
+  },
+  {
+    "id": "I015",
+    "disposition": "matched",
+    "action": "close-reconciled",
+    "delta": 0,
+    "evidence": "invoice_total 1355 equals ledger_total 1355 (INV-TEST-015, AUD)",
+    "uncertainty": "none; totals agree exactly"
+  },
+  {
+    "id": "I016",
+    "disposition": "under-recorded",
+    "action": "review-missing-payment",
+    "delta": -50,
+    "evidence": "ledger_total 1342 is 50 below invoice_total 1392 (INV-TEST-016, AUD)",
+    "uncertainty": "a payment may be missing or partially recorded in the ledger; source totals alone cannot distinguish"
+  }
+]

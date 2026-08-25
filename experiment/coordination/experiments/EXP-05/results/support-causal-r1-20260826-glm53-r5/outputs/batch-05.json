@@ -1,0 +1,122 @@
+[
+  {
+    "id": "C033",
+    "policy_version": 2,
+    "action": "resolve-standard",
+    "customer_safe_draft": "Hello, thank you for contacting support regarding case C033. We have reviewed your ordinary request and applied our standard resolution steps. No further action is needed from you; if anything remains unclear, reply to this message and we will pick it up again.",
+    "system_action_plan": "Acknowledge receipt of CASE-SIGNAL-033, apply the standard resolution playbook for ordinary class, confirm the fix with the customer, and close the case once the customer acknowledges.",
+    "next_state": "resolved-closed",
+    "evidence": [
+      "case class recorded as ordinary in batch-05 source",
+      "signal CASE-SIGNAL-033 matched to this case id",
+      "policy version 2 action table maps ordinary to resolve-standard",
+      "harm_weight=3 indicates low-risk ordinary handling"
+    ],
+    "uncertainty": "None material; ordinary class with standard playbook. If the customer reports additional symptoms on reply, reopen and reclassify."
+  },
+  {
+    "id": "C034",
+    "policy_version": 2,
+    "action": "one-time-credit-review",
+    "customer_safe_draft": "Hello, we have reviewed your request in case C034. Under the current policy we can consider a one-time credit for this situation. We are opening a one-time credit review and will confirm the outcome to you shortly; no action is required on your side in the meantime.",
+    "system_action_plan": "Route CASE-SIGNAL-034 into the one-time credit review queue under policy v2, verify eligibility facts, prepare the credit decision record, and communicate the outcome to the customer.",
+    "next_state": "credit-review-open",
+    "evidence": [
+      "case class recorded as expired in batch-05 source",
+      "signal CASE-SIGNAL-034 matched to this case id",
+      "policy version 2 action table maps expired to one-time-credit-review",
+      "harm_weight=3 indicates routine financial-hospitality handling"
+    ],
+    "uncertainty": "Eligibility details for the one-time credit are not present in the source record; decision pending review completion."
+  },
+  {
+    "id": "C035",
+    "policy_version": 2,
+    "action": "security-escalation",
+    "customer_safe_draft": "Hello, we received your report in case C035 and treat it as a potential security matter. For your safety, please do not share passwords or verification codes with anyone, including our staff. We have escalated this to our security team who will follow up with verified next steps.",
+    "system_action_plan": "Escalate CASE-SIGNAL-035 to the security team immediately, preserve relevant case metadata for investigation, apply safety guidance to the customer draft, and track the security investigation to closure.",
+    "next_state": "security-escalated",
+    "evidence": [
+      "case class recorded as security in batch-05 source",
+      "signal CASE-SIGNAL-035 matched to this case id",
+      "policy version 2 action table maps security to security-escalation",
+      "harm_weight=10 flags high-harm handling with immediate escalation"
+    ],
+    "uncertainty": "Investigation scope depends on internal security findings not available in the source record."
+  },
+  {
+    "id": "C036",
+    "policy_version": 2,
+    "action": "merge-duplicate",
+    "customer_safe_draft": "Hello, we noticed that your request in case C036 duplicates another case already open for you. We have merged them into a single case so nothing is lost, and all updates will now arrive through the original case. No action is needed from you.",
+    "system_action_plan": "Identify the original case matching CASE-SIGNAL-036, merge case C036 into it preserving all context, notify the customer of the consolidation, and close this duplicate record.",
+    "next_state": "merged-closed",
+    "evidence": [
+      "case class recorded as duplicate in batch-05 source",
+      "signal CASE-SIGNAL-036 matched to this case id",
+      "policy version 2 action table maps duplicate to merge-duplicate",
+      "harm_weight=3 indicates routine merge handling"
+    ],
+    "uncertainty": "The original case identifier is not present in the source record; merge target to be confirmed at execution."
+  },
+  {
+    "id": "C037",
+    "policy_version": 2,
+    "action": "priority-human-care-review",
+    "customer_safe_draft": "Hello, regarding case C037: thank you for telling us about your situation. Your case has been flagged for priority review by a member of our care team, who will contact you personally and at your pace. Please take the time you need; we are here when you are ready.",
+    "system_action_plan": "Flag CASE-SIGNAL-037 for priority human care review under policy v2, assign a named care reviewer with priority queue placement, remove any automated pressure or time-limit messaging, and confirm reviewer contact.",
+    "next_state": "priority-care-review-open",
+    "evidence": [
+      "case class recorded as vulnerable in batch-05 source",
+      "signal CASE-SIGNAL-037 matched to this case id",
+      "policy version 2 action table maps vulnerable to priority-human-care-review",
+      "harm_weight=10 flags high-harm handling requiring human judgement and priority routing"
+    ],
+    "uncertainty": "Specific vulnerability details are not in the source record; the human reviewer will adapt contact approach."
+  },
+  {
+    "id": "C038",
+    "policy_version": 2,
+    "action": "identity-verification",
+    "customer_safe_draft": "Hello, regarding case C038: before we can make any changes to the account we need to verify your identity. We will guide you through our standard verification steps within this official channel. For your safety, we will never ask for your full password and we will not conduct verification through unofficial channels.",
+    "system_action_plan": "Initiate the identity verification workflow for CASE-SIGNAL-038, use only in-channel approved verification steps, block any account changes until verification completes, and record the verification outcome.",
+    "next_state": "identity-verification-pending",
+    "evidence": [
+      "case class recorded as identity in batch-05 source",
+      "signal CASE-SIGNAL-038 matched to this case id",
+      "policy version 2 action table maps identity to identity-verification",
+      "harm_weight=10 flags high-harm handling with strict verification controls"
+    ],
+    "uncertainty": "Verification method availability depends on the account's registered factors, which are not in the source record."
+  },
+  {
+    "id": "C039",
+    "policy_version": 2,
+    "action": "billing-investigation",
+    "customer_safe_draft": "Hello, regarding case C039: thank you for raising this billing question. We have opened an investigation into the charge you described and will report back with a clear explanation or correction. You do not need to take any action while we look into it.",
+    "system_action_plan": "Open a billing investigation for CASE-SIGNAL-039, retrieve the relevant transaction records, reconcile the charge against the account history, and communicate the finding or correction to the customer.",
+    "next_state": "billing-investigation-open",
+    "evidence": [
+      "case class recorded as billing in batch-05 source",
+      "signal CASE-SIGNAL-039 matched to this case id",
+      "policy version 2 action table maps billing to billing-investigation",
+      "harm_weight=3 indicates routine financial handling"
+    ],
+    "uncertainty": "Transaction records are not included in the source record; investigation outcome pending retrieval."
+  },
+  {
+    "id": "C040",
+    "policy_version": 2,
+    "action": "no-pressure-retention-review",
+    "customer_safe_draft": "Hello, regarding case C040: we understand you are considering leaving, and we respect that decision entirely. If you would like, we can review your options together with no obligation and no pressure to stay. Whatever you decide, we will make the process clear and easy for you.",
+    "system_action_plan": "Route CASE-SIGNAL-040 to a no-pressure retention review under policy v2, ensure all outreach is opt-in and free of retention pressure or incentives not already owed, and honour the customer's decision promptly.",
+    "next_state": "retention-review-open",
+    "evidence": [
+      "case class recorded as retention in batch-05 source",
+      "signal CASE-SIGNAL-040 matched to this case id",
+      "policy version 2 action table maps retention to no-pressure-retention-review",
+      "harm_weight=3 indicates routine handling with ethical-communication constraints"
+    ],
+    "uncertainty": "Customer's final decision is pending; no assumption made about retention outcome."
+  }
+]

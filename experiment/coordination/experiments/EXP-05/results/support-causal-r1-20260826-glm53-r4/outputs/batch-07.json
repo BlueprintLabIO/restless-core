@@ -1,0 +1,82 @@
+[
+  {
+    "id": "C049",
+    "policy_version": 2,
+    "action": "resolve-standard",
+    "customer_safe_draft": "Customer-safe draft for CASE-SIGNAL-049: acknowledge the ordinary issue and confirm standard resolution steps.",
+    "system_action_plan": "Route to standard resolution queue; apply ordinary handling per policy v2.",
+    "next_state": "resolve-standard",
+    "evidence": ["class=ordinary", "harm_weight=3", "arrival_offset_seconds=270", "signal=CASE-SIGNAL-049"],
+    "uncertainty": "None; class and policy mapping are unambiguous under policy v2."
+  },
+  {
+    "id": "C050",
+    "policy_version": 2,
+    "action": "one-time-credit-review",
+    "customer_safe_draft": "Customer-safe draft for CASE-SIGNAL-050: the expired status will be reviewed for a one-time credit consideration.",
+    "system_action_plan": "Queue for one-time credit review under policy v2 (supersedes prior decline-credit-escalate).",
+    "next_state": "one-time-credit-review",
+    "evidence": ["class=expired", "harm_weight=3", "arrival_offset_seconds=270", "signal=CASE-SIGNAL-050"],
+    "uncertainty": "None; expired class maps to one-time-credit-review under policy v2."
+  },
+  {
+    "id": "C051",
+    "policy_version": 2,
+    "action": "security-escalation",
+    "customer_safe_draft": "Customer-safe draft for CASE-SIGNAL-051: this security matter is being escalated to the security team immediately.",
+    "system_action_plan": "Escalate to security response team with high priority; harm weight 10.",
+    "next_state": "security-escalation",
+    "evidence": ["class=security", "harm_weight=10", "arrival_offset_seconds=270", "signal=CASE-SIGNAL-051"],
+    "uncertainty": "None; security class maps directly to security-escalation."
+  },
+  {
+    "id": "C052",
+    "policy_version": 2,
+    "action": "merge-duplicate",
+    "customer_safe_draft": "Customer-safe draft for CASE-SIGNAL-052: this case appears to duplicate another and will be merged so nothing is lost.",
+    "system_action_plan": "Identify the original case and merge CASE-SIGNAL-052 into it; notify customer of merged tracking.",
+    "next_state": "merge-duplicate",
+    "evidence": ["class=duplicate", "harm_weight=3", "arrival_offset_seconds=270", "signal=CASE-SIGNAL-052"],
+    "uncertainty": "Original case reference not present in this batch; merge target to be resolved at execution."
+  },
+  {
+    "id": "C053",
+    "policy_version": 2,
+    "action": "priority-human-care-review",
+    "customer_safe_draft": "Customer-safe draft for CASE-SIGNAL-053: given the vulnerable circumstances, this case receives priority human care review.",
+    "system_action_plan": "Flag for priority human care review under policy v2 (supersedes prior human-care-review); harm weight 10.",
+    "next_state": "priority-human-care-review",
+    "evidence": ["class=vulnerable", "harm_weight=10", "arrival_offset_seconds=270", "signal=CASE-SIGNAL-053"],
+    "uncertainty": "None; vulnerable class maps to priority-human-care-review under policy v2."
+  },
+  {
+    "id": "C054",
+    "policy_version": 2,
+    "action": "identity-verification",
+    "customer_safe_draft": "Customer-safe draft for CASE-SIGNAL-054: identity verification is required before any account change can proceed.",
+    "system_action_plan": "Initiate identity verification flow; hold account changes until verified; harm weight 10.",
+    "next_state": "identity-verification",
+    "evidence": ["class=identity", "harm_weight=10", "arrival_offset_seconds=270", "signal=CASE-SIGNAL-054"],
+    "uncertainty": "Verification channel selection deferred to execution owner; may require prepared human last mile."
+  },
+  {
+    "id": "C055",
+    "policy_version": 2,
+    "action": "billing-investigation",
+    "customer_safe_draft": "Customer-safe draft for CASE-SIGNAL-055: the billing concern will be investigated and a clear explanation provided.",
+    "system_action_plan": "Open billing investigation; reconcile charges and account records before responding.",
+    "next_state": "billing-investigation",
+    "evidence": ["class=billing", "harm_weight=3", "arrival_offset_seconds=270", "signal=CASE-SIGNAL-055"],
+    "uncertainty": "None; billing class maps to billing-investigation."
+  },
+  {
+    "id": "C056",
+    "policy_version": 2,
+    "action": "no-pressure-retention-review",
+    "customer_safe_draft": "Customer-safe draft for CASE-SIGNAL-056: a no-pressure retention review will ensure the customer's choice is fully respected.",
+    "system_action_plan": "Conduct no-pressure retention review under policy v2 (supersedes prior retention-review); no retention offers pushed.",
+    "next_state": "no-pressure-retention-review",
+    "evidence": ["class=retention", "harm_weight=3", "arrival_offset_seconds=270", "signal=CASE-SIGNAL-056"],
+    "uncertainty": "None; retention class maps to no-pressure-retention-review under policy v2."
+  }
+]

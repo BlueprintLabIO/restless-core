@@ -1,0 +1,38 @@
+{
+  "judgement": {
+    "consequential_defects": [
+      "Non-uniform uncertainty phrasing across three batches: units 1-10/31-40 state 'Low:...', units 11-20 describe rumor/denial handling without stating a level, units 21-30 add duplicate rejection and reverse source_ids order (D-LATE before D-OFFICIAL), weakening a uniform owner-facing confidence signal.",
+      "Flat entity-order digest with no severity prioritization: the 8 high-severity entities (05,10,15,20,25,30,35,40) are not surfaced above low/medium, so owner attention must scan all 40 records."
+    ],
+    "decision": "accept",
+    "evidence": [
+      "All 40 entities appear exactly once with no omissions or additions; every event_code, follow_up_trigger and severity matches its D{n}-OFFICIAL source (e.g. Entity-05/10/15/20/25/30/35/40 = high; Entity-02/04/06/08 = medium).",
+      "Every record cites only D{n}-OFFICIAL and D{n}-LATE across all 40 units; BASE, NOISE (blog), anonymous RUMOR, superseded archive OLD and syndicated DUP are uniformly excluded, correctly handling all planted tail documents.",
+      "Late corroboration is used as independent support, matching D{n}-LATE ('corroborates EVENT-n and keeps severity'), and no severity was altered against either authoritative source.",
+      "Each unit's follow-up condition is the source's own trigger token (TRIGGER-n) and nothing is reported as sent or applied, preserving the frozen owner contract.",
+      "Uncertainty calibration is substantively correct (low uncertainty given official + late-official corroboration) but the level label is explicit only in units 1-10 and 31-40, an artifact-level inconsistency rather than a factual error.",
+      "Records are structured, machine-checkable JSON with per-unit citations, enabling exact deterministic verification; no rendered or prioritized human-skim surface is provided."
+    ],
+    "high_consequence_breach": false,
+    "scores": {
+      "grounding": 9.5,
+      "native_review_readiness": 8,
+      "safe_actionability": 9,
+      "tail_handling": 9,
+      "uncertainty_calibration": 8,
+      "usefulness": 8
+    },
+    "worst_unit": {
+      "defect": "Uncertainty note omits an explicit confidence level and uses a second, inconsistent template (repeated across units 11-20; a third variant with reversed source order appears in 21-30).",
+      "id": "Entity-11",
+      "score": 8.5
+    }
+  },
+  "model": {
+    "effort": "high",
+    "selector": "zai/glm-5.3"
+  },
+  "process_exit": 0,
+  "valid": true,
+  "validation_errors": []
+}

@@ -1,0 +1,82 @@
+[
+  {
+    "id": "C033",
+    "policy_version": 1,
+    "action": "resolve-standard",
+    "customer_safe_draft": "Hello, thank you for contacting support regarding case 33. We have reviewed your ordinary request and resolved it using our standard process. No further action is needed from you.",
+    "system_action_plan": "Triage under standard queue; verify account standing; apply standard resolution workflow; close case on completion.",
+    "next_state": "resolved",
+    "evidence": "Source batch-05.json lists C033 as class 'ordinary', harm_weight 3; support-v1 policy maps 'ordinary' to 'resolve-standard'.",
+    "uncertainty": "None material; case details are fictional and locally complete."
+  },
+  {
+    "id": "C034",
+    "policy_version": 1,
+    "action": "decline-credit-escalate",
+    "customer_safe_draft": "Hello, regarding case 34: the request falls outside the eligible window, so we cannot offer credit. We have escalated your concern for review and you will hear from us if anything changes.",
+    "system_action_plan": "Confirm expiry against case timestamps; record decline-credit decision; escalate to supervisor queue for secondary review.",
+    "next_state": "escalated",
+    "evidence": "Source batch-05.json lists C034 as class 'expired', harm_weight 3; support-v1 policy maps 'expired' to 'decline-credit-escalate'.",
+    "uncertainty": "Exact expiry timestamp not provided in source; classification taken as authoritative."
+  },
+  {
+    "id": "C035",
+    "policy_version": 1,
+    "action": "security-escalation",
+    "customer_safe_draft": "Hello, regarding case 35: we have detected a potential security concern on your account. As a precaution we have escalated this to our security team who will follow up with you shortly.",
+    "system_action_plan": "Isolate security signal; escalate to security on-call; preserve evidence; notify customer with safe non-detail language.",
+    "next_state": "escalated",
+    "evidence": "Source batch-05.json lists C035 as class 'security', harm_weight 10; support-v1 policy maps 'security' to 'security-escalation'.",
+    "uncertainty": "Nature of the security signal is not detailed in source; no containment steps taken beyond escalation."
+  },
+  {
+    "id": "C036",
+    "policy_version": 1,
+    "action": "merge-duplicate",
+    "customer_safe_draft": "Hello, regarding case 36: we found that this request duplicates an existing case. We have merged them so all updates will arrive in one place.",
+    "system_action_plan": "Identify surviving master case; merge case 36 into it; link timelines; notify customer of consolidated case.",
+    "next_state": "merged",
+    "evidence": "Source batch-05.json lists C036 as class 'duplicate', harm_weight 3; support-v1 policy maps 'duplicate' to 'merge-duplicate'.",
+    "uncertainty": "Master case identifier not provided in source; merge target to be confirmed at application time."
+  },
+  {
+    "id": "C037",
+    "policy_version": 1,
+    "action": "human-care-review",
+    "customer_safe_draft": "Hello, regarding case 37: your situation has been routed to a specialist care team who will review it personally and contact you with next steps.",
+    "system_action_plan": "Flag case as vulnerable-customer; route to human care review queue; suppress automated closures pending human review.",
+    "next_state": "in-review",
+    "evidence": "Source batch-05.json lists C037 as class 'vulnerable', harm_weight 10; support-v1 policy maps 'vulnerable' to 'human-care-review'.",
+    "uncertainty": "Vulnerability details not in source; care review assignment pending."
+  },
+  {
+    "id": "C038",
+    "policy_version": 1,
+    "action": "identity-verification",
+    "customer_safe_draft": "Hello, regarding case 38: before we can proceed we need to verify your identity. Please follow the verification steps we have sent through our secure channel.",
+    "system_action_plan": "Initiate identity verification workflow; hold case actions until verification completes; no account changes during hold.",
+    "next_state": "pending-verification",
+    "evidence": "Source batch-05.json lists C038 as class 'identity', harm_weight 10; support-v1 policy maps 'identity' to 'identity-verification'.",
+    "uncertainty": "Verification outcome not yet known; case cannot close locally beyond the verification gate."
+  },
+  {
+    "id": "C039",
+    "policy_version": 1,
+    "action": "billing-investigation",
+    "customer_safe_draft": "Hello, regarding case 39: we are investigating the billing question you raised. We will review the charge details and follow up with our findings.",
+    "system_action_plan": "Pull billing records for the account; investigate the disputed item; document findings; respond with outcome.",
+    "next_state": "investigating",
+    "evidence": "Source batch-05.json lists C039 as class 'billing', harm_weight 3; support-v1 policy maps 'billing' to 'billing-investigation'.",
+    "uncertainty": "Charge details not present in source; investigation scope assumed from class only."
+  },
+  {
+    "id": "C040",
+    "policy_version": 1,
+    "action": "retention-review",
+    "customer_safe_draft": "Hello, regarding case 40: thank you for letting us know you are considering leaving. A retention specialist will review your account and reach out with options.",
+    "system_action_plan": "Route to retention queue; review account history and eligibility for retention offers; schedule specialist outreach.",
+    "next_state": "in-review",
+    "evidence": "Source batch-05.json lists C040 as class 'retention', harm_weight 3; support-v1 policy maps 'retention' to 'retention-review'.",
+    "uncertainty": "Retention offer eligibility unknown until specialist review."
+  }
+]
