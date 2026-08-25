@@ -327,9 +327,9 @@
       "sha256": "704550fbf9a29a574da48a28778cdea98135576630a6be7fa2279674ce347879"
     },
     {
-      "bytes": 73707,
+      "bytes": 74587,
       "path": "product-runner.py",
-      "sha256": "c908d683375858f385d0967a775f36cbd27b27cd2f1719ae7b87c81130d76cab"
+      "sha256": "d443925c77af557b7a3dac299a70e2810053c8000895fec1f2e450f06880bb36"
     }
   ],
   "version": 1

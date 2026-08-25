@@ -1555,7 +1555,30 @@ def preflight() -> dict[str, object]:
     usage = run_sync(["omp", "--profile", "restless-model-broker", "usage"], check=False)
     checks["omp_usage_exit"] = usage.returncode
     checks["openai_route_observed"] = "OpenAI" in usage.stdout or "openai" in usage.stdout.lower()
-    checks["valid"] = bool(checks["cli"]) and checks["fixture_self_test"]["valid"] and checks["openai_route_observed"] and all(row.get("valid", True) for row in checks["arms"])
+    catalog = run_sync(
+        ["omp", "--profile", "restless-model-broker", "models", "openai-codex", "--json"],
+        check=False,
+    )
+    catalog_models: list[dict[str, object]] = []
+    if catalog.returncode == 0:
+        try:
+            catalog_models = json.loads(catalog.stdout).get("models", [])
+        except json.JSONDecodeError:
+            pass
+    catalog_selectors = {
+        str(row.get("selector")) for row in catalog_models if row.get("selector")
+    }
+    required_selectors = {SOL, TERRA}
+    checks["subscription_catalog_selectors"] = sorted(catalog_selectors)
+    checks["exact_frozen_selectors_advertised"] = required_selectors <= catalog_selectors
+    checks["exact_execution_probe"] = "not_run; Wave 0 must execute both selectors before a counted arm"
+    checks["valid"] = (
+        bool(checks["cli"])
+        and checks["fixture_self_test"]["valid"]
+        and checks["openai_route_observed"]
+        and checks["exact_frozen_selectors_advertised"]
+        and all(row.get("valid", True) for row in checks["arms"])
+    )
     return checks
 
 
