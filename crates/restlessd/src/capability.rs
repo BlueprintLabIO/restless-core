@@ -53,6 +53,8 @@ struct Claims {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     provider: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    model: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     billing: Option<String>,
     session: String,
     expires_at: DateTime<Utc>,
@@ -76,6 +78,7 @@ pub(crate) struct ModelGrant {
     pub(crate) actor: String,
     pub(crate) session: String,
     pub(crate) provider: String,
+    pub(crate) model: String,
     pub(crate) billing: String,
 }
 
@@ -128,6 +131,7 @@ impl CapabilityIssuer {
             company: company.to_string(),
             actor: None,
             provider: None,
+            model: None,
             billing: None,
             session: format!("bridge-{}", Uuid::new_v4().simple()),
             expires_at: Utc::now() + RUNTIME_BRIDGE_TTL,
@@ -147,6 +151,7 @@ impl CapabilityIssuer {
             company: company.to_string(),
             actor: Some(actor.to_string()),
             provider: None,
+            model: None,
             billing: None,
             session: session.to_string(),
             expires_at: Utc::now() + SESSION_TTL,
@@ -161,6 +166,7 @@ impl CapabilityIssuer {
         actor: &str,
         session: &str,
         provider: &str,
+        model: &str,
         billing: &str,
     ) -> Result<String> {
         self.issue(Claims {
@@ -169,6 +175,7 @@ impl CapabilityIssuer {
             company: company.to_string(),
             actor: Some(actor.to_string()),
             provider: Some(provider.to_string()),
+            model: Some(model.to_string()),
             billing: Some(billing.to_string()),
             session: session.to_string(),
             expires_at: Utc::now() + SESSION_TTL,
@@ -205,6 +212,9 @@ impl CapabilityIssuer {
             provider: claims
                 .provider
                 .context("model capability is missing its provider")?,
+            model: claims
+                .model
+                .context("model capability is missing its exact model")?,
             billing: claims
                 .billing
                 .context("model capability is missing its billing policy")?,
@@ -274,6 +284,19 @@ fn validate_claims(claims: &Claims) -> Result<()> {
             bail!("capability provider is invalid");
         }
     }
+    if let Some(model) = &claims.model {
+        if model.is_empty()
+            || model.len() > 300
+            || !model.bytes().all(|byte| {
+                byte.is_ascii_lowercase()
+                    || byte.is_ascii_uppercase()
+                    || byte.is_ascii_digit()
+                    || matches!(byte, b'-' | b'_' | b'.' | b'/' | b':')
+            })
+        {
+            bail!("capability model is invalid");
+        }
+    }
     if let Some(billing) = &claims.billing {
         if !matches!(billing.as_str(), "metered_api" | "subscription") {
             bail!("capability billing policy is invalid");
@@ -281,17 +304,29 @@ fn validate_claims(claims: &Claims) -> Result<()> {
     }
     match claims.kind {
         CapabilityKind::RuntimeBridge => {
-            if claims.actor.is_some() || claims.provider.is_some() || claims.billing.is_some() {
+            if claims.actor.is_some()
+                || claims.provider.is_some()
+                || claims.model.is_some()
+                || claims.billing.is_some()
+            {
                 bail!("runtime bridge capability carries a foreign scope");
             }
         }
         CapabilityKind::ActorSession => {
-            if claims.actor.is_none() || claims.provider.is_some() || claims.billing.is_some() {
+            if claims.actor.is_none()
+                || claims.provider.is_some()
+                || claims.model.is_some()
+                || claims.billing.is_some()
+            {
                 bail!("actor session capability has an invalid scope");
             }
         }
         CapabilityKind::ModelSession => {
-            if claims.actor.is_none() || claims.provider.is_none() || claims.billing.is_none() {
+            if claims.actor.is_none()
+                || claims.provider.is_none()
+                || claims.model.is_none()
+                || claims.billing.is_none()
+            {
                 bail!("model capability has an incomplete scope");
             }
         }
@@ -382,10 +417,15 @@ mod tests {
                 "delivery-lead",
                 "session_1",
                 "moonshot",
+                "moonshot/kimi-k3",
                 "metered_api",
             )
             .unwrap();
         assert_eq!(issuer.verify_model(&model).unwrap().provider, "moonshot");
+        assert_eq!(
+            issuer.verify_model(&model).unwrap().model,
+            "moonshot/kimi-k3"
+        );
         assert!(issuer.verify_coordination(&model).is_err());
 
         fs::remove_dir_all(root).unwrap();
@@ -401,6 +441,7 @@ mod tests {
                 company: "acme_test".into(),
                 actor: Some("delivery-lead".into()),
                 provider: Some("moonshot".into()),
+                model: Some("moonshot/kimi-k3".into()),
                 billing: Some("metered_api".into()),
                 session: "expired_1".into(),
                 expires_at: Utc::now() - Duration::seconds(1),

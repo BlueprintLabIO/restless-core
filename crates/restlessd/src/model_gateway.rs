@@ -71,6 +71,7 @@ impl ClientConfig {
                 actor,
                 session,
                 provider,
+                model,
                 billing.as_str(),
             )?,
             runtime_url: RELAY_RUNTIME_URL.to_string(),
@@ -113,6 +114,28 @@ pub async fn available_candidates(
     let ordered = ordered_candidates(config, preferred)?;
     let cooldowns = authority.active_model_cooldowns(&config.name).await?;
     filter_cooling_candidates(ordered, &cooldowns)
+}
+
+/// An explicit non-Exec actor preference is an exact next-wake contract, not
+/// an invitation to inherit the company's fallback chain. Exec may cross that
+/// chain for portfolio continuity; a lead or worker must instead block
+/// visibly so role/model experiments and specialist assignments cannot change
+/// capability silently.
+pub async fn available_actor_candidates(
+    config: &CompanyConfig,
+    preferred: Option<&str>,
+    authority: &crate::authority::AuthorityStore,
+) -> Result<Vec<String>> {
+    let ordered = actor_candidates(config, preferred)?;
+    let cooldowns = authority.active_model_cooldowns(&config.name).await?;
+    filter_cooling_candidates(ordered, &cooldowns)
+}
+
+fn actor_candidates(config: &CompanyConfig, preferred: Option<&str>) -> Result<Vec<String>> {
+    match preferred.map(str::trim).filter(|model| !model.is_empty()) {
+        Some(model) => Ok(vec![model.to_string()]),
+        None => ordered_candidates(config, None),
+    }
 }
 
 fn ordered_candidates(config: &CompanyConfig, preferred: Option<&str>) -> Result<Vec<String>> {
@@ -571,10 +594,10 @@ async fn relay_pi_stream(
             )
         }
     };
-    if provider != grant.provider {
+    if provider != grant.provider || model != grant.model {
         return relay_error(
             StatusCode::FORBIDDEN,
-            "model capability does not permit this provider",
+            "model capability does not permit this exact model",
         );
     }
     let config = match CompanyConfig::load(&state.root, &grant.company) {
@@ -586,16 +609,6 @@ async fn relay_pi_stream(
             )
         }
     };
-    let configured = config
-        .model_candidates()
-        .ok()
-        .is_some_and(|models| models.contains(&model));
-    if !configured {
-        return relay_error(
-            StatusCode::FORBIDDEN,
-            "model capability does not permit this configured company model",
-        );
-    }
     let billing = match grant.billing.as_str() {
         "metered_api" => ModelBilling::MeteredApi,
         "subscription" => ModelBilling::Subscription,
@@ -1256,7 +1269,7 @@ mod tests {
     }
 
     #[test]
-    fn agent_model_access_is_a_signed_company_actor_session_provider_grant() {
+    fn agent_model_access_is_a_signed_company_actor_session_exact_model_grant() {
         let root = test_root();
         let (issuer, _spend, _state) = test_relay_state(&root);
         let client = ClientConfig {
@@ -1280,6 +1293,7 @@ mod tests {
                 actor: "delivery-lead".into(),
                 session: "session_123".into(),
                 provider: "moonshot".into(),
+                model: "moonshot/kimi-k3".into(),
                 billing: "metered_api".into(),
             }
         );
@@ -1296,6 +1310,7 @@ mod tests {
                 "delivery-lead",
                 "session_123",
                 "moonshot",
+                "moonshot/kimi-k3",
                 "metered_api",
             )
             .unwrap();
@@ -1306,6 +1321,14 @@ mod tests {
         )
         .await;
         assert_eq!(mismatched.status(), StatusCode::FORBIDDEN);
+
+        let same_provider_wrong_model = relay_pi_stream(
+            State(state.clone()),
+            bearer_headers(&token),
+            Bytes::from_static(br#"{"modelId":"moonshot/another-model"}"#),
+        )
+        .await;
+        assert_eq!(same_provider_wrong_model.status(), StatusCode::FORBIDDEN);
 
         spend.meter().record_exact(
             "acme_test",
@@ -1703,5 +1726,26 @@ mod tests {
         )
         .unwrap();
         assert_eq!(available, ["anthropic/claude-sonnet-4-5"]);
+    }
+
+    #[test]
+    fn explicit_staff_model_never_inherits_the_exec_fallback_chain() {
+        let config = CompanyConfig {
+            name: "exact_staff_test".into(),
+            mission: String::new(),
+            spend_ceiling_usd: crate::runtime::SpendCeiling::from_micro_usd(10_000_000),
+            model: "openai-codex/gpt-5.6-sol".into(),
+            model_failover: vec!["anthropic/claude-sonnet-4-6".into()],
+            credentials: BTreeMap::new(),
+            approved_parties: Vec::new(),
+        };
+        assert_eq!(
+            actor_candidates(&config, Some("openai-codex/gpt-5.6-terra")).unwrap(),
+            ["openai-codex/gpt-5.6-terra"]
+        );
+        assert_eq!(
+            actor_candidates(&config, None).unwrap(),
+            ["openai-codex/gpt-5.6-sol", "anthropic/claude-sonnet-4-6"]
+        );
     }
 }

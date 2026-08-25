@@ -174,7 +174,7 @@ pub async fn dispatch_claimed_work(
             .into_iter()
             .find(|row| row.id == actor)
             .with_context(|| format!("Work owner {actor:?} is not an OrgIntel actor"))?;
-        let candidates = crate::model_gateway::available_candidates(
+        let candidates = crate::model_gateway::available_actor_candidates(
             config,
             actor_row.model.as_deref(),
             authority,

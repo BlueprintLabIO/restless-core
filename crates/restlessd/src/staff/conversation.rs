@@ -359,7 +359,7 @@ pub async fn dispatch_actor_conversation(
     );
     let turn_prompt = conversation_turn_prompt(reason, &owner_input);
 
-    let candidates = crate::model_gateway::available_candidates(
+    let candidates = crate::model_gateway::available_actor_candidates(
         config,
         actor_row.model.as_deref(),
         runtime.authority,

@@ -160,7 +160,7 @@ pub async fn wake(
         org.emit_event(
             "model_attempt",
             Some("exec"),
-            serde_json::json!({ "model": model, "attempt": index + 1 }),
+            serde_json::json!({ "model": model, "configured_effort": acp::DEFAULT_REASONING_EFFORT, "attempt": index + 1 }),
         )
         .await?;
 
@@ -381,6 +381,7 @@ pub(crate) async fn agent_auth_for_model(
     )?;
     Ok(acp::AgentAuth {
         model: model.to_string(),
+        effort: acp::DEFAULT_REASONING_EFFORT.to_string(),
         provider: access.provider,
         company: company.to_string(),
         session_id: session_id.clone(),
@@ -459,6 +460,7 @@ async fn record_usage(
         Some("exec"),
         serde_json::json!({
             "model": auth.model,
+            "configured_effort": auth.effort,
             "billing": auth.billing.as_str(),
             "tokens": usage.used,
             "context_size": usage.size,

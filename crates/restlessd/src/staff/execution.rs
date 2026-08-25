@@ -57,7 +57,7 @@ pub(super) async fn run_staff_with_failover(run: StaffRun) -> Result<StaffOutcom
             .emit_event(
                 "model_attempt",
                 Some(&run.actor),
-                serde_json::json!({ "model": model, "attempt": index + 1 }),
+                serde_json::json!({ "model": model, "configured_effort": crate::acp::DEFAULT_REASONING_EFFORT, "attempt": index + 1 }),
             )
             .await?;
 
@@ -257,6 +257,7 @@ async fn record_staff_usage(
         Some(actor),
         serde_json::json!({
             "model": model,
+            "configured_effort": crate::acp::DEFAULT_REASONING_EFFORT,
             "billing": billing.as_str(),
             // Compatibility fields retain their names, while the explicit
             // fields state the ACP semantics for new readers.
@@ -649,6 +650,7 @@ mod live_product_tests {
         let capabilities = crate::capability::CapabilityIssuer::open(root).unwrap();
         AgentAuth {
             model: model.to_string(),
+            effort: crate::acp::DEFAULT_REASONING_EFFORT.into(),
             provider: provider.clone(),
             company: company.to_string(),
             session_id: launch_id.clone(),
@@ -658,7 +660,14 @@ mod live_product_tests {
                 .unwrap(),
             gateway_token_env: "RESTLESS_MODEL_CAPABILITY".into(),
             gateway_token: capabilities
-                .issue_model_session(company, actor, &launch_id, &provider, billing.as_str())
+                .issue_model_session(
+                    company,
+                    actor,
+                    &launch_id,
+                    &provider,
+                    model,
+                    billing.as_str(),
+                )
                 .unwrap(),
             gateway_url: "http://host.docker.internal:7790".into(),
             billing,

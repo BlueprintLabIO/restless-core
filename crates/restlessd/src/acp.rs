@@ -76,6 +76,8 @@ fn test_coordinator_override() -> Option<String> {
 pub struct AgentAuth {
     /// Provider-qualified model, e.g. `moonshot/k3-256k`.
     pub model: String,
+    /// Explicit provider-supported reasoning effort for this actor launch.
+    pub effort: String,
     pub provider: String,
     pub company: String,
     /// The host-generated session identifier binds coordination and model
@@ -100,8 +102,16 @@ struct SessionLocator {
     responsibility: String,
     cwd: String,
     model: String,
+    #[serde(default = "default_reasoning_effort_owned")]
+    effort: String,
     session_id: String,
     cumulative_cost_usd: Option<f64>,
+}
+
+pub(crate) const DEFAULT_REASONING_EFFORT: &str = "medium";
+
+fn default_reasoning_effort_owned() -> String {
+    DEFAULT_REASONING_EFFORT.to_string()
 }
 
 fn session_locator_path(company: &str, actor: &str, responsibility: &str) -> String {
@@ -551,6 +561,8 @@ pub struct AgentSession {
     observer: Option<SessionObserver>,
     live_observer_enabled: Arc<AtomicBool>,
     pub launch_id: String,
+    pub model: String,
+    pub effort: String,
     pub resumed: bool,
     pub reconstructed: bool,
     pub reconstruction_reason: Option<String>,
@@ -655,6 +667,8 @@ impl AgentSession {
     pub fn readiness_observation(&self) -> serde_json::Value {
         serde_json::json!({
             "launch_id": self.launch_id,
+            "model": self.model,
+            "configured_effort": self.effort,
             "session_id": self.session_id.to_string(),
             "resumed": self.resumed,
             "reconstructed": self.reconstructed,
@@ -879,6 +893,8 @@ where
             "acp",
             "--model",
             auth.model.as_str(),
+            "--thinking",
+            auth.effort.as_str(),
             "--system-prompt",
             system_prompt_path.as_str(),
             "--config",
@@ -1056,6 +1072,7 @@ where
                     match prior_locator {
                         Some(prior)
                             if prior.model == launch_auth.model
+                                && prior.effort == launch_auth.effort
                                 && initialized.agent_capabilities.load_session =>
                         {
                             let prior_id: SessionId = prior.session_id.clone().into();
@@ -1099,6 +1116,11 @@ where
                                     "model changed from {} to {}; prior provider session is not reusable",
                                     prior.model, launch_auth.model
                                 )
+                            } else if prior.effort != launch_auth.effort {
+                                format!(
+                                    "reasoning effort changed from {} to {}; prior provider session is not reusable",
+                                    prior.effort, launch_auth.effort
+                                )
                             } else {
                                 "ACP agent does not advertise session/load".to_string()
                             };
@@ -1132,6 +1154,7 @@ where
                     responsibility: responsibility.clone(),
                     cwd: workdir.clone(),
                     model: launch_auth.model.clone(),
+                    effort: launch_auth.effort.clone(),
                     session_id: session_id.to_string(),
                     cumulative_cost_usd: baseline_cost,
                 };
@@ -1165,6 +1188,8 @@ where
                     observer,
                     live_observer_enabled,
                     launch_id: launch_id_for_session,
+                    model: launch_auth.model.clone(),
+                    effort: launch_auth.effort.clone(),
                     resumed,
                     reconstructed,
                     reconstruction_reason,
@@ -1351,7 +1376,8 @@ mod tests {
     use super::{
         agent_exec_prefix, persist_session_locator, pids_in_session, read_session_locator,
         session_cost_delta, session_locator_path, validate_session_locator, with_agent, AgentAuth,
-        AgentControls, SessionLocator, OMP_AGENT_TOOLS, RESTLESS_OMP_CONFIG,
+        AgentControls, SessionLocator, DEFAULT_REASONING_EFFORT, OMP_AGENT_TOOLS,
+        RESTLESS_OMP_CONFIG,
     };
 
     #[test]
@@ -1371,6 +1397,7 @@ mod tests {
             responsibility: "work:abc".into(),
             cwd: "/company/worktrees/work-abc-r1".into(),
             model: "zai/glm-5.3".into(),
+            effort: DEFAULT_REASONING_EFFORT.into(),
             session_id: "session-1".into(),
             cumulative_cost_usd: Some(0.2),
         };
@@ -1435,6 +1462,7 @@ mod tests {
             let launch_id = uuid::Uuid::new_v4().simple().to_string();
             AgentAuth {
                 model: model.clone(),
+                effort: DEFAULT_REASONING_EFFORT.into(),
                 provider: provider.clone(),
                 company: company.clone(),
                 session_id: launch_id.clone(),
@@ -1449,6 +1477,7 @@ mod tests {
                         actor,
                         &launch_id,
                         &provider,
+                        &model,
                         crate::model_gateway::ModelBilling::Subscription.as_str(),
                     )
                     .unwrap(),
