@@ -312,9 +312,9 @@
       "sha256": "3af30eaa91cb74e4b6f9332bdc1d16d1f7015270219149236806a1a1b8d2d515"
     },
     {
-      "bytes": 10829,
+      "bytes": 11419,
       "path": "self-test.py",
-      "sha256": "e5c1dd220b6ec532b24e6e2f01e1da83724317d9a1535066b16ae1a2f831c67c"
+      "sha256": "ebb0b75b6bd5631f5e99563f1883675625abbf380c51466c3e247b9732227d19"
     },
     {
       "bytes": 8502,
@@ -327,14 +327,19 @@
       "sha256": "704550fbf9a29a574da48a28778cdea98135576630a6be7fa2279674ce347879"
     },
     {
-      "bytes": 86563,
+      "bytes": 91569,
       "path": "product-runner.py",
-      "sha256": "ca0372d196ce0ba841fcb5e5a877f2c402ddc20693d0453d2e88c713053c98c4"
+      "sha256": "fce0a8ba23dc0733ddead20ac78ea2c62a0afe67558ddf7a0b8ddc556cf447c8"
     },
     {
-      "bytes": 10792,
+      "bytes": 11306,
       "path": "analyze.py",
-      "sha256": "8be331217017f44a04b74cb828c28a6c424a18cff24c0be44aeddd6028ac4334"
+      "sha256": "a6f4e6cdd98fb78c39f524558d93628c4ef284457c497d30db84cc14dc3ed986"
+    },
+    {
+      "bytes": 6105,
+      "path": "completion-audit.py",
+      "sha256": "bc2f9712e6021af8c9ca254dc4c85bab1a7098197b87362d4a11d2147c128347"
     }
   ],
   "version": 1

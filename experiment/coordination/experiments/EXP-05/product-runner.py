@@ -35,6 +35,7 @@ SOL = CONTRACT["models"]["lead"]["selector"]
 TERRA = CONTRACT["models"]["staff"]["selector"]
 RUNTIME_ROOT = Path("/company/experiment/EXP-05")
 RESULTS = ROOT / "results"
+PROGRAM_CEILING_USD = 100.0
 
 
 class RunFailure(RuntimeError):
@@ -130,6 +131,48 @@ def cli(*args: str, check: bool = True) -> str:
 def cli_json(*args: str) -> Any:
     raw = cli(*args)
     return json.loads(raw)
+
+
+def experiment_spend() -> dict[str, object]:
+    rows: list[dict[str, object]] = []
+    for company in cli_json("company", "list"):
+        if not (
+            str(company).startswith("exp05_")
+            and str(company).endswith("_test")
+            and company != "exp05_model_anchor_test"
+        ):
+            continue
+        result = cli("spend", "-c", str(company), check=False)
+        try:
+            spend = json.loads(result)
+        except json.JSONDecodeError:
+            raise RunFailure(f"could not read authoritative spend for {company}")
+        rows.append({"company": company, **spend})
+    return {
+        "ceiling_usd": PROGRAM_CEILING_USD,
+        "accounted_usd": sum(float(row["accounted_usd"]) for row in rows),
+        "companies": rows,
+    }
+
+
+def admit_program_cell(cell_ceiling_usd: float) -> dict[str, object]:
+    spend = experiment_spend()
+    unknown = [
+        row["company"]
+        for row in spend["companies"]
+        if row.get("status") == "metering_unknown"
+    ]
+    if unknown:
+        raise RunFailure(
+            "EXP-05 spend is unknown for " + ", ".join(map(str, unknown))
+        )
+    if float(spend["accounted_usd"]) + cell_ceiling_usd > PROGRAM_CEILING_USD:
+        raise RunFailure(
+            f"EXP-05 programme admission would exceed ${PROGRAM_CEILING_USD:.0f}: "
+            f"${float(spend['accounted_usd']):.6f} already accounted and "
+            f"${cell_ceiling_usd:.0f} requested"
+        )
+    return spend
 
 
 def container_name(company: str) -> str:
@@ -416,8 +459,11 @@ def provision(arm: Arm, run_token: str, result_dir: Path) -> tuple[str, str, lis
     configured = set(cli_json("company", "list"))
     if company in configured:
         raise RunFailure(f"refusing to reuse existing counted company {company}")
+    cell_ceiling = 8 if arm.wave == 0 else 20 if arm.wave == 4 else 12
+    programme_spend = admit_program_cell(cell_ceiling)
+    json_write(result_dir / "control/programme-spend-at-admission.json", programme_spend)
     config = result_dir / "control/company.toml"
-    create_company_config(config, company, arm, 20 if arm.wave == 4 else 12)
+    create_company_config(config, company, arm, cell_ceiling)
     cli("company", "create", "--from-file", str(config))
     cli("up", "-c", company)
     lead, workers, team_name = actor_ids(arm.domain, arm.workers)
@@ -1245,6 +1291,8 @@ async def run_wave4(run_token: str, wall_seconds: int, skip_blind: bool) -> dict
         raise RunFailure(f"result directory already exists: {result_dir}")
     result_dir.mkdir(parents=True)
     company = company_name(arm.arm_id, run_token)
+    programme_spend = admit_program_cell(20)
+    json_write(result_dir / "control/programme-spend-at-admission.json", programme_spend)
     config = result_dir / "control/company.toml"
     create_company_config(config, company, arm, 20)
     cli("company", "create", "--from-file", str(config))
@@ -1578,6 +1626,8 @@ async def run_continuity_gate(run_token: str, wall_seconds: int) -> dict[str, ob
         raise RunFailure(f"result directory already exists: {result_dir}")
     result_dir.mkdir(parents=True)
     company = company_name(arm.arm_id, run_token)
+    programme_spend = admit_program_cell(8)
+    json_write(result_dir / "control/programme-spend-at-admission.json", programme_spend)
     config = result_dir / "control/company.toml"
     create_company_config(config, company, arm, 8)
     cli("company", "create", "--from-file", str(config))
@@ -1887,15 +1937,35 @@ def preflight() -> dict[str, object]:
     required_selectors = {SOL, TERRA}
     checks["subscription_catalog_selectors"] = sorted(catalog_selectors)
     checks["exact_frozen_selectors_advertised"] = required_selectors <= catalog_selectors
-    checks["exact_execution_probe"] = "not_run; Wave 0 must execute both selectors before a counted arm"
+    continuity_paths = sorted(
+        RESULTS.glob("wave0-continuity-*/run-result.json"),
+        key=lambda path: path.stat().st_mtime,
+    )
+    exact_execution = False
+    if continuity_paths:
+        continuity = json.loads(continuity_paths[-1].read_text())
+        exact_execution = bool(
+            continuity.get("valid")
+            and continuity.get("checks", {}).get("exact_models")
+            and continuity.get("checks", {}).get("medium_effort")
+            and continuity.get("checks", {}).get("usage_attributable")
+        )
+    checks["exact_execution_probe"] = "passed" if exact_execution else "not_run"
     checks["valid"] = (
         bool(checks["cli"])
         and checks["fixture_self_test"]["valid"]
         and checks["openai_route_observed"]
-        and checks["exact_frozen_selectors_advertised"]
+        and (checks["exact_frozen_selectors_advertised"] or exact_execution)
         and all(row.get("valid", True) for row in checks["arms"])
     )
     return checks
+
+
+def record_preflight() -> dict[str, object]:
+    result = preflight()
+    result["recorded_at"] = utc_now()
+    json_write(RESULTS / "wave0-preflight.json", result)
+    return result
 
 
 def record_deterministic_gates() -> dict[str, object]:
@@ -1919,11 +1989,45 @@ def record_deterministic_gates() -> dict[str, object]:
     return result
 
 
+def run_live_command(
+    coroutine: Any,
+    result_dir: Path,
+    *,
+    company: str,
+    command: str,
+    arm: str | None = None,
+) -> dict[str, object]:
+    try:
+        return asyncio.run(coroutine)
+    except Exception as error:  # noqa: BLE001 - every invalid run must leave evidence
+        result_dir.mkdir(parents=True, exist_ok=True)
+        failure: dict[str, object] = {
+            "validity": "invalid",
+            "command": command,
+            "arm": arm,
+            "company": company,
+            "error_type": type(error).__name__,
+            "error": str(error),
+            "recorded_at": utc_now(),
+        }
+        try:
+            if company in set(cli_json("company", "list")):
+                failure["spend"] = cli_json("spend", "-c", company)
+                json_write(result_dir / "work-graph-at-failure.json", graph(company))
+                json_write(result_dir / "events-at-failure.json", events(company))
+        except Exception as evidence_error:  # noqa: BLE001 - preserve the primary failure
+            failure["evidence_capture_error"] = str(evidence_error)
+        json_write(result_dir / "run-failure.json", failure)
+        print(json.dumps(failure, indent=2, sort_keys=True))
+        raise SystemExit(1) from error
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("catalog")
     sub.add_parser("preflight")
+    sub.add_parser("record-preflight")
     sub.add_parser("record-deterministic-gates")
     dry = sub.add_parser("dry-run")
     dry.add_argument("arm")
@@ -1946,6 +2050,8 @@ def main() -> None:
         print(json.dumps(CATALOG, indent=2, sort_keys=True))
     elif args.command == "preflight":
         print(json.dumps(preflight(), indent=2, sort_keys=True))
+    elif args.command == "record-preflight":
+        print(json.dumps(record_preflight(), indent=2, sort_keys=True))
     elif args.command == "record-deterministic-gates":
         print(json.dumps(record_deterministic_gates(), indent=2, sort_keys=True))
     elif args.command == "dry-run":
@@ -1954,11 +2060,36 @@ def main() -> None:
         args.staging.mkdir(parents=True, exist_ok=True)
         print(json.dumps({"anchor": ensure_anchor(args.staging)}, sort_keys=True))
     elif args.command == "run-arm":
-        print(json.dumps(asyncio.run(run_arm(args.arm, args.run_token, args.wall_seconds, args.skip_blind)), indent=2, sort_keys=True))
+        arm = Arm.load(args.arm)
+        result_dir = RESULTS / f"{args.arm}-{args.run_token}"
+        result = run_live_command(
+            run_arm(args.arm, args.run_token, args.wall_seconds, args.skip_blind),
+            result_dir,
+            company=company_name(arm.arm_id, args.run_token),
+            command=f"run-arm {args.arm}",
+            arm=args.arm,
+        )
+        print(json.dumps(result, indent=2, sort_keys=True))
     elif args.command == "run-continuity-gate":
-        print(json.dumps(asyncio.run(run_continuity_gate(args.run_token, args.wall_seconds)), indent=2, sort_keys=True))
+        result_dir = RESULTS / f"wave0-continuity-{args.run_token}"
+        result = run_live_command(
+            run_continuity_gate(args.run_token, args.wall_seconds),
+            result_dir,
+            company=company_name("wave0-continuity", args.run_token),
+            command="run-continuity-gate",
+            arm="wave0-continuity",
+        )
+        print(json.dumps(result, indent=2, sort_keys=True))
     elif args.command == "run-wave4":
-        print(json.dumps(asyncio.run(run_wave4(args.run_token, args.wall_seconds, args.skip_blind)), indent=2, sort_keys=True))
+        result_dir = RESULTS / f"company-q1x4-r1-{args.run_token}"
+        result = run_live_command(
+            run_wave4(args.run_token, args.wall_seconds, args.skip_blind),
+            result_dir,
+            company=company_name("company-q1x4-r1", args.run_token),
+            command="run-wave4",
+            arm="company-q1x4-r1",
+        )
+        print(json.dumps(result, indent=2, sort_keys=True))
 
 
 if __name__ == "__main__":

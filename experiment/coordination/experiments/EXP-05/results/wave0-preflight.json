@@ -1,0 +1,164 @@
+{
+  "arms": [
+    {
+      "arm": "sales-d0-q2-r1",
+      "charter_sha256": "c14fdc2352dd825ee22768f47cbff506cd28e79e0888d20a3c6909222caab110",
+      "errors": [],
+      "units": 6,
+      "valid": true
+    },
+    {
+      "arm": "sales-d0-q1-r1",
+      "charter_sha256": "c3e4e41b2092b153f9f6240b6a3646f0f56f24056d6d0c2c7e551e6da66b6751",
+      "errors": [],
+      "units": 6,
+      "valid": true
+    },
+    {
+      "arm": "sales-d1-elastic-r1",
+      "charter_sha256": "f0daf8bc02a8bea1df5b1824c02ecfb8a2c766e432a6850652cbe0e93007c856",
+      "errors": [],
+      "units": 6,
+      "valid": true
+    },
+    {
+      "arm": "sales-d1-q1-r1",
+      "charter_sha256": "5c21f06685fc2d1b1640ba58129e046cb5f26f50cb01fb2c969a2ca85b296d27",
+      "errors": [],
+      "units": 6,
+      "valid": true
+    },
+    {
+      "arm": "sales-d1-q2-r1",
+      "charter_sha256": "d52504621883cefb3a2ab7af7c55e7c88363635a234bb0f27469252b348590b4",
+      "errors": [],
+      "units": 6,
+      "valid": true
+    },
+    {
+      "arm": "sales-d2-q2-r1",
+      "charter_sha256": "efcfb685d829417946c8a191df7aadb1e83cbc5d62c4916962c81f16015a9d5a",
+      "errors": [],
+      "units": 6,
+      "valid": true
+    },
+    {
+      "arm": "sales-d2-elastic-r1",
+      "charter_sha256": "de96154c1080aa3db6c76b7057d92694adc34859c5335589e271b047f2db5778",
+      "errors": [],
+      "units": 6,
+      "valid": true
+    },
+    {
+      "arm": "sales-d2-q1-r1",
+      "charter_sha256": "4e7c771c29bca15934d7396a829b059e0b80e97d16f21a48149cdf4fad3f4b07",
+      "errors": [],
+      "units": 6,
+      "valid": true
+    },
+    {
+      "arm": "support-causal-r1",
+      "charter_sha256": "113e65ea6e71c2baea5a6968906a744b8ffbeabbbfeea0b3d05f446a5a5b86f4",
+      "errors": [],
+      "units": 12,
+      "valid": true
+    },
+    {
+      "arm": "support-terminal-r1",
+      "charter_sha256": "f2435797384f5623b742c2b01de59cc77f205fffe1d04f9b57f259a1063f46c8",
+      "errors": [],
+      "units": 12,
+      "valid": true
+    },
+    {
+      "arm": "monitoring-q1-r1",
+      "charter_sha256": "23cb58dd7245aff72c67f91512ff6ffea5662bcb75fbf4f17b0c461af11255ab",
+      "errors": [],
+      "units": 4,
+      "valid": true
+    },
+    {
+      "arm": "monitoring-q2-r1",
+      "charter_sha256": "f6c524e67deb7c5511f6e325a14059ffb3350166f577ebd51a49ad5f31432f56",
+      "errors": [],
+      "units": 4,
+      "valid": true
+    },
+    {
+      "arm": "company-q1x4-r1",
+      "charter_sha256": {
+        "monitoring": "0b41a7543d1d9a6d60692b07adae9d0bdc071799ae898659bdaf01b9f9a508c7",
+        "operations": "b14d9ca39d3a85e9b2d21f3344e0bce690e032a5a5f41a53495e987e9857cd5f",
+        "sales": "dbaa9953a59ed4edc2ba734e8003a3507fd8026e7e3bcc2cc79bce461b5876e6",
+        "support": "69cc716c6d322bfaafc459d1633f4404fe907b857a52c8ad31f1f82c15406c97"
+      },
+      "dedicated_runner": true,
+      "errors": [],
+      "population": {
+        "monitoring": 10,
+        "operations": 32,
+        "sales": 40,
+        "support": 8
+      },
+      "valid": true
+    }
+  ],
+  "cli": "/Users/yao/Learning/restless/target/debug/restless",
+  "exact_execution_probe": "not_run",
+  "exact_frozen_selectors_advertised": false,
+  "fixture_self_test": {
+    "records": [
+      {
+        "domain": "sales",
+        "index_sha256": "57268e4499fb01d3b0b1688040ff86e1f1903597f91720222e55af7ced032d4e",
+        "orders": 20,
+        "ownership_mutation_rejected": true,
+        "units": 240,
+        "visible_corruption_rejected": true,
+        "visible_gate_checks": 6,
+        "wave4_subset_contract": true
+      },
+      {
+        "domain": "support-v2",
+        "index_sha256": "4afbca6e9623d93315b095a1774bbc230ab25232dbd2fe4471e52f42334f5c83",
+        "orders": 20,
+        "ownership_mutation_rejected": true,
+        "units": 96,
+        "visible_corruption_rejected": true,
+        "visible_gate_checks": 12,
+        "wave4_subset_contract": true
+      },
+      {
+        "domain": "monitoring",
+        "index_sha256": "dc3b7fa50c10ff8fbe97e60cfedd3cf3090e67f9bb13681a39fd51d2db45ce24",
+        "orders": 20,
+        "ownership_mutation_rejected": true,
+        "units": 40,
+        "visible_corruption_rejected": true,
+        "visible_gate_checks": 4,
+        "wave4_subset_contract": true
+      },
+      {
+        "domain": "operations",
+        "index_sha256": "a74834473c0b5042ca6e0d1206520437871be7bc3d83f880bea02a8d19bf8fa6",
+        "orders": 20,
+        "ownership_mutation_rejected": true,
+        "units": 32,
+        "visible_corruption_rejected": true,
+        "visible_gate_checks": 1,
+        "wave4_subset_contract": true
+      }
+    ],
+    "runner_contracts": {
+      "blind_schema_rejects_drift": true,
+      "flat_and_decaying_value_curves_separate": true,
+      "overlap_math_is_exact": true
+    },
+    "valid": true
+  },
+  "omp_usage_exit": 0,
+  "openai_route_observed": false,
+  "recorded_at": "2026-08-25T09:05:53.087101+00:00",
+  "subscription_catalog_selectors": [],
+  "valid": false
+}

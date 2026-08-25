@@ -1,8 +1,8 @@
 {
-  "fixture_manifest_sha256": "88e9562b8b7063f1132e8fcdbcfe022716092a86082fa1d137ecc0510fae582d",
+  "fixture_manifest_sha256": "2c5941acd424fd19154c16cc09bee1bff1b6f74efbe2c4a9a27d370031436caf",
   "frozen_contract_sha256": "3af30eaa91cb74e4b6f9332bdc1d16d1f7015270219149236806a1a1b8d2d515",
   "gate": "G4-deterministic-local-closure",
-  "recorded_at": "2026-08-25T09:00:47.268754+00:00",
+  "recorded_at": "2026-08-25T09:06:44.333577+00:00",
   "result": {
     "records": [
       {
@@ -49,7 +49,8 @@
     "runner_contracts": {
       "blind_schema_rejects_drift": true,
       "flat_and_decaying_value_curves_separate": true,
-      "overlap_math_is_exact": true
+      "overlap_math_is_exact": true,
+      "programme_spend_guard_is_fail_closed": true
     },
     "valid": true
   },

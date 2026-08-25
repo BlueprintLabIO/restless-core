@@ -34,6 +34,18 @@ def load_runs() -> tuple[dict[str, list[dict[str, Any]]], list[dict[str, Any]]]:
         arm = row.get("arm")
         if arm:
             grouped[str(arm)].append(row)
+    for path in sorted(RESULTS.glob("*/run-failure.json")):
+        try:
+            row = read(path)
+        except (OSError, json.JSONDecodeError) as error:
+            malformed.append({"path": str(path.relative_to(ROOT)), "error": str(error)})
+            continue
+        row["_path"] = str(path.relative_to(ROOT))
+        arm = row.get("arm")
+        if arm:
+            grouped[str(arm)].append(row)
+        else:
+            malformed.append({"path": row["_path"], "error": "failure evidence has no arm"})
     return grouped, malformed
 
 

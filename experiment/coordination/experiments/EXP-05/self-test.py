@@ -230,10 +230,25 @@ def check_runner_contracts() -> dict[str, bool]:
         raise AssertionError("service-pressure value curve did not decay")
     if runner.interval_summary([(0, 10), (5, 12), (20, 25)]) != {"summed": 22, "union": 17}:
         raise AssertionError("overlapping actor time was composed incorrectly")
+    runner.experiment_spend = lambda: {
+        "ceiling_usd": 100.0, "accounted_usd": 93.0, "companies": []
+    }
+    try:
+        runner.admit_program_cell(8)
+    except runner.RunFailure:
+        pass
+    else:
+        raise AssertionError("programme overspend was admitted")
+    runner.experiment_spend = lambda: {
+        "ceiling_usd": 100.0, "accounted_usd": 92.0, "companies": []
+    }
+    if runner.admit_program_cell(8)["accounted_usd"] != 92.0:
+        raise AssertionError("exact programme-boundary admission was rejected")
     return {
         "blind_schema_rejects_drift": True,
         "flat_and_decaying_value_curves_separate": True,
         "overlap_math_is_exact": True,
+        "programme_spend_guard_is_fail_closed": True,
     }
 
 
