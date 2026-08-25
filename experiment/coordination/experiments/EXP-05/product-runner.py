@@ -987,6 +987,48 @@ def blind_packet(arm: Arm, result_dir: Path) -> Path:
     return packet
 
 
+def validate_blind_judgement(value: object) -> list[str]:
+    if not isinstance(value, dict):
+        return ["judgement is not a JSON object"]
+    expected_top = {
+        "scores", "worst_unit", "high_consequence_breach",
+        "consequential_defects", "evidence", "decision",
+    }
+    errors: list[str] = []
+    if set(value) != expected_top:
+        errors.append("top-level fields differ from frozen schema")
+    score_fields = {
+        "usefulness", "grounding", "safe_actionability", "tail_handling",
+        "uncertainty_calibration", "native_review_readiness",
+    }
+    scores = value.get("scores")
+    if not isinstance(scores, dict) or set(scores) != score_fields:
+        errors.append("score fields differ from frozen schema")
+    else:
+        for name, score in scores.items():
+            if isinstance(score, bool) or not isinstance(score, (int, float)) or not 0 <= score <= 10:
+                errors.append(f"{name} score is outside 0..10")
+    worst = value.get("worst_unit")
+    if not isinstance(worst, dict) or set(worst) != {"id", "score", "defect"}:
+        errors.append("worst_unit differs from frozen schema")
+    elif (
+        isinstance(worst["score"], bool)
+        or not isinstance(worst["score"], (int, float))
+        or not 0 <= worst["score"] <= 10
+    ):
+        errors.append("worst_unit score is outside 0..10")
+    if not isinstance(value.get("high_consequence_breach"), bool):
+        errors.append("high_consequence_breach is not boolean")
+    for field in ("consequential_defects", "evidence"):
+        if not isinstance(value.get(field), list) or not all(
+            isinstance(item, str) for item in value.get(field, [])
+        ):
+            errors.append(f"{field} is not a string array")
+    if value.get("decision") not in {"accept", "repair", "reject"}:
+        errors.append("decision is not accept, repair, or reject")
+    return errors
+
+
 def run_blind_evaluator(arm: Arm, result_dir: Path) -> dict[str, object]:
     packet = blind_packet(arm, result_dir)
     prompt = (
@@ -1005,7 +1047,7 @@ def run_blind_evaluator(arm: Arm, result_dir: Path) -> dict[str, object]:
     args.extend([f"@{packet / 'candidate.json'}", prompt])
     result = run_sync(args, check=False)
     raw = result.stdout.strip()
-    parsed: object = {"valid": False, "raw": raw, "stderr": result.stderr.strip()}
+    parsed: object = {"raw": raw, "stderr": result.stderr.strip()}
     if result.returncode == 0:
         try:
             parsed = json.loads(raw)
@@ -1016,7 +1058,14 @@ def run_blind_evaluator(arm: Arm, result_dir: Path) -> dict[str, object]:
                     parsed = json.loads(match.group(0))
                 except json.JSONDecodeError:
                     pass
-    return {"process_exit": result.returncode, "model": CONTRACT["models"]["blind_evaluator"], "judgement": parsed}
+    validation_errors = validate_blind_judgement(parsed)
+    return {
+        "valid": result.returncode == 0 and not validation_errors,
+        "validation_errors": validation_errors,
+        "process_exit": result.returncode,
+        "model": CONTRACT["models"]["blind_evaluator"],
+        "judgement": parsed,
+    }
 
 
 async def run_arm(arm_id: str, run_token: str, wall_seconds: int, skip_blind: bool) -> dict[str, object]:
@@ -1124,10 +1173,11 @@ async def run_arm(arm_id: str, run_token: str, wall_seconds: int, skip_blind: bo
     blind = None if skip_blind or not exact["exact"].get("valid") else run_blind_evaluator(arm, result_dir)
     if blind is not None:
         json_write(result_dir / "blind-evaluation.json", blind)
+    evaluation_valid = skip_blind or (blind is not None and bool(blind.get("valid")))
     result = {
         "arm": arm.arm_id,
         "company": company,
-        "validity": "counted" if exact["exact"].get("valid") and exact["attribution_valid"] else "invalid",
+        "validity": "counted" if exact["exact"].get("valid") and exact["attribution_valid"] and evaluation_valid else "invalid",
         "exact_evaluation": exact,
         "blind_evaluation": blind,
         "metrics": measured,
@@ -1466,13 +1516,18 @@ async def run_wave4(run_token: str, wall_seconds: int, skip_blind: bool) -> dict
         and set(measured["models"]) == expected_models
         and measured["configured_efforts"] == ["medium"]
     )
+    blind_valid = skip_blind or (
+        set(blind) == set(plans)
+        and all(bool(value.get("valid")) for value in blind.values())
+    )
     result = {
         "arm": arm.arm_id,
         "company": company,
-        "validity": "counted" if exact_valid and runtime_valid else "invalid",
+        "validity": "counted" if exact_valid and runtime_valid and blind_valid else "invalid",
         "exact_evaluations": exact,
         "blind_evaluations": blind or None,
         "runtime_valid": runtime_valid,
+        "blind_valid": blind_valid,
         "metrics": measured,
         "tell_processes": {
             "initial": {"exit": initial_tell[0], "stdout": initial_tell[1], "stderr": initial_tell[2]},

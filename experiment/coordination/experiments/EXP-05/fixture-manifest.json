@@ -302,9 +302,9 @@
       "sha256": "a5ef30c42cc992a9d8c9b96b5972be77ca5feda339984d991296d9f96f7551fe"
     },
     {
-      "bytes": 678,
+      "bytes": 1310,
       "path": "blind-evaluation-rubric.md",
-      "sha256": "e880584695db23bc30ad33dcfa5640a6dd14b3259df0454d9a9cdc2848861b02"
+      "sha256": "d46e461c53b0c5ec788997f6be9307db83a76878eacb67a2e7c23a3eeda519ab"
     },
     {
       "bytes": 2589,
@@ -327,9 +327,9 @@
       "sha256": "704550fbf9a29a574da48a28778cdea98135576630a6be7fa2279674ce347879"
     },
     {
-      "bytes": 82861,
+      "bytes": 85250,
       "path": "product-runner.py",
-      "sha256": "5273a34e34fbba01a7452201fea1b8556f163cae558e40531187aa8f82e7e011"
+      "sha256": "760ef65c3d28fdd8fc17329d055fe0dc7ca31c90dacadedc191f41db93feebe8"
     }
   ],
   "version": 1
