@@ -1,0 +1,71 @@
+{
+  "all_useful": false,
+  "attempt_states": [
+    "running",
+    "produced",
+    "produced",
+    "produced"
+  ],
+  "cost_usd": 0.08357324,
+  "elapsed_seconds": 153.291,
+  "exact_tool_artifacts": 4,
+  "intended_concurrency": 4,
+  "model": "zai/glm-5.3",
+  "observed_peak": 4,
+  "provider_failures": [],
+  "run": "exp04-h5-concurrency4-r1",
+  "turns": [
+    {
+      "actor": "sales-operator-1",
+      "attempt_id": "attempt-5add184cc2",
+      "cached_input_tokens": null,
+      "cost_usd": 0.01521612,
+      "end_kind": "endturn",
+      "ended_at": 1787609045.8198998,
+      "output_tokens": 1183,
+      "reasoning_output_tokens": null,
+      "started_at": 1787608902.3329961,
+      "tool_calls": 4,
+      "used_tokens": 6169
+    },
+    {
+      "actor": "sales-operator-2",
+      "attempt_id": "attempt-4bbb5c0d13",
+      "cached_input_tokens": null,
+      "cost_usd": 0.02312944,
+      "end_kind": "endturn",
+      "ended_at": 1787609054.546255,
+      "output_tokens": 1363,
+      "reasoning_output_tokens": null,
+      "started_at": 1787608902.338868,
+      "tool_calls": 9,
+      "used_tokens": 6835
+    },
+    {
+      "actor": "sales-operator-3",
+      "attempt_id": "attempt-40d453685b",
+      "cached_input_tokens": null,
+      "cost_usd": 0.024455279999999996,
+      "end_kind": "endturn",
+      "ended_at": 1787609055.621693,
+      "output_tokens": 1236,
+      "reasoning_output_tokens": null,
+      "started_at": 1787608902.342009,
+      "tool_calls": 8,
+      "used_tokens": 6853
+    },
+    {
+      "actor": "sales-operator-4",
+      "attempt_id": "attempt-55a7fdc105",
+      "cached_input_tokens": null,
+      "cost_usd": 0.0207724,
+      "end_kind": "endturn",
+      "ended_at": 1787609046.162474,
+      "output_tokens": 1304,
+      "reasoning_output_tokens": null,
+      "started_at": 1787608902.34477,
+      "tool_calls": 9,
+      "used_tokens": 6705
+    }
+  ]
+}

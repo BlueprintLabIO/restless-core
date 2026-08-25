@@ -14,8 +14,10 @@ and founder-approved experiment sprints. It replaces the former top-level `scrat
 | [`dream-office-demos/`](dream-office-demos/) | Quarantined visual experiments and comparison evidence |
 | Other root artifacts | Historical product, authority and outreach studies retained as evidence |
 
-The active founder-review document is
-[`exp-sprint-01-coordination-frontier.md`](exp-sprints/exp-sprint-01-coordination-frontier.md).
+The latest closed contract is
+[`exp-sprint-04-local-closure-and-sparse-convergence.md`](exp-sprints/exp-sprint-04-local-closure-and-sparse-convergence.md),
+with its main findings in
+[`coordination/experiments/EXP-04/t02-final-results.md`](coordination/experiments/EXP-04/t02-final-results.md).
 
 ## Operating agreement
 
@@ -37,6 +39,7 @@ disposable company-local exploration. That runtime convention is distinct from t
 
 ## Current sprint
 
-Experiment Sprint 01 is running after the founder start signal. The interrupted
-`v28-clh01-b1-terra` run remains preserved as uncounted diagnostic evidence; new work follows the
-fresh-run and sparse activation gates in the active experiment-sprint spec.
+Experiment Sprint 04 completed on 25 August 2026. It established local closure as a prerequisite for
+parallel capacity but found no multi-worker crossover at the tested sales and monitoring loads. No
+next sprint is active; the evidence-backed frontier is a demand-backed queue or larger frozen backlog,
+with one material policy-change test before volatile support work.

@@ -17,7 +17,7 @@ export type CockpitTeam = { id: string, name: string, brief: string, lead_actor_
 
 export type CockpitGoal = { id: string, title: string, body: string, created_by: string, created_at: string, closed_at: string | null, };
 
-export type CockpitSpend = { accounted_usd: number, ceiling_usd: number, remaining_usd: number | null, poisoned: boolean, };
+export type CockpitSpend = { accounted_usd: number, ceiling_usd: number, remaining_usd: number | null, status: string, };
 
 export type CockpitCredential = { binding: string, status: string, detail: string | null, };
 
@@ -48,4 +48,3 @@ export type CockpitEffectReceipt = { id: number, effect_class: JsonValue | null,
 export type CockpitAuthority = { approved_parties: Array<string>, credentials: Array<CockpitCredential>, legal: CockpitLegal, provider: CockpitProvider, finance: CockpitFinance, };
 
 export type CockpitView = { company: CockpitCompany, source_health: { [key in string]: string }, people: Array<CockpitPerson>, teams: Array<CockpitTeam>, goals: Array<CockpitGoal>, spend: CockpitSpend, authority: CockpitAuthority, receipts: Array<CockpitEffectReceipt>, refreshed_at: string, };
-

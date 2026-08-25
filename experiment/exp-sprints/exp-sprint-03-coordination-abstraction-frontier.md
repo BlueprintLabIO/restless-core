@@ -1,6 +1,6 @@
 # Experiment Sprint 03 — The supervised company
 
-**Status:** Approved and running.
+**Status:** Complete. Final synthesis: [`t23-final-results.md`](../coordination/experiments/EXP-03/t23-final-results.md).
 
 **Decision owner:** Founder.
 
@@ -443,3 +443,12 @@ EXP-03 is complete when:
 
 Execution is authorised by the founder's instruction on 24 August 2026. No further confirmation gate
 precedes Wave 0; consequential external effects remain separately governed and out of scope.
+
+## 15. Completion record
+
+All exit conditions closed on 24 August 2026. T1–T5 dispositions, native evidence, blind reviews,
+scoped span curves, cost limitations, the event policy and the operating guide are indexed in the final
+synthesis. Q4/Q8, the larger research team and the finance reserve were stopped by their predeclared
+gates rather than run for volume. The only bounded implementation recommendation is the truthful
+completion path already proved in the experiment harness; no topology router or workflow machinery is
+promoted.

@@ -57,3 +57,6 @@ hard green requirement.
   and release-evidence repair.
 - [`sprint-16.md`](./sprint-16.md) — draft: one research evidence-to-decision loop, a falsifiable
   alpha-candidate test in _test, and Dogfood 2 as its real acceptance run.
+- [`sprint-17.md`](./sprint-17.md) — implementation complete: non-producing supervision, scoped hot
+  sessions, durable inbound truth and a paired native owner review are proved; the founder explicitly
+  deferred the remaining real-provider `_test` callback validation.

@@ -1,24 +1,24 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import type { ActiveConversationTurn } from '$lib/model/conversationSource.svelte';
-	import type { ConversationLiveActivity } from '$lib/model/attention';
+	import type { ActiveAgentTurn } from '$lib/model/queries.svelte';
+	import type { AgentActivityItem } from '$lib/model/attention';
 	import Markdown from './Markdown.svelte';
 
 	type TimelineItem =
 		| { kind: 'text'; id: string; text: string }
-		| { kind: 'activity'; id: string; activity: ConversationLiveActivity };
+		| { kind: 'activity'; id: string; activity: AgentActivityItem };
 
 	let {
 		participantName,
 		turn
 	}: {
 		participantName: string;
-		turn: ActiveConversationTurn;
+		turn: ActiveAgentTurn;
 	} = $props();
 
 	const glimmerDelays = [90, 180, 270, 0, 90, 180, 90, 180, 270];
 	let now = $state(Date.now());
-	let expanded = $state(true);
+	let expanded = $state(false);
 	let ownerControlled = $state(false);
 	let observedTurn = $state<number | null>(null);
 	let replyScroll = $state<HTMLDivElement | undefined>();
@@ -97,6 +97,17 @@
 			})
 			.toLowerCase()}`;
 	});
+	const contextLabel = $derived.by(() => {
+		const usage = turn.live?.contextUsage;
+		if (!usage?.size) return null;
+		const compact = (value: number) =>
+			value >= 1_000 ? `${(value / 1_000).toFixed(1)}k` : String(value);
+		return `${compact(usage.used)} / ${compact(usage.size)} context`;
+	});
+	const outputLabel = $derived.by(() => {
+		const tokens = turn.live?.generatedOutputTokens;
+		return tokens === null || tokens === undefined ? null : `${tokens.toLocaleString()} output`;
+	});
 
 	function activityStatus(value: string): string {
 		if (value === 'active') return 'working';
@@ -112,7 +123,7 @@
 	$effect(() => {
 		if (observedTurn !== turn.triggerMessageId) {
 			observedTurn = turn.triggerMessageId;
-			expanded = true;
+			expanded = false;
 			ownerControlled = false;
 		}
 		if (terminal && !ownerControlled) expanded = false;
@@ -159,6 +170,12 @@
 				>{visibleActivity.length} action{visibleActivity.length === 1 ? '' : 's'}</span
 			>
 		{/if}
+		{#if contextLabel}<span class="context-usage" title="Latest context-window usage"
+				>{contextLabel}</span
+			>{/if}
+		{#if outputLabel}<span class="output-usage" title="Reported generated output tokens"
+				>{outputLabel}</span
+			>{/if}
 		<span class="turn-chevron" aria-hidden="true">⌄</span>
 	</button>
 
@@ -281,6 +298,17 @@
 		flex: none;
 		font: 500 var(--t-label) var(--font-mono);
 		font-variant-numeric: tabular-nums;
+	}
+	.context-usage,
+	.output-usage {
+		margin-left: auto;
+		color: var(--text-tertiary);
+		font: 500 var(--t-caption) var(--font-mono);
+		white-space: nowrap;
+	}
+	.output-usage + .turn-chevron,
+	.context-usage + .turn-chevron {
+		margin-left: 0;
 	}
 
 	.turn-summary time {

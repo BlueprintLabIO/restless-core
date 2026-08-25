@@ -1,0 +1,78 @@
+{
+  "cache_usage": "unknown",
+  "cold_reply_honest": true,
+  "commitment_retained": true,
+  "cost_usd": 0.01890688,
+  "forced_backing_loss": [
+    "/Users/yao/Learning/restless/experiment/coordination-lab/v2/workdir/exp04-h1-session-r3/homes/supervisor-lead/sessions/--workspace--/2026-08-24T21-57-36-224Z_01a035c7-6960-7000-9924-391864b85ddd.jsonl.forced-loss"
+  ],
+  "new_session_after_loss": true,
+  "reconstructed": true,
+  "resumed_flags": [
+    false,
+    true,
+    true
+  ],
+  "run": "exp04-h1-session-r3",
+  "same_session_three_wakes": true,
+  "session_ids": [
+    "01a035c7-6960-7000-9924-391864b85ddd",
+    "01a035c7-6960-7000-9924-391864b85ddd",
+    "01a035c7-6960-7000-9924-391864b85ddd"
+  ],
+  "turns": [
+    {
+      "configured_effort": "high",
+      "context_size": 1048576,
+      "cost_usd": 0.00742392,
+      "cumulative_cost_usd": 0.00742392,
+      "cumulative_used_tokens": 5970,
+      "model": "zai/glm-5.3",
+      "output_tokens": 485,
+      "session_id": "01a035c7-6960-7000-9924-391864b85ddd",
+      "session_reconstructed": false,
+      "session_resumed": false,
+      "stop_reason": "endturn",
+      "text": "ACK",
+      "tool_calls": [
+        "Read phase tool docs and schema before first use",
+        "Record orient phase observation"
+      ],
+      "used_tokens": 5970
+    },
+    {
+      "configured_effort": "high",
+      "context_size": 1048576,
+      "cost_usd": 0.002181120000000001,
+      "cumulative_cost_usd": 0.00960504,
+      "cumulative_used_tokens": 5996,
+      "model": "zai/glm-5.3",
+      "output_tokens": 130,
+      "session_id": "01a035c7-6960-7000-9924-391864b85ddd",
+      "session_reconstructed": false,
+      "session_resumed": true,
+      "stop_reason": "endturn",
+      "text": "AMBER-QUARTZ-7319",
+      "tool_calls": [],
+      "used_tokens": 26
+    },
+    {
+      "configured_effort": "high",
+      "context_size": 1048576,
+      "cost_usd": 0.007612120000000002,
+      "cumulative_cost_usd": 0.017217160000000002,
+      "cumulative_used_tokens": 6855,
+      "model": "zai/glm-5.3",
+      "output_tokens": 712,
+      "session_id": "01a035c7-6960-7000-9924-391864b85ddd",
+      "session_reconstructed": false,
+      "session_resumed": true,
+      "stop_reason": "endturn",
+      "text": "AMBER-QUARTZ-7319",
+      "tool_calls": [
+        "Record verify phase observation for continuity check"
+      ],
+      "used_tokens": 859
+    }
+  ]
+}

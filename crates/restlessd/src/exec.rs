@@ -11,6 +11,7 @@ use anyhow::{Context, Result};
 use restless_orgintel::OrgIntel;
 use serde::Serialize;
 use std::collections::HashSet;
+use tokio_util::sync::CancellationToken;
 
 use crate::acp::{self, AgentSession};
 use crate::context::{self, ContextSnapshot};
@@ -82,6 +83,10 @@ pub(crate) struct TerminationDecision {
 }
 
 /// One Exec wake: rehydrate → work turn → termination decision → record.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the Exec wake boundary keeps company, authority, organisational state and cancellation explicit"
+)]
 pub async fn wake(
     config: &CompanyConfig,
     spend: &SpendLedger,
@@ -90,6 +95,7 @@ pub async fn wake(
     org: &OrgIntel,
     reason: &str,
     observer: Option<acp::SessionObserver>,
+    cancellation: &CancellationToken,
 ) -> Result<WakeReport> {
     let container = runtime::container_name(&config.name);
     // Exec conversation is free-form. Machine work is created and claimed
@@ -110,14 +116,7 @@ pub async fn wake(
     if let Some(blocked) = health::preflight(&config.name).await? {
         return blocked_wake(org, config, &blocked.message()).await;
     }
-    if let Some((spent, ceiling)) = spend.over_ceiling(config) {
-        let blocked = health::Blocked::budget(format!(
-            "{} has spent ${spent:.2} of its ${ceiling:.2} ceiling; \
-             the owner must raise it before work continues",
-            config.name
-        ));
-        return blocked_wake(org, config, &blocked.message()).await;
-    }
+    let initial_budget = spend.budget_state(config);
 
     // T7: gather the snapshot (IO), then assemble (pure, digested). The
     // digest lands in the wake event so the Exec's worldview is auditable.
@@ -129,7 +128,9 @@ pub async fn wake(
         config,
         reason,
         spent_usd,
-        spend.remaining_usd(config),
+        initial_budget
+            .remaining_micro_usd()
+            .map(|remaining| remaining as f64 / 1_000_000.0),
     )
     .await?;
     let package = context::assemble(&snapshot);
@@ -208,21 +209,29 @@ pub async fn wake(
         // Subscription sessions do not take this lane because their charged
         // cost is authoritatively zero.
         let metered_turn = spend.acquire_metered_turn(&config.name, auth.billing).await;
-        if let Some((spent, ceiling)) = spend.over_ceiling(config) {
+        let budget = spend.budget_state(config);
+        if auth.billing == crate::model_gateway::ModelBilling::MeteredApi && !budget.is_available()
+        {
             drop(metered_turn);
-            let report = blocked_report(
-                config,
-                model,
-                &format!(
-                    "[budget] {} has spent ${spent:.2} of its ${ceiling:.2} ceiling; the owner must raise it before a queued provider turn starts",
-                    config.name
-                ),
-                failovers,
-            );
+            let reason = format!("[budget] {}", budget.owner_message(&config.name));
+            if let Some(next) = candidates.get(index + 1) {
+                let transition = failover_report(model, next, health::BlockKind::Budget, &reason);
+                record_failover(org, &transition).await?;
+                continuity_note = Some(transition.reason.clone());
+                failovers.push(transition);
+                continue;
+            }
+            let report = blocked_report(config, model, &reason, failovers);
             record_outcome(org, &report).await?;
             return Ok(report);
         }
-        let remaining = spend.remaining_usd(config);
+        let remaining = budget
+            .remaining_micro_usd()
+            .map(|remaining| remaining as f64 / 1_000_000.0)
+            // The value is only observed by the per-session cost fuse for a
+            // metered candidate, which passed the check above. Subscription
+            // sessions deliberately do not use the fuse.
+            .unwrap_or_default();
         let metered = auth.billing == crate::model_gateway::ModelBilling::MeteredApi;
         let controls = acp::AgentControls::company_actor(package.system_prompt.clone())?;
         let outcome = acp::with_agent(
@@ -230,14 +239,33 @@ pub async fn wake(
             &auth,
             "/company",
             "exec",
+            "portfolio",
             controls,
             observer.clone(),
             {
                 let company = config.name.clone();
                 let model = model.clone();
+                let cancellation = cancellation.clone();
+                let session_org = org.clone();
                 move |session| {
                     Box::pin(async move {
-                        run_turn(session, &turn_context, &company, &model, remaining, metered).await
+                        session_org
+                            .emit_event(
+                                "model_session_ready",
+                                Some("exec"),
+                                session.readiness_observation(),
+                            )
+                            .await?;
+                        run_turn(
+                            session,
+                            &turn_context,
+                            &company,
+                            &model,
+                            remaining,
+                            metered,
+                            &cancellation,
+                        )
+                        .await
                     })
                 }
             },
@@ -288,11 +316,9 @@ pub async fn wake(
             continuity_note = Some(transition.reason.clone());
             failovers.push(transition);
 
-            if let Some((spent, ceiling)) = spend.over_ceiling(config) {
-                let reason = format!(
-                    "[budget] {} has spent ${spent:.2} of its ${ceiling:.2} ceiling; the owner must raise it before provider failover continues",
-                    config.name
-                );
+            let budget = spend.budget_state(config);
+            if !budget.is_available() {
+                let reason = format!("[budget] {}", budget.owner_message(&config.name));
                 let mut budget_report = blocked_report(config, model, &reason, failovers);
                 budget_report.tool_calls = prior_tool_calls;
                 record_outcome(org, &budget_report).await?;
@@ -356,6 +382,7 @@ pub(crate) async fn agent_auth_for_model(
     Ok(acp::AgentAuth {
         model: model.to_string(),
         provider: access.provider,
+        company: company.to_string(),
         session_id: session_id.clone(),
         coordination_token_env: "RESTLESS_SESSION_CAPABILITY".to_string(),
         coordination_token: capabilities.issue_actor_session(company, actor, &session_id)?,
@@ -420,7 +447,7 @@ async fn record_usage(
     usage: acp::TurnUsage,
     failure_kind: Option<health::BlockKind>,
 ) -> Result<()> {
-    let reported_session_cost_usd = match auth.billing {
+    let reported_turn_cost_usd = match auth.billing {
         crate::model_gateway::ModelBilling::MeteredApi => usage.cost_usd,
         crate::model_gateway::ModelBilling::Subscription => Some(0.0),
     };
@@ -436,12 +463,12 @@ async fn record_usage(
             "tokens": usage.used,
             "context_size": usage.size,
             "context_used_pct": percent(usage.used, usage.size),
-            "reported_session_cost_usd": reported_session_cost_usd,
+            "reported_turn_cost_usd": reported_turn_cost_usd,
             "charged_cost_source": "host_model_relay",
             // Keep this compatibility field explicitly labelled by its
             // semantics for existing projections.
-            "cost_usd": reported_session_cost_usd,
-            "cost_semantics": "acp_reported_noncanonical",
+            "cost_usd": reported_turn_cost_usd,
+            "cost_semantics": "acp_cumulative_minus_persisted_session_baseline_noncanonical",
             "estimated_list_cost_usd": (auth.billing == crate::model_gateway::ModelBilling::Subscription)
                 .then_some(usage.cost_usd)
                 .flatten(),
@@ -464,6 +491,7 @@ async fn run_turn(
     model: &str,
     remaining_budget_usd: f64,
     enforce_spend_budget: bool,
+    cancellation: &CancellationToken,
 ) -> Result<(WakeReport, Option<acp::TurnUsage>)> {
     // Run for as long as the agent is alive, not for a fixed wall-clock
     // budget. How the turn ends is a deterministic observation — the agent
@@ -471,12 +499,16 @@ async fn run_turn(
     // guess about whether the model is "stuck or just thinking", which is
     // judgement and not the daemon's.
     let end = session
-        .prompt_live(context, move |usage| {
-            enforce_spend_budget
-                && usage
-                    .cost_usd
-                    .is_some_and(|cost| cost >= remaining_budget_usd)
-        })
+        .prompt_live(
+            context,
+            move |usage| {
+                enforce_spend_budget
+                    && usage
+                        .cost_usd
+                        .is_some_and(|cost| cost >= remaining_budget_usd)
+            },
+            cancellation,
+        )
         .await;
     // The work turn's usage is what the fuse and the ledger read, whichever
     // way it ended. The termination ask that follows is a second, tiny turn on
@@ -518,7 +550,10 @@ async fn run_turn(
         // prose the parser then fails on, which is how a substrate failure
         // used to arrive dressed as an agent decision.
         health::Verdict::Ran => {
-            let decision = termination_decision(session).await;
+            // The decision envelope is internal coordination, not the
+            // owner-facing reply that the live activity dock previews.
+            session.set_live_observer_enabled(false);
+            let decision = termination_decision(session, cancellation).await;
             Ok((
                 report(
                     decision.termination,
@@ -554,10 +589,18 @@ pub(crate) const TERMINATION_PROMPT: &str =
 /// erase a completed, metered work turn: transport loss, timeout, or malformed
 /// JSON records Continue plus a bounded substrate retry. Only a parsed model
 /// decision or a classified provider refusal may produce another state.
-async fn termination_decision(session: &AgentSession) -> TerminationDecision {
+async fn termination_decision(
+    session: &AgentSession,
+    cancellation: &CancellationToken,
+) -> TerminationDecision {
     for attempt in 0..2 {
-        let prompted =
-            tokio::time::timeout(TERMINATION_TIMEOUT, session.prompt(TERMINATION_PROMPT)).await;
+        let prompted = tokio::select! {
+            () = cancellation.cancelled() => {
+                let _ = session.cancel().await;
+                return retry_termination("the owner interrupted the turn to send new direction");
+            }
+            prompted = tokio::time::timeout(TERMINATION_TIMEOUT, session.prompt(TERMINATION_PROMPT)) => prompted,
+        };
         let Ok(prompted) = prompted else {
             let _ = session.cancel().await;
             tracing::warn!(
@@ -660,7 +703,7 @@ async fn gather_snapshot(
     config: &CompanyConfig,
     reason: &str,
     spent_usd: f64,
-    remaining_usd: f64,
+    remaining_usd: Option<f64>,
 ) -> Result<ContextSnapshot> {
     let current_plan = read_company_file(container, "/company/org/exec/current-plan.md").await?;
     let latest_journal = latest_journal_entry(container).await?;

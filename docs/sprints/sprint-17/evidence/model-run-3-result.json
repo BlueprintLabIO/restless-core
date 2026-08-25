@@ -1,0 +1,18 @@
+{
+  "company": "s17_signal_test",
+  "runtime_company": "s17_signal_test",
+  "database": "restless_s17_product_test",
+  "model": "zai/glm-5.3",
+  "work_id": "44dae1d7-0520-4254-873e-782d0aff11c5",
+  "attempt_id": "7b6ed1c0-ffbc-41c6-9d65-dd56b35a10a3",
+  "attempt_state": "produced",
+  "review_target": "model-run-3-isolated-unsent-response.md",
+  "review_target_sha256": "0251d914dcc4e250a2ac27bb35c601c8fa56920c2ee6fd699fb1003a2807aa22",
+  "worker_usage_snapshots": 2,
+  "lead_usage_snapshots": 1,
+  "handoff_id": "fd8cf210-39b7-46f4-84e1-3967713b22dd",
+  "lead_briefed": true,
+  "owner_ready": true,
+  "external_effects": 0,
+  "elapsed_seconds": 250.88
+}

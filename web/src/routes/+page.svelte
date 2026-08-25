@@ -1,25 +1,21 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import { PRODUCT_NAME } from '$lib/brand/brand';
 	import OwnerMenu from '$lib/components/OwnerMenu.svelte';
 	import MatrixGlyph, { GLYPHS } from '$lib/primitives/MatrixGlyph.svelte';
 	import SemanticMark from '$lib/primitives/SemanticMark.svelte';
-	import { getAttention } from '$lib/model/attention';
-	import { getCockpit, getCompanies, type CompanyCatalogEntry } from '$lib/model/cockpit';
+	import { portfolioQuery, type PortfolioProjection } from '$lib/model/queries.svelte';
+	import type { CompanyCatalogEntry } from '$lib/model/cockpit';
 
-	type PortfolioProjection = {
-		attentionCount: number | null;
-		nextProof: string | null;
-		nextProofDetail: string;
-		spendAccounted: number | null;
-	};
-
-	let companies = $state<CompanyCatalogEntry[]>([]);
-	let projections = $state<Record<string, PortfolioProjection>>({});
-	let loaded = $state(false);
-	let error = $state('');
+	const portfolio = portfolioQuery();
+	const companies = $derived(portfolio.view?.companies ?? []);
+	const projections = $derived(
+		portfolio.view?.projections ?? ({} as Record<string, PortfolioProjection>)
+	);
+	const loaded = $derived(portfolio.status !== 'unknown');
+	const error = $derived(portfolio.failure?.message ?? '');
+	let redirected = $state(false);
 	const activeCompanies = $derived(
 		companies.filter((company) => company.lifecycle_status === 'active')
 	);
@@ -27,61 +23,15 @@
 		companies.filter((company) => company.lifecycle_status === 'archived')
 	);
 
-	onMount(() => void loadCompanies());
-
-	async function loadCompanies() {
-		try {
-			companies = await getCompanies();
-			void loadProjections(companies.filter((company) => company.lifecycle_status === 'active'));
-			error = '';
-			const next = safeNext(page.url.searchParams.get('next'));
-			if (next) await goto(next, { replaceState: true });
-		} catch (cause) {
-			error = cause instanceof Error ? cause.message : 'Companies could not be loaded.';
-		} finally {
-			loaded = true;
-		}
-	}
-
-	async function loadProjections(catalog: CompanyCatalogEntry[]) {
-		const entries = await Promise.all(
-			catalog.map(async (company): Promise<[string, PortfolioProjection]> => {
-				const [cockpitResult, attentionResult] = await Promise.allSettled([
-					getCockpit(company.id),
-					getAttention(company.id)
-				]);
-				const cockpit = cockpitResult.status === 'fulfilled' ? cockpitResult.value : null;
-				const attention = attentionResult.status === 'fulfilled' ? attentionResult.value : null;
-				const work = attention?.workGraph?.work ?? [];
-				const next =
-					work.find((item) => item.status === 'active') ??
-					work.find((item) => item.status === 'blocked') ??
-					work.find((item) => item.status === 'proposed') ??
-					null;
-				return [
-					company.id,
-					{
-						attentionCount: attention ? attention.items.length : null,
-						nextProof: next?.title ?? null,
-						nextProofDetail: next
-							? next.expected_artifact || next.outcome || workState(next.status)
-							: attention
-								? 'No open Work is recorded.'
-								: 'Work projection unavailable.',
-						spendAccounted: cockpit?.spend.accounted_usd ?? null
-					}
-				];
-			})
-		);
-		projections = Object.fromEntries(entries);
-	}
+	$effect(() => {
+		if (redirected || !loaded) return;
+		redirected = true;
+		const next = safeNext(page.url.searchParams.get('next'));
+		if (next) void goto(next, { replaceState: true });
+	});
 
 	function safeNext(value: string | null): string {
 		return value?.startsWith('/') && !value.startsWith('//') ? value : '';
-	}
-
-	function workState(value: string): string {
-		return value.replaceAll('_', ' ').replace(/\b\w/g, (letter) => letter.toUpperCase());
 	}
 
 	function money(value: number): string {
@@ -113,7 +63,7 @@
 		{/if}
 		{#if loaded}
 			<div class="tb-right">
-				<OwnerMenu {companies} onchanged={loadCompanies} />
+				<OwnerMenu {companies} onchanged={() => void portfolio.refresh()} />
 			</div>
 		{/if}
 	</header>

@@ -9,20 +9,21 @@ requires execution is delegated to exactly one accountable team lead. The lead m
 department lead or a temporary outcome lead. If no suitable lead exists, Exec appoints one before
 productive work begins.
 
-The team lead owns the complete outcome: decomposition, direct work, optional Staff delegation,
-canonical integration, review preparation and completion judgement. A lead may work alone when the
-outcome is tightly coupled; “team lead” is an accountability and concurrency boundary, not a required
-team size.
+The team lead owns the complete outcome: decomposition, worker selection and commissioning,
+supervision, exact artifact promotion, review preparation and completion judgement. The lead performs
+no planned production, silent artifact repair or private parallel implementation. Every executable
+outcome therefore has at least one Staff worker; “team lead” is an accountability and independent-
+judgement boundary, not the artifact producer.
 
-The lead may act as a player-coach or reserve its attention for supervision, guidance, redirection and
-repair. This posture is chosen from the actual coordination and failure load; accountability neither
-requires production nor forbids it.
+The non-producing posture is an owner decision. It remains valuable as a distinct mission-preserving,
+guidance, redirection, recovery and final-judgement function even when a direct actor would finish a
+bounded task faster.
 
-Before choosing Staff, the lead builds a causal understanding of the outcome and chooses the smallest
-effective team, including itself alone. If another actor can own a stable seam, the lead communicates
-purpose, current understanding, unknowns and observable proof naturally, continues complementary work,
-then personally inspects and integrates the returned artifact. OrgIntel Work proves that the
-cross-actor contribution happened; it does not prescribe the lead's plan or conversation.
+The lead builds a causal understanding of the outcome and chooses the smallest effective worker set,
+starting with one end-to-end worker. If another actor can own a stable seam, the lead communicates
+purpose, current understanding, unknowns and observable proof naturally, then personally inspects and
+promotes the exact returned artifact or sends correction back to a worker. OrgIntel Work proves that
+the cross-actor contribution happened; it does not prescribe the lead's plan or conversation.
 
 The organisational level is determined by accountability closure rather than apparent task size. A
 separate lead owns an independently judgeable outcome; Staff owns an independently useful semantic
@@ -43,9 +44,9 @@ project integrator serialises those departments through the one actor that must 
 the owner and the whole portfolio.
 
 The v23 coordination experiment showed that one strong actor beat a lead-plus-worker arrangement on a
-tightly coupled game slice. The correct organisational interpretation is not “Exec should do the
-work.” It is “the accountable team lead should be allowed to do tightly coupled work alone.” The
-experiment conflated company executive and project lead; this decision separates them.
+tightly coupled game slice. That result measures the local supervisory premium; it does not erase the
+owner-decided need for a separate mission keeper and final judge. The experiment conflated company
+executive, accountable supervision and production; this decision separates all three.
 
 The EXP-01 natural-lead screen then compared a forced handoff, fresh solo lead and an optional one-Staff
 lead on the same accepted G-WORLD outcome. Natural leadership won blind quality 8.2 versus 6.4 and 4.5,
@@ -58,14 +59,16 @@ above a sparse factual substrate, not a universal claim that teams are faster or
 
 - Owner requests receive fast executive triage and durable lead ownership.
 - Several departments or outcomes can continue concurrently without occupying Exec.
-- The lead, not Exec, is the strong singleton baseline in delegation crossover experiments.
-- Work between Exec and lead records the outcome boundary; Work below the lead remains sparse and
-  exists only for real cross-actor commitments.
-- The current likely organisation is wide and shallow: several mostly-solo leads run concurrently and
-  add Staff elastically. Repeated independent-unit departments may instead support large Staff pools.
-  This is an evidence-scoped prior, not a fixed team size or span of control.
-- The same lead identity and natural-team contract apply on productive Work and conversation wakes;
-  the runtime must not demote a lead to generic specialist on one path.
+- One end-to-end worker under a non-producing lead is the minimum canonical baseline in delegation
+  crossover experiments; direct actors remain diagnostic only.
+- The team charter and Exec→lead message record the outcome boundary. Work is production responsibility
+  and therefore begins below the lead, remaining sparse and factual for real Staff commitments.
+- The current likely organisation is wide and shallow: several supervisor leads run concurrently with
+  one worker by default and add Staff elastically. Repeated independent-unit departments may support
+  large pools only where units close locally without model assembly. This is an evidence-scoped prior,
+  not a fixed team size or span of control.
+- The same lead identity and natural-team contract apply on every coordination and review wake; the
+  runtime must refuse any path that schedules the lead as a productive Work owner.
 - No teamwork-pattern recommender, handoff form, message cadence or graph-shaped execution plan is part
   of this decision.
 - Material callbacks wake Exec only when they require company-level judgement; ordinary integration

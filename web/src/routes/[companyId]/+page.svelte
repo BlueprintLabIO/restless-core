@@ -12,8 +12,7 @@
 	import ConversationTurnDock from '$lib/primitives/ConversationTurnDock.svelte';
 	import CompanyOffice from '$lib/office/CompanyOffice.svelte';
 	import { mergeAdjacentAgentMessages, type AttentionItem } from '$lib/model/view';
-	import { attentionSource } from '$lib/model/attentionSource.svelte';
-	import { conversationSource } from '$lib/model/conversationSource.svelte';
+	import { attentionQuery, conversationQuery } from '$lib/model/queries.svelte';
 	import { browserTabClientId } from '$lib/model/browserTab';
 	import { getBrowserStatus } from '$lib/model/company';
 	import {
@@ -30,8 +29,7 @@
 	 * surface was missing: before it existed, `items` was `[]` both when the
 	 * queue was genuinely clear and when nobody had asked yet, so first paint
 	 * asserted "Nothing needs your judgement" and took it back a moment later. */
-	const source = $derived(attentionSource(companyId));
-	$effect(() => source.attach());
+	const source = $derived(attentionQuery(companyId));
 	const view = $derived(source.view);
 	const loaded = $derived(source.status !== 'unknown');
 
@@ -69,7 +67,7 @@
 	);
 	const leadConversation = $derived(
 		requestingActor && focusItem
-			? conversationSource(companyId, requestingActor, focusItem.workId)
+			? conversationQuery(companyId, requestingActor, focusItem.workId)
 			: null
 	);
 	$effect(() => leadConversation?.attach());
@@ -119,10 +117,13 @@
 			return;
 		}
 		if (item.reviewTarget.status !== 'available') {
-			reviewError = 'The live website is restarting. This page will reconnect automatically.';
+			reviewError =
+				item.reviewTarget.unavailableReason ??
+				'The prepared outcome is unavailable. This page will reconnect automatically.';
 			return;
 		}
 		reviewError = '';
+		if (item.reviewTarget.kind === 'runtime-text') return;
 		void issueReviewTicket(companyId, item.id)
 			.then((url) => {
 				if (reviewRequestKey === key) reviewUrl = url;
@@ -343,7 +344,7 @@
 		const files = messageFiles;
 		messageDraft = '';
 		try {
-			await leadConversation.send(body, files);
+			await leadConversation.send(body, files, undefined, false, !!conversationTurn);
 			messageFiles = [];
 		} catch (cause) {
 			messageDraft = sent;
@@ -358,21 +359,69 @@
 <svelte:head><title>Attention — {view?.company.name ?? companyId}</title></svelte:head>
 
 {#if focusedReview}
-	<section class="review-canvas" aria-label={`Review ${focusedReview.title}`}>
-		{#if reviewUrl}
-			<iframe
-				title={focusedReview.reviewTarget?.label ?? focusedReview.title}
-				src={reviewUrl}
-				sandbox="allow-downloads allow-forms allow-modals allow-popups allow-same-origin allow-scripts"
-				referrerpolicy="no-referrer"
-			></iframe>
-		{:else}
-			<div class="review-unavailable" role="status">
-				<span class="mono">LIVE OUTCOME</span>
-				<h1>{reviewError ? 'The website is not ready yet.' : 'Opening the website…'}</h1>
-				{#if reviewError}<p>{reviewError}</p>{/if}
-			</div>
+	<section
+		class="review-canvas"
+		class:with-source={focusedReview.reviewSources.length > 0}
+		aria-label={`Review ${focusedReview.title}`}
+	>
+		{#if focusedReview.reviewSources.length > 0}
+			<aside class="review-source" aria-label="Source material">
+				<header class="review-source-head">
+					<h2>Source</h2>
+					<InfoTip
+						text="External inputs already linked to this exact Work. Each source preserves its observed verification state."
+					/>
+				</header>
+				<div class="review-source-scroll">
+					{#each focusedReview.reviewSources as source (source.reference)}
+						<article class="review-source-card">
+							<header>
+								<strong>{source.label}</strong>
+								<div class="review-source-meta">
+									<span title="Observed source verification">{source.verification}</span>
+									<time>{when(source.observedAt)}</time>
+								</div>
+							</header>
+							<pre>{source.content}</pre>
+							{#if source.uri}
+								<a href={source.uri} target="_blank" rel="noreferrer"
+									>Open original in {source.provider} ↗</a
+								>
+							{/if}
+						</article>
+					{/each}
+				</div>
+			</aside>
 		{/if}
+		<div class="review-outcome" aria-label="Prepared outcome">
+			<header class="review-outcome-head">
+				<strong title={focusedReview.reviewTarget?.uri}
+					>{focusedReview.reviewTarget?.label ?? focusedReview.title}</strong
+				>
+				<InfoTip
+					text="The exact candidate selected by Staff and inspected by the accountable lead."
+				/>
+			</header>
+			<div class="review-outcome-stage">
+				{#if focusedReview.reviewTarget?.kind === 'runtime-text' && focusedReview.reviewTarget.content}
+					<article class="review-document">
+						<Markdown text={focusedReview.reviewTarget.content} />
+					</article>
+				{:else if reviewUrl}
+					<iframe
+						title={focusedReview.reviewTarget?.label ?? focusedReview.title}
+						src={reviewUrl}
+						sandbox="allow-downloads allow-forms allow-modals allow-popups allow-same-origin allow-scripts"
+						referrerpolicy="no-referrer"
+					></iframe>
+				{:else}
+					<div class="review-unavailable" role="status">
+						<h1>{reviewError ? 'The prepared outcome is not ready.' : 'Opening the outcome…'}</h1>
+						{#if reviewError}<p>{reviewError}</p>{/if}
+					</div>
+				{/if}
+			</div>
+		</div>
 	</section>
 {:else if focusItem}
 	<div class="browser-focus">
@@ -468,9 +517,14 @@
 							<Composer
 								bind:value={messageDraft}
 								bind:files={messageFiles}
+								actionLabel={conversationTurn ? 'Interrupt & send' : 'Send'}
 								disabled={sendingMessage}
-								placeholder={`Ask or tell ${requestingActorName} anything…`}
-								ariaLabel={`Message ${requestingActorName}`}
+								placeholder={conversationTurn
+									? `Interrupt ${requestingActorName} with new direction…`
+									: `Ask or tell ${requestingActorName} anything…`}
+								ariaLabel={conversationTurn
+									? `Interrupt and message ${requestingActorName}`
+									: `Message ${requestingActorName}`}
 								minlength={1}
 							/>
 						</form>
@@ -741,15 +795,137 @@
 		height: 100%;
 		min-width: 0;
 		min-height: 0;
-		display: flex;
+		display: grid;
+		grid-template-columns: minmax(0, 1fr);
 		overflow: hidden;
+		background: var(--surface-alt);
+	}
+	.review-canvas.with-source {
+		grid-template-columns: minmax(320px, 0.42fr) minmax(0, 1fr);
+	}
+	.review-source,
+	.review-outcome {
+		min-width: 0;
+		min-height: 0;
+		display: grid;
+		grid-template-rows: auto minmax(0, 1fr);
+	}
+	.review-source {
+		border-right: 1px solid var(--border-strong);
+		background: color-mix(in srgb, var(--surface-alt) 82%, white);
+	}
+	.review-source-head,
+	.review-outcome-head {
+		min-height: 48px;
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: var(--space-2);
+		padding: 10px 14px;
+		border-bottom: 1px solid var(--border);
+		background: color-mix(in srgb, var(--surface-pane) 86%, transparent);
+	}
+	.review-source-head h2,
+	.review-outcome-head strong {
+		min-width: 0;
+		margin: 0;
+		overflow: hidden;
+		font-size: var(--t-head);
+		font-weight: 600;
+		line-height: 1.35;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+	.review-source-scroll,
+	.review-outcome-stage {
+		min-width: 0;
+		min-height: 0;
+		overflow: auto;
+	}
+	.review-source-scroll {
+		padding: 12px;
+	}
+	.review-source-card {
+		overflow: hidden;
+		border: 1px solid var(--border-strong);
+		border-radius: var(--radius-control);
+		background: var(--surface-pane);
+		box-shadow: var(--bevel);
+	}
+	.review-source-card + .review-source-card {
+		margin-top: 10px;
+	}
+	.review-source-card header {
+		display: flex;
+		align-items: baseline;
+		justify-content: space-between;
+		gap: var(--space-2);
+		padding: 10px 11px;
+		border-bottom: 1px solid var(--border);
+	}
+	.review-source-card header strong {
+		font-size: var(--t-body);
+		font-weight: 600;
+	}
+	.review-source-card time {
+		flex: none;
+		font: var(--t-label) var(--font-mono);
+		color: var(--text-tertiary);
+	}
+	.review-source-meta {
+		flex: none;
+		display: grid;
+		justify-items: end;
+		gap: 2px;
+	}
+	.review-source-meta span {
+		font-size: var(--t-label);
+		color: var(--intent-feedback);
+	}
+	.review-source-card pre {
+		max-height: min(58vh, 620px);
+		margin: 0;
+		overflow: auto;
+		padding: 12px;
+		white-space: pre-wrap;
+		overflow-wrap: anywhere;
+		font: var(--t-body)/1.55 var(--font-mono);
+		color: var(--text-secondary);
+	}
+	.review-source-card a {
+		display: block;
+		padding: 9px 11px;
+		border-top: 1px solid var(--border);
+		color: var(--ink);
+		font-size: var(--t-body);
+		text-decoration: none;
+	}
+	.review-source-card a:hover {
+		background: var(--surface-alt);
+	}
+	.review-outcome {
 		background: #fff;
 	}
-	.review-canvas iframe {
+	.review-outcome-stage iframe {
 		width: 100%;
 		height: 100%;
 		border: 0;
 		background: #fff;
+	}
+	.review-document {
+		width: min(820px, calc(100% - 48px));
+		min-height: calc(100% - 48px);
+		margin: 24px auto;
+		padding: clamp(28px, 5vw, 58px);
+		border: 1px solid var(--border);
+		border-radius: var(--radius-lg);
+		background: white;
+		box-shadow: 0 18px 48px rgba(43, 51, 66, 0.11);
+	}
+	.review-document :global(.md) {
+		font-size: var(--t-head);
+		line-height: 1.65;
+		color: var(--ink);
 	}
 	.review-unavailable {
 		width: 100%;
@@ -760,10 +936,6 @@
 		padding: 40px;
 		background: #fff;
 		color: var(--ink);
-	}
-	.review-unavailable .mono {
-		color: var(--intent-feedback);
-		letter-spacing: 0.09em;
 	}
 	.review-unavailable h1,
 	.review-unavailable p {
@@ -1307,6 +1479,24 @@
 		}
 	}
 	@media (max-width: 760px) {
+		.review-canvas.with-source {
+			grid-template-columns: minmax(0, 1fr);
+			grid-template-rows: minmax(240px, 0.72fr) minmax(360px, 1fr);
+			overflow: auto;
+		}
+		.review-source {
+			border-right: 0;
+			border-bottom: 1px solid var(--border-strong);
+		}
+		.review-source-card pre {
+			max-height: 260px;
+		}
+		.review-document {
+			width: calc(100% - 24px);
+			min-height: calc(100% - 24px);
+			margin: 12px auto;
+			padding: 22px;
+		}
 		.handover-rail,
 		.handover-state {
 			align-items: flex-start;

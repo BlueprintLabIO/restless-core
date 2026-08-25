@@ -1,0 +1,43 @@
+{
+  "all_useful": true,
+  "attempt_states": [
+    "produced",
+    "produced"
+  ],
+  "cost_usd": 0.048978240000000006,
+  "elapsed_seconds": 50.718,
+  "exact_tool_artifacts": 2,
+  "intended_concurrency": 2,
+  "model": "zai/glm-5.3",
+  "observed_peak": 2,
+  "provider_failures": [],
+  "run": "exp04-h5-concurrency2-r1",
+  "turns": [
+    {
+      "actor": "sales-operator-1",
+      "attempt_id": "attempt-fb49fb9b04",
+      "cached_input_tokens": null,
+      "cost_usd": 0.025399200000000004,
+      "end_kind": "endturn",
+      "ended_at": 1787609117.438508,
+      "output_tokens": 2058,
+      "reasoning_output_tokens": null,
+      "started_at": 1787609071.747692,
+      "tool_calls": 11,
+      "used_tokens": 7666
+    },
+    {
+      "actor": "sales-operator-2",
+      "attempt_id": "attempt-9283a94718",
+      "cached_input_tokens": null,
+      "cost_usd": 0.02357904,
+      "end_kind": "endturn",
+      "ended_at": 1787609122.462487,
+      "output_tokens": 1976,
+      "reasoning_output_tokens": null,
+      "started_at": 1787609071.753037,
+      "tool_calls": 8,
+      "used_tokens": 7512
+    }
+  ]
+}

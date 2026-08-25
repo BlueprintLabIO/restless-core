@@ -38,11 +38,23 @@ Historical v23 remains indexed in `EVIDENCE.md` and does not change a cell above
 | **P0-N1** | Natural lead team-size choice | Small, tightly coupled coding | provisional-loss | Lead chose one useful presentation seam and passed 11/11, but wall time rose 109% at outcome parity; bounded is not sufficient value |
 | **P4-C1** | Independent Terra critic before accountable Sol review | Native artifact judgement | provisional-loss | Both found planted defects and chose revision; B0 won blind 6.0 vs 5.0 while C1 doubled wall time and added 56.7% new input |
 
-## Proposed EXP-03 abstraction frontier
+## EXP-03 abstraction frontier
 
 | ID | Question | Shapes | Status | Next gate |
 |---|---|---|---|---|
-| **EXP-03** | What is the smallest powerful operating design for a non-producing accountable lead supervising real economic work? | S1/S2/S3 plus staged Q1/Q2/Q4/Q8 across product, marketing, sales, customer operations and research | running | Four recovery primitives pass 13/13 conformance and one live GLM-5.3 T2 S2 run; finish the matched T2 S1 comparison, then test replicated sales capacity and independent-evidence research. Split brittle deterministic scoring from blinded semantic judgement before ranking quality. |
+| **EXP-03** | What is the smallest powerful operating design for a non-producing accountable lead supervising real economic work? | S1/S2/S3 plus staged Q1/Q2/Q4/Q8 across product, marketing, sales, customer operations and research | accepted | Five work shapes closed. Default to one end-to-end worker; retain the scoped T2 two-specialist quality win; stop Q4/Q8 and T5 S3. Next isolate effort/closure reserve and a genuinely locally closing queue without a model assembler. |
+
+## EXP-04 local closure and sparse convergence
+
+| ID | Question | Shapes | Status | Next gate |
+|---|---|---|---|---|
+| **EXP-04** | When do independently closing workers create real company capacity, when is one explicit fan-in valuable, and how should effort/model quality be allocated? | Effort and closure controls; Q1/Q2/Q4/Q8 sales ownership; support cases; monitoring alerts; broad research decision; cheaper workers; concurrent departments | accepted | Local closure and Q2 concurrency work, but no crossover was established at 48 sales or 12 monitoring units; Q4 was infrastructure-invalid and routine `low` effort lost. Reopen with a demand-backed queue or larger backlog, and test one material policy change before volatile support. |
+
+## EXP-05 demand and elastic capacity
+
+| ID | Question | Shapes | Status | Next gate |
+|---|---|---|---|---|
+| **EXP-05** | At what demand and response-time pressure do locally closing GPT-5.6 workers create net capacity, what value does event-responsive non-producing supervision add, and can several leads run while Exec remains available? | 240-account arrival queue; 96 support cases with a material policy change; 40-entity search monitoring; four concurrent departments | designing | Founder approves the frozen GPT-5.6-only, product-path, sparse experiment contract before any call or experiment directory is created. |
 
 ## Wildcards
 

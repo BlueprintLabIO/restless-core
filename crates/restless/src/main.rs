@@ -472,6 +472,11 @@ enum WorkCommand {
         /// Existing Goal this Work serves.
         #[arg(long)]
         goal: Option<String>,
+        /// Authenticated external message that caused this Work. The
+        /// accountable lead may attach it once; creation and linkage commit
+        /// atomically so redelivery cannot commission duplicate Work.
+        #[arg(long)]
+        source_message: Option<i64>,
         /// Existing Work this node requires. Repeat for more than one. These
         /// edges are committed atomically with the node so it cannot start
         /// against a half-built graph.
@@ -1426,6 +1431,7 @@ fn request_json(command: Command) -> Result<serde_json::Value> {
                 attempt_limit,
                 owner_review,
                 goal,
+                source_message,
                 requires,
                 revises,
                 gate,
@@ -1443,6 +1449,7 @@ fn request_json(command: Command) -> Result<serde_json::Value> {
                     "expected_artifact": expected_artifact, "repo": repo, "base_ref": base_ref,
                     "integration_branch": integration_branch, "worktree": worktree,
                     "attempt_limit": attempt_limit, "owner_review": owner_review, "goal": goal,
+                    "source_message_id": source_message,
                     "requires": requires, "revises": revises, "gates": gates,
                     "as_actor": acting_actor(),
                 })

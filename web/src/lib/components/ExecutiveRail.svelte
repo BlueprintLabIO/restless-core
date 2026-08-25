@@ -15,7 +15,7 @@
 	import HoldApprove from '$lib/primitives/HoldApprove.svelte';
 	import MatrixGlyph, { GLYPHS } from '$lib/primitives/MatrixGlyph.svelte';
 	import SemanticMark from '$lib/primitives/SemanticMark.svelte';
-	import type { ActiveConversationTurn } from '$lib/model/conversationSource.svelte';
+	import type { ActiveAgentTurn } from '$lib/model/queries.svelte';
 	import {
 		mergeAdjacentAgentMessages,
 		type AttentionItem,
@@ -43,7 +43,7 @@
 		messages?: ThreadMessage[];
 		participantName?: string;
 		participantRole?: string;
-		turn?: ActiveConversationTurn | null;
+		turn?: ActiveAgentTurn | null;
 		companyId: string;
 		membershipRole: string;
 		/**
@@ -64,7 +64,8 @@
 					text: string,
 					files: File[],
 					includeContext: boolean,
-					newFocus: boolean
+					newFocus: boolean,
+					interrupt: boolean
 			  ) => Promise<{ error?: string; notice?: string }>)
 			| null;
 		review?: {
@@ -270,7 +271,7 @@
 		const files = composerFiles;
 		composer = '';
 		try {
-			const outcome = await onask(text, files, includeContext, newFocusPending);
+			const outcome = await onask(text, files, includeContext, newFocusPending, !!turn);
 			if (outcome.error) {
 				composer = sent;
 				askError = outcome.error;
@@ -466,6 +467,7 @@
 						<Composer
 							bind:value={composer}
 							bind:files={composerFiles}
+							actionLabel={turn ? 'Interrupt & send' : 'Send'}
 							disabled={!canOperate || sending || deciding || !onask}
 							minlength={1}
 							placeholder={review || workContext

@@ -1,86 +1,26 @@
 <script lang="ts">
-	/**
-	 * Renders the token tree from `$lib/primitives/markdown` — an employee's reply, formatted.
-	 *
-	 * Every value below goes through ordinary Svelte interpolation, never `{@html}`, so a
-	 * script tag written in a reply is displayed as those characters and nothing else.
-	 * `href` is already restricted to http/https/mailto by the parser; the extra `rel`
-	 * here is belt-and-braces for the tab this opens.
-	 */
-	import type { BlockToken, InlineToken } from '$lib/primitives/markdown';
-	import { parseMarkdown } from '$lib/primitives/markdown';
+	import DOMPurify from 'dompurify';
+	import { marked } from 'marked';
 
 	let { text }: { text: string } = $props();
 
-	const blocks = $derived<BlockToken[]>(parseMarkdown(text));
+	/* Marked deliberately does not sanitize. Employee and owner text crosses a
+	 * trust boundary, so sanitize its HTML before handing it to Svelte. Keep
+	 * only ordinary web links; no javascript:, data:, inline handlers or raw
+	 * model-supplied markup survives the boundary. */
+	const html = $derived.by(() => {
+		const rendered = String(marked.parse(text ?? '', { async: false, gfm: true, breaks: true }));
+		return DOMPurify.sanitize(rendered, {
+			ALLOWED_URI_REGEXP: /^(?:(?:https?|mailto):|[^a-z]|[a-z+.-]+(?:[^a-z+.-:]|$))/i
+		});
+	});
 </script>
 
-<!-- Every href here is external by construction: the parser admits only http, https and
-     mailto, and refuses everything else back to literal text. resolve() is for internal
-     routes and would be wrong on all of them. -->
-<!-- eslint-disable svelte/no-navigation-without-resolve -->
-
-{#snippet inline(tokens: InlineToken[])}
-	{#each tokens as token, index (index)}
-		{#if token.kind === 'text'}{token.value}{:else if token.kind === 'code'}<code class="md-c"
-				>{token.value}</code
-			>{:else if token.kind === 'strong'}<strong>{@render inline(token.children)}</strong
-			>{:else if token.kind === 'emphasis'}<em>{@render inline(token.children)}</em
-			>{:else if token.kind === 'link'}<a
-				href={token.href}
-				target="_blank"
-				rel="noopener noreferrer">{@render inline(token.children)}</a
-			>{:else if token.kind === 'break'}<br />{/if}
-	{/each}
-{/snippet}
-
-{#snippet body(tokens: BlockToken[])}
-	{#each tokens as block, index (index)}
-		{#if block.kind === 'paragraph'}
-			<p>{@render inline(block.children)}</p>
-		{:else if block.kind === 'heading'}
-			{#if block.level === 1}
-				<h1>{@render inline(block.children)}</h1>
-			{:else if block.level === 2}
-				<h2>{@render inline(block.children)}</h2>
-			{:else if block.level === 3}
-				<h3>{@render inline(block.children)}</h3>
-			{:else if block.level === 4}
-				<h4>{@render inline(block.children)}</h4>
-			{:else if block.level === 5}
-				<h5>{@render inline(block.children)}</h5>
-			{:else}
-				<h6>{@render inline(block.children)}</h6>
-			{/if}
-		{:else if block.kind === 'code'}
-			<pre class="md-pre"><code>{block.value}</code></pre>
-		{:else if block.kind === 'list'}
-			{#if block.ordered}
-				<ol start={block.start}>
-					{#each block.items as item, position (position)}
-						<li>{@render inline(item)}</li>
-					{/each}
-				</ol>
-			{:else}
-				<ul>
-					{#each block.items as item, position (position)}
-						<li>{@render inline(item)}</li>
-					{/each}
-				</ul>
-			{/if}
-		{:else if block.kind === 'quote'}
-			<blockquote>{@render body(block.children)}</blockquote>
-		{:else if block.kind === 'rule'}
-			<hr />
-		{/if}
-	{/each}
-{/snippet}
-
-<div class="md">{@render body(blocks)}</div>
+<!-- `html` is sanitized above. This is intentionally the one rendering
+     boundary rather than a bespoke partial Markdown parser per transcript. -->
+<div class="md">{@html html}</div>
 
 <style>
-	/* Structure carried by weight and spacing, not by size — a reply must not out-shout
-	   the surface it sits on. */
 	.md {
 		min-width: 0;
 		overflow-wrap: anywhere;
@@ -142,24 +82,34 @@
 		border-top: 1px solid currentColor;
 		opacity: 0.2;
 	}
-	.md :global(code.md-c) {
+	.md :global(code) {
 		padding: 0.1em 0.32em;
 		border-radius: 4px;
 		background: color-mix(in srgb, currentColor 10%, transparent);
 		font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
 		font-size: 0.92em;
 	}
-	/* A long block scrolls inside the bubble rather than widening the pane. */
-	.md :global(pre.md-pre) {
+	.md :global(pre) {
 		margin: 0 0 0.6em;
 		padding: 0.6em 0.75em;
 		border-radius: 6px;
 		background: color-mix(in srgb, currentColor 8%, transparent);
 		overflow-x: auto;
 	}
-	.md :global(pre.md-pre code) {
-		font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-		font-size: 0.9em;
+	.md :global(pre code) {
+		padding: 0;
+		background: transparent;
 		white-space: pre;
+	}
+	.md :global(table) {
+		width: 100%;
+		border-collapse: collapse;
+		margin: 0 0 0.6em;
+	}
+	.md :global(th),
+	.md :global(td) {
+		padding: 0.35em 0.5em;
+		border: 1px solid color-mix(in srgb, currentColor 18%, transparent);
+		text-align: left;
 	}
 </style>

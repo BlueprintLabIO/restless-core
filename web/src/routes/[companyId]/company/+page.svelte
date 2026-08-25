@@ -4,10 +4,10 @@
 	import InfoTip from '$lib/components/InfoTip.svelte';
 	import { reviseCompanyCharter } from '$lib/model/company';
 	import Markdown from '$lib/primitives/Markdown.svelte';
-	import { companySource } from '$lib/model/companySource.svelte';
+	import { companyQuery } from '$lib/model/queries.svelte';
 
 	const companyId = $derived(page.params.companyId ?? 'aris');
-	const source = $derived(companySource(companyId));
+	const source = $derived(companyQuery(companyId));
 	$effect(() => source.attach());
 	const view = $derived(source.view);
 	const charterText = $derived(

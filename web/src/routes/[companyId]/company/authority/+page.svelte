@@ -1,10 +1,10 @@
 <script lang="ts">
 	import { page } from '$app/state';
 	import InfoTip from '$lib/components/InfoTip.svelte';
-	import { companySource } from '$lib/model/companySource.svelte';
+	import { companyQuery } from '$lib/model/queries.svelte';
 
 	const companyId = $derived(page.params.companyId ?? 'aris');
-	const source = $derived(companySource(companyId));
+	const source = $derived(companyQuery(companyId));
 	$effect(() => source.attach());
 	const view = $derived(source.view);
 

@@ -198,14 +198,15 @@ It cannot increase total company authority, approve its own expansion, rewrite k
 The Exec is a continuously available dispatcher across parallel departments. Every owner request that
 requires productive execution is delegated to exactly one accountable team lead. The lead may be a
 standing department lead or be appointed for that outcome; the Exec never substitutes itself as the
-producer or integrator when no lead already exists. The lead owns decomposition, direct production or
-Staff delegation, canonical integration, native review preparation and completion judgement.
+producer or integrator when no lead already exists. The lead owns decomposition, worker commissioning,
+supervision, exact artifact promotion, native review preparation and completion judgement. It does no
+planned production or content-changing integration.
 
-The lead first understands the outcome, then chooses the smallest effective team, including itself
-alone. Staff are useful only when a stable ownership seam offers quality, independent evidence,
-specialisation or parallel value that can repay communication, integration and review cost. Work
-records the factual responsibility boundary; it does not decide the topology or encode the lead's
-thinking process.
+The lead first understands the outcome, then chooses the smallest effective worker set, beginning with
+one end-to-end worker. Additional Staff are useful only when a stable ownership seam offers quality,
+independent evidence, specialisation or locally closing parallel value that can repay communication,
+integration and review cost. Work records the factual responsibility boundary; it does not decide the
+topology or encode the lead's thinking process.
 
 After dispatch the Exec quiesces rather than waiting, polling or joining production. It wakes for a
 new owner request or a material callback requiring portfolio prioritisation, cross-department
@@ -747,13 +748,13 @@ condition is observed.
 
 **Core contract**
 
-The accountable lead owns the complete outcome. It first forms a causal understanding and then chooses
-the smallest effective team; zero Staff is a valid judgement. It commissions another actor only for a
-stable, independently useful responsibility whose expected quality, evidence, specialisation or
-parallel value can repay communication, integration and review cost, or for independently valuable
-units in a real throughput queue. The lead may continue complementary production as a player-coach or
-reserve attention for supervision, guidance, redirection and repair. For one shared result, the lead
-observes and integrates the whole. For repeated units that close locally, the lead owns the charter,
+The accountable lead owns the complete outcome as a non-producing supervisor. It first forms a causal
+understanding and commissions one end-to-end worker by default. It adds another actor only for a stable,
+independently useful responsibility whose expected quality, evidence, specialisation or parallel value
+can repay communication, integration and review cost, or for independently valuable units in a real
+throughput queue. The lead reserves attention for supervision, guidance, redirection, worker-mediated
+repair and final judgement. For one shared result, it inspects and promotes one exact worker artifact.
+For repeated units that close locally without a central model rewrite, it owns the charter,
 calibration, aggregate result, quality sampling and exceptions rather than recreating every accepted
 unit. It prepares the native review target and makes the outcome-level completion judgement.
 
@@ -835,7 +836,6 @@ Organisational boundaries follow where responsibility can close:
 | **Accountable lead** | One complete outcome that can be natively inspected and judged |
 | **Staff** | One independently useful semantic contribution or locally closing unit whose value is accountable to the lead |
 | **Hand or tool** | One bounded lead-specified operation with no independent project judgement |
-| **Lead directly** | Coupled reasoning and execution for which no cross-actor boundary adds value |
 
 A separate lead is justified only when its outcome can progress and be judged independently and has
 continuing trade-offs of its own. A Staff actor is justified when semantic ownership crosses a stable
@@ -852,21 +852,19 @@ coordination machinery.
 
 **Product hypothesis**
 
-Fast model production makes briefing and integration large relative costs, while current LLMs lose
-collaborator context and integrate inconsistently. The current likely organisation is therefore wide,
-shallow and elastic: several mostly-solo leads run concurrently and add temporary Staff only when
-saturation, specialisation, independent evidence or useful latency overlap can repay the boundary.
-Repeated independent unit queues may instead justify large elastic Staff pools because briefing is
-amortised and accepted throughput aggregates without semantic merging. Better models or cheaper
-context transfer may move either crossover; OrgIntel must not encode the prior as a fixed team-size or
-span-of-control rule. See
+Fast model production makes additional briefing and integration large relative costs, while current
+LLMs lose collaborator context and integrate inconsistently. The current likely organisation is
+therefore wide, shallow and elastic: several supervisor leads run concurrently with one end-to-end
+worker by default and add temporary Staff only when saturation, specialisation, independent evidence
+or useful latency overlap can repay the boundary. Repeated independent unit queues may instead justify
+large elastic Staff pools only when units close locally and accepted throughput aggregates without a
+model synthesis bottleneck. Better models or cheaper context transfer may move either crossover;
+OrgIntel must not encode the prior as a fixed team-size or span-of-control rule. See
 [`docs/COORDINATION_THEORY.md`](../COORDINATION_THEORY.md).
 
-Lead posture is another product hypothesis. A supervisor-only lead may preserve mission context and
-repair capacity on long, volatile, high-consequence or many-worker outcomes, while a player-coach may
-dominate with one strong worker on short stable work. Supervision should wake from material Work,
-Attempt, artifact and message changes rather than polling. OrgIntel must support both postures without
-encoding a deterministic manager threshold.
+Lead supervision is an owner-decided product invariant, not a product hypothesis. Supervision wakes
+from material Work, Attempt, artifact and message changes rather than polling. Content-changing repair
+returns to a worker; exact artifact promotion remains supervisory judgement.
 
 ## 6.4 Business processes
 
@@ -1202,7 +1200,8 @@ V0 demonstrates that:
 - the owner gives an ambiguous goal;
 - the Exec frames the company-level intent, chooses an accountable lead and returns to availability;
 - the lead chooses one main approach and at most a bounded alternative;
-- the lead works alone or forms a small task-shaped team according to coupling and expected coordination cost;
+- the lead commissions at least one end-to-end Staff worker and adds further workers only when a
+  stable ownership seam can repay coordination cost;
 - workers perform real Linux work and produce inspectable artifacts;
 - a worker blocks or fails;
 - OrgIntel preserves work and applies a local repair;
@@ -1255,9 +1254,9 @@ For every proposed feature:
 - The Exec is the primary persistent organisational actor.
 - The Exec delegates every executable owner request to one accountable team lead and returns to
   availability; it does not own production or integration work.
-- A team lead may execute coherent work alone. Staff are optional and are added when the lead judges
-  that quality, evidence, specialisation or parallel value from a stable ownership seam will repay
-  coordination cost.
+- A team lead remains a non-producing supervisor. Every executable outcome has at least one Staff
+  worker; further Staff are added only when quality, evidence, specialisation or parallel value from
+  a stable ownership seam can repay coordination cost.
 - Actor identity persists independently of model sessions and runtime replacement.
 - A thin runtime bridge connects OrgIntel to ACP processes; ACP over local stdio is the initial agent transport.
 - Productive work uses normal Linux files, Git, browsers, and applications.

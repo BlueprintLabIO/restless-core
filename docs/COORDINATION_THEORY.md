@@ -1,7 +1,7 @@
 # Coordination theory
 
 **Status:** Working explanatory theory
-**Date:** 24 August 2026
+**Date:** 25 August 2026
 **Authority:** Subordinate to `ARCHITECTURE.md`; empirical claims are indexed in
 `experiment/coordination/EVIDENCE.md`.
 
@@ -34,7 +34,6 @@ duration.
 | **Accountable lead** | One coherent business, product or operational outcome | The complete native result can be inspected, defended and presented |
 | **Staff** | One independently useful semantic responsibility or locally closing unit inside a lead's outcome | Its artifact, observation, decision or attributed unit result is ready for lead-level integration or aggregation |
 | **Hand/tool** | A bounded operation chosen by the lead | The requested measurement, build, search, render or transform returns; it owns no project judgement |
-| **Lead directly** | Coupled reasoning and execution that benefits from one causal model | No cross-actor responsibility boundary is useful |
 
 Derived rules:
 
@@ -44,8 +43,8 @@ Derived rules:
    in a repeated queue, while the parent lead still owns whole-outcome completion.
 3. Use a hand or ordinary tool when the lead can specify the operation and interpret its return
    without transferring semantic ownership. A hidden cognitive coauthor is Staff, not a hand.
-4. Keep work inside the lead when state is volatile, judgement is tightly coupled or the contribution
-   would mostly require transferring the lead's context.
+4. Give one end-to-end worker the whole production boundary when state is volatile, judgement is
+   tightly coupled or another producer would mostly require transferring context.
 5. If two nominal leads must continuously share state or jointly declare one result complete, the
    boundary is probably wrong: place the outcome under one accountable lead.
 
@@ -82,42 +81,46 @@ handling rather than a lead rereading and merging every artifact. Team size shou
 backlog, time sensitivity, external capacity, quality distribution and marginal unit economics—not
 the semantic size of one task.
 
+Local closure removes one avoidable serial boundary; it does not remove fixed actor orientation,
+provider admission, tool cadence or supervisor judgement. Parallel capacity appears only when the
+value of backlog reduction or response time is large enough to amortise those costs. A small frozen
+queue can therefore be perfectly partitioned and still favour one worker. This is the central
+inequality applied to replication rather than coauthoring.
+
 The Work graph should remain sparse. It records an actor's real queue, batch, territory or campaign
 responsibility and observable results; it need not mirror every call, prospect or support ticket as a
 new organisational plan node.
 
-## Leadership posture is a separate variable
+## Supervision is a distinct required function
 
-Accountability does not decide whether a lead should produce. A lead can be a **player-coach** that
-does complementary work, or a **supervisor** that preserves attention for mission alignment,
-observation, guidance, redirection, recovery and final judgement.
+Restless makes lead/worker separation an owner-decided product invariant. The accountable lead retains
+the broad mission context and independent judgement while workers enter narrow production contexts. It
+frames, commissions, observes, guides, redirects, repairs through workers and accepts or rejects the
+exact outcome. It does no planned production, silent artifact repair or private parallel implementation.
 
-A separate supervisor retains broader mission context while a worker carries narrow production
-context. That separation can catch drift, absorb Exec updates and repair churn before it compounds.
-It also spends another mind on oversight, adds a handoff and may merely echo a capable worker. With
-one short, stable task and one strong worker, full-time supervision may cost more than it saves. As
-worker count, duration, volatility, capability uncertainty, consequence or repair cost rises,
-supervision has more opportunity to pay.
-
-The posture should therefore be elastic. A lead may begin as player-coach, reserve more attention as
-coordination load rises, and take over production only after an observable exception. Supervisor
-availability should be event-driven through material updates and artifacts, not maintained by polling
-or status meetings.
+This separation can catch drift, absorb Exec updates and prevent worker confidence from becoming the
+company's final judgement. It also spends another mind, adds a handoff and can increase local latency.
+EXP-03 measures that premium rather than treating a cheap direct actor as permission to delete the
+function. Supervisor availability is event-driven through material updates and artifacts, not
+maintained by polling or status meetings. Event-driven does not mean every event demands an immediate
+model wake: ordinary successful partition completions may accumulate durably until a local batch
+closes. Harm, blockage, changed policy, contradiction or another decision-relevant exception remains
+urgent.
 
 ## Why fast agents change the shape
 
-Fast inference makes an individual lead's production cheap relative to briefing and integration. A
-lead may finish a task before a second mind can orient, so the current crossover sits farther toward
-solo work than in many human organisations. Current LLMs also raise the boundary cost through weak
-collaborator-state modelling, lossy handoffs, correlated mistakes and inconsistent integration.
+Fast inference makes an individual worker's production cheap relative to briefing and integration. A
+worker may finish a task before an additional mind can orient, so the current crossover sits farther
+toward one producer than in many human organisations. Current LLMs also raise the boundary cost through
+weak collaborator-state modelling, lossy handoffs, correlated mistakes and inconsistent integration.
 
 This predicts a **wide, shallow and elastic** organisation:
 
 ```text
 continuously available Exec
-├── mostly-solo accountable lead
-├── mostly-solo accountable lead
-├── accountable lead that temporarily adds Staff when saturated
+├── supervisor lead + one end-to-end worker
+├── supervisor lead + one end-to-end worker
+├── supervisor lead that temporarily adds Staff when saturated
 └── accountable lead with an elastic Staff pool for repeated independent units
 ```
 
@@ -131,23 +134,26 @@ even a very fast lead remains serial while a valuable queue can grow in parallel
 
 - Use the smallest effective number of minds.
 - Distinguish decomposing one shared outcome from replicating independently valuable units.
-- Treat player-coach versus supervisor-only as a lead posture, not a permanent role doctrine.
+- Preserve the lead as a non-producing mission keeper and independent final judge.
 - Give every outcome one accountable integrator.
 - Split only across stable, independently valuable seams.
 - Communicate changed facts, decisions and artifacts rather than activity.
 - Let observable reality arbitrate checkable questions; agreement is not evidence.
 - Keep local work autonomous and escalate only genuine cross-boundary exceptions.
 - Change the organisation as coupling, uncertainty and saturation change.
+- Treat local closure as a prerequisite for queue scaling, not proof that another worker will win.
+- Preserve actor identity through isolated resumable sessions and factual state; processes may be replaced.
 
 ## Contingent conclusions
 
 These are current priors, not permanent truths:
 
-- zero Staff is the default below one strong lead's effective saturation point for a coherent shared
-  outcome, not necessarily for a queue of independent units;
-- one autonomous Staff member usually loses unless it adds differentiated outcome value;
+- one end-to-end worker is the default below that worker's effective saturation point for a coherent
+  shared outcome, not necessarily for a queue of independent units;
+- an additional autonomous Staff member usually loses unless it adds differentiated outcome value;
 - same-evidence criticism is usually an echo rather than independent review;
 - current model assignments, team-size guidance, ACP, Work schemas, token speeds and provider limits;
+- current effort-tier behaviour, cache/usage visibility and provider concurrency envelope;
 - any fixed numerical routing threshold.
 
 The exact Work graph is not the theory. The enduring requirement is a small factual substrate that can
@@ -155,17 +161,22 @@ show who really accepted responsibility, what evidence returned and who judged t
 
 ## Experimental consequences
 
-The next useful frontier is not another broad search for teamwork tricks. It is to locate three
-related boundaries:
+The next useful frontier is not another broad search for teamwork tricks. EXP-04 failed to establish
+a Q2 crossover at 48 accounts or 12 monitored entities. The next queue test should create real demand
+pressure—a much larger frozen backlog or controlled arrivals with response-time value—while holding
+local closure, coalesced review and same-model quality fixed. It should locate three related boundaries
+while treating the supervisor boundary as fixed:
 
 ```text
-shared outcome:   lead direct ↔ parallel bounded hands ↔ autonomous Staff
-portfolio:        one broad lead ↔ separate accountable leads
-replicated units: one producer ↔ elastic same-role Staff pool
-lead posture:     player-coach ↔ supervisor-only
+shared outcome:   one worker ↔ parallel bounded hands ↔ additional autonomous Staff
+portfolio:        one broad supervised outcome ↔ separate accountable leads
+replicated units: one unit worker ↔ elastic same-role Staff pool with local closure
+effort:           validated model/workload effort ↔ consequence escalation + dynamic closure headroom
 ```
 
 The experiment must compare accepted native outcomes, wall time, newly processed input, tool/runtime
 cost, integration work and owner/Exec attention. Replicated work must additionally measure accepted
-units per time, marginal unit economics, tail quality, backlog and lead bottlenecks. A topology wins
-only in the work region it improves; no result becomes a universal router.
+units per time, marginal unit economics, tail quality, backlog and lead bottlenecks without inserting a
+model assembler or waking the lead for every normal success. Effort experiments should expose configured
+effort, observable phase and usage—not private chain of thought. A topology wins only in the work region
+it improves; no result becomes a universal router.

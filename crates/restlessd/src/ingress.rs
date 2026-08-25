@@ -34,7 +34,7 @@ use anyhow::{bail, Context as _, Result};
 use base64::Engine as _;
 use hmac::{Hmac, Mac};
 use sha2::Sha256;
-use tokio::io::{AsyncBufReadExt as _, AsyncReadExt as _, AsyncWriteExt as _, BufReader};
+use tokio::io::{AsyncRead, AsyncReadExt as _, AsyncWriteExt as _, BufReader};
 use tokio::net::TcpListener;
 
 /// Default port for the ingress. Distinct from the coordination port (7791) so
@@ -52,6 +52,11 @@ const TOLERANCE_SECS: i64 = 5 * 60;
 /// larger is either a bug or an attempt to exhaust memory, and the failure
 /// boundary is worth nothing if the listener can be OOMed through it.
 const MAX_BODY: usize = 256 * 1024;
+const MAX_REQUEST_LINE: usize = 8 * 1024;
+const MAX_HEADER_LINE: usize = 16 * 1024;
+const MAX_HEADER_BYTES: usize = 64 * 1024;
+const MAX_HEADERS: usize = 100;
+const CONNECTION_DEADLINE: std::time::Duration = std::time::Duration::from_secs(30);
 
 /// One verified inbound event, handed to the queue.
 #[derive(Debug, Clone)]
@@ -84,6 +89,15 @@ pub fn verify_signature(
     body: &[u8],
     now_unix: i64,
 ) -> Result<()> {
+    if svix_id.trim().is_empty()
+        || svix_timestamp.trim().is_empty()
+        || svix_signature.trim().is_empty()
+    {
+        bail!("signed webhook headers are incomplete");
+    }
+    if svix_id.len() > 512 || svix_timestamp.len() > 32 || svix_signature.len() > 8 * 1024 {
+        bail!("signed webhook headers exceed their bounded contract");
+    }
     let timestamp: i64 = svix_timestamp
         .parse()
         .with_context(|| format!("svix-timestamp {svix_timestamp:?} is not a unix timestamp"))?;
@@ -140,6 +154,21 @@ pub async fn serve<S: Sink>(port: u16, secret: String, sink: Arc<S>) -> Result<(
     let listener = TcpListener::bind(&addr)
         .await
         .with_context(|| format!("bind ingress {addr}"))?;
+    serve_listener(listener, secret, sink).await
+}
+
+/// Serve an already-bound ingress listener. Production normally uses
+/// [`serve`]; accepting a listener lets live-provider probes establish local
+/// readiness before registering a temporary public webhook, with no bind
+/// race or readiness polling.
+pub(crate) async fn serve_listener<S: Sink>(
+    listener: TcpListener,
+    secret: String,
+    sink: Arc<S>,
+) -> Result<()> {
+    let addr = listener
+        .local_addr()
+        .context("read ingress listener address")?;
     tracing::info!(addr = %addr, "event ingress listening");
     loop {
         let (stream, peer) = match listener.accept().await {
@@ -152,8 +181,16 @@ pub async fn serve<S: Sink>(port: u16, secret: String, sink: Arc<S>) -> Result<(
         let secret = secret.clone();
         let sink = Arc::clone(&sink);
         tokio::spawn(async move {
-            if let Err(error) = handle(stream, &secret, sink.as_ref()).await {
-                tracing::warn!(%peer, error = %format!("{error:#}"), "ingress request rejected");
+            match tokio::time::timeout(CONNECTION_DEADLINE, handle(stream, &secret, sink.as_ref()))
+                .await
+            {
+                Ok(Ok(())) => {}
+                Ok(Err(error)) => {
+                    tracing::warn!(%peer, error = %format!("{error:#}"), "ingress request rejected")
+                }
+                Err(_) => {
+                    tracing::warn!(%peer, "ingress request exceeded bounded connection deadline")
+                }
             }
         });
     }
@@ -168,20 +205,27 @@ async fn handle<S: Sink>(stream: tokio::net::TcpStream, secret: &str, sink: &S) 
     let (read, mut write) = tokio::io::split(stream);
     let mut reader = BufReader::new(read);
 
-    let mut request_line = String::new();
-    reader
-        .read_line(&mut request_line)
-        .await
-        .context("read request line")?;
+    let request_line = read_bounded_line(&mut reader, MAX_REQUEST_LINE)
+        .await?
+        .context("connection closed before request line")?;
     let mut parts = request_line.split_whitespace();
     let method = parts.next().unwrap_or_default().to_string();
     let path = parts.next().unwrap_or_default().to_string();
 
     let mut headers: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+    let mut header_bytes = 0usize;
+    let mut header_count = 0usize;
     loop {
-        let mut line = String::new();
-        let read_bytes = reader.read_line(&mut line).await.context("read header")?;
-        if read_bytes == 0 || line.trim().is_empty() {
+        let Some(line) = read_bounded_line(&mut reader, MAX_HEADER_LINE).await? else {
+            break;
+        };
+        header_bytes = header_bytes.saturating_add(line.len());
+        header_count += 1;
+        if header_bytes > MAX_HEADER_BYTES || header_count > MAX_HEADERS {
+            respond(&mut write, 431, r#"{"error":"headers too large"}"#).await?;
+            anyhow::bail!("request headers exceed bounded ingress contract");
+        }
+        if line.trim().is_empty() {
             break;
         }
         if let Some((name, value)) = line.split_once(':') {
@@ -200,10 +244,18 @@ async fn handle<S: Sink>(stream: tokio::net::TcpStream, secret: &str, sink: &S) 
         return Ok(());
     }
 
-    let length: usize = headers
+    let Some(length) = headers
         .get("content-length")
-        .and_then(|value| value.parse().ok())
-        .unwrap_or(0);
+        .and_then(|value| value.parse::<usize>().ok())
+    else {
+        respond(
+            &mut write,
+            411,
+            r#"{"error":"valid content-length required"}"#,
+        )
+        .await?;
+        anyhow::bail!("POST request omitted a valid content-length");
+    };
     if length > MAX_BODY {
         respond(&mut write, 413, r#"{"error":"body too large"}"#).await?;
         bail!("body of {length} bytes exceeds the {MAX_BODY} limit");
@@ -250,15 +302,17 @@ async fn handle<S: Sink>(stream: tokio::net::TcpStream, secret: &str, sink: &S) 
         return Err(error.context("rejecting unsigned or mis-signed inbound event"));
     }
 
-    let parsed: serde_json::Value =
-        serde_json::from_slice(&body).unwrap_or(serde_json::Value::Null);
-    // Provider event id, preferred from the body, falling back to the svix id.
-    let provider_event_id = parsed
-        .get("data")
-        .and_then(|data| data.get("email_id"))
-        .and_then(|id| id.as_str())
-        .map(str::to_string)
-        .unwrap_or_else(|| svix_id.clone());
+    let parsed: serde_json::Value = match serde_json::from_slice(&body) {
+        Ok(parsed) => parsed,
+        Err(error) => {
+            respond(&mut write, 400, r#"{"error":"invalid JSON"}"#).await?;
+            return Err(error).context("signed webhook body is not valid JSON");
+        }
+    };
+    // `svix-id` identifies this provider webhook delivery/event. The email id
+    // is only correlation metadata: bounce, complaint, reply and unsubscribe
+    // transitions can legitimately share it and must remain distinct.
+    let provider_event_id = svix_id;
 
     let event = InboundEvent {
         provider_event_id,
@@ -278,6 +332,33 @@ async fn handle<S: Sink>(stream: tokio::net::TcpStream, secret: &str, sink: &S) 
     Ok(())
 }
 
+async fn read_bounded_line<R: AsyncRead + Unpin>(
+    reader: &mut R,
+    limit: usize,
+) -> Result<Option<String>> {
+    let mut bytes = Vec::with_capacity(limit.min(1024));
+    loop {
+        let mut byte = [0u8; 1];
+        let read = reader.read(&mut byte).await.context("read HTTP line")?;
+        if read == 0 {
+            if bytes.is_empty() {
+                return Ok(None);
+            }
+            break;
+        }
+        if bytes.len() >= limit {
+            anyhow::bail!("HTTP line exceeds {limit} bytes");
+        }
+        bytes.push(byte[0]);
+        if byte[0] == b'\n' {
+            break;
+        }
+    }
+    String::from_utf8(bytes)
+        .map(Some)
+        .context("HTTP line is not valid UTF-8")
+}
+
 async fn respond<W: tokio::io::AsyncWrite + Unpin>(
     write: &mut W,
     status: u16,
@@ -286,10 +367,13 @@ async fn respond<W: tokio::io::AsyncWrite + Unpin>(
     let reason = match status {
         200 => "OK",
         202 => "Accepted",
+        400 => "Bad Request",
         401 => "Unauthorized",
         404 => "Not Found",
         405 => "Method Not Allowed",
+        411 => "Length Required",
         413 => "Payload Too Large",
+        431 => "Request Header Fields Too Large",
         503 => "Service Unavailable",
         _ => "Error",
     };
@@ -350,6 +434,22 @@ mod tests {
         let signature = sign(SECRET, "msg_1", now, body);
         verify_signature(SECRET, "msg_1", &now.to_string(), &signature, body, now)
             .expect("a correctly signed event must verify");
+    }
+
+    #[tokio::test]
+    async fn request_lines_are_bounded_before_unlimited_allocation() {
+        let (mut writer, mut reader) = tokio::io::duplex(64);
+        writer.write_all(b"short\r\n").await.unwrap();
+        drop(writer);
+        assert_eq!(
+            read_bounded_line(&mut reader, 16).await.unwrap().as_deref(),
+            Some("short\r\n")
+        );
+
+        let (mut writer, mut reader) = tokio::io::duplex(64);
+        writer.write_all(b"123456789\n").await.unwrap();
+        drop(writer);
+        assert!(read_bounded_line(&mut reader, 8).await.is_err());
     }
 
     /// A captured request replayed tomorrow carries a genuine signature. The

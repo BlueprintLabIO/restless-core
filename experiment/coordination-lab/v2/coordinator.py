@@ -354,28 +354,45 @@ class Coordinator:
 
     async def _handle_client(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
         try:
-            line = await reader.readline()
-            if not line:
-                return
-            request = json.loads(line)
-            kind = request.get("type")
-            if kind == "trace":
-                result = self.record_trace(request)
-            elif kind == "inspect":
-                result = self.snapshot(request["actor"])
-            elif kind == "command":
-                result = self.command(request)
-            else:
-                raise ValueError(f"unknown coordinator request type {kind!r}")
-            writer.write((json.dumps({"ok": True, "result": result}, sort_keys=True) + "\n").encode())
+            while line := await reader.readline():
+                request = json.loads(line)
+                kind = request.get("type")
+                if kind == "trace":
+                    result = self.record_trace(request)
+                    if request.get("one_way") is True:
+                        continue
+                elif kind == "inspect":
+                    result = self.snapshot(request["actor"])
+                elif kind == "command":
+                    result = self.command(request)
+                else:
+                    raise ValueError(f"unknown coordinator request type {kind!r}")
+                writer.write(
+                    (json.dumps({"ok": True, "result": result}, sort_keys=True) + "\n").encode()
+                )
+                await writer.drain()
+                break
+        except (BrokenPipeError, ConnectionResetError):
+            # Telemetry clients may end a turn without waiting for a reply.
+            pass
         except Exception as exc:
-            writer.write((json.dumps({"ok": False, "error": str(exc)}) + "\n").encode())
+            try:
+                writer.write((json.dumps({"ok": False, "error": str(exc)}) + "\n").encode())
+                await writer.drain()
+            except (BrokenPipeError, ConnectionResetError):
+                pass
         finally:
-            await writer.drain()
             writer.close()
-            await writer.wait_closed()
+            try:
+                await writer.wait_closed()
+            except (BrokenPipeError, ConnectionResetError):
+                pass
 
     def record_trace(self, request: dict[str, Any]) -> dict[str, Any]:
+        if request.get("kind") == "actor_phase":
+            phase = (request.get("payload") or {}).get("phase")
+            if phase not in {"orient", "produce", "verify", "handoff", "repair"}:
+                raise ValueError("invalid actor phase")
         line = {
             "at": request.get("at") or str(int(time.time() * 1000)),
             "actor": request.get("actor"),
@@ -391,7 +408,7 @@ class Coordinator:
                 "UPDATE turns SET cost_usd=COALESCE(?,cost_usd), used_tokens=COALESCE(?,used_tokens), cached_input_tokens=COALESCE(?,cached_input_tokens), reasoning_output_tokens=COALESCE(?,reasoning_output_tokens) WHERE id=? AND ended_at IS NULL",
                 (
                     payload.get("cost_usd"),
-                    payload.get("used_tokens"),
+                    payload.get("turn_used_tokens", payload.get("used_tokens")),
                     payload.get("cached_input_tokens"),
                     payload.get("reasoning_output_tokens"),
                     line["turn_id"],
@@ -794,6 +811,23 @@ class Coordinator:
             ).stdout.strip()
             if exact_commit != current:
                 raise ValueError("candidate_commit must equal the exact current candidate")
+            checkout_head = run(
+                ["git", "-C", str(self.workspaces.canonical), "rev-parse", "HEAD^{commit}"],
+                check=False,
+            )
+            status = run(
+                ["git", "-C", str(self.workspaces.canonical), "status", "--porcelain"],
+                check=False,
+            )
+            if (
+                checkout_head.returncode
+                or checkout_head.stdout.strip() != exact_commit
+                or status.returncode
+                or status.stdout.strip()
+            ):
+                raise ValueError(
+                    "run completion requires the canonical checkout at the exact clean candidate"
+                )
             decision = uid("decision")
             evidence = [f"candidate:{exact_commit}", *args.get("evidence", [])]
             self.conn.execute(
@@ -1186,7 +1220,7 @@ class Coordinator:
 
     def start_turn(self, turn_id: str, actor: str, attempt_id: str | None) -> None:
         self.conn.execute(
-            "INSERT INTO turns(id,actor,attempt_id,started_at,cost_usd) VALUES(?,?,?,?,0)",
+            "INSERT INTO turns(id,actor,attempt_id,started_at,cost_usd) VALUES(?,?,?,?,NULL)",
             (turn_id, actor, attempt_id, time.time()),
         )
         self.emit("turn_started", {"turn": turn_id, "attempt": attempt_id}, actor)

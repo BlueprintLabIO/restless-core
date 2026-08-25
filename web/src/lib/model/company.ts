@@ -43,7 +43,7 @@ export interface CompanyView {
 			accounted_usd: number;
 			ceiling_usd: number;
 			remaining_usd?: number | null;
-			poisoned: boolean;
+			status: 'available' | 'exhausted' | 'metering_unknown';
 		};
 		money_envelopes: MoneyEnvelope[];
 	};

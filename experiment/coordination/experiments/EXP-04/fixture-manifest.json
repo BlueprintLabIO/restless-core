@@ -1,0 +1,57 @@
+{
+  "fictional_test_data": true,
+  "files": [
+    {
+      "path": "fixtures/monitoring/README.md",
+      "sha256": "e1282dfe6d72e6147f6b94aa03498842a60ae59675b9b427cff2aa9675416d3a"
+    },
+    {
+      "path": "fixtures/monitoring/corpus/documents.json",
+      "sha256": "8d9385ba0a668701d7a60facb4277d57691b07ab800af02ed495dfda5545569f"
+    },
+    {
+      "path": "fixtures/monitoring/verify-monitoring.mjs",
+      "sha256": "a730d902953d6455f8508e10ad3fb32726f1695053d3ee7e7c5d15539e77e868"
+    },
+    {
+      "path": "fixtures/sales/POLICY.md",
+      "sha256": "b0d9ac9b2004345712963bcebc59212176511c487cc8c10c2182c339a8ca66cc"
+    },
+    {
+      "path": "fixtures/sales/README.md",
+      "sha256": "509d656b44fa1d2cd0e42630fba53874fcd41594cf222f08c095d12ef08265d3"
+    },
+    {
+      "path": "fixtures/sales/data/accounts.json",
+      "sha256": "9ad16781664ce4a5f331b8028afec353070ee244e0d50d0bacdd73770848eebc"
+    },
+    {
+      "path": "fixtures/sales/verify-sales.mjs",
+      "sha256": "e6af8932cf8875840ed6054793b08b540f8438f7818eb7f53366f1279a2f355a"
+    },
+    {
+      "path": "fixtures/support/README.md",
+      "sha256": "928cd27db6cc88a2a1102b1d37944843dfb5f1a7190261ac1d2e20fd8f6a231c"
+    },
+    {
+      "path": "fixtures/support/data/cases.json",
+      "sha256": "21d36bc7a666c481351beffbaa6fa435699c34f79de5c79f56920eb074293909"
+    },
+    {
+      "path": "fixtures/support/verify-support-schema.mjs",
+      "sha256": "8d299cded9ea409919fbf90eb68949247b91475f23ab2635e2ea57446c0928fd"
+    },
+    {
+      "path": "hidden-evaluation/monitoring-expected.json",
+      "sha256": "60570d61266abc361914ca430e1db7e90a407df947b8d384fa28680a7873a08e"
+    },
+    {
+      "path": "hidden-evaluation/sales-expected.json",
+      "sha256": "85d0bfd2c2b9592e274c668a12351a8d03e724fc487998cdc77d4cdd1e68aa55"
+    },
+    {
+      "path": "hidden-evaluation/support-expected.json",
+      "sha256": "f2c75147101c9237893d801582f5620cbefa59d4b6a2432e35dbf16c7ff8dfa5"
+    }
+  ]
+}

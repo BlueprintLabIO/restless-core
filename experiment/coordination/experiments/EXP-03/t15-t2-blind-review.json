@@ -1,0 +1,51 @@
+{
+  "candidate_A": {
+    "scores": {
+      "truth_and_evidence": 7,
+      "causal_coherence": 8,
+      "decision_usefulness": 8,
+      "native_quality": 9,
+      "failure_awareness": 9
+    },
+    "material_strengths": [
+      "One coherent system end to end: strategy derives a single message hierarchy (umbrella promise + three pillars + objection handling), both assets and the shared funnel are built from it, and the 'why two assets are one test' argument (only variable is depth of engagement; complementary failure modes localise a leak) is explicit and decision-usable.",
+      "Steam page is genuinely channel-native (header block, ~40-word short description, longer description, feature bullets, mandatory closed-playtest disclosure, single CTA block), and the storyboard's 8 beats sum exactly to 45s (4+6+6+7+7+7+4+4) with per-beat proof anchors, a capture checklist, safe-area/muted-view rules.",
+      "Evidence hygiene where it matters most: interview counts stay 'n of 12' with on-page small-sample framing, no percentages, I-07 kept internal as stated intent, baseline recorded unobserved with a V0 instrumentation-void rule, and all six required prohibited-claim families are covered with safe alternatives."
+    ],
+    "material_defects": [
+      "Public copy asserts invented product specifics outside P-01…P-08: evolved-form names Pyrelisk/Infernox appear in store copy, video VO and feature bullets; temperament categories are enumerated as implemented behaviour (curious/timid/skittish/territorial); plus 'team of four', 'guard to halve incoming damage', 'never spawn wild', 'cooldowns and energy', and landmark/flora detail ('glowing research cairn', 'puff-trees') none of which the frozen truth supplies.",
+      "The claims register launders those inventions as status:supported (claim-evolution cites P-06 for names P-06 does not contain, contradicting the register's own §3 evidence inventory), so the truth-enforcement artifact itself is compromised and the owner must re-audit all copy before any use.",
+      "Manifest decision_rules are a thin subset of measurement.md (the V0 validity-void rule and the qualification-drop-off CHANGE rule are absent), a minor split-brain between artifacts."
+    ],
+    "acceptance": "revise"
+  },
+  "candidate_B": {
+    "scores": {
+      "truth_and_evidence": 9,
+      "causal_coherence": 9,
+      "decision_usefulness": 9,
+      "native_quality": 8,
+      "failure_awareness": 9
+    },
+    "material_strengths": [
+      "Strictest evidence discipline of the two: 23 atomised claims each traced to exact P/I IDs with usage notes that pre-empt precisely the embellishment risk the scenario punishes (C-06 forbids naming evolved forms; C-10 forbids enumerating temperament behaviours); public copy demonstrably stays at the registered level, interviews become design-intent lines with counts internal, and I-07 is internal-only.",
+      "Measurement is the most operationally usable: 11 exact events with properties, first-touch attribution, unique-counting rules, ops events (playtest_access_granted) separated from message metrics so invite latency cannot contaminate creative reads, guardrails (qualification_pass_rate as vanity alarm, activation_rate), a pre-committed middle band (1–5% → exactly one more window with exactly one change; two weak windows → STOP), and mandatory small-n caveats.",
+      "Failure awareness is proportionate and specific: R1–R8 risks each mapped to a carried mitigation, a claim-drift STOP that voids the window, an instrumentation event-loss check, an explicit 'what we do not yet know' section (I-07 stated intent), and a producer-challenge log showing real tensions (temperament enumeration, 'coming soon' framing, asset IDs) resolved rather than hidden."
+    ],
+    "material_defects": [
+      "review.html misstates I-04 as '7 of 12' — frozen evidence says 5/12 (7/12 is I-02). An evidentiary error on an owner-facing surface, though it sits in an internal table and changes no decision.",
+      "Inline (C-xx) trace annotations sit inside the prepared store-page copy itself (headline, descriptions, feature bullets), so the nominally public asset reads partly as a compliance draft rather than shippable channel copy; the register/review already carry the mapping.",
+      "Internal shot directions and the screenshot-strip note assert repository facts (README-documented controls, screenshot-*.webp captures) that cannot be verified from the supplied artifacts; if those are absent, part of the 'proof available in the current build' grounding is asserted rather than shown."
+    ],
+    "acceptance": "accept"
+  },
+  "preference": "B",
+  "preference_reason": "The scenario's core constraint is that only supplied facts support public claims. A's public copy and claims register systematically assert invented specifics (evolved-form names registered against P-06, enumerated temperaments, mechanical and world detail), forcing an evidence-boundary rework of headline selling copy; B holds that boundary and even guards it explicitly, needing only one interview count corrected in an internal review table. A's edge in native vividness does not offset copy that could not ship truthfully as-is.",
+  "confidence": "medium",
+  "scenario_ambiguities": [
+    "Whether fictional detail absent from P-01…P-08 (species names, temperament categories, landmark specifics) counts as unsupported public claim or permissible creative flavour for a fictional company; scored as unsupported given 'only these supplied facts may support public product claims'.",
+    "Whether inline claim-ID annotations inside asset copy are production scaffolding or public copy; this affects the native-quality reading of Candidate B's store page.",
+    "P-01 says 'browser-based… no install for the prepared local build' without 'desktop'; both candidates scope the offer to desktop per the campaign brief — treated as targeting rather than product-truth overreach.",
+    "verify-marketing.mjs, the clean commit, outcome_met and verifier output are not among the supplied artifacts; enforcement claims (PASS lines, embedded SHA-256 game-file digests) are assumed covered by the separate automatic checks and were not scored."
+  ]
+}

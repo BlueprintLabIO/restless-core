@@ -79,6 +79,37 @@ pub struct SpendRecord {
 pub const POISON_MARKER: &str = "poison-marker";
 pub const POISON_CLEARED: &str = "poison-cleared";
 
+/// The durable accounting state for one company.
+///
+/// A missing terminal provider charge is not a very large amount of money.
+/// It is an unknown amount of money. Keeping that distinction in the type
+/// prevents an admission fuse from accidentally displaying or calculating a
+/// sentinel as though it were a real charge.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CompanySpendState {
+    Accounted { accounted_micro_usd: u64 },
+    MeteringUnknown { accounted_micro_usd: u64 },
+}
+
+impl CompanySpendState {
+    #[must_use]
+    pub fn accounted_micro_usd(self) -> u64 {
+        match self {
+            Self::Accounted {
+                accounted_micro_usd,
+            }
+            | Self::MeteringUnknown {
+                accounted_micro_usd,
+            } => accounted_micro_usd,
+        }
+    }
+
+    #[must_use]
+    pub fn is_metering_unknown(self) -> bool {
+        matches!(self, Self::MeteringUnknown { .. })
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 enum SpendEntryType {
     #[serde(rename = "spendCorrection")]
@@ -446,22 +477,37 @@ impl SpendStore {
         })
     }
 
+    /// Read accounted money and metering certainty together. A poisoned or
+    /// contended ledger stays fail-closed, but its known charge never becomes
+    /// an arithmetic sentinel.
     #[must_use]
-    pub fn spent_micro_usd(&self, company_id: &str) -> u64 {
-        self.state
-            .lock()
-            .map(|state| {
-                if state.poisons.contains(company_id) {
-                    u64::MAX
-                } else {
-                    state
-                        .accounted_totals
-                        .get(company_id)
-                        .copied()
-                        .unwrap_or_default()
-                }
-            })
-            .unwrap_or(u64::MAX) // poisoned lock fails closed
+    pub fn company_state(&self, company_id: &str) -> CompanySpendState {
+        let Ok(state) = self.state.lock() else {
+            // A poisoned mutex cannot provide a trustworthy total. The caller
+            // must stop charged admission and present the uncertainty, not $0.
+            return CompanySpendState::MeteringUnknown {
+                accounted_micro_usd: 0,
+            };
+        };
+        let accounted_micro_usd = state
+            .accounted_totals
+            .get(company_id)
+            .copied()
+            .unwrap_or_default();
+        if state.poisons.contains(company_id) {
+            CompanySpendState::MeteringUnknown {
+                accounted_micro_usd,
+            }
+        } else {
+            CompanySpendState::Accounted {
+                accounted_micro_usd,
+            }
+        }
+    }
+
+    #[must_use]
+    pub fn accounted_micro_usd(&self, company_id: &str) -> u64 {
+        self.company_state(company_id).accounted_micro_usd()
     }
 
     /// S04-T9. Spend broken down by `(actor, model)` for one company, read
@@ -548,10 +594,11 @@ impl SpendStore {
         Ok(())
     }
 
-    /// Pin a company's total at the maximum so every later pre-flight check
-    /// fails closed. Used when a completed upstream call could not be
-    /// accounted: an unaccountable spend stream is indistinguishable from
-    /// unbounded spend, so the company stops until an operator inspects.
+    /// Mark a company's charged accounting as unknown so every later
+    /// admission check fails closed. Used when a completed upstream call
+    /// could not be accounted: an unaccountable spend stream is
+    /// indistinguishable from unbounded spend, so the company stops until an
+    /// operator inspects.
     /// The marker is appended to the spool (nil request id) so the poisoned
     /// state survives a daemon restart via the boot rebuild.
     pub fn poison(&self, company_id: &str) {
@@ -562,7 +609,11 @@ impl SpendStore {
             input_tokens: 0,
             output_tokens: 0,
             total_tokens: 0,
-            cost_micro_usd: u64::MAX,
+            // A poison marker carries state, not a synthetic charge. Keeping
+            // this zero makes it impossible for a future reader to mistake
+            // the marker for an enormous bill if the record is inspected
+            // outside `apply_record`.
+            cost_micro_usd: 0,
             actor_id: "daemon".into(),
             session_id: "system".into(),
             occurred_at: Utc::now(),
@@ -814,11 +865,11 @@ mod tests {
         fs::write(root.join("spend.jsonl"), content).unwrap();
 
         let store = SpendStore::open(root).expect("torn tail must not be fatal");
-        assert_eq!(store.spent_micro_usd("acme"), 300);
+        assert_eq!(store.accounted_micro_usd("acme"), 300);
         store.record(&spend_record("acme", 50)).unwrap();
         drop(store);
         let reopened = SpendStore::open(root).expect("repaired spool reopens");
-        assert_eq!(reopened.spent_micro_usd("acme"), 350);
+        assert_eq!(reopened.accounted_micro_usd("acme"), 350);
     }
 
     /// A corrupt line with good lines after it is real damage, not a torn
@@ -849,17 +900,17 @@ mod tests {
         store.record(&spend_record("keeper", 500)).unwrap();
         store.record(&spend_record("throwaway", 900)).unwrap();
         store.record(&spend_record("keeper", 250)).unwrap();
-        assert_eq!(store.spent_micro_usd("throwaway"), 900);
+        assert_eq!(store.accounted_micro_usd("throwaway"), 900);
 
         store.forget("throwaway").unwrap();
 
         assert_eq!(
-            store.spent_micro_usd("throwaway"),
+            store.accounted_micro_usd("throwaway"),
             0,
             "destroyed spend must be gone"
         );
         assert_eq!(
-            store.spent_micro_usd("keeper"),
+            store.accounted_micro_usd("keeper"),
             750,
             "another company must be untouched"
         );
@@ -867,14 +918,13 @@ mod tests {
         // And it survives a restart: the spool itself was rewritten, not just
         // the in-memory total.
         let reopened = SpendStore::open(&dir).unwrap();
-        assert_eq!(reopened.spent_micro_usd("throwaway"), 0);
-        assert_eq!(reopened.spent_micro_usd("keeper"), 750);
+        assert_eq!(reopened.accounted_micro_usd("throwaway"), 0);
+        assert_eq!(reopened.accounted_micro_usd("keeper"), 750);
         let _ = fs::remove_dir_all(&dir);
     }
 
-    /// A poisoned company's total is a sentinel, not money. The breakdown must
-    /// keep reporting real accounted spend so the owner can still see what was
-    /// actually burned before the fuse blew.
+    /// Unknown metering pauses charged work without contaminating the known
+    /// accounted amount or its actor/model breakdown.
     #[test]
     fn a_poison_does_not_contaminate_the_accounted_breakdown() {
         let dir = std::env::temp_dir().join(format!("restless-poison-{}", Uuid::new_v4()));
@@ -884,9 +934,11 @@ mod tests {
         store.poison("acme");
 
         assert_eq!(
-            store.spent_micro_usd("acme"),
-            u64::MAX,
-            "the fuse must fail closed"
+            store.company_state("acme"),
+            CompanySpendState::MeteringUnknown {
+                accounted_micro_usd: 1_500
+            },
+            "the fuse must fail closed without inventing money"
         );
         let breakdown = store.breakdown_micro_usd("acme");
         let accounted: u64 = breakdown.iter().map(|(_, _, cost)| cost).sum();
@@ -931,7 +983,7 @@ mod tests {
         assert_eq!(preview.current_total_micro_usd, 3_960_000);
         assert_eq!(preview.post_correction_total_micro_usd, 2_380_000);
         assert_eq!(fs::read(&spool).unwrap(), before, "preview must not write");
-        assert_eq!(store.spent_micro_usd("acme"), 3_960_000);
+        assert_eq!(store.accounted_micro_usd("acme"), 3_960_000);
 
         let (correction, applied) = store
             .correct(
@@ -947,7 +999,7 @@ mod tests {
         assert_eq!(correction.correction_id, correction_id);
         assert_eq!(correction.delta_micro_usd, -1_580_000);
         assert_eq!(correction.corrected_by, "owner");
-        assert_eq!(store.spent_micro_usd("acme"), 2_380_000);
+        assert_eq!(store.accounted_micro_usd("acme"), 2_380_000);
         assert_eq!(
             store.breakdown_micro_usd("acme"),
             vec![("lead".into(), "kimi-k3".into(), 2_380_000)]
@@ -993,12 +1045,12 @@ mod tests {
                 "owner",
             )
             .is_err());
-        assert_eq!(store.spent_micro_usd("acme"), 2_380_000);
+        assert_eq!(store.accounted_micro_usd("acme"), 2_380_000);
         assert_eq!(text, fs::read_to_string(&spool).unwrap());
 
         drop(store);
         let reopened = SpendStore::open(temporary.path()).unwrap();
-        assert_eq!(reopened.spent_micro_usd("acme"), 2_380_000);
+        assert_eq!(reopened.accounted_micro_usd("acme"), 2_380_000);
         assert_eq!(
             reopened.breakdown_micro_usd("acme"),
             vec![("lead".into(), "kimi-k3".into(), 2_380_000)]
@@ -1064,8 +1116,8 @@ mod tests {
                 "owner",
             )
             .is_err());
-        assert_eq!(store.spent_micro_usd("acme"), 100);
-        assert_eq!(store.spent_micro_usd("other"), 50);
+        assert_eq!(store.accounted_micro_usd("acme"), 100);
+        assert_eq!(store.accounted_micro_usd("other"), 50);
         assert_eq!(fs::read(&spool).unwrap(), before);
     }
 
@@ -1089,7 +1141,7 @@ mod tests {
         .unwrap();
 
         let store = SpendStore::open(temporary.path()).expect("torn tail is discarded loudly");
-        assert_eq!(store.spent_micro_usd("legacy"), 75);
+        assert_eq!(store.accounted_micro_usd("legacy"), 75);
         assert_eq!(
             store.breakdown_micro_usd("legacy"),
             vec![("unattributed".into(), "old-model".into(), 75)]
@@ -1099,7 +1151,7 @@ mod tests {
         assert_eq!(
             SpendStore::open(temporary.path())
                 .unwrap()
-                .spent_micro_usd("legacy"),
+                .accounted_micro_usd("legacy"),
             100
         );
     }

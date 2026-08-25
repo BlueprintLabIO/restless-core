@@ -5,6 +5,7 @@
 //! response line.
 
 mod acp;
+mod activity;
 mod airwallex;
 mod airwallex_ingress;
 mod approval;
@@ -14,7 +15,6 @@ mod capability;
 mod capability_sourcing;
 mod company;
 mod context;
-mod conversation;
 mod credential;
 mod effect;
 mod exec;
@@ -57,10 +57,6 @@ fn round_usd(usd: f64) -> f64 {
         rounded
     }
 }
-
-/// A poisoned company's ledger total is pinned at `u64::MAX` micro-USD. Any
-/// value near it is the sentinel, not spend.
-const POISON_SENTINEL_USD: f64 = 1_000_000_000.0;
 
 /// OrgIntel connection settings at `$RESTLESS_HOME/orgintel.toml`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -174,9 +170,9 @@ pub(crate) struct Daemon {
     pub(crate) authority: authority::AuthorityStore,
     pub(crate) orgintel: OrgIntelRegistry,
     pub(crate) staff: staff::StaffRegistry,
-    /// Reconnectable live projections for owner/lead turns. Completed messages
-    /// remain OrgIntel truth; this state is intentionally ephemeral.
-    pub(crate) conversations: conversation::ConversationStreams,
+    /// Reconnectable live projections for agent turns. Completed messages,
+    /// Work, and Attempts remain OrgIntel truth; this state is ephemeral.
+    pub(crate) activities: activity::AgentActivityStreams,
     /// One wake at a time per company, however the wake was requested —
     /// the scheduler (T6) and the owner-typed socket path share this set.
     pub(crate) in_flight: schedule::InFlight,
@@ -338,7 +334,7 @@ async fn main() -> Result<()> {
             handles: std::sync::Mutex::new(HashMap::new()),
         },
         staff: staff::StaffRegistry::default(),
-        conversations: conversation::ConversationStreams::default(),
+        activities: activity::AgentActivityStreams::default(),
         in_flight: std::sync::Arc::new(std::sync::Mutex::new(schedule::WakeClaims::default())),
     });
 
@@ -431,6 +427,24 @@ async fn main() -> Result<()> {
              The company can send but cannot receive; inbound replies will not wake it"
         ),
     }
+    // Repair the only durable seam after Authority custody. The immediate
+    // projection is event-driven; this bounded cursor scan exists solely for
+    // restart/crash recovery and is idempotent at the OrgIntel source ref.
+    let inbound_daemon = std::sync::Arc::clone(&daemon);
+    tokio::spawn(async move {
+        loop {
+            match inbound::reconcile_pending(&inbound_daemon).await {
+                Ok(count) if count > 0 => {
+                    tracing::info!(count, "reconciled pending inbound projections")
+                }
+                Ok(_) => {}
+                Err(error) => {
+                    tracing::warn!("inbound projection reconciliation deferred: {error:#}")
+                }
+            }
+            tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+        }
+    });
 
     // Finance webhooks use Airwallex's own timestamp+body HMAC and trigger a
     // direct authenticated provider read. The listener is independent of the
@@ -1296,18 +1310,19 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
                             "Exec is running claimed Work for {company}; its Attempt owns the actor"
                         ));
                     }
-                    {
+                    let cancellation = {
                         let mut claims = daemon.in_flight.lock().expect("in-flight guard");
-                        if !claims.claim(company) {
+                        let Some(cancellation) = claims.claim_with_cancellation(company) else {
                             return Response::err(format!(
                                 "a wake is already in flight for {company}; \
                                  its outcome lands in the event stream"
                             ));
-                        }
-                    }
+                        };
+                        cancellation
+                    };
                     let _guard = schedule::WakeGuard::new(company, &daemon.in_flight);
                     let reason = request.common.reason.as_deref().unwrap_or("owner-requested wake");
-                    match schedule::run_exec_turn(daemon, &config, &org, reason).await {
+                    match schedule::run_exec_turn(daemon, &config, &org, reason, &cancellation).await {
                         Ok(report) => match serde_json::to_value(&report) {
                             Ok(value) => Response::ok(value),
                             Err(error) => Response::err(format!("encode report: {error}")),
@@ -1741,15 +1756,13 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
                         .map(|actor| (actor.id, actor.role))
                         .collect();
                     let by_actor = daemon.spend.breakdown(company);
-                    // Accounted spend is summed from the real records. It is NOT
-                    // the same number as the ledger total, and the difference is
-                    // the point: a fail-closed poison pins the total at u64::MAX so
-                    // every preflight refuses, which renders as $18,446,744,073,709
-                    // if you print it as money. That is a fabricated figure where
-                    // the honest answer is "poisoned, and here is what was actually
-                    // accounted before it happened" (`owner-cockpit §2.6`).
-                    let accounted: f64 = by_actor.iter().map(|(_, _, usd)| usd).sum();
-                    let poisoned = daemon.spend.spent_usd(company) > POISON_SENTINEL_USD;
+                    let budget = daemon.spend.budget_state(&config);
+                    let accounted = budget.accounted_micro_usd() as f64 / 1_000_000.0;
+                    let status = match budget {
+                        spend::ModelBudgetState::Available { .. } => "available",
+                        spend::ModelBudgetState::Exhausted { .. } => "exhausted",
+                        spend::ModelBudgetState::MeteringUnknown { .. } => "metering_unknown",
+                    };
                     let rows: Vec<serde_json::Value> = by_actor
                         .into_iter()
                         .map(|(actor, model, usd)| {
@@ -1765,21 +1778,13 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
                     Response::ok(serde_json::json!({
                         "accounted_usd": round_usd(accounted),
                         "ceiling_usd": config.spend_ceiling_usd.as_usd(),
-                        "remaining_usd": if poisoned {
-                            serde_json::Value::Null
-                        } else {
-                            serde_json::json!(round_usd(daemon.spend.remaining_usd(&config)))
-                        },
-                        "poisoned": poisoned,
-                        "note": if poisoned {
+                        "remaining_usd": budget.remaining_micro_usd().map(|remaining| round_usd(remaining as f64 / 1_000_000.0)),
+                        "status": status,
+                        "note": if status == "metering_unknown" {
                             serde_json::json!(
-                                "fail-closed: a turn could not be accounted, so this company is \
-                                 stopped until `restless clear-poison` runs. `accounted_usd` is real \
-                                 spend; the ledger total is pinned and is not a dollar figure"
+                                "fail-closed: a provider stream could not be exactly accounted, so charged work is paused until model metering is reconciled. `accounted_usd` remains the real known spend."
                             )
-                        } else {
-                            serde_json::Value::Null
-                        },
+                        } else { serde_json::Value::Null },
                         "by_actor": rows,
                     }))
                 }
@@ -1933,17 +1938,24 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
         ) {
             (Ok(Some(work_id)), Some(new_owner), Some(changed_by), Some(reason)) => {
                 match daemon.orgintel.get(company).await {
-                    Ok(org) => match org
-                        .reassign_work(work_id, new_owner, changed_by, reason)
-                        .await
-                    {
+                    Ok(org) => {
+                        let staff_lead = match org.team_lead_for(new_owner).await {
+                            Ok(Some(lead)) => lead,
+                            Ok(None) => return Response::err(format!(
+                                "new Work owner {new_owner:?} must be Staff under an accountable lead; Exec, unassigned actors, and team leads cannot own production Work"
+                            )),
+                            Err(error) => return Response::err(format!("{error:#}")),
+                        };
+                        match org.reassign_work(work_id, new_owner, changed_by, reason).await {
                         Ok(previous_owner) => Response::ok(serde_json::json!({
                             "work_id": work_id,
                             "from_actor_id": previous_owner,
                             "to_actor_id": new_owner,
+                            "accountable_lead_id": staff_lead,
                         })),
                         Err(error) => Response::err(format!("{error:#}")),
-                    },
+                        }
+                    }
                     Err(error) => Response::err(format!("{error:#}")),
                 }
             }
@@ -1955,10 +1967,23 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
             request.orgintel.role.as_deref(),
             request.orgintel.title.as_deref(),
             request.common.body.as_deref(),
+            request.common.as_actor.as_deref(),
         ) {
-            (Some(owner), Some(role), Some(title), Some(outcome)) => {
+            (Some(owner), Some(role), Some(title), Some(outcome), Some(commissioned_by)) => {
                 match daemon.orgintel.get(company).await {
                     Ok(org) => {
+                        let accountable_lead = match org.team_lead_for(owner).await {
+                            Ok(Some(lead)) => lead,
+                            Ok(None) => return Response::err(format!(
+                                "Work owner {owner:?} must be Staff under an accountable lead; Exec, unassigned actors, and team leads cannot own production Work"
+                            )),
+                            Err(error) => return Response::err(format!("{error:#}")),
+                        };
+                        if commissioned_by != accountable_lead {
+                            return Response::err(format!(
+                                "production Work for {owner:?} must be commissioned by its accountable lead {accountable_lead:?}, not {commissioned_by:?}"
+                            ));
+                        }
                         let actor = match org.active_actor(owner).await {
                             Ok(Some(actor)) => actor,
                             Ok(None) => return Response::err(format!(
@@ -2031,7 +2056,19 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
                                 command: &gate.command,
                             })
                             .collect::<Vec<_>>();
-                        let added = if request.orgintel.owner_review {
+                        let added = if let Some(source_message_id) = request.orgintel.source_message_id
+                        {
+                            org.add_work_from_external_message_with_edges_and_gates(
+                                work,
+                                &requires,
+                                &revises,
+                                &gates,
+                                request.orgintel.owner_review,
+                                source_message_id,
+                                commissioned_by,
+                            )
+                            .await
+                        } else if request.orgintel.owner_review {
                             org.add_review_required_work_with_edges_and_gates(
                                 work, &requires, &revises, &gates,
                             )
@@ -2041,14 +2078,19 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
                                 .await
                         };
                         match added {
-                            Ok(id) => Response::ok(serde_json::json!({ "work_id": id })),
+                            Ok(id) => Response::ok(serde_json::json!({
+                                "work_id": id,
+                                "accountable_lead_id": accountable_lead,
+                            })),
                             Err(error) => Response::err(format!("{error:#}")),
                         }
                     }
                     Err(error) => Response::err(format!("{error:#}")),
                 }
             }
-            _ => Response::err("work-add needs owner, role, title and outcome"),
+            _ => Response::err(
+                "work-add needs Staff owner, role, title, outcome, and accountable lead attribution",
+            ),
         },
         "work-edge" => match (
             request.common.from.as_deref(),

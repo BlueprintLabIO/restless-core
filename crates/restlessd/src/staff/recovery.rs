@@ -219,8 +219,8 @@ pub(super) async fn record_staff_outcome(
     }
 }
 
-/// Apply one actor's structured result to its claimed Attempt. Shared by
-/// Staff and Exec-owned Work so graph semantics do not fork by actor kind.
+/// Apply one Staff actor's structured result to its claimed Attempt. Leads
+/// and Exec never reach this productive path.
 pub(super) async fn finish_claimed_attempt(
     org: &restless_orgintel::OrgIntel,
     container: &str,

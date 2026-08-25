@@ -291,19 +291,21 @@ A sensible initial topology is:
 ```text
 1 persistent Exec identity
 ├── accountable lead: department or bounded outcome
-│   ├── on-demand planner, critic and recovery sessions
-│   └── 0–4 task-focused ACP workers
+│   ├── non-producing supervision and recovery sessions
+│   └── 1–4 task-focused ACP workers
 └── other accountable leads running concurrently as demand requires
 ```
 
 The Exec is the continuously available company dispatcher, not a departmental producer. Every owner
 request that requires execution is routed to exactly one accountable team lead. The lead may be a
 standing department lead or a temporary outcome lead; if none exists, the Exec appoints one before
-productive work begins. For tightly coupled work the lead may execute alone. For separable work the
-lead may commission Staff and remains responsible for integration, review and completion judgement.
+productive work begins. The lead remains a non-producing supervisor and commissions at least one
+Staff worker for every executable outcome. The lead remains responsible for framing, guidance,
+repair, native review and completion judgement; content-changing production always returns to Staff.
 
-The lead first forms a causal understanding of the outcome, then chooses the smallest effective team,
-including a team of one. When another actor can own a stable, independently useful seam, the lead
+The lead first forms a causal understanding of the outcome, then chooses the smallest effective
+production roster: one end-to-end Staff worker by default. When another actor can own a stable,
+independently useful seam, the lead
 communicates purpose, current understanding, important unknowns and observable proof in ordinary
 language, continues complementary work, and treats the returned artifact as a claim until inspecting
 it in the whole outcome. This is model-driven judgement, not a topology router or handoff workflow.
@@ -737,9 +739,10 @@ and authors a contribution is Staff even if the mechanism calls it a tool. See
 [`docs/COORDINATION_THEORY.md`](docs/COORDINATION_THEORY.md).
 
 - The Exec always assigns executable owner work to an accountable team lead and returns to availability.
-- A team lead may work alone on coherent, tightly coupled work; “lead” names accountability, not a
-  minimum headcount.
-- A lead first understands the outcome, then adds workers only when a stable ownership seam offers
+- A team lead remains a non-producing supervisor. Every executable outcome has at least one worker;
+  “lead” names mission accountability and independent judgement, not the artifact producer.
+- A lead first understands the outcome, commissions one end-to-end worker by default, then adds workers
+  only when a stable ownership seam offers
   expected quality, independent evidence, specialisation or parallel value that can exceed
   communication, integration and review cost.
 - Collaboration stays natural and consequential: communicate the causal model and material unknowns,
@@ -750,16 +753,16 @@ and authors a contribution is Staff even if the mechanism calls it a tool. See
   charter and strategy conflicts rise to Exec. If two leads require continuous shared state or joint
   completion judgement, one lead should own the combined outcome.
 - Fast model production raises the relative cost of briefing and integration, so the current prior is
-  a wide, shallow organisation of mostly-solo leads with temporary Staff. This is an evidence-scoped
-  product hypothesis, not a fixed span of control or permanent claim about future models.
+  a wide, shallow organisation of supervisor leads with one worker by default and temporary additional
+  Staff. This is an evidence-scoped product hypothesis, not a fixed span of control or permanent claim
+  about future models.
 - Replicated independent units are a different regime from coauthoring one outcome. A sales, support
   or case-processing lead may use a large elastic Staff pool where shared briefing is amortised,
-  units close locally and accepted throughput repays supervision. Team size follows marginal queue
-  economics and quality, not a universal span of control.
-- Lead accountability does not prescribe lead posture. A lead may be a player-coach or reserve
-  attention for supervision, guidance, redirection and repair. Supervisor-only posture becomes more
-  plausible as coordination load, volatility, capability uncertainty or consequence rises; OrgIntel
-  must not force it for every one-worker outcome.
+  units close locally without a central model rewrite and accepted throughput repays supervision. Team
+  size follows marginal queue economics and quality, not a universal span of control.
+- Lead accountability includes a non-producing supervisory posture by owner decision. The lead
+  preserves mission context, guides, redirects and judges; content-changing repair returns to a worker.
+  This separation remains even where it increases local cost or latency.
 - A lead or maintainer decides changes to shared project state.
 - A builder plus independent reviewer is appropriate for company-wide coordination machinery or changes with subtle failure modes.
 - A small cross-functional team handles changes spanning several disciplines or materially changing company strategy.
@@ -932,7 +935,8 @@ Playtesting becomes valuable once this first playable artifact exists. The prima
 
 The Exec can operate across all three: it manages the studio portfolio through OrgIntel, inspects
 prepared Runtime evidence, and invokes kernel capabilities within its granted envelope. The Game
-Product lead owns the production workspace, team and integrated outcome.
+Product lead owns the team, candidate custody and integrated outcome; attributable workers produce in
+the Runtime workspace.
 
 ## 10.4 Organisational-intelligence principles
 
@@ -1181,8 +1185,9 @@ Restless should not attempt to:
     through owner-only Authority ingress and resume from observed provider state rather than a “done”
     click.
 26. Keep the Exec continuously available by routing every executable owner request to one accountable
-    team lead. A lead may execute tightly coupled work alone or form a team; Exec retains portfolio and
-    cross-department judgement rather than production or integration ownership.
+    team lead. The lead always supervises at least one Staff producer and never silently produces or
+    repairs the artifact; Exec retains portfolio and cross-department judgement rather than production
+    or integration ownership.
 
 ---
 

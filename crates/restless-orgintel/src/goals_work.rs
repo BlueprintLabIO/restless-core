@@ -145,8 +145,34 @@ impl OrgIntel {
         revises: &[Uuid],
         gates: &[InitialWorkGate<'_>],
     ) -> Result<Uuid> {
-        self.add_work_inner(work, requires, revises, gates, false)
+        self.add_work_inner(work, requires, revises, gates, false, None)
             .await
+    }
+
+    /// Commission worker-owned Work from one external organisational message.
+    /// The source link is committed with the Work so the scheduler never sees
+    /// an ungrounded unit and concurrent lead wakes cannot commission the same
+    /// external fact twice.
+    #[allow(clippy::too_many_arguments)]
+    pub async fn add_work_from_external_message_with_edges_and_gates(
+        &self,
+        work: NewWork<'_>,
+        requires: &[Uuid],
+        revises: &[Uuid],
+        gates: &[InitialWorkGate<'_>],
+        owner_review_required: bool,
+        source_message_id: i64,
+        commissioned_by: &str,
+    ) -> Result<Uuid> {
+        self.add_work_inner(
+            work,
+            requires,
+            revises,
+            gates,
+            owner_review_required,
+            Some((source_message_id, commissioned_by)),
+        )
+        .await
     }
 
     /// Create Work whose produced outcome must be reviewed by the owner. The
@@ -160,7 +186,7 @@ impl OrgIntel {
         revises: &[Uuid],
         gates: &[InitialWorkGate<'_>],
     ) -> Result<Uuid> {
-        self.add_work_inner(work, requires, revises, gates, true)
+        self.add_work_inner(work, requires, revises, gates, true, None)
             .await
     }
 
@@ -171,6 +197,7 @@ impl OrgIntel {
         revises: &[Uuid],
         gates: &[InitialWorkGate<'_>],
         owner_review_required: bool,
+        external_source: Option<(i64, &str)>,
     ) -> Result<Uuid> {
         if work.title.trim().is_empty() || work.outcome.trim().is_empty() {
             return Err(OrgIntelError::InvalidWork(
@@ -183,6 +210,43 @@ impl OrgIntel {
             ));
         }
         let mut tx = self.pool.begin().await?;
+        if let Some((message_id, commissioned_by)) = external_source {
+            // This transaction-scoped lock is deliberately local to one
+            // factual source message. It closes the only duplicate-commission
+            // race without creating a workflow lock or lifecycle.
+            sqlx::query("SELECT pg_advisory_xact_lock($1)")
+                .bind(message_id)
+                .execute(&mut *tx)
+                .await?;
+            let valid_source: bool = sqlx::query_scalar(
+                "SELECT EXISTS(\
+                   SELECT 1 FROM external_message_sources source \
+                   JOIN messages message ON message.id=source.message_id \
+                   WHERE message.id=$1 AND message.from_actor='world' \
+                     AND message.to_actor IN ($2,'exec')\
+                 )",
+            )
+            .bind(message_id)
+            .bind(commissioned_by)
+            .fetch_one(&mut *tx)
+            .await?;
+            if !valid_source {
+                return Err(OrgIntelError::InvalidWork(format!(
+                    "external source message {message_id} is not addressed to commissioning lead {commissioned_by:?}"
+                )));
+            }
+            let already_linked: bool = sqlx::query_scalar(
+                "SELECT EXISTS(SELECT 1 FROM work_feedback WHERE message_id=$1)",
+            )
+            .bind(message_id)
+            .fetch_one(&mut *tx)
+            .await?;
+            if already_linked {
+                return Err(OrgIntelError::InvalidWork(format!(
+                    "external source message {message_id} already commissioned Work"
+                )));
+            }
+        }
         let owner_exists: bool = sqlx::query_scalar(
             "SELECT EXISTS(SELECT 1 FROM actors WHERE id=$1 AND retired_at IS NULL)",
         )
@@ -194,6 +258,26 @@ impl OrgIntel {
                 "Work owner {:?} is not an existing active actor; inspect People and commission one durable specialist if none fits",
                 work.owner_id
             )));
+        }
+        if let Some((_message_id, commissioned_by)) = external_source {
+            let commissioner_owns_team: bool = sqlx::query_scalar(
+                "SELECT EXISTS(\
+                   SELECT 1 FROM actors owner \
+                   JOIN teams team ON team.id=owner.team_id \
+                   WHERE owner.id=$1 AND owner.retired_at IS NULL \
+                     AND team.lead_actor_id=$2 AND team.disbanded_at IS NULL\
+                 )",
+            )
+            .bind(work.owner_id)
+            .bind(commissioned_by)
+            .fetch_one(&mut *tx)
+            .await?;
+            if !commissioner_owns_team {
+                return Err(OrgIntelError::InvalidWork(format!(
+                    "external-message Work owner {:?} is not Staff under commissioning lead {commissioned_by:?}",
+                    work.owner_id
+                )));
+            }
         }
         if let Some(goal_id) = work.goal_id {
             let goal_exists: bool =
@@ -358,6 +442,16 @@ impl OrgIntel {
                     OrgIntelError::InvalidWork("too many initial Work gates".into())
                 })?,
             )
+            .execute(&mut *tx)
+            .await?;
+        }
+        if let Some((message_id, commissioned_by)) = external_source {
+            sqlx::query(
+                "INSERT INTO work_feedback (work_id,message_id,linked_by) VALUES ($1,$2,$3)",
+            )
+            .bind(id)
+            .bind(message_id)
+            .bind(commissioned_by)
             .execute(&mut *tx)
             .await?;
         }

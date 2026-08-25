@@ -1,0 +1,105 @@
+{
+  "accepted_units_per_worker_window_hour": 1178.203,
+  "actor_effort": {
+    "sales-operator-1": "low",
+    "sales-operator-2": "high"
+  },
+  "candidate_checks": [
+    {
+      "errors_observed": [],
+      "exit": 0,
+      "failure_markers": 0,
+      "file": "verify-sales.mjs",
+      "fixture_mode": "self_owned",
+      "passed": true,
+      "stderr": "",
+      "stdout": "{\"valid\":true,\"units\":48,\"files\":[\"outputs/sales-operator-1.json\",\"outputs/sales-operator-2.json\"]}\n"
+    }
+  ],
+  "cost_per_accepted_unit": 0.008989,
+  "decision_complete": true,
+  "effort_policy": "allocated-routine-low-exception-high",
+  "model": "zai/glm-5.3",
+  "protocol_valid": true,
+  "run": "exp04-e1-allocated-r1",
+  "run_dir": "/Users/yao/Learning/restless/experiment/coordination-lab/v2/workdir/exp04-e1-allocated-r1",
+  "score": {
+    "accepted": 48,
+    "errors": [],
+    "files": [
+      "sales-operator-1.json",
+      "sales-operator-2.json"
+    ],
+    "mean_quality_10": 10.0,
+    "units": 48,
+    "worst_decile_10": 10.0
+  },
+  "telemetry": {
+    "cache_usage": "unknown",
+    "configured_effort": [
+      "high",
+      "low"
+    ],
+    "cost_usd": 0.43148516000000003,
+    "lead_active_seconds": 224.839,
+    "observed_peak_workers": 2,
+    "phase_signals": 6,
+    "reasoning_output_tokens": "unknown",
+    "request_wall_seconds": 336.436,
+    "sessions": [
+      {
+        "actor": "supervisor-lead",
+        "at": "1787611217108",
+        "kind": "model_session",
+        "payload": {
+          "reconstructed": false,
+          "reconstruction_error": null,
+          "resumed": false,
+          "session_id": "01a035ee-7c2e-7000-a503-afa976a1e94f"
+        },
+        "turn_id": "1787611216048-turn-e1ea2c745f"
+      },
+      {
+        "actor": "sales-operator-1",
+        "at": "1787611274322",
+        "kind": "model_session",
+        "payload": {
+          "reconstructed": false,
+          "reconstruction_error": null,
+          "resumed": false,
+          "session_id": "01a035ef-5b48-7000-85c1-6632e18c6bac"
+        },
+        "turn_id": "1787611272910-turn-192d6393a7"
+      },
+      {
+        "actor": "sales-operator-2",
+        "at": "1787611286635",
+        "kind": "model_session",
+        "payload": {
+          "reconstructed": false,
+          "reconstruction_error": null,
+          "resumed": false,
+          "session_id": "01a035ef-8b59-7000-9507-9a19c299fdac"
+        },
+        "turn_id": "1787611285273-turn-2578d87313"
+      },
+      {
+        "actor": "supervisor-lead",
+        "at": "1787611410813",
+        "kind": "model_session",
+        "payload": {
+          "reconstructed": false,
+          "reconstruction_error": null,
+          "resumed": true,
+          "session_id": "01a035ee-7c2e-7000-a503-afa976a1e94f"
+        },
+        "turn_id": "1787611409872-turn-b6fc7b0ffe"
+      }
+    ],
+    "worker_active_sum_seconds": 263.078,
+    "worker_window_seconds": 146.664
+  },
+  "worker_effort": "high",
+  "workers": 2,
+  "workload": "sales"
+}

@@ -3,11 +3,12 @@
 //! The registry below observes live processes and enforces a small resource
 //! cap; it never owns delegation or task state.
 
-use std::collections::HashSet;
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 use anyhow::{bail, Context as _, Result};
 use restless_orgintel::{ClaimedWork, WorkAttemptState};
+use tokio_util::sync::CancellationToken;
 
 mod context;
 mod conversation;
@@ -42,7 +43,7 @@ const STAFF_CAP_PER_COMPANY: usize = 100;
 /// (company, actor) pairs with a live supervised process.
 #[derive(Clone, Default)]
 pub struct StaffRegistry {
-    running: Arc<Mutex<HashSet<(String, String)>>>,
+    running: Arc<Mutex<HashMap<(String, String), CancellationToken>>>,
 }
 
 impl StaffRegistry {
@@ -52,27 +53,34 @@ impl StaffRegistry {
             .map(|running| {
                 running
                     .iter()
-                    .filter(|(candidate, _)| candidate == company)
+                    .filter(|((candidate, _), _)| candidate == company)
                     .count()
                     < STAFF_CAP_PER_COMPANY
             })
             .unwrap_or(false)
     }
 
-    fn try_claim(&self, company: &str, actor: &str) -> Result<()> {
+    fn try_claim(&self, company: &str, actor: &str) -> Result<CancellationToken> {
         let mut running = self
             .running
             .lock()
             .map_err(|_| anyhow::anyhow!("staff registry"))?;
-        if running.contains(&(company.to_string(), actor.to_string())) {
+        if running.contains_key(&(company.to_string(), actor.to_string())) {
             bail!("actor {actor} is already running");
         }
-        let active = running.iter().filter(|(c, _)| c == company).count();
+        let active = running
+            .keys()
+            .filter(|(candidate, _)| candidate == company)
+            .count();
         if active >= STAFF_CAP_PER_COMPANY {
             bail!("staff cap ({STAFF_CAP_PER_COMPANY}) reached for {company}");
         }
-        running.insert((company.to_string(), actor.to_string()));
-        Ok(())
+        let cancellation = CancellationToken::new();
+        running.insert(
+            (company.to_string(), actor.to_string()),
+            cancellation.clone(),
+        );
+        Ok(cancellation)
     }
 
     fn release(&self, company: &str, actor: &str) {
@@ -87,7 +95,7 @@ impl StaffRegistry {
     pub fn is_actor_running(&self, company: &str, actor: &str) -> bool {
         self.running
             .lock()
-            .map(|running| running.contains(&(company.to_string(), actor.to_string())))
+            .map(|running| running.contains_key(&(company.to_string(), actor.to_string())))
             .unwrap_or(false)
     }
 
@@ -100,18 +108,40 @@ impl StaffRegistry {
             .map(|running| {
                 let mut actors: Vec<String> = running
                     .iter()
-                    .filter(|(running_company, _)| running_company == company)
-                    .map(|(_, actor)| actor.clone())
+                    .filter(|((running_company, _), _)| running_company == company)
+                    .map(|((_, actor), _)| actor.clone())
                     .collect();
                 actors.sort();
                 actors
             })
             .unwrap_or_default()
     }
+
+    /// Request a bounded interruption of one supervised actor. The live ACP
+    /// turn observes this token and returns its durable state to the next
+    /// wake instead of letting two conversations overlap.
+    pub fn interrupt(&self, company: &str, actor: &str) -> bool {
+        self.running
+            .lock()
+            .ok()
+            .and_then(|running| {
+                running
+                    .get(&(company.to_string(), actor.to_string()))
+                    .cloned()
+            })
+            .is_some_and(|cancellation| {
+                cancellation.cancel();
+                true
+            })
+    }
 }
 
 /// Start exactly one already-claimed Work Attempt. No other public function
 /// can launch a Staff actor.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the Staff launch boundary keeps authority, ownership and live supervision explicit"
+)]
 pub async fn dispatch_claimed_work(
     config: &CompanyConfig,
     spend: &SpendLedger,
@@ -119,6 +149,7 @@ pub async fn dispatch_claimed_work(
     capabilities: &crate::capability::CapabilityIssuer,
     org: &restless_orgintel::OrgIntel,
     registry: &StaffRegistry,
+    activities: &crate::activity::AgentActivityStreams,
     claimed: ClaimedWork,
 ) -> Result<()> {
     let actor = claimed.work.owner_id.clone();
@@ -134,7 +165,7 @@ pub async fn dispatch_claimed_work(
     // claim. Otherwise a queued free-form Exec wake can claim its separate
     // in-memory slot while model/workspace setup is yielding, launching two
     // processes for one actor even though the Work Attempt lease is sound.
-    registry.try_claim(&config.name, &actor)?;
+    let cancellation = registry.try_claim(&config.name, &actor)?;
     let container = runtime::container_name(&config.name);
 
     let setup = async {
@@ -255,6 +286,8 @@ pub async fn dispatch_claimed_work(
     let role = actor_row.role;
     let attempt_id = claimed.attempt_id;
     let work_id = claimed.work.id;
+    let live_turn = activities.start_work(&company, &actor, work_id, attempt_id);
+    let observer = Some(live_turn.observer());
     tokio::spawn(async move {
         let gate_container = container.clone();
         let outcome = run_staff_with_failover(StaffRun {
@@ -262,6 +295,7 @@ pub async fn dispatch_claimed_work(
             workdir: workdir.clone(),
             company: company.clone(),
             actor: actor.clone(),
+            responsibility: format!("work:{work_id}"),
             name: name.clone(),
             task,
             turn_prompt,
@@ -275,9 +309,17 @@ pub async fn dispatch_claimed_work(
             capabilities,
             conversation: false,
             accountable_lead,
-            observer: None,
+            observer,
+            cancellation,
         })
         .await;
+        match &outcome {
+            Ok(outcome) if outcome.termination != crate::exec::Termination::Blocked => {
+                live_turn.complete(None, outcome.output_tokens);
+            }
+            Ok(outcome) => live_turn.fail(&outcome.summary),
+            Err(error) => live_turn.fail(&format!("Work supervision stopped: {error:#}")),
+        }
         record_staff_outcome(
             &org,
             StaffAttemptContext {
@@ -363,7 +405,7 @@ mod tests {
     use super::{
         actor_posture, bound_attempt_context, conversation_turn_prompt, final_staff_usage,
         gate_cwd, internal_message_context, staff_spend_limit_reached, team_capacity_context,
-        termination_prompt, workspace_instruction, WorkspaceObservation,
+        termination_prompt, workspace_instruction, StaffRegistry, WorkspaceObservation,
     };
     use crate::acp::TurnUsage;
     use crate::model_gateway::ModelBilling;
@@ -419,7 +461,8 @@ mod tests {
         assert!(context.contains("Sera Morn · environmental readability specialist"));
         assert!(!context.contains("Mina Vale"));
         assert!(context.contains("available capacity, not a headcount target"));
-        assert!(context.contains("Work alone when no colleague can own a stable"));
+        assert!(context.contains("commission one end-to-end worker by default"));
+        assert!(context.contains("lead-owned production Work is invalid"));
         assert!(context.contains("restless work add"));
     }
 
@@ -498,7 +541,7 @@ mod tests {
         assert!(!staff_spend_limit_reached(true, 0.81, &usage));
         assert!(!staff_spend_limit_reached(false, 0.01, &usage));
         assert!(!staff_spend_limit_reached(
-            true,
+            false,
             0.01,
             &TurnUsage {
                 cost_usd: None,
@@ -510,7 +553,7 @@ mod tests {
     #[test]
     fn bound_context_keeps_an_omitted_workspace_detail_truthful_and_usable() {
         let work_id = uuid::Uuid::new_v4();
-        let claimed = ClaimedWork {
+        let mut claimed = ClaimedWork {
             work: WorkRow {
                 id: work_id,
                 goal_id: None,
@@ -547,14 +590,14 @@ mod tests {
             "world builder",
             "/company/worktrees/work-bound-r1",
             "cosmon_test",
-            true,
+            false,
         );
 
         assert!(context.contains("Repository: cosmon"));
         assert!(context.contains("Runtime working directory: /company/worktrees/work-bound-r1"));
         assert!(context.contains("Base ref: none"));
         assert!(context.contains("# Completion evidence [deterministic]"));
-        assert!(context.contains("the active team charter and roster when present"));
+        assert!(!context.contains("the active team charter and roster when present"));
         assert!(context.contains(&format!(
             "restless work artifact --work {work_id} --attempt {} --kind output --uri /company/outputs/playable-room.html",
             claimed.attempt_id
@@ -568,17 +611,31 @@ mod tests {
             accounting["retrieved_depth"]["at_launch"],
             serde_json::json!([])
         );
-        assert_eq!(
-            accounting["automatically_attached"]["system_context"]["active_team_capacity"],
-            serde_json::json!("current team charter and roster when the accountable lead has one")
+        assert!(accounting["automatically_attached"]["system_context"]
+            .get("active_team_capacity")
+            .is_none());
+
+        claimed.work.owner_review_required = true;
+        let (review_context, _) = bound_attempt_context(
+            &claimed,
+            "world builder",
+            "/company/worktrees/work-bound-r1",
+            "cosmon_test",
+            false,
         );
+        assert!(review_context.contains(&format!(
+            "--kind {} --uri /company/outputs/playable-room.html",
+            restless_orgintel::REVIEW_TARGET_ARTIFACT_KIND
+        )));
+        assert!(review_context.contains(restless_orgintel::REVIEW_TARGET_LIVE_PROBE_GATE));
+        assert!(!review_context.contains("--kind output --uri /company/outputs/playable-room.html"));
     }
 
     #[test]
     fn one_actor_keeps_one_organisational_posture_across_wake_types() {
         let rules = crate::context::COMPANY_OPERATING_RULES;
         assert!(rules.contains("causal understanding of the outcome"));
-        assert!(rules.contains("Working alone is valid"));
+        assert!(rules.contains("Lead production is never valid"));
         assert!(rules.contains("handoff template, message cadence, shared-state form"));
         assert!(rules.contains("scheduler-created"));
         assert!(rules.contains("prove that another actor contributed"));
@@ -586,8 +643,8 @@ mod tests {
 
         let lead = actor_posture(true);
         assert!(lead.contains("ACCOUNTABLE LEAD"));
-        assert!(lead.contains("productive Work and conversation wakes alike"));
-        assert!(lead.contains("Direct execution is valid; Staff are optional"));
+        assert!(lead.contains("non-producing supervisor"));
+        assert!(lead.contains("at least one Staff worker"));
         assert!(lead.contains("truthful attribution"));
         assert!(!lead.contains("You are a SPECIALIST"));
 
@@ -597,10 +654,8 @@ mod tests {
         assert!(!specialist.contains("ACCOUNTABLE LEAD"));
 
         let lead_end = termination_prompt(true);
-        assert!(lead_end.contains("accountable outcome Work"));
-        assert!(lead_end.contains("integration, native review, or Staff-result work"));
-        assert!(lead_end.contains("every claimed Staff contribution is observable"));
-        assert!(!lead_end.contains("specialist task"));
+        assert!(lead_end.contains("must never receive a productive Work Attempt"));
+        assert!(lead_end.contains("supervisor invariant"));
 
         let specialist_end = termination_prompt(false);
         assert!(specialist_end.contains("assigned specialist task"));
@@ -645,6 +700,18 @@ mod tests {
         assert!(committed.changed_since(&start));
         assert!(dirty.changed_since(&start));
         assert!(!dirty.compact().contains("filename"));
+    }
+
+    #[test]
+    fn owner_interruption_cancels_the_exact_active_staff_turn() {
+        let registry = StaffRegistry::default();
+        let cancellation = registry
+            .try_claim("company_test", "research-lead")
+            .expect("claim the staff turn");
+
+        assert!(registry.interrupt("company_test", "research-lead"));
+        assert!(cancellation.is_cancelled());
+        assert!(!registry.interrupt("company_test", "other-actor"));
     }
 
     #[test]

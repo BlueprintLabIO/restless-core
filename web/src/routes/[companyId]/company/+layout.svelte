@@ -8,11 +8,11 @@
 	import RadioTower from '@lucide/svelte/icons/radio-tower';
 	import ShieldCheck from '@lucide/svelte/icons/shield-check';
 	import InfoTip from '$lib/components/InfoTip.svelte';
-	import { companySource } from '$lib/model/companySource.svelte';
+	import { companyQuery } from '$lib/model/queries.svelte';
 
 	let { children } = $props();
 	const companyId = $derived(page.params.companyId ?? 'aris');
-	const source = $derived(companySource(companyId));
+	const source = $derived(companyQuery(companyId));
 	$effect(() => source.attach());
 	const computerSurface = $derived(page.url.pathname === `/${companyId}/company/computer`);
 	const routes = $derived([

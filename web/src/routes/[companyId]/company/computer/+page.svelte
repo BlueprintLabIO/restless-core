@@ -8,20 +8,17 @@
 	import Monitor from '@lucide/svelte/icons/monitor';
 	import DesktopViewport from '$lib/components/DesktopViewport.svelte';
 	import { browserControl, issueDesktopTicket } from '$lib/model/attention';
-	import { attentionSource } from '$lib/model/attentionSource.svelte';
 	import { browserTabClientId } from '$lib/model/browserTab';
-	import { getBrowserStatus, type BrowserStatus } from '$lib/model/company';
-	import { companySource } from '$lib/model/companySource.svelte';
+	import { attentionQuery, browserStatusQuery, companyQuery } from '$lib/model/queries.svelte';
 
 	type TransitionDocument = Document & {
 		startViewTransition?: (update: () => void | Promise<void>) => { finished: Promise<void> };
 	};
 
 	const companyId = $derived(page.params.companyId ?? 'aris');
-	const source = $derived(companySource(companyId));
-	$effect(() => source.attach());
-	const attention = $derived(attentionSource(companyId));
-	$effect(() => attention.attach());
+	const source = $derived(companyQuery(companyId));
+	const attention = $derived(attentionQuery(companyId));
+	const browserProjection = $derived(browserStatusQuery(companyId));
 	const view = $derived(source.view);
 	const preparedHandoffs = $derived(
 		(attention.view?.items ?? []).filter((item) => item.runtimeAttach).slice(0, 4)
@@ -30,7 +27,7 @@
 
 	let clientId = $state('');
 	let desktopUrl = $state('');
-	let browserStatus = $state<BrowserStatus | null>(null);
+	const browserStatus = $derived(browserProjection.view);
 	let controller = $state<'observer' | 'owner'>('observer');
 	let working = $state('');
 	let error = $state('');
@@ -56,22 +53,33 @@
 	onMount(() => {
 		void browserTabClientId(companyId).then((id) => {
 			clientId = id;
-			void refreshBrowserStatus();
 			if (focus) void attachDesktop(false);
 		});
-		const statusPoll = window.setInterval(() => void refreshBrowserStatus(), 8_000);
 		const heartbeat = window.setInterval(() => {
 			if (controller === 'owner') {
 				void browserControl(companyId, 'heartbeat', clientId).catch((cause) => {
 					controller = 'observer';
 					error = cause instanceof Error ? cause.message : 'The controller lease ended.';
 				});
+				void browserProjection.refresh();
 			}
 		}, 12_000);
 		return () => {
-			window.clearInterval(statusPoll);
 			window.clearInterval(heartbeat);
 		};
+	});
+
+	$effect(() => {
+		const current = browserStatus;
+		if (!current) return;
+		if (current.control?.controller === 'owner' && current.control.client_id === clientId) {
+			controller = 'owner';
+			if (focus) desktopUrl = controlledUrl();
+		} else if (controller === 'owner') {
+			controller = 'observer';
+			if (focus) desktopUrl = observedUrl();
+		}
+		error = browserProjection.failure?.message ?? '';
 	});
 
 	async function morphTo(href: string) {
@@ -82,24 +90,6 @@
 			return;
 		}
 		await goto(href, { noScroll: true });
-	}
-
-	async function refreshBrowserStatus() {
-		try {
-			browserStatus = await getBrowserStatus(companyId);
-			if (
-				browserStatus.control?.controller === 'owner' &&
-				browserStatus.control.client_id === clientId
-			) {
-				controller = 'owner';
-				if (focus) desktopUrl = controlledUrl();
-			} else if (controller === 'owner') {
-				controller = 'observer';
-				if (focus) desktopUrl = observedUrl();
-			}
-		} catch (cause) {
-			error = cause instanceof Error ? cause.message : 'Browser state is unavailable.';
-		}
 	}
 
 	function observedUrl(): string {
@@ -118,7 +108,7 @@
 			desktopUrl = await issueDesktopTicket(companyId, 'runtime-rescue', clientId);
 			controller = 'observer';
 			if (navigate) await morphTo(`/${companyId}/company/computer?focus=desktop`);
-			await refreshBrowserStatus();
+			await browserProjection.refresh();
 		} catch (cause) {
 			error =
 				cause instanceof Error ? cause.message : 'The Company computer could not be attached.';
@@ -135,7 +125,7 @@
 			await browserControl(companyId, 'take', clientId);
 			controller = 'owner';
 			desktopUrl = controlledUrl();
-			await refreshBrowserStatus();
+			await browserProjection.refresh();
 		} catch (cause) {
 			error = cause instanceof Error ? cause.message : 'Control is held elsewhere.';
 		} finally {
@@ -151,7 +141,7 @@
 			await browserControl(companyId, 'return', clientId);
 			controller = 'observer';
 			desktopUrl = observedUrl();
-			await refreshBrowserStatus();
+			await browserProjection.refresh();
 		} catch (cause) {
 			error = cause instanceof Error ? cause.message : 'Control could not be returned.';
 		} finally {
@@ -219,7 +209,11 @@
 			</div>
 		</header>
 		{#if error}<div class="computer-error" role="alert">{error}</div>{/if}
-		<DesktopViewport src={desktopUrl} title="Live Company computer" onload={refreshBrowserStatus} />
+		<DesktopViewport
+			src={desktopUrl}
+			title="Live Company computer"
+			onload={() => void browserProjection.refresh()}
+		/>
 	</div>
 {:else}
 	<div class="company-computer-portal">

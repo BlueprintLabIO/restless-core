@@ -109,6 +109,14 @@ PRODUCER_ACTORS = (
     "sales-operator-6",
     "sales-operator-7",
     "sales-operator-8",
+    "support-operator-1",
+    "support-operator-2",
+    "support-operator-3",
+    "support-operator-4",
+    "intelligence-operator-1",
+    "intelligence-operator-2",
+    "intelligence-operator-3",
+    "intelligence-operator-4",
     "batch-assembler",
 )
 
@@ -171,6 +179,20 @@ ACTORS = {
             "Own only the disjoint fictional prospect units assigned in Work: evidence-based qualification, personalised unsent next actions, disposition and exact unit proof. Never send messages.",
         )
         for index in range(1, 9)
+    },
+    **{
+        f"support-operator-{index}": (
+            f"Customer operations case owner {index}",
+            "Own only the disjoint fictional support cases assigned in Work through a safe resolution package and observable next state. Never send or apply responses.",
+        )
+        for index in range(1, 5)
+    },
+    **{
+        f"intelligence-operator-{index}": (
+            f"Competitive intelligence operator {index}",
+            "Own only the disjoint fictional entities assigned in Work; discover exact corpus evidence and close traceable alerts with uncertainty and follow-up triggers.",
+        )
+        for index in range(1, 5)
     },
     "batch-assembler": (
         "Sales batch assembler",
@@ -581,16 +603,16 @@ def prove_native_review_runtime(cell: str) -> dict[str, Any]:
     }
 
 
-def initial_project_state(scenario: str) -> str:
+def initial_project_state(scenario: str, seed: str = SEED) -> str:
     return f"""# Current product state
 
 ## Outcome
 
-Produce the next coherent, playable Cosmon milestone from seed `{SEED}` under the owner directive.
+Produce the next coherent, playable Cosmon milestone from seed `{seed}` under the owner directive.
 
 ## Current candidate
 
-Seed `{SEED}`. The repository README reports a working exploration, encounter, Resonance Bond,
+Seed `{seed}`. The repository README reports a working exploration, encounter, Resonance Bond,
 battle, roster, and evolution foundation. Treat those claims as inputs to verify, not truth by fiat.
 
 ## Current milestone
@@ -690,6 +712,9 @@ def prepare(
     expected_evaluator_sha256: list[str] | None = None,
     external_event_file: str | None = None,
     expected_external_event_sha256: str | None = None,
+    source_repo: str | None = None,
+    source_ref: str = "HEAD",
+    local_closure: bool = False,
 ) -> Path:
     if mode not in MODES:
         raise ValueError(f"mode must be one of {MODES}")
@@ -710,6 +735,8 @@ def prepare(
         raise ValueError("supervision events must be 'terminal' or 'material'")
     if mode != MODE_SUPERVISOR and supervision_events != "terminal":
         raise ValueError("material supervision events are meaningful only in supervisor mode")
+    if local_closure and mode != MODE_SUPERVISOR:
+        raise ValueError("local closure is currently scoped to supervisor mode")
     selected_team_workers = list(team_worker_actors or [team_worker_actor])
     actors = actors_for_mode(mode, team_worker_actor, selected_team_workers)
     coordination_actor = coordination_actor_for_mode(mode)
@@ -736,20 +763,33 @@ def prepare(
     run_dir = WORK_ROOT / run_id
     safe_reset(run_dir)
     run_dir.mkdir(parents=True)
-    seed_source = run_dir / "seed-source"
     canonical = run_dir / "canonical"
-    run(["docker", "cp", f"{SOURCE_CONTAINER}:{SOURCE_REPO}", str(seed_source)])
-    run(["git", "clone", "--no-local", str(seed_source), str(canonical)])
-    if mode_has_writable_candidate(mode):
-        run(["git", "-C", str(canonical), "checkout", "-B", "candidate", SEED])
+    seed_source: Path | None = None
+    if source_repo:
+        source = Path(source_repo).expanduser().resolve()
+        if not source.is_dir():
+            raise ValueError(f"source repository is not a directory: {source}")
+        run(["git", "-C", str(source), "rev-parse", "--git-dir"])
+        run(["git", "clone", "--no-local", str(source), str(canonical)])
+        selected_seed = run(
+            ["git", "-C", str(canonical), "rev-parse", f"{source_ref}^{{commit}}"]
+        ).stdout.strip()
     else:
-        run(["git", "-C", str(canonical), "checkout", "--detach", SEED])
+        seed_source = run_dir / "seed-source"
+        run(["docker", "cp", f"{SOURCE_CONTAINER}:{SOURCE_REPO}", str(seed_source)])
+        run(["git", "clone", "--no-local", str(seed_source), str(canonical)])
+        selected_seed = SEED
+    if mode_has_writable_candidate(mode):
+        run(["git", "-C", str(canonical), "checkout", "-B", "candidate", selected_seed])
+    else:
+        run(["git", "-C", str(canonical), "checkout", "--detach", selected_seed])
     run(["git", "-C", str(canonical), "clean", "-fd"])
     observed = run(["git", "-C", str(canonical), "rev-parse", "HEAD"]).stdout.strip()
-    if observed != SEED:
-        raise RuntimeError(f"seed mismatch: expected {SEED}, got {observed}")
-    run(["git", "-C", str(canonical), "update-ref", "refs/heads/candidate", SEED])
-    shutil.rmtree(seed_source)
+    if observed != selected_seed:
+        raise RuntimeError(f"seed mismatch: expected {selected_seed}, got {observed}")
+    run(["git", "-C", str(canonical), "update-ref", "refs/heads/candidate", selected_seed])
+    if seed_source is not None:
+        shutil.rmtree(seed_source)
 
     context = run_dir / "context"
     (context / "system").mkdir(parents=True)
@@ -845,7 +885,7 @@ def prepare(
     if mode == MODE_ARTIFACT:
         lead_home = run_dir / "homes" / coordination_actor
         lead_home.mkdir(parents=True)
-        (lead_home / "project-state.md").write_text(initial_project_state(scenario))
+        (lead_home / "project-state.md").write_text(initial_project_state(scenario, selected_seed))
     roster = "\n".join(
         f"- `{actor}` — {role}: {brief}"
         for actor, (role, brief) in actors.items()
@@ -1014,7 +1054,25 @@ Call `complete_run(candidate_commit=<exact SHA>, ...)` only when one clean, adva
 the exact outcome. In the final evidence, briefly state why the chosen team size was appropriate.
 """
     elif mode == MODE_SUPERVISOR:
-        if len(selected_team_workers) == 1:
+        if local_closure and len(selected_team_workers) > 1:
+            roster_contract = (
+                f"This frozen local-closure cell provides {len(selected_team_workers)} distinct worker "
+                "identities. Use every identity exactly once for its predeclared disjoint unit partition. "
+                "Each returned partition is independently authoritative: commission no assembler, "
+                "synthesist, reviewer or other downstream Work."
+            )
+            first_wake_contract = (
+                "On the first wake, commission every disjoint ready partition with exact unit ownership "
+                "and its frozen domain gate, then quiesce."
+            )
+            acceptance_contract = (
+                "After every partition is produced, fail on overlapping changed paths, then mechanically "
+                "merge each exact imported worker commit into `candidate` with no content edits. Run the "
+                "frozen whole-queue projection and verifier on that exact composition. The resulting merge "
+                "commit may contain only exact disjoint worker trees and Git parentage; it is not lead "
+                "production."
+            )
+        elif len(selected_team_workers) == 1:
             roster_contract = (
                 "Exactly one end-to-end producer is available. Commission exactly one whole-outcome "
                 "responsibility on the first wake."
@@ -1022,6 +1080,10 @@ the exact outcome. In the final evidence, briefly state why the chosen team size
             first_wake_contract = (
                 "On the first wake, build enough causal understanding to brief the whole outcome, "
                 "then call `commission` exactly once."
+            )
+            acceptance_contract = (
+                "Promote the exact accepted worker tree with `git reset --hard <exact-worker-commit>`; "
+                "do not alter it."
             )
         else:
             roster_contract = (
@@ -1035,6 +1097,10 @@ the exact outcome. In the final evidence, briefly state why the chosen team size
                 "On the first wake, build the causal model and commission the independent ready "
                 "responsibilities. Commission dependency-bound synthesis or assembly only after its "
                 "inputs complete."
+            )
+            acceptance_contract = (
+                "Promote the exact downstream worker tree with `git reset --hard <exact-worker-commit>`; "
+                "do not alter it."
             )
         event_guidance = (
             "This is the stable terminal-only cell. The worker should return either a terminal "
@@ -1072,10 +1138,10 @@ the same owner; reassign only when another capability or accountability owner is
 
 A producer report is a claim. Inspect the exact imported commit in
 an exact commit SHA and an immutable `refs/heads/attempts/<attempt-id>` anchor. If it is acceptable,
-promote that exact tree with `git reset --hard <exact-worker-commit>`; do not alter it. Run the frozen native proof against that exact commit. If it
+{acceptance_contract} Run the frozen native proof against that exact commit or mechanical composition. If it
 fails or whole-outcome judgement finds a defect, redirect the worker with exact evidence. Record
-`complete_run(candidate_commit=<exact SHA>, ...)` only when the clean `candidate` is exactly a produced worker
-artifact and the observable outcome passes. If the worker cannot close it, leave truthful continuation
+`complete_run(candidate_commit=<exact SHA>, ...)` only when the clean `candidate` contains no lead-authored
+content and the observable outcome passes. If the worker cannot close it, leave truthful continuation
 evidence instead of taking over.
 """
     elif mode == MODE_CRITIC:
@@ -1110,10 +1176,22 @@ when the exact candidate is advanced, clean, and executable; otherwise leave a t
 """
     else:
         raise AssertionError(f"unhandled experiment mode {mode!r}")
+    coordination_system += """
+
+At meaningful transitions, call `phase` once with `orient`, `produce`, `verify`, `handoff` or `repair`
+and only observable evidence. It is reply-free telemetry: it wakes nobody and must never contain private
+chain-of-thought. Do not call it merely to create activity.
+"""
     (context / "system" / f"{coordination_actor}.md").write_text(coordination_system)
     shared = """You are durable Staff working inside one persistent Work workspace. Your current working directory is the only project workspace available and is bound to your claimed actor, Work revision, Attempt, and lease. Do not seek the company integration checkout or another Work workspace.
 
 Commands require a caller-chosen `idempotency_key`; reuse it only for an exact retry. Work until the outcome is genuinely met or blocked. Producer Work ends at a clean meaningful commit and terminal `report`; never merge to main, candidate, or another branch. A progress report is nonterminal. An `outcome_met` report whose declared gate fails returns `revision_required` and keeps this same Attempt live: repair the exact failure and resubmit with a new idempotency key. Before ending, always reach a passing `outcome_met` or call terminal `blocked|abandoned`.
+
+Repository scope, commit lineage, workspace isolation and cleanliness are harness-owned evidence. Artifact verifiers own only domain fidelity and must also run from the exact exported commit without `.git` metadata. Do not duplicate repository-custody checks inside an artifact verifier.
+
+At meaningful transitions, call `phase` once with `orient`, `produce`, `verify`, `handoff` or `repair`
+and only observable evidence. It is reply-free telemetry: it wakes nobody and must never contain private
+chain-of-thought. Do not call it merely to create activity.
 
 """
     for actor, (role, brief) in actors.items():
@@ -1177,6 +1255,9 @@ Commands require a caller-chosen `idempotency_key`; reuse it only for an exact r
                 "team_worker_actors": selected_team_workers if mode in (MODE_TEAM, MODE_NATURAL, MODE_SUPERVISOR) else [],
                 "declared_evaluators": declared_evaluators,
                 "external_event": external_event_manifest,
+                "source_repo": str(Path(source_repo).expanduser().resolve()) if source_repo else None,
+                "source_ref": source_ref if source_repo else None,
+                "local_closure": local_closure,
                 "actors": {actor: {"role": role, "brief": brief} for actor, (role, brief) in actors.items()},
             },
             indent=2,
@@ -1202,6 +1283,11 @@ class LabRun:
             raise RuntimeError(f"run {run_id!r} is not prepared")
         self.manifest = json.loads(manifest_path.read_text())
         self.mode = self.manifest.get("mode", MODE_GRAPH)
+        self.seed = self.manifest.get("seed", SEED)
+        self.local_closure = bool(self.manifest.get("local_closure", False))
+        self.local_closure_actors = set(self.manifest.get("team_worker_actors", []))
+        if self.manifest.get("team_worker_actor"):
+            self.local_closure_actors.add(self.manifest["team_worker_actor"])
         self.lead_actor = self.manifest.get("coordination_actor", "exec")
         self.lead_model = self.manifest.get("lead_model", LEAD_MODEL)
         self.worker_pool = list(self.manifest.get("worker_model_pool", []))
@@ -1224,7 +1310,6 @@ class LabRun:
         self.envelope_warned = False
         self.stopping = False
         self.native_review_proof: dict[str, Any] | None = None
-        self.external_event_task: asyncio.Task[None] | None = None
 
     def remaining(self) -> float:
         return max(0.0, self.deadline - time.monotonic())
@@ -1233,10 +1318,11 @@ class LabRun:
         state_path = self.run_dir / "external-event-state.json"
         return json.loads(state_path.read_text()) if state_path.exists() else None
 
-    async def watch_external_event(self) -> None:
+    def inject_external_event(self, trigger_workspace: str) -> dict[str, Any]:
+        """Accept one explicit coordinator callback; never poll a worker file."""
         event_manifest = self.manifest.get("external_event")
         if not event_manifest:
-            return
+            raise RuntimeError("this run has no frozen external event")
         plan_path = self.run_dir / "external-event-plan.json"
         body = plan_path.read_bytes()
         observed_sha256 = hashlib.sha256(body).hexdigest()
@@ -1247,44 +1333,69 @@ class LabRun:
             )
         plan = json.loads(body)
         trigger_path = Path(plan["trigger_path"])
-        workspaces = self.run_dir / "workspaces"
-        while self.remaining() > 1 and not self.stopping:
-            for workspace in sorted(workspaces.iterdir()) if workspaces.exists() else []:
-                trigger = workspace / trigger_path
-                if not trigger.exists():
-                    continue
-                trigger_bytes = trigger.read_bytes() if trigger.is_file() else b""
-                state = {
-                    "id": plan["id"],
-                    "plan_sha256": observed_sha256,
-                    "trigger_path": plan["trigger_path"],
-                    "trigger_workspace": workspace.name,
-                    "trigger_sha256": hashlib.sha256(trigger_bytes).hexdigest(),
-                    "elapsed_seconds": time.monotonic() - self.started,
-                    "payload": plan["payload"],
-                }
-                state_path = self.run_dir / "external-event-state.json"
-                temporary = state_path.with_suffix(".tmp")
-                temporary.write_text(json.dumps(state, indent=2, sort_keys=True))
-                temporary.replace(state_path)
-                self.coordinator.emit("external_event_injected", state)
-                if self.supervision_events == "material":
-                    self.coordinator.wake(
-                        self.lead_actor,
-                        "external_event_material",
-                        {
-                            "external_event": plan["id"],
-                            "payload": plan["payload"],
-                        },
-                    )
-                return
-            await asyncio.sleep(0.05)
+        workspace = self.run_dir / "workspaces" / trigger_workspace
+        trigger = workspace / trigger_path
+        if not trigger.is_file():
+            raise RuntimeError(f"explicit external-event callback has no trigger file: {trigger}")
+        trigger_bytes = trigger.read_bytes()
+        state = {
+            "id": plan["id"],
+            "plan_sha256": observed_sha256,
+            "trigger_path": plan["trigger_path"],
+            "trigger_workspace": workspace.name,
+            "trigger_sha256": hashlib.sha256(trigger_bytes).hexdigest(),
+            "elapsed_seconds": time.monotonic() - self.started,
+            "payload": plan["payload"],
+            "delivery": "explicit_coordinator_callback",
+        }
+        state_path = self.run_dir / "external-event-state.json"
+        temporary = state_path.with_suffix(".tmp")
+        temporary.write_text(json.dumps(state, indent=2, sort_keys=True))
+        temporary.replace(state_path)
+        self.coordinator.emit("external_event_injected", state)
+        if self.supervision_events == "material":
+            self.coordinator.wake(
+                self.lead_actor,
+                "external_event_material",
+                {"external_event": plan["id"], "payload": plan["payload"]},
+            )
+        return state
 
     def reserved_cost(self, additional: int = 0) -> float:
         return self.coordinator.cost() + (len(self.tasks) + additional) * self.turn_reservation
 
     def can_launch(self) -> bool:
         return self.reserved_cost(1) <= self.spend_ceiling
+
+    def defer_local_closure_lead_wake(self) -> bool:
+        """Coalesce ordinary partition completions until the local batch closes.
+
+        A produced partition is durable and needs no immediate decision while a sibling
+        partition remains active. Exceptions and external/material causes still wake the lead.
+        """
+        if not self.local_closure:
+            return False
+        if not self.coordinator.conn.execute("SELECT 1 FROM work LIMIT 1").fetchone():
+            return False
+        if not self.local_closure_actors:
+            return False
+        placeholders = ",".join("?" for _ in self.local_closure_actors)
+        if not self.coordinator.conn.execute(
+            f"SELECT 1 FROM work WHERE status='active' AND owner IN ({placeholders}) LIMIT 1",
+            tuple(sorted(self.local_closure_actors)),
+        ).fetchone():
+            return False
+        pending = self.coordinator.conn.execute(
+            "SELECT cause,payload_json FROM outbox WHERE target=? AND delivered_at IS NULL",
+            (self.lead_actor,),
+        ).fetchall()
+        if not pending:
+            return False
+        for row in pending:
+            payload = json.loads(row["payload_json"])
+            if row["cause"] != "attempt_terminal" or payload.get("state") != "produced":
+                return False
+        return True
 
     def select_model(self, actor: str, attempt: str | None) -> str:
         actor_key = actor.upper().replace("-", "_")
@@ -1343,11 +1454,26 @@ class LabRun:
             host_workdir = str(self.run_dir / "canonical")
             work_id = ""
             expected_branch = "candidate" if mode_has_writable_candidate(self.mode) else ""
+        session_identity = work_id or "coordination"
+        session_state_path = (
+            self.run_dir
+            / "context"
+            / "model-sessions"
+            / f"{safe_name(actor)}-{safe_name(session_identity)}.session"
+        )
+        session_state_path.parent.mkdir(parents=True, exist_ok=True)
         selected_model = self.select_model(actor, attempt)
         runtime_model = (
             selected_model
             if selected_model.startswith("gpt-")
             else runtime_model_selector(selected_model)
+        )
+        configured_effort = os.environ.get(
+            "COORD_REASONING_" + actor.upper().replace("-", "_"),
+            os.environ.get(
+                "COORD_LEAD_REASONING" if actor == self.lead_actor else "COORD_WORKER_REASONING",
+                "medium" if actor == self.lead_actor else "low",
+            ),
         )
         self.coordinator.emit(
             "model_selected",
@@ -1356,6 +1482,7 @@ class LabRun:
                 "attempt": attempt,
                 "model": selected_model,
                 "runtime_selector": runtime_model,
+                "configured_effort": configured_effort,
             },
             actor,
         )
@@ -1387,6 +1514,7 @@ class LabRun:
                 "COORD_HOST_MCP_SERVER": str(HERE / "mcp_server.py"),
                 "COORD_PYTHON": sys.executable,
                 "COORD_TURN_DIR": str(self.run_dir / "context" / "turns"),
+                "COORD_SESSION_STATE_PATH": str(session_state_path),
                 "COORD_CANONICAL_GIT_DIR": str(self.run_dir / "canonical" / ".git"),
                 "COORD_HOST_PROJECT_STATE_PATH": str(self.project_state_path())
                 if self.mode == MODE_ARTIFACT and actor == self.lead_actor
@@ -1394,10 +1522,7 @@ class LabRun:
                 "COORD_EXTRA_WRITE_DIR": str(self.project_state_path().parent)
                 if self.mode == MODE_ARTIFACT and actor == self.lead_actor
                 else "",
-                "COORD_REASONING_EFFORT": os.environ.get(
-                    "COORD_LEAD_REASONING" if actor == self.lead_actor else "COORD_WORKER_REASONING",
-                    "medium" if actor == self.lead_actor else "low",
-                ),
+                "COORD_REASONING_EFFORT": configured_effort,
                 "COORD_MAX_TIME": max_time or self.actor_max_time,
             }
         )
@@ -1612,7 +1737,11 @@ node "$check_file"
         candidate = run(["git", "-C", str(self.run_dir / "canonical"), "rev-parse", "candidate"]).stdout.strip()
         head = run(["git", "-C", str(canonical), "rev-parse", "HEAD"]).stdout.strip()
         status = run(["git", "-C", str(canonical), "status", "--porcelain"]).stdout
-        changed = run(["git", "-C", str(canonical), "diff", "--stat", SEED, candidate], check=False).stdout
+        changed = run(["git", "-C", str(canonical), "diff", "--stat", self.seed, candidate], check=False).stdout
+        changed_paths = run(
+            ["git", "-C", str(canonical), "diff", "--name-only", self.seed, candidate],
+            check=False,
+        ).stdout.splitlines()
         readme_result = run(
             ["git", "-C", str(self.run_dir / "canonical"), "show", f"{candidate}:README.md"],
             check=False,
@@ -1668,6 +1797,12 @@ node "$check_file"
             "postcheck_git_status": post_status,
             "workspace_integrity_passed": workspace_integrity,
             "changed_from_seed": changed,
+            "changed_paths_from_seed": changed_paths,
+            "proof_ownership": {
+                "repository_scope_lineage_and_cleanliness": "harness",
+                "artifact_domain_fidelity": "archive_native_verifier",
+                "artifact_export_contains_git_metadata": False,
+            },
             "readme": readme,
             "checks": checks,
         }
@@ -1855,10 +1990,16 @@ produce one coherent advance, verify it natively, commit it cleanly, and close o
                 "brief, then quiesce."
                 if len(supervisor_workers) == 1
                 else (
+                    "Commission every frozen disjoint partition exactly once and quiesce. On terminal "
+                    "callbacks, inspect the predeclared sample and exceptions, mechanically merge exact "
+                    "non-overlapping commits, run the frozen queue proof and complete without an assembler."
+                    if self.local_closure
+                    else (
                     "Use each frozen worker identity exactly once at its genuine seam. Commission "
                     "independent ready Work without duplicate scope; commission downstream synthesis "
                     "or assembly only with explicit `requires` edges after its input Work completes. "
                     "The final coherent artifact must be produced by a worker, never integrated by you."
+                    )
                 )
             )
             return f"""# Non-producing accountable supervisor wake — EXP-03 S1
@@ -2009,8 +2150,10 @@ This Work runs inside the prepared Company Runtime. Chromium is available at
 `{self.native_review_proof['chromium']}` and Playwright at
 `{self.native_review_proof['playwright']}`; the current Work workspace is `/workspace`. Use the
 repository's bounded verifier directly with `node <relative-check.mjs>` and start only the local static
-fixture it names if needed. Do not rediscover host browser paths. Once the exact Work outcome and its
-declared proof pass, optional stronger checks must not delay the terminal artifact handoff.
+fixture it names if needed. The supervisor will rerun that verifier after the artifact export contains no Git metadata;
+the harness separately proves commit lineage, changed paths and cleanliness. Do not rediscover host
+browser paths. Once the exact Work outcome and its declared proof pass, optional stronger checks must
+not delay the terminal artifact handoff.
 """
 
     async def coordination_turn(self, causes: list[dict[str, Any]], cell: str) -> dict[str, Any]:
@@ -2276,9 +2419,9 @@ integration-lead consumes the required commit references above.
             )
             expected_workers.discard(None)
             required = (
-                "every frozen worker owns exactly one produced commit Work; all Work reaches one "
-                "dependency-linked final worker artifact; clean candidate equals that exact artifact; "
-                "supervisor authors no final content"
+                "every frozen worker owns exactly one produced commit Work; locally closing Work is "
+                "mechanically composed without overlap or lead-authored content, otherwise all Work reaches "
+                "one dependency-linked final worker artifact"
             )
             artifact_commits = [
                 artifact["reference"]
@@ -2321,7 +2464,70 @@ integration-lead consumes the required commit references above.
                         dependency_closure.add(edge["other_work_id"])
                         changed = True
             all_work_ids = {item["id"] for item in work}
-            all_work_reaches_candidate = bool(candidate_work) and dependency_closure == all_work_ids
+            if self.local_closure:
+                changed_by_work: dict[str, set[str]] = {}
+                for artifact in artifacts:
+                    if artifact["kind"] != "commit":
+                        continue
+                    paths = set(
+                        run(
+                            [
+                                "git", "-C", str(self.run_dir / "canonical"), "diff", "--name-only",
+                                self.seed, artifact["reference"],
+                            ],
+                            check=False,
+                        ).stdout.splitlines()
+                    )
+                    changed_by_work[artifact["work_id"]] = paths
+                changed_paths_seen: set[str] = set()
+                overlapping_paths: set[str] = set()
+                for paths in changed_by_work.values():
+                    overlapping_paths.update(changed_paths_seen.intersection(paths))
+                    changed_paths_seen.update(paths)
+                candidate_paths = set(
+                    run(
+                        ["git", "-C", str(self.run_dir / "canonical"), "diff", "--name-only", self.seed, candidate_commit or self.seed],
+                        check=False,
+                    ).stdout.splitlines()
+                )
+                artifact_ancestors = bool(candidate_commit) and all(
+                    run(
+                        ["git", "-C", str(self.run_dir / "canonical"), "merge-base", "--is-ancestor", commit, candidate_commit],
+                        check=False,
+                    ).returncode == 0
+                    for commit in artifact_commits
+                )
+                exact_blobs = bool(candidate_commit)
+                for artifact in artifacts:
+                    if artifact["kind"] != "commit":
+                        continue
+                    for path in changed_by_work.get(artifact["work_id"], set()):
+                        worker_blob = run(
+                            ["git", "-C", str(self.run_dir / "canonical"), "rev-parse", f"{artifact['reference']}:{path}"],
+                            check=False,
+                        )
+                        candidate_blob = run(
+                            ["git", "-C", str(self.run_dir / "canonical"), "rev-parse", f"{candidate_commit}:{path}"],
+                            check=False,
+                        )
+                        if (
+                            worker_blob.returncode
+                            or candidate_blob.returncode
+                            or worker_blob.stdout.strip() != candidate_blob.stdout.strip()
+                        ):
+                            exact_blobs = False
+                exact_composition = (
+                    not overlapping_paths
+                    and candidate_paths == changed_paths_seen
+                    and artifact_ancestors
+                    and exact_blobs
+                )
+                all_work_reaches_candidate = exact_composition and set(changed_by_work) == all_work_ids
+                dependency_closure = set(all_work_ids) if all_work_reaches_candidate else set()
+            else:
+                overlapping_paths = set()
+                exact_composition = candidate_is_worker_artifact
+                all_work_reaches_candidate = bool(candidate_work) and dependency_closure == all_work_ids
             owners_match_frozen_roster = (
                 len(work) == len(expected_workers)
                 and {item["owner"] for item in work} == expected_workers
@@ -2340,13 +2546,16 @@ integration-lead consumes the required commit references above.
                 "candidate_artifact_work": sorted(candidate_work),
                 "dependency_closure": sorted(dependency_closure),
                 "all_work_reaches_candidate": all_work_reaches_candidate,
+                "local_closure": self.local_closure,
+                "overlapping_paths": sorted(overlapping_paths),
+                "exact_mechanical_composition": exact_composition,
             }
             valid = (
                 bool(work)
                 and owners_match_frozen_roster
                 and every_work_produced_commit
                 and all_work_reaches_candidate
-                and candidate_is_worker_artifact
+                and (exact_composition if self.local_closure else candidate_is_worker_artifact)
                 and clean
             )
         elif self.mode == MODE_NATURAL:
@@ -2398,8 +2607,6 @@ integration-lead consumes the required commit references above.
             proof_path.write_text(json.dumps(proofs, indent=2, sort_keys=True))
             self.coordinator.emit("worker_pool_proved", {"models": proofs})
         await self.coordinator.start_server()
-        if self.manifest.get("external_event"):
-            self.external_event_task = asyncio.create_task(self.watch_external_event())
         coordination_cell = self.coordinator.workspaces.ensure_coordination_cell(
             self.lead_actor, read_only=self.mode == MODE_GRAPH
         )
@@ -2423,7 +2630,7 @@ integration-lead consumes the required commit references above.
         if not causes:
             causes = [{
                 "cause": "coordinator_resumed" if prior_turns else "owner_directive",
-                "payload": {"run": self.run_id, "seed": SEED, "mode": self.mode},
+                "payload": {"run": self.run_id, "seed": self.seed, "mode": self.mode},
             }]
         task = asyncio.create_task(self.coordination_turn(causes, coordination_cell))
         self.tasks[self.lead_actor] = ActiveTurn(self.lead_actor, task, None)
@@ -2448,7 +2655,11 @@ integration-lead consumes the required commit references above.
                     task = asyncio.create_task(self.staff_turn(item))
                     self.tasks[item["owner"]] = ActiveTurn(item["owner"], task, item["attempt"])
 
-            if self.lead_actor not in self.tasks and self.can_launch():
+            if (
+                self.lead_actor not in self.tasks
+                and self.can_launch()
+                and not self.defer_local_closure_lead_wake()
+            ):
                 causes = self.coordinator.pending_causes(self.lead_actor)
                 if causes:
                     task = asyncio.create_task(self.coordination_turn(causes, coordination_cell))
@@ -2512,17 +2723,6 @@ integration-lead consumes the required commit references above.
                     self.tasks.pop(actor, None)
 
         await self.drain_active_tasks()
-        if self.external_event_task:
-            if not self.external_event_task.done():
-                self.external_event_task.cancel()
-            watcher_result = await asyncio.gather(
-                self.external_event_task, return_exceptions=True
-            )
-            if watcher_result and isinstance(watcher_result[0], Exception):
-                self.coordinator.emit(
-                    "external_event_watcher_failed",
-                    {"error": str(watcher_result[0])},
-                )
         for active in self.tasks.values():
             if active.attempt:
                 self.coordinator.mark_unknown(active.attempt, "global run envelope ended")
@@ -3172,9 +3372,18 @@ async def fault_test(run_id: str) -> dict[str, Any]:
         for number in range(80)
     ]
     await asyncio.gather(*traces)
+    barrier = await call_one_way_trace_stream(endpoint, 256)
+    check("reply-free trace stream reaches an ordering barrier", barrier.get("recorded") is True, barrier)
     check("single-writer database survives concurrent clients", coordinator.conn.execute("PRAGMA quick_check").fetchone()[0] == "ok")
-    valid_trace = all(json.loads(line) for line in coordinator.trace_path.read_text().splitlines())
+    trace_lines = [json.loads(line) for line in coordinator.trace_path.read_text().splitlines()]
+    valid_trace = all(trace_lines)
     check("single trace writer emits valid JSONL", valid_trace)
+    streamed = [line for line in trace_lines if line.get("kind") == "fault_trace_stream"]
+    check(
+        "one hot telemetry connection records every reply-free notification",
+        len(streamed) == 256 and [line["payload"]["number"] for line in streamed] == list(range(256)),
+        {"observed": len(streamed)},
+    )
 
     await coordinator.stop_server()
     coordinator.close()
@@ -3866,6 +4075,61 @@ async def call_trace(endpoint: str, number: int) -> dict[str, Any]:
     )
 
 
+async def call_one_way_trace_stream(endpoint: str, count: int) -> dict[str, Any]:
+    """Exercise the ACP bridge's hot, reply-free telemetry transport."""
+    host, port_text = endpoint.rsplit(":", 1)
+    reader, writer = await asyncio.open_connection(host, int(port_text))
+    try:
+        for number in range(count):
+            writer.write(
+                (
+                    json.dumps(
+                        {
+                            "type": "trace",
+                            "one_way": True,
+                            "at": str(int(time.time() * 1000)),
+                            "actor": "fault",
+                            "turn_id": "fault-stream-turn",
+                            "kind": "fault_trace_stream",
+                            "payload": {"number": number},
+                        }
+                    )
+                    + "\n"
+                ).encode()
+            )
+        # A request/reply trace on the same stream is an ordering barrier: its
+        # response proves every preceding one-way record was consumed.
+        writer.write(
+            (
+                json.dumps(
+                    {
+                        "type": "trace",
+                        "at": str(int(time.time() * 1000)),
+                        "actor": "fault",
+                        "turn_id": "fault-stream-turn",
+                        "kind": "fault_trace_stream_barrier",
+                        "payload": {"count": count},
+                    }
+                )
+                + "\n"
+            ).encode()
+        )
+        await writer.drain()
+        response = await reader.readline()
+        if not response:
+            raise RuntimeError("one-way trace stream closed before its ordering barrier")
+        decoded = json.loads(response)
+        if not decoded.get("ok"):
+            raise RuntimeError(decoded.get("error") or "one-way trace stream barrier failed")
+        return decoded["result"]
+    finally:
+        writer.close()
+        try:
+            await writer.wait_closed()
+        except (BrokenPipeError, ConnectionResetError):
+            pass
+
+
 def supervisor_architecture_test(run_id: str) -> dict[str, Any]:
     """Mechanically prove the EXP-03 one-supervisor/one-worker contract."""
     run_id = safe_name(run_id)
@@ -4301,6 +4565,15 @@ def four_primitives_test(run_id: str) -> dict[str, Any]:
             )
         )
         first = coordinator.claim_ready(1, lease_seconds=900)[0]
+        first_prompt = lab.staff_prompt(first)
+        first_system = (run_dir / "context" / "system" / f"{first['owner']}.md").read_text()
+        check(
+            "worker proof contract separates repository custody from artifact fidelity",
+            "Repository scope, commit lineage, workspace isolation and cleanliness are harness-owned evidence"
+            in first_system
+            and "must also run from the exact exported commit without `.git` metadata" in first_system
+            and "artifact export contains no Git metadata" in first_prompt,
+        )
         first_workspace = Path(first["workspace"])
         (first_workspace / "fixture.txt").write_text("revision one\n")
         (first_workspace / "verify-archive-native.mjs").write_text(
@@ -4442,6 +4715,41 @@ def four_primitives_test(run_id: str) -> dict[str, Any]:
         )
 
         run(["git", "-C", str(canonical), "reset", "--hard", second_commit])
+        boundary_evidence = lab.candidate_evidence(lead_cell, run_checks=False)
+        check(
+            "harness reports exact repository scope separately from artifact proof",
+            set(boundary_evidence["changed_paths_from_seed"])
+            == {"fixture.txt", "verify-archive-native.mjs"}
+            and boundary_evidence["proof_ownership"]
+            == {
+                "repository_scope_lineage_and_cleanliness": "harness",
+                "artifact_domain_fidelity": "archive_native_verifier",
+                "artifact_export_contains_git_metadata": False,
+            },
+            boundary_evidence,
+        )
+        completion_scratch = canonical / "transport-scratch.json"
+        completion_scratch.write_text("{}\n")
+        dirty_completion_rejected = False
+        try:
+            coordinator.command(
+                command_payload(
+                    "supervisor-lead",
+                    "complete_run",
+                    "four-primitives-complete-dirty",
+                    {
+                        "candidate_commit": second_commit,
+                        "rationale": "Dirty canonical checkout must not complete",
+                    },
+                )
+            )
+        except ValueError:
+            dirty_completion_rejected = True
+        check(
+            "explicit completion rejects transient untracked transport files",
+            dirty_completion_rejected,
+        )
+        completion_scratch.unlink()
         mismatched_completion_rejected = False
         try:
             coordinator.command(
@@ -4623,7 +4931,7 @@ def external_event_architecture_test(run_id: str, event_file: str) -> dict[str, 
             trigger = workspace / event_plan["trigger_path"]
             trigger.parent.mkdir(parents=True)
             trigger.write_text("observable first artifact\n")
-            asyncio.run(lab.watch_external_event())
+            lab.inject_external_event(workspace.name)
             state = lab.external_event_state()
             causes = lab.coordinator.pending_causes(lab.lead_actor)
             events = [
@@ -4914,6 +5222,13 @@ def main() -> None:
     prepare_parser.add_argument("--expect-evaluator-sha256", action="append", default=[])
     prepare_parser.add_argument("--external-event-file")
     prepare_parser.add_argument("--expect-external-event-sha256")
+    prepare_parser.add_argument("--source-repo")
+    prepare_parser.add_argument("--source-ref", default="HEAD")
+    prepare_parser.add_argument(
+        "--local-closure",
+        action="store_true",
+        help="compose disjoint worker outputs mechanically without a downstream model assembler",
+    )
     prepare_parser.add_argument("--actor-max-time", default=DEFAULT_ACTOR_MAX_TIME)
     prepare_parser.add_argument(
         "--allow-paid-workers",
@@ -4927,6 +5242,8 @@ def main() -> None:
     run_parser.add_argument("run_id")
     evaluate_parser = sub.add_parser("evaluate")
     evaluate_parser.add_argument("run_id")
+    postflight_parser = sub.add_parser("postflight")
+    postflight_parser.add_argument("run_id")
     fault_parser = sub.add_parser("fault-test")
     fault_parser.add_argument("run_id", nargs="?", default="faults")
     positive_parser = sub.add_parser("positive-probe")
@@ -4999,6 +5316,9 @@ def main() -> None:
                 expected_evaluator_sha256=args.expect_evaluator_sha256,
                 external_event_file=args.external_event_file,
                 expected_external_event_sha256=args.expect_external_event_sha256,
+                source_repo=args.source_repo,
+                source_ref=args.source_ref,
+                local_closure=args.local_closure,
             )
         )
     elif args.command == "run":
@@ -5010,6 +5330,43 @@ def main() -> None:
                 lab.lead_actor, read_only=lab.mode == MODE_GRAPH
             )
             print(json.dumps(lab.declared_evaluator_evidence(cell), indent=2))
+        finally:
+            lab.coordinator.close()
+            cleanup_cells(args.run_id)
+    elif args.command == "postflight":
+        lab = LabRun(args.run_id)
+        try:
+            cell = lab.coordinator.workspaces.ensure_coordination_cell(
+                lab.lead_actor, read_only=lab.mode == MODE_GRAPH
+            )
+            candidate = lab.candidate_evidence(cell, run_checks=lab.mode != MODE_GRAPH)
+            protocol = lab.protocol_evidence()
+            evaluators = (
+                lab.declared_evaluator_evidence(cell)
+                if lab.manifest.get("declared_evaluators")
+                else None
+            )
+            native_checks = candidate.get("checks", [])
+            evidence = {
+                "run": lab.run_id,
+                "observed_at": time.time(),
+                "candidate_commit": candidate["candidate_commit"],
+                "protocol": protocol,
+                "candidate_evidence": candidate,
+                "native_artifact_valid": (
+                    candidate["checkout_clean"]
+                    and candidate["workspace_integrity_passed"]
+                    and all(check["passed"] for check in native_checks)
+                ),
+                "declared_evaluator_evidence": evaluators,
+            }
+            evidence["valid"] = bool(
+                protocol.get("valid") and evidence["native_artifact_valid"]
+            )
+            (lab.run_dir / "postflight-evidence.json").write_text(
+                json.dumps(evidence, indent=2, sort_keys=True)
+            )
+            print(json.dumps(evidence, indent=2))
         finally:
             lab.coordinator.close()
             cleanup_cells(args.run_id)

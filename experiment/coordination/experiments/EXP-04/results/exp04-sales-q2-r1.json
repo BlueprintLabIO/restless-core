@@ -1,0 +1,109 @@
+{
+  "accepted_units_per_worker_window_hour": 1109.121,
+  "candidate_checks": [
+    {
+      "errors_observed": [],
+      "exit": 0,
+      "failure_markers": 0,
+      "file": "verify-sales.mjs",
+      "fixture_mode": "self_owned",
+      "passed": true,
+      "stderr": "",
+      "stdout": "{\"valid\":true,\"units\":48,\"files\":[\"outputs/sales-operator-1.json\",\"outputs/sales-operator-2.json\"]}\n"
+    }
+  ],
+  "cost_per_accepted_unit": 0.014255,
+  "decision_complete": true,
+  "model": "zai/glm-5.3",
+  "protocol_valid": true,
+  "run": "exp04-sales-q2-r1",
+  "run_dir": "/Users/yao/Learning/restless/experiment/coordination-lab/v2/workdir/exp04-sales-q2-r1",
+  "score": {
+    "accepted": 48,
+    "errors": [],
+    "files": [
+      "sales-operator-1.json",
+      "sales-operator-2.json"
+    ],
+    "mean_quality_10": 10.0,
+    "units": 48,
+    "worst_decile_10": 10.0
+  },
+  "telemetry": {
+    "cache_usage": "unknown",
+    "configured_effort": [],
+    "cost_usd": 0.68423584,
+    "lead_active_seconds": 403.522,
+    "observed_peak_workers": 2,
+    "phase_signals": 7,
+    "reasoning_output_tokens": "unknown",
+    "request_wall_seconds": 509.303,
+    "sessions": [
+      {
+        "actor": "supervisor-lead",
+        "at": "1787609440956",
+        "kind": "model_session",
+        "payload": {
+          "reconstructed": false,
+          "reconstruction_error": null,
+          "resumed": false,
+          "session_id": "01a035d3-61f5-7000-bfa3-ae7278ef58b2"
+        },
+        "turn_id": "1787609439695-turn-995eefcfac"
+      },
+      {
+        "actor": "sales-operator-1",
+        "at": "1787609503151",
+        "kind": "model_session",
+        "payload": {
+          "reconstructed": false,
+          "reconstruction_error": null,
+          "resumed": false,
+          "session_id": "01a035d4-54a8-7000-83cd-4c0002f690bb"
+        },
+        "turn_id": "1787609501399-turn-83096e0452"
+      },
+      {
+        "actor": "sales-operator-2",
+        "at": "1787609503594",
+        "kind": "model_session",
+        "payload": {
+          "reconstructed": false,
+          "reconstruction_error": null,
+          "resumed": false,
+          "session_id": "01a035d4-56ab-7000-bbd1-f9e91e0d6f61"
+        },
+        "turn_id": "1787609502356-turn-6fc3b38680"
+      },
+      {
+        "actor": "supervisor-lead",
+        "at": "1787609622388",
+        "kind": "model_session",
+        "payload": {
+          "reconstructed": false,
+          "reconstruction_error": null,
+          "resumed": true,
+          "session_id": "01a035d3-61f5-7000-bfa3-ae7278ef58b2"
+        },
+        "turn_id": "1787609621211-turn-8c8f751d51"
+      },
+      {
+        "actor": "supervisor-lead",
+        "at": "1787609711937",
+        "kind": "model_session",
+        "payload": {
+          "reconstructed": false,
+          "reconstruction_error": null,
+          "resumed": true,
+          "session_id": "01a035d3-61f5-7000-bfa3-ae7278ef58b2"
+        },
+        "turn_id": "1787609711033-turn-147748c2a9"
+      }
+    ],
+    "worker_active_sum_seconds": 284.991,
+    "worker_window_seconds": 155.799
+  },
+  "worker_effort": "high",
+  "workers": 2,
+  "workload": "sales"
+}

@@ -1,11 +1,12 @@
-//! S16-T1: a qualified produced outcome reaches the owner exactly once.
+//! S17-T5: a qualified produced outcome reaches its accountable lead first,
+//! then the owner exactly once after supervised inspection and admission.
 //!
 //! This is a real scratch-Postgres scenario. The Runtime's live probe is
 //! represented by its recorded deterministic gate result; no pretend Runtime
 //! or market source is introduced into OrgIntel.
 
 use restless_orgintel::{
-    InitialWorkGate, NewArtifactRef, NewGateRun, NewWork, OrgIntel, OwnerBriefKind,
+    InitialWorkGate, NewArtifactRef, NewGateRun, NewWork, OrgIntel, OwnerBrief, OwnerBriefKind,
     OwnerHandoffCategory, OwnerHandoffState, OwnerReviewDecision, WorkAttemptState, WorkStatus,
     WorkspaceSpec, REVIEW_TARGET_ARTIFACT_KIND, REVIEW_TARGET_LIVE_PROBE_GATE,
 };
@@ -18,7 +19,7 @@ async fn add_review_required_work(org: &OrgIntel, title: &str) -> uuid::Uuid {
     ];
     org.add_review_required_work_with_edges_and_gates(
         NewWork {
-            owner_id: "research-analyst",
+            owner_id: "research-worker",
             title,
             outcome: "a prepared, evidence-linked research outcome",
             goal_id: None,
@@ -71,7 +72,7 @@ async fn link_review_target(org: &OrgIntel, work_id: uuid::Uuid, attempt_id: uui
         kind: REVIEW_TARGET_ARTIFACT_KIND,
         uri: "http://127.0.0.1:4173/reports/emerging-robotics.html",
         note: "Runtime materialised the native report and the declared probe observed it.",
-        created_by: "research-analyst",
+        created_by: "research-worker",
         work_id: Some(work_id),
         attempt_id: Some(attempt_id),
         digest: Some("sha256:review-target"),
@@ -98,7 +99,7 @@ async fn qualified_outcome_review_is_once_only_and_unqualified_outcomes_stay_blo
         .await
         .unwrap();
     org.create_actor(
-        "research-analyst",
+        "research-direction",
         "lead",
         "Research lead",
         Some("zai/glm-5.3"),
@@ -107,11 +108,38 @@ async fn qualified_outcome_review_is_once_only_and_unqualified_outcomes_stay_blo
     )
     .await
     .unwrap();
+    org.create_actor(
+        "research-worker",
+        "analyst",
+        "Research analyst",
+        Some("zai/glm-5.3"),
+        "exec",
+        "produces bounded evidence-led research outcomes",
+    )
+    .await
+    .unwrap();
+    let team = org
+        .create_team(
+            "Research",
+            "Produce and supervise bounded evidence-led research outcomes",
+            "research-direction",
+            "exec",
+        )
+        .await
+        .unwrap();
+    org.set_actor_team(
+        "research-worker",
+        Some(team),
+        "research-direction",
+        "worker produces while the lead supervises and judges",
+    )
+    .await
+    .unwrap();
 
     let missing_contract = org
         .add_review_required_work_with_edges_and_gates(
             NewWork {
-                owner_id: "research-analyst",
+                owner_id: "research-worker",
                 title: "Invalid review contract",
                 outcome: "must never enter the scheduler",
                 goal_id: None,
@@ -156,7 +184,7 @@ async fn qualified_outcome_review_is_once_only_and_unqualified_outcomes_stay_blo
     assert_eq!(qualified_row.status, WorkStatus::Blocked);
     assert!(qualified_row
         .resolution
-        .contains("awaiting owner outcome review"));
+        .contains("awaiting accountable-lead outcome review"));
     let qualified_handoffs = org
         .list_owner_handoffs()
         .await
@@ -169,16 +197,13 @@ async fn qualified_outcome_review_is_once_only_and_unqualified_outcomes_stay_blo
     assert_eq!(handoff.category, OwnerHandoffCategory::OwnerJudgement);
     assert_eq!(handoff.state, OwnerHandoffState::Pending);
     assert_eq!(
-        handoff.assigned_to, None,
-        "the qualified review reaches owner Attention directly"
+        handoff.assigned_to.as_deref(),
+        Some("research-direction"),
+        "the worker's qualified outcome reaches its non-producing lead first"
     );
     assert_eq!(handoff.attempt_id, Some(qualified_attempt.attempt_id));
     assert!(handoff.prepared_state.contains("emerging-robotics.html"));
-    assert!(handoff.owner_brief_is_current(qualified_row.revision));
-    assert_eq!(
-        handoff.owner_brief.as_ref().map(|brief| brief.kind),
-        Some(OwnerBriefKind::OutcomeReview)
-    );
+    assert!(handoff.owner_brief.is_none());
 
     // A duplicate completion report after a worker restart cannot make a
     // second owner request: the Attempt state and handoff insert share one
@@ -207,6 +232,58 @@ async fn qualified_outcome_review_is_once_only_and_unqualified_outcomes_stay_blo
         WorkStatus::Blocked,
         "completion never auto-accepts the owner's judgement"
     );
+
+    let early_owner_review = org
+        .decide_owner_review(handoff.id, OwnerReviewDecision::Accepted, "accepted")
+        .await
+        .unwrap_err();
+    assert!(early_owner_review
+        .to_string()
+        .contains("still assigned below"));
+
+    org.prepare_owner_brief(
+        handoff.id,
+        "research-direction",
+        OwnerBrief {
+            kind: OwnerBriefKind::OutcomeReview,
+            headline: "Accept the prepared robotics dossier".into(),
+            situation: "The research worker produced the declared dossier and the accountable lead inspected its live-probed ReviewTarget.".into(),
+            impact: "The owner can judge the exact native outcome without setup or implementation archaeology.".into(),
+            recommendation: "Accept the prepared dossier.".into(),
+            no_action: "The prepared Work remains blocked and unsent.".into(),
+            uncertainty: Some("The owner retains the final taste judgement.".into()),
+            deadline: None,
+        },
+    )
+    .await
+    .unwrap();
+    org.escalate_handoff(
+        handoff.id,
+        "research-direction",
+        "lead inspection passed; final owner taste judgement remains",
+    )
+    .await
+    .unwrap();
+    let at_exec = org
+        .list_owner_handoffs()
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|candidate| candidate.id == handoff.id)
+        .unwrap();
+    assert_eq!(at_exec.assigned_to.as_deref(), Some("exec"));
+    assert!(at_exec.owner_brief_is_current(qualified_row.revision));
+    assert_eq!(
+        at_exec.owner_brief.as_ref().map(|brief| brief.kind),
+        Some(OwnerBriefKind::OutcomeReview)
+    );
+    org.escalate_handoff(
+        handoff.id,
+        "exec",
+        "lead-prepared outcome is ready for the owner's irreducible judgement",
+    )
+    .await
+    .unwrap();
     org.decide_owner_review(handoff.id, OwnerReviewDecision::Accepted, "accepted")
         .await
         .unwrap();

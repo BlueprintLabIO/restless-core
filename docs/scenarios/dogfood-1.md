@@ -55,10 +55,10 @@ generic information or an invitation to do more work.
 
 ### Accountable owner
 
-The Exec appoints one accountable Research lead. The lead may work alone or commission Staff only
-where a real semantic seam improves the result, such as a separate evidence challenge or a
-different part of the value chain. The lead owns integration and the final preparation of the
-review target.
+The Exec appoints one accountable, non-producing Research lead. The lead commissions one end-to-end
+research worker by default and adds Staff only where a real semantic seam improves the result, such as
+a separate evidence challenge or a different part of the value chain. The lead owns supervision,
+exact artifact promotion, completion judgement and final preparation of the review target.
 
 ### Initial scope
 

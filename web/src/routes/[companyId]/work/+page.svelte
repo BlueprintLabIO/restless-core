@@ -1,17 +1,21 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
 	import { page } from '$app/state';
 	import MatrixGlyph, { GLYPHS } from '$lib/primitives/MatrixGlyph.svelte';
-	import { getAttention, type AttentionView } from '$lib/model/attention';
-	import { getCockpit, type CockpitView } from '$lib/model/cockpit';
+	import { attentionQuery, cockpitQuery } from '$lib/model/queries.svelte';
 	import type { WorkRow } from '$lib/model/generated/orgintel';
 	import WorkGraph from '$lib/work/WorkGraph.svelte';
 
 	const companyId = $derived(page.params.companyId ?? 'aris');
-	let attention = $state<AttentionView | null>(null);
-	let cockpit = $state<CockpitView | null>(null);
-	let error = $state('');
-	let loaded = $state(false);
+	const attentionProjection = $derived(attentionQuery(companyId));
+	const cockpitProjection = $derived(cockpitQuery(companyId));
+	const attention = $derived(attentionProjection.view);
+	const cockpit = $derived(cockpitProjection.view);
+	const error = $derived(
+		attentionProjection.failure?.message ?? cockpitProjection.failure?.message ?? ''
+	);
+	const loaded = $derived(
+		attentionProjection.status !== 'unknown' || cockpitProjection.status !== 'unknown'
+	);
 	let lens = $state<'map' | 'board'>(
 		page.url.searchParams.get('lens') === 'board' ? 'board' : 'map'
 	);
@@ -21,35 +25,13 @@
 	let goalSelectionInitialized = $state(false);
 	let showHistory = $state(false);
 
-	onMount(() => {
-		void refresh();
-		const timer = window.setInterval(() => void refresh(false), 8_000);
-		return () => window.clearInterval(timer);
+	$effect(() => {
+		if (!cockpit || goalSelectionInitialized) return;
+		const requestedGoal = page.url.searchParams.get('goal');
+		selectedGoal = cockpit.goals.find((goal) => goal.id === requestedGoal)?.id ?? '';
+		if (!selectedGoal && requestedGoal === UNASSIGNED_QUERY) selectedGoal = UNASSIGNED_QUERY;
+		goalSelectionInitialized = true;
 	});
-
-	async function refresh(showError = true) {
-		try {
-			const [nextAttention, nextCockpit] = await Promise.all([
-				getAttention(companyId),
-				getCockpit(companyId)
-			]);
-			attention = nextAttention;
-			cockpit = nextCockpit;
-			error = '';
-			loaded = true;
-			if (!goalSelectionInitialized) {
-				const requestedGoal = page.url.searchParams.get('goal');
-				selectedGoal = nextCockpit.goals.find((goal) => goal.id === requestedGoal)?.id ?? '';
-				if (!selectedGoal && requestedGoal === UNASSIGNED_QUERY) {
-					selectedGoal = UNASSIGNED_QUERY;
-				}
-				goalSelectionInitialized = true;
-			}
-		} catch (cause) {
-			error = cause instanceof Error ? cause.message : 'Work is unavailable.';
-			if (showError) loaded = true;
-		}
-	}
 
 	const graph = $derived(attention?.workGraph ?? null);
 	const goals = $derived(cockpit?.goals ?? []);

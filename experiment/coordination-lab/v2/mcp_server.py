@@ -12,6 +12,7 @@ ENDPOINT = os.environ["COORD_ENDPOINT"]
 ACTOR = os.environ["COORD_ACTOR"]
 ATTEMPT = os.environ.get("COORD_ATTEMPT", "")
 LEASE_TOKEN = os.environ.get("COORD_LEASE_TOKEN", "")
+TURN_ID = os.environ.get("COORD_TURN_ID", "")
 
 
 def mutation(required: list[str], properties: dict[str, Any]) -> dict[str, Any]:
@@ -46,6 +47,19 @@ def schemas() -> list[dict[str, Any]]:
                 ["to", "body"],
                 {"to": {"type": "string"}, "body": {"type": "string"}, "refs": strings},
             ),
+        },
+        {
+            "name": "phase",
+            "description": "Record a low-cost one-way work-phase observation. This is telemetry only: it wakes nobody and does not expose private reasoning.",
+            "inputSchema": {
+                "type": "object",
+                "additionalProperties": False,
+                "required": ["phase"],
+                "properties": {
+                    "phase": {"enum": ["orient", "produce", "verify", "handoff", "repair"]},
+                    "evidence": strings,
+                },
+            },
         },
         {
             "name": "commission",
@@ -189,6 +203,18 @@ def coordinator(payload: dict[str, Any]) -> dict[str, Any]:
 def call(name: str, arguments: dict[str, Any]) -> dict[str, Any]:
     if name == "inspect_coordination":
         return coordinator({"type": "inspect", "actor": ACTOR})
+    if name == "phase":
+        return coordinator(
+            {
+                "type": "trace",
+                "actor": ACTOR,
+                "attempt": ATTEMPT,
+                "turn_id": TURN_ID or None,
+                "kind": "actor_phase",
+                "payload": {**arguments, "attempt": ATTEMPT or None},
+                "one_way": False,
+            }
+        )
     args = dict(arguments)
     idempotency_key = args.pop("idempotency_key")
     return coordinator(

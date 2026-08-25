@@ -606,11 +606,14 @@ async fn relay_pi_stream(
             )
         }
     };
-    if billing == ModelBilling::MeteredApi && state.spend.over_ceiling(&config).is_some() {
-        return relay_error(
-            StatusCode::PAYMENT_REQUIRED,
-            "company model ceiling is exhausted; owner action is required",
-        );
+    if billing == ModelBilling::MeteredApi {
+        let budget = state.spend.budget_state(&config);
+        if !budget.is_available() {
+            return relay_error(
+                StatusCode::PAYMENT_REQUIRED,
+                &budget.owner_message(&config.name),
+            );
+        }
     }
 
     let mut upstream_request = state
@@ -1356,11 +1359,10 @@ mod tests {
             stream.observe(&frame);
         }
         assert_eq!(
-            ledger.remaining_micro_usd_for(
-                "acme_test",
-                crate::runtime::SpendCeiling::from_micro_usd(2)
-            ),
-            1,
+            ledger
+                .budget_state_for("acme_test", crate::runtime::SpendCeiling::from_micro_usd(2))
+                .remaining_micro_usd(),
+            Some(1),
             "one terminal event writes one exact micro-USD record"
         );
         let spool = std::fs::read_to_string(root.join("spend/spend.jsonl")).unwrap();
@@ -1389,12 +1391,12 @@ mod tests {
             );
         }
         assert_eq!(
-            ledger.remaining_micro_usd_for(
+            ledger.budget_state_for(
                 "acme_test",
                 crate::runtime::SpendCeiling::from_micro_usd(2)
-            ),
-            0,
-            "a metered stream without terminal charged usage blocks further requests"
+            ).remaining_micro_usd(),
+            None,
+            "a metered stream without terminal charged usage leaves metering unknown and blocks further charged requests"
         );
 
         drop(ledger);
@@ -1434,11 +1436,10 @@ mod tests {
             )));
         }
         assert_eq!(
-            ledger.remaining_micro_usd_for(
-                "acme_test",
-                crate::runtime::SpendCeiling::from_micro_usd(2)
-            ),
-            2,
+            ledger
+                .budget_state_for("acme_test", crate::runtime::SpendCeiling::from_micro_usd(2))
+                .remaining_micro_usd(),
+            Some(2),
             "an error with an exact $0 usage envelope does not create unknown spend"
         );
 
@@ -1460,12 +1461,11 @@ mod tests {
             ));
         }
         assert_eq!(
-            ledger.remaining_micro_usd_for(
-                "acme_test",
-                crate::runtime::SpendCeiling::from_micro_usd(2)
-            ),
-            0,
-            "an error with no exact usage remains fail-closed"
+            ledger
+                .budget_state_for("acme_test", crate::runtime::SpendCeiling::from_micro_usd(2))
+                .remaining_micro_usd(),
+            None,
+            "an error with no exact usage remains fail-closed without a fake zero balance"
         );
 
         drop(ledger);
@@ -1502,21 +1502,19 @@ mod tests {
             });
             stream.observe(&Bytes::from(format!("data: {partial}\n\n")));
             assert_eq!(
-                ledger.remaining_micro_usd_for(
-                    "acme_test",
-                    crate::runtime::SpendCeiling::from_micro_usd(2)
-                ),
-                2,
+                ledger
+                    .budget_state_for("acme_test", crate::runtime::SpendCeiling::from_micro_usd(2))
+                    .remaining_micro_usd(),
+                Some(2),
                 "a partial is not a provider-confirmed terminal usage record"
             );
             stream.observe(&Bytes::from_static(b"data: [DONE]\n\n"));
         }
         assert_eq!(
-            ledger.remaining_micro_usd_for(
-                "acme_test",
-                crate::runtime::SpendCeiling::from_micro_usd(2)
-            ),
-            0,
+            ledger
+                .budget_state_for("acme_test", crate::runtime::SpendCeiling::from_micro_usd(2))
+                .remaining_micro_usd(),
+            None,
             "a bare wire sentinel cannot turn a partial into accounted provider spend"
         );
 
@@ -1553,21 +1551,19 @@ mod tests {
             );
             stream.observe(&Bytes::from(format!("data: {event}\n")));
             assert_eq!(
-                ledger.remaining_micro_usd_for(
-                    "acme_test",
-                    crate::runtime::SpendCeiling::from_micro_usd(2)
-                ),
-                2,
+                ledger
+                    .budget_state_for("acme_test", crate::runtime::SpendCeiling::from_micro_usd(2))
+                    .remaining_micro_usd(),
+                Some(2),
                 "a trailing frame is held until EOF"
             );
             stream.finish();
         }
         assert_eq!(
-            ledger.remaining_micro_usd_for(
-                "acme_test",
-                crate::runtime::SpendCeiling::from_micro_usd(2)
-            ),
-            1,
+            ledger
+                .budget_state_for("acme_test", crate::runtime::SpendCeiling::from_micro_usd(2))
+                .remaining_micro_usd(),
+            Some(1),
             "a valid trailing terminal frame records its exact cost"
         );
 
@@ -1637,11 +1633,13 @@ mod tests {
             stream.observe(&Bytes::from(format!("data: {event}\n\n")));
         }
         assert_eq!(
-            ledger.remaining_micro_usd_for(
-                "acme_test",
-                crate::runtime::SpendCeiling::from_micro_usd(12_000)
-            ),
-            959,
+            ledger
+                .budget_state_for(
+                    "acme_test",
+                    crate::runtime::SpendCeiling::from_micro_usd(12_000)
+                )
+                .remaining_micro_usd(),
+            Some(959),
             "the micro-USD ledger uses a conservative 11,041-micro charge"
         );
 

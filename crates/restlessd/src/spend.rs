@@ -13,7 +13,9 @@ use std::{
 
 use anyhow::{Context, Result};
 use chrono::Utc;
-use restless_model_gateway::{SpendCorrection, SpendCorrectionPreview, SpendRecord, SpendStore};
+use restless_model_gateway::{
+    CompanySpendState, SpendCorrection, SpendCorrectionPreview, SpendRecord, SpendStore,
+};
 use uuid::Uuid;
 
 use crate::{
@@ -40,6 +42,97 @@ pub struct SpendLedger {
 #[derive(Clone)]
 pub struct TurnMeter {
     store: Arc<SpendStore>,
+}
+
+/// The one authoritative answer to whether a charged model turn may begin.
+///
+/// `MeteringUnknown` is deliberately neither an exhausted budget nor a zero
+/// balance. The ledger has preserved every exact charge it knows, but a prior
+/// provider stream lacked an exact terminal charge. Charged admission pauses
+/// until that discrepancy is reconciled.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ModelBudgetState {
+    Available {
+        accounted_micro_usd: u64,
+        ceiling_micro_usd: u64,
+        remaining_micro_usd: u64,
+    },
+    Exhausted {
+        accounted_micro_usd: u64,
+        ceiling_micro_usd: u64,
+    },
+    MeteringUnknown {
+        accounted_micro_usd: u64,
+        ceiling_micro_usd: u64,
+    },
+}
+
+impl ModelBudgetState {
+    #[must_use]
+    pub fn accounted_micro_usd(self) -> u64 {
+        match self {
+            Self::Available {
+                accounted_micro_usd,
+                ..
+            }
+            | Self::Exhausted {
+                accounted_micro_usd,
+                ..
+            }
+            | Self::MeteringUnknown {
+                accounted_micro_usd,
+                ..
+            } => accounted_micro_usd,
+        }
+    }
+
+    #[must_use]
+    pub fn ceiling_micro_usd(self) -> u64 {
+        match self {
+            Self::Available {
+                ceiling_micro_usd, ..
+            }
+            | Self::Exhausted {
+                ceiling_micro_usd, ..
+            }
+            | Self::MeteringUnknown {
+                ceiling_micro_usd, ..
+            } => ceiling_micro_usd,
+        }
+    }
+
+    #[must_use]
+    pub fn remaining_micro_usd(self) -> Option<u64> {
+        match self {
+            Self::Available {
+                remaining_micro_usd,
+                ..
+            } => Some(remaining_micro_usd),
+            Self::Exhausted { .. } | Self::MeteringUnknown { .. } => None,
+        }
+    }
+
+    #[must_use]
+    pub fn is_available(self) -> bool {
+        matches!(self, Self::Available { .. })
+    }
+
+    #[must_use]
+    pub fn owner_message(self, company: &str) -> String {
+        let accounted = self.accounted_micro_usd() as f64 / 1_000_000.0;
+        let ceiling = self.ceiling_micro_usd() as f64 / 1_000_000.0;
+        match self {
+            Self::Available { .. } => format!(
+                "{company} has ${accounted:.2} accounted against its ${ceiling:.2} ceiling"
+            ),
+            Self::Exhausted { .. } => format!(
+                "{company} has spent ${accounted:.2} of its ${ceiling:.2} ceiling; the owner must raise it before charged work continues"
+            ),
+            Self::MeteringUnknown { .. } => format!(
+                "{company} has ${accounted:.2} exactly accounted, but a provider stream ended without an exact charge; charged work is paused until model metering is reconciled"
+            ),
+        }
+    }
 }
 
 impl TurnMeter {
@@ -152,35 +245,40 @@ impl SpendLedger {
     /// size its own ambition rather than discovering it is broke mid-turn.
     #[must_use]
     pub fn spent_usd(&self, company: &str) -> f64 {
-        self.store.spent_micro_usd(company) as f64 / 1_000_000.0
+        self.store.accounted_micro_usd(company) as f64 / 1_000_000.0
     }
 
-    /// Pre-turn check: has this company already spent its ceiling? Returns
-    /// (spent, ceiling) in USD when it must not start.
+    /// Classify charged-model admission from exact accounting and an explicit
+    /// metering-certainty state. Unknown is not converted into arithmetic.
     #[must_use]
-    pub fn over_ceiling(&self, company: &CompanyConfig) -> Option<(f64, f64)> {
-        let spent = self.store.spent_micro_usd(&company.name);
-        let ceiling = company.spend_ceiling_usd.micro_usd();
-        (spent >= ceiling).then(|| (spent as f64 / 1_000_000.0, ceiling as f64 / 1_000_000.0))
-    }
-
-    /// Remaining company envelope calculated in exact micro-USD. Convert to a
-    /// display float only at the caller's presentation boundary.
-    #[must_use]
-    pub fn remaining_micro_usd(&self, company: &CompanyConfig) -> u64 {
-        self.remaining_micro_usd_for(&company.name, company.spend_ceiling_usd)
+    pub fn budget_state(&self, company: &CompanyConfig) -> ModelBudgetState {
+        self.budget_state_for(&company.name, company.spend_ceiling_usd)
     }
 
     #[must_use]
-    pub fn remaining_usd(&self, company: &CompanyConfig) -> f64 {
-        self.remaining_micro_usd(company) as f64 / 1_000_000.0
-    }
-
-    #[must_use]
-    pub fn remaining_micro_usd_for(&self, company: &str, ceiling: SpendCeiling) -> u64 {
-        ceiling
-            .micro_usd()
-            .saturating_sub(self.store.spent_micro_usd(company))
+    pub fn budget_state_for(&self, company: &str, ceiling: SpendCeiling) -> ModelBudgetState {
+        let ceiling_micro_usd = ceiling.micro_usd();
+        match self.store.company_state(company) {
+            CompanySpendState::MeteringUnknown {
+                accounted_micro_usd,
+            } => ModelBudgetState::MeteringUnknown {
+                accounted_micro_usd,
+                ceiling_micro_usd,
+            },
+            CompanySpendState::Accounted {
+                accounted_micro_usd,
+            } if accounted_micro_usd >= ceiling_micro_usd => ModelBudgetState::Exhausted {
+                accounted_micro_usd,
+                ceiling_micro_usd,
+            },
+            CompanySpendState::Accounted {
+                accounted_micro_usd,
+            } => ModelBudgetState::Available {
+                accounted_micro_usd,
+                ceiling_micro_usd,
+                remaining_micro_usd: ceiling_micro_usd.saturating_sub(accounted_micro_usd),
+            },
+        }
     }
 
     /// A cheap cloneable handle for relay streams that outlive the daemon

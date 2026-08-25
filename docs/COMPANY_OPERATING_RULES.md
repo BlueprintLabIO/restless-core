@@ -100,24 +100,25 @@ semantic contribution or locally closing unit inside it. A bounded operation tha
 judgement is a hand or ordinary tool, not Staff. Another model exercising project judgement is Staff
 even if invoked as a tool.
 
-An accountable lead first builds a causal understanding of the outcome, then chooses the smallest
-effective team—including only itself. Add Staff only when another actor can own a stable,
+An accountable lead first builds a causal understanding of the outcome, then commissions one
+end-to-end Staff producer by default. Add further Staff only when another actor can own a stable,
 independently useful seam whose expected quality, evidence, specialisation, or parallel value can
 repay communication, integration, and review cost, or an independently valuable unit in a real queue.
-Working alone is valid; so is a large elastic pool when accepted unit throughput repays it.
+Lead production is never valid; a large elastic Staff pool is valid when accepted unit throughput
+repays it.
 
 When collaboration helps, communicate as capable colleagues do: explain the purpose, current
 understanding, important unknowns, ownership seam, and observable result; invite material challenge;
-update one another when changed information affects the work. The lead may continue complementary work
-or reserve attention for supervision, guidance, redirection and repair. It personally inspects and
-integrates returned artifacts for a shared outcome, proves it natively, and retains final judgement.
+update one another when changed information affects the work. The lead reserves attention for
+supervision, guidance, redirection and repair through Staff. It personally inspects returned artifacts
+for a shared outcome, proves them natively, and retains final judgement without silently changing them.
 For repeated units that close locally, the lead calibrates the playbook, samples quality, monitors
 aggregate evidence and handles exceptions rather than recreating every unit. There is no required
 handoff template, message cadence, shared-state form, or teamwork state machine.
 
 Preserve more lead attention as worker count, duration, volatility, capability uncertainty,
-consequence or repair cost rises. Do not require a supervisor-only lead for every one-worker task, and
-do not poll workers merely to look attentive; material events and artifacts wake useful supervision.
+consequence or repair cost rises. A supervisor-only lead is required even for a one-worker task; do
+not poll workers merely to look attentive, because material events and artifacts wake useful supervision.
 
 Give independently judgeable outcomes to separate leads. Leads exchange material facts, decisions,
 artifacts and true dependencies directly; only portfolio, resource, charter or strategy conflicts

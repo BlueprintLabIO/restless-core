@@ -21,8 +21,9 @@ duplicating them.
 ## Observed product gap
 
 Restless now has the right organisational principle: every executable owner request goes through the
-continuously available Exec to exactly one accountable lead; that lead may work alone or commission
-the smallest useful team. Natural accountable teamwork is already the architectural contract.
+continuously available Exec to exactly one accountable, non-producing lead; that lead commissions one
+end-to-end worker by default and adds only differentiated Staff. Natural accountable teamwork is
+already the architectural contract.
 
 The remaining product risk is more ordinary and more damaging:
 

@@ -1,0 +1,62 @@
+{
+  "candidate_A": {
+    "scores": {
+      "truth_and_evidence": 7,
+      "causal_coherence": 7,
+      "decision_usefulness": 8,
+      "native_quality": 8,
+      "failure_awareness": 9
+    },
+    "material_strengths": [
+      "Best-evidenced qualification calls in either candidate: S-07 qualified on D-07A–D with the October 2026 expiry read strictly as 'may be reviewed' and the 25-vs-220 licence mismatch disclosed in the draft itself rather than hidden; S-08 disqualified (not nurtured) on the term-scoped procurement freeze; S-03/S-06 disqualified with 'the gap is the prospect's entire supplied market, not an unknown'",
+      "S-05 is the strongest single unit: a genuinely non-selling channel enquiry that asks whether a digital-PDF licensing category exists at all, states the offer facts in one line, and invites a one-line 'print only' reply that closes the matter — a real next step matched to the actual dossier",
+      "Review.md carries batch-level risks the other candidate lacks: licence-ceiling on every qualified unit, single-jurisdiction concentration with the dated-fact softness, one-shot nurture design, and time-adjacent-but-not-dead disqualified units",
+      "Every claim stays inside the dossiers; the unsupported-claims list is enforced and drafts make no results, endorsement, exclusivity or superiority assertions",
+      "S-04 handles the free-submission-per-vendor policy tension exactly: recorded as a community-relations option, explicitly not a pipeline action, no draft created"
+    ],
+    "material_defects": [
+      "Scope and reference integrity: the artifact cross-references files outside the frozen deliverable set — eight sales/units/*.json fragments plus two producer commit IDs and two work IDs — so the delivered artifact does not close on itself; a verifier enforcing the specified change-confinement (only sales/ and verify-sales.mjs) must either fail or specially exempt them",
+      "Review.md claims the units were 'imported verbatim' from two producer commits that the reviewer cannot inspect, and the unit files shown contain an assembler-added suggested_priority field absent from the manifest prospects — an evidence claim resting on unavailable provenance",
+      "Internal operator/coordination identifiers (work-a94ea56e85, work-cb2f700ea4, commit hashes) leak two-organisation assembly detail into the owner-facing artifact, contradicting its own anonymised-batch framing and adding noise the owner must discount",
+      "Assembly explanation is garbled in places: 'S-07-adjacent S-03 takes 7' and 'the operator-suggested priorities are preserved in the unit files' sit awkwardly against the manifest's different order; the rationale for ranking a disqualified S-08 at 5 above nurture-band units is asserted, not argued through",
+      "Cold-claim wording is weaker: 'sales-operator-2'-authored units open with 'Your programme page notes… your procurement note records…' as though the centre's internal procurement notes were public website facts",
+      "No verifier file is supplied, so the mechanical gate the review points to is unverifiable from the artifact"
+    ],
+    "acceptance": "revise"
+  },
+  "candidate_B": {
+    "scores": {
+      "truth_and_evidence": 9,
+      "causal_coherence": 9,
+      "decision_usefulness": 9,
+      "native_quality": 7,
+      "failure_awareness": 8
+    },
+    "material_strengths": [
+      "Tightest citation discipline: every fit claim carries its D-ID, unknowns are kept structurally separate from observed fit in every unit, and the review's counts use correct nested denominators (2 of 3 Sydney organisations qualified; 2 of 2 cohort-sized units over the licence ceiling; 0 of 8 named buyers)",
+      "Internally consistent single-batch judgement: S-04 held as nurture with the one permitted free-resource submission framed as an explicit spend-or-hold decision for the lead — a defensible reading of D-04B that avoids both a policy breach and a wasted channel asset, and honest about why no draft exists",
+      "Licence-ceiling mismatch is made a first-class batch exception with a correct release gate: settle multi-licence terms above 25 students before either fit-call invitation goes out, since 60 and 220 both exceed one licence",
+      "Recommended lead actions are concrete and sequenced (settle scaling, release S-07 then S-01, approve S-02 and S-05, make the S-04 decision explicitly, diary the S-08 term change, record replies against resume conditions so the next batch inherits observations)",
+      "No internal identifiers, no phantom files, no unverifiable provenance: every cross-reference inside the artifact resolves, so it works as a self-contained deliverable",
+      "Failure awareness is proportionate and quantified: routing risk is structural (0 of 8 named buyers), the S-07 timing hook is treated as timing not dissatisfaction, channel concentration in the nurture band and the thin 2-of-8 qualified band are both named as risks with warnings against over-touching"
+    ],
+    "material_defects": [
+      "Deterministic schema mismatch: nothing_sent is nested inside the batch object rather than at the manifest top level as the required schema specifies — a verifier checking key placement would flag it, though nothing owner-facing depends on the nesting",
+      "S-04 sits awkwardly against the brief's 'prepare a genuinely personalised but unsent next step where warranted' and the locally-closing-unit requirement: nurture with no prepared artifact of any kind, not even the submission outline it says to prepare, leaves the unit less closed than its disposition implies",
+      "Sales drafts are thinner and closer to interchangeable: S-01 and S-07 differ mainly by inserted numbers, and S-02/S-05 carry no dossier-specific hook beyond restating the evidence — the personalisation is correct but formulaic where Candidate A's S-05 shows what a channel-matched enquiry looks like",
+      "The S-02 sample-only note and S-05 terms enquiry omit the frozen 'preferred first next step' (fit call plus sample) without arguing why the deviation is the better read for a qualified-adjacent nurture unit",
+      "No verifier file is supplied, so the mechanical gate the review points to is unverifiable from the artifact"
+    ],
+    "acceptance": "accept"
+  },
+  "preference": "B",
+  "preference_reason": "Both deliver the same sound core judgement (S-07 and S-01 qualified, S-02 and S-05 nurtured, S-03/S-06/S-08 disqualified, four drafts held unsent, licence-ceiling disclosed), so the owner's substantive next decision would not change. B is preferred because its artifact closes on itself: every reference resolves, its provenance claims are verifiable from the supplied files, and its review is the more decision-ready surface, while A — despite stronger individual unit prose — leaks assembly identifiers, cites eight unit JSON files and two producer commits outside the frozen deliverable set, and rests an 'imported verbatim' claim on evidence the reviewer cannot inspect; under the scenario's inspect-without-reconstructing standard those are real defects requiring revision, whereas B's defects (nested nothing_sent key, thinner drafts, an unargued S-04 nurture) are minor or cosmetic.",
+  "confidence": "medium",
+  "scenario_ambiguities": [
+    "Whether S-04's nurture disposition — a bounded step that is a held lead decision with no prepared artifact — satisfies 'prepare a genuinely personalised but unsent next step where warranted' and the locally-closing-unit requirement, or whether it must be disqualified or carry a prepared submission outline",
+    "Whether nothing_sent must appear at the manifest top level exactly as the required schema states, or whether correct nesting inside batch with the same literal value is tolerable",
+    "Whether nurture units may substitute a sample-only note (S-02) or terms enquiry (S-05) for the frozen 'preferred first next step' of a fit-call invitation plus sample, and what argument that substitution requires",
+    "Whether verifier output should have been included in the supplied artifact set; neither candidate supplies verify-sales.mjs, so the mechanical gate is asserted rather than demonstrated to the reviewer",
+    "Whether batch-level references to prior producer artifacts and commits are in scope for the final deliverable or count as out-of-batch contamination, given the scenario confines all changes to a new sales/ directory and one root file"
+  ]
+}

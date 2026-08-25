@@ -1,0 +1,39 @@
+{
+  "h3": {
+    "byte_identical_projection": true,
+    "first_tree": "e058ed9b020f25998684d8e7f89468231c40f4cd",
+    "protocol_valid": true,
+    "randomized_finish_order": [
+      2,
+      0,
+      3,
+      1
+    ],
+    "second_tree": "e058ed9b020f25998684d8e7f89468231c40f4cd",
+    "workers": 4,
+    "zero_assembler": true,
+    "zero_duplicate_or_missing": true
+  },
+  "h4": {
+    "cancelled_usage_preserved": true,
+    "missing_cache_is_unknown": true,
+    "missing_cost_is_unknown": true,
+    "missing_reasoning_is_unknown": true,
+    "phase_recorded": true
+  },
+  "h6": {
+    "blind_packet_sha256": "1eb29020fe26c28d9ea2f825c3e623bb5297fd893873a98e34d0bb420c97db65",
+    "packet_exposes_no_topology_trace_or_spend": true,
+    "positive_only": true,
+    "semantic_fixture": {
+      "negated": false,
+      "omitted": false,
+      "positive": true
+    }
+  },
+  "h7_partial": {
+    "lead_wakes_after_batch_terminal": true,
+    "ordinary_partition_completion_is_coalesced": true
+  },
+  "run": "s17-wave0-regression"
+}

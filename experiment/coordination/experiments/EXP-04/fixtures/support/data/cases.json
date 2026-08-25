@@ -1,0 +1,290 @@
+[
+  {
+    "class": "ordinary",
+    "id": "C001",
+    "signal": "CASE-SIGNAL-001",
+    "summary": "Fictional ordinary support case 1"
+  },
+  {
+    "class": "expired",
+    "id": "C002",
+    "signal": "CASE-SIGNAL-002",
+    "summary": "Fictional expired support case 2"
+  },
+  {
+    "class": "security",
+    "id": "C003",
+    "signal": "CASE-SIGNAL-003",
+    "summary": "Fictional security support case 3"
+  },
+  {
+    "class": "duplicate",
+    "id": "C004",
+    "signal": "CASE-SIGNAL-004",
+    "summary": "Fictional duplicate support case 4"
+  },
+  {
+    "class": "vulnerable",
+    "id": "C005",
+    "signal": "CASE-SIGNAL-005",
+    "summary": "Fictional vulnerable support case 5"
+  },
+  {
+    "class": "identity",
+    "id": "C006",
+    "signal": "CASE-SIGNAL-006",
+    "summary": "Fictional identity support case 6"
+  },
+  {
+    "class": "ordinary",
+    "id": "C007",
+    "signal": "CASE-SIGNAL-007",
+    "summary": "Fictional ordinary support case 7"
+  },
+  {
+    "class": "expired",
+    "id": "C008",
+    "signal": "CASE-SIGNAL-008",
+    "summary": "Fictional expired support case 8"
+  },
+  {
+    "class": "security",
+    "id": "C009",
+    "signal": "CASE-SIGNAL-009",
+    "summary": "Fictional security support case 9"
+  },
+  {
+    "class": "duplicate",
+    "id": "C010",
+    "signal": "CASE-SIGNAL-010",
+    "summary": "Fictional duplicate support case 10"
+  },
+  {
+    "class": "vulnerable",
+    "id": "C011",
+    "signal": "CASE-SIGNAL-011",
+    "summary": "Fictional vulnerable support case 11"
+  },
+  {
+    "class": "identity",
+    "id": "C012",
+    "signal": "CASE-SIGNAL-012",
+    "summary": "Fictional identity support case 12"
+  },
+  {
+    "class": "ordinary",
+    "id": "C013",
+    "signal": "CASE-SIGNAL-013",
+    "summary": "Fictional ordinary support case 13"
+  },
+  {
+    "class": "expired",
+    "id": "C014",
+    "signal": "CASE-SIGNAL-014",
+    "summary": "Fictional expired support case 14"
+  },
+  {
+    "class": "security",
+    "id": "C015",
+    "signal": "CASE-SIGNAL-015",
+    "summary": "Fictional security support case 15"
+  },
+  {
+    "class": "duplicate",
+    "id": "C016",
+    "signal": "CASE-SIGNAL-016",
+    "summary": "Fictional duplicate support case 16"
+  },
+  {
+    "class": "vulnerable",
+    "id": "C017",
+    "signal": "CASE-SIGNAL-017",
+    "summary": "Fictional vulnerable support case 17"
+  },
+  {
+    "class": "identity",
+    "id": "C018",
+    "signal": "CASE-SIGNAL-018",
+    "summary": "Fictional identity support case 18"
+  },
+  {
+    "class": "ordinary",
+    "id": "C019",
+    "signal": "CASE-SIGNAL-019",
+    "summary": "Fictional ordinary support case 19"
+  },
+  {
+    "class": "expired",
+    "id": "C020",
+    "signal": "CASE-SIGNAL-020",
+    "summary": "Fictional expired support case 20"
+  },
+  {
+    "class": "security",
+    "id": "C021",
+    "signal": "CASE-SIGNAL-021",
+    "summary": "Fictional security support case 21"
+  },
+  {
+    "class": "duplicate",
+    "id": "C022",
+    "signal": "CASE-SIGNAL-022",
+    "summary": "Fictional duplicate support case 22"
+  },
+  {
+    "class": "vulnerable",
+    "id": "C023",
+    "signal": "CASE-SIGNAL-023",
+    "summary": "Fictional vulnerable support case 23"
+  },
+  {
+    "class": "identity",
+    "id": "C024",
+    "signal": "CASE-SIGNAL-024",
+    "summary": "Fictional identity support case 24"
+  },
+  {
+    "class": "ordinary",
+    "id": "C025",
+    "signal": "CASE-SIGNAL-025",
+    "summary": "Fictional ordinary support case 25"
+  },
+  {
+    "class": "expired",
+    "id": "C026",
+    "signal": "CASE-SIGNAL-026",
+    "summary": "Fictional expired support case 26"
+  },
+  {
+    "class": "security",
+    "id": "C027",
+    "signal": "CASE-SIGNAL-027",
+    "summary": "Fictional security support case 27"
+  },
+  {
+    "class": "duplicate",
+    "id": "C028",
+    "signal": "CASE-SIGNAL-028",
+    "summary": "Fictional duplicate support case 28"
+  },
+  {
+    "class": "vulnerable",
+    "id": "C029",
+    "signal": "CASE-SIGNAL-029",
+    "summary": "Fictional vulnerable support case 29"
+  },
+  {
+    "class": "identity",
+    "id": "C030",
+    "signal": "CASE-SIGNAL-030",
+    "summary": "Fictional identity support case 30"
+  },
+  {
+    "class": "ordinary",
+    "id": "C031",
+    "signal": "CASE-SIGNAL-031",
+    "summary": "Fictional ordinary support case 31"
+  },
+  {
+    "class": "expired",
+    "id": "C032",
+    "signal": "CASE-SIGNAL-032",
+    "summary": "Fictional expired support case 32"
+  },
+  {
+    "class": "security",
+    "id": "C033",
+    "signal": "CASE-SIGNAL-033",
+    "summary": "Fictional security support case 33"
+  },
+  {
+    "class": "duplicate",
+    "id": "C034",
+    "signal": "CASE-SIGNAL-034",
+    "summary": "Fictional duplicate support case 34"
+  },
+  {
+    "class": "vulnerable",
+    "id": "C035",
+    "signal": "CASE-SIGNAL-035",
+    "summary": "Fictional vulnerable support case 35"
+  },
+  {
+    "class": "identity",
+    "id": "C036",
+    "signal": "CASE-SIGNAL-036",
+    "summary": "Fictional identity support case 36"
+  },
+  {
+    "class": "ordinary",
+    "id": "C037",
+    "signal": "CASE-SIGNAL-037",
+    "summary": "Fictional ordinary support case 37"
+  },
+  {
+    "class": "expired",
+    "id": "C038",
+    "signal": "CASE-SIGNAL-038",
+    "summary": "Fictional expired support case 38"
+  },
+  {
+    "class": "security",
+    "id": "C039",
+    "signal": "CASE-SIGNAL-039",
+    "summary": "Fictional security support case 39"
+  },
+  {
+    "class": "duplicate",
+    "id": "C040",
+    "signal": "CASE-SIGNAL-040",
+    "summary": "Fictional duplicate support case 40"
+  },
+  {
+    "class": "vulnerable",
+    "id": "C041",
+    "signal": "CASE-SIGNAL-041",
+    "summary": "Fictional vulnerable support case 41"
+  },
+  {
+    "class": "identity",
+    "id": "C042",
+    "signal": "CASE-SIGNAL-042",
+    "summary": "Fictional identity support case 42"
+  },
+  {
+    "class": "ordinary",
+    "id": "C043",
+    "signal": "CASE-SIGNAL-043",
+    "summary": "Fictional ordinary support case 43"
+  },
+  {
+    "class": "expired",
+    "id": "C044",
+    "signal": "CASE-SIGNAL-044",
+    "summary": "Fictional expired support case 44"
+  },
+  {
+    "class": "security",
+    "id": "C045",
+    "signal": "CASE-SIGNAL-045",
+    "summary": "Fictional security support case 45"
+  },
+  {
+    "class": "duplicate",
+    "id": "C046",
+    "signal": "CASE-SIGNAL-046",
+    "summary": "Fictional duplicate support case 46"
+  },
+  {
+    "class": "vulnerable",
+    "id": "C047",
+    "signal": "CASE-SIGNAL-047",
+    "summary": "Fictional vulnerable support case 47"
+  },
+  {
+    "class": "identity",
+    "id": "C048",
+    "signal": "CASE-SIGNAL-048",
+    "summary": "Fictional identity support case 48"
+  }
+]

@@ -1,0 +1,58 @@
+{
+  "candidate_A": {
+    "scores": {
+      "truth_and_evidence": 9,
+      "causal_coherence": 8,
+      "decision_usefulness": 8,
+      "native_quality": 7,
+      "failure_awareness": 9
+    },
+    "material_strengths": [
+      "Exact manifest conformance: nothing_sent at top level, unique priorities 1-8, recommended_sequence matches priorities, all evidence IDs within their own dossiers.",
+      "Strict evidence discipline throughout: D-07C read strictly as 'may be reviewed' with explicit non-claims; enrolment figures flagged as self-reported; unsupported-claims list mirrored and never drifted from.",
+      "The 25-student licence cap vs 220 (S-07) mismatch is disclosed inside the prospect-facing draft text, not only in internal notes — the honest constraint reaches the person who would receive it.",
+      "Qualified drafts are release-ready and match the scenario's stated preferred next step (unsent fit-call invitation plus sample) without added preconditions.",
+      "Resume conditions on every unit are prospect-side observable events, never elapsed time; S-08 explicitly notes a term change alone is not a demand signal."
+    ],
+    "material_defects": [
+      "Process leakage throughout: operator/work IDs, producer commit hashes, 'both accepted producer halves', 'the assembler owns final batch-unique priorities' — pipeline mechanics that add noise for the inspecting sales lead and partially de-anonymise construction.",
+      "Unit files carry two different formats (S-01..S-04 vs S-05..S-08 headers/structures) and suggested priorities that conflict with manifest priorities (S-01: 1 vs 2), reconciled only inside review.md rather than at the source.",
+      "Garbled or opaque phrasing in batch exceptions: 'the gap is the prospect entire supplied market', 'S-07-adjacent S-03 takes 7'.",
+      "sales/units/*.json duplicates manifest prospect content as a second representation that must be kept in sync; marginal value over the manifest."
+    ],
+    "acceptance": "accept"
+  },
+  "candidate_B": {
+    "scores": {
+      "truth_and_evidence": 8,
+      "causal_coherence": 9,
+      "decision_usefulness": 9,
+      "native_quality": 8,
+      "failure_awareness": 9
+    },
+    "material_strengths": [
+      "Uniform, scannable unit format with one authoritative priority per unit — no suggested-vs-final duality to reconcile.",
+      "Coherent gating spine across the batch: both qualified drafts explicitly blocked on one upstream decision (multi-licence scaling above 25 students), made lead action #1; S-04's single permitted submission framed as a one-shot spend-or-hold asset.",
+      "Denominator-correct counts include conditional ratios (3 of 8 Sydney selective-prep orgs with 2 of 3 qualified; 2 of 2 cohort-bearing units over the licence ceiling; 0 of 8 named buyers) — genuinely decision-relevant arithmetic.",
+      "Strategic risks beyond per-unit unknowns: thin qualified band (2 of 8) for scarce founder time; nurture-band concentration on channel assumptions.",
+      "Drafts are native and tight; the S-02 note is explicitly pitch-free with no call ask, fitting a self-authoring tutor audience."
+    ],
+    "material_defects": [
+      "nothing_sent is nested inside batch instead of the manifest top level required by the schema; a spec-conformant verifier run from a clean checkout exits nonzero and a top-level read of the safety flag yields undefined — a real evidentiary/gate defect despite the substance (nothing sent) being preserved in prose.",
+      "S-01 draft says 'I would bring the multi-licence options to the call', implying multi-licence options exist; the frozen offer supplies no such terms (contrast S-07's careful 'would need a multi-licence arrangement... terms are a fair question').",
+      "Release of the scenario's stated preferred next step for qualified organisations is gated on settling licence scaling — a precondition the scenario does not state, delaying the preferred action.",
+      "S-04's bounded step is deferred rather than prepared: the next action is to 'prepare an outline... and present it to the lead', but no outline exists in the artifact — weaker local closure than its sibling units."
+    ],
+    "acceptance": "revise"
+  },
+  "preference": "A",
+  "preference_reason": "Substantively close: B is tighter, better formatted, and more decision-forcing; A is deeper and more rigorously hedged. The decisive difference is threshold, not linear: A conforms to the exact required schema (top-level nothing_sent) and delivers release-ready qualified drafts matching the scenario's preferred next step, while B misplaces the exercise's central safety flag inside batch — failing the mandated exact-schema clean-checkout verification as delivered — and adds an unstated release precondition plus one phrase implying unsupplied licence terms. B's qualitative edges do not outweigh a completion-gate failure fixable only by revision.",
+  "confidence": "high",
+  "scenario_ambiguities": [
+    "Placement of nothing_sent: the schema bullets enumerate batch's fields exhaustively and list nothing_sent separately, read here as top-level required; B's nesting treats it as a batch field.",
+    "S-04 disposition: the policy-permitted single free-resource submission supports either nurture (a bounded non-selling step exists, per B) or disqualified (no buying entity or permitted sales channel for the paid licence, per A); the scenario's nurture definition admits both readings.",
+    "Whether qualified invitations may be released before multi-licence terms exist (A, sizing on the call) or should be held until settled (B); the scenario states the preferred next step without a precondition.",
+    "Whether extra files under sales/ (A's units/*.json) are in scope: allowed under 'all changes confined to a new sales/ directory', though the required artifact list names only manifest, prospect files, review and verifier.",
+    "Neither candidate's verifier source, commit ID or verifier output is presented; per the prompt these mechanical checks are assumed reported separately and were not scored."
+  ]
+}

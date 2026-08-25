@@ -3,7 +3,7 @@
 	 * Teams, actor class and membership come from source-owned projections; the
 	 * page never infers them from ids, role strings or Work titles. */
 
-	import { onMount, tick } from 'svelte';
+	import { tick } from 'svelte';
 	import { page } from '$app/state';
 	import MatrixGlyph, { GLYPHS } from '$lib/primitives/MatrixGlyph.svelte';
 	import SemanticMark from '$lib/primitives/SemanticMark.svelte';
@@ -11,10 +11,9 @@
 	import ConversationHistoryTools from '$lib/primitives/ConversationHistoryTools.svelte';
 	import ConversationMessage from '$lib/primitives/ConversationMessage.svelte';
 	import ConversationTurnDock from '$lib/primitives/ConversationTurnDock.svelte';
-	import { cockpitContextPath, getAttention, type AttentionView } from '$lib/model/attention';
-	import { conversationSource } from '$lib/model/conversationSource.svelte';
+	import { cockpitContextPath } from '$lib/model/attention';
+	import { attentionQuery, cockpitQuery, conversationQuery } from '$lib/model/queries.svelte';
 	import {
-		getCockpit,
 		personTone,
 		type CockpitPerson,
 		type CockpitTeam,
@@ -23,8 +22,10 @@
 	import { mergeAdjacentAgentMessages } from '$lib/model/view';
 
 	const companyId = $derived(page.params.companyId ?? 'aris');
-	let cockpit = $state<CockpitView | null>(null);
-	let attention = $state<AttentionView | null>(null);
+	const cockpitProjection = $derived(cockpitQuery(companyId));
+	const attentionProjection = $derived(attentionQuery(companyId));
+	const cockpit = $derived(cockpitProjection.view);
+	const attention = $derived(attentionProjection.view);
 	let selectedId = $state('');
 	let error = $state('');
 
@@ -39,43 +40,28 @@
 	let transcriptTailHeight = $state(0);
 	let initiallyScrolledFor = $state('');
 	const selectedConversation = $derived(
-		selectedId && isContact(cockpit, selectedId) ? conversationSource(companyId, selectedId) : null
+		selectedId && isContact(cockpit, selectedId) ? conversationQuery(companyId, selectedId) : null
 	);
 	$effect(() => selectedConversation?.attach());
 	const messages = $derived(selectedConversation?.messages ?? []);
 	const visibleMessages = $derived(mergeAdjacentAgentMessages(messages));
 	const turn = $derived(selectedConversation?.activeTurn ?? null);
 
-	onMount(() => {
-		void refresh();
-		const timer = window.setInterval(() => void refresh(false), 8_000);
-		return () => window.clearInterval(timer);
-	});
-
-	async function refresh(showError = true) {
-		try {
-			const [nextCockpit, nextAttention] = await Promise.all([
-				getCockpit(companyId),
-				getAttention(companyId)
-			]);
-			cockpit = nextCockpit;
-			attention = nextAttention;
-			error = '';
-			if (!nextCockpit.people.some((person) => person.actor_id === selectedId)) {
-				const requestedPerson = page.url.searchParams.get('person');
-				selectedId =
-					(requestedPerson &&
-					nextCockpit.people.some((person) => person.actor_id === requestedPerson)
-						? requestedPerson
-						: null) ??
-					nextCockpit.people.find((person) => person.kind === 'exec')?.actor_id ??
-					nextCockpit.people.find((person) => person.kind === 'staff')?.actor_id ??
-					'';
-			}
-		} catch (cause) {
-			if (showError) error = cause instanceof Error ? cause.message : 'People are unavailable.';
+	$effect(() => {
+		const nextCockpit = cockpit;
+		if (!nextCockpit) return;
+		error = cockpitProjection.failure?.message ?? attentionProjection.failure?.message ?? '';
+		if (!nextCockpit.people.some((person) => person.actor_id === selectedId)) {
+			const requestedPerson = page.url.searchParams.get('person');
+			selectedId =
+				(requestedPerson && nextCockpit.people.some((person) => person.actor_id === requestedPerson)
+					? requestedPerson
+					: null) ??
+				nextCockpit.people.find((person) => person.kind === 'exec')?.actor_id ??
+				nextCockpit.people.find((person) => person.kind === 'staff')?.actor_id ??
+				'';
 		}
-	}
+	});
 
 	/* Selecting a different person is a different conversation: the transcript and
 	 * the half-typed message both belong to the person they were meant for. */
@@ -139,9 +125,11 @@
 		composer = '';
 		try {
 			const contextPath = cockpitContextPath(companyId, page.url);
-			const result = await selectedConversation.send(text, files, contextPath);
+			const result = await selectedConversation.send(text, files, contextPath, false, !!turn);
 			composerFiles = [];
-			if (!contextPath || result.contextOmitted) {
+			if (result.interrupted) {
+				sendNotice = `${selected.display} was interrupted and your new direction is queued.`;
+			} else if (!contextPath || result.contextOmitted) {
 				sendNotice = 'Message sent without the current-screen link.';
 			}
 		} catch (cause) {
@@ -425,10 +413,15 @@
 					<Composer
 						bind:value={composer}
 						bind:files={composerFiles}
+						actionLabel={turn ? 'Interrupt & send' : 'Send'}
 						disabled={sending}
 						minlength={1}
-						placeholder={`Ask ${selected.display}, redirect, or make a judgement…`}
-						ariaLabel={`Message ${selected.display}`}
+						placeholder={turn
+							? `Interrupt ${selected.display} with new direction…`
+							: `Ask ${selected.display}, redirect, or make a judgement…`}
+						ariaLabel={turn
+							? `Interrupt and message ${selected.display}`
+							: `Message ${selected.display}`}
 					/>
 					{#if sendError}<p class="exr-error" role="alert">{sendError}</p>{/if}
 					{#if sendNotice}<p class="exr-notice" role="status">{sendNotice}</p>{/if}

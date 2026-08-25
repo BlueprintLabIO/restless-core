@@ -1,24 +1,28 @@
-use std::fs::OpenOptions;
+use std::fs::{create_dir_all, read_to_string, rename, write, OpenOptions};
 use std::io::Write;
 use std::net::TcpStream;
 use std::process::Stdio;
-use std::sync::{Arc, Mutex};
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc, Mutex,
+};
 
 use agent_client_protocol::{
     self as acp,
     schema::{
         v1::{
-            ContentBlock, EnvVariable, InitializeRequest, McpServer, McpServerStdio,
-            NewSessionRequest, PermissionOptionKind, PromptRequest, RequestPermissionOutcome,
-            RequestPermissionRequest, RequestPermissionResponse, SelectedPermissionOutcome,
-            SessionNotification, SessionUpdate, TextContent, ToolCallStatus,
+            ContentBlock, EnvVariable, InitializeRequest, LoadSessionRequest, McpServer,
+            McpServerStdio, NewSessionRequest, PermissionOptionKind, PromptRequest,
+            RequestPermissionOutcome, RequestPermissionRequest, RequestPermissionResponse,
+            SelectedPermissionOutcome, SessionNotification, SessionUpdate, TextContent,
+            ToolCallStatus,
         },
         ProtocolVersion,
     },
     Agent, ByteStreams, Client, ConnectionTo,
 };
 use anyhow::{Context, Result};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use tokio_util::compat::{TokioAsyncReadCompatExt, TokioAsyncWriteCompatExt};
 
 #[derive(Default, Serialize)]
@@ -30,6 +34,19 @@ struct Transcript {
     cost_usd: Option<f64>,
     output_tokens: Option<u64>,
     stop_reason: Option<String>,
+    session_id: Option<String>,
+    session_resumed: bool,
+    session_reconstructed: bool,
+    configured_effort: Option<String>,
+    cumulative_used_tokens: Option<u64>,
+    cumulative_cost_usd: Option<f64>,
+}
+
+#[derive(Clone, Default, Deserialize, Serialize)]
+struct SessionState {
+    session_id: String,
+    used_tokens: Option<u64>,
+    cost_usd: Option<f64>,
 }
 
 fn required(name: &str) -> Result<String> {
@@ -39,7 +56,11 @@ fn required(name: &str) -> Result<String> {
 #[derive(Clone)]
 enum EventSink {
     File(String),
-    Coordinator { endpoint: String, turn_id: String },
+    Coordinator {
+        endpoint: String,
+        turn_id: String,
+        stream: Arc<Mutex<Option<TcpStream>>>,
+    },
 }
 
 fn append_event(sink: &EventSink, actor: &str, kind: &str, payload: serde_json::Value) {
@@ -53,6 +74,10 @@ fn append_event(sink: &EventSink, actor: &str, kind: &str, payload: serde_json::
             EventSink::Coordinator { turn_id, .. } => Some(turn_id.as_str()),
             EventSink::File(_) => None,
         },
+        // ACP notifications are telemetry, not request/response commands. The
+        // coordinator keeps this connection open and deliberately sends no
+        // acknowledgement for these records.
+        "one_way": matches!(sink, EventSink::Coordinator { .. }),
     });
     match sink {
         EventSink::File(path) => {
@@ -60,9 +85,32 @@ fn append_event(sink: &EventSink, actor: &str, kind: &str, payload: serde_json::
                 let _ = writeln!(file, "{line}");
             }
         }
-        EventSink::Coordinator { endpoint, .. } => {
-            if let Ok(mut stream) = TcpStream::connect(endpoint) {
-                let _ = writeln!(stream, "{line}");
+        EventSink::Coordinator {
+            endpoint, stream, ..
+        } => {
+            let bytes = format!("{line}\n");
+            let Ok(mut stream) = stream.lock() else {
+                return;
+            };
+            // Keep one hot trace stream per model turn. If the coordinator was
+            // restarted between notifications, reconnect once and retry.
+            for _ in 0..2 {
+                if stream.is_none() {
+                    match TcpStream::connect(endpoint) {
+                        Ok(connection) => {
+                            let _ = connection.set_nodelay(true);
+                            *stream = Some(connection);
+                        }
+                        Err(_) => return,
+                    }
+                }
+                if stream
+                    .as_mut()
+                    .is_some_and(|connection| connection.write_all(bytes.as_bytes()).is_ok())
+                {
+                    return;
+                }
+                *stream = None;
             }
         }
     }
@@ -75,6 +123,31 @@ fn chrono_like_now() -> String {
         .unwrap_or_default()
         .as_millis();
     ms.to_string()
+}
+
+fn load_session_state(path: &str) -> Option<SessionState> {
+    let body = read_to_string(path).ok()?;
+    serde_json::from_str(&body).ok().or_else(|| {
+        let session_id = body.trim();
+        (!session_id.is_empty()).then(|| SessionState {
+            session_id: session_id.to_string(),
+            ..SessionState::default()
+        })
+    })
+}
+
+fn persist_session_state(path: &str, state: &SessionState) -> Result<()> {
+    let state_path = std::path::Path::new(path);
+    if let Some(parent) = state_path.parent() {
+        create_dir_all(parent)
+            .with_context(|| format!("create session-state directory {}", parent.display()))?;
+    }
+    let temporary = state_path.with_extension(format!("tmp-{}", std::process::id()));
+    write(&temporary, format!("{}\n", serde_json::to_string(state)?))
+        .with_context(|| format!("write session state {}", temporary.display()))?;
+    rename(&temporary, state_path)
+        .with_context(|| format!("publish session state {}", state_path.display()))?;
+    Ok(())
 }
 
 #[tokio::main]
@@ -102,12 +175,23 @@ async fn main() -> Result<()> {
     let turn_id = std::env::var("COORD_TURN_ID").unwrap_or_default();
     let coordinator_endpoint = std::env::var("COORD_ENDPOINT").ok();
     let event_sink = if let Some(endpoint) = std::env::var("COORD_EVENT_ENDPOINT").ok() {
-        EventSink::Coordinator { endpoint, turn_id }
+        EventSink::Coordinator {
+            endpoint,
+            turn_id: turn_id.clone(),
+            stream: Arc::new(Mutex::new(None)),
+        }
     } else {
         EventSink::File(required("COORD_EVENTS_PATH")?)
     };
     let gateway_token = required("RESTLESS_MODEL_GATEWAY_TOKEN")?;
     let read_only = std::env::var("COORD_READ_ONLY").as_deref() == Ok("1");
+    let reasoning_effort = std::env::var("COORD_REASONING_EFFORT")
+        .ok()
+        .filter(|value| !value.trim().is_empty());
+    let session_state_path = std::env::var("COORD_SESSION_STATE_PATH")
+        .ok()
+        .filter(|value| !value.trim().is_empty());
+    let prior_session_state = session_state_path.as_deref().and_then(load_session_state);
     let native_tools = if read_only {
         "read,grep"
     } else {
@@ -160,6 +244,10 @@ async fn main() -> Result<()> {
         args.push("--max-time".to_string());
         args.push(max_time);
     }
+    if let Some(effort) = reasoning_effort.as_ref() {
+        args.push("--thinking".to_string());
+        args.push(effort.clone());
+    }
 
     let mut child = tokio::process::Command::new("docker")
         .env("RESTLESS_MODEL_GATEWAY_TOKEN", gateway_token)
@@ -174,8 +262,20 @@ async fn main() -> Result<()> {
     let stdout = child.stdout.take().context("ACP stdout")?;
     let transport = ByteStreams::new(stdin.compat_write(), stdout.compat());
     let transcript = Arc::new(Mutex::new(Transcript::default()));
+    if let Ok(mut current) = transcript.lock() {
+        current.configured_effort = reasoning_effort.clone();
+    }
     let sink = Arc::clone(&transcript);
     let response_transcript = Arc::clone(&transcript);
+    let capture_updates = Arc::new(AtomicBool::new(false));
+    let notification_capture = Arc::clone(&capture_updates);
+    let thinking_observed = Arc::new(AtomicBool::new(false));
+    let notification_thinking = Arc::clone(&thinking_observed);
+    let turn_baseline = Arc::new(Mutex::new(SessionState::default()));
+    let notification_baseline = Arc::clone(&turn_baseline);
+    let active_session_state = Arc::new(Mutex::new(None::<SessionState>));
+    let notification_session_state = Arc::clone(&active_session_state);
+    let notification_state_path = session_state_path.clone();
     let event_actor = actor.clone();
     let notification_sink = event_sink.clone();
 
@@ -186,7 +286,17 @@ async fn main() -> Result<()> {
                 let sink = Arc::clone(&sink);
                 let actor = event_actor.clone();
                 let event_sink = notification_sink.clone();
+                let capture = Arc::clone(&notification_capture);
+                let thinking = Arc::clone(&notification_thinking);
+                let baseline = Arc::clone(&notification_baseline);
+                let session_state = Arc::clone(&notification_session_state);
+                let state_path = notification_state_path.clone();
                 async move {
+                    // ACP session/load replays historical notifications. They reconstruct the
+                    // agent, but they are not current-turn output or fresh telemetry.
+                    if !capture.load(Ordering::Acquire) {
+                        return Ok(());
+                    }
                     if let Ok(mut transcript) = sink.lock() {
                         match notification.update {
                             SessionUpdate::AgentMessageChunk(chunk) => {
@@ -201,12 +311,14 @@ async fn main() -> Result<()> {
                                 }
                             }
                             SessionUpdate::AgentThoughtChunk(_) => {
-                                append_event(
-                                    &event_sink,
-                                    &actor,
-                                    "agent_thinking",
-                                    serde_json::json!({}),
-                                );
+                                if !thinking.swap(true, Ordering::AcqRel) {
+                                    append_event(
+                                        &event_sink,
+                                        &actor,
+                                        "agent_thinking",
+                                        serde_json::json!({"state": "active"}),
+                                    );
+                                }
                             }
                             SessionUpdate::ToolCall(call) => {
                                 transcript.tool_calls.push(call.title.clone());
@@ -241,18 +353,41 @@ async fn main() -> Result<()> {
                                 }
                             }
                             SessionUpdate::UsageUpdate(usage) => {
-                                let cost_usd = usage.cost.as_ref().map(|cost| cost.amount);
-                                transcript.used_tokens = Some(usage.used);
+                                let cumulative_cost = usage.cost.as_ref().map(|cost| cost.amount);
+                                let observed_baseline = baseline
+                                    .lock()
+                                    .map(|state| state.clone())
+                                    .unwrap_or_default();
+                                let used_tokens = usage
+                                    .used
+                                    .saturating_sub(observed_baseline.used_tokens.unwrap_or(0));
+                                let cost_usd = cumulative_cost.map(|cost| {
+                                    (cost - observed_baseline.cost_usd.unwrap_or(0.0)).max(0.0)
+                                });
+                                transcript.used_tokens = Some(used_tokens);
                                 transcript.context_size = Some(usage.size);
                                 transcript.cost_usd = cost_usd;
+                                transcript.cumulative_used_tokens = Some(usage.used);
+                                transcript.cumulative_cost_usd = cumulative_cost;
+                                if let Ok(mut current) = session_state.lock() {
+                                    if let Some(current) = current.as_mut() {
+                                        current.used_tokens = Some(usage.used);
+                                        current.cost_usd = cumulative_cost;
+                                        if let Some(path) = state_path.as_deref() {
+                                            let _ = persist_session_state(path, current);
+                                        }
+                                    }
+                                }
                                 append_event(
                                     &event_sink,
                                     &actor,
                                     "model_usage",
                                     serde_json::json!({
                                         "used_tokens": usage.used,
+                                        "turn_used_tokens": used_tokens,
                                         "context_size": usage.size,
                                         "cost_usd": cost_usd,
+                                        "cumulative_cost_usd": cumulative_cost,
                                     }),
                                 );
                             }
@@ -334,6 +469,7 @@ async fn main() -> Result<()> {
                 EnvVariable::new("COORD_ATTEMPT", attempt),
                 EnvVariable::new("COORD_LEASE_TOKEN", lease_token),
                 EnvVariable::new("COORD_RUN_ID", run_id.clone()),
+                EnvVariable::new("COORD_TURN_ID", turn_id.clone()),
             ];
             if let Some(endpoint) = coordinator_endpoint {
                 mcp_env.push(EnvVariable::new("COORD_ENDPOINT", endpoint));
@@ -352,14 +488,90 @@ async fn main() -> Result<()> {
                     .args(vec![mcp_server_path])
                     .env(mcp_env),
             );
-            let session = cx
-                .send_request(NewSessionRequest::new(workdir).mcp_servers(vec![mcp]))
-                .block_task()
-                .await
-                .context("ACP session/new")?;
+            let (session_id, resumed, reconstructed, reconstruction_error, baseline) =
+                if let Some(prior) = prior_session_state {
+                    let prior_id = prior.session_id.clone();
+                    match cx
+                        .send_request(
+                            LoadSessionRequest::new(prior_id.clone(), workdir.clone())
+                                .mcp_servers(vec![mcp.clone()]),
+                        )
+                        .block_task()
+                        .await
+                    {
+                        Ok(_) => (prior_id.into(), true, false, None, prior),
+                        Err(error) => {
+                            let session = cx
+                                .send_request(
+                                    NewSessionRequest::new(workdir.clone())
+                                        .mcp_servers(vec![mcp.clone()]),
+                                )
+                                .block_task()
+                                .await
+                                .context("ACP session/new after failed load")?;
+                            (
+                                session.session_id,
+                                false,
+                                true,
+                                Some(error.to_string()),
+                                SessionState::default(),
+                            )
+                        }
+                    }
+                } else {
+                    let session = cx
+                        .send_request(
+                            NewSessionRequest::new(workdir.clone()).mcp_servers(vec![mcp]),
+                        )
+                        .block_task()
+                        .await
+                        .context("ACP session/new")?;
+                    (
+                        session.session_id,
+                        false,
+                        false,
+                        None,
+                        SessionState::default(),
+                    )
+                };
+            let session_id_text = session_id.to_string();
+            if let Ok(mut current_baseline) = turn_baseline.lock() {
+                *current_baseline = baseline.clone();
+            }
+            let current_session_state = SessionState {
+                session_id: session_id_text.clone(),
+                used_tokens: baseline.used_tokens,
+                cost_usd: baseline.cost_usd,
+            };
+            if let Ok(mut current) = active_session_state.lock() {
+                *current = Some(current_session_state.clone());
+            }
+            if let Some(path) = session_state_path.as_deref() {
+                persist_session_state(path, &current_session_state)?;
+            }
+            {
+                let mut transcript = response_transcript
+                    .lock()
+                    .map_err(|_| anyhow::anyhow!("transcript lock"))?;
+                transcript.session_id = Some(session_id_text.clone());
+                transcript.session_resumed = resumed;
+                transcript.session_reconstructed = reconstructed;
+            }
+            append_event(
+                &event_sink,
+                &actor,
+                "model_session",
+                serde_json::json!({
+                    "session_id": session_id_text,
+                    "resumed": resumed,
+                    "reconstructed": reconstructed,
+                    "reconstruction_error": reconstruction_error,
+                }),
+            );
+            capture_updates.store(true, Ordering::Release);
             let response = cx
                 .send_request(PromptRequest::new(
-                    session.session_id,
+                    session_id,
                     vec![ContentBlock::Text(TextContent::new(prompt))],
                 ))
                 .block_task()

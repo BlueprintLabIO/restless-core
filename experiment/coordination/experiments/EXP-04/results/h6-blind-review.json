@@ -1,0 +1,37 @@
+{
+  "cost_usd": 0.07658556,
+  "model": "zai/glm-5.3",
+  "packet_has_no_topology_trace_or_spend": true,
+  "packet_sha256": "a295532ad5dab5b9e30f373011fd4bf6ec72001a0d61e01182e9c9f0aefb8761",
+  "provider_correlation": "same provider/model family as producers; disclosed limitation",
+  "review": {
+    "configured_effort": "high",
+    "context_size": 1048576,
+    "cost_usd": 0.07658556,
+    "cumulative_cost_usd": 0.07658556,
+    "cumulative_used_tokens": 27859,
+    "model": "zai/glm-5.3",
+    "output_tokens": 4984,
+    "session_id": "01a035f6-6a83-7000-9034-5289e2c03b0a",
+    "session_reconstructed": false,
+    "session_resumed": false,
+    "stop_reason": "endturn",
+    "text": "I read `packet.json` in full and verified both artifacts line-by-line against their named authoritative sources (`sources/sales-accounts.json`, `sources/sales-policy.md`, `sources/monitor-documents.json`).\n\n**Verification summary (basis for scores):**\n- **artifact_alpha**: All 48 records (A001\u2013A048) map 1:1 to source accounts. Every disposition, action_type, follow_up_days, and claim_code matches the frozen policy, including the edge cases: fit=70 (A046) and fit=71 (A011) correctly qualify; fit\u226570 with intent=false (A003, A012, A021, A030, A033, A039, A042, A048) correctly nurture; employees<20 (A009, A031) and Restricted-Zone (A014, A038) correctly close at day 0 with no-contact; regulated accounts (A007, A014, A021, A028, A035, A042) correctly carry `evidence-only`. Every evidence list cites employees/fit_score/intent/region with values matching source; every next_action cites its own company, ID, signal, and verbatim note \u2014 no cross-account bleed. All drafts are explicitly marked unsent/internal-only.\n- **artifact_beta**: All 12 alerts (Entity-01\u201312) match source severity (low/medium/high) exactly; `source_ids` ([OFFICIAL, LATE]) exist and entail event/severity/trigger; syndicated duplicates, superseded archive denials, uncorroborated anonymous rumors, and baseline/noise docs are correctly excluded, so there is no duplicate- or superseded-event inflation (12 entities \u2192 12 alerts). Uncertainty statements are accurate against the sources (single-channel corroboration, no post-07-19 developments).\n\n```json\n{\n  \"artifact_alpha\": {\n    \"usefulness_10\": 9,\n    \"evidence_grounding_10\": 10,\n    \"tail_risk_10\": 10,\n    \"material_defects\": [],\n    \"verdict\": \"pass \u2014 fully evidence-grounded, policy-conformant, policy-safe unsent next-action packages with no cross-account contamination; only cosmetic templating (e.g., 'reference The account explicitly mentioned\u2026' mid-sentence splice) noted as immaterial\"\n  },\n  \"artifact_beta\": {\n    \"usefulness_10\": 9,\n    \"evidence_grounding_10\": 10,\n    \"tail_risk_10\": 10,\n    \"material_defects\": [],\n    \"verdict\": \"pass \u2014 source-entailing, uncertainty-aware, correctly deduplicated alerts with no superseded/rumor inflation; minor: alert records omit document dates for some entities though uncertainty prose cites them for others\"\n  }\n}\n```\n\n**Limitations from receiving a frozen fictional artifact:** The \"authoritative\" sources are themselves synthetic and frozen, so grounding checks only establish internal consistency with a closed fictional universe, not real-world accuracy, timeliness, or external corroboration. The artifact is undated relative to its sources (all dated 2026-07-01 to 07-19), so I cannot confirm freshness or whether later material exists outside the freeze. Rubric dimensions like \"locally useful\" and tail risk could only be judged from packet content, not from downstream operational use, live transmission behavior, or integration effects \u2014 none of which are observable here. By instruction I also did not examine provenance, producer identity, or process, so quality-of-production (as opposed to quality-of-artifact) is unjudged.",
+    "tool_calls": [
+      "Read evaluation packet manifest",
+      "Read full packet body (artifact_alpha and beta data)",
+      "Read packet footer (remaining lines)",
+      "Read final packet lines with source file lists and rubric",
+      "Read sales accounts source data",
+      "Read sales policy source",
+      "Read monitor documents source data",
+      "Read sales accounts lines 1-176",
+      "Read sales accounts lines 177-352",
+      "Read sales accounts lines 353-529",
+      "Read monitor documents lines 1-296",
+      "Read monitor documents lines 297-590"
+    ],
+    "used_tokens": 27859
+  },
+  "run": "exp04-h6-blind-review-r2"
+}

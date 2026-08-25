@@ -77,11 +77,7 @@
 	</header>
 
 	<div class="message-body">
-		{#if sender === 'agent'}
-			<Markdown {text} />
-		{:else}
-			<p>{text}</p>
-		{/if}
+		<Markdown {text} />
 		<AttachmentList {attachments} {hrefFor} />
 		{#if details && sender === 'agent'}
 			<details class="work-details">
@@ -238,11 +234,6 @@
 		font-size: var(--t-body);
 		line-height: 1.5;
 		overflow-wrap: anywhere;
-	}
-
-	.message-body > p {
-		margin: 0;
-		white-space: pre-wrap;
 	}
 
 	.message-body :global(.md > :first-child) {

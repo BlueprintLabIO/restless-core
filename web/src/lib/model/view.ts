@@ -30,6 +30,15 @@ export interface AttentionItem {
 		uri?: string;
 		content?: string;
 	}>;
+	reviewSources: Array<{
+		label: string;
+		provider: string;
+		reference: string;
+		verification: string;
+		uri?: string;
+		content: string;
+		observedAt: Date | string;
+	}>;
 	responsibleActor?: {
 		id: string;
 		display: string;
@@ -45,9 +54,12 @@ export interface AttentionItem {
 	reviewTarget?: {
 		company: string;
 		generation: string;
+		uri: string;
 		status: 'available' | 'unavailable';
-		kind: 'runtime-web';
+		kind: 'runtime-web' | 'runtime-text';
 		label: string;
+		content?: string;
+		unavailableReason?: string;
 	};
 	actions: Array<{
 		id: string;

@@ -19,6 +19,142 @@ impl OrgIntel {
         Ok(row.get(0))
     }
 
+    /// Project one Authority-owned external fact into one organisational
+    /// message. `source_ref` is the idempotency boundary and remains an
+    /// ordinary reference, not a second mailbox or delivery lifecycle.
+    #[allow(clippy::too_many_arguments)]
+    pub async fn project_external_message_once(
+        &self,
+        from: &str,
+        to: &str,
+        body: &str,
+        source_ref: &str,
+        provider: &str,
+        provider_event_id: &str,
+        provider_email_id: Option<&str>,
+        provider_message_id: Option<&str>,
+        provider_thread_id: Option<&str>,
+        source_url: Option<&str>,
+        metadata: &serde_json::Value,
+        work_id: Option<Uuid>,
+    ) -> Result<(i64, bool)> {
+        if body.trim().is_empty() || source_ref.trim().is_empty() {
+            return Err(OrgIntelError::InvalidWork(
+                "external projection needs bounded context and a stable source reference".into(),
+            ));
+        }
+        let mut tx = self.pool.begin().await?;
+        let claimed: Option<String> = sqlx::query_scalar(
+            "INSERT INTO external_message_sources \
+             (source_ref,provider,provider_event_id,provider_email_id,provider_message_id,provider_thread_id,source_url,metadata) \
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT DO NOTHING RETURNING source_ref",
+        )
+        .bind(source_ref)
+        .bind(provider)
+        .bind(provider_event_id)
+        .bind(provider_email_id)
+        .bind(provider_message_id)
+        .bind(provider_thread_id)
+        .bind(source_url)
+        .bind(metadata)
+        .fetch_optional(&mut *tx)
+        .await?;
+        if claimed.is_none() {
+            let existing: Option<i64> = sqlx::query_scalar(
+                "SELECT message_id FROM external_message_sources WHERE source_ref=$1",
+            )
+            .bind(source_ref)
+            .fetch_one(&mut *tx)
+            .await?;
+            let message_id = existing.ok_or_else(|| {
+                OrgIntelError::InvalidWork(
+                    "external source projection exists without its message".into(),
+                )
+            })?;
+            tx.commit().await?;
+            return Ok((message_id, false));
+        }
+        let message_id: i64 = sqlx::query_scalar(
+            "INSERT INTO messages (from_actor,to_actor,body) VALUES ($1,$2,$3) RETURNING id",
+        )
+        .bind(from)
+        .bind(to)
+        .bind(body)
+        .fetch_one(&mut *tx)
+        .await?;
+        if let Some(work_id) = work_id {
+            sqlx::query(
+                "INSERT INTO work_feedback (work_id,message_id,linked_by) VALUES ($1,$2,$3)",
+            )
+            .bind(work_id)
+            .bind(message_id)
+            .bind(from)
+            .execute(&mut *tx)
+            .await?;
+        }
+        sqlx::query(
+            "UPDATE external_message_sources SET message_id=$2,projected_at=now() WHERE source_ref=$1",
+        )
+        .bind(source_ref)
+        .bind(message_id)
+        .execute(&mut *tx)
+        .await?;
+        tx.commit().await?;
+        Ok((message_id, true))
+    }
+
+    /// Resolve an authenticated provider thread through factual projections
+    /// already attached to Work. Active production routes to its worker;
+    /// blocked or review-stage Work routes to the accountable lead. Settled
+    /// Work still identifies the lead, but the new message remains free to
+    /// commission a new Work unit.
+    pub async fn external_thread_route(
+        &self,
+        provider: &str,
+        provider_references: &[String],
+    ) -> Result<Option<(String, Option<Uuid>)>> {
+        if provider.trim().is_empty() || provider_references.is_empty() {
+            return Ok(None);
+        }
+        let Some(row) = sqlx::query(
+            "SELECT work.id AS work_id,work.owner_id,work.status,team.lead_actor_id, \
+                    EXISTS(SELECT 1 FROM owner_handoffs handoff \
+                           WHERE handoff.work_id=work.id AND handoff.state='pending') AS pending_handoff \
+                    ,EXISTS(SELECT 1 FROM work_attempts attempt \
+                            WHERE attempt.work_id=work.id AND attempt.state='running') AS running_attempt \
+             FROM external_message_sources source \
+             JOIN work_feedback feedback ON feedback.message_id=source.message_id \
+             JOIN work ON work.id=feedback.work_id \
+             JOIN actors actor ON actor.id=work.owner_id AND actor.retired_at IS NULL \
+             JOIN teams team ON team.id=actor.team_id AND team.disbanded_at IS NULL \
+             WHERE source.provider=$1 \
+               AND (source.provider_message_id=ANY($2) OR source.provider_thread_id=ANY($2)) \
+             ORDER BY source.projected_at DESC,source.message_id DESC LIMIT 1",
+        )
+        .bind(provider)
+        .bind(provider_references)
+        .fetch_optional(&self.pool)
+        .await?
+        else {
+            return Ok(None);
+        };
+        let work_id: Uuid = row.get("work_id");
+        let owner: String = row.get("owner_id");
+        let status: WorkStatus = row.get("status");
+        let lead: String = row.get("lead_actor_id");
+        let pending_handoff: bool = row.get("pending_handoff");
+        let running_attempt: bool = row.get("running_attempt");
+        Ok(Some(match status {
+            WorkStatus::Proposed | WorkStatus::Active if !pending_handoff && !running_attempt => {
+                (owner, Some(work_id))
+            }
+            WorkStatus::Blocked | WorkStatus::Proposed | WorkStatus::Active => {
+                (lead, Some(work_id))
+            }
+            WorkStatus::Completed | WorkStatus::Abandoned => (lead, None),
+        }))
+    }
+
     /// Send ordinary owner conversation, optionally moving the actor's one
     /// working-context cursor to the end of the existing transcript first.
     /// The cursor changes what a future model wake carries, never what the
@@ -163,6 +299,30 @@ impl OrgIntel {
                 .fetch_optional(&self.pool)
                 .await?,
         )
+    }
+
+    /// Bounded external source records already linked to one Work. This is a
+    /// read projection over `external_message_sources -> messages ->
+    /// work_feedback`; it creates no review/source lifecycle and copies no
+    /// provider payload into a second store.
+    pub async fn work_external_message_sources(
+        &self,
+        work_id: Uuid,
+    ) -> Result<Vec<ExternalMessageSourceRow>> {
+        Ok(sqlx::query_as(
+            "SELECT source.source_ref, source.message_id, message.from_actor, message.body, \
+                    source.provider, source.provider_event_id, source.provider_email_id, \
+                    source.provider_message_id, source.provider_thread_id, source.source_url, \
+                    source.metadata, source.projected_at \
+             FROM external_message_sources source \
+             JOIN messages message ON message.id=source.message_id \
+             JOIN work_feedback feedback ON feedback.message_id=message.id \
+             WHERE feedback.work_id=$1 \
+             ORDER BY source.projected_at, source.message_id",
+        )
+        .bind(work_id)
+        .fetch_all(&self.pool)
+        .await?)
     }
 
     /// Reply from the accountable Work owner to the human owner, preserving

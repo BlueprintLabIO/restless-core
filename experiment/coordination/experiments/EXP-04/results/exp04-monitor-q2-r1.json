@@ -1,0 +1,109 @@
+{
+  "accepted_units_per_worker_window_hour": 419.711,
+  "candidate_checks": [
+    {
+      "errors_observed": [],
+      "exit": 0,
+      "failure_markers": 0,
+      "file": "verify-monitoring.mjs",
+      "fixture_mode": "self_owned",
+      "passed": true,
+      "stderr": "",
+      "stdout": "{\"valid\":true,\"alerts\":12,\"files\":[\"alerts/intelligence-operator-1.json\",\"alerts/intelligence-operator-2.json\"]}\n"
+    }
+  ],
+  "cost_per_accepted_unit": 0.038133,
+  "decision_complete": true,
+  "model": "zai/glm-5.3",
+  "protocol_valid": true,
+  "run": "exp04-monitor-q2-r1",
+  "run_dir": "/Users/yao/Learning/restless/experiment/coordination-lab/v2/workdir/exp04-monitor-q2-r1",
+  "score": {
+    "accepted": 12,
+    "alerts": 12,
+    "errors": [],
+    "files": [
+      "intelligence-operator-1.json",
+      "intelligence-operator-2.json"
+    ],
+    "mean_quality_10": 10.0,
+    "worst_entity_10": 10.0
+  },
+  "telemetry": {
+    "cache_usage": "unknown",
+    "configured_effort": [],
+    "cost_usd": 0.45759864000000006,
+    "lead_active_seconds": 347.435,
+    "observed_peak_workers": 2,
+    "phase_signals": 9,
+    "reasoning_output_tokens": "unknown",
+    "request_wall_seconds": 414.518,
+    "sessions": [
+      {
+        "actor": "supervisor-lead",
+        "at": "1787610368739",
+        "kind": "model_session",
+        "payload": {
+          "reconstructed": false,
+          "reconstruction_error": null,
+          "resumed": false,
+          "session_id": "01a035e1-89e5-7000-95b2-97c04edf502d"
+        },
+        "turn_id": "1787610367392-turn-09b2e795f1"
+      },
+      {
+        "actor": "intelligence-operator-1",
+        "at": "1787610425862",
+        "kind": "model_session",
+        "payload": {
+          "reconstructed": false,
+          "reconstruction_error": null,
+          "resumed": false,
+          "session_id": "01a035e2-689d-7000-ba83-7d6248416e8e"
+        },
+        "turn_id": "1787610424150-turn-bba03a1816"
+      },
+      {
+        "actor": "intelligence-operator-2",
+        "at": "1787610426334",
+        "kind": "model_session",
+        "payload": {
+          "reconstructed": false,
+          "reconstruction_error": null,
+          "resumed": false,
+          "session_id": "01a035e2-6ac9-7000-997e-b65940356777"
+        },
+        "turn_id": "1787610424780-turn-e2bc3a3670"
+      },
+      {
+        "actor": "supervisor-lead",
+        "at": "1787610516232",
+        "kind": "model_session",
+        "payload": {
+          "reconstructed": false,
+          "reconstruction_error": null,
+          "resumed": true,
+          "session_id": "01a035e1-89e5-7000-95b2-97c04edf502d"
+        },
+        "turn_id": "1787610515201-turn-a9ec7a4e04"
+      },
+      {
+        "actor": "supervisor-lead",
+        "at": "1787610588608",
+        "kind": "model_session",
+        "payload": {
+          "reconstructed": false,
+          "reconstruction_error": null,
+          "resumed": true,
+          "session_id": "01a035e1-89e5-7000-95b2-97c04edf502d"
+        },
+        "turn_id": "1787610587590-turn-f039e6caad"
+      }
+    ],
+    "worker_active_sum_seconds": 201.107,
+    "worker_window_seconds": 102.928
+  },
+  "worker_effort": "high",
+  "workers": 2,
+  "workload": "monitoring"
+}

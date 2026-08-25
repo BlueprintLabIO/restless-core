@@ -6,11 +6,22 @@
 
 	import '$lib/design/index.css';
 	import { navigating } from '$app/state';
+	import { QueryClient, QueryClientProvider } from '@tanstack/svelte-query';
 
 	let { children } = $props();
 
 	let online = $state(true);
 	const isLoading = $derived(navigating.to !== null);
+	const queryClient = new QueryClient({
+		defaultOptions: {
+			queries: {
+				staleTime: 5_000,
+				gcTime: 10 * 60_000,
+				refetchOnWindowFocus: true,
+				retry: 1
+			}
+		}
+	});
 </script>
 
 <svelte:window bind:online />
@@ -25,7 +36,9 @@
 	<div class="app-banner app-banner-offline" role="status" aria-live="polite">You're offline.</div>
 {/if}
 
-{@render children()}
+<QueryClientProvider client={queryClient}>
+	{@render children()}
+</QueryClientProvider>
 
 <style>
 	.app-loading-bar {

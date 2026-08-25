@@ -3,7 +3,7 @@
 //! container + one named volume per company; the volume is the company home.
 
 use std::fmt;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 use std::pin::Pin;
 use std::process::Stdio;
 use std::task::{Context as TaskContext, Poll};
@@ -1002,6 +1002,64 @@ pub async fn probe_runtime_http(company: &str, value: &str) -> Result<()> {
     }
 }
 
+const MAX_REVIEW_TEXT_BYTES: usize = 256 * 1024;
+
+fn runtime_review_text_path(value: &str) -> Result<&Path> {
+    let path = Path::new(value);
+    let mut components = path.components();
+    if components.next() != Some(Component::RootDir)
+        || components.next() != Some(Component::Normal("company".as_ref()))
+        || components.clone().next().is_none()
+        || components.any(|component| !matches!(component, Component::Normal(_)))
+    {
+        bail!("text ReviewTarget must be a file beneath /company");
+    }
+    let extension = path
+        .extension()
+        .and_then(|value| value.to_str())
+        .map(str::to_ascii_lowercase);
+    if !matches!(extension.as_deref(), Some("md" | "markdown" | "txt")) {
+        bail!("text ReviewTarget must be Markdown or plain text");
+    }
+    Ok(path)
+}
+
+pub fn is_runtime_review_text_target(value: &str) -> bool {
+    runtime_review_text_path(value).is_ok()
+}
+
+/// Materialise one observed text ReviewTarget for the owner projection. The
+/// file remains Runtime truth: this is a bounded, read-only view of the exact
+/// existing path, not an import, export, or general file-serving interface.
+pub async fn read_runtime_review_text(company: &str, value: &str) -> Result<String> {
+    validate_company_name(company)?;
+    let path = runtime_review_text_path(value)?;
+    let container = container_name(company);
+    let limit = (MAX_REVIEW_TEXT_BYTES + 1).to_string();
+    let output = docker(&[
+        "exec",
+        "-u",
+        "company",
+        &container,
+        "head",
+        "-c",
+        &limit,
+        "--",
+        path.to_str().context("ReviewTarget path must be UTF-8")?,
+    ])
+    .await?;
+    if !output.status.success() {
+        bail!(
+            "text ReviewTarget is unavailable: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        );
+    }
+    if output.stdout.len() > MAX_REVIEW_TEXT_BYTES {
+        bail!("text ReviewTarget exceeds {MAX_REVIEW_TEXT_BYTES} bytes");
+    }
+    String::from_utf8(output.stdout).context("text ReviewTarget is not UTF-8")
+}
+
 impl AsyncRead for DesktopStream {
     fn poll_read(
         mut self: Pin<&mut Self>,
@@ -1583,7 +1641,8 @@ pub fn state_root() -> PathBuf {
 mod tests {
     use super::{
         move_active_config_to_archive, move_archived_config_to_active,
-        normalize_expired_browser_control, runtime_http_target, CompanyConfig, SpendCeiling,
+        normalize_expired_browser_control, runtime_http_target, runtime_review_text_path,
+        CompanyConfig, SpendCeiling,
     };
 
     #[test]
@@ -1675,6 +1734,32 @@ model_failover = ["anthropic/claude-haiku-4-5", "zai/glm-5"]
             "http://user:secret@localhost:4173/",
         ] {
             assert!(runtime_http_target(refused).is_err(), "accepted {refused}");
+        }
+    }
+
+    #[test]
+    fn text_review_targets_are_bounded_to_company_markdown_or_text() {
+        for accepted in [
+            "/company/outputs/customer-response.md",
+            "/company/report.markdown",
+            "/company/notes/result.txt",
+        ] {
+            assert!(
+                runtime_review_text_path(accepted).is_ok(),
+                "refused {accepted}"
+            );
+        }
+        for refused in [
+            "/company",
+            "/company/../etc/passwd",
+            "/etc/passwd",
+            "company/result.md",
+            "/company/result.pdf",
+        ] {
+            assert!(
+                runtime_review_text_path(refused).is_err(),
+                "accepted {refused}"
+            );
         }
     }
 

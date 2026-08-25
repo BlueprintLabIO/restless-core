@@ -10,8 +10,9 @@
  */
 export default function registerLiveModels(pi: any) {
   const gatewayPort = process.env.COORD_GATEWAY_PORT ?? "7796";
+  const gatewayHost = process.env.COORD_GATEWAY_HOST ?? "host.docker.internal";
   const route = {
-    baseUrl: `http://host.docker.internal:${gatewayPort}`,
+    baseUrl: `http://${gatewayHost}:${gatewayPort}`,
     apiKey: "RESTLESS_MODEL_GATEWAY_TOKEN",
   };
 

@@ -1,40 +1,23 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
 	import { page } from '$app/state';
 	import Markdown from '$lib/primitives/Markdown.svelte';
+	import ConversationTurnDock from '$lib/primitives/ConversationTurnDock.svelte';
 	import MatrixGlyph, { GLYPHS } from '$lib/primitives/MatrixGlyph.svelte';
-	import { getAttention, type AttentionView } from '$lib/model/attention';
-	import { getCockpit, type CockpitView } from '$lib/model/cockpit';
+	import { attentionQuery, cockpitQuery, workActivityStream } from '$lib/model/queries.svelte';
 	import type { ArtifactRefRow, WorkGateRow, WorkRow } from '$lib/model/generated/orgintel';
 
 	const companyId = $derived(page.params.companyId ?? 'aris');
 	const workId = $derived(page.params.workId ?? '');
-	let attention = $state<AttentionView | null>(null);
-	let cockpit = $state<CockpitView | null>(null);
-	let loaded = $state(false);
-	let error = $state('');
-
-	onMount(() => {
-		void refresh();
-		const timer = window.setInterval(() => void refresh(false), 8_000);
-		return () => window.clearInterval(timer);
-	});
-
-	async function refresh(showError = true) {
-		try {
-			const [nextAttention, nextCockpit] = await Promise.all([
-				getAttention(companyId),
-				getCockpit(companyId)
-			]);
-			attention = nextAttention;
-			cockpit = nextCockpit;
-			error = '';
-		} catch (cause) {
-			if (showError) error = cause instanceof Error ? cause.message : 'Work is unavailable.';
-		} finally {
-			loaded = true;
-		}
-	}
+	const attentionProjection = $derived(attentionQuery(companyId));
+	const cockpitProjection = $derived(cockpitQuery(companyId));
+	const attention = $derived(attentionProjection.view);
+	const cockpit = $derived(cockpitProjection.view);
+	const loaded = $derived(
+		attentionProjection.status !== 'unknown' || cockpitProjection.status !== 'unknown'
+	);
+	const error = $derived(
+		attentionProjection.failure?.message ?? cockpitProjection.failure?.message ?? ''
+	);
 
 	const graph = $derived(attention?.workGraph ?? null);
 	const work = $derived(graph?.work.find((item) => item.id === workId) ?? null);
@@ -45,6 +28,21 @@
 			.toSorted((a, b) => a.attempt_no - b.attempt_no)
 	);
 	const latestAttempt = $derived(attempts.at(-1) ?? null);
+	const activity = $derived(
+		work && latestAttempt?.state === 'running'
+			? workActivityStream(companyId, work.owner_id, workId)
+			: null
+	);
+	$effect(() => activity?.attach());
+	const workTurn = $derived.by(() => {
+		if (!activity?.live || !latestAttempt) return null;
+		return {
+			triggerMessageId: latestAttempt.attempt_no,
+			since: activity.live.startedAt ?? activity.live.updatedAt,
+			live: activity.live,
+			transport: activity.transport
+		};
+	});
 	const artifacts = $derived(
 		(graph?.artifacts ?? [])
 			.filter((artifact) => artifact.work_id === workId)
@@ -200,6 +198,15 @@
 				</span>
 			</div>
 		</header>
+
+		{#if workTurn}
+			<section class="work-live-activity" aria-label="Live Work activity">
+				<ConversationTurnDock
+					participantName={accountableLead?.display ?? ownerName(work.owner_id)}
+					turn={workTurn}
+				/>
+			</section>
+		{/if}
 
 		{#if unknownRecovery}
 			<section class="recovery-brief" aria-labelledby="recovery-heading">

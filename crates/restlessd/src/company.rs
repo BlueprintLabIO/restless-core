@@ -155,7 +155,7 @@ struct SpendLimit {
     ceiling_usd: f64,
     #[serde(skip_serializing_if = "Option::is_none")]
     remaining_usd: Option<f64>,
-    poisoned: bool,
+    status: &'static str,
 }
 
 #[derive(Debug, Serialize)]
@@ -288,15 +288,20 @@ pub(crate) async fn project(
         ),
     };
 
-    let spend_breakdown = daemon.spend.breakdown(&config.name);
-    let accounted_usd: f64 = spend_breakdown.iter().map(|(_, _, usd)| usd).sum();
-    let poisoned = daemon.spend.spent_usd(&config.name) > 1_000_000_000.0;
+    let budget = daemon.spend.budget_state(config);
+    let accounted_usd = budget.accounted_micro_usd() as f64 / 1_000_000.0;
     let spend = SpendLimit {
         model: config.model.clone(),
         accounted_usd: round_usd(accounted_usd),
         ceiling_usd: config.spend_ceiling_usd.as_usd(),
-        remaining_usd: (!poisoned).then(|| round_usd(daemon.spend.remaining_usd(config))),
-        poisoned,
+        remaining_usd: budget
+            .remaining_micro_usd()
+            .map(|remaining| round_usd(remaining as f64 / 1_000_000.0)),
+        status: match budget {
+            crate::spend::ModelBudgetState::Available { .. } => "available",
+            crate::spend::ModelBudgetState::Exhausted { .. } => "exhausted",
+            crate::spend::ModelBudgetState::MeteringUnknown { .. } => "metering_unknown",
+        },
     };
 
     let legal_identity = authority

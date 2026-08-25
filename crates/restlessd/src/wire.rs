@@ -117,6 +117,8 @@ pub(crate) struct OrgIntelInput {
     #[serde(default)]
     pub(crate) goal: Option<String>,
     #[serde(default)]
+    pub(crate) source_message_id: Option<i64>,
+    #[serde(default)]
     pub(crate) requires: Vec<String>,
     #[serde(default)]
     pub(crate) revises: Vec<String>,
@@ -305,6 +307,7 @@ fn command_fields(command: &str) -> Option<&'static [&'static str]> {
             "worktree",
             "attempt_limit",
             "owner_review",
+            "source_message_id",
             "requires",
             "revises",
             "gates",

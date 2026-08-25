@@ -47,8 +47,8 @@ const MAX_ATTACHMENTS: usize = 6;
 const MAX_ATTACHMENT_BYTES: usize = 5 * 1024 * 1024;
 const ATTACHMENT_BLOCK: &str = "\n\n[Restless attachments]\n";
 const ATTACHMENT_MARKER: &str = "<!--restless-attachments:";
-const INTENT_MARKER: &str = "\n\n<!--restless-intent:";
-const DETAILS_MARKER: &str = "\n\n<!--restless-details:";
+const INTENT_MARKER: &str = "<!--restless-intent:";
+const DETAILS_MARKER: &str = "<!--restless-details:";
 const CONTEXT_BLOCK: &str = "\n\n[Owner cockpit context]\n";
 const CONTEXT_MARKER: &str = "\n\n<!--restless-context:";
 
@@ -107,6 +107,7 @@ struct OwnerMessageInput {
     body: String,
     work_id: Option<Uuid>,
     new_focus: bool,
+    interrupt: bool,
     context_requested: bool,
     context_path: Option<String>,
     attachments: Vec<PendingAttachment>,
@@ -154,8 +155,9 @@ struct ConversationQuery {
 }
 
 #[derive(Debug, Deserialize)]
-struct ConversationLiveQuery {
-    message_id: i64,
+struct AgentActivityQuery {
+    message_id: Option<i64>,
+    work_id: Option<Uuid>,
 }
 
 #[derive(Debug, Deserialize, Default)]
@@ -324,7 +326,7 @@ struct CockpitSpend {
     accounted_usd: f64,
     ceiling_usd: f64,
     remaining_usd: Option<f64>,
-    poisoned: bool,
+    status: String,
 }
 
 #[derive(Debug, Serialize, ts_rs::TS)]
@@ -672,8 +674,8 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
             get(actor_conversation).post(send_actor_message),
         )
         .route(
-            "/companies/{company}/actors/{actor}/conversation/live",
-            get(actor_conversation_live),
+            "/companies/{company}/actors/{actor}/activity",
+            get(agent_activity_live),
         )
         .route(
             "/companies/{company}/attachments/{attachment}",
@@ -1150,8 +1152,8 @@ async fn cockpit_view(
     };
 
     let spend_breakdown = state.daemon.spend.breakdown(&company);
-    let accounted_usd: f64 = spend_breakdown.iter().map(|(_, _, usd)| usd).sum();
-    let poisoned = state.daemon.spend.spent_usd(&company) > 1_000_000_000.0;
+    let budget = state.daemon.spend.budget_state(&config);
+    let accounted_usd = budget.accounted_micro_usd() as f64 / 1_000_000.0;
     let cooldowns = state
         .daemon
         .authority
@@ -1378,8 +1380,14 @@ async fn cockpit_view(
     };
     source_health.insert("runtime".into(), runtime_status.into());
 
-    let remaining_usd =
-        (!poisoned).then(|| round_owner_usd(state.daemon.spend.remaining_usd(&config)));
+    let remaining_usd = budget
+        .remaining_micro_usd()
+        .map(|remaining| round_owner_usd(remaining as f64 / 1_000_000.0));
+    let spend_status = match budget {
+        crate::spend::ModelBudgetState::Available { .. } => "available",
+        crate::spend::ModelBudgetState::Exhausted { .. } => "exhausted",
+        crate::spend::ModelBudgetState::MeteringUnknown { .. } => "metering_unknown",
+    };
     Json(CockpitView {
         company: CockpitCompany {
             id: company,
@@ -1405,7 +1413,7 @@ async fn cockpit_view(
             accounted_usd: round_owner_usd(accounted_usd),
             ceiling_usd: config.spend_ceiling_usd.as_usd(),
             remaining_usd,
-            poisoned,
+            status: spend_status.into(),
         },
         authority: CockpitAuthority {
             approved_parties,
@@ -1476,6 +1484,10 @@ fn render_cockpit_bindings() -> String {
         }
         rendered.push_str("\n\n");
     }
+    // Generated source should end like ordinary checked-in text: one final
+    // newline, not a semantically meaningless blank paragraph.
+    rendered.truncate(rendered.trim_end_matches('\n').len());
+    rendered.push('\n');
     rendered
 }
 
@@ -1571,14 +1583,21 @@ async fn actor_conversation(
     .into_response()
 }
 
-/// Reconnectable live projection for one recorded owner message. This endpoint
-/// never invents durable transcript rows: it carries only the in-flight ACP
-/// reply/activity state until OrgIntel records the final message.
-async fn actor_conversation_live(
+/// Reconnectable live projection for one agent turn. This endpoint never
+/// invents durable transcript, Work, or Attempt rows: it carries only the
+/// in-flight ACP state until OrgIntel records the final outcome.
+async fn agent_activity_live(
     State(state): State<OwnerState>,
     AxumPath((company, actor)): AxumPath<(String, String)>,
-    Query(query): Query<ConversationLiveQuery>,
+    Query(query): Query<AgentActivityQuery>,
 ) -> Response<Body> {
+    if query.message_id.is_some() && query.work_id.is_some() {
+        return api_error(
+            StatusCode::BAD_REQUEST,
+            "activity",
+            "choose either message_id or work_id, not both",
+        );
+    }
     let org = match state.daemon.orgintel.get(&company).await {
         Ok(org) => org,
         Err(error) => {
@@ -1607,10 +1626,11 @@ async fn actor_conversation_live(
         }
     }
 
-    let receiver = state
-        .daemon
-        .conversations
-        .subscribe(&company, &actor, query.message_id);
+    let receiver =
+        state
+            .daemon
+            .activities
+            .subscribe(&company, &actor, query.message_id, query.work_id);
     let stream =
         futures_util::stream::unfold((receiver, true), |(mut receiver, first)| async move {
             if !first && receiver.changed().await.is_err() {
@@ -1621,7 +1641,7 @@ async fn actor_conversation_live(
                 "{\"phase\":\"failed\",\"error\":\"live projection could not be encoded\"}".into()
             });
             let event = Event::default()
-                .event("conversation")
+                .event("activity")
                 .id(state.sequence.to_string())
                 .data(data);
             Some((Ok::<_, Infallible>(event), (receiver, false)))
@@ -1836,10 +1856,28 @@ async fn send_actor_message(
         Ok((message_id, focus)) => {
             state
                 .daemon
-                .conversations
-                .expect(&company, &actor, message_id, input.work_id);
+                .activities
+                .expect_message(&company, &actor, message_id, input.work_id);
+            // Persist the new direction before interrupting. The next wake
+            // discovers it from OrgIntel; the cancelled turn never needs the
+            // owner to repeat or confirm their message.
+            let interrupted = if input.interrupt {
+                if actor == "exec" {
+                    state
+                        .daemon
+                        .in_flight
+                        .lock()
+                        .map(|mut claims| claims.interrupt(&company))
+                        .unwrap_or(false)
+                } else {
+                    state.daemon.staff.interrupt(&company, &actor)
+                }
+            } else {
+                false
+            };
             Json(serde_json::json!({
                 "message_id": message_id,
+                "interrupted": interrupted,
                 "context_attached": context_path.is_some(),
                 "context_omitted": context_omitted,
                 "focus": focus.map(|focus| serde_json::json!({
@@ -1897,6 +1935,17 @@ async fn parse_owner_message(
                     "true" => true,
                     "false" | "" => false,
                     _ => return Err("new_focus must be true or false".into()),
+                };
+            }
+            Some("interrupt") => {
+                let value = field
+                    .text()
+                    .await
+                    .map_err(|error| format!("read interruption request: {error}"))?;
+                input.interrupt = match value.trim() {
+                    "true" => true,
+                    "false" | "" => false,
+                    _ => return Err("interrupt must be true or false".into()),
                 };
             }
             Some("context_path") => {
@@ -2034,9 +2083,9 @@ fn split_intent_receipt(body: &str) -> (&str, Option<OwnerIntentReceipt>) {
         Ok(receipt)
             if !receipt.summary.trim().is_empty() && receipt.summary.chars().count() <= 300 =>
         {
-            (visible, Some(receipt))
+            (visible.trim_end(), Some(receipt))
         }
-        _ => (body, None),
+        _ => (visible.trim_end(), None),
     }
 }
 
@@ -2977,6 +3026,59 @@ mod tests {
     use axum::body::to_bytes;
     use tower::ServiceExt as _;
 
+    #[tokio::test]
+    #[ignore = "serves a dedicated *_test company until interrupted for owner-surface visual QA"]
+    async fn live_isolated_owner_surface_server() {
+        let database_url = std::env::var("RESTLESS_TEST_DATABASE_URL")
+            .expect("set RESTLESS_TEST_DATABASE_URL to an isolated test database");
+        let company = std::env::var("RESTLESS_OWNER_SURFACE_TEST_COMPANY")
+            .expect("set RESTLESS_OWNER_SURFACE_TEST_COMPANY");
+        assert!(
+            company.ends_with("_test"),
+            "visual QA server may expose only a *_test company"
+        );
+        let root = runtime::state_root();
+        let authority = crate::authority::AuthorityStore::connect(&database_url)
+            .await
+            .unwrap();
+        let daemon = Arc::new(crate::Daemon {
+            root: root.clone(),
+            capabilities: crate::capability::CapabilityIssuer::open(&root).unwrap(),
+            spend: crate::spend::SpendLedger::open(&root).unwrap(),
+            authority,
+            orgintel: crate::OrgIntelRegistry {
+                database_url,
+                handles: std::sync::Mutex::new(HashMap::new()),
+            },
+            staff: crate::staff::StaffRegistry::default(),
+            activities: crate::activity::AgentActivityStreams::default(),
+            in_flight: Arc::new(std::sync::Mutex::new(crate::schedule::WakeClaims::default())),
+        });
+        // Prove the requested company exists in both the configured Runtime
+        // set and the isolated OrgIntel database before publishing a surface.
+        runtime::CompanyConfig::load(&root, &company).unwrap();
+        assert!(daemon.orgintel.get(&company).await.unwrap().is_live().await);
+        let address = std::env::var("RESTLESS_OWNER_SURFACE_TEST_ADDR")
+            .unwrap_or_else(|_| "127.0.0.1:7888".into())
+            .parse()
+            .unwrap();
+        let review_address = std::env::var("RESTLESS_OWNER_SURFACE_TEST_REVIEW_ADDR")
+            .unwrap_or_else(|_| "127.0.0.1:7894".into())
+            .parse()
+            .unwrap();
+        println!("isolated owner surface for {company}: http://{address}/{company}");
+        serve(
+            daemon,
+            OwnerConfig {
+                address,
+                review_address,
+                review_public_url: format!("http://{{ticket}}.localhost:{}", review_address.port()),
+            },
+        )
+        .await
+        .unwrap();
+    }
+
     #[test]
     fn cockpit_typescript_bindings_match() {
         let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -3162,7 +3264,7 @@ mod tests {
                 accounted_usd: 1.25,
                 ceiling_usd: 25.0,
                 remaining_usd: Some(23.75),
-                poisoned: false,
+                status: "available".into(),
             },
             authority: CockpitAuthority {
                 approved_parties: vec!["fixture-provider".into()],
@@ -3404,7 +3506,7 @@ mod tests {
         ));
 
         let malformed = "Reply\n\n<!--restless-intent:{\"kind\":\"whatever\",\"summary\":\"x\"}-->";
-        assert_eq!(split_intent_receipt(malformed).0, malformed);
+        assert_eq!(split_intent_receipt(malformed).0, "Reply");
         assert!(split_intent_receipt(malformed).1.is_none());
     }
 

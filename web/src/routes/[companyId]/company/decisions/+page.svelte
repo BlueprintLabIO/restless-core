@@ -1,12 +1,11 @@
 <script lang="ts">
 	import { page } from '$app/state';
 	import InfoTip from '$lib/components/InfoTip.svelte';
-	import { attentionSource } from '$lib/model/attentionSource.svelte';
+	import { attentionQuery } from '$lib/model/queries.svelte';
 	import SemanticMark from '$lib/primitives/SemanticMark.svelte';
 
 	const companyId = $derived(page.params.companyId ?? 'aris');
-	const source = $derived(attentionSource(companyId));
-	$effect(() => source.attach());
+	const source = $derived(attentionQuery(companyId));
 	const view = $derived(source.view);
 	const decisions = $derived(view?.continuations ?? []);
 	const graph = $derived(view?.workGraph ?? null);

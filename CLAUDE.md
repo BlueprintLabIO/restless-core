@@ -78,28 +78,29 @@ These are product soul, not legacy mechanics. They survive the rebuild.
 
 **Place organisational boundaries where accountability closes, not where a task looks large.** Exec
 owns the portfolio and always dispatches executable owner work to one accountable lead. A lead owns
-one coherent native outcome and may work alone. Staff owns an independently useful semantic
+one coherent native outcome and remains a non-producing supervisor. At least one Staff worker owns
+production for an executable outcome. Staff owns an independently useful semantic
 contribution or locally closing unit in a repeated queue. A hand or ordinary tool owns only a bounded
 operation; if another model exercises project judgement, it is Staff and its contribution must be
 attributable.
 
-The current prior is a wide, shallow organisation: several mostly-solo leads run concurrently and add
-Staff temporarily only when specialisation, independent evidence, unused parallel capacity or context
-saturation can repay briefing, communication, integration and review. This is model judgement, not a
-team-size rule. Fast inference makes needless delegation especially expensive, but does not make teams
-obsolete.
+The current prior is a wide, shallow organisation: several supervisor leads run concurrently, each
+with one end-to-end worker by default. Add workers temporarily only when specialisation, independent
+evidence, locally closing units, unused parallel capacity or context saturation can repay briefing,
+communication, integration and review. This is model judgement, not a team-size rule. Fast inference
+makes extra intra-lead boundaries especially expensive, but does not make teams obsolete.
 
 That prior applies mainly to several minds coauthoring one result. Repeated independent units—sales
 accounts, support cases, recruiting screens or similar queues—may justify a large elastic Staff pool
 even when actors share a role and model: capacity and response time are then the product. The lead owns
-the charter, calibration, aggregate result and exceptions; the Work graph records real batches or
-territories rather than mirroring every unit.
+the charter, calibration, aggregate result and exceptions; each worker-owned unit must close without a
+central model rewrite. The Work graph records real batches or territories rather than mirroring every
+unit.
 
-Lead posture is separate from lead accountability. A lead may work as a player-coach or reserve its
-attention for supervision, guidance, redirection and repair. Preserve more lead attention as worker
-count, duration, volatility, capability uncertainty, consequence or repair cost rises; do not require
-a supervisor-only lead for every one-worker task. Supervision is driven by material events and
-artifacts, never polling or status theatre.
+Lead supervision is a product invariant, not a posture selected by local cost. The lead frames,
+commissions, observes, guides, redirects, repairs through workers and judges the exact outcome; it does
+no planned production, silent artifact repair or private parallel implementation. Supervision is
+driven by material events and artifacts, never polling or status theatre.
 
 Leads coordinate directly through material facts, decisions, artifacts and sparse dependencies. One
 lead integrates any shared outcome. Cross-team priority, resource, charter and strategy conflicts go

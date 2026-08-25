@@ -134,15 +134,6 @@ impl Blocked {
         )
     }
 
-    /// The company is out of money. Reachable two ways — before a wake, from
-    /// the ledger, and mid-turn, from the agent's own usage — and both must
-    /// arrive at the owner looking identical, which is why neither formats its
-    /// own prefix.
-    #[must_use]
-    pub fn budget(detail: impl Into<String>) -> Self {
-        Self::new(BlockKind::Budget, detail)
-    }
-
     /// The owner-facing sentence. No stack traces, no JSON — this is what
     /// lands in the milestone reason and the owner's mail.
     #[must_use]
@@ -276,6 +267,14 @@ pub fn classify(end: &acp::TurnEnd) -> Verdict {
                 ),
             ))
         }
+
+        // A material owner/lead direction is not a provider failure or no-op.
+        // Preserve Runtime state and let the exact linked message become the
+        // next supervised wake.
+        acp::TurnEnd::Interrupted { .. } => Verdict::Resume(
+            "a material direction interrupted this turn; anything already written to the company computer is preserved for supervised recovery"
+                .into(),
+        ),
 
         // A failure classifies by its status class. It never falls through to
         // the consumption check — tokens may well have been spent before the

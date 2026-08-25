@@ -29,6 +29,7 @@
 		ariaLabel = 'Message',
 		disabled = false,
 		minlength = 2,
+		actionLabel = '',
 		flareKey = 0,
 		focusKey = 0,
 		controls
@@ -40,6 +41,8 @@
 		ariaLabel?: string;
 		disabled?: boolean;
 		minlength?: number;
+		/** Visible on hover and assistive tech when a send has a special effect. */
+		actionLabel?: string;
 		/** Increment to play the one-shot semantic-light acknowledgement. */
 		flareKey?: number;
 		/** Increment to return keyboard focus without reaching into this component's DOM. */
@@ -100,7 +103,7 @@
 	const sendability = $derived(sendState({ disabled: disabled || voiceActive, value, minlength }));
 	const sendable = $derived(sendability === 'ready');
 	const sendLabel = $derived(
-		voiceActive ? 'Finish dictation before sending' : sendButtonLabel(sendability)
+		voiceActive ? 'Finish dictation before sending' : actionLabel || sendButtonLabel(sendability)
 	);
 	const voiceLabel = $derived.by(() => {
 		if (!voiceAvailable) return 'Voice input is unavailable in this browser';
@@ -296,7 +299,13 @@
 					<Mic size={15} strokeWidth={2} aria-hidden="true" />
 				{/if}
 			</button>
-			<button class="hc-send" type="submit" aria-label={sendLabel} disabled={!sendable}>
+			<button
+				class="hc-send"
+				type="submit"
+				aria-label={sendLabel}
+				title={sendLabel}
+				disabled={!sendable}
+			>
 				<MatrixGlyph rows={GLYPHS.up} size={11} />
 			</button>
 		</div>

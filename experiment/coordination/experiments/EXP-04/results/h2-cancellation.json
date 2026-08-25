@@ -1,0 +1,41 @@
+{
+  "cancel_to_finalized_ms": 2424.676,
+  "controller_stop_reason": "controller_cancelled",
+  "duplicate_live_owners": 0,
+  "first_attempt_state": "cancelled",
+  "latest_usage_preserved": false,
+  "missing_usage_remained_unknown": true,
+  "no_post_cancel_production": true,
+  "redirect_pending_on_live_attempt": true,
+  "redirected_attempt_state": "produced",
+  "revision_advanced_once": true,
+  "run": "exp04-h2-cancellation-r1",
+  "same_actor": true,
+  "same_work": true,
+  "second_result": {
+    "configured_effort": "low",
+    "context_size": 1048576,
+    "cost_usd": 0.04114376,
+    "cumulative_cost_usd": 0.04114376,
+    "cumulative_used_tokens": 8744,
+    "model": "zai/glm-5.3",
+    "output_tokens": 1717,
+    "session_id": "01a035c9-0dba-7000-8f39-b67dbac1949a",
+    "session_reconstructed": false,
+    "session_resumed": true,
+    "stop_reason": "endturn",
+    "text": "The preserved workspace matches the expected cancellation state: `outputs/cancel-probe.txt` contains exactly `PRE_CANCEL\\n` (11 bytes), no `POST_CANCEL`; branch `lab/v2/exp04-h2-cancellation-r1/work-331510a17f` with only the untracked `outputs/` dir. Recording phase `repair`:File is now exactly `PRE_CANCEL\\nRESUMED\\n` (19 bytes). Verifying the declared invariant and committing cleanly in one gated chain:Invariant verified, clean commit `f0949d3` created, working tree clean. Reading the report tool schema before first use:H2 repair Attempt complete \u2014 gate passed, Work marked completed.\n\n**Sequence of evidence:**\n1. **Inspected preserved workspace**: `outputs/cancel-probe.txt` contained exactly `PRE_CANCEL\\n` (11 bytes); `POST_CANCEL` absent \u2014 the cancellation interrupted the 120s sleep before the append. Branch `lab/v2/exp04-h2-cancellation-r1/work-331510a17f`, tree clean except untracked `outputs/`.\n2. **phase `repair`** recorded with that observable state.\n3. **Appended exactly `RESUMED\\n`** \u2014 file became `PRE_CANCEL\\nRESUMED\\n` (19 bytes).\n4. **Verified the invariant**: `PRE_CANCEL` present, `POST_CANCEL` absent, `RESUMED` present \u2192 `INVARIANT OK`.\n5. **Clean commit** `f0949d3` (\"H2 cancellation probe: PRE_CANCEL preserved across redirect, RESUMED appended\"), working tree clean afterward.\n6. **report `outcome_met`** (key `h2-cancel-probe-repair-r1-f0949d3`): harness gate `resumed-without-post-cancel` exited 0, state `produced`, `work_status: completed`.",
+    "tool_calls": [
+      "$ ls -la outputs/ && cat -A outputs/cancel-probe.txt 2>/dev/null; echo \"---git---\"; git status --porcelain; git log --oneline -3 2>/dev/null; git branch --show-current",
+      "Execute phase repair telemetry call",
+      "$ printf 'RESUMED\\n' >> outputs/cancel-probe.txt && cat -A outputs/cancel-probe.txt && wc -c outputs/cancel-probe.txt",
+      "$ grep -q '^PRE_CANCEL$' outputs/cancel-probe.txt && ! grep -q 'POST_CANCEL' outputs/cancel-probe.txt && grep -q '^RESUMED$' outputs/cancel-probe.txt && echo \"INVARIANT OK: PRE_CANCEL present, POST_CANCEL absent, RESUMED appended\" && git add outputs/cancel-probe.txt && git commit -m \"H2 cancellation probe: PRE_CANCEL preserved across redirect, RESUMED appended\" && git status --porcelain && git log --oneline -2",
+      "Read report tool docs and JSON schema before first use",
+      "Execute report outcome_met for the H2 repair attempt"
+    ],
+    "used_tokens": 8744
+  },
+  "trigger_observed": true,
+  "triggered_at": 1787608799.230628,
+  "workspace_preserved": true
+}

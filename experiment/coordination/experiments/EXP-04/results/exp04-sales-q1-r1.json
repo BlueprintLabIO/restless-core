@@ -1,0 +1,84 @@
+{
+  "accepted_units_per_worker_window_hour": 1356.028,
+  "candidate_checks": [
+    {
+      "errors_observed": [],
+      "exit": 0,
+      "failure_markers": 0,
+      "file": "verify-sales.mjs",
+      "fixture_mode": "self_owned",
+      "passed": true,
+      "stderr": "",
+      "stdout": "{\"valid\":true,\"units\":48,\"files\":[\"outputs/sales-operator-1.json\"]}\n"
+    }
+  ],
+  "cost_per_accepted_unit": 0.005085,
+  "decision_complete": true,
+  "model": "zai/glm-5.3",
+  "protocol_valid": true,
+  "run": "exp04-sales-q1-r1",
+  "run_dir": "/Users/yao/Learning/restless/experiment/coordination-lab/v2/workdir/exp04-sales-q1-r1",
+  "score": {
+    "accepted": 48,
+    "errors": [],
+    "files": [
+      "sales-operator-1.json"
+    ],
+    "mean_quality_10": 10.0,
+    "units": 48,
+    "worst_decile_10": 10.0
+  },
+  "telemetry": {
+    "cache_usage": "unknown",
+    "configured_effort": [],
+    "cost_usd": 0.24405608,
+    "lead_active_seconds": 155.222,
+    "observed_peak_workers": 1,
+    "phase_signals": 5,
+    "reasoning_output_tokens": "unknown",
+    "request_wall_seconds": 257.019,
+    "sessions": [
+      {
+        "actor": "supervisor-lead",
+        "at": "1787609147423",
+        "kind": "model_session",
+        "payload": {
+          "reconstructed": false,
+          "reconstruction_error": null,
+          "resumed": false,
+          "session_id": "01a035ce-e756-7000-9fd5-4371062f55f1"
+        },
+        "turn_id": "1787609146423-turn-5836ae3240"
+      },
+      {
+        "actor": "sales-operator-1",
+        "at": "1787609208397",
+        "kind": "model_session",
+        "payload": {
+          "reconstructed": false,
+          "reconstruction_error": null,
+          "resumed": false,
+          "session_id": "01a035cf-d5b0-7000-b886-92c874c24c1c"
+        },
+        "turn_id": "1787609207143-turn-4024599d5e"
+      },
+      {
+        "actor": "supervisor-lead",
+        "at": "1787609328171",
+        "kind": "model_session",
+        "payload": {
+          "reconstructed": false,
+          "reconstruction_error": null,
+          "resumed": true,
+          "session_id": "01a035ce-e756-7000-9fd5-4371062f55f1"
+        },
+        "turn_id": "1787609327166-turn-7cfcbc5da4"
+      }
+    ],
+    "worker_active_sum_seconds": 127.431,
+    "worker_window_seconds": 127.431
+  },
+  "worker_effort": "high",
+  "workers": 1,
+  "workload": "sales"
+}

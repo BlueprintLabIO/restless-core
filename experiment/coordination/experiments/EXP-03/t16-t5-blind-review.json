@@ -1,0 +1,55 @@
+{
+  "candidate_A": {
+    "scores": {
+      "truth_and_evidence": 8,
+      "causal_coherence": 9,
+      "decision_usefulness": 9,
+      "native_quality": 9,
+      "failure_awareness": 8
+    },
+    "material_strengths": [
+      "Funnel reconstructed with correct conditional denominators (75–80% upstream, 57.4%/58.1% at the battle boundary) plus cumulative rates (18/72, 6/96), and the A-02 cohort of 41 is independently reconciled against funnel arithmetic (only 72−31=41 matches; 36 and 23 do not) with the consequence carried consistently through memo, evidence map and manifest.",
+      "Uses the scenario's gated-hybrid allowance exactly as specified: one named primary bet (B), week-by-week sequencing across both staffing lanes, Option A de-risked in genuine slack without shipping commitment, and numeric G2 thresholds tied to frozen baselines and explicitly labelled owner-ratifiable assumptions rather than evidence.",
+      "Names the precise remaining owner decisions (approve the fresh re-probe cohort, ratify G2 thresholds) and gives a G1 descope rule grounded in the coded-cause counts (keep readability at 13 vs performance at 6), so the artifact is executable without owner reconstruction.",
+      "Interprets the 41-mismatch productively: the readability code may locate friction at the battle boundary (deciding whether to enter) as much as inside the battle, which sharpens rather than blurs the recommendation."
+    ],
+    "material_defects": [
+      "Fabricates an unsupported sampling fact: 'depth requests come from players who completed sessions' / 'interviewees skew toward completers' appears in the memo (§4, X-01) and evidence map, but the corpus never states who was interviewed. The central tension resolution survives without it, yet the claim is stated as fact.",
+      "Calls 57.4%/58.1% 'the two sharpest conditional losses' while its own table shows 6/18 = 33.3%, and never flags that the return denominator is a reconstruction (the source states the return count but no eligible base); the return base is used inconsistently (6/18 in the table, 6/96 elsewhere) without explanation.",
+      "Minor: overlapping week ranges (B in weeks 1–4/5, de-risking in weeks 4–8) leave the cutover slightly ambiguous, and the re-computed Option A consumption 'approaches 6–8 of 8 engineering-weeks' is asserted more firmly than the unestimated tool-finishing effort supports."
+    ],
+    "acceptance": "accept"
+  },
+  "candidate_B": {
+    "scores": {
+      "truth_and_evidence": 8,
+      "causal_coherence": 8,
+      "decision_usefulness": 7,
+      "native_quality": 8,
+      "failure_awareness": 9
+    },
+    "material_strengths": [
+      "Strictest denominator discipline of the two: explicitly flags 6/18 as an ordered-stage reconstruction (the source never states the eligible return base), keeps every instrument on its own denominator, and carries the 41-vs-36/23 irreconciliation forward as a standing unknown rather than resolving it by assumption.",
+      "Surfaces the pre-battle absolute losses (24, 24, 23 versus 13 in-battle) as a first-class limitation that neither option's evidence addresses, and routes pre-battle diagnosis into the falsifier and gate structure instead of hiding the gap behind the battle-friction narrative.",
+      "No invented sampling facts: the exploration-appetite signal is treated as real but unevidenced beyond the overlapping count, and per-source limitations (17 of 41 never coded, no comparison cohort, single estimator, self-reported readiness) are transcribed with per-number provenance in the region evidence files.",
+      "Gates are concretely measurable (G1: measurable build with 0 of 12 configurations below 30 fps under stacked effects; G2: repeat observation coded the same way against frozen 31/54 and 18/31 baselines) and the falsifier has three independent disjuncts."
+    ],
+    "material_defects": [
+      "Load-bearing arithmetic overclaim, repeated in memo, manifest (C-16) and review: 'the engineering estimates alone cannot both fit' the engineer's 8 weeks — at lower bounds they sum to 7 of 8; the real infeasibility rests on the unestimated tool dependency and zero buffer, which the artifact also cites, making the flat 'cannot both fit' claim loose where it matters most (justifying the forced trade-off).",
+      "The fifth contradiction asserts 'both options' scopes sit at or after the battle', but Option B's stated scope is first-session comprehension including onboarding; the tension is partly manufactured by narrowing B's scope to the battle.",
+      "Strained claim that 'no source links the biome to the exploration appetite' (while 11 of 16 asked for another place to explore) sits in visible tension with its own Option A benefits text.",
+      "The plan leaves most of the two-person milestone unallocated (3–4 engineering-weeks plus 1 design-week named of 8+8) and defers even the cheap encounter-tool finishing that would de-risk the next milestone after G3; a CSS typo ('#e7eeeau') appears in review.html."
+    ],
+    "acceptance": "accept"
+  },
+  "preference": "A",
+  "preference_reason": "Both recommend the same primary bet with comparable fidelity blemishes (A invents a sampling fact; B overstates hybrid infeasibility and mischaracterises Option B's scope), so the owner's directional decision would not change. What differs is operating content: A converts the decision into a capacity-complete, week-scheduled gated sequence with exact owner decisions and a descope rule, while B's flatter commitment leaves roughly ten person-weeks unspecified and postpones even low-cost de-risking of the option it defers. B's edge in failure awareness (return-base reconstruction flag, pre-battle loss honesty) does not change the owner's next action; A's scheduling and gate precision does.",
+  "confidence": "medium",
+  "scenario_ambiguities": [
+    "Neither candidate's verify-research-decision.mjs, commit ID or verifier output is supplied, so verifier quality and clean-checkout claims cannot be assessed for either.",
+    "The eligible base for '6 returned within seven days' is unstated in A-01 (of 120, 96, or 18?); the candidates treat it differently (A as 6/18, B as a flagged reconstruction) and the corpus does not settle it.",
+    "The A-02 stopper pool of 41 matches only 72−31 (exploration starters who never entered a battle), leaving unclear whether the readability codes describe in-battle or battle-boundary friction; both candidates flag it, but it changes how strongly the coded evidence supports Option B's scope.",
+    "Whether a lower-bound hybrid (4+3 = 7 of 8 engineering-weeks) counts as feasible is undetermined; the scenario forbids 'do both' without a trade-off but permits a genuinely gated sequence, so the feasibility line each candidate draws is partly judgement.",
+    "Option B's scope boundary is ambiguous in the corpus (does 'first-session comprehension and onboarding' cover pre-battle exploration/load losses?); Candidate B's fifth contradiction assumes it does not, Candidate A assumes it plausibly does."
+  ]
+}

@@ -37,6 +37,9 @@ impl OrgIntel {
              FROM work w \
              WHERE w.status IN ('proposed','active') \
                AND w.owner_id <> ALL($1::text[]) \
+               AND NOT EXISTS (SELECT 1 FROM teams t \
+                               WHERE t.lead_actor_id = w.owner_id AND t.disbanded_at IS NULL) \
+               AND w.owner_id NOT IN ('owner','exec','world','daemon') \
                AND NOT EXISTS (SELECT 1 FROM work_attempts a \
                                WHERE a.work_id = w.id AND a.state = 'running') \
                AND NOT EXISTS (SELECT 1 FROM work_attempts a \
@@ -604,7 +607,9 @@ impl OrgIntel {
                     .await?;
                     sqlx::query("UPDATE work SET status='blocked', resolution=$2 WHERE id=$1")
                         .bind(work_id)
-                        .bind(format!("awaiting owner outcome review {handoff_id}"))
+                        .bind(format!(
+                            "awaiting accountable-lead outcome review {handoff_id}"
+                        ))
                         .execute(&mut *tx)
                         .await?;
                 } else {
@@ -784,10 +789,11 @@ impl OrgIntel {
     }
 }
 
-/// Materialise the owner-facing side of a qualified produced outcome in the
-/// same transaction as Attempt completion. The accountable producer chose and
-/// live-probed the target; this deterministic transition only brings that
-/// exact candidate to the owner and never accepts it or interprets it.
+/// Materialise the supervisory review side of a qualified produced outcome in
+/// the same transaction as Attempt completion. The accountable producer chose
+/// and live-probed the target; its lead must inspect and judge that exact
+/// candidate before any owner-facing admission. This preserves a non-producing
+/// supervisor without turning the deterministic transition into acceptance.
 async fn create_qualified_outcome_review(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     work_id: Uuid,
@@ -798,7 +804,7 @@ async fn create_qualified_outcome_review(
 ) -> Result<Uuid> {
     let id = Uuid::new_v4();
     let requested_action = format!(
-        "Open the prepared outcome at {}. Accept it if it meets the declared outcome, or request concrete changes.",
+        "Inspect the prepared outcome at {}. Redirect the worker with concrete Work feedback if it misses the declared outcome; otherwise prepare and escalate only the exact irreducible owner judgement.",
         review.target_uri
     );
     let prepared_state = format!(
@@ -806,39 +812,21 @@ async fn create_qualified_outcome_review(
         review.target_uri, review.outcome, REVIEW_TARGET_LIVE_PROBE_GATE
     );
     let resume_condition =
-        "The owner accepts the prepared outcome or records concrete requested changes.";
-    let brief = OwnerBrief {
-        kind: OwnerBriefKind::OutcomeReview,
-        headline: format!("Review: {}", review.title),
-        situation: format!(
-            "The accountable producer completed the declared outcome and prepared this live-probed ReviewTarget: {}.",
-            review.target_uri
-        ),
-        impact: review.outcome,
-        recommendation: "Open the prepared outcome, compare it with the declared outcome, then accept it or request concrete changes.".into(),
-        no_action: "The Work remains blocked with its prepared outcome intact until this review is decided.".into(),
-        uncertainty: None,
-        deadline: None,
-    };
-    validate_owner_brief(&brief)?;
-    let brief = serde_json::to_value(&brief).map_err(|error| {
-        OrgIntelError::InvalidWork(format!("invalid generated outcome review brief: {error}"))
-    })?;
-    let fingerprint = owner_handoff_source_fingerprint(
-        work_id,
-        Some(attempt_id),
-        OwnerHandoffCategory::OwnerJudgement,
-        &requested_action,
-        &prepared_state,
-        resume_condition,
-        work_revision,
-    );
+        "The accountable lead either redirects attributable revision Work or admits the exact prepared outcome through the remaining Exec/owner judgement boundary.";
+    let assigned_to = sqlx::query_scalar::<_, String>(
+        "SELECT t.lead_actor_id FROM actors a JOIN teams t ON t.id=a.team_id \
+         WHERE a.id=$1 AND a.retired_at IS NULL AND t.disbanded_at IS NULL \
+           AND t.lead_actor_id<>a.id",
+    )
+    .bind(requested_by)
+    .fetch_optional(&mut **tx)
+    .await?
+    .unwrap_or_else(|| "exec".to_string());
     sqlx::query(
         "INSERT INTO owner_handoffs \
          (id, work_id, attempt_id, requested_by, category, requested_action, prepared_state, \
-          resume_condition, assigned_to, escalated_from, escalated_at, owner_brief, briefed_by, \
-          briefed_at, brief_source_fingerprint) \
-         VALUES ($1,$2,$3,$4,'owner_judgement',$5,$6,$7,NULL,$4,now(),$8,$4,now(),$9)",
+          resume_condition, assigned_to) \
+         VALUES ($1,$2,$3,$4,'owner_judgement',$5,$6,$7,$8)",
     )
     .bind(id)
     .bind(work_id)
@@ -847,8 +835,7 @@ async fn create_qualified_outcome_review(
     .bind(&requested_action)
     .bind(&prepared_state)
     .bind(resume_condition)
-    .bind(&brief)
-    .bind(&fingerprint)
+    .bind(&assigned_to)
     .execute(&mut **tx)
     .await?;
     sqlx::query(
@@ -861,6 +848,9 @@ async fn create_qualified_outcome_review(
         "attempt_id": attempt_id,
         "review_target": review.target_uri,
         "work_revision": work_revision,
+        "assigned_to": assigned_to,
+        "title": review.title,
+        "outcome": review.outcome,
     }))
     .execute(&mut **tx)
     .await?;

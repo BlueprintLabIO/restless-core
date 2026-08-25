@@ -539,6 +539,26 @@ pub struct MessageRow {
     pub read_at: Option<DateTime<Utc>>,
 }
 
+/// One bounded external fact linked to Work through its ordinary message
+/// input. The external provider remains authoritative; this row only gives
+/// owner and agent projections the exact source reference and bounded context
+/// already admitted into OrgIntel.
+#[derive(Debug, Clone, Serialize, sqlx::FromRow)]
+pub struct ExternalMessageSourceRow {
+    pub source_ref: String,
+    pub message_id: i64,
+    pub from_actor: String,
+    pub body: String,
+    pub provider: String,
+    pub provider_event_id: String,
+    pub provider_email_id: Option<String>,
+    pub provider_message_id: Option<String>,
+    pub provider_thread_id: Option<String>,
+    pub source_url: Option<String>,
+    pub metadata: serde_json::Value,
+    pub projected_at: DateTime<Utc>,
+}
+
 #[derive(Debug, Clone, Serialize, sqlx::FromRow)]
 pub struct ConversationFocusRow {
     pub after_message_id: i64,

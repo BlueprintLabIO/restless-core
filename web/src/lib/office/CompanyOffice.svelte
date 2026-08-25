@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
-	import { getCockpit, type CockpitView } from '$lib/model/cockpit';
+	import { cockpitQuery } from '$lib/model/queries.svelte';
 	import type { WorkGraphSnapshot } from '$lib/model/generated/orgintel';
 	import OfficeCanvas from './OfficeCanvas.svelte';
 	import {
@@ -22,8 +22,9 @@
 		sourceHealth: Record<string, string>;
 	} = $props();
 
-	let cockpit = $state<CockpitView | null>(null);
-	let error = $state('');
+	const cockpitProjection = $derived(cockpitQuery(companyId));
+	const cockpit = $derived(cockpitProjection.view);
+	const error = $derived(cockpitProjection.failure?.message ?? '');
 	let selectedActorId = $state<string | null>(null);
 	let preferences = $state<OfficePreferences>({ ...DEFAULT_OFFICE_PREFERENCES });
 
@@ -56,19 +57,7 @@
 
 	onMount(() => {
 		preferences = readPreferences();
-		void refresh();
-		const timer = window.setInterval(() => void refresh(), 8_000);
-		return () => window.clearInterval(timer);
 	});
-
-	async function refresh() {
-		try {
-			cockpit = await getCockpit(companyId);
-			error = '';
-		} catch (cause) {
-			error = cause instanceof Error ? cause.message : 'Live company status is unavailable.';
-		}
-	}
 
 	function openMember(member: OfficeMember) {
 		void goto(member.workHref ?? member.personHref);

@@ -22,7 +22,7 @@ async fn create_actor(org: &OrgIntel, id: &str, role: &str) {
 }
 
 #[tokio::test]
-async fn exec_can_dispatch_a_second_department_while_the_first_lead_attempt_runs() {
+async fn exec_can_dispatch_a_second_department_while_each_lead_supervises_staff_work() {
     let Ok(url) = std::env::var("RESTLESS_TEST_DATABASE_URL") else {
         eprintln!("RESTLESS_TEST_DATABASE_URL unset; skipping Exec availability scenario");
         return;
@@ -35,18 +35,28 @@ async fn exec_can_dispatch_a_second_department_while_the_first_lead_attempt_runs
         .await
         .unwrap();
     create_actor(&org, "product-direction", "lead").await;
+    create_actor(&org, "product-builder", "builder").await;
 
-    org.create_team(
-        "Product direction",
-        "Advance the playable product outcome",
+    let product_team = org
+        .create_team(
+            "Product direction",
+            "Advance the playable product outcome",
+            "product-direction",
+            "exec",
+        )
+        .await
+        .unwrap();
+    org.set_actor_team(
+        "product-builder",
+        Some(product_team),
         "product-direction",
-        "exec",
+        "the builder owns end-to-end production while the lead supervises",
     )
     .await
     .unwrap();
     let product = org
         .add_work(NewWork {
-            owner_id: "product-direction",
+            owner_id: "product-builder",
             title: "Advance product",
             outcome: "one accepted playable candidate",
             goal_id: None,
@@ -61,24 +71,34 @@ async fn exec_can_dispatch_a_second_department_while_the_first_lead_attempt_runs
         .claim_ready_work("product-runtime")
         .await
         .unwrap()
-        .expect("first lead Work should be claimable");
+        .expect("first department Staff Work should be claimable");
     assert_eq!(product_attempt.work.id, product);
-    assert_eq!(product_attempt.work.owner_id, "product-direction");
+    assert_eq!(product_attempt.work.owner_id, "product-builder");
 
     // The first department is still running. Exec is not its Work owner and
     // can commission an unrelated owner request through a second lead.
     create_actor(&org, "research-direction", "lead").await;
-    org.create_team(
-        "Research direction",
-        "Produce a sourced decision memo",
+    create_actor(&org, "research-analyst", "analyst").await;
+    let research_team = org
+        .create_team(
+            "Research direction",
+            "Produce a sourced decision memo",
+            "research-direction",
+            "exec",
+        )
+        .await
+        .unwrap();
+    org.set_actor_team(
+        "research-analyst",
+        Some(research_team),
         "research-direction",
-        "exec",
+        "the analyst owns the sourced memo while the lead supervises",
     )
     .await
     .unwrap();
     let research = org
         .add_work(NewWork {
-            owner_id: "research-direction",
+            owner_id: "research-analyst",
             title: "Research decision",
             outcome: "one accepted sourced recommendation",
             goal_id: None,
@@ -93,9 +113,9 @@ async fn exec_can_dispatch_a_second_department_while_the_first_lead_attempt_runs
         .claim_ready_work("research-runtime")
         .await
         .unwrap()
-        .expect("second lead Work should run while the first remains claimed");
+        .expect("second department Staff Work should run while the first remains claimed");
     assert_eq!(research_attempt.work.id, research);
-    assert_eq!(research_attempt.work.owner_id, "research-direction");
+    assert_eq!(research_attempt.work.owner_id, "research-analyst");
     assert_ne!(product_attempt.attempt_id, research_attempt.attempt_id);
     let attempts = org.list_work_attempts(None).await.unwrap();
     assert_eq!(
@@ -106,6 +126,7 @@ async fn exec_can_dispatch_a_second_department_while_the_first_lead_attempt_runs
         2,
         "two departments run while Exec owns neither Attempt"
     );
+    org.drop_schema().await.unwrap();
 }
 
 #[tokio::test]

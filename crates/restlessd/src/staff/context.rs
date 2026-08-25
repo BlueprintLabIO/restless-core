@@ -12,7 +12,7 @@ use crate::runtime::CompanyConfig;
 /// its productive Work wake called the same actor a mere specialist.
 pub(super) fn actor_posture(accountable_lead: bool) -> &'static str {
     if accountable_lead {
-        "You are the ACCOUNTABLE LEAD for this team's whole outcome, not a relay and not a smaller Exec. Apply the natural accountable-team rules above on productive Work and conversation wakes alike. Direct execution is valid; Staff are optional. You retain integration, native review, completion judgement, and truthful attribution of every real contribution."
+        "You are the ACCOUNTABLE LEAD for this team's whole outcome, not a relay, producer, or smaller Exec. You remain a non-producing supervisor on every wake. Frame, commission, observe, guide, redirect, and repair through at least one Staff worker; never edit the candidate, perform its planned production, or silently repair its artifact yourself. You retain native review, completion judgement, and truthful attribution of every real contribution."
     } else {
         "You are a SPECIALIST, not a smaller Exec. Own the bounded responsibility your role names, surface material contradictions early, and say plainly when something falls outside it. Do not quietly take over the whole team outcome: a specialist who does every job is a generalist with a job title."
     }
@@ -41,10 +41,12 @@ pub(super) fn team_capacity_context(team: &TeamRow, actors: &[ActorRow]) -> Stri
         .collect::<Vec<_>>();
     format!(
         "\n# Your available team [internal decision]\n{} — {}\n{}\n\
-         This is available capacity, not a headcount target. Work alone when no colleague can own \
-         a stable, independently useful responsibility. If you do commission a real contributor, \
-         create its bounded Work with `restless work add` before it starts; messages are not \
-         assignments.\n",
+         This is available capacity, not a headcount target. Every executable outcome needs at least \
+         one Staff producer: commission one end-to-end worker by default, and add more only when a \
+         stable independently useful seam repays coordination cost. Create each producer's bounded \
+         Work with `restless work add` before it starts; messages are not assignments, and lead-owned \
+         production Work is invalid. When an authenticated external message caused the outcome, add \
+         `--source-message <message-id>` so source linkage and Work creation commit once together.\n",
         team.name,
         team.brief,
         if roster.is_empty() {
@@ -106,7 +108,7 @@ pub(super) async fn shared_spine(
         );
     } else if accountable_lead {
         spine.push_str(
-            "\nYou are the accountable coordinator for this team's outcome. Resolve ordinary uncertainty and local blockers inside the charter; message Exec only for cross-team resources, company priority, strategy, charter scope, or authority escalation. Use the Work CLI to make every real cross-actor contribution and its exact artifact observable.\n",
+            "\nYou are the non-producing accountable supervisor for this team's outcome. Resolve ordinary uncertainty and local blockers inside the charter by guiding or recommissioning Staff; message Exec only for cross-team resources, company priority, strategy, charter scope, or authority escalation. Use the Work CLI to make every Staff contribution and its exact artifact observable.\n",
         );
     } else {
         let coordinator = org
@@ -275,18 +277,32 @@ pub(super) fn bound_attempt_context(
         claimed.work.worktree.as_deref().unwrap_or("Runtime-generated from Work id and revision"),
     );
     let expected_artifact = claimed.work.expected_artifact.trim();
+    let artifact_kind = if claimed.work.owner_review_required {
+        restless_orgintel::REVIEW_TARGET_ARTIFACT_KIND
+    } else {
+        "output"
+    };
+    let review_note = if claimed.work.owner_review_required {
+        format!(
+            " This Work requires owner outcome review: choose exactly one native candidate as the ReviewTarget and link it with kind `{}`. The Runtime runs the declared `{}` gate after your process returns; do not claim that probe passed yourself.",
+            restless_orgintel::REVIEW_TARGET_ARTIFACT_KIND,
+            restless_orgintel::REVIEW_TARGET_LIVE_PROBE_GATE,
+        )
+    } else {
+        String::new()
+    };
     let completion_evidence = if expected_artifact.is_empty() {
         "- This Work has no declared output URI. Do not invent one; report the observed native result through the ordinary Work outcome.".to_string()
     } else if expected_artifact.starts_with('/') || expected_artifact.contains("://") {
         format!(
-            "- Writing `{uri}` alone does not complete this Work. If it is the exact deliverable and meets the outcome, link it to this Attempt before declaring `outcome_met`:\n  `restless work artifact --work {work_id} --attempt {attempt_id} --kind output --uri {uri}`\n- If the candidate is missing or does not meet the outcome, do not attach it merely to pass the gate; report the specific gap instead.",
+            "- Writing `{uri}` alone does not complete this Work. If it is the exact deliverable and meets the outcome, link it to this Attempt before declaring `outcome_met`:\n  `restless work artifact --work {work_id} --attempt {attempt_id} --kind {artifact_kind} --uri {uri}`\n- If the candidate is missing or does not meet the outcome, do not attach it merely to pass the gate; report the specific gap instead.{review_note}",
             uri = expected_artifact,
             work_id = claimed.work.id,
             attempt_id = claimed.attempt_id,
         )
     } else {
         format!(
-            "- `{expected}` describes the expected proof; it is not yet a locator. Before declaring `outcome_met`, link the exact path, URL, or repo+commit you actually produced:\n  `restless work artifact --work {work_id} --attempt {attempt_id} --kind output --uri <exact-output-locator>`\n- If no candidate meets the outcome, do not attach a placeholder merely to pass the gate; report the specific gap instead.",
+            "- `{expected}` describes the expected proof; it is not yet a locator. Before declaring `outcome_met`, link the exact path, URL, or repo+commit you actually produced:\n  `restless work artifact --work {work_id} --attempt {attempt_id} --kind {artifact_kind} --uri <exact-output-locator>`\n- If no candidate meets the outcome, do not attach a placeholder merely to pass the gate; report the specific gap instead.{review_note}",
             expected = expected_artifact,
             work_id = claimed.work.id,
             attempt_id = claimed.attempt_id,

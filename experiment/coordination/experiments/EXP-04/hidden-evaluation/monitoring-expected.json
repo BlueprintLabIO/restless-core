@@ -1,0 +1,122 @@
+[
+  {
+    "entity": "Entity-01",
+    "event_code": "EVENT-01",
+    "follow_up_trigger": "TRIGGER-01",
+    "severity": "low",
+    "source_ids": [
+      "D01-OFFICIAL",
+      "D01-LATE"
+    ]
+  },
+  {
+    "entity": "Entity-02",
+    "event_code": "EVENT-02",
+    "follow_up_trigger": "TRIGGER-02",
+    "severity": "medium",
+    "source_ids": [
+      "D02-OFFICIAL",
+      "D02-LATE"
+    ]
+  },
+  {
+    "entity": "Entity-03",
+    "event_code": "EVENT-03",
+    "follow_up_trigger": "TRIGGER-03",
+    "severity": "low",
+    "source_ids": [
+      "D03-OFFICIAL",
+      "D03-LATE"
+    ]
+  },
+  {
+    "entity": "Entity-04",
+    "event_code": "EVENT-04",
+    "follow_up_trigger": "TRIGGER-04",
+    "severity": "high",
+    "source_ids": [
+      "D04-OFFICIAL",
+      "D04-LATE"
+    ]
+  },
+  {
+    "entity": "Entity-05",
+    "event_code": "EVENT-05",
+    "follow_up_trigger": "TRIGGER-05",
+    "severity": "low",
+    "source_ids": [
+      "D05-OFFICIAL",
+      "D05-LATE"
+    ]
+  },
+  {
+    "entity": "Entity-06",
+    "event_code": "EVENT-06",
+    "follow_up_trigger": "TRIGGER-06",
+    "severity": "medium",
+    "source_ids": [
+      "D06-OFFICIAL",
+      "D06-LATE"
+    ]
+  },
+  {
+    "entity": "Entity-07",
+    "event_code": "EVENT-07",
+    "follow_up_trigger": "TRIGGER-07",
+    "severity": "low",
+    "source_ids": [
+      "D07-OFFICIAL",
+      "D07-LATE"
+    ]
+  },
+  {
+    "entity": "Entity-08",
+    "event_code": "EVENT-08",
+    "follow_up_trigger": "TRIGGER-08",
+    "severity": "high",
+    "source_ids": [
+      "D08-OFFICIAL",
+      "D08-LATE"
+    ]
+  },
+  {
+    "entity": "Entity-09",
+    "event_code": "EVENT-09",
+    "follow_up_trigger": "TRIGGER-09",
+    "severity": "low",
+    "source_ids": [
+      "D09-OFFICIAL",
+      "D09-LATE"
+    ]
+  },
+  {
+    "entity": "Entity-10",
+    "event_code": "EVENT-10",
+    "follow_up_trigger": "TRIGGER-10",
+    "severity": "medium",
+    "source_ids": [
+      "D10-OFFICIAL",
+      "D10-LATE"
+    ]
+  },
+  {
+    "entity": "Entity-11",
+    "event_code": "EVENT-11",
+    "follow_up_trigger": "TRIGGER-11",
+    "severity": "low",
+    "source_ids": [
+      "D11-OFFICIAL",
+      "D11-LATE"
+    ]
+  },
+  {
+    "entity": "Entity-12",
+    "event_code": "EVENT-12",
+    "follow_up_trigger": "TRIGGER-12",
+    "severity": "high",
+    "source_ids": [
+      "D12-OFFICIAL",
+      "D12-LATE"
+    ]
+  }
+]

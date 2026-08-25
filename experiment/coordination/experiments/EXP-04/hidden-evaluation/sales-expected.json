@@ -1,0 +1,434 @@
+[
+  {
+    "action_type": "value-resource",
+    "claim_code": "standard",
+    "disposition": "nurture",
+    "follow_up_days": 21,
+    "id": "A001",
+    "qualification": "nurture",
+    "required_signal": "SIG-001-CAPACITY"
+  },
+  {
+    "action_type": "value-resource",
+    "claim_code": "standard",
+    "disposition": "nurture",
+    "follow_up_days": 21,
+    "id": "A002",
+    "qualification": "nurture",
+    "required_signal": "SIG-002-COMPLIANCE"
+  },
+  {
+    "action_type": "value-resource",
+    "claim_code": "standard",
+    "disposition": "nurture",
+    "follow_up_days": 21,
+    "id": "A003",
+    "qualification": "nurture",
+    "required_signal": "SIG-003-LAUNCH"
+  },
+  {
+    "action_type": "discovery",
+    "claim_code": "standard",
+    "disposition": "sales-ready",
+    "follow_up_days": 7,
+    "id": "A004",
+    "qualification": "qualify",
+    "required_signal": "SIG-004-MIGRATION"
+  },
+  {
+    "action_type": "value-resource",
+    "claim_code": "standard",
+    "disposition": "nurture",
+    "follow_up_days": 21,
+    "id": "A005",
+    "qualification": "nurture",
+    "required_signal": "SIG-005-CAPACITY"
+  },
+  {
+    "action_type": "value-resource",
+    "claim_code": "standard",
+    "disposition": "nurture",
+    "follow_up_days": 21,
+    "id": "A006",
+    "qualification": "nurture",
+    "required_signal": "SIG-006-COMPLIANCE"
+  },
+  {
+    "action_type": "discovery",
+    "claim_code": "evidence-only",
+    "disposition": "sales-ready",
+    "follow_up_days": 7,
+    "id": "A007",
+    "qualification": "qualify",
+    "required_signal": "SIG-007-LAUNCH"
+  },
+  {
+    "action_type": "discovery",
+    "claim_code": "standard",
+    "disposition": "sales-ready",
+    "follow_up_days": 7,
+    "id": "A008",
+    "qualification": "qualify",
+    "required_signal": "SIG-008-MIGRATION"
+  },
+  {
+    "action_type": "no-contact",
+    "claim_code": "standard",
+    "disposition": "closed-policy",
+    "follow_up_days": 0,
+    "id": "A009",
+    "qualification": "disqualify",
+    "required_signal": "SIG-009-CAPACITY"
+  },
+  {
+    "action_type": "value-resource",
+    "claim_code": "standard",
+    "disposition": "nurture",
+    "follow_up_days": 21,
+    "id": "A010",
+    "qualification": "nurture",
+    "required_signal": "SIG-010-COMPLIANCE"
+  },
+  {
+    "action_type": "discovery",
+    "claim_code": "standard",
+    "disposition": "sales-ready",
+    "follow_up_days": 7,
+    "id": "A011",
+    "qualification": "qualify",
+    "required_signal": "SIG-011-LAUNCH"
+  },
+  {
+    "action_type": "value-resource",
+    "claim_code": "standard",
+    "disposition": "nurture",
+    "follow_up_days": 21,
+    "id": "A012",
+    "qualification": "nurture",
+    "required_signal": "SIG-012-MIGRATION"
+  },
+  {
+    "action_type": "discovery",
+    "claim_code": "standard",
+    "disposition": "sales-ready",
+    "follow_up_days": 7,
+    "id": "A013",
+    "qualification": "qualify",
+    "required_signal": "SIG-013-CAPACITY"
+  },
+  {
+    "action_type": "no-contact",
+    "claim_code": "evidence-only",
+    "disposition": "closed-policy",
+    "follow_up_days": 0,
+    "id": "A014",
+    "qualification": "disqualify",
+    "required_signal": "SIG-014-COMPLIANCE"
+  },
+  {
+    "action_type": "value-resource",
+    "claim_code": "standard",
+    "disposition": "nurture",
+    "follow_up_days": 21,
+    "id": "A015",
+    "qualification": "nurture",
+    "required_signal": "SIG-015-LAUNCH"
+  },
+  {
+    "action_type": "discovery",
+    "claim_code": "standard",
+    "disposition": "sales-ready",
+    "follow_up_days": 7,
+    "id": "A016",
+    "qualification": "qualify",
+    "required_signal": "SIG-016-MIGRATION"
+  },
+  {
+    "action_type": "discovery",
+    "claim_code": "standard",
+    "disposition": "sales-ready",
+    "follow_up_days": 7,
+    "id": "A017",
+    "qualification": "qualify",
+    "required_signal": "SIG-017-CAPACITY"
+  },
+  {
+    "action_type": "value-resource",
+    "claim_code": "standard",
+    "disposition": "nurture",
+    "follow_up_days": 21,
+    "id": "A018",
+    "qualification": "nurture",
+    "required_signal": "SIG-018-COMPLIANCE"
+  },
+  {
+    "action_type": "value-resource",
+    "claim_code": "standard",
+    "disposition": "nurture",
+    "follow_up_days": 21,
+    "id": "A019",
+    "qualification": "nurture",
+    "required_signal": "SIG-019-LAUNCH"
+  },
+  {
+    "action_type": "discovery",
+    "claim_code": "standard",
+    "disposition": "sales-ready",
+    "follow_up_days": 7,
+    "id": "A020",
+    "qualification": "qualify",
+    "required_signal": "SIG-020-MIGRATION"
+  },
+  {
+    "action_type": "value-resource",
+    "claim_code": "evidence-only",
+    "disposition": "nurture",
+    "follow_up_days": 21,
+    "id": "A021",
+    "qualification": "nurture",
+    "required_signal": "SIG-021-CAPACITY"
+  },
+  {
+    "action_type": "value-resource",
+    "claim_code": "standard",
+    "disposition": "nurture",
+    "follow_up_days": 21,
+    "id": "A022",
+    "qualification": "nurture",
+    "required_signal": "SIG-022-COMPLIANCE"
+  },
+  {
+    "action_type": "value-resource",
+    "claim_code": "standard",
+    "disposition": "nurture",
+    "follow_up_days": 21,
+    "id": "A023",
+    "qualification": "nurture",
+    "required_signal": "SIG-023-LAUNCH"
+  },
+  {
+    "action_type": "value-resource",
+    "claim_code": "standard",
+    "disposition": "nurture",
+    "follow_up_days": 21,
+    "id": "A024",
+    "qualification": "nurture",
+    "required_signal": "SIG-024-MIGRATION"
+  },
+  {
+    "action_type": "discovery",
+    "claim_code": "standard",
+    "disposition": "sales-ready",
+    "follow_up_days": 7,
+    "id": "A025",
+    "qualification": "qualify",
+    "required_signal": "SIG-025-CAPACITY"
+  },
+  {
+    "action_type": "discovery",
+    "claim_code": "standard",
+    "disposition": "sales-ready",
+    "follow_up_days": 7,
+    "id": "A026",
+    "qualification": "qualify",
+    "required_signal": "SIG-026-COMPLIANCE"
+  },
+  {
+    "action_type": "value-resource",
+    "claim_code": "standard",
+    "disposition": "nurture",
+    "follow_up_days": 21,
+    "id": "A027",
+    "qualification": "nurture",
+    "required_signal": "SIG-027-LAUNCH"
+  },
+  {
+    "action_type": "value-resource",
+    "claim_code": "evidence-only",
+    "disposition": "nurture",
+    "follow_up_days": 21,
+    "id": "A028",
+    "qualification": "nurture",
+    "required_signal": "SIG-028-MIGRATION"
+  },
+  {
+    "action_type": "discovery",
+    "claim_code": "standard",
+    "disposition": "sales-ready",
+    "follow_up_days": 7,
+    "id": "A029",
+    "qualification": "qualify",
+    "required_signal": "SIG-029-CAPACITY"
+  },
+  {
+    "action_type": "value-resource",
+    "claim_code": "standard",
+    "disposition": "nurture",
+    "follow_up_days": 21,
+    "id": "A030",
+    "qualification": "nurture",
+    "required_signal": "SIG-030-COMPLIANCE"
+  },
+  {
+    "action_type": "no-contact",
+    "claim_code": "standard",
+    "disposition": "closed-policy",
+    "follow_up_days": 0,
+    "id": "A031",
+    "qualification": "disqualify",
+    "required_signal": "SIG-031-LAUNCH"
+  },
+  {
+    "action_type": "value-resource",
+    "claim_code": "standard",
+    "disposition": "nurture",
+    "follow_up_days": 21,
+    "id": "A032",
+    "qualification": "nurture",
+    "required_signal": "SIG-032-MIGRATION"
+  },
+  {
+    "action_type": "value-resource",
+    "claim_code": "standard",
+    "disposition": "nurture",
+    "follow_up_days": 21,
+    "id": "A033",
+    "qualification": "nurture",
+    "required_signal": "SIG-033-CAPACITY"
+  },
+  {
+    "action_type": "discovery",
+    "claim_code": "standard",
+    "disposition": "sales-ready",
+    "follow_up_days": 7,
+    "id": "A034",
+    "qualification": "qualify",
+    "required_signal": "SIG-034-COMPLIANCE"
+  },
+  {
+    "action_type": "discovery",
+    "claim_code": "evidence-only",
+    "disposition": "sales-ready",
+    "follow_up_days": 7,
+    "id": "A035",
+    "qualification": "qualify",
+    "required_signal": "SIG-035-LAUNCH"
+  },
+  {
+    "action_type": "value-resource",
+    "claim_code": "standard",
+    "disposition": "nurture",
+    "follow_up_days": 21,
+    "id": "A036",
+    "qualification": "nurture",
+    "required_signal": "SIG-036-MIGRATION"
+  },
+  {
+    "action_type": "value-resource",
+    "claim_code": "standard",
+    "disposition": "nurture",
+    "follow_up_days": 21,
+    "id": "A037",
+    "qualification": "nurture",
+    "required_signal": "SIG-037-CAPACITY"
+  },
+  {
+    "action_type": "no-contact",
+    "claim_code": "standard",
+    "disposition": "closed-policy",
+    "follow_up_days": 0,
+    "id": "A038",
+    "qualification": "disqualify",
+    "required_signal": "SIG-038-COMPLIANCE"
+  },
+  {
+    "action_type": "value-resource",
+    "claim_code": "standard",
+    "disposition": "nurture",
+    "follow_up_days": 21,
+    "id": "A039",
+    "qualification": "nurture",
+    "required_signal": "SIG-039-LAUNCH"
+  },
+  {
+    "action_type": "value-resource",
+    "claim_code": "standard",
+    "disposition": "nurture",
+    "follow_up_days": 21,
+    "id": "A040",
+    "qualification": "nurture",
+    "required_signal": "SIG-040-MIGRATION"
+  },
+  {
+    "action_type": "value-resource",
+    "claim_code": "standard",
+    "disposition": "nurture",
+    "follow_up_days": 21,
+    "id": "A041",
+    "qualification": "nurture",
+    "required_signal": "SIG-041-CAPACITY"
+  },
+  {
+    "action_type": "value-resource",
+    "claim_code": "evidence-only",
+    "disposition": "nurture",
+    "follow_up_days": 21,
+    "id": "A042",
+    "qualification": "nurture",
+    "required_signal": "SIG-042-COMPLIANCE"
+  },
+  {
+    "action_type": "discovery",
+    "claim_code": "standard",
+    "disposition": "sales-ready",
+    "follow_up_days": 7,
+    "id": "A043",
+    "qualification": "qualify",
+    "required_signal": "SIG-043-LAUNCH"
+  },
+  {
+    "action_type": "value-resource",
+    "claim_code": "standard",
+    "disposition": "nurture",
+    "follow_up_days": 21,
+    "id": "A044",
+    "qualification": "nurture",
+    "required_signal": "SIG-044-MIGRATION"
+  },
+  {
+    "action_type": "value-resource",
+    "claim_code": "standard",
+    "disposition": "nurture",
+    "follow_up_days": 21,
+    "id": "A045",
+    "qualification": "nurture",
+    "required_signal": "SIG-045-CAPACITY"
+  },
+  {
+    "action_type": "discovery",
+    "claim_code": "standard",
+    "disposition": "sales-ready",
+    "follow_up_days": 7,
+    "id": "A046",
+    "qualification": "qualify",
+    "required_signal": "SIG-046-COMPLIANCE"
+  },
+  {
+    "action_type": "discovery",
+    "claim_code": "standard",
+    "disposition": "sales-ready",
+    "follow_up_days": 7,
+    "id": "A047",
+    "qualification": "qualify",
+    "required_signal": "SIG-047-LAUNCH"
+  },
+  {
+    "action_type": "value-resource",
+    "claim_code": "standard",
+    "disposition": "nurture",
+    "follow_up_days": 21,
+    "id": "A048",
+    "qualification": "nurture",
+    "required_signal": "SIG-048-MIGRATION"
+  }
+]

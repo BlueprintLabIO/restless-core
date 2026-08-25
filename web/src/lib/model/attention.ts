@@ -35,29 +35,37 @@ export interface ActorConversation {
 	}>;
 }
 
-export type ConversationLivePhase =
+export type AgentActivityPhase =
 	'queued' | 'thinking' | 'acting' | 'responding' | 'complete' | 'failed';
 
-export interface ConversationLiveActivity {
+export interface AgentActivityItem {
 	id: string;
-	kind: 'thinking' | 'tool' | 'note' | string;
+	kind: string;
 	label: string;
 	detail: string;
 	status: string;
 	replyOffset: number;
 }
 
-export interface ConversationLiveState {
+export interface AgentContextUsage {
+	used: number;
+	size: number;
+	costUsd?: number | null;
+}
+
+export interface AgentActivityState {
 	streamId: string;
 	sequence: number;
 	company: string;
 	actorId: string;
-	triggerMessageId: number;
+	triggerMessageId?: number | null;
 	workId?: string | null;
-	phase: ConversationLivePhase;
+	attemptId?: string | null;
+	phase: AgentActivityPhase;
 	reply: string;
 	generatedOutputTokens?: number | null;
-	activity: ConversationLiveActivity[];
+	contextUsage?: AgentContextUsage | null;
+	activity: AgentActivityItem[];
 	startedAt?: string | null;
 	updatedAt: string;
 	completedMessageId?: number | null;
@@ -66,6 +74,7 @@ export interface ConversationLiveState {
 
 export interface MessageSendResult {
 	messageId: number;
+	interrupted: boolean;
 	contextAttached: boolean;
 	contextOmitted: boolean;
 	focus?: {
@@ -95,6 +104,15 @@ type WireItem = {
 	};
 	briefed_at?: string;
 	evidence: AttentionItem['evidence'];
+	review_sources?: Array<{
+		label: string;
+		provider: string;
+		reference: string;
+		verification: string;
+		uri?: string;
+		content: string;
+		observed_at: string;
+	}>;
 	responsible_actor?: {
 		id: string;
 		display: string;
@@ -110,9 +128,12 @@ type WireItem = {
 	review_target?: {
 		company: string;
 		generation: string;
+		uri: string;
 		status: 'available' | 'unavailable';
-		kind: 'runtime-web';
+		kind: 'runtime-web' | 'runtime-text';
 		label: string;
+		content?: string;
+		unavailable_reason?: string;
 	};
 	actions: AttentionItem['actions'];
 	can_continue: boolean;
@@ -164,6 +185,15 @@ export async function getAttention(company: string): Promise<AttentionView> {
 			briefAuthor: item.brief_author,
 			briefedAt: item.briefed_at,
 			evidence: item.evidence,
+			reviewSources: (item.review_sources ?? []).map((source) => ({
+				label: source.label,
+				provider: source.provider,
+				reference: source.reference,
+				verification: source.verification,
+				uri: source.uri,
+				content: source.content,
+				observedAt: source.observed_at
+			})),
 			responsibleActor: item.responsible_actor
 				? {
 						id: item.responsible_actor.id,
@@ -184,9 +214,12 @@ export async function getAttention(company: string): Promise<AttentionView> {
 				? {
 						company: item.review_target.company,
 						generation: item.review_target.generation,
+						uri: item.review_target.uri,
 						status: item.review_target.status,
 						kind: item.review_target.kind,
-						label: item.review_target.label
+						label: item.review_target.label,
+						content: item.review_target.content,
+						unavailableReason: item.review_target.unavailable_reason
 					}
 				: undefined,
 			actions: item.actions,
@@ -224,27 +257,33 @@ export async function getActorConversation(
 	return response.json();
 }
 
-/** Follow the live projection for one durable owner message. EventSource owns
- * reconnection; every event is a complete bounded snapshot, so a dropped delta
- * cannot corrupt the visible reply. */
-export function openActorConversationStream(
+export type AgentActivityScope =
+	{ messageId: number; workId?: never } | { workId: string; messageId?: never };
+
+/** Follow one live agent projection. EventSource owns reconnection; every
+ * event is a complete snapshot, so a dropped delta cannot corrupt the reply. */
+export function openAgentActivityStream(
 	company: string,
 	actor: string,
-	messageId: number,
-	onstate: (state: ConversationLiveState) => void,
+	scope: AgentActivityScope,
+	onstate: (state: AgentActivityState) => void,
 	onerror?: () => void
 ): () => void {
+	const query =
+		scope.messageId !== undefined
+			? `message_id=${encodeURIComponent(scope.messageId)}`
+			: `work_id=${encodeURIComponent(scope.workId!)}`;
 	const source = new EventSource(
-		`/api/companies/${encodeURIComponent(company)}/actors/${encodeURIComponent(actor)}/conversation/live?message_id=${encodeURIComponent(messageId)}`
+		`/api/companies/${encodeURIComponent(company)}/actors/${encodeURIComponent(actor)}/activity${query ? `?${query}` : ''}`
 	);
 	const receive = (event: MessageEvent<string>) => {
 		try {
-			onstate(JSON.parse(event.data) as ConversationLiveState);
+			onstate(JSON.parse(event.data) as AgentActivityState);
 		} catch {
 			onerror?.();
 		}
 	};
-	source.addEventListener('conversation', receive as EventListener);
+	source.addEventListener('activity', receive as EventListener);
 	source.onerror = () => onerror?.();
 	return () => source.close();
 }
@@ -291,13 +330,15 @@ export async function sendActorMessage(
 	workId?: string,
 	files: File[] = [],
 	contextPath?: string,
-	newFocus = false
+	newFocus = false,
+	interrupt = false
 ): Promise<MessageSendResult> {
 	const form = new FormData();
 	form.set('body', body);
 	if (workId) form.set('work_id', workId);
 	if (contextPath) form.set('context_path', contextPath);
 	if (newFocus) form.set('new_focus', 'true');
+	if (interrupt) form.set('interrupt', 'true');
 	for (const file of files) form.append('attachments', file, file.name);
 	const response = await fetch(
 		`/api/companies/${encodeURIComponent(company)}/actors/${encodeURIComponent(actor)}/conversation`,
@@ -310,12 +351,14 @@ export async function sendActorMessage(
 	if (!response.ok) throw await ownerError(response);
 	const result = (await response.json()) as {
 		message_id: number;
+		interrupted?: boolean;
 		context_attached?: boolean;
 		context_omitted?: boolean;
 		focus?: { after_message_id: number; started_at: string | null } | null;
 	};
 	return {
 		messageId: result.message_id,
+		interrupted: result.interrupted ?? false,
 		contextAttached: result.context_attached ?? false,
 		contextOmitted: result.context_omitted ?? false,
 		focus: result.focus

@@ -1,12 +1,14 @@
 # Communication frontier research programme
 
-Status: EXP-02 closed; EXP-03 is drafted to test the accountability/execution abstraction frontier;
-no wildcard is a production default and only a named evidence gate may reopen one
+Status: EXP-04 closed. One end-to-end worker under a non-producing lead remains the current
+shared-outcome default. Local closure is now proved as a scaling prerequisite, but the tested sales
+and monitoring loads did not establish a multi-worker crossover. The live frontier is demand-backed
+queue capacity with sparse, named convergence.
 
 ## 1. Objective
 
 Find whether new context, communication and cognitive topologies can move the point at which an
-accountable team lead benefits from adding other minds.
+accountable team lead benefits from adding minds beyond the required first worker.
 
 Before any wildcard, execute the ordinary-team crossover in [`BASELINES.md`](BASELINES.md). Wildcards
 target measured communication bottlenecks; they are not the first attempt to discover whether normal
@@ -32,17 +34,14 @@ uses Exec as the strong-singleton producer. The main production baselines are:
 Each wildcard changes one important mechanism below the lead and is compared with the relevant
 baseline in the same harness.
 
-### Current model envelope — owner decision, 23 August 2026
+### Current model envelope — owner decision, 24 August 2026
 
-All remaining live cognitive comparisons use first-party GPT-5.6 sessions:
-
-- `gpt-5.6-sol` is the accountable lead in every matched arm;
-- `gpt-5.6-terra` is every ordinary Staff producer and independent critic;
-- a wildcard may change context or topology, never this role/model allocation inside its matched set.
-
-Free-provider capability and routing remain useful product questions, but they are no longer mixed
-into coordination experiments. A provider benchmark may measure availability separately; it cannot
-invalidate or stand in for an organisational arm.
+EXP-04's primary matched comparisons use live `zai/glm-5.3` for lead, workers and fresh qualitative
+review through the first-party Pi/OMP Company Runtime and Restless gateway. Topology is established
+with the same model before effort or worker price changes. A later economic arm may keep the GLM-5.3
+lead while testing a live-admitted cheaper/free worker route, but only on a topology that already won
+and only after tools, persistent-session handoff and sustained concurrency pass. Provider failure is
+reported separately from organisational performance.
 
 ## 2. Questions
 
@@ -157,31 +156,46 @@ dispositions are:
 These rows supersede the older staged queue for the completed sprint. `Deferred` requires new observed
 evidence; it is not approval to implement.
 
-### EXP-03 proposed frontier — 24 August 2026
+### EXP-03 closed frontier — 24 August 2026
 
-The next decision is narrower than the wildcard catalogue: determine whether current solo advantage
-comes from fast lead economics, avoidable coordination weakness or placing responsibility at the wrong
-level. The four comparison shapes are:
+EXP-03 determined how a non-producing lead should staff five representative economic work shapes. The
+comparison shapes resolved as:
 
 ```text
-shared outcome: direct | bounded hands | semantic Staff
-portfolio: one broad lead | separate accountable leads
-replicated units: one producer | elastic same-role Staff pool
-lead posture: player-coach | supervisor-only
+shared outcome: one end-to-end worker by default; a sequential specialist seam can win on quality
+portfolio: Exec remains available; each independent outcome receives one supervisor lead
+replicated units: current assembler shape loses; true locally closing queue remains the live question
+lead posture: non-producing supervisor is an owner invariant, not an experiment arm
 ```
 
-`W04` is reopened only as a conformance question inside the EXP-03 draft: can a bounded hand be made
-mechanically distinct from ordinary lead tools and autonomous Staff without hidden cognitive work? If
-not, it closes as `not-identifiable`; no executor is built merely to keep the hypothesis alive. The
-portfolio makes domain validity explicit: alongside one coding/product sentinel, it requires a
-source-complete research decision and a document/operational outcome with no live external effect.
-It also adds a safe sales-like queue because repeated independent units may scale very differently
-from several actors coauthoring one artifact.
-One disruption sentinel separately tests whether preserving a non-producing lead for mission
-alignment, redirection and repair repays its lost production capacity; prior B1/N1 arms were
-player-coach topologies and did not answer that question.
-The full frozen proposal and stop rules live in
-[`../exp-sprints/exp-sprint-03-coordination-abstraction-frontier.md`](../exp-sprints/exp-sprint-03-coordination-abstraction-frontier.md).
+The two remaining discriminating experiments are effort/cadence control with an explicit closure
+reserve, and a queue whose units close locally without a model assembler. W04 remains blocked: no
+distinct bounded cognitive executor exists, and no executor is built merely to keep the hypothesis
+alive. Full results and exit evidence live in
+[`t23-final-results.md`](experiments/EXP-03/t23-final-results.md).
+
+### EXP-04 closed frontier — 25 August 2026
+
+EXP-04 corrected the unresolved parallel-work test by keeping independent units local and replacing
+the EXP-03 sales assembler with deterministic composition. The harness proved resumable actor
+sessions, exact cancellation/redirect, null-preserving telemetry, delta-correct usage, disjoint local
+closure, Q2 provider concurrency and blind evaluator separation. Q4 capacity was
+infrastructure-invalid.
+
+At 48 accounts, corrected sales Q2 improved worker-window throughput by 20.3%, below the predeclared
+25% gate, while remaining slower end to end and 17.3% dearer per accepted unit. At 12 monitoring
+entities, Q2 throughput was flat and cost per unit rose 47%. Allocating `low` effort to routine units
+also lost to uniform `high`. These stops prevented unsupported cheaper-worker, cognitive research
+fan-in and concurrent-department claims.
+
+The next frontier is not another topology search. It is a demand-backed queue with arrivals or a much
+larger frozen backlog, where response-time or accepted-throughput value can repay actor startup and
+lead review. A volatile support queue first requires one real material policy-change test.
+
+The closed contract is
+[`exp-sprint-04-local-closure-and-sparse-convergence.md`](../exp-sprints/exp-sprint-04-local-closure-and-sparse-convergence.md);
+the measured result and sparse dispositions are in
+[`t02-final-results.md`](experiments/EXP-04/t02-final-results.md).
 
 ### Stage 2 — Replication on different work shapes
 
@@ -191,9 +205,9 @@ Provisional winners receive at least three order-randomised matched trials acros
 - **parallel breadth:** sourced research with several independent evidence regions;
 - **clean components:** a document, data or product outcome with explicit native sub-artifacts.
 
-All trials use the frozen GPT-5.6 Sol/Terra role allocation, but each trial and blind review uses fresh
-independent sessions. Provider/model generalisation is explicitly outside this sprint so it cannot
-reintroduce runtime availability as a coordination variable.
+Within any matched replication, model, effort, provider and tool envelope remain frozen and each arm
+and blind review uses fresh independent identities. Provider/model economics is tested only after a
+same-model organisational win, so route availability cannot masquerade as coordination quality.
 
 ### Stage 3 — Cross-domain generalisation
 

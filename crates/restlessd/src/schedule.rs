@@ -5,7 +5,7 @@
 //! then supervise its actor. Time conditions live in `schedules`, not event
 //! prose, and every notification is merely a hint to reread canonical rows.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -13,6 +13,7 @@ use anyhow::Result;
 use chrono::{DateTime, Utc};
 use restless_orgintel::{OrgIntel, WorkAttemptState};
 use sqlx::postgres::PgListener;
+use tokio_util::sync::CancellationToken;
 
 use crate::runtime::{self, CompanyConfig, ContainerStatus};
 use crate::{exec, Daemon};
@@ -24,22 +25,29 @@ pub(crate) type InFlight = Arc<Mutex<WakeClaims>>;
 
 #[derive(Default)]
 pub(crate) struct WakeClaims {
-    active: HashSet<String>,
+    active: HashMap<String, CancellationToken>,
     pending: HashMap<String, String>,
 }
 
 impl WakeClaims {
     pub(crate) fn claim(&mut self, company: &str) -> bool {
-        if self.active.insert(company.to_string()) {
+        self.claim_with_cancellation(company).is_some()
+    }
+
+    pub(crate) fn claim_with_cancellation(&mut self, company: &str) -> Option<CancellationToken> {
+        if !self.active.contains_key(company) {
             self.pending.remove(company);
-            true
+            let cancellation = CancellationToken::new();
+            self.active
+                .insert(company.to_string(), cancellation.clone());
+            Some(cancellation)
         } else {
-            false
+            None
         }
     }
 
     pub(crate) fn is_active(&self, company: &str) -> bool {
-        self.active.contains(company)
+        self.active.contains_key(company)
     }
 
     fn queue(&mut self, company: &str, reason: &str) {
@@ -50,11 +58,18 @@ impl WakeClaims {
         self.active.remove(company);
     }
 
+    pub(crate) fn interrupt(&mut self, company: &str) -> bool {
+        self.active.get(company).is_some_and(|cancellation| {
+            cancellation.cancel();
+            true
+        })
+    }
+
     fn take_ready(&mut self) -> Vec<(String, String)> {
         let ready = self
             .pending
             .keys()
-            .filter(|company| !self.active.contains(*company))
+            .filter(|company| !self.active.contains_key(*company))
             .cloned()
             .collect::<Vec<_>>();
         ready
@@ -179,6 +194,28 @@ async fn handle_notification(daemon: &Arc<Daemon>, in_flight: &InFlight, payload
             // Member/owner mail to a lead is an owed coordination condition.
             // Work-linked feedback is filtered by the actor dispatcher and
             // remains graph input rather than racing a conversation session.
+            // If that exact worker is already running, the new factual input
+            // invalidates its frozen prompt: interrupt only that actor. The
+            // preserved Attempt becomes unknown and its lead repairs/resumes
+            // the same Work with this message in the next bound context.
+            let actor = value["body"]["to"].as_str().unwrap_or_default();
+            if let Some(message_id) = value["body"]["message_id"].as_i64() {
+                let routes_through_work = match daemon.orgintel.get(company).await {
+                    Ok(org) => org
+                        .message_is_work_attempt_input(message_id)
+                        .await
+                        .unwrap_or(false),
+                    Err(_) => false,
+                };
+                if routes_through_work && daemon.staff.interrupt(company, actor) {
+                    tracing::info!(
+                        company,
+                        actor,
+                        message_id,
+                        "material Work feedback interrupted the exact active Staff session"
+                    );
+                }
+            }
             scan_company(daemon, in_flight, company).await;
         }
         Some("work_changed" | "artifact_linked" | "handoff_changed") => {
@@ -288,7 +325,7 @@ async fn scan_company(daemon: &Arc<Daemon>, in_flight: &InFlight, company: &str)
                     authority: &daemon.authority,
                     capabilities: &daemon.capabilities,
                     registry: &daemon.staff,
-                    streams: &daemon.conversations,
+                    activities: &daemon.activities,
                 },
                 &team.lead_actor_id,
                 "addressed message or team judgement became ready",
@@ -337,6 +374,7 @@ async fn scan_company(daemon: &Arc<Daemon>, in_flight: &InFlight, company: &str)
             &daemon.capabilities,
             &org,
             &daemon.staff,
+            &daemon.activities,
             claimed,
         )
         .await
@@ -481,6 +519,7 @@ pub(crate) async fn run_exec_turn(
     config: &CompanyConfig,
     org: &OrgIntel,
     reason: &str,
+    cancellation: &CancellationToken,
 ) -> Result<exec::WakeReport> {
     let mut message_ids = Vec::new();
     let mut owner_message_ids = Vec::new();
@@ -502,8 +541,8 @@ pub(crate) async fn run_exec_turn(
         .max()
         .unwrap_or(0);
     let live_turn = daemon
-        .conversations
-        .start(&config.name, "exec", &owner_message_ids);
+        .activities
+        .start_messages(&config.name, "exec", &owner_message_ids);
     let observer = (!owner_message_ids.is_empty()).then(|| live_turn.observer());
     let outcome = exec::wake(
         config,
@@ -513,8 +552,16 @@ pub(crate) async fn run_exec_turn(
         org,
         reason,
         observer,
+        cancellation,
     )
     .await;
+
+    if cancellation.is_cancelled() {
+        if !owner_message_ids.is_empty() {
+            live_turn.fail("Interrupted by owner; new direction is queued for a fresh turn.");
+        }
+        return outcome;
+    }
 
     match &outcome {
         Ok(report) if !owner_message_ids.is_empty() => {
@@ -544,7 +591,7 @@ pub(crate) async fn run_exec_turn(
                 for message_id in message_ids {
                     let _ = org.mark_read(message_id).await;
                 }
-                live_turn.complete(reply.id, None);
+                live_turn.complete(Some(reply.id), None);
             } else if report.termination == exec::Termination::Blocked {
                 live_turn.fail(&report.reason);
             } else {
@@ -583,13 +630,14 @@ async fn fire_exec(daemon: &Arc<Daemon>, in_flight: &InFlight, company: &str, re
             .queue(company, reason);
         return;
     }
-    {
+    let cancellation = {
         let mut guard = in_flight.lock().expect("in-flight guard");
-        if !guard.claim(company) {
+        let Some(cancellation) = guard.claim_with_cancellation(company) else {
             guard.queue(company, reason);
             return;
-        }
-    }
+        };
+        cancellation
+    };
     let daemon = Arc::clone(daemon);
     let in_flight = Arc::clone(in_flight);
     let company = company.to_string();
@@ -599,7 +647,7 @@ async fn fire_exec(daemon: &Arc<Daemon>, in_flight: &InFlight, company: &str, re
         let outcome = async {
             let config = CompanyConfig::load(&daemon.root, &company)?;
             let org = daemon.orgintel.get(&company).await?;
-            run_exec_turn(&daemon, &config, &org, &reason).await
+            run_exec_turn(&daemon, &config, &org, &reason, &cancellation).await
         }
         .await;
         if let Err(error) = outcome {
@@ -645,6 +693,18 @@ mod tests {
         assert!(claims.claim("probe"));
         claims.release("probe");
         assert!(claims.take_ready().is_empty());
+    }
+
+    #[test]
+    fn owner_interruption_cancels_the_exact_active_exec_turn() {
+        let mut claims = WakeClaims::default();
+        let cancellation = claims
+            .claim_with_cancellation("probe")
+            .expect("claim the active turn");
+
+        assert!(claims.interrupt("probe"));
+        assert!(cancellation.is_cancelled());
+        assert!(!claims.interrupt("other-company"));
     }
 
     #[test]

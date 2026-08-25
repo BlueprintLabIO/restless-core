@@ -1,7 +1,8 @@
 //! ACP client (sprint 01 T3 canon, grown into the daemon): start the agent
 //! binary as an ordinary supervised process inside the company's persistent container
 //! (`docker exec`, §5), speak JSON-RPC over stdio, stream turn updates,
-//! cancel on demand. The session is disposable; the company is not.
+//! cancel on demand. Processes and capabilities are disposable; a provider
+//! session may remain hot only inside one actor/responsibility scope.
 //!
 //! The agent is `omp`, which speaks ACP natively and — unlike the codex-acp
 //! binary it replaces — reports per-turn token and dollar usage on the
@@ -10,24 +11,60 @@
 //! the session belongs to.
 
 use std::process::Stdio;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use agent_client_protocol::{
     self as acp,
     schema::{
         v1::{
-            CancelNotification, ContentBlock, InitializeRequest, McpServer, NewSessionRequest,
-            PermissionOptionKind, PromptRequest, PromptResponse, RequestPermissionOutcome,
-            RequestPermissionRequest, RequestPermissionResponse, SelectedPermissionOutcome,
-            SessionId, SessionNotification, SessionUpdate, TextContent, ToolCallStatus,
+            CancelNotification, ContentBlock, InitializeRequest, LoadSessionRequest, McpServer,
+            NewSessionRequest, PermissionOptionKind, PromptRequest, PromptResponse,
+            RequestPermissionOutcome, RequestPermissionRequest, RequestPermissionResponse,
+            SelectedPermissionOutcome, SessionId, SessionNotification, SessionUpdate, TextContent,
+            ToolCallStatus,
         },
         ProtocolVersion,
     },
     Agent, ByteStreams, Client, ConnectionTo,
 };
 use anyhow::{Context, Result};
+use serde::{Deserialize, Serialize};
+use sha2::{Digest as _, Sha256};
 use tokio::io::AsyncWriteExt as _;
 use tokio_util::compat::{TokioAsyncReadCompatExt as _, TokioAsyncWriteCompatExt as _};
+use tokio_util::sync::CancellationToken;
+
+#[cfg(test)]
+static TEST_COORDINATOR_OVERRIDE: std::sync::OnceLock<Mutex<Option<String>>> =
+    std::sync::OnceLock::new();
+
+/// Test-only transport seam for an isolated current-code coordination
+/// listener. Product launches keep using the Runtime's baked coordinator; the
+/// live integration probe must not restart or borrow an older daemon merely to
+/// exercise new wire/schema behavior.
+#[cfg(test)]
+pub(crate) fn set_test_coordinator_override(value: Option<String>) {
+    if let Some(value) = &value {
+        let port = value
+            .strip_prefix("host.docker.internal:")
+            .and_then(|port| port.parse::<u16>().ok());
+        assert!(port.is_some_and(|port| port > 0));
+    }
+    *TEST_COORDINATOR_OVERRIDE
+        .get_or_init(|| Mutex::new(None))
+        .lock()
+        .expect("test coordinator override") = value;
+}
+
+#[cfg(test)]
+fn test_coordinator_override() -> Option<String> {
+    TEST_COORDINATOR_OVERRIDE
+        .get_or_init(|| Mutex::new(None))
+        .lock()
+        .expect("test coordinator override")
+        .clone()
+}
 
 /// Everything a wake needs to start an agent against a provider.
 ///
@@ -35,10 +72,12 @@ use tokio_util::compat::{TokioAsyncReadCompatExt as _, TokioAsyncWriteCompatExt 
 /// reports its own token and dollar usage per turn. The process receives a
 /// signed model-relay capability, never the provider credential, OMP root
 /// bearer, or Infisical machine identity.
+#[derive(Clone)]
 pub struct AgentAuth {
     /// Provider-qualified model, e.g. `moonshot/k3-256k`.
     pub model: String,
     pub provider: String,
+    pub company: String,
     /// The host-generated session identifier binds coordination and model
     /// grants to this one supervised ACP process.
     pub session_id: String,
@@ -51,6 +90,46 @@ pub struct AgentAuth {
     /// estimate for subscription access. The Runtime still receives no
     /// provider credential either way.
     pub billing: crate::model_gateway::ModelBilling,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct SessionLocator {
+    version: u8,
+    company: String,
+    actor: String,
+    responsibility: String,
+    cwd: String,
+    model: String,
+    session_id: String,
+    cumulative_cost_usd: Option<f64>,
+}
+
+fn session_locator_path(company: &str, actor: &str, responsibility: &str) -> String {
+    let digest = format!(
+        "{:x}",
+        Sha256::digest(format!("{company}\0{actor}\0{responsibility}").as_bytes())
+    );
+    format!("{AGENT_CONFIG_DIR}/sessions/{digest}.json")
+}
+
+fn validate_session_locator(
+    locator: &SessionLocator,
+    company: &str,
+    actor: &str,
+    responsibility: &str,
+    cwd: &str,
+) -> Result<()> {
+    if locator.version != 1
+        || locator.company != company
+        || locator.actor != actor
+        || locator.responsibility != responsibility
+        || locator.cwd != cwd
+    {
+        anyhow::bail!(
+            "refusing ACP session locator outside its company/actor/responsibility/workspace scope"
+        );
+    }
+    Ok(())
 }
 
 pub(crate) const AGENT_CONFIG_DIR: &str = "/company/home/.restless/omp-agent";
@@ -76,6 +155,14 @@ pub enum LiveSessionEvent {
         status: String,
     },
     GeneratedOutputTokens(u64),
+    /// The runtime's current context window snapshot. This is deliberately
+    /// distinct from the final generated-output total and may arrive many
+    /// times during a turn.
+    UsageUpdate {
+        used: u64,
+        size: u64,
+        cost_usd: Option<f64>,
+    },
 }
 
 pub type SessionObserver = Arc<dyn Fn(LiveSessionEvent) + Send + Sync>;
@@ -185,6 +272,99 @@ async fn write_private_container_file(container: &str, path: &str, contents: &st
     Ok(())
 }
 
+async fn read_session_locator(container: &str, path: &str) -> Result<Option<SessionLocator>> {
+    let output = tokio::process::Command::new("docker")
+        .args([
+            "exec",
+            "-u",
+            "company",
+            container,
+            "sh",
+            "-c",
+            "test ! -e \"$1\" || cat \"$1\"",
+            "restless-read-session",
+            path,
+        ])
+        .output()
+        .await
+        .with_context(|| format!("read ACP session locator {path}"))?;
+    if !output.status.success() {
+        anyhow::bail!(
+            "read ACP session locator {path} failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+                .chars()
+                .take(300)
+                .collect::<String>()
+        );
+    }
+    let body = String::from_utf8_lossy(&output.stdout);
+    if body.trim().is_empty() {
+        return Ok(None);
+    }
+    Ok(Some(serde_json::from_str(body.trim()).with_context(
+        || format!("parse ACP session locator {path}"),
+    )?))
+}
+
+async fn persist_session_locator(
+    container: &str,
+    path: &str,
+    locator: &SessionLocator,
+) -> Result<()> {
+    let body = serde_json::to_string(locator).context("encode ACP session locator")?;
+    write_private_container_file(container, path, &body).await
+}
+
+/// Probe the exact short-lived coordination capability before model spend.
+/// Native OMP tools are fixed by this launch's argv; this read-only call proves
+/// that the same launch id can reach the coordination plane through the
+/// Runtime-installed CLI. It does not consume or mark inbox state.
+async fn prove_tool_contract(container: &str, auth: &AgentAuth, actor: &str) -> Result<String> {
+    let mut args = vec![
+        "exec".to_string(),
+        "-u".to_string(),
+        "company".to_string(),
+        "-e".to_string(),
+        auth.coordination_token_env.clone(),
+        "-e".to_string(),
+        format!("RESTLESS_ACTOR={actor}"),
+    ];
+    #[cfg(test)]
+    if let Some(coordinator) = test_coordinator_override() {
+        args.push("-e".to_string());
+        args.push(format!("RESTLESS_COORDINATOR={coordinator}"));
+    }
+    args.extend([
+        container.to_string(),
+        "restless".to_string(),
+        "people".to_string(),
+        "-c".to_string(),
+        auth.company.clone(),
+    ]);
+    let output = tokio::process::Command::new("docker")
+        .env(&auth.coordination_token_env, &auth.coordination_token)
+        .args(args)
+        .output()
+        .await
+        .context("probe actor coordination tool contract")?;
+    if !output.status.success() {
+        anyhow::bail!(
+            "session-specific coordination readiness failed before prompt: {}",
+            String::from_utf8_lossy(&output.stderr)
+                .chars()
+                .take(500)
+                .collect::<String>()
+        );
+    }
+    Ok(format!(
+        "{:x}",
+        Sha256::digest(
+            format!("native:{OMP_AGENT_TOOLS}\0coordination:restless-people\0actor:{actor}")
+                .as_bytes()
+        )
+    ))
+}
+
 /// Install the provider's credential-free OMP route in a Restless-owned agent
 /// directory. This never touches the company's general-purpose ~/.omp config
 /// and never writes a capability or provider key to the volume.
@@ -216,7 +396,8 @@ pub struct TurnUsage {
     pub used: u64,
     /// Context window size the agent is working against.
     pub size: u64,
-    /// Cumulative session cost, when the provider priced the session.
+    /// Cost added by this wake relative to its persisted session baseline,
+    /// when the provider reports a cumulative session price.
     pub cost_usd: Option<f64>,
 }
 
@@ -235,6 +416,9 @@ pub struct TurnTranscript {
     /// Last usage report of the turn; `None` means the agent never sent one,
     /// which `health::classify_turn` treats exactly like zero.
     pub usage: Option<TurnUsage>,
+    /// Provider cumulative price at the start of this process. Kept private:
+    /// consumers must use the per-wake delta in `usage`.
+    session_cost_baseline_usd: Option<f64>,
     /// When the agent last said anything at all — the liveness signal the
     /// watchdog reads. Thought chunks count: they are not transcript content,
     /// but they are proof the model is running. A 20-minute wall-clock bound
@@ -255,9 +439,19 @@ impl Default for TurnTranscript {
             tool_calls: Vec::new(),
             last_message_id: None,
             usage: None,
+            session_cost_baseline_usd: None,
             last_activity: std::time::Instant::now(),
             tools_in_flight: 0,
         }
+    }
+}
+
+fn session_cost_delta(current: Option<f64>, baseline: Option<f64>) -> Option<f64> {
+    match (current, baseline) {
+        (Some(current), Some(baseline)) if current >= baseline => Some(current - baseline),
+        (Some(_), Some(_)) => None,
+        (Some(current), None) => Some(current),
+        (None, _) => None,
     }
 }
 
@@ -299,10 +493,14 @@ impl TurnTranscript {
                 }
             }
             SessionUpdate::UsageUpdate(usage) => {
+                let cumulative_cost_usd = usage.cost.as_ref().map(|cost| cost.amount);
                 self.usage = Some(TurnUsage {
                     used: usage.used,
                     size: usage.size,
-                    cost_usd: usage.cost.as_ref().map(|cost| cost.amount),
+                    cost_usd: session_cost_delta(
+                        cumulative_cost_usd,
+                        self.session_cost_baseline_usd,
+                    ),
                 });
             }
             _ => {}
@@ -337,6 +535,10 @@ fn live_event(update: &SessionUpdate) -> Option<LiveSessionEvent> {
                 .map(|status| format!("{status:?}").to_lowercase())
                 .unwrap_or_else(|| "active".into()),
         }),
+        // Usage needs the persisted session baseline before it is safe for an
+        // owner surface. The notification handler emits the delta after
+        // `TurnTranscript::note`; raw cumulative provider cost never escapes.
+        SessionUpdate::UsageUpdate(_) => None,
         _ => None,
     }
 }
@@ -347,6 +549,12 @@ pub struct AgentSession {
     pub session_id: SessionId,
     transcript: Arc<Mutex<TurnTranscript>>,
     observer: Option<SessionObserver>,
+    live_observer_enabled: Arc<AtomicBool>,
+    pub launch_id: String,
+    pub resumed: bool,
+    pub reconstructed: bool,
+    pub reconstruction_reason: Option<String>,
+    pub tool_contract_digest: String,
 }
 
 /// Silence with nothing running: the agent is wedged.
@@ -398,6 +606,9 @@ pub enum TurnEnd {
     },
     /// The company reached its ceiling mid-turn.
     OverBudget { transcript: TurnTranscript },
+    /// The owner deliberately interrupted this session to send a new
+    /// direction. Files already written remain on the persistent Runtime.
+    Interrupted { transcript: TurnTranscript },
     /// The session or its transport failed. `error` is the anyhow chain.
     Failed {
         error: String,
@@ -413,6 +624,7 @@ impl TurnEnd {
             Self::Completed { transcript }
             | Self::Wedged { transcript, .. }
             | Self::OverBudget { transcript }
+            | Self::Interrupted { transcript }
             | Self::Failed { transcript, .. } => transcript,
         }
     }
@@ -424,6 +636,7 @@ impl TurnEnd {
             Self::Completed { transcript }
             | Self::Wedged { transcript, .. }
             | Self::OverBudget { transcript }
+            | Self::Interrupted { transcript }
             | Self::Failed { transcript, .. } => transcript,
         }
     }
@@ -439,6 +652,25 @@ impl TurnEnd {
 }
 
 impl AgentSession {
+    pub fn readiness_observation(&self) -> serde_json::Value {
+        serde_json::json!({
+            "launch_id": self.launch_id,
+            "session_id": self.session_id.to_string(),
+            "resumed": self.resumed,
+            "reconstructed": self.reconstructed,
+            "reconstruction_reason": self.reconstruction_reason,
+            "tool_contract_digest": self.tool_contract_digest,
+            "fresh_process_capability": true,
+        })
+    }
+
+    /// Activity is owner-visible only while the agent works the requested
+    /// outcome. The deterministic private termination envelope shares the ACP
+    /// session but must never be rendered as the agent's public reply.
+    pub fn set_live_observer_enabled(&self, enabled: bool) {
+        self.live_observer_enabled.store(enabled, Ordering::Release);
+    }
+
     /// Send one prompt and let it run for as long as it is *alive*, rather
     /// than for a fixed wall-clock budget.
     ///
@@ -463,18 +695,25 @@ impl AgentSession {
         &self,
         text: &str,
         budget: impl Fn(&TurnUsage) -> bool + Send,
+        cancellation: &CancellationToken,
     ) -> TurnEnd {
         let prompt = self.prompt(text);
         tokio::pin!(prompt);
         loop {
             tokio::select! {
+                () = cancellation.cancelled() => {
+                    let _ = self.cancel().await;
+                    return TurnEnd::Interrupted { transcript: self.take_transcript() };
+                }
                 finished = &mut prompt => {
                     return match finished {
                         Ok(response) => {
                             let output_tokens = response.usage.map(|usage| usage.output_tokens);
                             if let Some(tokens) = output_tokens {
-                                if let Some(observer) = &self.observer {
-                                    observer(LiveSessionEvent::GeneratedOutputTokens(tokens));
+                                if self.live_observer_enabled.load(Ordering::Acquire) {
+                                    if let Some(observer) = &self.observer {
+                                        observer(LiveSessionEvent::GeneratedOutputTokens(tokens));
+                                    }
                                 }
                             }
                             let mut transcript = self.take_transcript();
@@ -545,7 +784,12 @@ impl AgentSession {
     pub fn take_transcript(&self) -> TurnTranscript {
         self.transcript
             .lock()
-            .map(|mut guard| std::mem::take(&mut *guard))
+            .map(|mut guard| {
+                let baseline = guard.session_cost_baseline_usd;
+                let transcript = std::mem::take(&mut *guard);
+                guard.session_cost_baseline_usd = baseline;
+                transcript
+            })
             .unwrap_or_default()
     }
 }
@@ -557,11 +801,16 @@ impl AgentSession {
 /// process env, so the CLI the agent shells out to knows who is reporting
 /// (T10); RESTLESS_COMPANY and the coordinator address come from the
 /// container's own env.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the ACP launch boundary keeps identity, responsibility, authority and observation explicit"
+)]
 pub async fn with_agent<F, T>(
     container: &str,
     auth: &AgentAuth,
     workdir: &str,
     actor: &str,
+    responsibility: &str,
     controls: AgentControls,
     observer: Option<SessionObserver>,
     drive: F,
@@ -573,7 +822,15 @@ where
         Box<dyn std::future::Future<Output = Result<T>> + Send + 'a>,
     >,
 {
+    if responsibility.trim().is_empty() {
+        anyhow::bail!("ACP session responsibility scope must not be empty");
+    }
     prepare_agent_runtime(container, auth).await?;
+    let locator_path = session_locator_path(&auth.company, actor, responsibility);
+    let prior_locator = read_session_locator(container, &locator_path).await?;
+    if let Some(locator) = &prior_locator {
+        validate_session_locator(locator, &auth.company, actor, responsibility, workdir)?;
+    }
     // Every docker-exec process is a Linux session leader. Record this turn's
     // session id inside the container so cleanup can reap only its process
     // tree. A before/after PID diff is not ownership: a staff turn may start
@@ -593,6 +850,11 @@ where
     if controls.team_coordination_wake {
         args.push("-e".to_string());
         args.push("RESTLESS_COORDINATION_WAKE=1".to_string());
+    }
+    #[cfg(test)]
+    if let Some(coordinator) = test_coordinator_override() {
+        args.push("-e".to_string());
+        args.push(format!("RESTLESS_COORDINATOR={coordinator}"));
     }
     args.push("-e".to_string());
     args.push(auth.coordination_token_env.clone());
@@ -654,9 +916,23 @@ where
 
     let transcript = Arc::new(Mutex::new(TurnTranscript::default()));
     let sink = Arc::clone(&transcript);
+    let capture_notifications = Arc::new(AtomicBool::new(false));
+    let notification_capture = Arc::clone(&capture_notifications);
+    let live_locator = Arc::new(Mutex::new(None::<SessionLocator>));
+    let notification_locator = Arc::clone(&live_locator);
+    let notification_container = container.to_string();
+    let notification_locator_path = locator_path.clone();
     let event_observer = observer.clone();
+    let live_observer_enabled = Arc::new(AtomicBool::new(true));
+    let observer_enabled = Arc::clone(&live_observer_enabled);
     let workdir = workdir.to_string();
     let mcp_servers = controls.mcp_servers;
+    let responsibility = responsibility.to_string();
+    let launch_auth = auth.clone();
+    let launch_container = container.to_string();
+    let launch_actor = actor.to_string();
+    let launch_id_for_session = launch_id.clone();
+    let session_locator_path = locator_path.clone();
     // connect_with speaks acp::Error; the real anyhow chain is parked here
     // and restored after the connection closes.
     let failure = Arc::new(Mutex::new(None::<anyhow::Error>));
@@ -668,14 +944,61 @@ where
             move |notification: SessionNotification, _cx| {
                 let sink = Arc::clone(&sink);
                 let event_observer = event_observer.clone();
+                let observer_enabled = Arc::clone(&observer_enabled);
+                let capture_notifications = Arc::clone(&notification_capture);
+                let live_locator = Arc::clone(&notification_locator);
+                let locator_container = notification_container.clone();
+                let locator_path = notification_locator_path.clone();
                 async move {
-                    if let (Some(observer), Some(event)) =
-                        (event_observer.as_ref(), live_event(&notification.update))
-                    {
-                        observer(event);
+                    // session/load may replay historical notifications to
+                    // reconstruct the agent. They are not current work,
+                    // usage, owner text, or organisational activity.
+                    if !capture_notifications.load(Ordering::Acquire) {
+                        return Ok(());
                     }
+                    let mut event = live_event(&notification.update);
                     if let Ok(mut transcript) = sink.lock() {
                         transcript.note(&notification.update);
+                        if matches!(&notification.update, SessionUpdate::UsageUpdate(_)) {
+                            event = transcript.usage.map(|usage| LiveSessionEvent::UsageUpdate {
+                                used: usage.used,
+                                size: usage.size,
+                                cost_usd: usage.cost_usd,
+                            });
+                        }
+                    }
+                    if observer_enabled.load(Ordering::Acquire) {
+                        if let (Some(observer), Some(event)) = (event_observer.as_ref(), event) {
+                            observer(event);
+                        }
+                    }
+                    if let SessionUpdate::UsageUpdate(usage) = &notification.update {
+                        let updated = if let Ok(mut current) = live_locator.lock() {
+                            current.as_mut().map(|locator| {
+                                if let Some(observed) = usage.cost.as_ref().map(|cost| cost.amount) {
+                                    if locator
+                                        .cumulative_cost_usd
+                                        .is_none_or(|previous| observed >= previous)
+                                    {
+                                        locator.cumulative_cost_usd = Some(observed);
+                                    }
+                                }
+                                locator.clone()
+                            })
+                        } else {
+                            None
+                        };
+                        if let Some(locator) = updated {
+                            if let Err(error) = persist_session_locator(
+                                &locator_container,
+                                &locator_path,
+                                &locator,
+                            )
+                            .await
+                            {
+                                tracing::warn!(%error, "could not persist cumulative ACP usage");
+                            }
+                        }
                     }
                     Ok(())
                 }
@@ -729,17 +1052,123 @@ where
                     .unwrap_or_else(|| "unknown".to_string());
                 tracing::info!(agent = %agent_name, "acp agent initialized");
 
-                let session = cx
-                    .send_request(NewSessionRequest::new(workdir).mcp_servers(mcp_servers))
-                    .block_task()
+                let (session_id, resumed, reconstructed, reconstruction_reason, baseline_cost) =
+                    match prior_locator {
+                        Some(prior)
+                            if prior.model == launch_auth.model
+                                && initialized.agent_capabilities.load_session =>
+                        {
+                            let prior_id: SessionId = prior.session_id.clone().into();
+                            match cx
+                                .send_request(
+                                    LoadSessionRequest::new(prior_id.clone(), workdir.clone())
+                                        .mcp_servers(mcp_servers.clone()),
+                                )
+                                .block_task()
+                                .await
+                            {
+                                Ok(_) => (
+                                    prior_id,
+                                    true,
+                                    false,
+                                    None,
+                                    prior.cumulative_cost_usd,
+                                ),
+                                Err(error) => {
+                                    let session = cx
+                                        .send_request(
+                                            NewSessionRequest::new(workdir.clone())
+                                                .mcp_servers(mcp_servers.clone()),
+                                        )
+                                        .block_task()
+                                        .await
+                                        .context("acp session/new after failed load")?;
+                                    (
+                                        session.session_id,
+                                        false,
+                                        true,
+                                        Some(format!("session/load failed: {error}")),
+                                        None,
+                                    )
+                                }
+                            }
+                        }
+                        Some(prior) => {
+                            let reason = if prior.model != launch_auth.model {
+                                format!(
+                                    "model changed from {} to {}; prior provider session is not reusable",
+                                    prior.model, launch_auth.model
+                                )
+                            } else {
+                                "ACP agent does not advertise session/load".to_string()
+                            };
+                            let session = cx
+                                .send_request(
+                                    NewSessionRequest::new(workdir.clone())
+                                        .mcp_servers(mcp_servers.clone()),
+                                )
+                                .block_task()
+                                .await
+                                .context("acp session/new for explicit reconstruction")?;
+                            (session.session_id, false, true, Some(reason), None)
+                        }
+                        None => {
+                            let session = cx
+                                .send_request(
+                                    NewSessionRequest::new(workdir.clone())
+                                        .mcp_servers(mcp_servers.clone()),
+                                )
+                                .block_task()
+                                .await
+                                .context("acp session/new")?;
+                            (session.session_id, false, false, None, None)
+                        }
+                    };
+
+                let locator = SessionLocator {
+                    version: 1,
+                    company: launch_auth.company.clone(),
+                    actor: launch_actor.clone(),
+                    responsibility: responsibility.clone(),
+                    cwd: workdir.clone(),
+                    model: launch_auth.model.clone(),
+                    session_id: session_id.to_string(),
+                    cumulative_cost_usd: baseline_cost,
+                };
+                persist_session_locator(&launch_container, &session_locator_path, &locator)
                     .await
-                    .context("acp session/new")?;
+                    .context("persist ACP session scope before prompt")?;
+                if let Ok(mut active) = live_locator.lock() {
+                    *active = Some(locator);
+                }
+                if let Ok(mut current) = transcript.lock() {
+                    current.session_cost_baseline_usd = baseline_cost;
+                }
+                let tool_contract_digest =
+                    prove_tool_contract(&launch_container, &launch_auth, &launch_actor).await?;
+                capture_notifications.store(true, Ordering::Release);
+                tracing::info!(
+                    actor = %launch_actor,
+                    responsibility = %responsibility,
+                    launch_id = %launch_id_for_session,
+                    session_id = %session_id,
+                    resumed,
+                    reconstructed,
+                    tool_contract_digest = %tool_contract_digest,
+                    "ACP session ready before production prompt"
+                );
 
                 let agent = AgentSession {
                     cx,
-                    session_id: session.session_id,
+                    session_id,
                     transcript,
                     observer,
+                    live_observer_enabled,
+                    launch_id: launch_id_for_session,
+                    resumed,
+                    reconstructed,
+                    reconstruction_reason,
+                    tool_contract_digest,
                 };
                 drive(&agent).await
             };
@@ -920,8 +1349,295 @@ mod tests {
     use agent_client_protocol::schema::v1::ClientCapabilities;
 
     use super::{
-        agent_exec_prefix, pids_in_session, AgentControls, OMP_AGENT_TOOLS, RESTLESS_OMP_CONFIG,
+        agent_exec_prefix, persist_session_locator, pids_in_session, read_session_locator,
+        session_cost_delta, session_locator_path, validate_session_locator, with_agent, AgentAuth,
+        AgentControls, SessionLocator, OMP_AGENT_TOOLS, RESTLESS_OMP_CONFIG,
     };
+
+    #[test]
+    fn resumed_usage_is_a_per_wake_delta_and_counter_regression_is_unknown() {
+        assert_eq!(session_cost_delta(Some(1.25), Some(1.0)), Some(0.25));
+        assert_eq!(session_cost_delta(Some(0.8), Some(1.0)), None);
+        assert_eq!(session_cost_delta(None, Some(1.0)), None);
+        assert_eq!(session_cost_delta(Some(0.25), None), Some(0.25));
+    }
+
+    #[test]
+    fn provider_sessions_are_scoped_to_one_actor_and_responsibility() {
+        let locator = SessionLocator {
+            version: 1,
+            company: "acme_test".into(),
+            actor: "account-reply-writer".into(),
+            responsibility: "work:abc".into(),
+            cwd: "/company/worktrees/work-abc-r1".into(),
+            model: "zai/glm-5.3".into(),
+            session_id: "session-1".into(),
+            cumulative_cost_usd: Some(0.2),
+        };
+        validate_session_locator(
+            &locator,
+            "acme_test",
+            "account-reply-writer",
+            "work:abc",
+            "/company/worktrees/work-abc-r1",
+        )
+        .unwrap();
+        assert!(validate_session_locator(
+            &locator,
+            "acme_test",
+            "other-writer",
+            "work:abc",
+            "/company/worktrees/work-abc-r1",
+        )
+        .is_err());
+        assert!(validate_session_locator(
+            &locator,
+            "acme_test",
+            "account-reply-writer",
+            "work:def",
+            "/company/worktrees/work-abc-r1",
+        )
+        .is_err());
+        assert_ne!(
+            session_locator_path("acme_test", "account-reply-writer", "work:abc"),
+            session_locator_path("acme_test", "account-reply-writer", "work:def")
+        );
+    }
+
+    /// Opt-in product probe. It uses one dedicated `_test` company and the
+    /// already-running host gateway/coordination service; no provider secret
+    /// enters the test process or Company Runtime.
+    #[tokio::test]
+    #[ignore = "requires RESTLESS_ACP_SESSION_TEST_COMPANY and a live model gateway"]
+    async fn live_process_cold_session_hot_continuity_and_reconstruction() {
+        let company = std::env::var("RESTLESS_ACP_SESSION_TEST_COMPANY")
+            .expect("set RESTLESS_ACP_SESSION_TEST_COMPANY");
+        assert!(company.ends_with("_test"));
+        let model = std::env::var("RESTLESS_ACP_SESSION_TEST_MODEL")
+            .unwrap_or_else(|_| "zai/glm-5.3".to_string());
+        let provider = model
+            .split_once('/')
+            .map(|(provider, _)| provider)
+            .expect("provider-qualified model")
+            .to_string();
+        let root = std::env::var("RESTLESS_HOME")
+            .map(std::path::PathBuf::from)
+            .unwrap_or_else(|_| {
+                std::path::PathBuf::from(std::env::var("HOME").expect("HOME")).join(".restless")
+            });
+        let capabilities = crate::capability::CapabilityIssuer::open(&root).unwrap();
+        let container = crate::runtime::container_name(&company);
+        let actor = "exec";
+        let run_id = uuid::Uuid::new_v4().simple().to_string();
+        let responsibility = format!("evaluation:s17-session-continuity:{run_id}");
+        let workdir = "/company";
+        let make_auth = || {
+            let launch_id = uuid::Uuid::new_v4().simple().to_string();
+            AgentAuth {
+                model: model.clone(),
+                provider: provider.clone(),
+                company: company.clone(),
+                session_id: launch_id.clone(),
+                coordination_token_env: "RESTLESS_SESSION_CAPABILITY".into(),
+                coordination_token: capabilities
+                    .issue_actor_session(&company, actor, &launch_id)
+                    .unwrap(),
+                gateway_token_env: "RESTLESS_MODEL_CAPABILITY".into(),
+                gateway_token: capabilities
+                    .issue_model_session(
+                        &company,
+                        actor,
+                        &launch_id,
+                        &provider,
+                        crate::model_gateway::ModelBilling::Subscription.as_str(),
+                    )
+                    .unwrap(),
+                gateway_url: "http://host.docker.internal:7790".into(),
+                billing: crate::model_gateway::ModelBilling::Subscription,
+            }
+        };
+        let marker = format!("S17-{}", uuid::Uuid::new_v4().simple());
+        let first_auth = make_auth();
+        let first = with_agent(
+            &container,
+            &first_auth,
+            workdir,
+            actor,
+            &responsibility,
+            AgentControls::company_actor("You are a bounded continuity probe.".into()).unwrap(),
+            None,
+            {
+                let marker = marker.clone();
+                move |session| {
+                    Box::pin(async move {
+                        session
+                            .prompt(&format!(
+                                "Privately retain this exact continuity marker for my next turn: {marker}. Reply only ACK."
+                            ))
+                            .await?;
+                        let transcript = session.take_transcript();
+                        anyhow::Ok((
+                            session.launch_id.clone(),
+                            session.session_id.to_string(),
+                            session.resumed,
+                            session.reconstructed,
+                            session.tool_contract_digest.clone(),
+                            transcript.usage,
+                            transcript.last_message_text,
+                        ))
+                    })
+                }
+            },
+        )
+        .await
+        .unwrap();
+        assert!(!first.2 && !first.3);
+
+        let second_auth = make_auth();
+        assert_ne!(first_auth.session_id, second_auth.session_id);
+        assert_ne!(
+            first_auth.coordination_token,
+            second_auth.coordination_token
+        );
+        let second = with_agent(
+            &container,
+            &second_auth,
+            workdir,
+            actor,
+            &responsibility,
+            AgentControls::company_actor("You are a bounded continuity probe.".into()).unwrap(),
+            None,
+            move |session| {
+                Box::pin(async move {
+                    session
+                        .prompt("Return only the private continuity marker from my previous turn.")
+                        .await?;
+                    let transcript = session.take_transcript();
+                    anyhow::Ok((
+                        session.launch_id.clone(),
+                        session.session_id.to_string(),
+                        session.resumed,
+                        session.reconstructed,
+                        session.tool_contract_digest.clone(),
+                        transcript.usage,
+                        transcript.last_message_text,
+                    ))
+                })
+            },
+        )
+        .await
+        .unwrap();
+        assert_ne!(first.0, second.0, "each wake needs a new OS launch");
+        assert_eq!(first.1, second.1, "provider session should stay hot");
+        assert!(second.2 && !second.3);
+        assert_eq!(first.4, second.4);
+        assert!(second.6.contains(&marker), "reply was {:?}", second.6);
+        assert!(second
+            .5
+            .and_then(|usage| usage.cost_usd)
+            .is_none_or(|cost| cost >= 0.0));
+
+        let path = session_locator_path(&company, actor, &responsibility);
+        let mut broken = read_session_locator(&container, &path)
+            .await
+            .unwrap()
+            .unwrap();
+        broken.session_id = format!("missing-{}", uuid::Uuid::new_v4().simple());
+        persist_session_locator(&container, &path, &broken)
+            .await
+            .unwrap();
+        let third_auth = make_auth();
+        let third = with_agent(
+            &container,
+            &third_auth,
+            workdir,
+            actor,
+            &responsibility,
+            AgentControls::company_actor("You are a bounded continuity probe.".into()).unwrap(),
+            None,
+            {
+                let marker = marker.clone();
+                move |session| {
+                    Box::pin(async move {
+                        session
+                            .prompt(&format!(
+                                "Durable factual context reconstruction: the expected marker is {marker}. Return only that marker."
+                            ))
+                            .await?;
+                        let transcript = session.take_transcript();
+                        anyhow::Ok((
+                            session.session_id.to_string(),
+                            session.resumed,
+                            session.reconstructed,
+                            session.reconstruction_reason.clone(),
+                            transcript.last_message_text,
+                        ))
+                    })
+                }
+            },
+        )
+        .await
+        .unwrap();
+        assert!(!third.1 && third.2);
+        assert!(third
+            .3
+            .as_deref()
+            .is_some_and(|reason| reason.contains("session/load failed")));
+        assert_ne!(third.0, broken.session_id);
+        assert!(third.4.contains(&marker), "reply was {:?}", third.4);
+
+        let readiness_responsibility = format!("evaluation:s17-readiness-repair:{run_id}");
+        let mut invalid_auth = make_auth();
+        invalid_auth.coordination_token = "invalid-session-capability".into();
+        let productive_prompt_reached =
+            std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let called = productive_prompt_reached.clone();
+        let invalid = with_agent(
+            &container,
+            &invalid_auth,
+            workdir,
+            actor,
+            &readiness_responsibility,
+            AgentControls::company_actor("You are a bounded readiness probe.".into()).unwrap(),
+            None,
+            move |_session| {
+                let called = called.clone();
+                Box::pin(async move {
+                    called.store(true, std::sync::atomic::Ordering::Release);
+                    anyhow::Ok(())
+                })
+            },
+        )
+        .await
+        .unwrap_err();
+        assert!(format!("{invalid:#}").contains("coordination readiness failed before prompt"));
+        assert!(!productive_prompt_reached.load(std::sync::atomic::Ordering::Acquire));
+
+        let repaired_auth = make_auth();
+        let repaired = with_agent(
+            &container,
+            &repaired_auth,
+            workdir,
+            actor,
+            &readiness_responsibility,
+            AgentControls::company_actor("You are a bounded readiness probe.".into()).unwrap(),
+            None,
+            move |session| {
+                Box::pin(async move {
+                    session.prompt("Reply only READY.").await?;
+                    let transcript = session.take_transcript();
+                    anyhow::Ok((session.resumed, transcript.last_message_text))
+                })
+            },
+        )
+        .await
+        .unwrap();
+        assert!(
+            repaired.0,
+            "the repaired launch should reuse the unspent scoped session"
+        );
+        assert!(repaired.1.contains("READY"), "reply was {:?}", repaired.1);
+    }
 
     /// OrgIntel owns Staff identity and handoff evidence. OMP's similarly
     /// named task runtime is deliberately absent so an actor cannot bypass

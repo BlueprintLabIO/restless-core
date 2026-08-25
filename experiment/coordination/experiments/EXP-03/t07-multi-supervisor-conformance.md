@@ -1,7 +1,7 @@
 # EXP-03 multi-worker supervisor conformance
 
 **Date:** 24 August 2026
-**Run:** `exp03-supervisor-multi-architecture-r1`
+**Run:** `exp03-supervisor-multi-architecture-r2`
 **Result:** 9/9 deterministic checks passed
 
 The experiment harness now admits a frozen roster of distinct worker identities without changing the

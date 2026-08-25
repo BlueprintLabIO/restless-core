@@ -295,6 +295,23 @@ impl AuthorityStore {
     /// makes the provider's event id the deciding fact without imposing that
     /// shape on any other Authority record.
     pub async fn emit_inbound_once(&self, company: &str, body: serde_json::Value) -> Result<bool> {
+        Ok(self.emit_inbound_once_with_id(company, body).await?.1)
+    }
+
+    /// Record or recover one authoritative inbound record id. The id is the
+    /// stable cross-layer source reference; OrgIntel never owns provider
+    /// delivery truth, and a redelivery can use this id to repair a lost
+    /// projection without creating a second Authority fact.
+    pub async fn emit_inbound_once_with_id(
+        &self,
+        company: &str,
+        body: serde_json::Value,
+    ) -> Result<(i64, bool)> {
+        let provider_event_id = body
+            .get("provider_event_id")
+            .and_then(serde_json::Value::as_str)
+            .context("inbound Authority body needs provider_event_id")?
+            .to_string();
         let inserted = sqlx::query_scalar::<_, i64>(
             "INSERT INTO restless_authority.records (company, kind, actor_id, body) \
              VALUES ($1, 'inbound_effect', 'world', $2) \
@@ -305,7 +322,45 @@ impl AuthorityStore {
         .fetch_optional(&self.pool)
         .await
         .with_context(|| format!("record inbound Authority effect for {company}"))?;
-        Ok(inserted.is_some())
+        if let Some(id) = inserted {
+            return Ok((id, true));
+        }
+        let id = sqlx::query_scalar::<_, i64>(
+            "SELECT id FROM restless_authority.records \
+             WHERE company=$1 AND kind='inbound_effect' AND body->>'provider_event_id'=$2",
+        )
+        .bind(company)
+        .bind(provider_event_id)
+        .fetch_one(&self.pool)
+        .await
+        .with_context(|| format!("recover inbound Authority record for {company}"))?;
+        Ok((id, false))
+    }
+
+    pub async fn inbound_companies(&self) -> Result<Vec<String>> {
+        Ok(sqlx::query_scalar(
+            "SELECT DISTINCT company FROM restless_authority.records \
+             WHERE kind='inbound_effect' ORDER BY company",
+        )
+        .fetch_all(&self.pool)
+        .await?)
+    }
+
+    pub async fn inbound_after(
+        &self,
+        company: &str,
+        after_id: i64,
+        limit: i64,
+    ) -> Result<Vec<AuthorityRecord>> {
+        Ok(sqlx::query_as(
+            "SELECT id,actor_id,body,created_at FROM restless_authority.records \
+             WHERE company=$1 AND kind='inbound_effect' AND id>$2 ORDER BY id LIMIT $3",
+        )
+        .bind(company)
+        .bind(after_id.max(0))
+        .bind(limit.clamp(1, 1000))
+        .fetch_all(&self.pool)
+        .await?)
     }
 
     /// Import the governance events written before the Authority store

@@ -1,0 +1,84 @@
+{
+  "accepted_units_per_worker_window_hour": 418.641,
+  "candidate_checks": [
+    {
+      "errors_observed": [],
+      "exit": 0,
+      "failure_markers": 0,
+      "file": "verify-monitoring.mjs",
+      "fixture_mode": "self_owned",
+      "passed": true,
+      "stderr": "",
+      "stdout": "{\"valid\":true,\"alerts\":12,\"files\":[\"alerts/intelligence-operator-1.json\"]}\n"
+    }
+  ],
+  "cost_per_accepted_unit": 0.025942,
+  "decision_complete": true,
+  "model": "zai/glm-5.3",
+  "protocol_valid": true,
+  "run": "exp04-monitor-q1-r1",
+  "run_dir": "/Users/yao/Learning/restless/experiment/coordination-lab/v2/workdir/exp04-monitor-q1-r1",
+  "score": {
+    "accepted": 12,
+    "alerts": 12,
+    "errors": [],
+    "files": [
+      "intelligence-operator-1.json"
+    ],
+    "mean_quality_10": 10.0,
+    "worst_entity_10": 10.0
+  },
+  "telemetry": {
+    "cache_usage": "unknown",
+    "configured_effort": [],
+    "cost_usd": 0.31130868,
+    "lead_active_seconds": 276.437,
+    "observed_peak_workers": 1,
+    "phase_signals": 4,
+    "reasoning_output_tokens": "unknown",
+    "request_wall_seconds": 365.095,
+    "sessions": [
+      {
+        "actor": "supervisor-lead",
+        "at": "1787609976809",
+        "kind": "model_session",
+        "payload": {
+          "reconstructed": false,
+          "reconstruction_error": null,
+          "resumed": false,
+          "session_id": "01a035db-8f3b-7000-88bf-06831d0844ad"
+        },
+        "turn_id": "1787609975728-turn-ab72426163"
+      },
+      {
+        "actor": "intelligence-operator-1",
+        "at": "1787610051768",
+        "kind": "model_session",
+        "payload": {
+          "reconstructed": false,
+          "reconstruction_error": null,
+          "resumed": false,
+          "session_id": "01a035dc-b3ee-7000-8164-b1adb9e44739"
+        },
+        "turn_id": "1787610050509-turn-17f2b1fba0"
+      },
+      {
+        "actor": "supervisor-lead",
+        "at": "1787610146109",
+        "kind": "model_session",
+        "payload": {
+          "reconstructed": false,
+          "reconstruction_error": null,
+          "resumed": true,
+          "session_id": "01a035db-8f3b-7000-88bf-06831d0844ad"
+        },
+        "turn_id": "1787610144916-turn-c253d3240b"
+      }
+    ],
+    "worker_active_sum_seconds": 103.191,
+    "worker_window_seconds": 103.191
+  },
+  "worker_effort": "high",
+  "workers": 1,
+  "workload": "monitoring"
+}

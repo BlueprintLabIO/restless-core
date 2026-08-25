@@ -1,25 +1,22 @@
 <script lang="ts">
 	import { page } from '$app/state';
 	import { goto } from '$app/navigation';
-	import { onMount } from 'svelte';
 	import AppShell, { type ShellTab } from '$lib/components/AppShell.svelte';
 	import ExecutiveRail from '$lib/components/ExecutiveRail.svelte';
 	import { cockpitContextPath, reviewAction } from '$lib/model/attention';
-	import { attentionSource } from '$lib/model/attentionSource.svelte';
-	import { conversationSource } from '$lib/model/conversationSource.svelte';
 	import {
-		actorCanReceive,
-		getCockpit,
-		getCompanies,
-		type CockpitView,
-		type CompanyCatalogEntry
-	} from '$lib/model/cockpit';
+		attentionQuery,
+		cockpitQuery,
+		companiesQuery,
+		conversationQuery
+	} from '$lib/model/queries.svelte';
+	import { actorCanReceive } from '$lib/model/cockpit';
 
 	let { children } = $props();
 
 	const companyId = $derived(page.params.companyId ?? 'aris');
-	let cockpit = $state<CockpitView | null>(null);
-	let companies = $state<CompanyCatalogEntry[]>([]);
+	const companyCatalog = companiesQuery();
+	const companies = $derived(companyCatalog.view);
 	let execRailOpen = $state(true);
 	let focusRailRestore = $state<boolean | null>(null);
 	let newFocusRequest = $state(0);
@@ -27,8 +24,9 @@
 	/* The shell and the Attention surface read one source rather than polling the
 	 * same endpoint on two clocks. The badge can no longer disagree with the
 	 * queue it is counting. */
-	const attention = $derived(attentionSource(companyId));
-	$effect(() => attention.attach());
+	const attention = $derived(attentionQuery(companyId));
+	const cockpitProjection = $derived(cockpitQuery(companyId));
+	const cockpit = $derived(cockpitProjection.view);
 
 	const companyName = $derived(attention.view?.company.name ?? '');
 	const liveNeedsYou = $derived(attention.view?.items ?? []);
@@ -43,7 +41,7 @@
 	const focusedAttention = $derived(focusedReview ?? focusedConversation);
 	const railActorId = $derived(focusedAttention?.responsibleActor?.id ?? 'exec');
 	const railConversation = $derived(
-		conversationSource(companyId, railActorId, focusedAttention?.workId)
+		conversationQuery(companyId, railActorId, focusedAttention?.workId)
 	);
 	const railActorName = $derived(
 		railActorId === 'exec'
@@ -73,41 +71,32 @@
 		}
 	});
 
-	onMount(() => {
+	$effect(() => {
 		/* The executive is a persistent sibling on desktop, but its small-screen
 		 * presentation is a full workspace overlay. Start that overlay closed unless
 		 * a focused Attention item explicitly needs it. */
-		if (window.matchMedia('(max-width: 980px)').matches && !focusedAttention) {
+		if (
+			typeof window !== 'undefined' &&
+			window.matchMedia('(max-width: 980px)').matches &&
+			!focusedAttention
+		) {
 			execRailOpen = false;
 		}
-
-		async function refreshShell() {
-			try {
-				const [nextCockpit, nextCompanies] = await Promise.all([
-					getCockpit(companyId),
-					getCompanies()
-				]);
-				cockpit = nextCockpit;
-				companies = nextCompanies;
-			} catch {
-				/* The active page owns source errors. The shell stays truthful
-				 * instead of substituting fixture company data. */
-			}
-		}
-		void refreshShell();
-		const interval = window.setInterval(refreshShell, 8_000);
-		return () => window.clearInterval(interval);
 	});
 
 	async function askRail(
 		text: string,
 		files: File[],
 		includeContext: boolean,
-		newFocus: boolean
+		newFocus: boolean,
+		interrupt: boolean
 	): Promise<{ error?: string; notice?: string }> {
 		try {
 			const contextPath = includeContext ? cockpitContextPath(companyId, page.url) : undefined;
-			const result = await railConversation.send(text, files, contextPath, newFocus);
+			const result = await railConversation.send(text, files, contextPath, newFocus, interrupt);
+			if (interrupt && result.interrupted) {
+				return { notice: `${railActorName} was interrupted and your new direction is queued.` };
+			}
 			return includeContext && (!contextPath || result.contextOmitted)
 				? { notice: 'Message sent without the current-screen link.' }
 				: {};
@@ -141,6 +130,14 @@
 
 	function closeFocusedContext() {
 		if (!focusedAttention) return;
+		/* On small screens the executive rail is a full-workspace overlay. Closing
+		 * it must reveal the focused outcome underneath, not also discard that
+		 * outcome's URL context. The actor button can reopen the same lead and
+		 * decision controls without rebuilding any review state. */
+		if (typeof window !== 'undefined' && window.matchMedia('(max-width: 980px)').matches) {
+			execRailOpen = false;
+			return;
+		}
 		void goto(`/${companyId}?item=${encodeURIComponent(focusedAttention.id)}`);
 	}
 

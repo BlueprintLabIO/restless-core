@@ -1,6 +1,10 @@
 # Ordinary-team crossover programme
 
-Status: active; precedes wildcard screening
+Status: closed historical calibration; EXP-03 supersedes the product baseline
+
+The B0/B1 definitions below are retained to interpret completed evidence. They are no longer candidate
+production organisations: the owner-decided minimum is a non-producing supervisor lead plus one
+end-to-end worker. Future experiments compare additional Staff below that fixed boundary.
 
 ## Questions
 

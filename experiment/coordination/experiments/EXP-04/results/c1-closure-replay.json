@@ -1,0 +1,21 @@
+{
+  "finding": "Observed final verification/handoff consumed 29.9% and 35.2% of total spend. Preserve closure capacity dynamically, but do not encode 25% as a universal quota.",
+  "matched_open_vs_reserved_call_not_activated": "The frozen queues expose no optional production admission after their one bounded Work set; both policies therefore admit identical calls. Manufacturing extra work would test prompt-induced churn.",
+  "observations": {
+    "e1_uniform": {
+      "closed_exactly": true,
+      "closure_share": 0.3519,
+      "final_closure_cost_usd": 0.10080476,
+      "fixed_25_percent_bucket_alone_sufficient": false,
+      "total_cost_usd": 0.28642132
+    },
+    "q1_sales": {
+      "closed_exactly": true,
+      "closure_share": 0.2991,
+      "final_closure_cost_usd": 0.07299852,
+      "fixed_25_percent_bucket_alone_sufficient": false,
+      "total_cost_usd": 0.24405608
+    }
+  },
+  "status": "non-discriminating diagnostic; fixed percentage not advanced"
+}
