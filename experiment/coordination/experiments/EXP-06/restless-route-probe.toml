@@ -1,0 +1,12 @@
+name = "site_benchmark_route_test"
+mission = """# GPT-5.6 Sol route probe
+
+This throwaway company exists only to prove the current Restless actor route before EXP-06. It must
+not create productive Work, change a repository or perform an external effect.
+"""
+spend_ceiling_usd = 1.0
+model = "openai-codex/gpt-5.6-sol"
+model_failover = []
+
+[credentials]
+"model.inference.openai-codex" = "omp-oauth:openai-codex"

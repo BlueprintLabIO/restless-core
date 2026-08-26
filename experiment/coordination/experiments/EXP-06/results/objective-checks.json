@@ -1,0 +1,444 @@
+{
+  "candidate-a": {
+    "routeChecks": [
+      {
+        "viewport": "desktop",
+        "route": "/",
+        "status": 200,
+        "title": "Restless | The company handles the work",
+        "h1": "The company handles the work.\nYou keep the judgment.",
+        "clientWidth": 1440,
+        "scrollWidth": 1440,
+        "emDashCount": 0
+      },
+      {
+        "viewport": "desktop",
+        "route": "/product/",
+        "status": 200,
+        "title": "Product | Restless",
+        "h1": "Less operating. More ownership.",
+        "clientWidth": 1440,
+        "scrollWidth": 1440,
+        "emDashCount": 0
+      },
+      {
+        "viewport": "desktop",
+        "route": "/how-it-works/",
+        "status": 200,
+        "title": "How it works | Restless",
+        "h1": "One outcome. One accountable line.",
+        "clientWidth": 1440,
+        "scrollWidth": 1440,
+        "emDashCount": 0
+      },
+      {
+        "viewport": "desktop",
+        "route": "/research/",
+        "status": 200,
+        "title": "Research | Restless",
+        "h1": "The organisation is a hypothesis we run.",
+        "clientWidth": 1440,
+        "scrollWidth": 1440,
+        "emDashCount": 0
+      },
+      {
+        "viewport": "desktop",
+        "route": "/compare/",
+        "status": 200,
+        "title": "Compare | Restless",
+        "h1": "The category is real. The product boundary is different.",
+        "clientWidth": 1440,
+        "scrollWidth": 1440,
+        "emDashCount": 0
+      },
+      {
+        "viewport": "desktop",
+        "route": "/findings/",
+        "status": 200,
+        "title": "Findings | Restless",
+        "h1": "Findings",
+        "clientWidth": 1440,
+        "scrollWidth": 1440,
+        "emDashCount": 0
+      },
+      {
+        "viewport": "desktop",
+        "route": "/findings/four-departments-one-invalid-evaluator/",
+        "status": 200,
+        "title": "Four departments worked. The evaluator did not. | Restless",
+        "h1": "Four departments worked. The evaluator did not.",
+        "clientWidth": 1440,
+        "scrollWidth": 1440,
+        "emDashCount": 0
+      },
+      {
+        "viewport": "desktop",
+        "route": "/findings/supervision-needs-to-stay-available/",
+        "status": 200,
+        "title": "Supervision only matters if it stays available | Restless",
+        "h1": "Supervision only matters if it stays available",
+        "clientWidth": 1440,
+        "scrollWidth": 1440,
+        "emDashCount": 0
+      },
+      {
+        "viewport": "desktop",
+        "route": "/findings/teams-need-a-crossover/",
+        "status": 200,
+        "title": "Teams need a crossover, not a slogan | Restless",
+        "h1": "Teams need a crossover, not a slogan",
+        "clientWidth": 1440,
+        "scrollWidth": 1440,
+        "emDashCount": 0
+      },
+      {
+        "viewport": "desktop",
+        "route": "/findings/work-graph-is-a-record/",
+        "status": 200,
+        "title": "Keep the work graph sparse | Restless",
+        "h1": "Keep the work graph sparse",
+        "clientWidth": 1440,
+        "scrollWidth": 1440,
+        "emDashCount": 0
+      },
+      {
+        "viewport": "mobile",
+        "route": "/",
+        "status": 200,
+        "title": "Restless | The company handles the work",
+        "h1": "The company handles the work.\nYou keep the judgment.",
+        "clientWidth": 390,
+        "scrollWidth": 390,
+        "emDashCount": 0
+      },
+      {
+        "viewport": "mobile",
+        "route": "/product/",
+        "status": 200,
+        "title": "Product | Restless",
+        "h1": "Less operating. More ownership.",
+        "clientWidth": 390,
+        "scrollWidth": 390,
+        "emDashCount": 0
+      },
+      {
+        "viewport": "mobile",
+        "route": "/how-it-works/",
+        "status": 200,
+        "title": "How it works | Restless",
+        "h1": "One outcome. One accountable line.",
+        "clientWidth": 390,
+        "scrollWidth": 390,
+        "emDashCount": 0
+      },
+      {
+        "viewport": "mobile",
+        "route": "/research/",
+        "status": 200,
+        "title": "Research | Restless",
+        "h1": "The organisation is a hypothesis we run.",
+        "clientWidth": 390,
+        "scrollWidth": 390,
+        "emDashCount": 0
+      },
+      {
+        "viewport": "mobile",
+        "route": "/compare/",
+        "status": 200,
+        "title": "Compare | Restless",
+        "h1": "The category is real. The product boundary is different.",
+        "clientWidth": 390,
+        "scrollWidth": 390,
+        "emDashCount": 0
+      },
+      {
+        "viewport": "mobile",
+        "route": "/findings/",
+        "status": 200,
+        "title": "Findings | Restless",
+        "h1": "Findings",
+        "clientWidth": 390,
+        "scrollWidth": 390,
+        "emDashCount": 0
+      },
+      {
+        "viewport": "mobile",
+        "route": "/findings/four-departments-one-invalid-evaluator/",
+        "status": 200,
+        "title": "Four departments worked. The evaluator did not. | Restless",
+        "h1": "Four departments worked. The evaluator did not.",
+        "clientWidth": 390,
+        "scrollWidth": 390,
+        "emDashCount": 0
+      },
+      {
+        "viewport": "mobile",
+        "route": "/findings/supervision-needs-to-stay-available/",
+        "status": 200,
+        "title": "Supervision only matters if it stays available | Restless",
+        "h1": "Supervision only matters if it stays available",
+        "clientWidth": 390,
+        "scrollWidth": 390,
+        "emDashCount": 0
+      },
+      {
+        "viewport": "mobile",
+        "route": "/findings/teams-need-a-crossover/",
+        "status": 200,
+        "title": "Teams need a crossover, not a slogan | Restless",
+        "h1": "Teams need a crossover, not a slogan",
+        "clientWidth": 390,
+        "scrollWidth": 390,
+        "emDashCount": 0
+      },
+      {
+        "viewport": "mobile",
+        "route": "/findings/work-graph-is-a-record/",
+        "status": 200,
+        "title": "Keep the work graph sparse | Restless",
+        "h1": "Keep the work graph sparse",
+        "clientWidth": 390,
+        "scrollWidth": 390,
+        "emDashCount": 0
+      }
+    ],
+    "focus": {
+      "tag": "A",
+      "text": "Skip to content",
+      "outlineStyle": "solid",
+      "outlineWidth": "3px",
+      "top": 12
+    },
+    "productTabs": 4,
+    "arrowKeyChangedTab": true,
+    "menuPresent": true,
+    "menuOpened": true,
+    "reducedMotion": {
+      "preferenceMatches": true,
+      "runningAnimations": 0
+    },
+    "consoleErrors": [],
+    "pageErrors": []
+  },
+  "candidate-b": {
+    "routeChecks": [
+      {
+        "viewport": "desktop",
+        "route": "/",
+        "status": 200,
+        "title": "Restless | The company handles the work",
+        "h1": "The company handles the work.\nYou keep the judgment.",
+        "clientWidth": 1440,
+        "scrollWidth": 1440,
+        "emDashCount": 0
+      },
+      {
+        "viewport": "desktop",
+        "route": "/product/",
+        "status": 200,
+        "title": "Product | Restless",
+        "h1": "Less operating. More ownership.",
+        "clientWidth": 1440,
+        "scrollWidth": 1440,
+        "emDashCount": 0
+      },
+      {
+        "viewport": "desktop",
+        "route": "/how-it-works/",
+        "status": 200,
+        "title": "How it works | Restless",
+        "h1": "One outcome. One accountable line.",
+        "clientWidth": 1440,
+        "scrollWidth": 1440,
+        "emDashCount": 0
+      },
+      {
+        "viewport": "desktop",
+        "route": "/research/",
+        "status": 200,
+        "title": "Research | Restless",
+        "h1": "The organisation is a hypothesis we run.",
+        "clientWidth": 1440,
+        "scrollWidth": 1440,
+        "emDashCount": 0
+      },
+      {
+        "viewport": "desktop",
+        "route": "/compare/",
+        "status": 200,
+        "title": "Compare | Restless",
+        "h1": "The category is real. The product boundary is different.",
+        "clientWidth": 1440,
+        "scrollWidth": 1440,
+        "emDashCount": 0
+      },
+      {
+        "viewport": "desktop",
+        "route": "/findings/",
+        "status": 200,
+        "title": "Findings | Restless",
+        "h1": "Findings",
+        "clientWidth": 1440,
+        "scrollWidth": 1440,
+        "emDashCount": 0
+      },
+      {
+        "viewport": "desktop",
+        "route": "/findings/four-departments-one-invalid-evaluator/",
+        "status": 200,
+        "title": "Four departments worked. The evaluator did not. | Restless",
+        "h1": "Four departments worked. The evaluator did not.",
+        "clientWidth": 1440,
+        "scrollWidth": 1440,
+        "emDashCount": 0
+      },
+      {
+        "viewport": "desktop",
+        "route": "/findings/supervision-needs-to-stay-available/",
+        "status": 200,
+        "title": "Supervision only matters if it stays available | Restless",
+        "h1": "Supervision only matters if it stays available",
+        "clientWidth": 1440,
+        "scrollWidth": 1440,
+        "emDashCount": 0
+      },
+      {
+        "viewport": "desktop",
+        "route": "/findings/teams-need-a-crossover/",
+        "status": 200,
+        "title": "Teams need a crossover, not a slogan | Restless",
+        "h1": "Teams need a crossover, not a slogan",
+        "clientWidth": 1440,
+        "scrollWidth": 1440,
+        "emDashCount": 0
+      },
+      {
+        "viewport": "desktop",
+        "route": "/findings/work-graph-is-a-record/",
+        "status": 200,
+        "title": "Keep the work graph sparse | Restless",
+        "h1": "Keep the work graph sparse",
+        "clientWidth": 1440,
+        "scrollWidth": 1440,
+        "emDashCount": 0
+      },
+      {
+        "viewport": "mobile",
+        "route": "/",
+        "status": 200,
+        "title": "Restless | The company handles the work",
+        "h1": "The company handles the work.\nYou keep the judgment.",
+        "clientWidth": 390,
+        "scrollWidth": 390,
+        "emDashCount": 0
+      },
+      {
+        "viewport": "mobile",
+        "route": "/product/",
+        "status": 200,
+        "title": "Product | Restless",
+        "h1": "Less operating. More ownership.",
+        "clientWidth": 390,
+        "scrollWidth": 390,
+        "emDashCount": 0
+      },
+      {
+        "viewport": "mobile",
+        "route": "/how-it-works/",
+        "status": 200,
+        "title": "How it works | Restless",
+        "h1": "One outcome. One accountable line.",
+        "clientWidth": 390,
+        "scrollWidth": 390,
+        "emDashCount": 0
+      },
+      {
+        "viewport": "mobile",
+        "route": "/research/",
+        "status": 200,
+        "title": "Research | Restless",
+        "h1": "The organisation is a hypothesis we run.",
+        "clientWidth": 390,
+        "scrollWidth": 390,
+        "emDashCount": 0
+      },
+      {
+        "viewport": "mobile",
+        "route": "/compare/",
+        "status": 200,
+        "title": "Compare | Restless",
+        "h1": "The category is real. The product boundary is different.",
+        "clientWidth": 390,
+        "scrollWidth": 390,
+        "emDashCount": 0
+      },
+      {
+        "viewport": "mobile",
+        "route": "/findings/",
+        "status": 200,
+        "title": "Findings | Restless",
+        "h1": "Findings",
+        "clientWidth": 390,
+        "scrollWidth": 390,
+        "emDashCount": 0
+      },
+      {
+        "viewport": "mobile",
+        "route": "/findings/four-departments-one-invalid-evaluator/",
+        "status": 200,
+        "title": "Four departments worked. The evaluator did not. | Restless",
+        "h1": "Four departments worked. The evaluator did not.",
+        "clientWidth": 390,
+        "scrollWidth": 390,
+        "emDashCount": 0
+      },
+      {
+        "viewport": "mobile",
+        "route": "/findings/supervision-needs-to-stay-available/",
+        "status": 200,
+        "title": "Supervision only matters if it stays available | Restless",
+        "h1": "Supervision only matters if it stays available",
+        "clientWidth": 390,
+        "scrollWidth": 390,
+        "emDashCount": 0
+      },
+      {
+        "viewport": "mobile",
+        "route": "/findings/teams-need-a-crossover/",
+        "status": 200,
+        "title": "Teams need a crossover, not a slogan | Restless",
+        "h1": "Teams need a crossover, not a slogan",
+        "clientWidth": 390,
+        "scrollWidth": 390,
+        "emDashCount": 0
+      },
+      {
+        "viewport": "mobile",
+        "route": "/findings/work-graph-is-a-record/",
+        "status": 200,
+        "title": "Keep the work graph sparse | Restless",
+        "h1": "Keep the work graph sparse",
+        "clientWidth": 390,
+        "scrollWidth": 390,
+        "emDashCount": 0
+      }
+    ],
+    "focus": {
+      "tag": "A",
+      "text": "Skip to content",
+      "outlineStyle": "solid",
+      "outlineWidth": "3px",
+      "top": 12
+    },
+    "productTabs": 0,
+    "arrowKeyChangedTab": false,
+    "menuPresent": true,
+    "menuOpened": true,
+    "reducedMotion": {
+      "preferenceMatches": true,
+      "runningAnimations": 0
+    },
+    "consoleErrors": [],
+    "pageErrors": []
+  }
+}

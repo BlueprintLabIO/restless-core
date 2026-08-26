@@ -1,6 +1,6 @@
 # Experiment Sprint 06 — Codex versus Restless on a public site outcome
 
-**Status:** Founder-approved; preflight in progress. No counted arm has started.
+**Status:** Arms and matched repairs complete; owner blind native judgement pending.
 
 **Decision owner:** Founder.
 
