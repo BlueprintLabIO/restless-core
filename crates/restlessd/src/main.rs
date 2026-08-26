@@ -303,13 +303,14 @@ async fn main() -> Result<()> {
 
     // One-time custody transfer from the old recoverable event stream. Do it
     // before listeners open so no effect can race its own migration.
-    let bootstrap_orgintel = OrgIntelRegistry {
-        database_url: orgintel_config.database_url.clone(),
-        handles: std::sync::Mutex::new(HashMap::new()),
-    };
     for company in configured_companies(&root)? {
         let mut config = runtime::CompanyConfig::load(&root, &company)?;
-        let org = bootstrap_orgintel.get(&company).await?;
+        // Bootstrap is a serial migration pass, not the live handle registry.
+        // Caching one pool per historical test company here exhausted
+        // PostgreSQL before the daemon could finish booting. Keep only the
+        // current company's pool alive; the runtime registry below remains
+        // lazy and caches only companies that are actually used.
+        let org = OrgIntel::ensure(&orgintel_config.database_url, &company).await?;
         ensure_standing_actors(&org, Some(&config.model)).await?;
         let imported = authority
             .import_legacy_company(&company, &org, &approval::legacy_config_approvals(&config))
@@ -322,6 +323,7 @@ async fn main() -> Result<()> {
             );
         }
         approval::purge_legacy_config_approvals(&root, &mut config)?;
+        drop(org);
     }
 
     let daemon = std::sync::Arc::new(Daemon {
