@@ -95,32 +95,7 @@ pub async fn grant(
             serde_json::json!({ "party": party, "principal": principal }),
         )
         .await?;
-    if let Some(org) = org {
-        if let Err(error) = org
-            .ensure_actor("owner", "owner", "owner", "The Owner")
-            .await
-        {
-            tracing::warn!("approval persisted but owner projection actor failed: {error}");
-        }
-        if org
-            .ensure_actor("exec", "exec", "exec", "The Exec")
-            .await
-            .is_ok()
-        {
-            if let Err(error) = org
-                .send_message(
-                    "owner",
-                    Some("exec"),
-                    &format!(
-                        "The owner approved real external effects to {party}. You may proceed."
-                    ),
-                )
-                .await
-            {
-                tracing::warn!("approval persisted but exec wake message failed: {error}");
-            }
-        }
-    }
+    announce_decisions(company, authority, org).await;
     Ok(format!("{party} approved for real effects from {company}"))
 }
 
@@ -148,11 +123,7 @@ pub async fn revoke(
             serde_json::json!({ "party": party, "principal": principal }),
         )
         .await?;
-    if let Some(org) = org {
-        let _ = org
-            .ensure_actor("owner", "owner", "owner", "The Owner")
-            .await;
-    }
+    announce_decisions(company, authority, org).await;
     Ok(format!("{party} approval revoked for {company}"))
 }
 
@@ -164,6 +135,7 @@ pub async fn decline(
     company: &str,
     party: &str,
     authority: &crate::authority::AuthorityStore,
+    org: Option<&restless_orgintel::OrgIntel>,
     principal: &str,
 ) -> Result<String> {
     CompanyConfig::load(root, company)?;
@@ -179,7 +151,122 @@ pub async fn decline(
             serde_json::json!({ "party": party, "principal": principal }),
         )
         .await?;
+    announce_decisions(company, authority, org).await;
     Ok(format!("first contact with {party} declined"))
+}
+
+/// The exact Authority records that are an answer to the company, oldest first.
+const DECISION_KINDS: [&str; 3] = ["approval_granted", "approval_declined", "approval_revoked"];
+
+/// Kind of OrgIntel event that records "this exact Authority decision has been
+/// told to the company". Keying on the Authority record id is what makes the
+/// reconciler idempotent and keeps Authority the only writer of the decision.
+const ANNOUNCED_EVENT: &str = "authority_decision_announced";
+
+/// Project every unannounced Authority approval decision into the company.
+///
+/// The owner's answer used to be durable in Authority while the company was
+/// told on a best-effort path that only logged a warning — and `decline` and
+/// `revoke` told the company nothing at all, so Work blocked on a question the
+/// owner had already answered stayed blocked with nobody informed (S19-T2).
+///
+/// This is a projection, not a second writer: Authority still owns the
+/// decision, and re-running this adds nothing because each announcement is
+/// recorded against the exact Authority record id before the scan can repeat.
+/// It is called directly by the owner action so the common case is immediate,
+/// and by the scheduler so a crash between the two writes is repaired.
+pub async fn announce_decisions(
+    company: &str,
+    authority: &crate::authority::AuthorityStore,
+    org: Option<&restless_orgintel::OrgIntel>,
+) -> usize {
+    let Some(org) = org else {
+        return 0;
+    };
+    if org
+        .ensure_actor("owner", "owner", "owner", "The Owner")
+        .await
+        .is_err()
+        || org
+            .ensure_actor("exec", "exec", "exec", "The Exec")
+            .await
+            .is_err()
+    {
+        return 0;
+    }
+
+    let mut pending = Vec::new();
+    for kind in DECISION_KINDS {
+        let Ok(records) = authority.records_of_kind(company, kind).await else {
+            return 0;
+        };
+        for record in records {
+            let Some(party) = record.body.get("party").and_then(|value| value.as_str()) else {
+                continue;
+            };
+            pending.push((record.id, kind, normalize_party(party)));
+        }
+    }
+    pending.sort_by_key(|(id, _, _)| *id);
+
+    let mut announced = 0;
+    for (record_id, kind, party) in pending {
+        match org
+            .find_event_body(
+                ANNOUNCED_EVENT,
+                "authority_record_id",
+                &record_id.to_string(),
+            )
+            .await
+        {
+            Ok(Some(_)) => continue,
+            Ok(None) => {}
+            Err(error) => {
+                tracing::warn!(company, "could not read authority announcements: {error:#}");
+                return announced;
+            }
+        }
+        let body = match kind {
+            "approval_granted" => format!(
+                "The owner approved real external effects to {party}. You may proceed with the work that was waiting on it."
+            ),
+            "approval_declined" => format!(
+                "The owner declined first contact with {party}. Do not contact them. Work that was waiting on this needs a different route or an explicit decision to stop."
+            ),
+            _ => format!(
+                "The owner revoked approval for real external effects to {party}. Stop any work that depends on reaching them."
+            ),
+        };
+        // Record the announcement first. A duplicate message to the Exec is a
+        // wasted turn; a duplicate *effect* is the thing that must never
+        // happen, and the message itself performs none. Recording first means
+        // a crash between the two loses one announcement rather than repeating
+        // it forever, and the owner surface still shows the decision.
+        if let Err(error) = org
+            .emit_event(
+                ANNOUNCED_EVENT,
+                Some("owner"),
+                serde_json::json!({
+                    "authority_record_id": record_id.to_string(),
+                    "decision": kind,
+                    "party": party,
+                }),
+            )
+            .await
+        {
+            tracing::warn!(
+                company,
+                "could not record authority announcement: {error:#}"
+            );
+            return announced;
+        }
+        if let Err(error) = org.send_message("owner", Some("exec"), &body).await {
+            tracing::warn!(company, "could not announce authority decision: {error:#}");
+            return announced;
+        }
+        announced += 1;
+    }
+    announced
 }
 
 fn normalize_party(value: &str) -> String {
@@ -350,5 +437,101 @@ mod tests {
         // nothing useful.)
         let typo = config(&["yailives@gmail.com"]);
         assert!(!legacy_config_approvals(&typo).contains(&"yaillives@gmail.com".to_string()));
+    }
+
+    /// Every owner decision reaches the company exactly once, including the two
+    /// that previously reached it never (S19-T2). The adversarial cases are the
+    /// ones that mattered: repeat the reconciler, and drop an announcement the
+    /// way a crash between the Authority write and the OrgIntel write would.
+    #[tokio::test]
+    async fn every_owner_decision_reaches_the_company_exactly_once() {
+        let Ok(database_url) = std::env::var("RESTLESS_TEST_DATABASE_URL") else {
+            eprintln!("RESTLESS_TEST_DATABASE_URL unset; skipping approval announcement scenario");
+            return;
+        };
+        let company = format!("approve_{}_test", uuid::Uuid::new_v4().simple());
+        let authority = crate::authority::AuthorityStore::connect(&database_url)
+            .await
+            .unwrap();
+        let org = restless_orgintel::OrgIntel::ensure(&database_url, &company)
+            .await
+            .unwrap();
+
+        let announced_bodies = |org: restless_orgintel::OrgIntel| async move {
+            org.events_of_kind(ANNOUNCED_EVENT)
+                .await
+                .unwrap()
+                .into_iter()
+                .map(|event| event.body)
+                .collect::<Vec<_>>()
+        };
+        let exec_inbox_len = |org: restless_orgintel::OrgIntel| async move {
+            org.inbox(Some("exec")).await.unwrap().len()
+        };
+
+        for kind in DECISION_KINDS {
+            authority
+                .emit(
+                    &company,
+                    kind,
+                    Some("owner"),
+                    serde_json::json!({ "party": "hello@example.com", "principal": "owner" }),
+                )
+                .await
+                .unwrap();
+        }
+
+        assert_eq!(
+            announce_decisions(&company, &authority, Some(&org)).await,
+            3,
+            "grant, decline and revoke each reach the company"
+        );
+        assert_eq!(exec_inbox_len(org.clone()).await, 3);
+
+        // Idempotent: the owner action and the scheduler both call this.
+        assert_eq!(
+            announce_decisions(&company, &authority, Some(&org)).await,
+            0
+        );
+        assert_eq!(
+            announce_decisions(&company, &authority, Some(&org)).await,
+            0
+        );
+        assert_eq!(exec_inbox_len(org.clone()).await, 3);
+
+        // A decision whose announcement was lost is repaired, and only that one.
+        let bodies = announced_bodies(org.clone()).await;
+        let dropped = bodies
+            .iter()
+            .find(|body| body["decision"] == "approval_declined")
+            .and_then(|body| body["authority_record_id"].as_str())
+            .expect("the decline was announced")
+            .to_string();
+        // Simulate a crash between the Authority write and the OrgIntel write.
+        // A separate pool keeps this out of the production API surface.
+        let scratch = sqlx::PgPool::connect(&database_url).await.unwrap();
+        sqlx::query(&format!(
+            "DELETE FROM {}.events WHERE kind=$1 AND body->>'authority_record_id'=$2",
+            org.schema()
+        ))
+        .bind(ANNOUNCED_EVENT)
+        .bind(&dropped)
+        .execute(&scratch)
+        .await
+        .unwrap();
+        scratch.close().await;
+
+        assert_eq!(
+            announce_decisions(&company, &authority, Some(&org)).await,
+            1,
+            "only the lost announcement is repaired"
+        );
+        assert_eq!(exec_inbox_len(org.clone()).await, 4);
+        assert_eq!(
+            announce_decisions(&company, &authority, Some(&org)).await,
+            0
+        );
+
+        authority.delete_test_company(&company).await.unwrap();
     }
 }

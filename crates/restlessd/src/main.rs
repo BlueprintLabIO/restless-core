@@ -2560,6 +2560,7 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
                             company,
                             &party,
                             &daemon.authority,
+                            org.as_ref(),
                             principal.as_str(),
                         )
                         .await
