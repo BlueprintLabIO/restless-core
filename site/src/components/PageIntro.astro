@@ -1,0 +1,17 @@
+---
+interface Props {
+  title: string;
+  statement: string;
+  tone?: 'paper' | 'wash' | 'ink';
+}
+
+const { title, statement, tone = 'paper' } = Astro.props;
+---
+
+<header class={`page-intro page-intro--${tone}`}>
+  <h1>{title}</h1>
+  <div class="page-intro-statement">
+    <p>{statement}</p>
+    <slot />
+  </div>
+</header>

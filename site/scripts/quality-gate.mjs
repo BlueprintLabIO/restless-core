@@ -6,6 +6,13 @@ const root = fileURLToPath(new URL('../', import.meta.url));
 const scanRoots = ['src'];
 const textExtensions = new Set(['.astro', '.css', '.md', '.mjs', '.ts']);
 const failures = [];
+const requiredPages = [
+  'src/pages/product.astro',
+  'src/pages/how-it-works.astro',
+  'src/pages/research.astro',
+  'src/pages/compare.astro',
+  'src/pages/findings/index.astro'
+];
 
 const banned = [
   { label: 'em dash', pattern: /—/g },
@@ -45,6 +52,14 @@ for (const scanRoot of scanRoots) {
         }
       }
     }
+  }
+}
+
+for (const requiredPage of requiredPages) {
+  try {
+    await readFile(join(root, requiredPage), 'utf8');
+  } catch {
+    failures.push(`${requiredPage}: required public route is missing`);
   }
 }
 

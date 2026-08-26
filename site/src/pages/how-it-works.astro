@@ -1,0 +1,69 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+import PageIntro from '../components/PageIntro.astro';
+import ResponsibilityRail from '../components/ResponsibilityRail.astro';
+import SectionLink from '../components/SectionLink.astro';
+---
+
+<BaseLayout
+  title="How it works | Restless"
+  description="How owner intent becomes accountable, attributable and reviewable work inside Restless."
+>
+  <PageIntro
+    title="One outcome. One accountable line."
+    statement="Restless keeps organisation shallow enough to move and explicit enough to repair. Every executable owner request goes to one lead. Every lead supervises real Staff production."
+    tone="paper"
+  />
+
+  <section class="responsibility-stage" aria-label="Restless responsibility map">
+    <ResponsibilityRail />
+  </section>
+
+  <section class="sequence-section" aria-labelledby="sequence-heading">
+    <div class="wide-heading">
+      <h2 id="sequence-heading">From mandate to native review.</h2>
+      <p>The order matters because each boundary closes a different kind of accountability.</p>
+    </div>
+    <ol class="sequence-list">
+      <li><span>01</span><div><h3>The owner names the outcome</h3><p>Intent, constraints, authority and the judgment that will decide whether the result is useful.</p></div></li>
+      <li><span>02</span><div><h3>Exec appoints one lead</h3><p>Exec chooses who owns the outcome, allocates an envelope and returns to portfolio availability.</p></div></li>
+      <li><span>03</span><div><h3>The lead frames and commissions</h3><p>The lead preserves mission context, chooses the smallest useful team and gives production to Staff.</p></div></li>
+      <li><span>04</span><div><h3>Staff produces attributable work</h3><p>Workers use ordinary files, Git, browsers, applications and tools inside a persistent company computer.</p></div></li>
+      <li><span>05</span><div><h3>Evidence changes the work</h3><p>Results, failures and external signals wake the nearest responsible actor. The lead redirects only what changed.</p></div></li>
+      <li><span>06</span><div><h3>The result arrives ready to judge</h3><p>The owner opens the live site, playable build, rendered document or other native outcome, already positioned at the useful state.</p></div></li>
+    </ol>
+  </section>
+
+  <section class="planes-section" aria-labelledby="planes-heading">
+    <div class="planes-title">
+      <h2 id="planes-heading">Three layers. Two trust domains.</h2>
+      <p>Each layer owns one kind of truth so coordination cannot quietly become governance.</p>
+    </div>
+    <div class="plane-rows">
+      <div><strong>Authority</strong><p>Identity, budgets, credentials, approvals, material effects and receipts.</p><span>Strict and deterministic</span></div>
+      <div><strong>Organisation</strong><p>Goals, accountable work, actors, messages, wakes, memory and recovery.</p><span>Intelligent and repairable</span></div>
+      <div><strong>Company computer</strong><p>Files, code, documents, browser state, applications, processes and actual output.</p><span>Flexible and productive</span></div>
+    </div>
+  </section>
+
+  <section class="exception-section" aria-labelledby="exception-heading">
+    <div><h2 id="exception-heading">Quiet is fine. Stale is not.</h2></div>
+    <div class="exception-copy">
+      <p>
+        Supervision reacts to material facts: a candidate appears, a requirement changes, a worker
+        fails, a real signal arrives or evidence contradicts the plan. It does not manufacture status
+        meetings or poll agents to prove that management exists.
+      </p>
+      <ul>
+        <li>A failure wakes the actor who can repair it.</li>
+        <li>A changed requirement supersedes stale acceptance.</li>
+        <li>A process restart preserves work and reconstructs responsibility.</li>
+        <li>An unknown external result is reconciled before any retry.</li>
+      </ul>
+    </div>
+  </section>
+
+  <section class="next-route" aria-label="Continue exploring Restless">
+    <SectionLink index="Next" href="/research/" title="Read the research" description="See which parts of this organisation are theory, evidence or still unknown." />
+  </section>
+</BaseLayout>

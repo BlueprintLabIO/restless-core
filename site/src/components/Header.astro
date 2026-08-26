@@ -1,5 +1,5 @@
 ---
-import { brand } from '../config';
+import { brand, navigation } from '../config';
 
 const path = Astro.url.pathname;
 ---
@@ -9,9 +9,17 @@ const path = Astro.url.pathname;
     <span class="wordmark-mark" aria-hidden="true"></span>
     <span>{brand.name}</span>
   </a>
-  <nav aria-label="Primary navigation">
-    <a href="/" aria-current={path === '/' ? 'page' : undefined}>Company</a>
-    <a href="/findings/" aria-current={path.startsWith('/findings') ? 'page' : undefined}>Findings</a>
-    <a class="source-link" href={brand.repository}>Source <span aria-hidden="true">↗</span></a>
+  <nav class="primary-nav" aria-label="Primary navigation">
+    {navigation.map((item) => (
+      <a href={item.href} aria-current={path.startsWith(item.href) ? 'page' : undefined}>{item.label}</a>
+    ))}
   </nav>
+  <details class="mobile-menu">
+    <summary>Explore <span aria-hidden="true">+</span></summary>
+    <nav aria-label="Mobile navigation">
+      {navigation.map((item) => (
+        <a href={item.href} aria-current={path.startsWith(item.href) ? 'page' : undefined}>{item.label}</a>
+      ))}
+    </nav>
+  </details>
 </header>

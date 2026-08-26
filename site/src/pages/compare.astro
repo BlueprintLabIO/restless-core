@@ -1,0 +1,110 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+import PageIntro from '../components/PageIntro.astro';
+import SectionLink from '../components/SectionLink.astro';
+
+const checkedAt = new Date('2026-08-26T00:00:00+10:00');
+---
+
+<BaseLayout
+  title="Compare | Restless"
+  description="How Restless differs from current AI workforce builders, AI employee products and general agents."
+>
+  <PageIntro
+    title="The category is real. The product boundary is different."
+    statement="AI agents, employee helpers and workforce builders all reduce labour. Restless begins one level higher: an owner gives the company an outcome, then the organisation chooses how to carry it."
+    tone="wash"
+  >
+    <p class="checked-date">Sources checked {checkedAt.toLocaleDateString('en-AU', { day: 'numeric', month: 'long', year: 'numeric' })}.</p>
+  </PageIntro>
+
+  <section class="landscape-section" aria-labelledby="landscape-heading">
+    <div class="wide-heading">
+      <h2 id="landscape-heading">Four strong alternatives, four different starting points.</h2>
+      <p>
+        This is a positioning comparison based on each company’s current product description. It is
+        not a benchmark and does not claim feature-level superiority.
+      </p>
+    </div>
+    <div class="landscape-rows">
+      <article>
+        <div class="competitor-name"><h3>Relevance AI</h3><a href="https://relevanceai.com/workforce">Source <span aria-hidden="true">↗</span></a></div>
+        <div><strong>Starts with</strong><p>A visual, low-code platform for building agents and multi-agent workforces.</p></div>
+        <div><strong>Restless differs</strong><p>The owner does not design the team canvas. Exec and leads choose the organisation from accountable outcomes.</p></div>
+      </article>
+      <article>
+        <div class="competitor-name"><h3>Lindy</h3><a href="https://www.lindy.ai/blog/announcing-a-new-way-to-create-ai-employees">Source <span aria-hidden="true">↗</span></a></div>
+        <div><strong>Starts with</strong><p>AI employees assembled around triggers, actions and collaborative agent flows.</p></div>
+        <div><strong>Restless differs</strong><p>The primary object is a durable company outcome, not an automation or employee configuration.</p></div>
+      </article>
+      <article>
+        <div class="competitor-name"><h3>Sintra AI</h3><a href="https://help.sintra.ai/en/articles/9607295-sintra-helpers-explained">Source <span aria-hidden="true">↗</span></a></div>
+        <div><strong>Starts with</strong><p>Pre-built role helpers that share business context through Brain AI and connected applications.</p></div>
+        <div><strong>Restless differs</strong><p>Roles and team boundaries can change with the work. Responsibility and production remain attributable across that change.</p></div>
+      </article>
+      <article>
+        <div class="competitor-name"><h3>Manus</h3><a href="https://manus.im/blog/introducing-wide-research">Source <span aria-hidden="true">↗</span></a></div>
+        <div><strong>Starts with</strong><p>A general agent on a cloud computer, with broad parallelism for work such as Wide Research.</p></div>
+        <div><strong>Restless differs</strong><p>The product coordinates a portfolio of persistent business outcomes, authority and incoming signals across time.</p></div>
+      </article>
+    </div>
+  </section>
+
+  <section class="position-section" aria-labelledby="position-heading">
+    <div class="position-title"><h2 id="position-heading">The Restless bet</h2></div>
+    <div class="position-copy">
+      <p class="position-lead">
+        The scarce interface is not another way to draw an agent workflow. It is a trustworthy way to
+        hand over responsibility without handing over ownership.
+      </p>
+      <div class="position-points">
+        <div><strong>Outcome before topology</strong><p>The company chooses its team and method after understanding the result.</p></div>
+        <div><strong>Organisation before orchestration</strong><p>Exec, leads and Staff carry distinct accountability rather than acting as interchangeable nodes.</p></div>
+        <div><strong>Persistent work before disposable turns</strong><p>Files, Git, browsers, applications and company memory survive individual model sessions.</p></div>
+        <div><strong>Native review before agent narration</strong><p>The owner judges the product, document, campaign or live operation in the form where it creates value.</p></div>
+        <div><strong>Authority at the real boundary</strong><p>Internal work stays flexible. Spend, publication, credentials and external representation remain bounded.</p></div>
+        <div><strong>Evidence before organisation folklore</strong><p>Team shape and coordination patterns change when real runs contradict the current theory.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="choice-section" aria-labelledby="choice-heading">
+    <div class="wide-heading">
+      <h2 id="choice-heading">Choose for the job you have.</h2>
+      <p>A clear alternative is more useful than a universal claim.</p>
+    </div>
+    <div class="choice-columns">
+      <div>
+        <h3>Choose a builder or helper when</h3>
+        <ul>
+          <li>You want to design one known workflow yourself.</li>
+          <li>You need a pre-built role for a bounded, repeatable task.</li>
+          <li>You want a general agent for one project or a burst of parallel research.</li>
+          <li>Your main problem is connecting applications through a visual automation.</li>
+        </ul>
+      </div>
+      <div>
+        <h3>Restless is designed for when</h3>
+        <ul>
+          <li>You want to delegate an evolving business outcome rather than its steps.</li>
+          <li>Several outcomes and incoming signals must remain coherent over time.</li>
+          <li>You need work, authority and owner judgment to stay visibly separate.</li>
+          <li>You want the company to learn how to organise without turning every lesson into a workflow.</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <section class="comparison-caveat" aria-labelledby="caveat-heading">
+    <h2 id="caveat-heading">What this page does not prove</h2>
+    <p>
+      Restless has not yet beaten these products in a controlled head-to-head evaluation. The current
+      evidence supports its coordination principles and exposes product defects. It does not establish
+      market leadership, lower total cost or better output quality across every workflow.
+    </p>
+  </section>
+
+  <section class="next-route" aria-label="Continue exploring Restless">
+    <SectionLink index="Next" href="/findings/" title="Read the findings" description="Inspect the observed work behind the current product claims." />
+  </section>
+</BaseLayout>

@@ -1,0 +1,96 @@
+---
+import { getCollection } from 'astro:content';
+import BaseLayout from '../layouts/BaseLayout.astro';
+import PageIntro from '../components/PageIntro.astro';
+import RunLedger from '../components/RunLedger.astro';
+import ArticleList from '../components/ArticleList.astro';
+import SectionLink from '../components/SectionLink.astro';
+
+const entries = (await getCollection('findings')).sort((a, b) => a.data.order - b.data.order);
+---
+
+<BaseLayout
+  title="Research | Restless"
+  description="The evidence, method and open questions behind the Restless organisational model."
+>
+  <PageIntro
+    title="The organisation is a hypothesis we run."
+    statement="Most agent-team claims are architectural taste presented as fact. Restless treats team shape, supervision and coordination as empirical questions tied to real work."
+    tone="ink"
+  >
+    <a class="light-link" href="/findings/">Open the findings archive</a>
+  </PageIntro>
+
+  <section class="method-section" aria-labelledby="method-heading">
+    <div class="wide-heading">
+      <h2 id="method-heading">A result must survive contact with work.</h2>
+      <p>Our method keeps deterministic checks, model judgment and founder judgment in their proper places.</p>
+    </div>
+    <ol class="method-line">
+      <li><span>Choose real work</span><p>Use coding, sales, support, research and operations with an outcome someone can actually inspect.</p></li>
+      <li><span>Freeze the comparison</span><p>Set the task, model, budget, evidence and stopping boundary before the result is visible.</p></li>
+      <li><span>Let the organisation work</span><p>Observe instead of coaching through ordinary difficulty. Founder rescue remains a product failure.</p></li>
+      <li><span>Judge the native result</span><p>Open the product, document, dataset or queue. Treat agent narration as a claim, never as proof.</p></li>
+      <li><span>Keep the losing evidence</span><p>Record invalid evaluators, defects and conditions where the apparent win disappears.</p></li>
+    </ol>
+  </section>
+
+  <section class="canon-section" aria-labelledby="canon-heading">
+    <div class="canon-title">
+      <h2 id="canon-heading">Current working theory</h2>
+      <p>These principles are enduring only where the reason beneath them endures.</p>
+    </div>
+    <div class="canon-rows">
+      <details open>
+        <summary><span>Accountability closes the boundary</span><span aria-hidden="true">+</span></summary>
+        <p>A new lead is justified by an independently judgeable outcome, not by the apparent size of a task.</p>
+      </details>
+      <details>
+        <summary><span>The smallest effective team is the default</span><span aria-hidden="true">+</span></summary>
+        <p>Each additional mind must repay briefing, context loss, integration and review through capacity, specialisation or independent evidence.</p>
+      </details>
+      <details>
+        <summary><span>Repeated queues are a different regime</span><span aria-hidden="true">+</span></summary>
+        <p>Sales accounts, support cases and other locally closing units can justify a large pool because throughput itself is the product.</p>
+      </details>
+      <details>
+        <summary><span>Supervision reacts to material events</span><span aria-hidden="true">+</span></summary>
+        <p>A lead preserves the mission and repairs drift. Status polling and performative reporting add coordination cost without new information.</p>
+      </details>
+      <details>
+        <summary><span>Fan-in exists for a decision</span><span aria-hidden="true">+</span></summary>
+        <p>Independent work stays independent unless one exact outcome requires comparison, prioritisation, conflict resolution or a shared decision.</p>
+      </details>
+    </div>
+  </section>
+
+  <section class="research-evidence" aria-labelledby="research-evidence-heading">
+    <div class="wide-heading">
+      <h2 id="research-evidence-heading">Selected observations</h2>
+      <p>Numbers stay attached to the condition that produced them.</p>
+    </div>
+    <RunLedger />
+  </section>
+
+  <section class="open-questions" aria-labelledby="questions-heading">
+    <div><h2 id="questions-heading">Questions worth another run</h2></div>
+    <ol>
+      <li><span>Company scale</span><p>Can one release survive independent owner demand, changed requirements, inbound events, failure and process replacement?</p></li>
+      <li><span>Model generality</span><p>Which findings survive stronger models, different providers and longer native work?</p></li>
+      <li><span>Lead economics</span><p>When does a preserved supervisor improve quality enough to repay its cost?</p></li>
+      <li><span>Signals</span><p>Can real email, support and operational events reach the nearest accountable owner without turning Exec into an inbox?</p></li>
+    </ol>
+  </section>
+
+  <section class="research-archive" aria-labelledby="archive-heading">
+    <div class="wide-heading">
+      <h2 id="archive-heading">Findings from the work</h2>
+      <p>Each note states what happened, what it means and where the conclusion stops.</p>
+    </div>
+    <ArticleList entries={entries} />
+  </section>
+
+  <section class="next-route" aria-label="Continue exploring Restless">
+    <SectionLink index="Next" href="/compare/" title="Place Restless in the market" description="Compare the product boundary with current agent and AI workforce platforms." />
+  </section>
+</BaseLayout>
