@@ -1,6 +1,7 @@
 # EXP-08 — entry preflight
 
-**Status:** blocked; no experiment arm, candidate playbook, frozen contract, or workload has started.
+**Status:** awaiting Sprint 20 terminal evidence; no experiment arm, candidate playbook, frozen
+contract, or workload has started.
 
 **Checked:** 26 August 2026
 
@@ -10,8 +11,8 @@
 
 | Required gate | Required evidence | Observed repository state | Result |
 | --- | --- | --- | --- |
-| EXP-07 successful Restless greenfield web outcome | Owner blind judgement followed by unsealed arm evidence identifying the Restless result | [`EXP-07 blind review checkpoint`](../EXP-07/results/README.md) says `Awaiting owner judgement`; its arm identity and process evidence remain sealed | Blocked |
-| Sprint 20 terminal research-publication evidence | A terminal Sprint 20 report and its evidence package | [`Sprint 20`](../../../../docs/sprints/sprint-20.md) remains a draft whose ticket checklist is entirely unchecked; `docs/sprints/sprint-20/` does not exist | Blocked — hard entry condition |
+| EXP-07 successful Restless greenfield web outcome | A successful greenfield outcome plus usable Restless-specific source evidence | The [experiment index](../../../exp-sprints/README.md) records both candidates as objective-matrix passes and founder-judged excellent, while the [blind checkpoint](../EXP-07/results/README.md) still keeps arm identity and process evidence sealed | Partially evidenced; do not attribute a prior to the Restless arm until its source evidence is usable |
+| Sprint 20 terminal research-publication evidence | A terminal Sprint 20 report and its evidence package | [`Sprint 20`](../../../../docs/sprints/sprint-20.md) is in progress. Its [staging report](../../../../docs/sprints/sprint-20/staging-report.md) records `staged_candidate`, explicitly not an accepted publication, with no model-led run, peer review, browser review, owner judgement, or terminal classification | Blocked — hard entry condition |
 | Evidence-backed frozen treatment | A candidate that cites only completed, scoped evidence | Sprint 20 has not produced the required evidence, so no candidate playbook or evidence certificate has been authored | Not attempted |
 | EXP-07 callback, ReviewTarget and verification-output preflight | A passing product-path probe or an explicit `product-invalid` classification | No EXP-08 arm is eligible to run; this gate remains pending and cannot be attributed to the treatment | Pending |
 
@@ -28,7 +29,8 @@ is **guarded** by leaving no candidate artifact to retrieve.
 
 ## Earliest valid restart
 
-1. Record the owner’s EXP-07 blind decision and unseal the relevant Restless outcome evidence.
+1. Make the exact EXP-07 Restless source evidence usable without misrepresenting the sealed blind
+   decision.
 2. Complete Sprint 20 to a truthful terminal classification with its required evidence package.
 3. Recheck the two source locators above, then freeze the smallest candidate playbook and its dated,
    scoped evidence certificate before either arm sees it.
