@@ -1,0 +1,37 @@
+{
+  "schema": "restless.scenario-package/v1",
+  "id": "thymelake-menu-launch",
+  "version": "1",
+  "title": "Controlled Thymelake menu launch",
+  "run_kind": "test_world_only",
+  "human_review_required": true,
+  "capabilities": [
+    {
+      "id": "node",
+      "argv": ["node", "--version"],
+      "required": true
+    }
+  ],
+  "phases": [
+    {
+      "id": "prepare-menu",
+      "argv": ["node", "run.mjs"]
+    },
+    {
+      "id": "assert-menu",
+      "argv": ["node", "assert.mjs"]
+    }
+  ],
+  "evidence": [
+    { "id": "normalized-menu", "path": "normalized-menu.json", "label": "Normalized menu configuration", "required": true },
+    { "id": "validation", "path": "validation.json", "label": "Deterministic source validation", "required": true },
+    { "id": "preview", "path": "preview.html", "label": "QR ordering preview", "required": true },
+    { "id": "render", "path": "preview.svg", "label": "Menu render", "required": true },
+    { "id": "review-note", "path": "review.md", "label": "Human readiness question", "required": true }
+  ],
+  "review_target": {
+    "kind": "file",
+    "target": "preview.html",
+    "label": "Prepared controlled menu preview"
+  }
+}

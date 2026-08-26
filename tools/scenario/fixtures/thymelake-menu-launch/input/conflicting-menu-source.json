@@ -1,0 +1,23 @@
+{
+  "scenario_label": "controlled invalid input — not restaurant data",
+  "restaurant": { "id": "harbour-table-test", "name": "Harbour Table" },
+  "currency": "AUD",
+  "source_conflicts": [
+    {
+      "field": "items[0].price",
+      "values": ["12.00", "14.00"],
+      "resolution": null
+    }
+  ],
+  "items": [
+    {
+      "source_id": "starter-bruschetta",
+      "name": "Tomato bruschetta",
+      "description": "Grilled sourdough, tomato, basil and olive oil.",
+      "price": "12.00",
+      "allergen_state": "unknown",
+      "allergens": null,
+      "modifier_groups": []
+    }
+  ]
+}

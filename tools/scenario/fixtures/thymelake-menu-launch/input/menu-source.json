@@ -1,0 +1,38 @@
+{
+  "scenario_label": "controlled test-world menu — not a restaurant launch",
+  "restaurant": {
+    "id": "harbour-table-test",
+    "name": "Harbour Table"
+  },
+  "currency": "AUD",
+  "source_conflicts": [],
+  "items": [
+    {
+      "source_id": "starter-bruschetta",
+      "name": "Tomato bruschetta",
+      "description": "Grilled sourdough, tomato, basil and olive oil.",
+      "price": "12.00",
+      "allergen_state": "confirmed",
+      "allergens": ["gluten"],
+      "modifier_groups": [
+        {
+          "id": "bruschetta-add-ons",
+          "name": "Add-ons",
+          "required": false,
+          "options": [
+            { "id": "add-mozzarella", "name": "Mozzarella", "price": "3.00" }
+          ]
+        }
+      ]
+    },
+    {
+      "source_id": "main-pasta",
+      "name": "Market pasta",
+      "description": "Seasonal vegetables, house sauce and pasta.",
+      "price": "24.00",
+      "allergen_state": "unknown",
+      "allergens": null,
+      "modifier_groups": []
+    }
+  ]
+}
