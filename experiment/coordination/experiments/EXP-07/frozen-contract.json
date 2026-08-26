@@ -1,0 +1,96 @@
+{
+  "version": 1,
+  "frozen_at": "2026-08-26",
+  "status": "preflight",
+  "greenfield_seed": {
+    "git_commit": "ff6bbddee5f144ce632a19d65fb91b5acc781835",
+    "git_tree": "24ecac28dea968386f403f6f9b5020e20b070c90",
+    "files": {
+      "BRIEF.md": "fa9e6567c5d0788b311305654bbb6a4804e5f594c901245caaeba045eff2c212",
+      "PRODUCT-TRUTH.md": "4585deeca4d5d5f520522e41a7fd83963cfc49f508c58f60884713b8e6330098",
+      "EVIDENCE.md": "6672431612ca89a4774d3413e1a1f21c1a03cb127f3acec29448fb72727accaa"
+    },
+    "contains_site_code": false,
+    "contains_framework_scaffold": false,
+    "contains_assets_or_copy_beyond_source_pack": false
+  },
+  "evaluation": {
+    "path": "experiment/coordination/experiments/EXP-07/blind-rubric.md",
+    "sha256": "cac09a2d7328e5db22ef037bee10778741c4e74bc060df9f6373b1eb9cd9ecd0",
+    "owner_blind_native_review_is_authoritative": true
+  },
+  "arms": {
+    "C": {
+      "treatment": "one first-party Codex producer",
+      "model": "gpt-5.6-sol",
+      "effort": "medium",
+      "fallback": []
+    },
+    "R": {
+      "treatment": "Restless Exec to non-producing accountable lead to attributable Staff production",
+      "model": "openai-codex/gpt-5.6-sol",
+      "effort": "medium",
+      "fallback": []
+    }
+  },
+  "arm_order": {
+    "derivation": "even final hexadecimal digit of BRIEF.md SHA-256 means C first; odd means R first",
+    "order": ["C", "R"],
+    "execution": "sequential to avoid provider, browser and build contention"
+  },
+  "scope": {
+    "initial_repository_files": [".gitignore", "BRIEF.md", "PRODUCT-TRUTH.md", "EVIDENCE.md"],
+    "peer_visibility": false,
+    "incumbent_site_visibility": false,
+    "restless_source_visibility": false,
+    "external_publish_during_production": false,
+    "operator_hosting_after_both_terminal": true
+  },
+  "tools": [
+    "isolated local files",
+    "git",
+    "shell",
+    "package manager",
+    "public internet fetches",
+    "local Chromium or equivalent browser inspection"
+  ],
+  "disallowed_sources": [
+    "current Restless public site",
+    "BlueprintLabIO/restless repository",
+    "EXP-06 candidate or screenshots",
+    "peer arm workspace or hosted output"
+  ],
+  "required_routes": [
+    "/",
+    "/product/",
+    "/how-it-works/",
+    "/research/",
+    "/compare/",
+    "/journal/",
+    "three substantive finding routes beneath /journal/"
+  ],
+  "clock": {
+    "start": "immediately before BRIEF.md is delivered as the productive request",
+    "stop": "first terminal report referencing a clean committed candidate that passes its own checks",
+    "operator_pauses": "recorded separately",
+    "runaway_safety_minutes": 75,
+    "semantic_timeout": false
+  },
+  "objective_gates": [
+    "clean install and production build pass",
+    "npm run verify passes",
+    "production Dockerfile serves on port 80",
+    "every required route returns HTTP 200",
+    "no horizontal overflow at 390x844 or 1440x1000 after fonts settle",
+    "keyboard focus is visible",
+    "reduced motion is respected",
+    "no em dash appears in public output",
+    "no material product falsehood or fabricated evidence",
+    "one final clean commit and evidence/FINAL.md exist"
+  ],
+  "repair": {
+    "maximum_matched_loops": 1,
+    "feedback": "only exact objective defects found by the common external evaluator",
+    "identity_and_process_remain_blind_until_owner_decision": true
+  }
+}

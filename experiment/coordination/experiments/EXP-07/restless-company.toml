@@ -1,0 +1,16 @@
+name = "site_greenfield_r_test"
+mission = """# Greenfield public-site test company
+
+Produce a truthful, exceptional public-site candidate for Restless from the owner's supplied
+greenfield pack. The company must use its normal Exec, accountable non-producing lead and attributable
+Staff path. The project begins empty apart from the frozen brief and truth files. It may research and
+build locally, but it must not inspect the existing Restless site or repository, publish, contact
+anyone or perform any external business effect.
+"""
+spend_ceiling_usd = 15.0
+model = "openai-codex/gpt-5.6-sol"
+model_failover = []
+
+[credentials]
+"model.inference.openai-codex" = "omp-oauth:openai-codex"
+
