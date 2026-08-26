@@ -18,7 +18,7 @@
   grid-template-columns: minmax(0, 0.95fr) minmax(28rem, 1.05fr);
   align-items: center;
   min-height: calc(100svh - 4rem);
-  padding: clamp(5rem, 10vw, 9rem) var(--page-pad);
+  padding: clamp(3rem, 6vw, 5rem) var(--page-pad);
   overflow: hidden;
 }
 
@@ -30,7 +30,7 @@
 
 .machine-hero h1 {
   margin: 0;
-  font-size: clamp(3.8rem, 6.6vw, 7.4rem);
+  font-size: clamp(3.8rem, 6.1vw, 7rem);
   font-weight: 600;
   letter-spacing: -0.065em;
   line-height: 0.94;
@@ -53,8 +53,8 @@
 
 .liquid-metal {
   position: relative;
-  width: min(48rem, 110%);
-  margin: -2rem -8% -2rem auto;
+  width: min(40rem, 100%);
+  margin: -1rem -4% -1rem auto;
 }
 
 .liquid-metal svg {
