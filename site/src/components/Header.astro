@@ -1,12 +1,14 @@
 ---
 import { brand, navigation } from '../config';
+import MatrixGlyph from './MatrixGlyph.astro';
 
 const path = Astro.url.pathname;
+const mark = ['11110', '10001', '10001', '11110', '10100', '10010', '10001'] as const;
 ---
 
 <header class="site-header">
   <a class="wordmark" href="/" aria-label={`${brand.name} home`}>
-    <span class="wordmark-mark" aria-hidden="true"></span>
+    <MatrixGlyph rows={mark} size={10} />
     <span>{brand.name}</span>
   </a>
   <nav class="primary-nav" aria-label="Primary navigation">

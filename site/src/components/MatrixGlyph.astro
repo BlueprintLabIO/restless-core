@@ -1,0 +1,25 @@
+---
+interface Props {
+  rows: readonly string[];
+  size?: number;
+  label?: string;
+}
+
+const { rows, size = 12, label } = Astro.props;
+const dots = rows.flatMap((row, y) =>
+  [...row].flatMap((cell, x) => cell === '1' ? [{ cx: 5 + x * 10, cy: 5 + y * 10 }] : [])
+);
+---
+
+<svg
+  class="matrix-glyph"
+  viewBox="0 0 50 70"
+  width={size}
+  height={(size * 7) / 5}
+  fill="currentColor"
+  role={label ? 'img' : undefined}
+  aria-hidden={label ? undefined : 'true'}
+  aria-label={label}
+>
+  {dots.map((dot) => <circle cx={dot.cx} cy={dot.cy} r="4" />)}
+</svg>

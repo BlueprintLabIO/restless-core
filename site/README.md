@@ -1,7 +1,9 @@
 # Restless public site
 
 The public product site and experiment findings journal. This is a separate Astro package inside the
-Restless monorepo; it does not share runtime code or visual identity with the owner cockpit.
+Restless monorepo. It does not share runtime code with the owner cockpit, but it deliberately uses the
+same Bridge Light typography, semantic colours, matrix mark and surface logic. The public site is the
+exterior of the same product, not a second brand.
 
 The main narrative is split across five routes so each question has room to be answered:
 
@@ -25,11 +27,12 @@ identity.
 
 ## Design source notes
 
-The interface stays Astro-native and adds no component runtime. Its notched navigation geometry takes
-direction from Cult UI's Cutout component, the responsibility line adapts Magic UI's Animated Beam to
-a solid single-colour path, and the restrained headline entrance takes direction from Motion
-Primitives' Text Effect. These are small, native implementations inside the existing design system,
-not imported visual identities. Cult UI and Magic UI are MIT licensed.
+The interface stays Astro-native and adds no component runtime. Its notched action geometry takes
+direction from Cult UI's [Cutout Card](https://www.cult-ui.com/docs/components/cutout-card), while its
+signature liquid-metal object is a lightweight SVG and CSS interpretation of Cult UI's
+[Hero Liquid Metal](https://www.cult-ui.com/docs/components/hero-liquid-metal). Product surfaces inherit
+the owner cockpit's Bridge Light system. These are small implementations inside one visual identity,
+not a library collage.
 
 ## Coolify
 
