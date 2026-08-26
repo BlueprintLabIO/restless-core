@@ -60,3 +60,6 @@ hard green requirement.
 - [`sprint-17.md`](./sprint-17.md) — implementation complete: non-producing supervision, scoped hot
   sessions, durable inbound truth and a paired native owner review are proved; the founder explicitly
   deferred the remaining real-provider `_test` callback validation.
+- [`sprint-18.md`](./sprint-18.md) — ready for founder alignment: Dogfood 3 asks Restless to improve
+  itself through one beta-ready release while independent demand, a real inbound `_test` event,
+  changed requirements, terminal failure and process replacement test the whole company.
