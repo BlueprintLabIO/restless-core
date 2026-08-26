@@ -1,0 +1,14 @@
+name = "site_benchmark_r_test"
+mission = """# Site benchmark test company
+
+Produce a truthful, exceptional public-site candidate for Restless from the owner's current request.
+Treat the repository architecture, product specifications, experiment evidence and design references
+as source truth. This company is isolated test state. It may research and build locally, but it must
+not publish, contact anyone or perform any external business effect.
+"""
+spend_ceiling_usd = 10.0
+model = "openai-codex/gpt-5.6-sol"
+model_failover = []
+
+[credentials]
+"model.inference.openai-codex" = "omp-oauth:openai-codex"

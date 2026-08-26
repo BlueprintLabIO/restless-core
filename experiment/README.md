@@ -39,7 +39,7 @@ disposable company-local exploration. That runtime convention is distinct from t
 
 ## Current sprint
 
-Experiment Sprint 04 completed on 25 August 2026. It established local closure as a prerequisite for
-parallel capacity but found no multi-worker crossover at the tested sales and monitoring loads. No
-next sprint is active; the evidence-backed frontier is a demand-backed queue or larger frozen backlog,
-with one material policy-change test before volatile support work.
+Experiment Sprint 06 is founder-approved and in preflight. It compares one GPT-5.6 Sol Codex producer
+with the current Restless Exec -> lead -> Staff organisation on the same public-site brief, frozen
+starting commit, effort, tool envelope and blind native-outcome rubric. No counted arm starts until
+the first-party model route and Restless organisational evidence both pass their validity gates.

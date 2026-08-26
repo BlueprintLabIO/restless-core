@@ -1,0 +1,80 @@
+{
+  "version": 1,
+  "frozen_at": "2026-08-26",
+  "status": "preflight",
+  "starting_ref": "06c114fc2ef2244777df78c8a754386f50faeeef",
+  "prompt": {
+    "path": "experiment/coordination/experiments/EXP-06/site-brief.md",
+    "sha256": "d23aa8d83ad5473199ac54e96c92fd41205e0a5318c14da28ebcbb7355ee1d21"
+  },
+  "evaluation": {
+    "path": "experiment/coordination/experiments/EXP-06/blind-rubric.md",
+    "sha256": "070e4dca5a1b428c4ecdebf71ae6d86308f25414d3d050a10beaee795291ca39",
+    "owner_blind_native_review_is_authoritative": true
+  },
+  "arms": {
+    "C": {
+      "treatment": "one first-party Codex producer",
+      "model": "gpt-5.6-sol",
+      "effort": "medium",
+      "fallback": []
+    },
+    "R": {
+      "treatment": "Restless Exec to non-producing accountable lead to attributable Staff production",
+      "model": "openai-codex/gpt-5.6-sol",
+      "effort": "medium",
+      "fallback": []
+    }
+  },
+  "arm_order": {
+    "derivation": "odd final hexadecimal digit of the frozen prompt SHA-256 means R first; even means C first",
+    "order": ["R", "C"]
+  },
+  "scope": {
+    "writable": ["site/"],
+    "arm_evidence": "site/evidence/",
+    "peer_visibility": false,
+    "external_publish": false,
+    "external_effects": false
+  },
+  "tools": [
+    "local repository files",
+    "git",
+    "shell",
+    "package manager",
+    "network fetches",
+    "local Chromium and Playwright"
+  ],
+  "disallowed_tools": [
+    "native web search",
+    "image generation",
+    "external deployment",
+    "peer arm workspace"
+  ],
+  "required_routes": [
+    "/",
+    "/product/",
+    "/how-it-works/",
+    "/research/",
+    "/findings/",
+    "/compare/"
+  ],
+  "clock": {
+    "start": "immediately before the frozen owner prompt is delivered",
+    "stop": "first terminal report referencing a committed candidate that passes objective gates",
+    "operator_pauses": "recorded separately",
+    "runaway_safety_minutes": 60,
+    "semantic_timeout": false
+  },
+  "objective_gates": [
+    "site package verification passes",
+    "production build passes",
+    "every required route serves successfully",
+    "no horizontal overflow at 390x844 or 1440x1000",
+    "keyboard focus is visible",
+    "reduced motion is respected",
+    "no em dash appears in public output",
+    "no material product falsehood or fabricated evidence",
+    "one final Git commit and arm-local evidence note exist"
+  ]
+}
