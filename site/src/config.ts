@@ -2,7 +2,7 @@ export const brand = {
   name: 'Restless',
   siteTitle: 'Restless | The company handles the work',
   description:
-    'An autonomous company control plane that turns owner intent into inspected, attributable work.',
+    'Set the direction. Restless carries the work to an inspected outcome and returns only the judgment that belongs to you.',
   repository: 'https://github.com/BlueprintLabIO/restless'
 } as const;
 
