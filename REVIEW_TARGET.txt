@@ -1,0 +1,4 @@
+Restless greenfield native review target
+URL: http://127.0.0.1:8080/
+Start or refresh: npm run build && npm run review:probe
+Probe evidence: evidence/review/probe.json

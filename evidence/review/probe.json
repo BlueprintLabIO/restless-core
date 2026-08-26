@@ -1,0 +1,21 @@
+{
+  "probedAt": "2026-08-26T08:31:50.590Z",
+  "url": "http://127.0.0.1:8080/",
+  "serverPid": 2328,
+  "observations": [
+    {
+      "viewport": "390x844",
+      "title": "A company that keeps going | Restless",
+      "h1": "Your company\nkeeps going.",
+      "scrollWidth": 390,
+      "clientWidth": 390
+    },
+    {
+      "viewport": "1440x1000",
+      "title": "A company that keeps going | Restless",
+      "h1": "Your company\nkeeps going.",
+      "scrollWidth": 1440,
+      "clientWidth": 1440
+    }
+  ]
+}
