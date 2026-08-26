@@ -411,6 +411,36 @@ impl OrgIntel {
         .await?)
     }
 
+    /// How much unread conversation this actor genuinely owes a turn: mail
+    /// addressed to it, excluding its own notes to itself and any message that
+    /// is already deterministic input to an active Work revision.
+    ///
+    /// `read_at` is the durable delivery record — it is written only when a
+    /// turn that carried the message actually completed — so this is safe to
+    /// re-derive on every scan. It replaces comparing the newest message with
+    /// the newest wake event, which silenced any message that arrived while an
+    /// earlier wake was still running and treated a health-gated wake that
+    /// assembled no context at all as an observation (S19-T1).
+    pub async fn owed_conversation_count(&self, actor: &str) -> Result<i64> {
+        Ok(sqlx::query_scalar(
+            "SELECT count(*) FROM messages message \
+             WHERE message.read_at IS NULL AND message.to_actor=$1 AND message.from_actor<>$1 \
+               AND NOT EXISTS (\
+                 SELECT 1 FROM work_feedback feedback JOIN work ON work.id=feedback.work_id \
+                 WHERE feedback.message_id=message.id \
+                   AND message.to_actor=work.owner_id \
+                   AND work.status IN ('proposed','active') \
+                   AND NOT EXISTS (\
+                     SELECT 1 FROM owner_handoffs handoff \
+                     WHERE handoff.work_id=work.id AND handoff.state='pending'\
+                   )\
+               )",
+        )
+        .bind(actor)
+        .fetch_one(&self.pool)
+        .await?)
+    }
+
     /// Read one actor's own inbox. If that actor has one live Work Attempt,
     /// any Work-linked message addressed to it is recorded as feedback that
     /// exact Attempt received. The initial input snapshot remains fixed at

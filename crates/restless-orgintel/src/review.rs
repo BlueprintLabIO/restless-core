@@ -166,7 +166,7 @@ impl OrgIntel {
 
         sqlx::query(
             "UPDATE owner_handoffs SET requested_action=$2, prepared_state=$3, \
-                    resume_condition=$4, \
+                    resume_condition=$4, delivered_at=NULL, \
                     assigned_to=CASE WHEN category='owner_judgement' AND assigned_to IS NULL \
                                      THEN 'exec' ELSE assigned_to END \
              WHERE id=$1",
@@ -641,7 +641,7 @@ impl OrgIntel {
             "SELECT id, work_id, attempt_id, requested_by, category, requested_action, \
                     prepared_state, resume_condition, state, resolution, assigned_to, \
                     escalated_from, escalated_at, owner_brief, briefed_by, briefed_at, \
-                    brief_source_fingerprint, created_at, resolved_at \
+                    brief_source_fingerprint, delivered_at, created_at, resolved_at \
              FROM owner_handoffs ORDER BY created_at, id",
         )
         .fetch_all(&self.pool)

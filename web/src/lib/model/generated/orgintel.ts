@@ -103,7 +103,15 @@ assigned_to: string | null,
  * be visible: a lead that silently swallows escalations is the S05-T7
  * single point of failure one level down, with the evidence removed.
  */
-escalated_from: string | null, escalated_at: string | null, owner_brief: OwnerBrief | null, briefed_by: string | null, briefed_at: string | null, brief_source_fingerprint: string | null, created_at: string, resolved_at: string | null, };
+escalated_from: string | null, escalated_at: string | null, owner_brief: OwnerBrief | null, briefed_by: string | null, briefed_at: string | null, brief_source_fingerprint: string | null,
+/**
+ * When this exact pending judgement was last carried into a turn that
+ * actually ran for its assignee. `None` means it is still owed and must
+ * keep waking that assignee; it is cleared again by reassignment or by a
+ * change to the prepared meaning. This gates the wake trigger only — a
+ * delivered handoff that is still pending stays in its assignee's context.
+ */
+delivered_at: string | null, created_at: string, resolved_at: string | null, };
 
 export type WorkGraphSnapshot = { work: Array<WorkRow>, edges: Array<WorkEdgeRow>, attempts: Array<WorkAttemptRow>, attempt_inputs: Array<WorkAttemptInputRow>, attempt_feedback: Array<WorkAttemptFeedbackRow>, artifacts: Array<ArtifactRefRow>, gates: Array<WorkGateRow>, gate_runs: Array<WorkGateRunRow>, handoffs: Array<OwnerHandoffRow>, };
 

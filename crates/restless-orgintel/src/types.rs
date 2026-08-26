@@ -417,6 +417,12 @@ pub struct OwnerHandoffRow {
     pub briefed_by: Option<String>,
     pub briefed_at: Option<DateTime<Utc>>,
     pub brief_source_fingerprint: Option<String>,
+    /// When this exact pending judgement was last carried into a turn that
+    /// actually ran for its assignee. `None` means it is still owed and must
+    /// keep waking that assignee; it is cleared again by reassignment or by a
+    /// change to the prepared meaning. This gates the wake trigger only — a
+    /// delivered handoff that is still pending stays in its assignee's context.
+    pub delivered_at: Option<DateTime<Utc>>,
     pub created_at: DateTime<Utc>,
     pub resolved_at: Option<DateTime<Utc>>,
 }

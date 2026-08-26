@@ -10,7 +10,6 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use anyhow::Result;
-use chrono::{DateTime, Utc};
 use restless_orgintel::{OrgIntel, WorkAttemptState};
 use sqlx::postgres::PgListener;
 use tokio_util::sync::CancellationToken;
@@ -27,7 +26,18 @@ pub(crate) type InFlight = Arc<Mutex<WakeClaims>>;
 pub(crate) struct WakeClaims {
     active: HashMap<String, CancellationToken>,
     pending: HashMap<String, String>,
+    /// Ordinary supervision backoff after a wake that could not run. Owed work
+    /// is now re-derived from durable rows on every five-second scan, so a
+    /// company whose substrate or provider is down would otherwise be retried
+    /// every five seconds forever. The old timestamp watermark suppressed that
+    /// by accident — and suppressed real owed work with it (S19-T1). This is
+    /// in-memory on purpose: a daemon restart is itself a reason to try once
+    /// more, and nothing here is organisational truth.
+    backoff: HashMap<String, (std::time::Instant, u32)>,
 }
+
+const BACKOFF_FIRST: Duration = Duration::from_secs(30);
+const BACKOFF_CEILING: Duration = Duration::from_secs(300);
 
 impl WakeClaims {
     pub(crate) fn claim(&mut self, company: &str) -> bool {
@@ -54,6 +64,35 @@ impl WakeClaims {
         self.pending.insert(company.to_string(), reason.to_string());
     }
 
+    /// Whether this company's next automatic wake is still held back by a
+    /// previous wake that never ran.
+    fn is_backing_off(&self, company: &str) -> bool {
+        self.backoff
+            .get(company)
+            .is_some_and(|(until, _)| std::time::Instant::now() < *until)
+    }
+
+    /// A wake that returned `Blocked` or failed outright. It delivered nothing
+    /// and consumed nothing, so the owed facts still hold; hold the next
+    /// automatic attempt instead of spinning on them.
+    fn record_unusable_wake(&mut self, company: &str) {
+        let failures = self
+            .backoff
+            .get(company)
+            .map_or(1, |(_, failures)| failures.saturating_add(1));
+        let delay = BACKOFF_FIRST
+            .saturating_mul(1u32 << failures.saturating_sub(1).min(4))
+            .min(BACKOFF_CEILING);
+        self.backoff.insert(
+            company.to_string(),
+            (std::time::Instant::now() + delay, failures),
+        );
+    }
+
+    fn record_usable_wake(&mut self, company: &str) {
+        self.backoff.remove(company);
+    }
+
     fn release(&mut self, company: &str) {
         self.active.remove(company);
     }
@@ -69,7 +108,7 @@ impl WakeClaims {
         let ready = self
             .pending
             .keys()
-            .filter(|company| !self.active.contains_key(*company))
+            .filter(|company| !self.active.contains_key(*company) && !self.is_backing_off(company))
             .cloned()
             .collect::<Vec<_>>();
         ready
@@ -285,35 +324,25 @@ async fn scan_company(daemon: &Arc<Daemon>, in_flight: &InFlight, company: &str)
         }
     }
 
-    // An ordinary judgement reaches the Exec only after a lead (or an
-    // unassigned specialist) could not settle it. Wake once for each newly
-    // assigned generation; the handoff's creation/escalation time is compared
-    // with the last Exec wake so a five-second scan does not become a spend
-    // loop when the Exec deliberately leaves it pending.
-    if let Ok(owed) = org.handoffs_assigned_to("exec").await {
-        let newest = owed
-            .iter()
-            .filter_map(|handoff| handoff.escalated_at.or(Some(handoff.created_at)))
-            .max();
-        let last_wake = org.latest_event_at("wake").await.ok().flatten();
-        if newest.is_some_and(|at| last_wake.is_none_or(|wake| at > wake)) {
-            fire_exec(
-                daemon,
-                in_flight,
-                company,
-                "organisational judgement escalated to the Exec",
-            )
-            .await;
-        }
-    }
+    // What the Exec is owed is a durable fact about the exact owed thing, not a
+    // comparison against the newest wake event. The Exec is the only actor that
+    // can put an ordinary judgement in front of the owner, so a lost trigger
+    // here is a lost owner attention item — which is exactly what the old
+    // watermark produced: one unrelated wake moved `latest_event_at("wake")`
+    // past a pending handoff and it never triggered again, and a lead's message
+    // to the Exec had no durable recovery path at all (S19-T1).
+    //
+    // Both conditions below terminate on their own. A message is consumed by
+    // `mark_read` and a judgement by `mark_handoffs_delivered`, and only a turn
+    // that actually ran writes either. A wake that never assembled context
+    // delivers nothing and is bounded by the failure backoff instead.
+    // An owner decision that Authority recorded but the company was never told
+    // about leaves Work blocked on a question the owner already answered. This
+    // is idempotent on the exact Authority record id, so the ordinary case —
+    // already announced by the owner action itself — costs one indexed read.
+    crate::approval::announce_decisions(company, &daemon.authority, Some(&org)).await;
 
-    // Owner mail is itself the durable owed-work fact for a free-form Exec
-    // conversation. A daemon restart destroys the ACP process and its live
-    // projection, so recover an unread message when no completed wake has
-    // observed it, or when the latest wake never reached wake_end. Ordinary
-    // completed failures are not blindly retried: their wake_end is the
-    // terminal observation, and the owner surface presents the interruption.
-    recover_exec_conversation(daemon, in_flight, &org, company).await;
+    recover_owed_exec_work(daemon, in_flight, &org, company).await;
 
     // Team judgement and owner-to-lead conversation take precedence over
     // launching more member Work. Otherwise a full staff cap can starve the
@@ -394,7 +423,15 @@ async fn scan_company(daemon: &Arc<Daemon>, in_flight: &InFlight, company: &str)
     }
 }
 
-async fn recover_exec_conversation(
+/// Re-derive what the singleton Exec is owed from durable rows, every scan.
+///
+/// Two facts, both self-consuming: unread conversation addressed to the Exec
+/// (any sender — a lead reporting a prepared outcome is exactly the case the
+/// old owner-only filter dropped), and pending judgement assigned to the Exec
+/// that no completed turn has been given. Neither is inferred from a wake
+/// timestamp, so an unrelated wake, a restart with no `NOTIFY`, and a lost
+/// in-memory follow-up all leave the owed fact intact and still triggering.
+async fn recover_owed_exec_work(
     daemon: &Arc<Daemon>,
     in_flight: &InFlight,
     org: &OrgIntel,
@@ -408,40 +445,15 @@ async fn recover_exec_conversation(
         return;
     }
 
-    let Ok(messages) = org.inbox(Some("exec")).await else {
-        return;
+    let judgements = org.undelivered_handoff_count("exec").await.unwrap_or(0);
+    let conversation = org.owed_conversation_count("exec").await.unwrap_or(0);
+    let reason = match (judgements, conversation) {
+        (0, 0) => return,
+        (0, _) => "unread conversation is owed to the Exec",
+        (_, 0) => "organisational judgement is owed to the Exec",
+        _ => "unread conversation and organisational judgement are owed to the Exec",
     };
-    let mut newest_owner_message: Option<DateTime<Utc>> = None;
-    for message in messages {
-        if message.from_actor != "owner" {
-            continue;
-        }
-        if org
-            .message_is_work_attempt_input(message.id)
-            .await
-            .unwrap_or(false)
-        {
-            continue;
-        }
-        newest_owner_message = Some(newest_owner_message.map_or(message.created_at, |current| {
-            current.max(message.created_at)
-        }));
-    }
-    let Some(message_created_at) = newest_owner_message else {
-        return;
-    };
-
-    let latest_wake = org.latest_event_at("wake").await.ok().flatten();
-    let latest_wake_end = org.latest_event_at("wake_end").await.ok().flatten();
-    if exec_conversation_is_owed(message_created_at, latest_wake, latest_wake_end) {
-        fire_exec(
-            daemon,
-            in_flight,
-            company,
-            "recovering unread owner conversation after an interrupted or missed wake",
-        )
-        .await;
-    }
+    fire_exec(daemon, in_flight, company, reason).await;
 }
 
 async fn recover_interrupted_exec_wake(
@@ -496,19 +508,6 @@ fn exec_wake_is_interrupted(latest_wake_id: Option<i64>, latest_wake_end_id: Opt
     latest_wake_id.is_some_and(|wake| latest_wake_end_id.is_none_or(|end| wake > end))
 }
 
-fn exec_conversation_is_owed(
-    message_created_at: DateTime<Utc>,
-    latest_wake: Option<DateTime<Utc>>,
-    latest_wake_end: Option<DateTime<Utc>>,
-) -> bool {
-    let latest_observation = latest_wake.into_iter().chain(latest_wake_end).max();
-    let message_was_never_observed =
-        latest_observation.is_none_or(|observed_at| message_created_at > observed_at);
-    let wake_was_interrupted =
-        latest_wake.is_some_and(|wake_at| latest_wake_end.is_none_or(|end_at| wake_at > end_at));
-    message_was_never_observed || wake_was_interrupted
-}
-
 fn actor_exclusions(mut running: Vec<String>, exec_waking: bool) -> Vec<String> {
     if exec_waking && !running.iter().any(|actor| actor == "exec") {
         running.push("exec".into());
@@ -538,6 +537,16 @@ pub(crate) async fn run_exec_turn(
             owner_message_ids.push(message.id);
         }
     }
+    // Every pending judgement assigned to the Exec is in the context this turn
+    // is about to assemble (`exec::gather_snapshot`), so a turn that completes
+    // has genuinely been given all of them. Capture the set before the turn so
+    // a judgement created *during* it stays owed to the next one.
+    let owed_judgements = org
+        .handoffs_assigned_to("exec")
+        .await?
+        .into_iter()
+        .map(|handoff| handoff.id)
+        .collect::<Vec<_>>();
     let prior_reply_id = org
         .owner_conversation("exec", 200)
         .await?
@@ -597,6 +606,7 @@ pub(crate) async fn run_exec_turn(
                 for message_id in message_ids {
                     let _ = org.mark_read(message_id).await;
                 }
+                let _ = org.mark_handoffs_delivered(&owed_judgements).await;
                 live_turn.complete(Some(reply.id), None);
             } else if report.termination == exec::Termination::Blocked {
                 live_turn.fail(&report.reason);
@@ -608,6 +618,7 @@ pub(crate) async fn run_exec_turn(
             for message_id in message_ids {
                 let _ = org.mark_read(message_id).await;
             }
+            let _ = org.mark_handoffs_delivered(&owed_judgements).await;
         }
         Err(error) => {
             if !owner_message_ids.is_empty() {
@@ -638,6 +649,13 @@ async fn fire_exec(daemon: &Arc<Daemon>, in_flight: &InFlight, company: &str, re
     }
     let cancellation = {
         let mut guard = in_flight.lock().expect("in-flight guard");
+        // Keep the reason queued rather than dropping it: `take_ready` releases
+        // it once the backoff expires, and a claimed schedule is not owed work
+        // any durable row would re-derive.
+        if guard.is_backing_off(company) {
+            guard.queue(company, reason);
+            return;
+        }
         let Some(cancellation) = guard.claim_with_cancellation(company) else {
             guard.queue(company, reason);
             return;
@@ -656,6 +674,18 @@ async fn fire_exec(daemon: &Arc<Daemon>, in_flight: &InFlight, company: &str, re
             run_exec_turn(&daemon, &config, &org, &reason, &cancellation).await
         }
         .await;
+        // A turn that could not run delivered nothing, so its owed facts are
+        // still owed and would otherwise re-trigger on the next five-second
+        // scan.
+        let usable =
+            matches!(&outcome, Ok(report) if report.termination != exec::Termination::Blocked);
+        if let Ok(mut guard) = in_flight.lock() {
+            if usable {
+                guard.record_usable_wake(&company);
+            } else {
+                guard.record_unusable_wake(&company);
+            }
+        }
         if let Err(error) = outcome {
             tracing::warn!(company, "Exec conversation wake failed: {error:#}");
         }
@@ -671,12 +701,7 @@ async fn fire_pending(daemon: &Arc<Daemon>, in_flight: &InFlight) {
 
 #[cfg(test)]
 mod tests {
-    use chrono::{TimeZone, Utc};
-
-    use super::{
-        actor_exclusions, exec_conversation_is_owed, exec_wake_is_interrupted,
-        is_exec_self_message, WakeClaims,
-    };
+    use super::{actor_exclusions, exec_wake_is_interrupted, is_exec_self_message, WakeClaims};
 
     #[test]
     fn trigger_during_active_wake_becomes_one_follow_up() {
@@ -734,38 +759,56 @@ mod tests {
     }
 
     #[test]
-    fn restart_recovery_distinguishes_missed_interrupted_and_completed_wakes() {
-        let at = |second| Utc.timestamp_opt(second, 0).unwrap();
-        let message = at(20);
-
-        assert!(exec_conversation_is_owed(message, None, None));
-        assert!(exec_conversation_is_owed(
-            message,
-            Some(at(21)),
-            Some(at(10))
-        ));
-        assert!(exec_conversation_is_owed(
-            message,
-            Some(at(10)),
-            Some(at(11))
-        ));
-        assert!(!exec_conversation_is_owed(
-            message,
-            Some(at(21)),
-            Some(at(22))
-        ));
-        assert!(!exec_conversation_is_owed(
-            message,
-            Some(at(10)),
-            Some(at(21))
-        ));
-    }
-
-    #[test]
     fn restart_recovery_covers_direct_wakes_without_unread_mail() {
         assert!(!exec_wake_is_interrupted(None, None));
         assert!(exec_wake_is_interrupted(Some(41), None));
         assert!(exec_wake_is_interrupted(Some(41), Some(40)));
         assert!(!exec_wake_is_interrupted(Some(41), Some(42)));
+    }
+
+    /// Owed work is now re-derived from durable rows on every scan, so a
+    /// company whose wake cannot run must not be retried every five seconds.
+    /// The queued reason survives the hold instead of being dropped.
+    #[test]
+    fn a_wake_that_could_not_run_holds_the_next_automatic_attempt() {
+        let mut claims = WakeClaims::default();
+        claims.record_unusable_wake("probe");
+        assert!(claims.is_backing_off("probe"));
+        assert!(!claims.is_backing_off("other-company"));
+
+        claims.queue("probe", "judgement is owed to the Exec");
+        assert!(claims.take_ready().is_empty());
+
+        claims.record_usable_wake("probe");
+        assert!(!claims.is_backing_off("probe"));
+        assert_eq!(
+            claims.take_ready(),
+            vec![("probe".into(), "judgement is owed to the Exec".into())]
+        );
+    }
+
+    /// Repeated failure lengthens the hold rather than repeating a fixed one,
+    /// and stops lengthening at the ceiling.
+    #[test]
+    fn repeated_unusable_wakes_back_off_further_up_to_a_ceiling() {
+        let mut claims = WakeClaims::default();
+        let held_for = |claims: &WakeClaims| {
+            claims
+                .backoff
+                .get("probe")
+                .map(|(until, _)| *until - std::time::Instant::now())
+                .expect("a hold was recorded")
+        };
+
+        claims.record_unusable_wake("probe");
+        let first = held_for(&claims);
+        claims.record_unusable_wake("probe");
+        let second = held_for(&claims);
+        assert!(second > first, "{second:?} should exceed {first:?}");
+
+        for _ in 0..12 {
+            claims.record_unusable_wake("probe");
+        }
+        assert!(held_for(&claims) <= super::BACKOFF_CEILING);
     }
 }

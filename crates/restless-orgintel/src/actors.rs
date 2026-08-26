@@ -813,7 +813,7 @@ impl OrgIntel {
         }
         let stranded = sqlx::query(
             "UPDATE owner_handoffs SET assigned_to='exec', escalated_from=assigned_to, \
-             escalated_at=now(), resolution=$2 \
+             escalated_at=now(), resolution=$2, delivered_at=NULL \
              WHERE state='pending' AND assigned_to IN (SELECT id FROM actors WHERE team_id=$1)",
         )
         .bind(team_id)
@@ -857,13 +857,47 @@ impl OrgIntel {
             "SELECT id, work_id, attempt_id, requested_by, category, requested_action, \
                     prepared_state, resume_condition, state, resolution, assigned_to, \
                     escalated_from, escalated_at, owner_brief, briefed_by, briefed_at, \
-                    brief_source_fingerprint, created_at, resolved_at \
+                    brief_source_fingerprint, delivered_at, created_at, resolved_at \
              FROM owner_handoffs WHERE state='pending' AND assigned_to=$1 \
              ORDER BY created_at, id",
         )
         .bind(actor_id)
         .fetch_all(&self.pool)
         .await?)
+    }
+
+    /// How many pending judgements this actor has never been given. This is
+    /// the wake trigger, and it is deliberately a count of the exact owed rows
+    /// rather than a comparison between the newest handoff and the newest wake
+    /// event: one unrelated wake used to move that watermark past a handoff and
+    /// silence it permanently (S19-T1).
+    pub async fn undelivered_handoff_count(&self, actor_id: &str) -> Result<i64> {
+        Ok(sqlx::query_scalar(
+            "SELECT count(*) FROM owner_handoffs \
+             WHERE state='pending' AND assigned_to=$1 AND delivered_at IS NULL",
+        )
+        .bind(actor_id)
+        .fetch_one(&self.pool)
+        .await?)
+    }
+
+    /// Record that these exact judgements were carried into a turn that ran to
+    /// completion for their assignee. Only a completed turn may call this: a
+    /// health-gated or crashed wake assembles no context and has delivered
+    /// nothing. Already-delivered rows are left alone so the first delivery
+    /// time stays truthful.
+    pub async fn mark_handoffs_delivered(&self, ids: &[Uuid]) -> Result<u64> {
+        if ids.is_empty() {
+            return Ok(0);
+        }
+        Ok(sqlx::query(
+            "UPDATE owner_handoffs SET delivered_at=now() \
+             WHERE id = ANY($1) AND state='pending' AND delivered_at IS NULL",
+        )
+        .bind(ids)
+        .execute(&self.pool)
+        .await?
+        .rows_affected())
     }
 
     /// Pass a judgement up one altitude because it is outside this actor's
@@ -915,7 +949,8 @@ impl OrgIntel {
         }
         let changed = sqlx::query(
             "UPDATE owner_handoffs SET assigned_to=$3, escalated_from=$2, escalated_at=now(), \
-             resolution=$4 WHERE id=$1 AND state='pending' AND assigned_to=$2",
+             resolution=$4, delivered_at=NULL \
+             WHERE id=$1 AND state='pending' AND assigned_to=$2",
         )
         .bind(id)
         .bind(from_actor)
@@ -947,7 +982,7 @@ impl OrgIntel {
         let mut tx = self.pool.begin().await?;
         let changed = sqlx::query(
             "UPDATE owner_handoffs SET assigned_to='exec', escalated_from=$1, \
-             escalated_at=now(), resolution=$2 \
+             escalated_at=now(), resolution=$2, delivered_at=NULL \
              WHERE state='pending' AND assigned_to=$1",
         )
         .bind(unavailable_actor)
