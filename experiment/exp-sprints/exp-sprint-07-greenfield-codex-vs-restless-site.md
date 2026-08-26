@@ -1,6 +1,6 @@
 # EXP-07: Greenfield Codex versus Restless site
 
-**Status:** Frozen; arms not started  
+**Status:** Awaiting blind owner judgement
 **Date:** 26 August 2026  
 **Depends on:** EXP-06 process evidence and the owner's rejection of a shared incumbent as a useful
 creative comparison.
@@ -78,3 +78,13 @@ solo-versus-team law.
 Do not merge either result into `dev`, replace the existing public site, reveal arm identity, publish a
 winner claim or change the Restless coordination invariants before the owner locks the blind decision.
 
+## Execution checkpoint
+
+- Both arms started from the same four-file seed commit with no site code, framework, assets or inherited
+  design.
+- Candidate A and Candidate B are separately hosted under neutral URLs recorded in the EXP-07 results.
+- The shared production probe passes all nine required routes at both target viewports for both
+  candidates, including focus, mobile navigation, reduced motion, metadata, overflow and browser-error
+  checks.
+- Arm identity, process evidence and the random A/B mapping remain sealed until the owner answers `A`,
+  `B`, `tie` or `neither`.

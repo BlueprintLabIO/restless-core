@@ -1,0 +1,519 @@
+{
+  "candidate-a": {
+    "baseUrl": "http://4tjnddzi5xm0aytzw6bnzb19.5.78.153.131.sslip.io",
+    "routes": [
+      "/",
+      "/product/",
+      "/how-it-works/",
+      "/research/",
+      "/compare/",
+      "/journal/",
+      "/journal/one-worker-default/",
+      "/journal/parallel-thresholds/",
+      "/journal/supervision-correctness/"
+    ],
+    "routeChecks": [
+      {
+        "viewport": "desktop",
+        "route": "/",
+        "status": 200,
+        "title": "A company that keeps going | Restless",
+        "h1": "Your company\nkeeps going.",
+        "clientWidth": 1440,
+        "scrollWidth": 1440,
+        "emDashCount": 0,
+        "description": "Restless handles company work and returns the prepared decisions only the owner can make.",
+        "ogTitle": "A company that keeps going | Restless"
+      },
+      {
+        "viewport": "desktop",
+        "route": "/product/",
+        "status": 200,
+        "title": "The owner experience | Restless",
+        "h1": "Bring the mission.\nNot the machinery.",
+        "clientWidth": 1440,
+        "scrollWidth": 1440,
+        "emDashCount": 0,
+        "description": "Bring the mission, not the machinery. See the product boundary and prepared last mile.",
+        "ogTitle": "The owner experience | Restless"
+      },
+      {
+        "viewport": "desktop",
+        "route": "/how-it-works/",
+        "status": 200,
+        "title": "How accountability works | Restless",
+        "h1": "Accountability\nwithout ceremony.",
+        "clientWidth": 1440,
+        "scrollWidth": 1440,
+        "emDashCount": 0,
+        "description": "Exec, accountable leads and Staff turn a mission into a native outcome.",
+        "ogTitle": "How accountability works | Restless"
+      },
+      {
+        "viewport": "desktop",
+        "route": "/research/",
+        "status": 200,
+        "title": "Research notebook | Restless",
+        "h1": "A theory that has\nto survive contact.",
+        "clientWidth": 1440,
+        "scrollWidth": 1440,
+        "emDashCount": 0,
+        "description": "Accepted directions, provisional beliefs and open questions in the Restless research programme.",
+        "ogTitle": "Research notebook | Restless"
+      },
+      {
+        "viewport": "desktop",
+        "route": "/compare/",
+        "status": 200,
+        "title": "Category comparison | Restless",
+        "h1": "Close neighbours.\nDifferent centres.",
+        "clientWidth": 1440,
+        "scrollWidth": 1440,
+        "emDashCount": 0,
+        "description": "A dated, sourced comparison of Restless with adjacent products and frameworks.",
+        "ogTitle": "Category comparison | Restless"
+      },
+      {
+        "viewport": "desktop",
+        "route": "/journal/",
+        "status": 200,
+        "title": "Research journal | Restless",
+        "h1": "What changed\nour operating theory.",
+        "clientWidth": 1440,
+        "scrollWidth": 1440,
+        "emDashCount": 0,
+        "description": "Findings from controlled work on delegation, capacity and supervision.",
+        "ogTitle": "Research journal | Restless"
+      },
+      {
+        "viewport": "desktop",
+        "route": "/journal/one-worker-default/",
+        "status": 200,
+        "title": "One strong worker is the default | Restless",
+        "h1": "One strong worker is the default",
+        "clientWidth": 1440,
+        "scrollWidth": 1440,
+        "emDashCount": 0,
+        "description": "Inside one tightly coupled outcome, coordination has to earn its cost.",
+        "ogTitle": "One strong worker is the default | Restless"
+      },
+      {
+        "viewport": "desktop",
+        "route": "/journal/parallel-thresholds/",
+        "status": 200,
+        "title": "Parallelism has a demand shape | Restless",
+        "h1": "Parallelism has a demand shape",
+        "clientWidth": 1440,
+        "scrollWidth": 1440,
+        "emDashCount": 0,
+        "description": "A large queue can reward more workers. A slow arrival stream often cannot.",
+        "ogTitle": "Parallelism has a demand shape | Restless"
+      },
+      {
+        "viewport": "desktop",
+        "route": "/journal/supervision-correctness/",
+        "status": 200,
+        "title": "Presence is not correctness | Restless",
+        "h1": "Presence is not correctness",
+        "clientWidth": 1440,
+        "scrollWidth": 1440,
+        "emDashCount": 0,
+        "description": "Available supervision prevented stale work, then introduced a defect of its own.",
+        "ogTitle": "Presence is not correctness | Restless"
+      },
+      {
+        "viewport": "mobile",
+        "route": "/",
+        "status": 200,
+        "title": "A company that keeps going | Restless",
+        "h1": "Your company\nkeeps going.",
+        "clientWidth": 390,
+        "scrollWidth": 390,
+        "emDashCount": 0,
+        "description": "Restless handles company work and returns the prepared decisions only the owner can make.",
+        "ogTitle": "A company that keeps going | Restless"
+      },
+      {
+        "viewport": "mobile",
+        "route": "/product/",
+        "status": 200,
+        "title": "The owner experience | Restless",
+        "h1": "Bring the mission.\nNot the machinery.",
+        "clientWidth": 390,
+        "scrollWidth": 390,
+        "emDashCount": 0,
+        "description": "Bring the mission, not the machinery. See the product boundary and prepared last mile.",
+        "ogTitle": "The owner experience | Restless"
+      },
+      {
+        "viewport": "mobile",
+        "route": "/how-it-works/",
+        "status": 200,
+        "title": "How accountability works | Restless",
+        "h1": "Accountability\nwithout ceremony.",
+        "clientWidth": 390,
+        "scrollWidth": 390,
+        "emDashCount": 0,
+        "description": "Exec, accountable leads and Staff turn a mission into a native outcome.",
+        "ogTitle": "How accountability works | Restless"
+      },
+      {
+        "viewport": "mobile",
+        "route": "/research/",
+        "status": 200,
+        "title": "Research notebook | Restless",
+        "h1": "A theory that has\nto survive contact.",
+        "clientWidth": 390,
+        "scrollWidth": 390,
+        "emDashCount": 0,
+        "description": "Accepted directions, provisional beliefs and open questions in the Restless research programme.",
+        "ogTitle": "Research notebook | Restless"
+      },
+      {
+        "viewport": "mobile",
+        "route": "/compare/",
+        "status": 200,
+        "title": "Category comparison | Restless",
+        "h1": "Close neighbours.\nDifferent centres.",
+        "clientWidth": 390,
+        "scrollWidth": 390,
+        "emDashCount": 0,
+        "description": "A dated, sourced comparison of Restless with adjacent products and frameworks.",
+        "ogTitle": "Category comparison | Restless"
+      },
+      {
+        "viewport": "mobile",
+        "route": "/journal/",
+        "status": 200,
+        "title": "Research journal | Restless",
+        "h1": "What changed\nour operating theory.",
+        "clientWidth": 390,
+        "scrollWidth": 390,
+        "emDashCount": 0,
+        "description": "Findings from controlled work on delegation, capacity and supervision.",
+        "ogTitle": "Research journal | Restless"
+      },
+      {
+        "viewport": "mobile",
+        "route": "/journal/one-worker-default/",
+        "status": 200,
+        "title": "One strong worker is the default | Restless",
+        "h1": "One strong worker is the default",
+        "clientWidth": 390,
+        "scrollWidth": 390,
+        "emDashCount": 0,
+        "description": "Inside one tightly coupled outcome, coordination has to earn its cost.",
+        "ogTitle": "One strong worker is the default | Restless"
+      },
+      {
+        "viewport": "mobile",
+        "route": "/journal/parallel-thresholds/",
+        "status": 200,
+        "title": "Parallelism has a demand shape | Restless",
+        "h1": "Parallelism has a demand shape",
+        "clientWidth": 390,
+        "scrollWidth": 390,
+        "emDashCount": 0,
+        "description": "A large queue can reward more workers. A slow arrival stream often cannot.",
+        "ogTitle": "Parallelism has a demand shape | Restless"
+      },
+      {
+        "viewport": "mobile",
+        "route": "/journal/supervision-correctness/",
+        "status": 200,
+        "title": "Presence is not correctness | Restless",
+        "h1": "Presence is not correctness",
+        "clientWidth": 390,
+        "scrollWidth": 390,
+        "emDashCount": 0,
+        "description": "Available supervision prevented stale work, then introduced a defect of its own.",
+        "ogTitle": "Presence is not correctness | Restless"
+      }
+    ],
+    "focus": {
+      "tag": "A",
+      "text": "Skip to content",
+      "outlineStyle": "solid",
+      "outlineWidth": "3px",
+      "boxShadow": "none",
+      "visible": true
+    },
+    "mobileNavigation": {
+      "visibleLinkCount": 6,
+      "visibleControlCount": 1,
+      "labels": [
+        "R/Restless",
+        "Product",
+        "How it works",
+        "Research",
+        "Compare",
+        "Journal",
+        "Menu"
+      ]
+    },
+    "reducedMotion": {
+      "preferenceMatches": true,
+      "runningAnimations": 0
+    },
+    "consoleErrors": [],
+    "pageErrors": []
+  },
+  "candidate-b": {
+    "baseUrl": "http://hdavfjnv9jt3sbsouktjkary.5.78.153.131.sslip.io",
+    "routes": [
+      "/",
+      "/product/",
+      "/how-it-works/",
+      "/research/",
+      "/compare/",
+      "/journal/",
+      "/journal/demand-shape/",
+      "/journal/one-worker/",
+      "/journal/supervision/"
+    ],
+    "routeChecks": [
+      {
+        "viewport": "desktop",
+        "route": "/",
+        "status": 200,
+        "title": "Restless | The company handles the work",
+        "h1": "The company handles the work.",
+        "clientWidth": 1440,
+        "scrollWidth": 1440,
+        "emDashCount": 0,
+        "description": "Restless is a research-stage autonomous-company control plane. The owner supplies direction and judgement. The company handles the work.",
+        "ogTitle": "Restless | The company handles the work"
+      },
+      {
+        "viewport": "desktop",
+        "route": "/product/",
+        "status": 200,
+        "title": "Product | Restless",
+        "h1": "Keep the company moving. Keep your day.",
+        "clientWidth": 1440,
+        "scrollWidth": 1440,
+        "emDashCount": 0,
+        "description": "The Restless owner experience: a calm work surface, a single Exec, and prepared last-mile decisions.",
+        "ogTitle": "Product | Restless"
+      },
+      {
+        "viewport": "desktop",
+        "route": "/how-it-works/",
+        "status": 200,
+        "title": "How it works | Restless",
+        "h1": "Intelligence leads. Facts keep it accountable.",
+        "clientWidth": 1440,
+        "scrollWidth": 1440,
+        "emDashCount": 0,
+        "description": "How Exec, accountable leads, Staff, authority and native review fit together in Restless.",
+        "ogTitle": "How it works | Restless"
+      },
+      {
+        "viewport": "desktop",
+        "route": "/research/",
+        "status": 200,
+        "title": "Research | Restless",
+        "h1": "An architecture that expects to be corrected.",
+        "clientWidth": 1440,
+        "scrollWidth": 1440,
+        "emDashCount": 0,
+        "description": "Restless publishes what the coordination experiments found, what is provisional and what could change next.",
+        "ogTitle": "Research | Restless"
+      },
+      {
+        "viewport": "desktop",
+        "route": "/compare/",
+        "status": 200,
+        "title": "Compare | Restless",
+        "h1": "Same neighbourhood. Different starting job.",
+        "clientWidth": 1440,
+        "scrollWidth": 1440,
+        "emDashCount": 0,
+        "description": "A fair, sourced category comparison of Restless, opencompany, Lindy and CrewAI, checked 26 August 2026.",
+        "ogTitle": "Compare | Restless"
+      },
+      {
+        "viewport": "desktop",
+        "route": "/journal/",
+        "status": 200,
+        "title": "Journal | Restless",
+        "h1": "What survived contact with the work.",
+        "clientWidth": 1440,
+        "scrollWidth": 1440,
+        "emDashCount": 0,
+        "description": "Durable findings from the Restless coordination research programme.",
+        "ogTitle": "Journal | Restless"
+      },
+      {
+        "viewport": "desktop",
+        "route": "/journal/demand-shape/",
+        "status": 200,
+        "title": "Demand shape changes the scaling regime | Restless Journal",
+        "h1": "Demand shape changes the scaling regime.",
+        "clientWidth": 1440,
+        "scrollWidth": 1440,
+        "emDashCount": 0,
+        "description": "Why repeated independent work can repay more Staff, depending on arrival shape and quality thresholds.",
+        "ogTitle": "Demand shape changes the scaling regime"
+      },
+      {
+        "viewport": "desktop",
+        "route": "/journal/one-worker/",
+        "status": 200,
+        "title": "One strong worker is the default | Restless Journal",
+        "h1": "One strong worker is the default inside one outcome.",
+        "clientWidth": 1440,
+        "scrollWidth": 1440,
+        "emDashCount": 0,
+        "description": "Why tightly coupled outcomes often favour one end-to-end worker, and where that finding stops.",
+        "ogTitle": "One strong worker is the default"
+      },
+      {
+        "viewport": "desktop",
+        "route": "/journal/supervision/",
+        "status": 200,
+        "title": "Supervision must remain available | Restless Journal",
+        "h1": "Supervision must remain available. Presence is not correctness.",
+        "clientWidth": 1440,
+        "scrollWidth": 1440,
+        "emDashCount": 0,
+        "description": "Supervision prevented stale outcomes in one support experiment and still introduced a defect.",
+        "ogTitle": "Supervision must remain available"
+      },
+      {
+        "viewport": "mobile",
+        "route": "/",
+        "status": 200,
+        "title": "Restless | The company handles the work",
+        "h1": "The company handles the work.",
+        "clientWidth": 390,
+        "scrollWidth": 390,
+        "emDashCount": 0,
+        "description": "Restless is a research-stage autonomous-company control plane. The owner supplies direction and judgement. The company handles the work.",
+        "ogTitle": "Restless | The company handles the work"
+      },
+      {
+        "viewport": "mobile",
+        "route": "/product/",
+        "status": 200,
+        "title": "Product | Restless",
+        "h1": "Keep the company moving. Keep your day.",
+        "clientWidth": 390,
+        "scrollWidth": 390,
+        "emDashCount": 0,
+        "description": "The Restless owner experience: a calm work surface, a single Exec, and prepared last-mile decisions.",
+        "ogTitle": "Product | Restless"
+      },
+      {
+        "viewport": "mobile",
+        "route": "/how-it-works/",
+        "status": 200,
+        "title": "How it works | Restless",
+        "h1": "Intelligence leads. Facts keep it accountable.",
+        "clientWidth": 390,
+        "scrollWidth": 390,
+        "emDashCount": 0,
+        "description": "How Exec, accountable leads, Staff, authority and native review fit together in Restless.",
+        "ogTitle": "How it works | Restless"
+      },
+      {
+        "viewport": "mobile",
+        "route": "/research/",
+        "status": 200,
+        "title": "Research | Restless",
+        "h1": "An architecture that expects to be corrected.",
+        "clientWidth": 390,
+        "scrollWidth": 390,
+        "emDashCount": 0,
+        "description": "Restless publishes what the coordination experiments found, what is provisional and what could change next.",
+        "ogTitle": "Research | Restless"
+      },
+      {
+        "viewport": "mobile",
+        "route": "/compare/",
+        "status": 200,
+        "title": "Compare | Restless",
+        "h1": "Same neighbourhood. Different starting job.",
+        "clientWidth": 390,
+        "scrollWidth": 390,
+        "emDashCount": 0,
+        "description": "A fair, sourced category comparison of Restless, opencompany, Lindy and CrewAI, checked 26 August 2026.",
+        "ogTitle": "Compare | Restless"
+      },
+      {
+        "viewport": "mobile",
+        "route": "/journal/",
+        "status": 200,
+        "title": "Journal | Restless",
+        "h1": "What survived contact with the work.",
+        "clientWidth": 390,
+        "scrollWidth": 390,
+        "emDashCount": 0,
+        "description": "Durable findings from the Restless coordination research programme.",
+        "ogTitle": "Journal | Restless"
+      },
+      {
+        "viewport": "mobile",
+        "route": "/journal/demand-shape/",
+        "status": 200,
+        "title": "Demand shape changes the scaling regime | Restless Journal",
+        "h1": "Demand shape changes the scaling regime.",
+        "clientWidth": 390,
+        "scrollWidth": 390,
+        "emDashCount": 0,
+        "description": "Why repeated independent work can repay more Staff, depending on arrival shape and quality thresholds.",
+        "ogTitle": "Demand shape changes the scaling regime"
+      },
+      {
+        "viewport": "mobile",
+        "route": "/journal/one-worker/",
+        "status": 200,
+        "title": "One strong worker is the default | Restless Journal",
+        "h1": "One strong worker is the default inside one outcome.",
+        "clientWidth": 390,
+        "scrollWidth": 390,
+        "emDashCount": 0,
+        "description": "Why tightly coupled outcomes often favour one end-to-end worker, and where that finding stops.",
+        "ogTitle": "One strong worker is the default"
+      },
+      {
+        "viewport": "mobile",
+        "route": "/journal/supervision/",
+        "status": 200,
+        "title": "Supervision must remain available | Restless Journal",
+        "h1": "Supervision must remain available. Presence is not correctness.",
+        "clientWidth": 390,
+        "scrollWidth": 390,
+        "emDashCount": 0,
+        "description": "Supervision prevented stale outcomes in one support experiment and still introduced a defect.",
+        "ogTitle": "Supervision must remain available"
+      }
+    ],
+    "focus": {
+      "tag": "A",
+      "text": "Skip to content",
+      "outlineStyle": "solid",
+      "outlineWidth": "3px",
+      "boxShadow": "none",
+      "visible": true
+    },
+    "mobileNavigation": {
+      "visibleLinkCount": 5,
+      "visibleControlCount": 1,
+      "labels": [
+        "Restless",
+        "Product",
+        "Research",
+        "Compare",
+        "Journal",
+        "Menu"
+      ]
+    },
+    "reducedMotion": {
+      "preferenceMatches": true,
+      "runningAnimations": 0
+    },
+    "consoleErrors": [],
+    "pageErrors": []
+  }
+}
