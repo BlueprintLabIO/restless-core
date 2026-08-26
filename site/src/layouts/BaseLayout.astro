@@ -23,8 +23,8 @@ const {
   description = brand.description,
   image = '/social-preview.svg'
 } = Astro.props;
-const canonical = new URL(Astro.url.pathname, Astro.site ?? Astro.url);
-const socialImage = new URL(image, Astro.site ?? Astro.url);
+const canonical = Astro.site ? new URL(Astro.url.pathname, Astro.site) : undefined;
+const socialImage = Astro.site ? new URL(image, Astro.site) : image;
 ---
 
 <!doctype html>
@@ -35,12 +35,18 @@ const socialImage = new URL(image, Astro.site ?? Astro.url);
     <meta name="description" content={description} />
     <meta name="theme-color" content="#e9edf3" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <link rel="canonical" href={canonical} />
+    {canonical && <link rel="canonical" href={canonical} />}
     <meta property="og:type" content="website" />
+    <meta property="og:site_name" content={brand.name} />
     <meta property="og:title" content={title} />
     <meta property="og:description" content={description} />
     <meta property="og:image" content={socialImage} />
+    <meta property="og:image:alt" content="Restless. The company handles the work. You keep the judgment." />
+    {canonical && <meta property="og:url" content={canonical} />}
     <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content={title} />
+    <meta name="twitter:description" content={description} />
+    <meta name="twitter:image" content={socialImage} />
     <title>{title}</title>
   </head>
   <body>

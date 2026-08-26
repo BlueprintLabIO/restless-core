@@ -708,7 +708,7 @@ button:focus-visible,
   }
 
   .finding-header h1 {
-    font-size: clamp(3.6rem, 18vw, 6.2rem);
+    font-size: clamp(3.6rem, 16.5vw, 6.2rem);
   }
 
   .finding-facts {

@@ -11,36 +11,72 @@ const glyphs = {
 ---
 
 <figure class="product-window" aria-labelledby="product-window-caption">
-  <div class="product-window-shell" aria-hidden="true">
+  <div class="product-window-shell" data-product-demo>
     <header class="product-window-bar">
       <div class="product-window-brand">
         <MatrixGlyph rows={glyphs.r} size={10} />
         <strong>RESTLESS</strong>
         <span>/ Northstar</span>
       </div>
-      <nav aria-label="Illustrated owner surfaces">
-        <span><MatrixGlyph rows={glyphs.alert} size={8} />Attention</span>
-        <span class="active"><MatrixGlyph rows={glyphs.briefcase} size={8} />Work</span>
-        <span><MatrixGlyph rows={glyphs.group} size={8} />People</span>
-        <span><MatrixGlyph rows={glyphs.key} size={8} />Company</span>
-      </nav>
+      <div class="product-window-tabs" role="tablist" aria-label="Owner product surfaces">
+        <button type="button" role="tab" aria-selected="false" aria-controls="demo-attention" id="tab-attention" data-demo-tab="attention">
+          <MatrixGlyph rows={glyphs.alert} size={8} />Attention
+        </button>
+        <button class="active" type="button" role="tab" aria-selected="true" aria-controls="demo-work" id="tab-work" data-demo-tab="work">
+          <MatrixGlyph rows={glyphs.briefcase} size={8} />Work
+        </button>
+        <button type="button" role="tab" aria-selected="false" aria-controls="demo-people" id="tab-people" data-demo-tab="people">
+          <MatrixGlyph rows={glyphs.group} size={8} />People
+        </button>
+        <button type="button" role="tab" aria-selected="false" aria-controls="demo-company" id="tab-company" data-demo-tab="company">
+          <MatrixGlyph rows={glyphs.key} size={8} />Company
+        </button>
+      </div>
       <span class="product-window-exec"><i></i>Exec</span>
     </header>
     <div class="product-window-body">
-      <section class="product-work-pane">
-        <header><span>Current outcome</span><strong>Launch the evidence site</strong></header>
-        <div class="product-work-result">
-          <span class="result-status"><i></i>Ready for review</span>
-          <h3>The native result is waiting.</h3>
-          <p>Open the live site at the exact page and state that needs your judgment.</p>
-          <span class="product-window-button">Open result <span aria-hidden="true">↗</span></span>
-        </div>
-        <footer>
-          <span><b>Lead</b> Product release</span>
-          <span><b>Evidence</b> 6 checks</span>
-          <span><b>Owner decision</b> Publish</span>
-        </footer>
-      </section>
+      <div class="product-demo-panels">
+        <section class="product-work-pane" id="demo-attention" role="tabpanel" aria-labelledby="tab-attention" data-demo-panel="attention" hidden>
+          <header><span>Needs your judgment</span><strong>One prepared decision</strong></header>
+          <div class="product-work-result">
+            <span class="result-status result-status--decision"><i></i>Owner decision</span>
+            <h3>Approve the exact release.</h3>
+            <p>The site is open at the comparison that changed. Checks passed. Publishing remains yours.</p>
+            <span class="product-window-button">Review release <span aria-hidden="true">↗</span></span>
+          </div>
+          <footer><span><b>Why now</b> Release ready</span><span><b>Evidence</b> Live preview</span><span><b>Resume</b> Publish or revise</span></footer>
+        </section>
+        <section class="product-work-pane" id="demo-work" role="tabpanel" aria-labelledby="tab-work" data-demo-panel="work">
+          <header><span>Current outcome</span><strong>Launch the evidence site</strong></header>
+          <div class="product-work-result">
+            <span class="result-status"><i></i>Ready for review</span>
+            <h3>The native result is waiting.</h3>
+            <p>Open the live site at the exact page and state that needs your judgment.</p>
+            <span class="product-window-button">Open result <span aria-hidden="true">↗</span></span>
+          </div>
+          <footer><span><b>Lead</b> Product release</span><span><b>Evidence</b> 6 checks</span><span><b>Owner decision</b> Publish</span></footer>
+        </section>
+        <section class="product-work-pane" id="demo-people" role="tabpanel" aria-labelledby="tab-people" data-demo-panel="people" hidden>
+          <header><span>Accountable line</span><strong>One outcome, clear ownership</strong></header>
+          <div class="product-work-result">
+            <span class="result-status"><i></i>Lead available</span>
+            <h3>Know who carries the result.</h3>
+            <p>Exec owns the portfolio. A release lead supervises. Staff produces the site and its evidence.</p>
+            <span class="product-window-button product-window-button--quiet">Inspect the team <span aria-hidden="true">↗</span></span>
+          </div>
+          <footer><span><b>Exec</b> Portfolio</span><span><b>Lead</b> Outcome</span><span><b>Staff</b> Production</span></footer>
+        </section>
+        <section class="product-work-pane" id="demo-company" role="tabpanel" aria-labelledby="tab-company" data-demo-panel="company" hidden>
+          <header><span>Authority and limits</span><strong>Northstar operating envelope</strong></header>
+          <div class="product-work-result">
+            <span class="result-status result-status--bounded"><i></i>External effects frozen</span>
+            <h3>Work freely. Cross real boundaries deliberately.</h3>
+            <p>Research and drafting continue. Spend, publication and external representation remain deterministic decisions.</p>
+            <span class="product-window-button product-window-button--quiet">Inspect authority <span aria-hidden="true">↗</span></span>
+          </div>
+          <footer><span><b>Internal work</b> Available</span><span><b>Budget</b> Within limit</span><span><b>Publish</b> Approval required</span></footer>
+        </section>
+      </div>
       <aside class="product-exec-rail">
         <header><i></i><span><strong>Exec</strong><small>Available</small></span></header>
         <div class="product-exec-message">
@@ -52,6 +88,38 @@ const glyphs = {
     </div>
   </div>
   <figcaption id="product-window-caption">
-    The owner surface stays calm because the organisation operates below it.
+    Try the four owner surfaces. The organisation operates below them.
   </figcaption>
 </figure>
+
+<script>
+  document.querySelectorAll<HTMLElement>('[data-product-demo]').forEach((demo) => {
+    const tabs = [...demo.querySelectorAll<HTMLButtonElement>('[data-demo-tab]')];
+    const panels = [...demo.querySelectorAll<HTMLElement>('[data-demo-panel]')];
+
+    const select = (tab: HTMLButtonElement) => {
+      const selected = tab.dataset.demoTab;
+      tabs.forEach((item) => {
+        const active = item === tab;
+        item.classList.toggle('active', active);
+        item.setAttribute('aria-selected', String(active));
+        item.tabIndex = active ? 0 : -1;
+      });
+      panels.forEach((panel) => {
+        panel.hidden = panel.dataset.demoPanel !== selected;
+      });
+    };
+
+    tabs.forEach((tab, index) => {
+      tab.addEventListener('click', () => select(tab));
+      tab.addEventListener('keydown', (event) => {
+        if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
+        event.preventDefault();
+        const step = event.key === 'ArrowRight' ? 1 : -1;
+        const next = tabs[(index + step + tabs.length) % tabs.length];
+        select(next);
+        next.focus();
+      });
+    });
+  });
+</script>

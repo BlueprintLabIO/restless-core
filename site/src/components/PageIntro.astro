@@ -3,12 +3,13 @@ interface Props {
   title: string;
   statement: string;
   tone?: 'paper' | 'wash' | 'ink';
+  compact?: boolean;
 }
 
-const { title, statement, tone = 'paper' } = Astro.props;
+const { title, statement, tone = 'paper', compact = false } = Astro.props;
 ---
 
-<header class={`page-intro page-intro--${tone}`}>
+<header class:list={['page-intro', `page-intro--${tone}`, { 'page-intro--compact': compact }]}>
   <h1>{title}</h1>
   <div class="page-intro-statement">
     <p>{statement}</p>

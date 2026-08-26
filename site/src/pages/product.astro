@@ -2,6 +2,7 @@
 import BaseLayout from '../layouts/BaseLayout.astro';
 import PageIntro from '../components/PageIntro.astro';
 import SectionLink from '../components/SectionLink.astro';
+import ProductWindow from '../components/ProductWindow.astro';
 ---
 
 <BaseLayout
@@ -12,9 +13,18 @@ import SectionLink from '../components/SectionLink.astro';
     title="Less operating. More ownership."
     statement="Restless is for an owner who wants to set direction, make consequential judgments and receive finished work without becoming the task manager for a collection of agents."
     tone="wash"
+    compact
   >
     <a class="text-action" href="/how-it-works/">Follow an outcome through the company</a>
   </PageIntro>
+
+  <section class="product-reveal product-reveal--product" aria-labelledby="product-tour-heading">
+    <div class="spare-heading">
+      <h2 id="product-tour-heading">Four surfaces. One line from intent to outcome.</h2>
+      <p>Move through the owner experience. Attention holds real decisions. Work holds outcomes. People shows accountability. Company keeps authority and limits visible.</p>
+    </div>
+    <ProductWindow />
+  </section>
 
   <section class="exchange-section" aria-labelledby="exchange-heading">
     <div class="wide-heading">

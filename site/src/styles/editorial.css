@@ -190,7 +190,7 @@
 }
 
 .product-window-brand,
-.product-window-bar nav,
+.product-window-tabs,
 .product-window-exec {
   display: flex;
   align-items: center;
@@ -211,28 +211,37 @@
   font: 0.72rem var(--mono);
 }
 
-.product-window-bar nav {
+.product-window-tabs {
   justify-content: center;
   gap: 0.25rem;
 }
 
-.product-window-bar nav > span {
+.product-window-tabs > button {
   position: relative;
   display: inline-flex;
   gap: 0.4rem;
   align-items: center;
   align-self: stretch;
   padding: 0 0.65rem;
+  border: 0;
   color: var(--ink-soft);
+  background: transparent;
+  font: inherit;
   font-size: 0.72rem;
+  cursor: pointer;
 }
 
-.product-window-bar nav > span.active {
+.product-window-tabs > button:hover {
+  color: var(--ink);
+  background: color-mix(in srgb, var(--signal) 4%, var(--paper-bright));
+}
+
+.product-window-tabs > button.active {
   color: var(--ink);
   background: var(--paper-bright);
 }
 
-.product-window-bar nav > span.active::after {
+.product-window-tabs > button.active::after {
   position: absolute;
   right: 0.65rem;
   bottom: 0;
@@ -268,6 +277,19 @@
   grid-template-columns: minmax(0, 1fr) minmax(18rem, 0.34fr);
   gap: 4px;
   min-height: 35rem;
+}
+
+.product-demo-panels {
+  min-width: 0;
+}
+
+.product-demo-panels,
+.product-demo-panels > .product-work-pane {
+  min-height: inherit;
+}
+
+.product-demo-panels > [hidden] {
+  display: none;
 }
 
 .product-work-pane,
@@ -337,6 +359,31 @@
   background: var(--signal);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.24), 0 4px 12px rgba(47, 108, 168, 0.16);
   font-weight: 600;
+}
+
+.product-window-button--quiet {
+  border-color: var(--rule-dark);
+  color: var(--ink);
+  background: var(--paper-bright);
+  box-shadow: none;
+}
+
+.result-status--decision {
+  color: var(--direction);
+}
+
+.result-status--decision i {
+  background: var(--direction);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--direction) 13%, transparent);
+}
+
+.result-status--bounded {
+  color: var(--ink-soft);
+}
+
+.result-status--bounded i {
+  background: var(--ink-soft);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ink-soft) 13%, transparent);
 }
 
 .product-work-pane > footer {
@@ -628,6 +675,16 @@
   border-bottom: 1px solid var(--rule-dark);
 }
 
+.page-intro--compact {
+  min-height: 34rem;
+  padding-top: clamp(6rem, 9vw, 8rem);
+  padding-bottom: clamp(3.5rem, 6vw, 5rem);
+}
+
+.product-reveal--product {
+  padding-top: clamp(4rem, 7vw, 7rem);
+}
+
 .page-intro--wash { background-color: var(--wash); background-image: url('/grid.svg'); background-size: 14px 14px; }
 .page-intro--ink { color: var(--paper-bright); background: var(--ink); }
 
@@ -908,7 +965,7 @@
 @media (max-width: 1100px) {
   .machine-hero { grid-template-columns: minmax(0, 1fr) minmax(24rem, 0.8fr); }
   .product-window-bar { grid-template-columns: 0.8fr 1fr auto; }
-  .product-window-bar nav > span { padding-inline: 0.45rem; }
+  .product-window-tabs > button { padding-inline: 0.45rem; }
   .method-line { grid-template-columns: 1fr 1fr; }
   .method-line li:nth-child(even) { border-right: 0; }
   .method-line li:last-child { border-right: 1px solid var(--rule); }
@@ -1012,7 +1069,20 @@
   .spare-heading,
   .wide-heading { grid-template-columns: 1fr; gap: 2rem; margin-bottom: 4rem; }
   .product-window-bar { grid-template-columns: 1fr auto; }
-  .product-window-bar nav { display: none; }
+  .product-window-tabs {
+    grid-column: 1 / -1;
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    order: 3;
+    border-top: 1px solid var(--rule);
+  }
+  .product-window-tabs > button {
+    justify-content: center;
+    min-width: 0;
+    min-height: 3rem;
+    padding-inline: 0.25rem;
+  }
+  .product-window-tabs > button svg { display: none; }
   .product-window-body { grid-template-columns: 1fr; min-height: 0; }
   .product-work-pane { min-height: 31rem; }
   .product-exec-rail { min-height: 18rem; }
@@ -1027,6 +1097,7 @@
   .category-break > div { min-height: 31rem; }
   .section-link { grid-template-columns: 2.5rem 1fr 1.5rem; gap: 0.8rem; }
   .page-intro { min-height: 42rem; gap: 3rem; }
+  .page-intro--compact { min-height: 34rem; }
   .page-intro h1 { font-size: clamp(3.25rem, 13vw, 5.1rem); }
   .exchange-grid,
   .choice-columns,
