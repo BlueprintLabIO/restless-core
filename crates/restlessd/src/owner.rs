@@ -7,6 +7,7 @@
 use std::collections::{BTreeMap, HashMap};
 use std::convert::Infallible;
 use std::net::{IpAddr, SocketAddr};
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime};
 
@@ -92,9 +93,20 @@ struct ReviewSession {
     company: String,
     generation: String,
     item_id: String,
-    port: u16,
+    source: ReviewSource,
     expected_host: String,
     expires_at: SystemTime,
+}
+
+/// Where an isolated review origin reads from. Both are ordinary Runtime truth
+/// observed read-only through the owner gateway; neither copies the outcome.
+#[derive(Clone)]
+enum ReviewSource {
+    /// A project service already listening inside the company computer.
+    Service { port: u16 },
+    /// One produced file and the directory it needs, e.g. a rendered page with
+    /// its own stylesheet and images (S19-T5).
+    Files { root: PathBuf, entry: String },
 }
 
 #[derive(Debug, Deserialize)]
@@ -2200,11 +2212,13 @@ async fn decline(
     AxumPath(company): AxumPath<String>,
     Json(input): Json<PartyAction>,
 ) -> impl IntoResponse {
+    let org = state.daemon.orgintel.get(&company).await.ok();
     match approval::decline(
         &state.daemon.root,
         &company,
         &input.party,
         &state.daemon.authority,
+        org.as_ref(),
         "owner",
     )
     .await
@@ -2266,7 +2280,7 @@ async fn issue_review_ticket(
         return api_error(
             StatusCode::CONFLICT,
             "review",
-            "this item has no directly reviewable web outcome",
+            "this item has no prepared outcome the cockpit can open",
         );
     };
     let current = runtime::generation(&company).await.ok().flatten();
@@ -2277,27 +2291,53 @@ async fn issue_review_ticket(
             "runtime generation changed; refresh the review",
         );
     }
-    let target = match runtime::runtime_http_target(&reference.uri) {
-        Ok(target) => target,
-        Err(error) => {
+    let (source, path_and_query) = if reference.kind == "runtime-file" {
+        let (root, entry) = match runtime::runtime_review_file_root(&reference.uri) {
+            Ok(value) => value,
+            Err(error) => {
+                return api_error(
+                    StatusCode::BAD_REQUEST,
+                    "review",
+                    format!("invalid review target: {error:#}"),
+                )
+            }
+        };
+        // Observe the exact file before claiming the outcome opens. The cockpit
+        // must never frame a target it has not seen.
+        if let Err(error) = runtime::probe_runtime_review_file(&company, &reference.uri).await {
             return api_error(
-                StatusCode::BAD_REQUEST,
+                StatusCode::SERVICE_UNAVAILABLE,
                 "review",
-                format!("invalid review target: {error:#}"),
-            )
+                format!("prepared outcome is unavailable: {error:#}"),
+            );
         }
+        let path = format!("/{entry}");
+        (ReviewSource::Files { root, entry }, path)
+    } else {
+        let target = match runtime::runtime_http_target(&reference.uri) {
+            Ok(target) => target,
+            Err(error) => {
+                return api_error(
+                    StatusCode::BAD_REQUEST,
+                    "review",
+                    format!("invalid review target: {error:#}"),
+                )
+            }
+        };
+        if let Err(error) = runtime::probe_runtime_http(&company, &reference.uri).await {
+            return api_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "review",
+                format!("live outcome is unavailable: {error:#}"),
+            );
+        }
+        let path = target.path_and_query.clone();
+        (ReviewSource::Service { port: target.port }, path)
     };
-    if let Err(error) = runtime::probe_runtime_http(&company, &reference.uri).await {
-        return api_error(
-            StatusCode::SERVICE_UNAVAILABLE,
-            "review",
-            format!("live outcome is unavailable: {error:#}"),
-        );
-    }
 
     let ticket = Uuid::new_v4().simple().to_string();
     let (review_url, expected_host) =
-        match materialize_review_url(&state.review_public_url, &ticket, &target.path_and_query) {
+        match materialize_review_url(&state.review_public_url, &ticket, &path_and_query) {
             Ok(value) => value,
             Err(error) => {
                 return api_error(
@@ -2313,7 +2353,7 @@ async fn issue_review_ticket(
             company: company.clone(),
             generation: reference.generation.clone(),
             item_id: item.id.clone(),
-            port: target.port,
+            source,
             expected_host,
             expires_at: SystemTime::now() + REVIEW_TTL,
         },
@@ -2382,21 +2422,60 @@ async fn review_proxy(
         .path_and_query()
         .map(|value| value.as_str())
         .unwrap_or("/");
-    let upstream =
-        match runtime::runtime_http_request(&session.company, session.port, method, path, &headers)
-            .await
-        {
-            Ok(response) => response,
-            Err(error) => {
-                return api_error(
-                    StatusCode::BAD_GATEWAY,
-                    "review",
-                    format!("live outcome bridge: {error:#}"),
-                )
+    let upstream = match &session.source {
+        ReviewSource::Service { port } => {
+            match runtime::runtime_http_request(&session.company, *port, method, path, &headers)
+                .await
+            {
+                Ok(response) => response,
+                Err(error) => {
+                    return api_error(
+                        StatusCode::BAD_GATEWAY,
+                        "review",
+                        format!("live outcome bridge: {error:#}"),
+                    )
+                }
             }
-        };
+        }
+        ReviewSource::Files { root, entry } => {
+            // The page being served is company-authored, so this is exactly
+            // where a traversal out of the prepared outcome would be tried.
+            let resolved = match runtime::resolve_review_file(root, entry, path) {
+                Ok(resolved) => resolved,
+                Err(error) => {
+                    return api_error(StatusCode::NOT_FOUND, "review", format!("{error:#}"))
+                }
+            };
+            match runtime::read_runtime_review_file(&session.company, &resolved).await {
+                Ok((media_type, bytes)) => {
+                    let body = if method == Method::HEAD {
+                        Body::empty()
+                    } else {
+                        Body::from(bytes)
+                    };
+                    let mut response = Response::new(body);
+                    response
+                        .headers_mut()
+                        .insert(CONTENT_TYPE, HeaderValue::from_static(media_type));
+                    return finish_review_response(response, &session, path);
+                }
+                Err(error) => {
+                    return api_error(StatusCode::NOT_FOUND, "review", format!("{error:#}"))
+                }
+            }
+        }
+    };
     let (parts, body) = upstream.into_parts();
-    let mut response = Response::from_parts(parts, Body::new(body));
+    let response = Response::from_parts(parts, Body::new(body));
+    finish_review_response(response, &session, path)
+}
+
+/// One header policy for every isolated review origin, whatever it read from.
+fn finish_review_response(
+    mut response: Response<Body>,
+    session: &ReviewSession,
+    path: &str,
+) -> Response<Body> {
     for name in [
         "connection",
         "keep-alive",

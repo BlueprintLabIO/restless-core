@@ -581,6 +581,32 @@ pub async fn project(
                         unavailable_reason: availability.err().map(|error| format!("{error:#}")),
                     })
                 }
+                // A rendered page, document, image or recording produced into
+                // the company Runtime is the native outcome for a great deal of
+                // real work. Without this branch a finished `index.html` fell
+                // through to `None` and the cockpit told the owner the outcome
+                // "does not have a directly reviewable website" while the
+                // website sat complete on disk (S19-T5).
+                (Some(generation), Some(artifact))
+                    if runtime::is_runtime_review_file_target(&artifact.uri) =>
+                {
+                    let availability =
+                        runtime::probe_runtime_review_file(&config.name, &artifact.uri).await;
+                    Some(ReviewTargetRef {
+                        company: config.name.clone(),
+                        generation: generation.clone(),
+                        uri: artifact.uri,
+                        status: if availability.is_ok() {
+                            "available"
+                        } else {
+                            "unavailable"
+                        },
+                        kind: "runtime-file",
+                        label: artifact.label,
+                        content: None,
+                        unavailable_reason: availability.err().map(|error| format!("{error:#}")),
+                    })
+                }
                 (Some(generation), Some(artifact))
                     if runtime::is_runtime_review_text_target(&artifact.uri) =>
                 {

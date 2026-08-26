@@ -1028,6 +1028,215 @@ pub fn is_runtime_review_text_target(value: &str) -> bool {
     runtime_review_text_path(value).is_ok()
 }
 
+/// One ordinary produced file the owner cockpit can actually display.
+///
+/// A rendered page, document, image, or recording sitting in the company
+/// Runtime is the native outcome for a great deal of real work. Before S19-T5
+/// only a running loopback service or a Markdown/plain-text file could be
+/// reviewed, so a finished `index.html` — the single most obviously viewable
+/// artifact a company produces — reached the owner as "this outcome does not
+/// have a directly reviewable website" while sitting complete on disk.
+///
+/// This is a bounded read-only view of exact existing Runtime paths. It is not
+/// a file-serving API, an export, or a custody lifecycle: every read is scoped
+/// to one issued review ticket, pinned to one Runtime generation, and confined
+/// to the directory of the exact ReviewTarget the accountable actor chose.
+pub const MAX_REVIEW_FILE_BYTES: u64 = 32 * 1024 * 1024;
+
+/// What a browser will actually render, mapped to the exact type to send. An
+/// extension that is not here is not refused because it is dangerous — it is
+/// refused because presenting it would be a blank frame, and a blank frame that
+/// claims to be the outcome is worse than saying plainly what the file is.
+pub fn review_file_media_type(path: &Path) -> Option<&'static str> {
+    let extension = path
+        .extension()
+        .and_then(|value| value.to_str())?
+        .to_ascii_lowercase();
+    Some(match extension.as_str() {
+        "html" | "htm" => "text/html; charset=utf-8",
+        "css" => "text/css; charset=utf-8",
+        "js" | "mjs" => "text/javascript; charset=utf-8",
+        "json" | "map" => "application/json; charset=utf-8",
+        "txt" | "md" | "markdown" => "text/plain; charset=utf-8",
+        "csv" => "text/csv; charset=utf-8",
+        "svg" => "image/svg+xml",
+        "png" => "image/png",
+        "jpg" | "jpeg" => "image/jpeg",
+        "gif" => "image/gif",
+        "webp" => "image/webp",
+        "avif" => "image/avif",
+        "ico" => "image/x-icon",
+        "pdf" => "application/pdf",
+        "mp4" | "m4v" => "video/mp4",
+        "webm" => "video/webm",
+        "ogv" => "video/ogg",
+        "mp3" => "audio/mpeg",
+        "m4a" => "audio/mp4",
+        "wav" => "audio/wav",
+        "oga" | "ogg" => "audio/ogg",
+        "flac" => "audio/flac",
+        "woff2" => "font/woff2",
+        "woff" => "font/woff",
+        "ttf" => "font/ttf",
+        "otf" => "font/otf",
+        _ => return None,
+    })
+}
+
+/// The exact file a displayable ReviewTarget names, beneath `/company`.
+fn runtime_review_file_path(value: &str) -> Result<&Path> {
+    let path = Path::new(value);
+    let mut components = path.components();
+    if components.next() != Some(Component::RootDir)
+        || components.next() != Some(Component::Normal("company".as_ref()))
+        || components.clone().next().is_none()
+        || components.any(|component| !matches!(component, Component::Normal(_)))
+    {
+        bail!("file ReviewTarget must be a file beneath /company");
+    }
+    if review_file_media_type(path).is_none() {
+        bail!("file ReviewTarget is not a format the cockpit can display");
+    }
+    Ok(path)
+}
+
+/// Whether this ReviewTarget is a Runtime file the cockpit can display. Text
+/// targets keep their own richer path: the cockpit renders their Markdown
+/// rather than framing them.
+pub fn is_runtime_review_file_target(value: &str) -> bool {
+    runtime_review_file_path(value).is_ok() && !is_runtime_review_text_target(value)
+}
+
+/// The directory a file ReviewTarget's review is confined to, and the entry
+/// path within it. A rendered page's own stylesheet, script and images are part
+/// of the outcome; nothing above its directory is.
+pub fn runtime_review_file_root(value: &str) -> Result<(PathBuf, String)> {
+    let path = runtime_review_file_path(value)?;
+    let root = path
+        .parent()
+        .filter(|parent| parent.components().count() >= 2)
+        .context("file ReviewTarget must sit inside a directory beneath /company")?;
+    let entry = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .context("file ReviewTarget must name a file")?;
+    Ok((root.to_path_buf(), entry.to_string()))
+}
+
+/// Observe that the exact chosen file is present and within the size the owner
+/// gateway will carry. This is the file equivalent of the live HTTP probe: the
+/// cockpit must never claim an outcome is ready without observing it.
+pub async fn probe_runtime_review_file(company: &str, value: &str) -> Result<()> {
+    validate_company_name(company)?;
+    let path = runtime_review_file_path(value)?;
+    let container = container_name(company);
+    let output = docker(&[
+        "exec",
+        "-u",
+        "company",
+        &container,
+        "stat",
+        "-c",
+        "%s",
+        "--",
+        path.to_str().context("ReviewTarget path must be UTF-8")?,
+    ])
+    .await?;
+    if !output.status.success() {
+        bail!(
+            "file ReviewTarget is unavailable: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        );
+    }
+    let size: u64 = String::from_utf8_lossy(&output.stdout)
+        .trim()
+        .parse()
+        .context("could not observe the ReviewTarget's size")?;
+    if size > MAX_REVIEW_FILE_BYTES {
+        bail!("file ReviewTarget is larger than the {MAX_REVIEW_FILE_BYTES}-byte review limit");
+    }
+    Ok(())
+}
+
+/// Resolve one requested path against a file review's confined root.
+///
+/// The request comes from a page the company itself authored, so this is the
+/// exact place a traversal would be attempted. Only ordinary named components
+/// survive: no `..`, no absolute re-root, no symlink chase, and the resolved
+/// path must still be a displayable format.
+pub fn resolve_review_file(root: &Path, entry: &str, request_path: &str) -> Result<PathBuf> {
+    let requested = request_path.split(['?', '#']).next().unwrap_or("");
+    let decoded = percent_decode(requested);
+    let relative = decoded.trim_start_matches('/');
+    let relative = if relative.is_empty() { entry } else { relative };
+    let mut resolved = root.to_path_buf();
+    for component in Path::new(relative).components() {
+        match component {
+            Component::Normal(part) => resolved.push(part),
+            _ => bail!("review file path must not leave the prepared outcome"),
+        }
+    }
+    if !resolved.starts_with(root) || review_file_media_type(&resolved).is_none() {
+        bail!("review file path must not leave the prepared outcome");
+    }
+    Ok(resolved)
+}
+
+fn percent_decode(value: &str) -> String {
+    let bytes = value.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut index = 0;
+    while index < bytes.len() {
+        if bytes[index] == b'%' && index + 2 < bytes.len() {
+            let hex = std::str::from_utf8(&bytes[index + 1..index + 3]).unwrap_or("");
+            if let Ok(byte) = u8::from_str_radix(hex, 16) {
+                out.push(byte);
+                index += 3;
+                continue;
+            }
+        }
+        out.push(bytes[index]);
+        index += 1;
+    }
+    String::from_utf8_lossy(&out).into_owned()
+}
+
+/// Read one file from a confined review root. Bounded by the same limit the
+/// probe observed, so an outcome that grew past it fails honestly rather than
+/// streaming without end.
+pub async fn read_runtime_review_file(
+    company: &str,
+    path: &Path,
+) -> Result<(&'static str, Vec<u8>)> {
+    validate_company_name(company)?;
+    let media_type =
+        review_file_media_type(path).context("review file is not a displayable format")?;
+    let container = container_name(company);
+    let limit = (MAX_REVIEW_FILE_BYTES + 1).to_string();
+    let output = docker(&[
+        "exec",
+        "-u",
+        "company",
+        &container,
+        "head",
+        "-c",
+        &limit,
+        "--",
+        path.to_str().context("review file path must be UTF-8")?,
+    ])
+    .await?;
+    if !output.status.success() {
+        bail!(
+            "review file is unavailable: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        );
+    }
+    if output.stdout.len() as u64 > MAX_REVIEW_FILE_BYTES {
+        bail!("review file exceeds the {MAX_REVIEW_FILE_BYTES}-byte review limit");
+    }
+    Ok((media_type, output.stdout))
+}
+
 /// Materialise one observed text ReviewTarget for the owner projection. The
 /// file remains Runtime truth: this is a bounded, read-only view of the exact
 /// existing path, not an import, export, or general file-serving interface.
@@ -1639,10 +1848,13 @@ pub fn state_root() -> PathBuf {
 
 #[cfg(test)]
 mod tests {
+    use std::path::Path;
+
     use super::{
-        move_active_config_to_archive, move_archived_config_to_active,
-        normalize_expired_browser_control, runtime_http_target, runtime_review_text_path,
-        CompanyConfig, SpendCeiling,
+        is_runtime_review_file_target, move_active_config_to_archive,
+        move_archived_config_to_active, normalize_expired_browser_control, resolve_review_file,
+        review_file_media_type, runtime_http_target, runtime_review_file_root,
+        runtime_review_text_path, CompanyConfig, SpendCeiling,
     };
 
     #[test]
@@ -1830,5 +2042,99 @@ model_failover = ["anthropic/claude-haiku-4-5", "zai/glm-5"]
             "Runtime bridge should complete an authenticated status request: {:?}",
             observation.detail
         );
+    }
+
+    /// A produced file the cockpit can display, and the exact boundary of what
+    /// it will serve (S19-T5). The reported failure was a finished
+    /// `index.html` — a real, complete website — reaching the owner as "this
+    /// outcome does not have a directly reviewable website".
+    #[test]
+    fn a_produced_page_is_a_reviewable_outcome_and_stays_inside_it() {
+        let page = "/company/outputs/redesign/2026-08-larder-sample/index.html";
+        assert!(
+            is_runtime_review_file_target(page),
+            "a rendered page in the company Runtime is the native outcome"
+        );
+        assert!(is_runtime_review_file_target("/company/outputs/plan.pdf"));
+        assert!(is_runtime_review_file_target("/company/outputs/shot.png"));
+        assert!(is_runtime_review_file_target("/company/outputs/demo.mp4"));
+
+        // Markdown keeps its own richer path: the cockpit renders it rather
+        // than framing it, so this must not claim it.
+        assert!(!is_runtime_review_file_target("/company/outputs/plan.md"));
+        // Nothing outside the company computer, and nothing the cockpit would
+        // present as a blank frame.
+        assert!(!is_runtime_review_file_target("/etc/passwd"));
+        assert!(!is_runtime_review_file_target(
+            "/company/../etc/shadow.html"
+        ));
+        assert!(!is_runtime_review_file_target(
+            "/company/outputs/build.tar.gz"
+        ));
+        assert!(!is_runtime_review_file_target("/company/outputs/run.sh"));
+
+        let (root, entry) = runtime_review_file_root(page).expect("a page has a root");
+        assert_eq!(
+            root,
+            Path::new("/company/outputs/redesign/2026-08-larder-sample")
+        );
+        assert_eq!(entry, "index.html");
+
+        // The page's own stylesheet and images are part of the outcome.
+        assert_eq!(
+            resolve_review_file(&root, &entry, "/styles/site.css").unwrap(),
+            root.join("styles/site.css")
+        );
+        assert_eq!(
+            resolve_review_file(&root, &entry, "/photo.jpg?v=2").unwrap(),
+            root.join("photo.jpg")
+        );
+        assert_eq!(
+            resolve_review_file(&root, &entry, "/a%20space.png").unwrap(),
+            root.join("a space.png")
+        );
+        // An empty path is the entry the accountable actor actually chose.
+        assert_eq!(
+            resolve_review_file(&root, &entry, "/").unwrap(),
+            root.join("index.html")
+        );
+
+        // The page being served is company-authored, so this is exactly where
+        // a traversal would be attempted.
+        for escape in [
+            "/../../../etc/passwd",
+            "/..%2f..%2fetc%2fpasswd",
+            "/subdir/../../secrets.html",
+            "//etc/passwd",
+            "/company/mandate.html",
+        ] {
+            if let Ok(path) = resolve_review_file(&root, &entry, escape) {
+                assert!(
+                    path.starts_with(&root),
+                    "{escape:?} resolved to {path:?}, outside {root:?}"
+                );
+            }
+        }
+        // A file inside the outcome that the cockpit cannot display is refused
+        // rather than framed blank.
+        assert!(resolve_review_file(&root, &entry, "/notes.docx").is_err());
+    }
+
+    #[test]
+    fn review_media_types_cover_only_what_a_browser_shows() {
+        assert_eq!(
+            review_file_media_type(Path::new("a/b/index.HTML")),
+            Some("text/html; charset=utf-8")
+        );
+        assert_eq!(
+            review_file_media_type(Path::new("plan.pdf")),
+            Some("application/pdf")
+        );
+        assert_eq!(
+            review_file_media_type(Path::new("clip.webm")),
+            Some("video/webm")
+        );
+        assert_eq!(review_file_media_type(Path::new("archive.zip")), None);
+        assert_eq!(review_file_media_type(Path::new("Makefile")), None);
     }
 }

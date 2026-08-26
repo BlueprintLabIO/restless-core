@@ -60,6 +60,7 @@
 	const focusedReview = $derived(
 		items.find((item) => item.id === focusedReviewId && item.category === 'review') ?? null
 	);
+	const reviewEvidence = $derived(focusedReview?.evidence ?? []);
 	const focusedComputerId = $derived(page.url.searchParams.get('computer'));
 	const baseHref = $derived(`/${companyId}`);
 	const requestingActor = $derived(
@@ -113,7 +114,12 @@
 		reviewRequestKey = key;
 		reviewUrl = '';
 		if (!item.reviewTarget) {
-			reviewError = 'This outcome does not have a directly reviewable website.';
+			/* The accountable actor did not link a target this cockpit can open.
+			 * Say what is actually true and show the evidence it did prepare —
+			 * a heading claiming the outcome "is not ready" was wrong whenever
+			 * the outcome was ready and merely in a format we could not frame. */
+			reviewError =
+				'The company did not prepare a target this cockpit can open. Its recorded evidence is below.';
 			return;
 		}
 		if (item.reviewTarget.status !== 'available') {
@@ -416,8 +422,28 @@
 					></iframe>
 				{:else}
 					<div class="review-unavailable" role="status">
-						<h1>{reviewError ? 'The prepared outcome is not ready.' : 'Opening the outcome…'}</h1>
-						{#if reviewError}<p>{reviewError}</p>{/if}
+						<h1>{reviewError ? 'This outcome cannot be opened here.' : 'Opening the outcome…'}</h1>
+						{#if reviewError}
+							<p>{reviewError}</p>
+							{#if focusedReview.reviewTarget?.uri}
+								<code class="review-unavailable-uri">{focusedReview.reviewTarget.uri}</code>
+							{/if}
+							{#if reviewEvidence.length}
+								<ul class="review-unavailable-evidence">
+									{#each reviewEvidence as evidence (evidence.label)}
+										<li>
+											{#if evidence.uri}
+												<a href={evidence.uri} target="_blank" rel="noreferrer"
+													>{evidence.label} <span aria-hidden="true">↗</span></a
+												>
+											{:else}
+												<strong>{evidence.label}</strong>
+											{/if}
+										</li>
+									{/each}
+								</ul>
+							{/if}
+						{/if}
 					</div>
 				{/if}
 			</div>
@@ -766,7 +792,7 @@
 					<small>· {item.evidence.length} item{item.evidence.length === 1 ? '' : 's'}</small>
 				</summary>
 				<div class="folio-evidence-body">
-					{#each item.evidence as evidence (`${evidence.kind}:${evidence.label}`)}
+					{#each item.evidence as evidence, evidenceIndex (`${evidence.kind}:${evidence.label}:${evidenceIndex}`)}
 						{#if evidence.content}
 							<div class="evidence-entry">
 								<div class="evidence-label mono">{evidence.label}</div>

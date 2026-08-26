@@ -130,7 +130,7 @@ type WireItem = {
 		generation: string;
 		uri: string;
 		status: 'available' | 'unavailable';
-		kind: 'runtime-web' | 'runtime-text';
+		kind: 'runtime-web' | 'runtime-text' | 'runtime-file';
 		label: string;
 		content?: string;
 		unavailable_reason?: string;
