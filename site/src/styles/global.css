@@ -1,13 +1,13 @@
 :root {
-  --paper: #e8edf0;
-  --paper-bright: #f8faf9;
-  --ink: #11252e;
-  --ink-soft: #42565e;
-  --signal: #f0522d;
-  --signal-dark: #9f2c15;
-  --wash: #b9dfe3;
-  --rule: #9caab0;
-  --rule-dark: #63757c;
+  --paper: #eaf0f8;
+  --paper-bright: #f9fbff;
+  --ink: #08162b;
+  --ink-soft: #465a77;
+  --signal: #4e5bff;
+  --signal-dark: #2937b8;
+  --wash: #d2dcff;
+  --rule: #9eafc8;
+  --rule-dark: #5c6f8b;
   --display: 'Archivo Variable', 'Arial Narrow', sans-serif;
   --body: 'Source Sans 3 Variable', 'Helvetica Neue', sans-serif;
   --page-pad: clamp(1.1rem, 3.1vw, 3.75rem);

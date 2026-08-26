@@ -1,12 +1,12 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">
-  <rect width="1200" height="630" fill="#e8edf0" />
-  <path d="M0 0h26v630H0z" fill="#f0522d" />
-  <path d="M780 0h420v630H780z" fill="#b9dfe3" />
-  <path d="M836 124h196v72H836zM836 280h264v72H836zM836 436h196v72H836z" fill="#f8faf9" stroke="#11252e" stroke-width="3" />
-  <path d="M780 160h56M934 196v84M968 352v84" fill="none" stroke="#11252e" stroke-width="4" />
-  <circle cx="780" cy="160" r="8" fill="#f0522d" />
-  <text x="76" y="112" fill="#11252e" font-family="Arial, sans-serif" font-size="34" font-weight="700">RESTLESS</text>
-  <text x="76" y="300" fill="#11252e" font-family="Arial Narrow, Arial, sans-serif" font-size="104" font-weight="800">A COMPANY</text>
-  <text x="76" y="404" fill="#11252e" font-family="Arial Narrow, Arial, sans-serif" font-size="104" font-weight="800">THAT KEEPS</text>
-  <text x="76" y="508" fill="#9f2c15" font-family="Arial Narrow, Arial, sans-serif" font-size="104" font-weight="800">WORKING.</text>
+  <rect width="1200" height="630" fill="#eaf0f8" />
+  <path d="M0 0h26v630H0z" fill="#4e5bff" />
+  <path d="M780 0h420v630H780z" fill="#d2dcff" />
+  <path d="M836 124h196v72H836zM836 280h264v72H836zM836 436h196v72H836z" fill="#f9fbff" stroke="#08162b" stroke-width="3" />
+  <path d="M780 160h56M934 196v84M968 352v84" fill="none" stroke="#08162b" stroke-width="4" />
+  <circle cx="780" cy="160" r="8" fill="#4e5bff" />
+  <text x="76" y="112" fill="#08162b" font-family="Arial, sans-serif" font-size="34" font-weight="700">RESTLESS</text>
+  <text x="76" y="300" fill="#08162b" font-family="Arial Narrow, Arial, sans-serif" font-size="104" font-weight="800">A COMPANY</text>
+  <text x="76" y="404" fill="#08162b" font-family="Arial Narrow, Arial, sans-serif" font-size="104" font-weight="800">THAT KEEPS</text>
+  <text x="76" y="508" fill="#2937b8" font-family="Arial Narrow, Arial, sans-serif" font-size="104" font-weight="800">WORKING.</text>
 </svg>
