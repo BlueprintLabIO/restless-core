@@ -1789,14 +1789,55 @@
 	padding: 18px 20px 28px;
 }
 
+/* The reading column is capped by the grid, not by a `max-width` inside a
+ * `1fr` track. The old pairing left the outcome text at ~494px inside a
+ * ~1002px column — a 500px dead zone between the words and a 210px rail of
+ * three short facts. The measure is the same; the space beside it now carries
+ * the evidence and the Work graph. */
 .bridge-root .work-detail-layout {
 	display: grid;
-	grid-template-columns: minmax(0, 1fr) 210px;
-	gap: 24px;
+	grid-template-columns: minmax(0, 660px) minmax(260px, 400px);
+	justify-content: center;
+	align-items: start;
+	gap: 32px;
 }
 
 .bridge-root .work-detail-main {
 	min-width: 0;
+}
+
+.bridge-root .work-detail-rail {
+	display: grid;
+	align-content: start;
+	gap: 22px;
+	min-width: 0;
+	padding-left: 22px;
+	border-left: 1px solid var(--border);
+}
+
+/* One outcome contract is often thousands of characters of imperative
+ * instruction in a single paragraph. Bound what opens; the full text is one
+ * click away and is never altered. */
+.bridge-root .outcome-body.clamped {
+	max-height: 15.5em;
+	overflow: hidden;
+	mask-image: linear-gradient(to bottom, #000 68%, transparent 100%);
+}
+
+.bridge-root .outcome-toggle {
+	margin-top: 11px;
+	padding: 0;
+	border: 0;
+	background: none;
+	font: 600 var(--t-label) var(--font-mono);
+	letter-spacing: 0.06em;
+	text-transform: uppercase;
+	color: var(--intent-conversation);
+	cursor: pointer;
+}
+
+.bridge-root .outcome-toggle:hover {
+	color: var(--ink);
 }
 
 .bridge-root .work-detail-section {
@@ -1839,7 +1880,6 @@
 .bridge-root .work-detail-section .md,
 .bridge-root .work-detail-section > p {
 	margin-top: 8px;
-	max-width: 76ch;
 	font-size: var(--t-body);
 	line-height: 1.62;
 	overflow-wrap: anywhere;
@@ -1891,14 +1931,14 @@
 	margin-top: 10px;
 }
 
-.bridge-root .work-detail-aside {
-	border-left: 1px solid var(--border);
-}
-
 .bridge-root .work-detail-aside section {
-	padding: 0 0 15px 18px;
+	padding: 0 0 15px;
 	margin-bottom: 15px;
 	border-bottom: 1px solid var(--border);
+}
+
+.bridge-root .work-detail-aside section:last-child {
+	margin-bottom: 0;
 }
 
 .bridge-root .work-detail-aside strong,
@@ -1967,9 +2007,23 @@
 
 .bridge-root .evidence-columns {
 	display: grid;
-	grid-template-columns: minmax(0, 1.45fr) minmax(180px, 0.55fr);
 	gap: 18px;
 	margin-top: 16px;
+}
+
+/* In the rail the evidence and graph carry the width the reading column does
+ * not need, so their own inner splits stack rather than shrinking twice. */
+.bridge-root .work-detail-rail .work-evidence-section,
+.bridge-root .work-detail-rail .work-relations-section {
+	padding-top: 0;
+	border-top: 0;
+}
+
+.bridge-root .work-detail-rail .work-evidence-section > header,
+.bridge-root .work-detail-rail .work-relations-section > header {
+	align-items: flex-start;
+	flex-direction: column;
+	gap: 6px;
 }
 
 .bridge-root .detail-artifact,
@@ -2062,6 +2116,11 @@
 	grid-template-columns: repeat(3, minmax(0, 1fr));
 	gap: 18px;
 	margin-top: 15px;
+}
+
+.bridge-root .work-detail-rail .relation-groups {
+	grid-template-columns: 1fr;
+	gap: 14px;
 }
 
 .bridge-root .relation-groups a {
@@ -2791,11 +2850,15 @@
 	.bridge-root .work-detail-layout {
 		gap: 18px;
 	}
+	.bridge-root .work-detail-rail {
+		gap: 18px;
+		padding-left: 0;
+		border-left: 0;
+	}
 	.bridge-root .work-detail-aside {
 		display: grid;
 		grid-template-columns: repeat(2, minmax(0, 1fr));
 		border-top: 1px solid var(--border);
-		border-left: 0;
 	}
 	.bridge-root .work-detail-aside section {
 		padding: 13px 13px 13px 0;

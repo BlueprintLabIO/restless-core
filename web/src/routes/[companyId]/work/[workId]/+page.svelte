@@ -6,6 +6,14 @@
 	import { attentionQuery, cockpitQuery, workActivityStream } from '$lib/model/queries.svelte';
 	import type { ArtifactRefRow, WorkGateRow, WorkRow } from '$lib/model/generated/orgintel';
 
+	/* `work.outcome` is the exact contract an actor executes, and on real
+	 * companies it runs to thousands of characters of imperative instructions in
+	 * a single paragraph. Rendering all of it first pushes the Attempt, the
+	 * evidence and the Work graph past the fold. Bound what opens; never alter
+	 * or summarise what is there. */
+	const OUTCOME_CLAMP_CHARS = 460;
+	let outcomeExpanded = $state(false);
+
 	const companyId = $derived(page.params.companyId ?? 'aris');
 	const workId = $derived(page.params.workId ?? '');
 	const attentionProjection = $derived(attentionQuery(companyId));
@@ -48,6 +56,13 @@
 			.filter((artifact) => artifact.work_id === workId)
 			.toSorted((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at))
 	);
+	const outcomeIsLong = $derived((work?.outcome ?? '').length > OUTCOME_CLAMP_CHARS);
+	$effect(() => {
+		/* A different Work is a different contract: never carry one open state
+		 * onto the next page. */
+		void workId;
+		outcomeExpanded = false;
+	});
 	const gates = $derived((graph?.gates ?? []).filter((gate) => gate.work_id === workId));
 	const passedGates = $derived(gates.filter((gate) => gatePassed(gate)).length);
 	const unverifiedCompletion = $derived(
@@ -267,8 +282,25 @@
 			<div class="work-detail-layout">
 				<main class="work-detail-main">
 					<section class="work-detail-section outcome-contract">
-						<span class="detail-label">Outcome contract</span>
-						<Markdown text={work.outcome} />
+						<span
+							class="detail-label"
+							title="The exact contract the accountable actor executes. Shown verbatim; Restless never rewrites it."
+						>
+							Outcome contract
+						</span>
+						<div class="outcome-body" class:clamped={outcomeIsLong && !outcomeExpanded}>
+							<Markdown text={work.outcome} />
+						</div>
+						{#if outcomeIsLong}
+							<button
+								type="button"
+								class="outcome-toggle"
+								onclick={() => (outcomeExpanded = !outcomeExpanded)}
+								aria-expanded={outcomeExpanded}
+							>
+								{outcomeExpanded ? 'Show less' : 'Read the full contract'}
+							</button>
+						{/if}
 					</section>
 
 					<section class="work-detail-section">
@@ -329,126 +361,130 @@
 					</section>
 				</main>
 
-				<aside class="work-detail-aside" aria-label="Work facts">
-					<section>
-						<span
-							class="detail-label"
-							title="The lead accountable for integrating the whole outcome"
-						>
-							Accountable lead
-						</span>
-						<strong
-							>{accountableLead?.display ?? ownerName(accountableLeadId ?? work.owner_id)}</strong
-						>
-						{#if !workIsLeadOwned}
-							<small
-								title="This bounded Work is performed by a Staff member under the accountable lead."
-								>Staff responsibility: {ownerName(work.owner_id)}</small
-							>
-						{/if}
-					</section>
-					<section>
-						<span class="detail-label">Evidence</span>
-						<strong>{artifacts.length} linked output{artifacts.length === 1 ? '' : 's'}</strong>
-						<small>{passedGates}/{gates.length} gates passed on the latest Attempt</small>
-					</section>
-					<section>
-						<span class="detail-label">Updated</span>
-						<strong>{displayDate(work.updated_at)}</strong>
-					</section>
-					{#if work.worktree || work.repo}
+				<div class="work-detail-rail">
+					<aside class="work-detail-aside" aria-label="Work facts">
 						<section>
-							<span class="detail-label">Workspace</span>
-							<strong>{work.worktree || work.repo}</strong>
-							{#if work.integration_branch}<small>{work.integration_branch}</small>{/if}
+							<span
+								class="detail-label"
+								title="The lead accountable for integrating the whole outcome"
+							>
+								Accountable lead
+							</span>
+							<strong
+								>{accountableLead?.display ?? ownerName(accountableLeadId ?? work.owner_id)}</strong
+							>
+							{#if !workIsLeadOwned}
+								<small
+									title="This bounded Work is performed by a Staff member under the accountable lead."
+									>Staff responsibility: {ownerName(work.owner_id)}</small
+								>
+							{/if}
+						</section>
+						<section>
+							<span class="detail-label">Evidence</span>
+							<strong>{artifacts.length} linked output{artifacts.length === 1 ? '' : 's'}</strong>
+							<small>{passedGates}/{gates.length} gates passed on the latest Attempt</small>
+						</section>
+						<section>
+							<span class="detail-label">Updated</span>
+							<strong>{displayDate(work.updated_at)}</strong>
+						</section>
+						{#if work.worktree || work.repo}
+							<section>
+								<span class="detail-label">Workspace</span>
+								<strong>{work.worktree || work.repo}</strong>
+								{#if work.integration_branch}<small>{work.integration_branch}</small>{/if}
+							</section>
+						{/if}
+					</aside>
+
+					<section class="work-evidence-section">
+						<header>
+							<div>
+								<span class="detail-label">Evidence and acceptance</span>
+								<h2>What supports this Work</h2>
+							</div>
+							<span class="evidence-score"
+								>{artifacts.length} outputs · {passedGates}/{gates.length} gates</span
+							>
+						</header>
+						{#if work.expected_artifact}
+							<p class="expected-artifact"><span>Expected output</span>{work.expected_artifact}</p>
+						{/if}
+
+						<div class="evidence-columns">
+							<div class="artifact-list">
+								<span class="detail-sublabel">Linked outputs</span>
+								{#each artifacts as artifact (artifact.id)}
+									<div class="detail-artifact">
+										<MatrixGlyph rows={GLYPHS.work} size={7} />
+										<span>
+											<strong>{artifact.label || artifact.kind}</strong>
+											<small>{artifact.uri}</small>
+										</span>
+										<em class:available={artifact.state === 'available'}
+											>{artifactState(artifact)}</em
+										>
+									</div>
+								{:else}
+									<p class="detail-empty">No linked outputs are recorded.</p>
+								{/each}
+							</div>
+
+							<div class="gate-list">
+								<span class="detail-sublabel">Acceptance gates</span>
+								{#each gates as gate (gate.id)}
+									<div class:passed={gatePassed(gate)} class="detail-gate">
+										<MatrixGlyph rows={gatePassed(gate) ? GLYPHS.check : GLYPHS.ring} size={7} />
+										<span
+											><strong>{gate.name}</strong><small
+												>{gatePassed(gate) ? 'Passed' : 'Not passed'}</small
+											></span
+										>
+									</div>
+								{:else}
+									<p class="detail-empty">No acceptance gates are recorded.</p>
+								{/each}
+							</div>
+						</div>
+					</section>
+
+					{#if prerequisites.length || dependents.length || revisions.length}
+						<section class="work-relations-section">
+							<header>
+								<span class="detail-label">Work graph</span>
+								<h2>Handovers and review loops</h2>
+							</header>
+							<div class="relation-groups">
+								{#if prerequisites.length}
+									<div>
+										<span class="detail-sublabel">Requires</span
+										>{#each prerequisites as item (item.id)}<a href={relatedHref(item)}
+												>{item.title}<small>R{item.revision} · {item.status}</small></a
+											>{/each}
+									</div>
+								{/if}
+								{#if dependents.length}
+									<div>
+										<span class="detail-sublabel">Hands over to</span
+										>{#each dependents as item (item.id)}<a href={relatedHref(item)}
+												>{item.title}<small>R{item.revision} · {item.status}</small></a
+											>{/each}
+									</div>
+								{/if}
+								{#if revisions.length}
+									<div>
+										<span class="detail-sublabel">Revision loop</span
+										>{#each revisions as item (item.id)}<a class="revision" href={relatedHref(item)}
+												>{item.title}<small>R{item.revision} · {item.status}</small></a
+											>{/each}
+									</div>
+								{/if}
+							</div>
 						</section>
 					{/if}
-				</aside>
-			</div>
-
-			<section class="work-evidence-section">
-				<header>
-					<div>
-						<span class="detail-label">Evidence and acceptance</span>
-						<h2>What supports this Work</h2>
-					</div>
-					<span class="evidence-score"
-						>{artifacts.length} outputs · {passedGates}/{gates.length} gates</span
-					>
-				</header>
-				{#if work.expected_artifact}
-					<p class="expected-artifact"><span>Expected output</span>{work.expected_artifact}</p>
-				{/if}
-
-				<div class="evidence-columns">
-					<div class="artifact-list">
-						<span class="detail-sublabel">Linked outputs</span>
-						{#each artifacts as artifact (artifact.id)}
-							<div class="detail-artifact">
-								<MatrixGlyph rows={GLYPHS.work} size={7} />
-								<span>
-									<strong>{artifact.label || artifact.kind}</strong>
-									<small>{artifact.uri}</small>
-								</span>
-								<em class:available={artifact.state === 'available'}>{artifactState(artifact)}</em>
-							</div>
-						{:else}
-							<p class="detail-empty">No linked outputs are recorded.</p>
-						{/each}
-					</div>
-
-					<div class="gate-list">
-						<span class="detail-sublabel">Acceptance gates</span>
-						{#each gates as gate (gate.id)}
-							<div class:passed={gatePassed(gate)} class="detail-gate">
-								<MatrixGlyph rows={gatePassed(gate) ? GLYPHS.check : GLYPHS.ring} size={7} />
-								<span
-									><strong>{gate.name}</strong><small
-										>{gatePassed(gate) ? 'Passed' : 'Not passed'}</small
-									></span
-								>
-							</div>
-						{:else}
-							<p class="detail-empty">No acceptance gates are recorded.</p>
-						{/each}
-					</div>
 				</div>
-			</section>
-
-			{#if prerequisites.length || dependents.length || revisions.length}
-				<section class="work-relations-section">
-					<header>
-						<span class="detail-label">Work graph</span>
-						<h2>Handovers and review loops</h2>
-					</header>
-					<div class="relation-groups">
-						{#if prerequisites.length}
-							<div>
-								<span class="detail-sublabel">Requires</span
-								>{#each prerequisites as item (item.id)}<a href={relatedHref(item)}
-										>{item.title}<small>R{item.revision} · {item.status}</small></a
-									>{/each}
-							</div>
-						{/if}
-						{#if dependents.length}
-							<div>
-								<span class="detail-sublabel">Hands over to</span
-								>{#each dependents as item (item.id)}<a href={relatedHref(item)}
-										>{item.title}<small>R{item.revision} · {item.status}</small></a
-									>{/each}
-							</div>
-						{/if}
-						{#if revisions.length}
-							<div>
-								<span class="detail-sublabel">Revision loop</span
-								>{#each revisions as item (item.id)}<a class="revision" href={relatedHref(item)}
-										>{item.title}<small>R{item.revision} · {item.status}</small></a
-									>{/each}
-							</div>
-						{/if}
-					</div>
-				</section>
-			{/if}
+			</div>
 		</div>
 	{:else if loaded && !error}
 		<div class="work-detail-missing">
