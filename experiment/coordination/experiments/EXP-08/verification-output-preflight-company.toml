@@ -1,0 +1,15 @@
+name = "exp08_verification_output_preflight_test"
+mission = """# EXP-08 verification-output preflight
+
+This is an isolated product-path readiness probe. Produce one review-ready local static page only
+through the ordinary Exec, non-producing accountable lead, and attributable Staff path. Do not
+publish, deploy, contact anyone, use external credentials, spend money outside model inference, or
+inspect another experiment's candidate. A prepared native owner review with retained gate output, not
+a prose completion claim, is the outcome.
+"""
+spend_ceiling_usd = "3"
+model = "openai-codex/gpt-5.6-sol"
+model_failover = []
+
+[credentials]
+"model.inference.openai-codex" = "omp-oauth:openai-codex"
