@@ -14,6 +14,10 @@
   ],
   "phases": [
     {
+      "id": "assert-source-guardrails",
+      "argv": ["node", "test-menu.mjs"]
+    },
+    {
       "id": "prepare-menu",
       "argv": ["node", "run.mjs"]
     },

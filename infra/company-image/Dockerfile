@@ -43,6 +43,7 @@ RUN apt-get update \
 		tint2 \
         tigervnc-standalone-server \
         tini \
+		unzip \
 		wmctrl \
         websockify \
 		x11-xserver-utils \
@@ -93,6 +94,37 @@ RUN npm install -g resend-cli@2.12.0 \
 RUN PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 npm install -g playwright@1.62.1 \
     && npm cache clean --force
 
+# Scenario-native game delivery lane (Sprint 19). Godot is a self-contained
+# Runtime tool, not a Restless game abstraction. The official Linux downloads
+# publish arm64 and x86_64 builds; pin both source artifacts so an image rebuild
+# cannot silently take a different engine binary. The first live need is a
+# Windows x86_64 export, so retain exactly its debug/release templates rather
+# than permanently shipping every platform's multi-gigabyte template set.
+# Templates live in the image and are linked into each persistent company home
+# at boot.
+ARG TARGETARCH
+ARG GODOT_VERSION=4.7.2
+RUN set -eux; \
+    case "$TARGETARCH" in \
+        amd64) godot_platform=linux.x86_64; godot_binary="Godot_v${GODOT_VERSION}-stable_linux.x86_64"; godot_sha256=cadd3204e728a35d3f13adb7fd0d7902636b79f6b95c40c265eb73b6c35329e4 ;; \
+        arm64) godot_platform=linux.arm64; godot_binary="Godot_v${GODOT_VERSION}-stable_linux.arm64"; godot_sha256=5dd0d86405cf7e8adf79fb6377b38ba682a2846cb378ffe5364f38c01ad29b9d ;; \
+        *) echo "unsupported Godot image architecture: $TARGETARCH" >&2; exit 1 ;; \
+    esac; \
+    curl --fail --location --silent --show-error "https://downloads.godotengine.org/?flavor=stable&platform=${godot_platform}&slug=${godot_platform}.zip&version=${GODOT_VERSION}" --output /tmp/godot.zip; \
+    echo "${godot_sha256}  /tmp/godot.zip" | sha256sum --check --status; \
+    unzip -q /tmp/godot.zip -d /tmp/godot; \
+    install -m 0755 "/tmp/godot/${godot_binary}" /usr/local/bin/godot; \
+    curl --fail --location --silent --show-error "https://downloads.godotengine.org/?flavor=stable&platform=templates&slug=export_templates.tpz&version=${GODOT_VERSION}" --output /tmp/godot-templates.tpz; \
+    echo "f298490b8d44d934be425a5a65a51bf15f422428b229a06a6e11d9ffea248011  /tmp/godot-templates.tpz" | sha256sum --check --status; \
+    mkdir -p "/opt/restless/godot/export_templates/${GODOT_VERSION}.stable"; \
+    unzip -j -q /tmp/godot-templates.tpz \
+        templates/windows_debug_x86_64.exe \
+        templates/windows_release_x86_64.exe \
+        templates/version.txt \
+        -d "/opt/restless/godot/export_templates/${GODOT_VERSION}.stable"; \
+    chmod -R a=rX /opt/restless/godot; \
+    rm -rf /tmp/godot /tmp/godot.zip /tmp/godot-templates.tpz
+
 RUN groupadd --gid 2000 company \
     && useradd --uid 2000 --gid 2000 --no-create-home --home-dir /company/home company \
     && useradd --uid 2001 --gid 2000 --no-create-home --home-dir /tmp/restless-effect effect
@@ -107,13 +139,16 @@ COPY infra/company-image/skills /opt/restless/skills
 COPY infra/company-image/tint2rc /etc/restless/tint2rc
 COPY infra/company-image/company-browser.desktop /usr/share/applications/company-browser.desktop
 COPY infra/company-image/browser-broker.mjs /usr/local/lib/restless/browser-broker.mjs
+COPY tools/scenario/restless-scenario.mjs /usr/local/lib/restless/restless-scenario.mjs
 COPY infra/company-image/supervisord.conf /etc/supervisor/conf.d/restless.conf
 RUN chmod 0555 /usr/local/bin/company-init /usr/local/bin/wait-for-company-display \
         /usr/local/bin/start-company-chromium /usr/local/bin/start-company-desktop-panel \
         /usr/local/bin/focus-company-chromium /usr/local/bin/git-credential-restless \
+        /usr/local/lib/restless/restless-scenario.mjs \
     && chmod -R a=rX /opt/restless/skills \
     && chmod 0444 /usr/local/lib/restless/browser-broker.mjs /etc/supervisor/conf.d/restless.conf \
         /etc/restless/tint2rc /usr/share/applications/company-browser.desktop
+RUN ln -s /usr/local/lib/restless/restless-scenario.mjs /usr/local/bin/restless-scenario
 
 # The coordination CLI, and where it finds the daemon from inside the
 # container (TCP: unix sockets do not cross the Docker Desktop file share —

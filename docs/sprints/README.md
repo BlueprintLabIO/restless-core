@@ -63,3 +63,6 @@ hard green requirement.
 - [`sprint-18.md`](./sprint-18.md) — ready for founder alignment: Dogfood 3 asks Restless to improve
   itself through one beta-ready release while independent demand, a real inbound `_test` event,
   changed requirements, terminal failure and process replacement test the whole company.
+- [`sprint-19.md`](./sprint-19.md) — implementation complete: an ordinary scenario/evidence envelope,
+  pinned Godot delivery lane, and controlled game plus non-coding `_test` dogfoods give agents a
+  repeatable tool-discovery, execution and review path without adding workflow state.

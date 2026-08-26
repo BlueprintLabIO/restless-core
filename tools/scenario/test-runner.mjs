@@ -54,6 +54,10 @@ async function readManifest(output) {
 
 const root = await mkdtemp(path.join(os.tmpdir(), 'restless-scenario-runner-'));
 try {
+	const help = await command(['--help'], root);
+	assert.equal(help.code, 0, help.stderr);
+	assert.match(help.stdout, /restless-scenario doctor/);
+
 	const packageDirectory = await makePackage(root);
 	const output = path.join(root, 'verified-output');
 	const verified = await command(['run', packageDirectory, '--output', output, '--seed', 'fixed-seed'], root);

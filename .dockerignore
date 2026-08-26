@@ -10,3 +10,7 @@
 infra/*
 !infra/company-image/
 !infra/company-image/**
+!tools/
+tools/*
+!tools/scenario/
+!tools/scenario/restless-scenario.mjs

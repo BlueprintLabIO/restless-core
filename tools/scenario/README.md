@@ -19,6 +19,7 @@ For local development in this repository:
 
 ```sh
 node tools/scenario/restless-scenario.mjs validate tools/scenario/fixtures/thymelake-menu-launch
+node tools/scenario/restless-scenario.mjs validate tools/scenario/fixtures/cosmon-two-client-truck
 node tools/scenario/test-runner.mjs
 ```
 
@@ -71,3 +72,8 @@ through the existing `restless work artifact` command; do not create another per
 
 Keep packages small and project-local. Promote a repeated convention only after more than one real
 outcome has proved it useful.
+
+The two Sprint 19 fixtures deliberately cover unlike shapes: `thymelake-menu-launch` prepares a
+controlled operational preview, while `cosmon-two-client-truck` uses Godot ENet, a deterministic
+delay/loss proxy and a Windows export. They are reusable examples, not a platform catalogue or claims
+about restaurant readiness, game quality, customer demand, or commercial success.

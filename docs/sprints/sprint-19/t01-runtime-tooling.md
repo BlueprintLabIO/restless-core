@@ -14,7 +14,7 @@ collection and the existing artifact-reference handoff.
 ## Acceptance
 
 - The image installs Godot 4.7.2 from the official arm64/amd64 Linux releases with pinned checksums,
-  together with matching export templates.
+  together with the matching Windows x86_64 export templates proved by this sprint.
 - Existing and newly reconciled company volumes can resolve export templates without copying engine
   files into project repositories.
 - `restless-scenario doctor <package>` checks only declared commands and writes/prints their observed

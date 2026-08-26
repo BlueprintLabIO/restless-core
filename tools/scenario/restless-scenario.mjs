@@ -26,8 +26,8 @@ const DEFAULT_PHASE_TIMEOUT_MS = 60_000;
 const MAX_PHASE_TIMEOUT_MS = 5 * 60_000;
 const ID_PATTERN = /^[a-z][a-z0-9-]{1,62}$/;
 
-function usage() {
-	console.error(`usage:
+function usage(output = console.error) {
+	output(`usage:
   restless-scenario validate <package-directory>
   restless-scenario doctor <package-directory>
   restless-scenario run <package-directory> --output <new-output-directory> [--seed <seed>]
@@ -199,6 +199,10 @@ async function loadPackage(packageDirectory) {
 }
 
 function parseCli(argv) {
+	if (argv.length === 1 && ['--help', '-h'].includes(argv[0])) {
+		usage(console.log);
+		return { action: 'help' };
+	}
 	const [action, packageDirectory, ...options] = argv;
 	if (!action || !packageDirectory || !['validate', 'doctor', 'run'].includes(action)) {
 		usage();
@@ -490,6 +494,7 @@ async function runScenario(pkg, output, seed) {
 
 async function main() {
 	const cli = parseCli(process.argv.slice(2));
+	if (cli.action === 'help') return;
 	const pkg = await loadPackage(cli.packageDirectory);
 	if (cli.action === 'validate') {
 		console.log(JSON.stringify({ ok: true, schema: PACKAGE_SCHEMA, id: pkg.manifest.id, version: pkg.manifest.version }, null, 2));

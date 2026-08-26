@@ -67,6 +67,22 @@ for place in Downloads Projects Outputs; do
 done
 chown company:company /company/home /company/home/Desktop
 
+# Godot's export lookup is user-scoped even though the pinned engine/templates
+# belong to the immutable Runtime image. Link the versioned image templates
+# into the persistent company home instead of copying a second mutable engine
+# payload into every project or volume. A future engine version uses a distinct
+# directory, leaving an existing version reference intact for reproducibility.
+godot_templates_source=/opt/restless/godot/export_templates/4.7.2.stable
+godot_templates_parent=/company/home/.local/share/godot/export_templates
+godot_templates_link="${godot_templates_parent}/4.7.2.stable"
+if [ -d "$godot_templates_source" ]; then
+	mkdir -p "$godot_templates_parent"
+	if [ ! -e "$godot_templates_link" ] && [ ! -L "$godot_templates_link" ]; then
+		ln -s "$godot_templates_source" "$godot_templates_link"
+		chown -h company:company "$godot_templates_link"
+	fi
+fi
+
 # The imported supervisor owns durable desktop/browser services. tini remains
 # PID 1 and reaps both those services and ordinary agent processes started by
 # the Runtime Bridge.

@@ -1,0 +1,97 @@
+{
+  "schema": "restless.scenario-package/v1",
+  "id": "cosmon-two-client-truck",
+  "version": "1",
+  "title": "Cosmon test-world two-client truck",
+  "run_kind": "test_world_only",
+  "human_review_required": true,
+  "capabilities": [
+    {
+      "id": "node",
+      "argv": ["node", "--version"],
+      "required": true
+    },
+    {
+      "id": "godot-enet-and-windows-export",
+      "argv": ["godot", "--headless", "--version"],
+      "required": true
+    }
+  ],
+  "phases": [
+    {
+      "id": "exercise-enet",
+      "argv": ["node", "run.mjs"],
+      "timeout_ms": 45000
+    },
+    {
+      "id": "assert-server-observation",
+      "argv": ["node", "assert.mjs"],
+      "timeout_ms": 10000
+    },
+    {
+      "id": "export-windows",
+      "argv": ["node", "export.mjs"],
+      "timeout_ms": 60000
+    },
+    {
+      "id": "collect-review-target",
+      "argv": ["node", "collect.mjs"],
+      "timeout_ms": 10000
+    }
+  ],
+  "evidence": [
+    {
+      "id": "project-fingerprint",
+      "path": "project-fingerprint.json",
+      "required": true,
+      "label": "Fixture project fingerprint"
+    },
+    {
+      "id": "server-report",
+      "path": "server-report.json",
+      "required": true,
+      "label": "Godot ENet server observation"
+    },
+    {
+      "id": "network-observation",
+      "path": "network-observation.json",
+      "required": true,
+      "label": "Deterministic delay/loss proxy observation"
+    },
+    {
+      "id": "input-trace",
+      "path": "input-trace.json",
+      "required": true,
+      "label": "Server-observed player input trace"
+    },
+    {
+      "id": "process-observation",
+      "path": "process-observation.json",
+      "required": true,
+      "label": "Godot process observation"
+    },
+    {
+      "id": "windows-export",
+      "path": "cosmon-two-client-truck.exe",
+      "required": true,
+      "label": "Windows Desktop export"
+    },
+    {
+      "id": "state-render",
+      "path": "final-state.svg",
+      "required": true,
+      "label": "Final technical state render"
+    },
+    {
+      "id": "review-target",
+      "path": "review.html",
+      "required": true,
+      "label": "Prepared technical review"
+    }
+  ],
+  "review_target": {
+    "kind": "file",
+    "target": "review.html",
+    "label": "Cosmon technical walking-skeleton review"
+  }
+}
