@@ -481,13 +481,21 @@
   overflow: hidden;
 }
 
-.proof-numbers > div {
+.proof-numbers > a {
   display: grid;
   gap: 3rem;
   min-height: 23rem;
   align-content: space-between;
   padding: clamp(2rem, 5vw, 5rem);
   background: var(--paper-bright);
+  text-decoration: none;
+  transition: background 180ms ease, color 180ms ease;
+}
+
+.proof-numbers > a:hover,
+.proof-numbers > a:focus-visible {
+  color: var(--paper-bright);
+  background: var(--signal-dark);
 }
 
 .proof-numbers strong {
@@ -496,6 +504,11 @@
 }
 
 .proof-numbers span { max-width: 24rem; color: var(--ink-soft); }
+.proof-numbers span small { display: block; margin-top: 1rem; color: var(--signal-dark); font-size: inherit; font-weight: 600; }
+.proof-numbers > a:hover span,
+.proof-numbers > a:focus-visible span,
+.proof-numbers > a:hover span small,
+.proof-numbers > a:focus-visible span small { color: color-mix(in srgb, var(--paper-bright) 78%, transparent); }
 
 .category-break {
   display: grid;
@@ -1023,7 +1036,7 @@
   .organisation-motions li { grid-template-columns: 2.5rem 1fr; gap: 0.8rem 1rem; }
   .organisation-motions p { grid-column: 2; }
   .proof-numbers { grid-template-columns: 1fr; }
-  .proof-numbers > div { min-height: 18rem; }
+  .proof-numbers > a { min-height: 18rem; }
   .category-break > div { min-height: 31rem; }
   .section-link { grid-template-columns: 2.5rem 1fr 1.5rem; gap: 0.8rem; }
   .page-intro { min-height: 42rem; gap: 3rem; }

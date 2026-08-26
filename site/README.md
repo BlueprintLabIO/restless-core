@@ -25,6 +25,10 @@ The site is static. Findings live in `src/content/findings/` and are validated a
 site-specific quality gate rejects the visual and prose defaults deliberately excluded from this
 identity.
 
+Set `PUBLIC_SITE_URL` to the deployed origin when building a public release. Canonical and absolute
+social-image URLs are emitted only when that origin is known, so local builds do not advertise
+`localhost` as public metadata.
+
 ## Design source notes
 
 The interface stays Astro-native and adds no component runtime. Its notched action geometry takes

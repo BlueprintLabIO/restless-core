@@ -23,8 +23,10 @@ const {
   description = brand.description,
   image = '/social-preview.svg'
 } = Astro.props;
-const canonical = new URL(Astro.url.pathname, Astro.site ?? Astro.url);
-const socialImage = new URL(image, Astro.site ?? Astro.url);
+const configuredOrigin = import.meta.env.PUBLIC_SITE_URL;
+const publicOrigin = configuredOrigin ? new URL(configuredOrigin) : Astro.site;
+const canonical = publicOrigin ? new URL(Astro.url.pathname, publicOrigin) : undefined;
+const socialImage = publicOrigin ? new URL(image, publicOrigin).toString() : image;
 ---
 
 <!doctype html>
@@ -35,7 +37,7 @@ const socialImage = new URL(image, Astro.site ?? Astro.url);
     <meta name="description" content={description} />
     <meta name="theme-color" content="#e9edf3" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <link rel="canonical" href={canonical} />
+    {canonical && <link rel="canonical" href={canonical} />}
     <meta property="og:type" content="website" />
     <meta property="og:title" content={title} />
     <meta property="og:description" content={description} />

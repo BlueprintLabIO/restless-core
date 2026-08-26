@@ -8,6 +8,7 @@ export const brand = {
 
 export const navigation = [
   { href: '/product/', label: 'Product' },
+  { href: '/how-it-works/', label: 'How it works' },
   { href: '/research/', label: 'Research' },
   { href: '/compare/', label: 'Compare' },
   { href: '/findings/', label: 'Findings' }
