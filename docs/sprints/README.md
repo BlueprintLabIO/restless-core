@@ -66,3 +66,9 @@ hard green requirement.
 - [`sprint-19.md`](./sprint-19.md) — implementation complete: an ordinary scenario/evidence envelope,
   pinned Godot delivery lane, and controlled game plus non-coding `_test` dogfoods give agents a
   repeatable tool-discovery, execution and review path without adding workflow state.
+- [`sprint-20.md`](./sprint-20.md) — draft: Dogfood 4 uses the founder-accepted Restless site and a
+  writer, independent peer reviewer and non-producing publication lead to turn the complete experiment
+  record into a rigorous native research publication.
+- [`sprint-21.md`](./sprint-21.md) — draft with an EXP-09 activation gate: Dogfood 5 operates the
+  research publication through real change, correction and no-op cycles with bounded standing
+  authority and no per-cycle owner prompting.

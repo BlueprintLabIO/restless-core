@@ -19,6 +19,16 @@ does not authorise live-company effects, production promotion or an expanded tas
   tested sales and monitoring loads, and stops Q4, cheaper-worker, research fan-in and concurrent-
   department branches at their sparse gates.
 - [`exp-sprint-05-demand-and-elastic-capacity.md`](exp-sprint-05-demand-and-elastic-capacity.md) —
-  draft for founder approval; uses the Restless product path and GPT-5.6-only actors to search for the
-  demand-backed queue crossover, value event-responsive supervision, and test concurrent departments
-  while Exec remains available.
+  complete; establishes demand-shaped queue crossovers, event-responsive supervision and concurrent
+  departments with an available Exec in the tested regions.
+- [`exp-sprint-06-codex-vs-restless-site.md`](exp-sprint-06-codex-vs-restless-site.md) — complete but
+  creatively inconclusive because both arms inherited the same incumbent site.
+- [`exp-sprint-07-greenfield-codex-vs-restless-site.md`](exp-sprint-07-greenfield-codex-vs-restless-site.md)
+  — complete; both genuinely greenfield candidates passed the objective matrix and the founder judged
+  both excellent before identities were revealed.
+- [`exp-sprint-08-evidence-backed-capability-playbooks.md`](exp-sprint-08-evidence-backed-capability-playbooks.md)
+  — draft; tests whether the successful Restless web pattern transfers as a thin revisable playbook
+  without anchoring teams to a workflow or visual template.
+- [`exp-sprint-09-continuous-mission-frontier.md`](exp-sprint-09-continuous-mission-frontier.md) —
+  draft; compares a standing event-driven mission with repeated owner requests and tests useful work,
+  correct no-op behaviour and current-primitives sufficiency.
