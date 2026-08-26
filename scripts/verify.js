@@ -16,8 +16,22 @@ for (const token of ['<main id="main">','<nav id="nav" aria-label="Primary">','p
   const haystack = token === 'prefers-reduced-motion' ? await readFile('dist/assets/site.css','utf8') : publicText;
   if (!haystack.includes(token)) throw new Error(`Missing requirement: ${token}`);
 }
-const server = spawn(process.execPath,['scripts/server.js','dist'],{env:{...process.env,PORT:'4173'},stdio:['ignore','pipe','pipe']});
-await new Promise((resolve,reject)=>{const timer=setTimeout(()=>reject(new Error('server timeout')),5000);server.stdout.on('data',()=>{clearTimeout(timer);resolve();});});
+const server = spawn(process.execPath,['scripts/server.js','dist'],{env:{...process.env,PORT:'4173'},stdio:'ignore'});
+let ready = false;
+for (let attempt = 0; attempt < 50; attempt++) {
+  try {
+    const response = await fetch('http://127.0.0.1:4173/');
+    if (response.ok) {
+      ready = true;
+      break;
+    }
+  } catch {}
+  await new Promise(resolve => setTimeout(resolve,100));
+}
+if (!ready) {
+  server.kill('SIGTERM');
+  throw new Error('server timeout');
+}
 const browser = await chromium.launch({executablePath:'/usr/bin/chromium',headless:true,args:['--no-sandbox']});
 try {
   for (const viewport of [{width:390,height:844},{width:1440,height:1000}]) {

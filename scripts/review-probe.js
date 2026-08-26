@@ -1,13 +1,17 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { spawn } from 'node:child_process';
 import { chromium } from 'playwright-core';
 
-await mkdir('evidence/review',{recursive:true});
+const runtimeDir=join(tmpdir(),'restless-greenfield-review');
+await mkdir(runtimeDir,{recursive:true});
+const pidPath=join(runtimeDir,'server.pid');
 let oldPid;
-try { oldPid=Number(await readFile('evidence/review/server.pid','utf8')); process.kill(oldPid,'SIGTERM'); } catch {}
+try { oldPid=Number(await readFile(pidPath,'utf8')); process.kill(oldPid,'SIGTERM'); } catch {}
 const server=spawn(process.execPath,['scripts/server.js','dist'],{detached:true,stdio:['ignore','ignore','ignore'],env:{...process.env,PORT:'8080'}});
 server.unref();
-await writeFile('evidence/review/server.pid',String(server.pid));
+await writeFile(pidPath,String(server.pid));
 let ready=false;
 for(let i=0;i<30;i++){try{const r=await fetch('http://127.0.0.1:8080/');if(r.ok){ready=true;break}}catch{} await new Promise(r=>setTimeout(r,100));}
 if(!ready) throw new Error('Review target did not become live');
@@ -19,11 +23,10 @@ try{
   const response=await page.goto('http://127.0.0.1:8080/',{waitUntil:'networkidle'});
   const metrics=await page.evaluate(()=>({title:document.title,h1:document.querySelector('h1')?.innerText,scrollWidth:document.documentElement.scrollWidth,clientWidth:document.documentElement.clientWidth}));
   if(!response?.ok()||metrics.scrollWidth>metrics.clientWidth+1) throw new Error(`Probe failed: ${viewport.name}`);
-  await page.screenshot({path:`evidence/review/home-${viewport.name}.png`,fullPage:true});
+  await page.screenshot({path:join(runtimeDir,`home-${viewport.name}.png`),fullPage:true});
   observations.push({viewport:`${viewport.width}x${viewport.height}`,status:response.status,...metrics});
  }
 }finally{await browser.close()}
 const report={probedAt:new Date().toISOString(),url:'http://127.0.0.1:8080/',serverPid:server.pid,observations};
-await writeFile('evidence/review/probe.json',JSON.stringify(report,null,2)+'\n');
-await writeFile('REVIEW_TARGET.txt',`Restless greenfield native review target\nURL: http://127.0.0.1:8080/\nStart or refresh: npm run build && npm run review:probe\nProbe evidence: evidence/review/probe.json\n`);
+await writeFile(join(runtimeDir,'probe.json'),JSON.stringify(report,null,2)+'\n');
 console.log(JSON.stringify(report,null,2));
