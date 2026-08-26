@@ -13,4 +13,5 @@ every material finding or name why it cannot yet be public.
 `frozen-corpus.md` records the design candidate, integration parent, per-EXP source revisions and the
 public/private boundary. The corresponding `/research/corpus/` route gives every material EXP-01
 through EXP-07 finding an inspectable public home or a named deferral. No article was accepted by a
-model or published as a consequence of this freeze.
+model or published as a consequence of this freeze. The site quality command now fails if a source
+locator disappears or corpus coverage drifts.

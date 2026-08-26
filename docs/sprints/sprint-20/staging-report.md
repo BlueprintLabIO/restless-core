@@ -7,7 +7,7 @@
 
 | Check | Input | Observed result |
 | --- | --- | --- |
-| Static quality and type check | `cd site && npm run verify` | The quality gate passed; `astro check` reported 0 errors, 0 warnings and 0 hints; the static build produced 18 routes. |
+| Static quality and type check | `cd site && npm run verify` | The corpus guard and quality gate passed; `astro check` reported 0 errors, 0 warnings and 0 hints; the static build produced 18 routes. |
 | Candidate routes | Local `astro preview` on `127.0.0.1:4324` | `/`, `/product/`, `/how-it-works/`, `/research/`, `/research/corpus/`, `/journal/`, one article route and `/compare/` each returned content. |
 | Corpus truth | `/research/` local response | It reports `6 of 7` publication coverage and names the EXP-07 result as deferred. |
 | Legacy continuity | `/findings/` and a historical findings article route | Each returns the explicit static redirect document to `/journal/`; no prior content is served. |
@@ -19,6 +19,10 @@ The staged candidate contains the product explanation, one outcome walkthrough, 
 corpus map, dated category comparison and five source-linked journal articles. It deliberately makes
 EXP-06's inconclusive comparison and EXP-07's sealed blind decision visible rather than converting
 them into product proof.
+
+The corpus guard verifies that each article's source locator exists, that EXP-01 through EXP-07 each
+have one coverage record and that every published home resolves to a journal article. It protects the
+evidence map without trying to judge the prose or replace the required fresh peer review.
 
 ## Removed implementation
 

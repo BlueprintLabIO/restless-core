@@ -8,7 +8,7 @@
     "build": "astro build",
     "preview": "astro preview",
     "check": "astro check",
-    "quality": "node scripts/quality-gate.mjs",
+    "quality": "node scripts/corpus-check.mjs && node scripts/quality-gate.mjs",
     "verify": "npm run quality && npm run check && npm run build"
   },
   "dependencies": {
