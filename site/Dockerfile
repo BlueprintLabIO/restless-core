@@ -1,10 +1,13 @@
 FROM node:22-alpine AS build
 
 WORKDIR /site
+# This portable image deliberately receives the site package only. Run the
+# repository-context `npm run verify` first to validate source files behind
+# the public locators; the image preserves the structural corpus checks.
 COPY package.json package-lock.json ./
 RUN npm ci
 COPY . .
-RUN npm run verify
+RUN npm run verify:portable
 
 FROM nginx:1.27-alpine
 COPY nginx.conf /etc/nginx/conf.d/default.conf

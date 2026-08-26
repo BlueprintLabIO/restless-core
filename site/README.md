@@ -31,6 +31,17 @@ The site is static. Journal entries live in `src/content/journal/` and are valid
 The site-specific quality gate rejects visual and prose defaults deliberately excluded from this
 identity. Legacy `/findings/` links redirect to `/journal/`.
 
+To package the candidate from a clean install:
+
+```sh
+docker build --tag restless-site-candidate site
+```
+
+Run `npm run verify` from `site/` first: it validates that every journal locator resolves against the
+repository's frozen EXP-01 through EXP-07 source files. The standalone Docker build then repeats the
+corpus-shape, design, type and static-build checks before producing an Nginx image containing only
+`dist/`.
+
 ## Publication boundary
 
 Do not deploy, connect a publishing integration, or describe this site as publicly live without a

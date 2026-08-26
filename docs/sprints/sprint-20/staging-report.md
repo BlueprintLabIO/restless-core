@@ -11,6 +11,7 @@
 | Check | Input | Observed result |
 | --- | --- | --- |
 | Static quality and type check | `cd site && npm run verify` | The corpus guard and quality gate passed; `astro check` reported 0 errors, 0 warnings and 0 hints; the static build produced 18 routes. |
+| Clean package and route probe | Strict `cd site && npm run verify`, then `docker build --tag restless-s20-local-check-403da79 site` and temporary Nginx on `127.0.0.1:18080` | Source locators resolved before packaging; the standalone image's structural corpus check, type check and static build passed; all 13 public and legacy routes returned HTTP 200. The temporary image and container were removed. |
 | Candidate routes | Local `astro preview` on `127.0.0.1:4324` | `/`, `/product/`, `/how-it-works/`, `/research/`, `/research/corpus/`, `/journal/`, one article route and `/compare/` each returned content. |
 | Corpus truth | `/research/` local response | It reports `6 of 7` publication coverage and names the EXP-07 result as deferred. |
 | Legacy continuity | `/findings/` and a historical findings article route | Each returns the explicit static redirect document to `/journal/`; no prior content is served. |

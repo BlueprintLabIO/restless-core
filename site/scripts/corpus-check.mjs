@@ -1,11 +1,13 @@
 import { access, readdir, readFile } from 'node:fs/promises';
-import { resolve } from 'node:path';
+import { isAbsolute, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const journalDirectory = resolve(root, 'src/content/journal');
 const expectedExperiments = ['EXP-01', 'EXP-02', 'EXP-03', 'EXP-04', 'EXP-05', 'EXP-06', 'EXP-07'];
 const failures = [];
+const locatorsOnly = process.argv.includes('--locators-only');
+const repositoryRoot = resolve(root, '..');
 
 async function exists(path) {
   try {
@@ -35,8 +37,13 @@ for (const file of articleFiles) {
   if (locators.length === 0) failures.push(`${file}: no evidence locator`);
 
   for (const locator of locators) {
-    const source = resolve(root, '..', locator);
-    if (!source.startsWith(`${resolve(root, '..')}/`) || !(await exists(source))) {
+    const source = resolve(repositoryRoot, locator);
+    const sourceRelativePath = relative(repositoryRoot, source);
+    const sourceEscapesRepository = sourceRelativePath.startsWith('..') || isAbsolute(sourceRelativePath);
+
+    if (sourceEscapesRepository) {
+      failures.push(`${file}: evidence locator escapes the repository ${locator}`);
+    } else if (!locatorsOnly && !(await exists(source))) {
       failures.push(`${file}: missing evidence source ${locator}`);
     }
   }
@@ -72,4 +79,5 @@ if (failures.length > 0) {
   process.exit(1);
 }
 
-console.log(`Corpus check passed: ${articleFiles.length} articles and ${expectedExperiments.length} experiment records are traceable.`);
+const verificationScope = locatorsOnly ? 'are internally consistent' : 'are traceable to source files';
+console.log(`Corpus check passed: ${articleFiles.length} articles and ${expectedExperiments.length} experiment records ${verificationScope}.`);
