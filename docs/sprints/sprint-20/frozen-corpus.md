@@ -9,7 +9,8 @@
 | --- | --- | --- |
 | Integration parent | `2bd5513c18a6c21bb582be462813d446247180d4` | The S16 completion checkpoint immediately before the staged site work. |
 | Visual candidate | `experiment/exp-07-candidate-a` at `4e454bc2a36eab3afbf7d91a070e732cf657a847` | The founder-specified editorial direction. Its independent static build is a visual reference, not code imported into `site/`. |
-| Site implementation | `site/` Astro package | The staged candidate that receives this corpus and preserves legacy findings URLs as redirects. |
+| Staged candidate | `fc8f97d1e1507489023f93574ccf15257a61bf55` | The Astro publication construction checkpoint that receives this corpus and preserves legacy findings URLs as redirects. |
+| Corpus integrity guard | `befb4b8429774fcfa1e3c05b03e9b1336f445d52` | The follow-up checkpoint that makes missing source locators or EXP coverage drift fail the site quality command. |
 | Public boundary | Public experiment conclusions and exact repository locators only | No prompts, private reasoning, credentials, browser state, model transcripts or unsealed blind-candidate identity enter the site. |
 | Effect boundary | Local build and preview only | No deploy, replacement, external message, Git push or public claim is authorised by this record. |
 

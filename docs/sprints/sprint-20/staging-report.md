@@ -3,6 +3,9 @@
 **Recorded:** 26 August 2026
 **Terminal state:** `staged_candidate`, not `accepted_publication`
 
+**Candidate revisions:** `fc8f97d1e1507489023f93574ccf15257a61bf55` constructs the publication;
+`befb4b8429774fcfa1e3c05b03e9b1336f445d52` adds corpus traceability enforcement.
+
 ## What was observed
 
 | Check | Input | Observed result |
