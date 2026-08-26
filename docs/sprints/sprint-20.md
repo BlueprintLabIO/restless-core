@@ -1,6 +1,7 @@
 # Sprint 20 - Dogfood 4: publish the research record
 
-**Status:** Draft for founder alignment; specification only, no implementation or run started
+**Status:** In progress — the staged construction slice is evidenced; fresh editorial review, rendered
+native review and any effect remain unrun
 
 **Date:** 26 August 2026
 
@@ -199,17 +200,20 @@ Ticket files are created only after founder alignment. Status will live only in 
 
 | Status | Proposed ticket | Slice | Outcome or friction served | Prior machinery made deletable |
 | --- | --- | --- | --- | --- |
-| [ ] | **S20-T0 - Freeze the Restless site and evidence corpus** | Evaluation + Runtime | The publication can silently change its source record or design base | Ad hoc source gathering and mutable acceptance claims |
+| [x] | **S20-T0 - Freeze the Restless site and evidence corpus** | Evaluation + Runtime | The publication can silently change its source record or design base | Ad hoc source gathering and mutable acceptance claims |
 | [ ] | **S20-T1 - Commission and calibrate the publication** | OrgIntel + Runtime | Many articles can create a content factory before voice and truth are calibrated | Up-front article pipeline and fixed writer count |
 | [ ] | **S20-T2 - Prove one article through adversarial peer review** | Full outcome slice | Reviewer agreement may carry no information and Markdown may hide weak native reading | Same-context self-review and prose-only acceptance |
-| [ ] | **S20-T3 - Close the material findings backlog** | OrgIntel + Runtime | The experimental record remains inaccessible to readers | Per-experiment summaries and compulsory model fan-in |
+| [x] | **S20-T3 - Close the material findings backlog** | OrgIntel + Runtime | The experimental record remains inaccessible to readers | Per-experiment summaries and compulsory model fan-in |
 | [ ] | **S20-T4 - Integrate and live-probe the research publication** | Runtime + owner surface | Good drafts can still form a cramped, inconsistent or broken site | Parallel page variants and a second visual system |
 | [ ] | **S20-T5 - Prepare publication, classify and report** | Authority + Evaluation | A green build can be mistaken for a public outcome | Unattributed completion claims and unrecoverable deployment steps |
 
 ## Entry, stop and exit gates
 
-**Entry:** founders approve this contract, the exact Restless design baseline, the evidence corpus,
-GPT-5.6 Sol envelope, spend ceiling, source-privacy boundary and no-publication-without-authority rule.
+**Entry:** the founder authorised this staged candidate on 26 August 2026. The frozen design baseline
+remains candidate A at `4e454bc2a36eab3afbf7d91a070e732cf657a847`; the corpus is the committed
+EXP-01 through EXP-07 record; public material excludes prompts, private reasoning, credentials,
+browser state and unsealed blind-review identity. Any model run still needs its exact spend ceiling
+recorded before launch. No-publication-without-authority remains in force.
 
 **Stop:** stop for source/privacy uncertainty, a candidate that cannot trace material claims, model or
 spend-envelope drift, uncontrolled public replacement, branch/data corruption risk or founder stop.
@@ -218,3 +222,12 @@ An article rejection is ordinary editorial evidence, not a sprint stop.
 **Exit:** the live candidate, corpus map, review records, evidence package and truthful terminal
 classification are complete. An informative rejection may complete the sprint as evidence; only an
 owner-accepted native publication satisfies the product outcome.
+
+## Staging evidence
+
+The frozen corpus and source map are recorded in
+[S20 frozen corpus](sprint-20/frozen-corpus.md). The Astro candidate has passed its static quality,
+type and build verification plus HTTP route probes; its obsolete prior components and content
+collection have been removed. This does **not** close S20-T1, T2, T4 or T5: no fresh model review,
+connected-browser desktop/mobile review, owner-native review, deployment preparation or external
+effect has been run. See [S20 staging report](sprint-20/staging-report.md).

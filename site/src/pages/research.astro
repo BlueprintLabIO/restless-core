@@ -1,96 +1,47 @@
 ---
-import { getCollection } from 'astro:content';
 import BaseLayout from '../layouts/BaseLayout.astro';
-import PageIntro from '../components/PageIntro.astro';
-import RunLedger from '../components/RunLedger.astro';
-import ArticleList from '../components/ArticleList.astro';
-import SectionLink from '../components/SectionLink.astro';
+import JournalList from '../components/JournalList.astro';
+import { getCollection } from 'astro:content';
+import { corpus } from '../data/corpus';
 
-const entries = (await getCollection('findings')).sort((a, b) => a.data.order - b.data.order);
+const entries = (await getCollection('journal')).sort((a, b) => a.data.order - b.data.order);
+const published = corpus.filter((record) => record.state === 'Published').length;
 ---
 
 <BaseLayout
-  title="Research | Restless"
-  description="The evidence, method and open questions behind the Restless organisational model."
+  title="Research"
+  description="The Restless research record separates observed findings, product direction and unresolved questions."
+  active="research"
 >
-  <PageIntro
-    title="The organisation is a hypothesis we run."
-    statement="Most agent-team claims are architectural taste presented as fact. Restless treats team shape, supervision and coordination as empirical questions tied to real work."
-    tone="ink"
-  >
-    <a class="light-link" href="/findings/">Open the findings archive</a>
-  </PageIntro>
-
-  <section class="method-section" aria-labelledby="method-heading">
-    <div class="wide-heading">
-      <h2 id="method-heading">A result must survive contact with work.</h2>
-      <p>Our method keeps deterministic checks, model judgment and founder judgment in their proper places.</p>
-    </div>
-    <ol class="method-line">
-      <li><span>Choose real work</span><p>Use coding, sales, support, research and operations with an outcome someone can actually inspect.</p></li>
-      <li><span>Freeze the comparison</span><p>Set the task, model, budget, evidence and stopping boundary before the result is visible.</p></li>
-      <li><span>Let the organisation work</span><p>Observe instead of coaching through ordinary difficulty. Founder rescue remains a product failure.</p></li>
-      <li><span>Judge the native result</span><p>Open the product, document, dataset or queue. Treat agent narration as a claim, never as proof.</p></li>
-      <li><span>Keep the losing evidence</span><p>Record invalid evaluators, defects and conditions where the apparent win disappears.</p></li>
-    </ol>
+  <section class="page-intro">
+    <h1>A theory that has<br /><em>to survive contact.</em></h1>
+    <p>Restless treats organisation design as an empirical question. A useful outcome can change a product decision. A failed evaluation can change how much confidence the outcome deserves.</p>
   </section>
 
-  <section class="canon-section" aria-labelledby="canon-heading">
-    <div class="canon-title">
-      <h2 id="canon-heading">Current working theory</h2>
-      <p>These principles are enduring only where the reason beneath them endures.</p>
-    </div>
-    <div class="canon-rows">
-      <details open>
-        <summary><span>Accountability closes the boundary</span><span aria-hidden="true">+</span></summary>
-        <p>A new lead is justified by an independently judgeable outcome, not by the apparent size of a task.</p>
-      </details>
-      <details>
-        <summary><span>The smallest effective team is the default</span><span aria-hidden="true">+</span></summary>
-        <p>Each additional mind must repay briefing, context loss, integration and review through capacity, specialisation or independent evidence.</p>
-      </details>
-      <details>
-        <summary><span>Repeated queues are a different regime</span><span aria-hidden="true">+</span></summary>
-        <p>Sales accounts, support cases and other locally closing units can justify a large pool because throughput itself is the product.</p>
-      </details>
-      <details>
-        <summary><span>Supervision reacts to material events</span><span aria-hidden="true">+</span></summary>
-        <p>A lead preserves the mission and repairs drift. Status polling and performative reporting add coordination cost without new information.</p>
-      </details>
-      <details>
-        <summary><span>Fan-in exists for a decision</span><span aria-hidden="true">+</span></summary>
-        <p>Independent work stays independent unless one exact outcome requires comparison, prioritisation, conflict resolution or a shared decision.</p>
-      </details>
-    </div>
+  <section class="research-principles">
+    <article><h2>Direction</h2><p>Authority stays deterministic at the external boundary. Files remain the primary work primitive. Native outcomes are the first review surface.</p></article>
+    <article><h2>Evidence</h2><p>Current defaults are scoped by model, workload and evidence. They are not converted into universal rules.</p></article>
+    <article><h2>Unknowns</h2><p>Unresolved questions remain visible. A quiet system may be correct when there is no decision-changing work to do.</p></article>
   </section>
 
-  <section class="research-evidence" aria-labelledby="research-evidence-heading">
-    <div class="wide-heading">
-      <h2 id="research-evidence-heading">Selected observations</h2>
-      <p>Numbers stay attached to the condition that produced them.</p>
-    </div>
-    <RunLedger />
+  <section class="corpus-callout">
+    <div><strong>{published} of {corpus.length}</strong><p>material experiment records have a public article home.</p></div>
+    <p>One result remains deferred because the EXP-07 blind owner decision and arm identity are sealed. The corpus map explains the boundary.</p>
+    <a href="/research/corpus/">Inspect corpus coverage <span aria-hidden="true">↗</span></a>
   </section>
 
-  <section class="open-questions" aria-labelledby="questions-heading">
-    <div><h2 id="questions-heading">Questions worth another run</h2></div>
-    <ol>
-      <li><span>Company scale</span><p>Can one release survive independent owner demand, changed requirements, inbound events, failure and process replacement?</p></li>
-      <li><span>Model generality</span><p>Which findings survive stronger models, different providers and longer native work?</p></li>
-      <li><span>Lead economics</span><p>When does a preserved supervisor improve quality enough to repay its cost?</p></li>
-      <li><span>Signals</span><p>Can real email, support and operational events reach the nearest accountable owner without turning Exec into an inbox?</p></li>
-    </ol>
+  <section class="journal-preview">
+    <div class="section-heading"><h2>Current research record</h2><p>Each note names its thesis, its evidence and where the conclusion stops.</p></div>
+    <JournalList entries={entries} />
   </section>
 
-  <section class="research-archive" aria-labelledby="archive-heading">
-    <div class="wide-heading">
-      <h2 id="archive-heading">Findings from the work</h2>
-      <p>Each note states what happened, what it means and where the conclusion stops.</p>
-    </div>
-    <ArticleList entries={entries} />
-  </section>
-
-  <section class="next-route" aria-label="Continue exploring Restless">
-    <SectionLink index="Next" href="/compare/" title="Place Restless in the market" description="Compare the product boundary with current agent and AI workforce platforms." />
+  <section class="open-questions">
+    <h2>The next questions have to earn their machinery.</h2>
+    <ul>
+      <li>What observed signal shows that a coherent outcome has exceeded one worker's effective session?</li>
+      <li>When does a bounded parallel hand become Staff responsibility?</li>
+      <li>Which native artifact and event boundaries transfer beyond code?</li>
+      <li>Can real external signals reach the accountable owner without turning Exec into a relay?</li>
+    </ul>
   </section>
 </BaseLayout>

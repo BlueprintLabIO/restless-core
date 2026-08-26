@@ -1,18 +1,15 @@
----
-import { brand } from '../config';
----
-
 <footer class="site-footer">
-  <div class="footer-statement">
-    <a class="footer-wordmark" href="/">{brand.name}</a>
-    <p>A company that keeps working between owner decisions. Under active development.</p>
+  <div class="footer-mark" aria-hidden="true">R/</div>
+  <div>
+    <strong>Restless</strong>
+    <p>A research programme for companies that handle work.</p>
   </div>
-  <div class="footer-links">
+  <nav aria-label="Footer navigation">
     <a href="/product/">Product</a>
     <a href="/how-it-works/">How it works</a>
     <a href="/research/">Research</a>
     <a href="/compare/">Compare</a>
-    <a href={brand.repository}>View source <span aria-hidden="true">↗</span></a>
-  </div>
-  <p class="footer-evidence">Claims on this site are tied to observed runs. Unknowns stay visible.</p>
+    <a href="/journal/">Journal</a>
+  </nav>
+  <p class="footer-note">Research-stage product direction. Public findings keep their limits attached.</p>
 </footer>

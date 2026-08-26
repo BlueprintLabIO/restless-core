@@ -1,92 +1,37 @@
 ---
 import BaseLayout from '../layouts/BaseLayout.astro';
-import PageIntro from '../components/PageIntro.astro';
-import SectionLink from '../components/SectionLink.astro';
 ---
 
 <BaseLayout
-  title="Product | Restless"
-  description="What Restless does for an owner, what the company returns, and where the product boundary sits today."
+  title="The owner experience"
+  description="Restless is designed to return prepared outcomes and bounded owner decisions."
+  active="product"
 >
-  <PageIntro
-    title="Less operating. More ownership."
-    statement="Restless is for an owner who wants to set direction, make consequential judgments and receive finished work without becoming the task manager for a collection of agents."
-    tone="wash"
-  >
-    <a class="text-action" href="/how-it-works/">Follow an outcome through the company</a>
-  </PageIntro>
-
-  <section class="exchange-section" aria-labelledby="exchange-heading">
-    <div class="wide-heading">
-      <h2 id="exchange-heading">A different contract with software.</h2>
-      <p>The interface begins with a business outcome and ends with a prepared judgment.</p>
-    </div>
-    <div class="exchange-grid">
-      <div class="exchange-side">
-        <h3>You provide</h3>
-        <ol>
-          <li><strong>Direction</strong><span>The outcome, constraints and why it matters.</span></li>
-          <li><strong>Authority</strong><span>Budgets, permissions and exact approval boundaries.</span></li>
-          <li><strong>Judgment</strong><span>Taste, strategic choice and the final consequential call.</span></li>
-        </ol>
-      </div>
-      <div class="exchange-side exchange-side--return">
-        <h3>Restless returns</h3>
-        <ol>
-          <li><strong>Native work</strong><span>A live product, document, campaign, dataset or resolved queue.</span></li>
-          <li><strong>Evidence</strong><span>The checks, receipts and exact unknowns needed to trust the result.</span></li>
-          <li><strong>A prepared last mile</strong><span>The right surface, exact decision and observable way to resume.</span></li>
-        </ol>
-      </div>
-    </div>
+  <section class="page-intro">
+    <h1>Bring the mission.<br /><em>Leave the machinery.</em></h1>
+    <p>Restless is intended to feel like appointing a capable company, not configuring an agent framework. The owner supplies direction, limits, taste and judgement.</p>
   </section>
 
-  <section class="work-spectrum" aria-labelledby="work-heading">
-    <div class="wide-heading">
-      <h2 id="work-heading">The work belongs in the business.</h2>
-      <p>
-        Restless is designed for the economically useful work owners normally keep in house. Each
-        domain has a different shape, so the company chooses its organisation from the outcome.
-      </p>
-    </div>
-    <div class="spectrum-rows">
-      <div class="spectrum-row"><strong>Product</strong><p>Research, design, engineering, release preparation and operation around one coherent product result.</p><span>Coupled outcome</span></div>
-      <div class="spectrum-row"><strong>Sales</strong><p>Territory research, account ownership, outreach preparation and follow-up across independent prospects.</p><span>Elastic queue</span></div>
-      <div class="spectrum-row"><strong>Marketing</strong><p>Positioning, campaigns, content, distribution, measurement and adaptation around a defined commercial result.</p><span>Mixed work</span></div>
-      <div class="spectrum-row"><strong>Research</strong><p>Independent evidence gathering followed by one decision-focused synthesis when the outcome requires it.</p><span>Parallel evidence</span></div>
-      <div class="spectrum-row"><strong>Support</strong><p>Case ownership at volume, with a lead calibrating policy and handling the exceptions that change the queue.</p><span>Elastic queue</span></div>
-      <div class="spectrum-row"><strong>Operations</strong><p>Incoming signals, recurring processes, exceptions and cross-functional follow-through inside the company computer.</p><span>Continuous loop</span></div>
-    </div>
+  <section class="paired-prose">
+    <h2>Your working day should have fewer open loops.</h2>
+    <div><p>One singleton Exec owns the portfolio and delegates every executable request to one accountable lead. Staff does the machine-doable work. The lead stays available to notice drift, redirect production and inspect the result.</p><p>The return is the native artifact with supporting evidence and one bounded decision where a human boundary remains.</p></div>
   </section>
 
-  <section class="boundary-section" aria-labelledby="boundary-heading">
-    <div class="boundary-copy">
-      <h2 id="boundary-heading">Power where work is reversible. Control where consequences are real.</h2>
-      <p>
-        Research, drafts, code and internal analysis should move freely. Spending, publication,
-        external representation and authority expansion cross a small deterministic boundary.
-      </p>
-    </div>
-    <div class="boundary-line" role="img" aria-label="Internal work remains flexible while consequential external effects cross an authority boundary">
-      <span>Flexible company work</span>
-      <span class="boundary-gate">Authority</span>
-      <span>Real-world effect</span>
-    </div>
+  <section class="human-boundary">
+    <div><h2>Restless stops at the line only you can cross.</h2><p>Identity, sign-in, CAPTCHA, two-factor authentication, legal attestation, payment confirmation and irreducible taste remain owner acts. The company should prepare everything around them.</p></div>
+    <dl class="receipt-sheet">
+      <div><dt>Already prepared</dt><dd>Terms compared, quantities checked and a reversible draft preserved.</dd></div>
+      <div><dt>Your act</dt><dd>Approve the final production order.</dd></div>
+      <div><dt>Observable resume</dt><dd>The provider's own order state is observed.</dd></div>
+    </dl>
   </section>
 
-  <section class="product-reality" aria-labelledby="reality-heading">
-    <h2 id="reality-heading">What exists now</h2>
-    <div>
-      <p>
-        Restless is a working control plane under active dogfood. Its company runtime, authority path,
-        organisational state and owner surface exist. The next test is whether the whole system can
-        improve Restless through a real release without founder rescue.
-      </p>
-      <a class="primary-action" href="/research/">Inspect the evidence <span aria-hidden="true">↗</span></a>
+  <section class="boundary-copy">
+    <h2>The target is accountable economic execution.</h2>
+    <div class="boundary-rows">
+      <p><strong>For</strong> Owner/operators who need work to progress without becoming its project manager.</p>
+      <p><strong>Not for</strong> A chat assistant, agent builder, workflow canvas, task tracker or audit product.</p>
+      <p><strong>Today</strong> A clean-slate research programme with controlled evidence. No claim of general availability.</p>
     </div>
-  </section>
-
-  <section class="next-route" aria-label="Continue exploring Restless">
-    <SectionLink index="Next" href="/how-it-works/" title="See how it works" description="Follow responsibility, production and review from mandate to native outcome." />
   </section>
 </BaseLayout>

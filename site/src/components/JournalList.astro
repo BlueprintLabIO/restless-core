@@ -1,0 +1,25 @@
+---
+import type { CollectionEntry } from 'astro:content';
+
+interface Props {
+  entries: CollectionEntry<'journal'>[];
+}
+
+const { entries } = Astro.props;
+---
+
+<ol class="journal-list">
+  {entries.map((entry, index) => (
+    <li>
+      <a href={`/journal/${entry.id}/`}>
+        <span class="entry-number" aria-hidden="true">{String(index + 1).padStart(2, '0')}</span>
+        <span class="entry-main">
+          <span class="entry-title">{entry.data.title}</span>
+          <span class="entry-deck">{entry.data.deck}</span>
+        </span>
+        <span class="status-chip" title={`Evidence state: ${entry.data.status}`}>{entry.data.status}</span>
+        <span class="entry-arrow" aria-hidden="true">↗</span>
+      </a>
+    </li>
+  ))}
+</ol>

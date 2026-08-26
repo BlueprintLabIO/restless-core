@@ -1,69 +1,35 @@
 ---
 import BaseLayout from '../layouts/BaseLayout.astro';
-import PageIntro from '../components/PageIntro.astro';
-import ResponsibilityRail from '../components/ResponsibilityRail.astro';
-import SectionLink from '../components/SectionLink.astro';
 ---
 
 <BaseLayout
-  title="How it works | Restless"
-  description="How owner intent becomes accountable, attributable and reviewable work inside Restless."
+  title="How accountability works"
+  description="A sparse accountable organisation that brings native outcomes to review."
+  active="how"
 >
-  <PageIntro
-    title="One outcome. One accountable line."
-    statement="Restless keeps organisation shallow enough to move and explicit enough to repair. Every executable owner request goes to one lead. Every lead supervises real Staff production."
-    tone="paper"
-  />
-
-  <section class="responsibility-stage" aria-label="Restless responsibility map">
-    <ResponsibilityRail />
+  <section class="page-intro">
+    <h1>Accountability<br /><em>without ceremony.</em></h1>
+    <p>A sparse organisation gives every outcome one owner, gives production a real worker, and keeps the Exec free for what comes next.</p>
   </section>
 
-  <section class="sequence-section" aria-labelledby="sequence-heading">
-    <div class="wide-heading">
-      <h2 id="sequence-heading">From mandate to native review.</h2>
-      <p>The order matters because each boundary closes a different kind of accountability.</p>
-    </div>
-    <ol class="sequence-list">
-      <li><span>01</span><div><h3>The owner names the outcome</h3><p>Intent, constraints, authority and the judgment that will decide whether the result is useful.</p></div></li>
-      <li><span>02</span><div><h3>Exec appoints one lead</h3><p>Exec chooses who owns the outcome, allocates an envelope and returns to portfolio availability.</p></div></li>
-      <li><span>03</span><div><h3>The lead frames and commissions</h3><p>The lead preserves mission context, chooses the smallest useful team and gives production to Staff.</p></div></li>
-      <li><span>04</span><div><h3>Staff produces attributable work</h3><p>Workers use ordinary files, Git, browsers, applications and tools inside a persistent company computer.</p></div></li>
-      <li><span>05</span><div><h3>Evidence changes the work</h3><p>Results, failures and external signals wake the nearest responsible actor. The lead redirects only what changed.</p></div></li>
-      <li><span>06</span><div><h3>The result arrives ready to judge</h3><p>The owner opens the live site, playable build, rendered document or other native outcome, already positioned at the useful state.</p></div></li>
+  <section class="role-stack" aria-label="Accountability structure">
+    <article><span>Exec</span><div><h2>Owns the portfolio.</h2><p>Delegates each executable request to one accountable lead and returns to availability.</p></div></article>
+    <article><span>Lead</span><div><h2>Owns one outcome.</h2><p>Frames, observes, redirects and judges. The lead does not quietly become the producer.</p></div></article>
+    <article><span>Staff</span><div><h2>Makes the work.</h2><p>One end-to-end worker is the default until a stable seam earns more coordination cost.</p></div></article>
+    <article><span>Owner</span><div><h2>Receives the prepared decision.</h2><p>The owner sees a live outcome and the bounded last mile, not internal traffic.</p></div></article>
+  </section>
+
+  <section class="layer-explainer">
+    <div><h2>Judgement above.<br />Rules at the boundary.<br />Work in the world.</h2></div>
+    <ol>
+      <li><strong>Authority</strong><p>Identity, secrets, budgets, consequential effects and recovery have deterministic boundaries.</p></li>
+      <li><strong>Organisation</strong><p>Goals, actors, sparse Work, Attempts, messages and repair stay recoverable and overridable.</p></li>
+      <li><strong>Company computer</strong><p>Persistent files, Git, browsers and ordinary tools are where outcomes are made.</p></li>
     </ol>
   </section>
 
-  <section class="planes-section" aria-labelledby="planes-heading">
-    <div class="planes-title">
-      <h2 id="planes-heading">Simple at the top. Capable underneath.</h2>
-      <p>The machinery stays below the owner surface. Three boundaries keep it understandable.</p>
-    </div>
-    <div class="plane-rows">
-      <div><strong>Consequences</strong><p>Spend, publishing, credentials and external commitments stop at clear approval boundaries.</p><span>Bounded</span></div>
-      <div><strong>Responsibility</strong><p>Goals, owners, decisions and recovery stay coherent while the organisation changes.</p><span>Repairable</span></div>
-      <div><strong>Work</strong><p>Files, browsers, applications and processes persist like an ordinary company computer.</p><span>Productive</span></div>
-    </div>
-  </section>
-
-  <section class="exception-section" aria-labelledby="exception-heading">
-    <div><h2 id="exception-heading">Quiet is fine. Stale is not.</h2></div>
-    <div class="exception-copy">
-      <p>
-        Supervision reacts to material facts: a candidate appears, a requirement changes, a worker
-        fails, a real signal arrives or evidence contradicts the plan. It does not manufacture status
-        meetings or poll agents to prove that management exists.
-      </p>
-      <ul>
-        <li>A failure wakes the actor who can repair it.</li>
-        <li>A changed requirement supersedes stale acceptance.</li>
-        <li>A process restart preserves work and reconstructs responsibility.</li>
-        <li>An unknown external result is reconciled before any retry.</li>
-      </ul>
-    </div>
-  </section>
-
-  <section class="next-route" aria-label="Continue exploring Restless">
-    <SectionLink index="Next" href="/research/" title="Read the research" description="See which parts of this organisation are theory, evidence or still unknown." />
+  <section class="paired-prose native-review-copy">
+    <h2>Review the thing itself.</h2>
+    <div><p>A live site, playable build, rendered document or executable scenario comes first. Commits, tests and receipts explain the result after it can be opened.</p><p>Before owner judgement, the team materialises the current candidate, live-probes it, links its evidence, asks one exact question and makes the resume condition observable.</p></div>
   </section>
 </BaseLayout>

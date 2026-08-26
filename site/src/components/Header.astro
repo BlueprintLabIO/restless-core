@@ -1,27 +1,26 @@
 ---
-import { brand, navigation } from '../config';
-import MatrixGlyph from './MatrixGlyph.astro';
+interface Props {
+  active?: 'product' | 'how' | 'research' | 'compare' | 'journal';
+}
 
-const path = Astro.url.pathname;
-const mark = ['11110', '10001', '10001', '11110', '10100', '10010', '10001'] as const;
+const { active } = Astro.props;
+const links = [
+  { href: '/product/', label: 'Product', key: 'product' },
+  { href: '/how-it-works/', label: 'How it works', key: 'how' },
+  { href: '/research/', label: 'Research', key: 'research' },
+  { href: '/compare/', label: 'Compare', key: 'compare' },
+  { href: '/journal/', label: 'Journal', key: 'journal' }
+] as const;
 ---
 
 <header class="site-header">
-  <a class="wordmark" href="/" aria-label={`${brand.name} home`}>
-    <MatrixGlyph rows={mark} size={10} />
-    <span>{brand.name}</span>
-  </a>
-  <nav class="primary-nav" aria-label="Primary navigation">
-    {navigation.map((item) => (
-      <a href={item.href} aria-current={path.startsWith(item.href) ? 'page' : undefined}>{item.label}</a>
+  <a class="wordmark" href="/" aria-label="Restless home"><span aria-hidden="true">R/</span>Restless</a>
+  <nav aria-label="Primary navigation">
+    {links.map((link) => (
+      <a href={link.href} aria-current={active === link.key ? 'page' : undefined}>{link.label}</a>
     ))}
   </nav>
-  <details class="mobile-menu">
-    <summary>Explore <span aria-hidden="true">+</span></summary>
-    <nav aria-label="Mobile navigation">
-      {navigation.map((item) => (
-        <a href={item.href} aria-current={path.startsWith(item.href) ? 'page' : undefined}>{item.label}</a>
-      ))}
-    </nav>
-  </details>
+  <a class="site-status status-chip" href="/research/" title="Restless is an active research programme, not a general-availability claim">
+    Research stage
+  </a>
 </header>

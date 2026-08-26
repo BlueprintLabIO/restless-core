@@ -10,8 +10,10 @@ const requiredPages = [
   'src/pages/product.astro',
   'src/pages/how-it-works.astro',
   'src/pages/research.astro',
+  'src/pages/research/corpus.astro',
   'src/pages/compare.astro',
-  'src/pages/findings/index.astro'
+  'src/pages/journal/index.astro',
+  'src/pages/journal/[...slug].astro'
 ];
 
 const banned = [

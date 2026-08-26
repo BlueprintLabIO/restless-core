@@ -1,0 +1,36 @@
+---
+import BaseLayout from '../../layouts/BaseLayout.astro';
+import { corpus } from '../../data/corpus';
+---
+
+<BaseLayout
+  title="Research corpus"
+  description="The public coverage map for the Restless coordination experiment record."
+  active="research"
+>
+  <section class="page-intro compact-intro">
+    <h1>What is public.<br /><em>What is held back.</em></h1>
+    <p>This map accounts for every material EXP-01 through EXP-07 finding. A deferred result stays visible as a deferred result rather than being smoothed into the publication.</p>
+  </section>
+
+  <section class="corpus-table-wrap" aria-label="Experiment coverage map">
+    <table class="corpus-table">
+      <thead><tr><th>Record</th><th>Finding</th><th>Public home</th><th>Reason</th></tr></thead>
+      <tbody>
+        {corpus.map((record) => (
+          <tr>
+            <th scope="row">{record.experiment}</th>
+            <td>{record.finding}</td>
+            <td><a href={record.home}><span class="status-chip" title={`Publication state: ${record.state}`}>{record.state}</span></a></td>
+            <td>{record.reason ?? 'Published with its evidence scope and limits.'}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  </section>
+
+  <section class="paired-prose">
+    <h2>Public does not mean exhaustive.</h2>
+    <div><p>The site does not publish prompts, raw private reasoning, browser state, credentials, model transcripts or the unsealed identity of a blind candidate. Those are not necessary to evaluate the public claim.</p><p>Paths named in each article are exact repository locators for the evidence used. They are supporting evidence for a conclusion, not a second content-management system.</p></div>
+  </section>
+</BaseLayout>

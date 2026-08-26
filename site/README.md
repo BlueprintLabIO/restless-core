@@ -1,17 +1,23 @@
-# Restless public site
+# Restless public research site
 
-The public product site and experiment findings journal. This is a separate Astro package inside the
-Restless monorepo. It does not share runtime code with the owner cockpit, but it deliberately uses the
-same Bridge Light typography, semantic colours, matrix mark and surface logic. The public site is the
-exterior of the same product, not a second brand.
+This Astro package is the staged public surface for Restless. It presents the owner promise alongside
+a source-first research journal. It is a candidate publication only: building it does not publish it,
+create an account, or make an external claim on the company's behalf.
 
-The main narrative is split across five routes so each question has room to be answered:
+The S20 baseline is the accepted visual direction from `experiment/exp-07-candidate-a` at
+`4e454bc2b00c7bc3ee9d97e3d61f8ca256f6d6ea`, adapted into this package without importing its old
+static build system. The surface uses one editorial identity: paper, ink, cobalt, lime, a modern
+sans-serif and an italic editorial serif. The research record is intentionally legible before it is
+persuasive.
 
-- `/product/` explains the owner promise and product boundary.
-- `/how-it-works/` shows how responsibility and review move through the company.
-- `/research/` separates observed evidence, current theory and open questions.
-- `/compare/` gives a sourced market comparison without claiming an unrun benchmark.
-- `/findings/` keeps the complete experiment record.
+The main routes are:
+
+- `/product/` explains the owner promise and its boundary.
+- `/how-it-works/` follows one accountable outcome.
+- `/research/` separates direction, evidence and unknowns.
+- `/research/corpus/` accounts for EXP-01 through EXP-07, including deferrals.
+- `/journal/` contains the public research notes and their source locators.
+- `/compare/` records dated, source-first category observations.
 
 ## Local verification
 
@@ -21,26 +27,12 @@ npm run verify
 npm run dev
 ```
 
-The site is static. Findings live in `src/content/findings/` and are validated at build time. The
-site-specific quality gate rejects the visual and prose defaults deliberately excluded from this
-identity.
+The site is static. Journal entries live in `src/content/journal/` and are validated at build time.
+The site-specific quality gate rejects visual and prose defaults deliberately excluded from this
+identity. Legacy `/findings/` links redirect to `/journal/`.
 
-## Design source notes
+## Publication boundary
 
-The interface stays Astro-native and adds no component runtime. Its notched action geometry takes
-direction from Cult UI's [Cutout Card](https://www.cult-ui.com/docs/components/cutout-card), while its
-signature liquid-metal object is a lightweight SVG and CSS interpretation of Cult UI's
-[Hero Liquid Metal](https://www.cult-ui.com/docs/components/hero-liquid-metal). Product surfaces inherit
-the owner cockpit's Bridge Light system. These are small implementations inside one visual identity,
-not a library collage.
-
-## Coolify
-
-Deploy with the repository's private GitHub App integration:
-
-- base directory: `/site`
-- build pack: `dockerfile`
-- exposed port: `80`
-- health path: `/`
-
-The Docker image builds and verifies the site, then serves the static output with Nginx.
+Do not deploy, connect a publishing integration, or describe this site as publicly live without a
+separate owner-approved effect. Any publication review must use the built site as the native review
+target and retain the exact research limits shown here.
