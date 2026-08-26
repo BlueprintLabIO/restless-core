@@ -1,6 +1,7 @@
 # EXP-07: Greenfield Codex versus Restless site
 
-**Status:** Awaiting blind owner judgement
+**Status:** Complete — blind owner judgement locked as a tie with a slight qualitative preference for
+the Restless-produced design on 27 August 2026
 **Date:** 26 August 2026  
 **Depends on:** EXP-06 process evidence and the owner's rejection of a shared incumbent as a useful
 creative comparison.
@@ -64,9 +65,10 @@ envelope may stop an arm and is recorded as operator termination rather than ord
 
 ## Evaluation
 
-The owner receives only the two native hosted sites labelled Candidate A and Candidate B. Process,
-topology, cost, timing, commit authorship and identity remain hidden until the owner answers `A`, `B`,
-`tie` or `neither`.
+The owner received only the two native hosted sites labelled Candidate A and Candidate B. Process,
+topology, cost, timing, commit authorship and identity remained hidden until the owner locked a
+`tie` with a slight qualitative preference for the Restless-produced design. The result and
+post-decision identity reveal are recorded in the [EXP-07 owner decision](../coordination/experiments/EXP-07/results/owner-decision.md).
 
 The weighted blind rubric scores immediate clarity, product truth, writing, visual direction,
 information architecture, interaction quality and evidence. Process evidence explains the outcome
@@ -86,5 +88,5 @@ winner claim or change the Restless coordination invariants before the owner loc
 - The shared production probe passes all nine required routes at both target viewports for both
   candidates, including focus, mobile navigation, reduced motion, metadata, overflow and browser-error
   checks.
-- Arm identity, process evidence and the random A/B mapping remain sealed until the owner answers `A`,
-  `B`, `tie` or `neither`.
+- The owner locked a `tie` with slight qualitative preference for the Restless-produced design; the
+  post-decision mapping and scoped interpretation are recorded with the EXP-07 results.
