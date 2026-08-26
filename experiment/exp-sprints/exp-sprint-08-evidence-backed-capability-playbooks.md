@@ -1,6 +1,6 @@
 # Experiment Sprint 08 - Evidence-backed capability playbooks
 
-**Status:** Draft for founder approval; no arm or implementation started
+**Status:** Draft for founder approval; entry preflight blocked on 26 August 2026; no arm or implementation started
 
 **Decision owner:** Founder
 
@@ -8,6 +8,9 @@
 
 **Depends on:** EXP-07's successful Restless greenfield web outcome and Sprint 20's completed research
 publication dogfood. If Sprint 20 has not reached a terminal evidence report, EXP-08 does not start.
+
+**Entry record:** [`EXP-08 preflight`](../coordination/experiments/EXP-08/README.md) records the
+observed dependency state. It did not freeze a candidate playbook, contract, arm order, or workload.
 
 ## Decision this sprint must produce
 
