@@ -26,6 +26,8 @@ __pycache__/
 node_modules/
 /web/.svelte-kit
 /web/build
+/site/.astro
+/site/dist
 
 # Experiment operating state
 experiment/**/node_modules/

@@ -1,0 +1,11 @@
+---
+import { brand } from '../config';
+---
+
+<footer class="site-footer">
+  <p>{brand.name} is under active development. Claims on this site are tied to observed runs.</p>
+  <div class="footer-links">
+    <a href="/findings/">Read the findings</a>
+    <a href={brand.repository}>View source <span aria-hidden="true">↗</span></a>
+  </div>
+</footer>

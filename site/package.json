@@ -1,0 +1,23 @@
+{
+  "name": "@restless/site",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "astro dev",
+    "build": "astro build",
+    "preview": "astro preview",
+    "check": "astro check",
+    "quality": "node scripts/quality-gate.mjs",
+    "verify": "npm run quality && npm run check && npm run build"
+  },
+  "dependencies": {
+    "@fontsource-variable/archivo": "5.3.0",
+    "@fontsource-variable/source-sans-3": "5.3.0",
+    "astro": "7.2.7"
+  },
+  "devDependencies": {
+    "@astrojs/check": "0.9.10",
+    "typescript": "5.9.3"
+  }
+}

@@ -1,0 +1,60 @@
+---
+import { getCollection, render, type CollectionEntry } from 'astro:content';
+import BaseLayout from '../../layouts/BaseLayout.astro';
+
+export async function getStaticPaths() {
+  const entries = await getCollection('findings');
+  return entries.map((entry) => ({ params: { id: entry.id }, props: { entry } }));
+}
+
+interface Props {
+  entry: CollectionEntry<'findings'>;
+}
+
+const { entry } = Astro.props;
+const { Content } = await render(entry);
+const formattedDate = entry.data.publishedAt.toLocaleDateString('en-AU', {
+  day: '2-digit',
+  month: 'long',
+  year: 'numeric'
+});
+---
+
+<BaseLayout title={`${entry.data.title} | Restless`} description={entry.data.deck}>
+  <article class="finding-article">
+    <header class="finding-header">
+      <a class="back-link" href="/findings/">← All findings</a>
+      <h1>{entry.data.title}</h1>
+      <p class="finding-deck">{entry.data.deck}</p>
+      <dl class="finding-facts">
+        <div>
+          <dt>Run</dt>
+          <dd>{entry.data.run}</dd>
+        </div>
+        <div>
+          <dt>Status</dt>
+          <dd>{entry.data.status}</dd>
+        </div>
+        <div>
+          <dt>Published</dt>
+          <dd><time datetime={entry.data.publishedAt.toISOString()}>{formattedDate}</time></dd>
+        </div>
+        <div>
+          <dt>Reading time</dt>
+          <dd>{entry.data.readTime}</dd>
+        </div>
+      </dl>
+    </header>
+    <aside class="finding-callout" aria-label="Main finding">
+      <span>Finding</span>
+      <p>{entry.data.finding}</p>
+    </aside>
+    <div class="article-body">
+      <Content />
+    </div>
+    <footer class="article-footer">
+      <p>Observed in {entry.data.run}. The claim stays inside the tested model, workload and environment.</p>
+      <a href="/findings/">Continue reading <span aria-hidden="true">↗</span></a>
+    </footer>
+  </article>
+</BaseLayout>

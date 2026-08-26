@@ -52,6 +52,7 @@ crates/
 infra/company-image/     persistent company-computer image
 scripts/restless-dev     supported local cockpit stack
 web/                     live company-scoped owner cockpit (SvelteKit)
+site/                    public landing page and experiment findings journal (Astro)
 ```
 
 The workspace still avoids speculative layer crates. A boundary becomes a crate or service only

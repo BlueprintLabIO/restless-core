@@ -1,0 +1,82 @@
+---
+import { getCollection } from 'astro:content';
+import BaseLayout from '../layouts/BaseLayout.astro';
+import ResponsibilityRail from '../components/ResponsibilityRail.astro';
+import RunLedger from '../components/RunLedger.astro';
+import ArticleList from '../components/ArticleList.astro';
+
+const entries = (await getCollection('findings')).sort((a, b) => a.data.order - b.data.order);
+---
+
+<BaseLayout>
+  <section class="hero">
+    <div class="hero-copy">
+      <h1>A company that keeps <span>working.</span></h1>
+      <p class="hero-intro">
+        Give Restless an outcome. Its Exec appoints accountable leads, Staff does the work, and the
+        system brings back something you can run, inspect or approve.
+      </p>
+      <div class="hero-actions">
+        <a class="primary-action" href="/findings/">Read the evidence <span aria-hidden="true">↗</span></a>
+        <a class="text-action" href="#operating-model">See how responsibility moves</a>
+      </div>
+    </div>
+    <ResponsibilityRail />
+  </section>
+
+  <section class="proof-section" aria-labelledby="proof-heading">
+    <div class="section-heading">
+      <h2 id="proof-heading">Claims have receipts.</h2>
+      <p>
+        We publish the run that worked, the condition where it stopped working, and the product defect
+        exposed along the way.
+      </p>
+    </div>
+    <RunLedger />
+  </section>
+
+  <section class="operating-model" id="operating-model" aria-labelledby="model-heading">
+    <div class="model-statement">
+      <h2 id="model-heading">The owner sets direction. The company closes the distance.</h2>
+    </div>
+    <div class="model-rows">
+      <div class="model-row">
+        <span class="model-role">Owner</span>
+        <p>Provides judgment, taste, capital authority and the final sign-off.</p>
+      </div>
+      <div class="model-row">
+        <span class="model-role">Exec</span>
+        <p>Owns the portfolio, dispatches each executable outcome and stays available.</p>
+      </div>
+      <div class="model-row">
+        <span class="model-role">Lead</span>
+        <p>Keeps the mission intact, supervises production and judges the exact result.</p>
+      </div>
+      <div class="model-row">
+        <span class="model-role">Staff</span>
+        <p>Produces independently useful, attributable work inside a persistent company computer.</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="honesty-section" aria-labelledby="honesty-heading">
+    <div>
+      <h2 id="honesty-heading">Still unproved</h2>
+    </div>
+    <ul>
+      <li>Whether a full company release can survive live events without owner rescue.</li>
+      <li>Whether the current team shape generalises beyond GLM-5.3 and isolated test worlds.</li>
+      <li>Whether durable dispatch can return Exec availability before lead orientation finishes.</li>
+      <li>Whether exact terminal failure evidence reaches the right lead without new workflow machinery.</li>
+    </ul>
+  </section>
+
+  <section class="findings-preview" aria-labelledby="findings-heading">
+    <div class="section-heading">
+      <h2 id="findings-heading">Field notes from the build.</h2>
+      <p>Short conclusions, exact boundaries and the failures we kept.</p>
+    </div>
+    <ArticleList entries={entries} compact />
+    <a class="archive-link" href="/findings/">All findings <span aria-hidden="true">↗</span></a>
+  </section>
+</BaseLayout>
