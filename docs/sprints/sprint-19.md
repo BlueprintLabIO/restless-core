@@ -1,6 +1,8 @@
 # Sprint 19 — Owed work reaches the person who can act on it
 
-**Status:** Implementation in progress on `dev`; observed from a live `restyle` run, not from a spec review.
+**Status:** All five tickets implemented on `dev` and covered by focused tests. The live end-to-end
+probe — a running daemon carrying these changes, against a `_test` company — is an open gate: the only
+daemon on this machine is serving a live company mid-run.
 
 **Date:** 26 August 2026
 
@@ -165,11 +167,11 @@ Status lives only in this checklist.
 
 | Status | Ticket | Slice | Observed friction served | Prior machinery made deletable |
 | --- | --- | --- | --- | --- |
-| [ ] | [**S19-T1 · Make owed work a durable fact, not a wake watermark**](sprint-19/S19-T1.md) | OrgIntel + scheduler | Prepared work never reaches the Exec chat; a lead's message has no durable recovery path | `exec_conversation_is_owed`, the owner-only recovery filter, the `> latest_event_at("wake")` handoff comparison and their tests |
-| [ ] | [**S19-T2 · Reconcile every authority decision into the company**](sprint-19/S19-T2.md) | Authority + OrgIntel | A granted approval can be durably recorded and never announced; decline and revoke announce nothing | Best-effort announcement inside `grant`, and the silent decline/revoke paths |
-| [ ] | [**S19-T3 · Present the Work outcome to a reader**](sprint-19/S19-T3.md) | Owner cockpit | A 3,000-character machine contract is the first thing on the page, with dead space beside it | The `76ch`-inside-`1fr` dead zone and the unbounded raw contract block |
-| [ ] | [**S19-T4 · Say that owner-facing fields are writing**](sprint-19/S19-T4.md) | Prompts + context assembly | Owner-visible records are authored as instructions to a model | Nothing yet; this is the cheapest test of whether a Work-level brief field is needed at all |
-| [ ] | [**S19-T5 · A prepared outcome the cockpit can actually open**](sprint-19/S19-T5.md) | Company Runtime + owner cockpit | A finished `index.html` reached the owner as "this outcome does not have a directly reviewable website" | The `_ => None` review dead end and its false "not ready" copy |
+| [x] | [**S19-T1 · Make owed work a durable fact, not a wake watermark**](sprint-19/S19-T1.md) | OrgIntel + scheduler | Prepared work never reaches the Exec chat; a lead's message has no durable recovery path | `exec_conversation_is_owed`, the owner-only recovery filter, the `> latest_event_at("wake")` handoff comparison and their tests |
+| [x] | [**S19-T2 · Reconcile every authority decision into the company**](sprint-19/S19-T2.md) | Authority + OrgIntel | A granted approval can be durably recorded and never announced; decline and revoke announce nothing | Best-effort announcement inside `grant`, and the silent decline/revoke paths |
+| [x] | [**S19-T3 · Present the Work outcome to a reader**](sprint-19/S19-T3.md) | Owner cockpit | A 3,000-character machine contract is the first thing on the page, with dead space beside it | The `76ch`-inside-`1fr` dead zone and the unbounded raw contract block |
+| [x] | [**S19-T4 · Say that owner-facing fields are writing**](sprint-19/S19-T4.md) | Prompts + context assembly | Owner-visible records are authored as instructions to a model | Nothing yet; this is the cheapest test of whether a Work-level brief field is needed at all |
+| [x] | [**S19-T5 · A prepared outcome the cockpit can actually open**](sprint-19/S19-T5.md) | Company Runtime + owner cockpit | A finished `index.html` reached the owner as "this outcome does not have a directly reviewable website" | The `_ => None` review dead end and its false "not ready" copy |
 
 ## Verification
 
