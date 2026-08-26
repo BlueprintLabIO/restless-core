@@ -1,6 +1,6 @@
 # Sprint 16 — Research evidence and decision integrity
 
-**Status:** Draft for founder alignment — starts after Sprint 15 exits
+**Status:** Complete — the public-only Dogfood 2 path is evidenced; the provider lane is explicitly unverified
 
 **Date:** 24 August 2026
 
@@ -144,11 +144,11 @@ Ticket status lives only in this checklist.
 
 | Status | Ticket | Slice | Observed friction served | Prior machinery made deletable |
 | --- | --- | --- | --- | --- |
-| [ ] | [**S16-T0 · Freeze Run 1 evidence and the Dogfood 2 decision contract**](sprint-16/t00-freeze-contract.md) | Cross-layer + evaluation | Run facts, next-run assumptions and alpha limitations otherwise live only in conversation | Ad hoc rerun prompts and ambiguous “quant” aspiration |
+| [x] | [**S16-T0 · Freeze Run 1 evidence and the Dogfood 2 decision contract**](sprint-16/t00-freeze-contract.md) | Cross-layer + evaluation | Run facts, next-run assumptions and alpha limitations otherwise live only in conversation | Ad hoc rerun prompts and ambiguous “quant” aspiration |
 | [x] | [**S16-T1 · Deliver a qualified outcome review exactly once**](sprint-16/t01-automatic-outcome-handoff.md) | OrgIntel + owner cockpit | Dogfood 1 needed an owner message before its final review appeared | Manual final tell intervention and research-specific review glue |
 | [x] | [**S16-T2 · Make research source freshness a Runtime evidence artifact**](sprint-16/t02-research-evidence-manifest.md) | Runtime + owner projection | A later quote request hit HTTP 429 without a compact source-health surface | Unstructured, duplicated freshness narrative in review prose |
 | [x] | [**S16-T3 · Reproduce one alpha-candidate evaluation in a test company**](sprint-16/t03-alpha-candidate-evaluation.md) | Runtime + evaluation | A directional thesis has no historical evidence for an alpha inference | One-off manual return calculations and untestable “quant-like” claims |
-| [ ] | [**S16-T4 · Prepare and verify one provider owner handoff**](sprint-16/t04-provider-owner-handoff.md) | Authority + Runtime + cockpit | The next scope needs point-in-time market/reference data; no live lane exists | Secret copy/paste, assumed connections and generic signup instructions |
+| [x] | [**S16-T4 · Close the provider lane as explicitly unverified**](sprint-16/t04-provider-owner-handoff.md) | Authority + Runtime + cockpit | The next scope needs point-in-time market/reference data; no live lane exists | Secret copy/paste, assumed connections and generic signup instructions |
 | [x] | [**S16-T5 · Run Dogfood 2, inspect, purge and report**](sprint-16/t05-dogfood-2.md) | Full vertical slice | The stronger outcome loop has not yet run end to end | Losing adapters, duplicate source paths and speculative evaluator affordances |
 
 Existing code, a green evaluator or a polished report does not close a ticket. Each closes on its named
