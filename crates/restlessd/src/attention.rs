@@ -112,6 +112,12 @@ pub struct AttentionSource {
     pub plane: &'static str,
     pub kind: String,
     pub reference: String,
+    /// An Authority approval's exact counterparty. This remains source data,
+    /// not a generic target or a new action lifecycle; the owner CLI needs it
+    /// to point back to `restless approve --party …` without reverse-parsing
+    /// the projection id.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub party: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -302,6 +308,7 @@ pub async fn project(
                 plane: "authority",
                 kind: "approval_required".into(),
                 reference: event.id.to_string(),
+                party: Some(party.clone()),
             },
             category: "approval".into(),
             title: format!("First contact: {party}"),
@@ -820,6 +827,7 @@ pub async fn project(
                 plane: "orgintel",
                 kind: "owner_handoff".into(),
                 reference: handoff.id.to_string(),
+                party: None,
             },
             category: category.into(),
             title: payment_title.unwrap_or_else(|| brief.map_or_else(|| fallback_title.to_string(), |brief| brief.headline.clone())),

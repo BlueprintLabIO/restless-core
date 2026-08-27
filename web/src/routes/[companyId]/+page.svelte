@@ -212,7 +212,7 @@
 	}
 
 	function partyOf(item: AttentionItem): string {
-		return item.id.startsWith('authority:approval:') ? item.id.split(':').slice(3).join(':') : '';
+		return item.source.party ?? '';
 	}
 
 	async function decide(item: AttentionItem, action: 'grant' | 'decline') {

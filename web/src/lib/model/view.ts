@@ -7,6 +7,8 @@ export interface AttentionItem {
 		plane: 'authority' | 'orgintel' | 'runtime' | string;
 		kind: string;
 		reference: string;
+		/** Authority-only: the exact party the typed approval controls. */
+		party?: string;
 	};
 	category: 'approval' | 'review' | 'blocker' | string;
 	title: string;

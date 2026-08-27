@@ -93,10 +93,14 @@ enum Command {
         #[arg(long, short = 'c', env = "RESTLESS_COMPANY")]
         company: Option<String>,
     },
-    /// Outstanding owner work, projected from Authority and OrgIntel.
+    /// Owner attention, projected from its source planes.
     Attention {
         #[arg(long, short = 'c', env = "RESTLESS_COMPANY")]
         company: Option<String>,
+        /// Render the compact owner queue and the existing source-owned typed
+        /// commands. Omit for the full JSON projection.
+        #[arg(long)]
+        summary: bool,
     },
     /// Persistent browser controller coordination and health.
     Browser {
@@ -1031,6 +1035,15 @@ fn main() -> Result<()> {
             watch(&request.to_string())
         }
         Command::Doctor { company } => doctor(company),
+        Command::Attention { company, summary } => {
+            let request = stamp(serde_json::json!({ "cmd": "attention", "company": company }));
+            let response = request_once(&request.to_string())?;
+            if summary {
+                print_attention_summary(&response)
+            } else {
+                print_response(&response)
+            }
+        }
         other => {
             let request = stamp(request_json(other)?);
             let response = request_once(&request.to_string())?;
@@ -1255,7 +1268,7 @@ fn request_json(command: Command) -> Result<serde_json::Value> {
         Command::OrgintelInit { company: c } => {
             serde_json::json!({ "cmd": "orgintel-init", "company": c })
         }
-        Command::Attention { company: c } => {
+        Command::Attention { company: c, .. } => {
             serde_json::json!({ "cmd": "attention", "company": c })
         }
         Command::Browser { command } => match command {
@@ -1741,6 +1754,188 @@ fn print_response(response: &str) -> Result<()> {
     Ok(())
 }
 
+/// `attention` is the one unified *read* surface for owner control. The
+/// lines below deliberately point at the already-typed source commands;
+/// there is no `attention act` endpoint and no universal mutation algebra.
+fn print_attention_summary(response: &str) -> Result<()> {
+    let data = response_data(response)?;
+    println!("{}", render_attention_summary(&data));
+    Ok(())
+}
+
+fn render_attention_summary(data: &serde_json::Value) -> String {
+    let company = data
+        .pointer("/company/id")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("<unknown-company>");
+    let display_company = data
+        .pointer("/company/name")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or(company);
+    let items = data
+        .get("items")
+        .and_then(serde_json::Value::as_array)
+        .map(Vec::as_slice)
+        .unwrap_or(&[]);
+
+    let mut lines = vec![format!("Attention · {display_company}")];
+    let source_health = ["authority", "orgintel", "runtime", "browser"]
+        .iter()
+        .filter_map(|source| {
+            data.pointer(&format!("/source_health/{source}"))
+                .and_then(serde_json::Value::as_str)
+                .map(|status| format!("{source}={status}"))
+        })
+        .collect::<Vec<_>>();
+    if !source_health.is_empty() {
+        lines.push(format!("Sources: {}", source_health.join(" · ")));
+    }
+
+    if items.is_empty() {
+        lines.push("No owner attention is currently projected.".into());
+        return lines.join("\n");
+    }
+
+    lines.push(format!(
+        "{} {} {} your attention.",
+        items.len(),
+        if items.len() == 1 { "item" } else { "items" },
+        if items.len() == 1 { "needs" } else { "need" }
+    ));
+    for (index, item) in items.iter().enumerate() {
+        let category = item["category"].as_str().unwrap_or("attention");
+        let title = item["title"].as_str().unwrap_or("Untitled owner request");
+        lines.push(String::new());
+        lines.push(format!(
+            "{}. {} · {title}",
+            index + 1,
+            category.replace('_', " ")
+        ));
+
+        let plane = item
+            .pointer("/source/plane")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("unknown");
+        let kind = item
+            .pointer("/source/kind")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("unknown");
+        let reference = item
+            .pointer("/source/reference")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("unknown");
+        lines.push(format!("   Source: {plane} / {kind} / {reference}"));
+        if let Some(recommendation) = compact_attention_text(item["recommendation"].as_str()) {
+            lines.push(format!("   Recommendation: {recommendation}"));
+        }
+        if let Some(action) = compact_attention_text(item["requested_action"].as_str()) {
+            lines.push(format!("   Requested: {action}"));
+        }
+        if let Some(wait) = compact_attention_text(item["if_no_action"].as_str()) {
+            lines.push(format!("   If you wait: {wait}"));
+        }
+        if let Some(deadline) = compact_attention_text(item["deadline"].as_str()) {
+            lines.push(format!("   Deadline: {deadline}"));
+        }
+
+        let actions = item
+            .get("actions")
+            .and_then(serde_json::Value::as_array)
+            .map(Vec::as_slice)
+            .unwrap_or(&[]);
+        if !actions.is_empty() {
+            lines.push("   Controls:".into());
+            for action in actions {
+                lines.push(format!(
+                    "   - {}",
+                    attention_control_instruction(company, item, action)
+                ));
+            }
+        }
+    }
+    lines.join("\n")
+}
+
+fn compact_attention_text(value: Option<&str>) -> Option<String> {
+    value
+        .map(|text| text.split_whitespace().collect::<Vec<_>>().join(" "))
+        .filter(|text| !text.is_empty())
+}
+
+fn attention_control_instruction(
+    company: &str,
+    item: &serde_json::Value,
+    action: &serde_json::Value,
+) -> String {
+    let label = action["label"].as_str().unwrap_or("Act");
+    if let Some(href) = action["href"].as_str().filter(|href| !href.is_empty()) {
+        return format!("{label}: open {href} in your normal browser");
+    }
+
+    let reference = item
+        .pointer("/source/reference")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("<unknown-handoff>");
+    let party = item
+        .pointer("/source/party")
+        .and_then(serde_json::Value::as_str);
+    let work_id = item["work_id"].as_str();
+    let responsible_actor = item
+        .pointer("/responsible_actor/id")
+        .and_then(serde_json::Value::as_str);
+    let command_company = shell_quote(company);
+    let command = match action["id"].as_str() {
+        Some("grant") => party.map(|party| {
+            format!(
+                "restless approve -c {command_company} --party {}",
+                shell_quote(party)
+            )
+        }),
+        Some("decline") => party.map(|party| {
+            format!(
+                "restless approve -c {command_company} --party {} --decline",
+                shell_quote(party)
+            )
+        }),
+        Some("accept-review") => Some(format!(
+            "restless work review -c {command_company} --handoff {} --decision accept",
+            shell_quote(reference)
+        )),
+        Some("request-revision") => Some(format!(
+            "restless work review -c {command_company} --handoff {} --decision request_changes --feedback '<your exact feedback>'",
+            shell_quote(reference)
+        )),
+        Some("record-decision") => Some(format!(
+            "restless work resolve-handoff -c {command_company} --handoff {} --state resolved --resolution '<your decision>'",
+            shell_quote(reference)
+        )),
+        Some("chat-lead") => responsible_actor.zip(work_id).map(|(actor, work)| {
+            format!(
+                "restless message -c {command_company} --to {} --work {} '<your message>'",
+                shell_quote(actor),
+                shell_quote(work)
+            )
+        }),
+        Some("open-outcome") => {
+            Some("open the prepared native review target in the Cockpit before deciding".into())
+        }
+        _ => None,
+    };
+
+    command.map_or_else(
+        || {
+            let consequence = compact_attention_text(action["consequence"].as_str())
+                .unwrap_or_else(|| "inspect the source item in the Cockpit".into());
+            format!("{label}: {consequence}")
+        },
+        |command| format!("{label}: {command}"),
+    )
+}
+
+fn shell_quote(value: &str) -> String {
+    format!("'{}'", value.replace('\'', "'\"'\"'"))
+}
+
 fn response_data(response: &str) -> Result<serde_json::Value> {
     let parsed: serde_json::Value = serde_json::from_str(response).context("parse response")?;
     if parsed["ok"].as_bool() == Some(true) {
@@ -2115,6 +2310,69 @@ fn request_once(line: &str) -> Result<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn attention_summary_keeps_each_control_on_its_typed_write_path() {
+        let projection = serde_json::json!({
+            "company": { "id": "demo_test", "name": "Demo test" },
+            "source_health": {
+                "authority": "available",
+                "orgintel": "available",
+                "runtime": "available",
+                "browser": "available"
+            },
+            "items": [
+                {
+                    "category": "approval",
+                    "title": "First contact: design@example.test",
+                    "source": {
+                        "plane": "authority",
+                        "kind": "approval_required",
+                        "reference": "41",
+                        "party": "design@example.test"
+                    },
+                    "requested_action": "Allow or decline first contact.",
+                    "if_no_action": "Nothing is sent.",
+                    "actions": [
+                        { "id": "grant", "label": "Grant first contact", "consequence": "Allows contact." },
+                        { "id": "decline", "label": "Decline", "consequence": "Closes request." }
+                    ]
+                },
+                {
+                    "category": "review",
+                    "title": "Review the prepared site",
+                    "work_id": "0c5a5e28-6b4d-4b92-a39f-0a9c38d53552",
+                    "source": {
+                        "plane": "orgintel",
+                        "kind": "owner_handoff",
+                        "reference": "2c5a5e28-6b4d-4b92-a39f-0a9c38d53552"
+                    },
+                    "responsible_actor": { "id": "site-lead" },
+                    "requested_action": "Inspect the outcome.",
+                    "if_no_action": "Work remains paused.",
+                    "actions": [
+                        { "id": "accept-review", "label": "Accept outcome", "consequence": "Completes Work." },
+                        { "id": "request-revision", "label": "Request changes", "consequence": "Starts revision." },
+                        { "id": "chat-lead", "label": "Talk with lead", "consequence": "Opens conversation." }
+                    ]
+                }
+            ]
+        });
+
+        let rendered = render_attention_summary(&projection);
+
+        assert!(rendered.contains("restless approve -c 'demo_test' --party 'design@example.test'"));
+        assert!(rendered.contains(
+            "restless approve -c 'demo_test' --party 'design@example.test' --decline"
+        ));
+        assert!(rendered.contains(
+            "restless work review -c 'demo_test' --handoff '2c5a5e28-6b4d-4b92-a39f-0a9c38d53552' --decision accept"
+        ));
+        assert!(rendered.contains(
+            "restless message -c 'demo_test' --to 'site-lead' --work '0c5a5e28-6b4d-4b92-a39f-0a9c38d53552' '<your message>'"
+        ));
+        assert!(!rendered.contains("restless attention act"));
+    }
 
     #[test]
     fn internal_coordination_cannot_accidentally_address_the_owner() {
