@@ -52,7 +52,6 @@ crates/
 infra/company-image/     persistent company-computer image
 scripts/restless-dev     supported local cockpit stack
 web/                     live company-scoped owner cockpit (SvelteKit)
-site/                    public landing page and experiment findings journal (Astro)
 ```
 
 The workspace still avoids speculative layer crates. A boundary becomes a crate or service only
@@ -61,6 +60,11 @@ when a proved slice needs an independent ownership or failure boundary.
 `web/` began as the strongest salvaged surface, then had its fixture truth removed. It now reads and
 writes through company-scoped owner APIs; the supported local entrypoint is `scripts/restless-dev`,
 not a standalone Vite shell. See [`web/README.md`](./web/README.md).
+
+The public landing page and experiment findings journal now live in the sibling
+[`restless-cloud` repository](https://github.com/BlueprintLabIO/restless-cloud) at `apps/public/`.
+Core retains the local company cell and the historical experiment evidence that the public research
+locators reference.
 
 ## How we work
 
