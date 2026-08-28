@@ -133,6 +133,19 @@ used materially less owner, Exec and model activity than relay while matching us
 opportunity lead completed useful updates and produced zero quiet-interval activity. No new Mission
 entity or workflow engine follows from that result.
 
+EXP-10 extends that result to a playable product and a time-driven review. One standing lead closed two
+useful Staff-owned game cycles, recovered a killed productive process, suppressed an exact duplicate
+and then correctly did nothing at a scheduled inspection. The schedule was a one-shot durable fact
+addressed to that lead. It did not recur, wake Exec or manufacture a reason to build. Continuous
+company operation therefore combines material external or internal events with occasional reasoned
+time facts; neither is a heartbeat, and both may end in quiet.
+
+The same run shows where mechanical support still matters. Deterministic acceptance gates are
+operational evidence, not immutable doctrine: a mistaken command must be retired with its history
+preserved and replaced without inventing a new outcome. Missing final usage after observable text or
+tool activity is likewise incomplete evidence, not proof that the model never ran. These are recovery
+facts below the lead's judgement, not reasons to script how the lead plans or communicates.
+
 ## Why fast agents change the shape
 
 Fast inference makes an individual worker's production cheap relative to briefing and integration. A

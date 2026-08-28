@@ -1,0 +1,85 @@
+{
+  "experiment": "EXP-10",
+  "run": "exp10_swift_continuous_r1_test",
+  "date": "2026-08-28",
+  "status": "complete_founder_taste_pending",
+  "disposition": "thin_affordance",
+  "model": "zai/glm-5.3",
+  "configured_effort": "medium",
+  "spend_ceiling_usd": 25.0,
+  "source_baseline_commit": "3dc502ae9938dafccd26286e0d28ee8f50dc60c1",
+  "experiment_baseline_commit": "75812057aef17b4e1173ba0707d4b2d1935ed856",
+  "cycle_1_accepted_commit": "a4751a20391a032fe3e7733fee9e5b37130a8f16",
+  "injected_regression_commit": "5ed412cd595b47224eff3c999aa0ea76d811aee2",
+  "final_commit": "f9f5e61ed733d8479cf2ae3078779c73db457317",
+  "final_tree": "aa1ad3960e1468eb2f38d17946d597e96d9d0a5a",
+  "final_repository_clean": true,
+  "external_effects": 0,
+  "owner_interventions_after_start": 0,
+  "work": {
+    "total": 3,
+    "completed": 2,
+    "abandoned": 1
+  },
+  "attempts": {
+    "total": 8,
+    "produced": 2,
+    "blocked": 2,
+    "failed": 4
+  },
+  "model_attempts": {
+    "total": 25,
+    "exec": 2,
+    "lead": 16,
+    "staff": 7
+  },
+  "completed_turn_usage_events": {
+    "total": 23,
+    "exec": 2,
+    "lead": 16,
+    "staff": 5,
+    "note": "Two deliberately killed Staff turns did not emit final usage."
+  },
+  "charged_spend": {
+    "records": 217,
+    "total_usd": 2.624257,
+    "exec_usd": 0.096299,
+    "lead_usd": 1.213287,
+    "staff_usd": 1.314671
+  },
+  "latency_seconds": {
+    "p01_signal_to_lead_acceptance": 1782.226,
+    "duplicate_p01_judgement": 9.761,
+    "b01_signal_to_lead_acceptance": 519.216,
+    "killed_attempt_to_same_work_resume": 12.544,
+    "schedule_due_to_atomic_fire": 4.408,
+    "schedule_due_to_model_attempt": 4.43,
+    "quiet_control": 83
+  },
+  "duplicate_control": {
+    "redeliveries": 1,
+    "duplicate_work": 0,
+    "duplicate_artifacts": 0
+  },
+  "schedule_control": {
+    "id": "84b4f86b-6255-4a4e-9046-5bcf7f59bb62",
+    "target": "swiftarrival-product",
+    "work_id": null,
+    "delivery_count": 1,
+    "exec_wakes": 0,
+    "new_work": 0,
+    "successor_schedules": 0,
+    "survived_daemon_restart": true
+  },
+  "quiet_snapshot": {
+    "events": 126,
+    "max_event_id": 126,
+    "model_attempts": 25,
+    "work_total": 3,
+    "pending_schedules": 0,
+    "main_commit": "f9f5e61ed733d8479cf2ae3078779c73db457317",
+    "main_tree": "aa1ad3960e1468eb2f38d17946d597e96d9d0a5a",
+    "dirty_entries": 0,
+    "unchanged_after_seconds": 83
+  }
+}

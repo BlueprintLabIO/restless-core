@@ -1,6 +1,6 @@
 # Swift Arrival Dogfood 4 — Networked delivery walking skeleton
 
-**Status:** Technical loop verified; v0.3 continuous-product experiment active; founder review pending
+**Status:** Technical loop and v0.3 continuous-product experiment verified; founder review pending
 **Version:** 0.3
 **Type:** Standard build dogfood / first product-feasibility run
 **Company:** `swift_arrival_test`
@@ -26,6 +26,21 @@ The controlled sequence, recovery injection, metrics and stop conditions are fro
 [`EXP-10`](../../../experiment/coordination/experiments/EXP-10/README.md). This amendment does not turn
 the technically passing baseline into founder taste acceptance. The founder remains the final evaluator
 of whether the resulting native game deserves continued investment.
+
+### Version 0.3 result
+
+EXP-10 completed in an isolated `_test` company at exact candidate commit
+`f9f5e61ed733d8479cf2ae3078779c73db457317`. One Staff-owned cycle reduced debug dominance and
+overlapping labels and added explicit objective/route cues while preserving the positive two-player
+delivery. A second cycle recovered a deliberately killed worker, removed an injected parse regression
+and added a passing outside-zone negative release probe. An exact duplicate created no Work; one
+direct scheduled review found no new evidence, created no production and was followed by an 83-second
+zero-delta interval.
+
+The source `swift_arrival_test` company was not silently advanced: failure injection and accepted
+experimental changes remain isolated until founder judgement. Review the exact before/after target in
+[`FOUNDER_REVIEW.md`](../../../experiment/coordination/experiments/EXP-10/FOUNDER_REVIEW.md) and the
+full architectural result in [`RESULTS.md`](../../../experiment/coordination/experiments/EXP-10/RESULTS.md).
 
 ## Why this run exists
 

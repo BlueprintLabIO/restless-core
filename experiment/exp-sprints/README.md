@@ -34,5 +34,6 @@ does not authorise live-company effects, production promotion or an expanded tas
   signal and no-op behavior, and needs only thin lineage, promotion and terminal-callback repairs on
   the existing primitives.
 - [`exp-sprint-10-continuous-product-development.md`](exp-sprint-10-continuous-product-development.md)
-  — active; applies standing responsibility to repeated improvement of the real Swift Arrival game,
-  including direct scheduled review, duplicate suppression, local failure recovery and exact idle.
+  — complete; a standing lead closed two useful Staff-owned game cycles, suppressed an exact
+  duplicate, recovered a killed worker, handled one direct scheduled review and stayed idle. Existing
+  primitives won after three thin repairs; gate/workspace specification remains the main churn source.

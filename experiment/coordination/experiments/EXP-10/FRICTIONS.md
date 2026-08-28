@@ -1,0 +1,16 @@
+# EXP-10 friction dispositions
+
+| ID | Observed friction | Attribution | Impact | Disposition |
+| --- | --- | --- | --- | --- |
+| F10-01 | The seed repository was placed at `/company/projects/swift-arrival`, while Runtime Work resolves repositories under `/company/repos/` | Experimental setup | Attempt 1 failed immediately | **Accepted and corrected:** future company fixtures use the Runtime's canonical repository root; no product abstraction |
+| F10-02 | Killing an ACP process after text/tool activity returned `Completed` without final usage and was classified as a zero-token no-op | Harness defect | Useful state was preserved but Cycle 1 entered an unnecessary cooldown, lead escalation and Exec repair | **Fixed:** observable activity plus missing/zero final usage is resumable; genuinely empty completion remains no-op |
+| F10-03 | While the model was cooling, the scheduler retried the same unread wake every few seconds | Harness inefficiency | Log and scheduler churn, but no additional charged model call or lost state | **Pending fix:** retry at the provider's next eligible time after a real cooldown; the repaired F10-02 path no longer creates this spuriously |
+| F10-04 | Deterministic Work gates could be added but not corrected | Product defect | A bad path forced one healthy Work node to be abandoned and recreated | **Fixed:** evidence-backed gate retirement preserves historical runs; a replacement is declared before the same Work resumes |
+| F10-05 | Lead-authored gates repeatedly assumed the wrong cwd/path or omitted required argv | Coordination judgement plus poor affordance | Four failed Attempts and one replacement Work; dominant latency/cost source | **Pending thin product work:** make candidate-local `@attempt` the documented and surfaced default; show the exact gate execution cwd before declaration; do not add a workflow engine |
+| F10-06 | Cycle 1 Work omitted `integration_branch` | Lead specification | Accepted commit was not automatically promoted; evaluator performed a controlled fast-forward before Cycle 2 | **Pending guidance:** final accepted repository Work names the existing shared branch, normally `main`; templates may prefill this after transfer evidence |
+| F10-07 | A hot lead session did not know about the newly deployed gate-retirement command | In-run deployment artifact | One explicit factual wake was needed to use the repair | **Accepted:** actors are not expected to infer tools added mid-session; fresh/reconstructed sessions receive the current contract |
+| F10-08 | A newly migrated schema could fire a direct Schedule before any recovery path had provisioned the internal `daemon` message sender | Harness bootstrap defect found by final live-Postgres verification | Direct schedule claim violated the message foreign key on a fresh company schema | **Fixed:** every company migration now seeds the reserved daemon identity; idle schedule polls do not perform actor writes |
+
+F10-02, F10-04 and F10-08 required immediate code. F10-05 is now the priority bottleneck because it
+caused real economic churn after the recovery path itself worked. F10-03 is bounded scheduler debt;
+fix it when provider cooldown work is next touched rather than growing a second retry system.

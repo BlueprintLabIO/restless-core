@@ -217,7 +217,7 @@ The mechanism matters. Knowing *why* a failure happens tells you which cure will
 
 ### The one that keeps coming back: unknown is not a value
 
-This failure has now been shipped **four times in one codebase**, in four
+This failure has now been shipped **five times in one codebase**, in five
 disguises, each caught only after it cost something:
 
 ```
@@ -225,9 +225,10 @@ classify_turn(Option<u64>, …)   None meant "unknown" and was read as zero
 outcome allowlist               an unrecognised status word was read as failure
 turn end                        a wedge, a failure and a budget halt all read as "consumed nothing"
 receipts                        a self-attested outcome was tallied as a confirmed one
+ACP process exit                missing final usage after real text/tool activity was read as no-op
 ```
 
-The cure is not vigilance — vigilance failed all four times. It is **making the
+The cure is not vigilance — vigilance failed all five times. It is **making the
 third state expressible in the type**, so the compiler asks the question:
 
 ```rust
@@ -239,6 +240,11 @@ enum TurnEnd { Completed{..}, Wedged{..}, OverBudget{..}, Failed{..} }
 The tell that you are about to ship it again: a function takes two `Option`s and
 a comment explains how to interpret them together. That comment is the invariant
 that should have been a type, and the next caller will not read it.
+
+EXP-10 sharpened the runtime rule: final usage is one observation, not the definition of whether a
+turn ran. If the process emitted text or attempted a tool, missing or zero final usage means the turn
+was interrupted and may have durable work to resume. Only a completed turn with neither usage nor
+observable activity is evidence for the no-op/provider path.
 
 Two of these diagnoses do most of the work:
 

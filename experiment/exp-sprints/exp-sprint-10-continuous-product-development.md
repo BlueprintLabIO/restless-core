@@ -1,6 +1,6 @@
 # Experiment Sprint 10 - Continuous product development
 
-**Status:** Active
+**Status:** Complete; founder taste review pending
 
 **Decision owner:** Founder
 
@@ -135,3 +135,23 @@ Observe a quiet interval after the turn. No model, Work, commit or artifact acti
 5. Recovery, duplicate and quiet-interval observations.
 6. Concise result, machine-readable metrics, friction dispositions and architectural decision.
 7. Updates to the evidence index and coordination canon only for supported claims.
+
+## Result
+
+The frozen sequence completed on 28 August 2026. Cycle 1 made a narrow but visible legibility
+improvement without breaking the two-player loop; exact duplicate delivery created no Work; Cycle 2
+repaired a real injected parse regression, recovered useful state after the exact worker was killed,
+and added a passing outside-zone negative probe; Cycle 3 delivered one durable review directly to the
+lead, correctly produced no Work and stayed exactly idle for the following 83 seconds.
+
+The disposition is **`thin affordance`**. Existing primitives suffice after direct one-shot Schedule
+delivery, observable-activity recovery classification and evidence-preserving gate retirement. No
+Mission, heartbeat, recurrence engine or poller is earned. The important negative result is operating
+efficiency: bad workspace/gate specifications caused four failed Attempts and made lead spend nearly
+equal Staff spend. Candidate-local gate ergonomics, not a larger coordination model, is the next
+product bottleneck.
+
+See the exact [`result`](../coordination/experiments/EXP-10/RESULTS.md),
+[`metrics`](../coordination/experiments/EXP-10/metrics.json),
+[`frictions`](../coordination/experiments/EXP-10/FRICTIONS.md) and prepared
+[`founder review`](../coordination/experiments/EXP-10/FOUNDER_REVIEW.md).

@@ -1,6 +1,6 @@
 # EXP-10 execution record
 
-**Status:** Active; contract frozen before scheduler repair or live cycles
+**Status:** Complete; result is `thin affordance`, founder taste review pending
 **Date:** 28 August 2026
 
 This directory executes
@@ -31,5 +31,16 @@ probe logs. Controlled events and injected defects remain visibly test-only.
 8. the due schedule wakes the lead once; no new evidence should produce a no-op;
 9. a final quiet interval checks for hidden activity.
 
-The schedule implementation is part of the treatment only if a live preflight proves the documented
-Schedule primitive cannot currently wake a non-Exec accountable actor.
+The preflight proved the Schedule primitive could not wake a non-Exec accountable actor, so the
+smallest direct-delivery repair became part of the treatment. The full sequence then completed.
+
+## Result set
+
+- [`RESULTS.md`](RESULTS.md) — narrative result and architectural decision;
+- [`metrics.json`](metrics.json) — source-derived counts, latency, spend and lineage;
+- [`FRICTIONS.md`](FRICTIONS.md) — harness, setup and coordination failures with dispositions; and
+- [`FOUNDER_REVIEW.md`](FOUNDER_REVIEW.md) — prepared before/after native target and exact judgement.
+
+The accepted experimental repository is clean at
+`f9f5e61ed733d8479cf2ae3078779c73db457317`. It is intentionally isolated from the source Dogfood 4
+company; no experimental injection or inferred founder acceptance was promoted into that company.

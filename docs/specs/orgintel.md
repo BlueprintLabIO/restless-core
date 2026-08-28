@@ -652,7 +652,8 @@ The stable coordination substrate should stay small:
   A reviewer with revision power requires that same producer, and the pair is created atomically.
 - **Message** — targeted communication.
 - **Decision** — named choice with owner and rationale.
-- **Schedule** — durable future time fact that can release its exact blocker.
+- **Schedule** — durable future time fact that can release its exact blocker or wake its exact
+  accountable actor once for judgement.
 - **Owner handoff** — a prepared last mile for identity, CAPTCHA, MFA, legal attestation, payment confirmation, or irreducible owner judgement.
 - **Artifact reference** — pointer to real work in files, Git, or external tools.
 - **Event** — lightweight operational observation.
@@ -690,6 +691,18 @@ Attempt records the exact upstream artifact versions, input fingerprint, and Wor
 received. Review `changes_requested` invalidates the producer artifact and hard descendants into a
 new revision. Do not add leases, custody protocols, a scripted conversation lifecycle, or universal
 commands.
+
+Deterministic Work gates are repairable operational state. When evidence shows a gate was mis-specified,
+the accountable coordinator may retire it with actor, reason and historical runs preserved, declare a
+replacement, and explicitly resume the same Work. Retired gates do not participate in later completion
+judgement. A gate declaration is not rewritten in place, and healthy outcome responsibility is not
+abandoned merely to correct a command.
+
+A Work-linked Schedule releases only that exact blocker. A free-standing Schedule for a non-Exec
+active lead atomically marks the time fact fired and creates one durable message for that lead; it does
+not wake Exec as a relay. The message states that time permits inspection but proves neither the need
+for production nor completion. Recurrence remains later actor judgement expressed, when warranted, as
+another one-shot Schedule rather than scheduler policy.
 
 One durable actor has one live cognitive process. A free-form conversation wake, including the
 singleton Exec wake, excludes that actor from Work claims until it ends; a running Work Attempt in

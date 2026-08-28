@@ -96,6 +96,14 @@ This index maps current claims to inspectable evidence. It does not copy raw tra
 | [`Terminal callback replay`](experiments/EXP-09/results/terminal-callback-r6.json) | Staff sent no ceremonial status mail; Runtime-observed producer completion woke the lead, the reviewer inherited the exact producer commit, exact reviewed promotion stayed clean, and final completion woke the lead without owner or Exec relay. |
 | [`EXP-09 synthesis`](experiments/EXP-09/RESULTS.md) | Existing Goal/responsibility, Work/Attempt, Message, artifact, Git and Runtime primitives suffice after thin exact-lineage, workspace reconstruction, safe-promotion and recoverable terminal-outbox repairs. No Mission entity, poller or workflow engine is earned. |
 
+## Experiment Sprint 10
+
+| Evidence | What it supports or challenges |
+|---|---|
+| [`EXP-10 result`](experiments/EXP-10/RESULTS.md) + [`metrics`](experiments/EXP-10/metrics.json) | One standing lead closed two useful Staff-owned game cycles, suppressed an exact duplicate, recovered a deliberately killed worker in 12.544 seconds, delivered one direct scheduled review and then stayed exactly idle for 83 seconds. The run cost USD 2.624257 but incurred four failed Attempts from setup and gate specification. |
+| [`Founder review`](experiments/EXP-10/FOUNDER_REVIEW.md) | Before/after native captures show quieter telemetry, smaller world labels and explicit route/objective cues. Technical probes pass; founder taste and continued-investment judgement remain unknown. |
+| [`Friction dispositions`](experiments/EXP-10/FRICTIONS.md) | Missing final usage after observable activity must resume, not become no-op; mistaken deterministic gates require evidence-preserving retirement. Candidate-local gate ergonomics remains the dominant unresolved churn source. |
+
 ## External research priors
 
 These guide experiment selection but do not count as Restless product evidence.

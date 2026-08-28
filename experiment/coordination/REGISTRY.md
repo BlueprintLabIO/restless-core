@@ -62,6 +62,12 @@ Historical v23 remains indexed in `EVIDENCE.md` and does not change a cell above
 |---|---|---|---|---|
 | **EXP-09** | Can durable responsibility sustain useful multi-cycle work with less owner prompting while remaining correctly idle? | Owner/Exec relay versus direct standing editorial lead; direct standing opportunity lead across six signal classes; terminal callback replay | accepted | Keep current concepts. Carry thin lineage, promotion, workspace-reconstruction and terminal-outbox repairs into Dogfood 5. Next prove Authority-owned real inbound projection and governed effects; do not add a Mission entity or poller. |
 
+## EXP-10 continuous product development
+
+| ID | Question | Shape | Status | Next gate |
+|---|---|---|---|---|
+| **EXP-10** | Can one standing supervisor lead improve a real playable product across material and timed signals, recover local failure and remain quiet without repeated owner decomposition? | One Game Product lead, one Godot Staff worker, playtest signal plus exact duplicate, injected executable regression, killed productive process, direct one-shot review and quiet control | accepted | Keep existing concepts plus three thin repairs: direct actor Schedule delivery, observable-activity resume and gate retirement. Before unattended product mode, dogfood one authenticated inbound source and make candidate-local gate execution context the obvious default. |
+
 ## Wildcards
 
 | ID | Wildcard | Family | Dependency | Status | Next gate |

@@ -148,7 +148,10 @@ with repeatable `--gate` JSON. Initial gates, dependencies, and the Work node co
 prose requirement or a gate added after creation can race the scheduler and does not constrain the
 first Attempt. Atomic gates run from the current Attempt workspace on every revision.
 They run in the order declared, so a generated-code, migration, build, or test step can deliberately
-prepare the state observed by the next check without relying on timestamp or UUID ordering.
+prepare the state observed by the next check without relying on timestamp or UUID ordering. If
+evidence proves a gate itself is wrong, retire that gate with the exact reason, declare the replacement
+and resume the same Work. Retirement preserves every historical run; it is not permission to weaken a
+valid failed check or abandon healthy outcome responsibility merely to change a path.
 
 `blocked` names an explicit condition that prevents the Work from advancing. An **owner handoff** is
 the narrower human boundary: identity, CAPTCHA, MFA, legal attestation, payment confirmation, or
