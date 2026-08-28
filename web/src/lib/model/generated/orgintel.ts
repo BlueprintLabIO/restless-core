@@ -87,7 +87,7 @@ export type WorkAttemptFeedbackRow = { attempt_id: string, message_id: number, }
 
 export type ArtifactRefRow = { id: string, kind: string, uri: string, note: string, created_by: string, work_id: string | null, attempt_id: string | null, digest: string | null, source_commit: string | null, runtime_generation: string | null, label: string, state: ArtifactRefState, created_at: string, superseded_at: string | null, };
 
-export type WorkGateRow = { id: string, work_id: string, name: string, cwd: string, command: JsonValue, created_by: string, sequence_no: number, created_at: string, };
+export type WorkGateRow = { id: string, work_id: string, name: string, cwd: string, command: JsonValue, created_by: string, sequence_no: number, created_at: string, retired_at: string | null, retired_by: string | null, retired_reason: string | null, };
 
 export type WorkGateRunRow = { id: string, gate_id: string, attempt_id: string, exit_code: number | null, output_digest: string, output_excerpt: string, passed: boolean, ran_at: string, };
 
