@@ -996,12 +996,20 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
                         }
                         "spend_ceiling_usd" => runtime::SpendCeiling::parse(value)
                             .map(|parsed| config.spend_ceiling_usd = parsed),
+                        "max_customer_contact_emails_per_party" => value
+                            .parse::<u16>()
+                            .context(
+                                "max_customer_contact_emails_per_party must be a whole number from 0 to 65535",
+                            )
+                            .map(|parsed| {
+                                config.max_customer_contact_emails_per_party = Some(parsed)
+                            }),
                         _ if key.starts_with("credentials.") => {
                             config.credentials.insert(key[12..].to_string(), value.to_string());
                             Ok(())
                         }
                         _ => Err(anyhow::anyhow!(
-                            "unknown company key {key:?}; use mission, model, model_failover, spend_ceiling_usd, or credentials.<binding>"
+                            "unknown company key {key:?}; use mission, model, model_failover, spend_ceiling_usd, max_customer_contact_emails_per_party, or credentials.<binding>"
                         )),
                     };
                     match result.and_then(|()| runtime::CompanyConfig::save(&daemon.root, &config))
@@ -1015,6 +1023,25 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
             _ => Response::err("company-set needs key and value"),
         },
         "company-unset" => match request.common.state.as_deref() {
+            Some("max_customer_contact_emails_per_party") => {
+                match runtime::CompanyConfig::load(&daemon.root, company) {
+                    Ok(mut config) => {
+                        if config.max_customer_contact_emails_per_party.take().is_none() {
+                            Response::err(format!(
+                                "company {company} has no customer-contact email cap"
+                            ))
+                        } else {
+                            match runtime::CompanyConfig::save(&daemon.root, &config) {
+                                Ok(()) => Response::ok(format!(
+                                    "unset max_customer_contact_emails_per_party for {company}"
+                                )),
+                                Err(error) => Response::err(format!("{error:#}")),
+                            }
+                        }
+                    }
+                    Err(error) => Response::err(format!("{error:#}")),
+                }
+            }
             Some(key) if key.starts_with("credentials.") && key.len() > 12 => {
                 match runtime::CompanyConfig::load(&daemon.root, company) {
                     Ok(mut config) => {
@@ -1034,7 +1061,7 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
                 }
             }
             Some(key) => Response::err(format!(
-                "cannot unset {key:?}; only credentials.<binding> is removable"
+                "cannot unset {key:?}; only max_customer_contact_emails_per_party or credentials.<binding> is removable"
             )),
             None => Response::err("company-unset needs a key"),
         },
@@ -2886,6 +2913,7 @@ mod tests {
             "name",
             "mission",
             "spend_ceiling_usd",
+            "max_customer_contact_emails_per_party",
             "model",
             "model_failover",
             "credentials.",

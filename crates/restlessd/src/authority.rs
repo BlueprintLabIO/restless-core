@@ -49,6 +49,15 @@ pub struct ModelCooldown {
     pub retry_at: DateTime<Utc>,
 }
 
+/// The result of reserving a governed customer-contact send under its
+/// owner-configured per-recipient ceiling.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EffectIntentClaim {
+    Claimed,
+    AlreadyClaimed,
+    PartyCapReached { maximum: u16, occupied: i64 },
+}
+
 #[derive(Debug, serde::Serialize)]
 pub(crate) struct MandateRevisionOutcome {
     message: String,
@@ -253,6 +262,88 @@ impl AuthorityStore {
         .await
         .with_context(|| format!("claim effect execution for {company}"))?;
         Ok(inserted.is_some())
+    }
+
+    /// Atomically reserve a `customer-contact.email` execution while applying
+    /// the owner's per-recipient limit. Confirmed sends and intents without a
+    /// matching receipt both occupy a slot: an interrupted send is not proof
+    /// that no email reached the recipient.
+    pub async fn claim_customer_contact_email_intent(
+        &self,
+        company: &str,
+        actor: &str,
+        body: serde_json::Value,
+        party: &str,
+        maximum: u16,
+    ) -> Result<EffectIntentClaim> {
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .with_context(|| format!("begin customer-contact cap reservation for {company}"))?;
+        // The existing uniqueness index makes one idempotency execution safe.
+        // This transaction lock additionally serialises *different* keys for
+        // the same company/recipient, which is what makes the cap real.
+        sqlx::query("SELECT pg_advisory_xact_lock(hashtext($1::text), hashtext($2::text))")
+            .bind(company)
+            .bind(party)
+            .execute(&mut *tx)
+            .await
+            .with_context(|| format!("lock customer-contact cap for {company}/{party}"))?;
+
+        let occupied = sqlx::query_scalar::<_, i64>(
+            "SELECT COUNT(*)::BIGINT FROM ( \
+               SELECT 1 \
+               FROM restless_authority.records AS receipt \
+               WHERE receipt.company = $1 \
+                 AND receipt.kind = 'effect' \
+                 AND receipt.body->>'effect_class' = 'customer-contact.email' \
+                 AND receipt.body->>'party' = $2 \
+                 AND receipt.body->>'success' = 'true' \
+               UNION ALL \
+               SELECT 1 \
+               FROM restless_authority.records AS intent \
+               WHERE intent.company = $1 \
+                 AND intent.kind = 'effect_intent' \
+                 AND intent.body->>'effect_class' = 'customer-contact.email' \
+                 AND intent.body->>'party' = $2 \
+                 AND NOT EXISTS ( \
+                   SELECT 1 \
+                   FROM restless_authority.records AS receipt \
+                   WHERE receipt.company = intent.company \
+                     AND receipt.kind = 'effect' \
+                     AND receipt.body->>'idempotency_key' = intent.body->>'idempotency_key' \
+                     AND COALESCE(receipt.body->>'execution_no', '1') = COALESCE(intent.body->>'execution_no', '1') \
+                 ) \
+             ) AS occupied",
+        )
+        .bind(company)
+        .bind(party)
+        .fetch_one(&mut *tx)
+        .await
+        .with_context(|| format!("count customer-contact sends for {company}/{party}"))?;
+        if occupied >= i64::from(maximum) {
+            tx.commit().await?;
+            return Ok(EffectIntentClaim::PartyCapReached { maximum, occupied });
+        }
+
+        let inserted = sqlx::query_scalar::<_, i64>(
+            "INSERT INTO restless_authority.records (company, kind, actor_id, body) \
+             VALUES ($1, 'effect_intent', $2, $3) \
+             ON CONFLICT DO NOTHING RETURNING id",
+        )
+        .bind(company)
+        .bind(actor)
+        .bind(body)
+        .fetch_optional(&mut *tx)
+        .await
+        .with_context(|| format!("claim customer-contact execution for {company}"))?;
+        tx.commit().await?;
+        Ok(if inserted.is_some() {
+            EffectIntentClaim::Claimed
+        } else {
+            EffectIntentClaim::AlreadyClaimed
+        })
     }
 
     pub async fn records_of_kind(&self, company: &str, kind: &str) -> Result<Vec<AuthorityRecord>> {
@@ -688,5 +779,77 @@ mod mandate_tests {
         assert!(validate_mandate("  \n").is_err());
         assert!(validate_mandate("valid\0invalid").is_err());
         assert!(validate_mandate(&"a".repeat(MAX_MANDATE_BYTES + 1)).is_err());
+    }
+
+    #[tokio::test]
+    async fn customer_contact_cap_counts_confirmed_and_unresolved_sends() {
+        let Ok(database_url) = std::env::var("RESTLESS_TEST_DATABASE_URL") else {
+            eprintln!("RESTLESS_TEST_DATABASE_URL unset; skipping customer-contact cap scenario");
+            return;
+        };
+        let company = format!(
+            "customer_contact_cap_{}_test",
+            uuid::Uuid::new_v4().simple()
+        );
+        let party = "centre@example.test";
+        let store = AuthorityStore::connect(&database_url).await.unwrap();
+        store.delete_test_company(&company).await.unwrap();
+
+        let intent = |key: &str| {
+            serde_json::json!({
+                "idempotency_key": key,
+                "execution_no": 1,
+                "effect_class": "customer-contact.email",
+                "party": party,
+            })
+        };
+        assert_eq!(
+            store
+                .claim_customer_contact_email_intent(&company, "tester", intent("first"), party, 3,)
+                .await
+                .unwrap(),
+            EffectIntentClaim::Claimed
+        );
+        store
+            .emit(
+                &company,
+                "effect",
+                Some("tester"),
+                serde_json::json!({
+                    "idempotency_key": "first",
+                    "execution_no": 1,
+                    "effect_class": "customer-contact.email",
+                    "party": party,
+                    "success": true,
+                }),
+            )
+            .await
+            .unwrap();
+        for key in ["second", "third"] {
+            assert_eq!(
+                store
+                    .claim_customer_contact_email_intent(&company, "tester", intent(key), party, 3)
+                    .await
+                    .unwrap(),
+                EffectIntentClaim::Claimed
+            );
+        }
+        assert_eq!(
+            store
+                .claim_customer_contact_email_intent(
+                    &company,
+                    "tester",
+                    intent("fourth"),
+                    party,
+                    3,
+                )
+                .await
+                .unwrap(),
+            EffectIntentClaim::PartyCapReached {
+                maximum: 3,
+                occupied: 3,
+            }
+        );
+        store.delete_test_company(&company).await.unwrap();
     }
 }

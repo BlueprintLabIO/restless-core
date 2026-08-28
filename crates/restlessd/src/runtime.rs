@@ -200,6 +200,10 @@ pub struct CompanyConfig {
     /// ambient credentials or broker history.
     #[serde(default)]
     pub model_failover: Vec<String>,
+    /// Optional owner-set maximum number of governed `customer-contact.email`
+    /// effects for one normalized recipient. `None` leaves this policy off.
+    #[serde(default)]
+    pub max_customer_contact_emails_per_party: Option<u16>,
     /// Named binding → `credential_reference`, e.g.
     /// `resend.production = "infisical:/companies/aris/RESEND_API_KEY"`.
     /// Only a governed child process that names the binding receives it.
@@ -1988,6 +1992,7 @@ model_failover = ["anthropic/claude-haiku-4-5", "zai/glm-5"]
             spend_ceiling_usd: SpendCeiling::from_micro_usd(5_000_000),
             model: "moonshot/kimi-k3".into(),
             model_failover: Vec::new(),
+            max_customer_contact_emails_per_party: None,
             credentials: std::collections::BTreeMap::new(),
             approved_parties: Vec::new(),
         };
