@@ -33,8 +33,8 @@ const GATEWAY_PROFILE: &str = "restless-model-gateway";
 const BROKER_URL: &str = "http://127.0.0.1:7789";
 const BROKER_BIND: &str = "127.0.0.1:7789";
 /// OMP itself keeps the root provider bearer on this loopback-only listener.
-const OMP_GATEWAY_HOST_URL: &str = "http://127.0.0.1:7792";
-const OMP_GATEWAY_BIND: &str = "127.0.0.1:7792";
+const OMP_GATEWAY_HOST_URL: &str = "http://127.0.0.1:7796";
+const OMP_GATEWAY_BIND: &str = "127.0.0.1:7796";
 /// The Runtime-facing relay owns the established container route. It never
 /// accepts OMP's root bearer.
 const RELAY_RUNTIME_URL: &str = "http://host.docker.internal:7790";
