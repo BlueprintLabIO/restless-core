@@ -36,6 +36,7 @@ Authority, OrgIntel, Runtime, owner-surface and provider semantics.
 |---|---|---|
 | Company cell | One local/self-hosted deployment | One managed isolated deployment per company |
 | Owner access | Local appliance entry point | Authenticated cloud account routed to the company cell |
+| Public brand and research/results | Historical source/evidence only | One Cloud-owned public release surface, separate from every company cell |
 | Models | Bring your own keys or local models | Managed routing, metering and optional BYO connection |
 | Secrets | User-operated Infisical/credential backend | Restless-operated secret service with per-cell scope |
 | Runtime | Owner's machine or server | Managed container/VM/microVM as evidence requires |
@@ -47,6 +48,18 @@ Authority, OrgIntel, Runtime, owner-surface and provider semantics.
 Cloud value is reliable operation, secure connection management, recovery, support and proven
 company patterns. Core must remain a useful company appliance rather than a deliberately impaired
 edition.
+
+### 2.1 Public Restless surface
+
+Restless Cloud also owns the public landing page, product explanation and owner-authorised published
+research/results. This static public surface is not an Owner Cockpit and is not a shortcut into a
+company cell. It receives only explicitly public, versioned material through a separately governed
+publication effect; it cannot read or mutate company Authority, OrgIntel, Runtime, browser or secret
+state.
+
+The public-site source has transferred to the separate Cloud repository; Core retains historical
+research evidence only. Public reachability proves a delivery effect, not customer demand or company
+success. See [the Core/Cloud boundary pointer](specs/restless-cloud.md).
 
 ## 3. Shared control plane, isolated data plane
 

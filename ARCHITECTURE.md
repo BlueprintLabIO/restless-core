@@ -774,7 +774,9 @@ This is ordinary delegated management, not a universal governance protocol.
 
 The near-term product is a **single-company operating system**: one owner, one persistent Exec and a small set of agents working inside one isolated company environment. This is sufficient to test Restless's core claim.
 
-Multiplayer and hosted deployment remain deliberately deferred:
+Multiplayer and managed company deployment remain deliberately deferred. This does not prohibit a
+separately governed static public publication surface: publishing owner-authorised Restless research or
+the landing page is an external effect, not evidence that Restless is hosting a customer company.
 
 - Support only the human interactions required by real dogfood: directives, approvals, inspection and browser or desktop takeover.
 - Do not build presence, a general collaboration suite, fine-grained multiplayer permissions, a shared realtime filesystem or a tenant fleet control plane yet.
@@ -788,8 +790,9 @@ isolated cell per company**. The tenancy boundary is a company, not a human user
 Restless Cloud run the same company-cell architecture:
 
 - **Restless Core** is one self-hosted company cell and its local owner entry point.
-- **Restless Cloud** adds accounts, subscription/billing, provisioning, routing and fleet health in a
-  shared control plane, then operates one isolated cell for each company.
+- **Restless Cloud** owns the public Restless landing page and owner-authorised research/results, then
+  adds accounts, subscription/billing, provisioning, routing and fleet health in a shared control
+  plane that operates one isolated cell for each company.
 
 A cell contains that company's Authority Plane, OrgIntel, Company Runtime, database credentials,
 filesystem/browser state and secret scope. Multiple cells may share physical hosts or mature
@@ -797,6 +800,11 @@ commodity infrastructure, but they do not share mutable runtime, authority or or
 This is also called cell-per-tenant, managed single tenancy, a silo tenancy model or a deployment
 stamp. The detailed target and Core/Cloud responsibility split are in
 [`docs/CELL_ARCHITECTURE.md`](docs/CELL_ARCHITECTURE.md).
+
+The public surface is neither an Owner Cockpit nor a company cell: it receives only owner-authorised
+public material through a separately governed publication effect, never direct mutable company state.
+Its editable source now lives in the separate Restless Cloud repository; Core retains historical
+experiment evidence only. See [the Core/Cloud boundary pointer](docs/specs/restless-cloud.md).
 
 The expected progression, if evidence supports it, is:
 
@@ -1188,6 +1196,8 @@ Restless should not attempt to:
     team lead. The lead always supervises at least one Staff producer and never silently produces or
     repairs the artifact; Exec retains portfolio and cross-department judgement rather than production
     or integration ownership.
+27. Place the public Restless landing page and owner-authorised published results in the separate
+    Restless Cloud product; make every public revision a separately governed, reversible effect.
 
 ---
 

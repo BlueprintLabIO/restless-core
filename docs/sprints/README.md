@@ -72,3 +72,10 @@ hard green requirement.
 - [`sprint-21.md`](./sprint-21.md) — draft with an EXP-09 activation gate: Dogfood 5 operates the
   research publication through real change, correction and no-op cycles with bounded standing
   authority and no per-cycle owner prompting.
+
+## Restless Cloud delivery plans
+
+The detailed Cloud roadmap, Fleet/cell/multiplayer sprint plans and public-operation plan live in the
+separate [restless-cloud repository](https://github.com/BlueprintLabIO/restless-cloud/tree/main/docs/sprints).
+Core retains only its release-contract and cell responsibilities; these plans do not authorise a Core
+deployment, provider connection or customer cell.
