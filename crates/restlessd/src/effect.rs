@@ -251,16 +251,6 @@ pub async fn request_effect(
     let party = party
         .map(|value| value.trim().to_lowercase())
         .filter(|value| !value.is_empty());
-    let customer_contact_cap = if effect_class == "customer-contact.email" {
-        config.max_customer_contact_emails_per_party
-    } else {
-        None
-    };
-    if customer_contact_cap.is_some() && party.is_none() {
-        bail!(
-            "customer-contact.email requires --party while its per-recipient email cap is configured"
-        );
-    }
     let command_document = serde_json::json!({
         "class": effect_class,
         "party": party,
@@ -373,45 +363,16 @@ pub async fn request_effect(
         "command": command_document,
         "started_at": Utc::now(),
     });
-    let claim = match customer_contact_cap {
-        Some(maximum) => {
-            authority
-                .claim_customer_contact_email_intent(
-                    &config.name,
-                    actor,
-                    intent,
-                    party.as_deref().expect("party is required above"),
-                    maximum,
-                )
-                .await
-        }
-        None => authority
-            .claim_effect_intent(&config.name, actor, intent)
-            .await
-            .map(|claimed| {
-                if claimed {
-                    crate::authority::EffectIntentClaim::Claimed
-                } else {
-                    crate::authority::EffectIntentClaim::AlreadyClaimed
-                }
-            }),
-    };
-    match claim {
-        Ok(crate::authority::EffectIntentClaim::Claimed) => {}
-        Ok(crate::authority::EffectIntentClaim::AlreadyClaimed) => {
+    match authority
+        .claim_effect_intent(&config.name, actor, intent)
+        .await
+    {
+        Ok(true) => {}
+        Ok(false) => {
             if let Some(staging_dir) = staging_dir.as_deref() {
                 cleanup_staging(&container, staging_dir).await?;
             }
             bail!("effect {key:?} execution {execution_no} is already in flight or awaiting reconciliation");
-        }
-        Ok(crate::authority::EffectIntentClaim::PartyCapReached { maximum, occupied }) => {
-            if let Some(staging_dir) = staging_dir.as_deref() {
-                cleanup_staging(&container, staging_dir).await?;
-            }
-            bail!(
-                "customer-contact.email cap of {maximum} reached for {}: {occupied} prior successful or unresolved send(s)",
-                party.as_deref().expect("party is required for capped contact email")
-            );
         }
         Err(error) => {
             if let Some(staging_dir) = staging_dir.as_deref() {

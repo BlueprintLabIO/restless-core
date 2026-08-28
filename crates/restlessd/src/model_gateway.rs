@@ -1245,7 +1245,6 @@ mod tests {
                 spend_ceiling_usd: crate::runtime::SpendCeiling::from_micro_usd(2),
                 model: "moonshot/kimi-k3".into(),
                 model_failover: Vec::new(),
-                max_customer_contact_emails_per_party: None,
                 credentials: BTreeMap::new(),
                 approved_parties: Vec::new(),
             },
@@ -1794,7 +1793,6 @@ mod tests {
             spend_ceiling_usd: crate::runtime::SpendCeiling::from_micro_usd(10_000_000),
             model: "moonshot/kimi-k3".into(),
             model_failover: vec!["anthropic/claude-sonnet-4-5".into()],
-            max_customer_contact_emails_per_party: None,
             credentials: BTreeMap::new(),
             approved_parties: Vec::new(),
         };
@@ -1821,7 +1819,6 @@ mod tests {
             spend_ceiling_usd: crate::runtime::SpendCeiling::from_micro_usd(10_000_000),
             model: "openai-codex/gpt-5.6-sol".into(),
             model_failover: vec!["anthropic/claude-sonnet-4-6".into()],
-            max_customer_contact_emails_per_party: None,
             credentials: BTreeMap::new(),
             approved_parties: Vec::new(),
         };

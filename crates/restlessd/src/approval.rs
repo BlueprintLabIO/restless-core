@@ -419,7 +419,6 @@ mod tests {
             spend_ceiling_usd: crate::runtime::SpendCeiling::from_micro_usd(30_000_000),
             model: "moonshot/kimi-k3".to_string(),
             model_failover: Vec::new(),
-            max_customer_contact_emails_per_party: None,
             credentials: std::collections::BTreeMap::new(),
             approved_parties: approved.iter().map(|s| (*s).to_string()).collect(),
         }

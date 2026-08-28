@@ -768,18 +768,16 @@ enum CompanyCommand {
     },
     /// Set one deterministic configuration key: mission, model, model_failover
     /// (a comma-separated ordered list),
-    /// spend_ceiling_usd, max_customer_contact_emails_per_party, or
-    /// credentials.<binding>. Name is immutable.
+    /// spend_ceiling_usd, or credentials.<binding>. Name is immutable.
     Set {
         #[arg(long, short = 'c', env = "RESTLESS_COMPANY")]
         company: Option<String>,
         key: String,
         value: String,
     },
-    /// Remove the customer-contact email cap or one named credential binding
-    /// from company config. Removing a binding affects only its reference;
-    /// deleting backend secret material is a separate owner operation at that
-    /// backend.
+    /// Remove one named credential binding from company config. This removes
+    /// only the reference; deleting backend secret material is a separate
+    /// owner operation at that backend.
     Unset {
         #[arg(long, short = 'c', env = "RESTLESS_COMPANY")]
         company: Option<String>,
