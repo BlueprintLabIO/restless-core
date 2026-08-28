@@ -704,6 +704,39 @@ async fn company_schema_round_trip() {
     .unwrap();
     assert_eq!(org.claim_due_schedules().await.unwrap().len(), 1);
 
+    let direct_schedule = org
+        .add_schedule(
+            "delivery-build",
+            None,
+            "inspect the accepted build; no new evidence may mean no work",
+            Utc::now(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(org.claim_due_schedules().await.unwrap().len(), 1);
+    assert!(org.claim_due_schedules().await.unwrap().is_empty());
+    let scheduled_mail = org.inbox(Some("delivery-build")).await.unwrap();
+    let scheduled_mail = scheduled_mail
+        .iter()
+        .find(|message| message.body.contains(&direct_schedule.to_string()))
+        .expect("a direct schedule becomes one durable addressed wake fact");
+    assert_eq!(scheduled_mail.from_actor, "daemon");
+    assert!(scheduled_mail
+        .body
+        .contains("not evidence that production is necessary"));
+    org.mark_read(scheduled_mail.id).await.unwrap();
+    assert!(org
+        .list_schedules(Some("delivery-build"), false)
+        .await
+        .unwrap()
+        .is_empty());
+    assert!(org
+        .list_schedules(Some("delivery-build"), true)
+        .await
+        .unwrap()
+        .iter()
+        .any(|schedule| schedule.id == direct_schedule));
+
     let message = org
         .send_message("exec", None, "status: alive")
         .await

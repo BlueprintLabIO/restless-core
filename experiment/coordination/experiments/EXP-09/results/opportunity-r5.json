@@ -1,0 +1,42 @@
+{
+  "experiment": "EXP-09",
+  "cell": "opportunity_continuity_full_sequence",
+  "company": "exp09_opportunity_mission_r5_test",
+  "date": "2026-08-26",
+  "model": "openai-codex/gpt-5.6-sol",
+  "classification": "counted_behavior_with_repaired_terminal_callback",
+  "signals": {
+    "O01": {"expected": "qualify", "work_created": 2, "repo_changed": true, "independent_review": true, "result": "pass"},
+    "O02": {"expected": "no_op_irrelevant", "work_created": 0, "repo_changed": false, "result": "pass"},
+    "O03": {"expected": "no_op_duplicate", "work_created": 0, "repo_changed": false, "result": "pass"},
+    "O04": {"expected": "update", "work_created": 1, "repo_changed": true, "independent_review": false, "result": "pass"},
+    "O05": {"expected": "no_op_stale", "work_created": 0, "repo_changed": false, "result": "pass"},
+    "O06": {"expected": "owner_ready_exception", "work_created": 2, "repo_changed": true, "independent_review": true, "result": "package_passed_owner_attention_deferred"}
+  },
+  "totals": {
+    "events": 94,
+    "model_attempts": 18,
+    "exec_wakes": 1,
+    "lead_wake_ends": 12,
+    "usage_tokens_sum": 683218,
+    "estimated_list_cost_usd": 6.205724,
+    "work": 5,
+    "completed_work": 5,
+    "attempts": 5,
+    "external_effect_receipts": 0
+  },
+  "final_repository": {
+    "head": "52f1dff73752a1544024432d67ca09623700dfaf",
+    "tree": "53ab4440f33250925f1f8aa4edbc7c249819746a",
+    "dirty_entries": 0,
+    "opportunity_files": 1,
+    "review_files": 0
+  },
+  "quiet_interval_seconds": 45,
+  "quiet_delta": {"events": 0, "work": 0, "repo_changes": 0, "model_calls": 0},
+  "repair": "The final reviewer completed after the lead had consumed an earlier progress note. No terminal completion fact woke the lead, so one transparent recovered terminal message was injected after the callback fix. All other behavior is native.",
+  "evaluation_contract_notes": [
+    "The hidden two-review-file expectation was not stated in the visible charter; exact reviews were already attributable in Work, Attempts and artifact references.",
+    "The lead produced an owner-ready package but correctly deferred owner attention until its evidence-bound resume condition. Whether owner-ready means prepare-now or alert-now needs an explicit product contract."
+  ]
+}

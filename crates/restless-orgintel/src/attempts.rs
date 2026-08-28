@@ -10,6 +10,27 @@ struct QualifiedOutcomeReview {
     outcome: String,
 }
 
+fn looks_like_exact_git_commit(value: &str) -> bool {
+    (7..=64).contains(&value.len()) && value.bytes().all(|byte| byte.is_ascii_hexdigit())
+}
+
+fn resolve_attempt_base(
+    declared: Option<&str>,
+    prior_revision_commit: Option<&str>,
+    upstream_commits: &[String],
+) -> Option<String> {
+    if prior_revision_commit.is_some_and(looks_like_exact_git_commit) {
+        return prior_revision_commit.map(str::to_string);
+    }
+    if declared.is_some_and(looks_like_exact_git_commit) {
+        return declared.map(str::to_string);
+    }
+    match upstream_commits {
+        [commit] if looks_like_exact_git_commit(commit) => Some(commit.clone()),
+        _ => declared.map(str::to_string),
+    }
+}
+
 impl OrgIntel {
     /// Atomically lease the highest-priority ready Work node. Readiness is a
     /// database fact: all hard requirements completed, no pending owner
@@ -77,6 +98,46 @@ impl OrgIntel {
         .bind(work.id)
         .fetch_all(&mut *tx)
         .await?;
+        let upstream_source_commits = if let Some(repo) = work.repo.as_deref() {
+            sqlx::query_scalar::<_, String>(
+                "SELECT DISTINCT a.source_commit \
+                 FROM work_edges e \
+                 JOIN work upstream ON upstream.id=e.from_work_id \
+                 JOIN artifact_refs a ON a.work_id=upstream.id \
+                 WHERE e.to_work_id=$1 AND e.kind='requires' \
+                   AND upstream.repo=$2 AND a.state='available' \
+                   AND a.source_commit IS NOT NULL \
+                 ORDER BY a.source_commit",
+            )
+            .bind(work.id)
+            .bind(repo)
+            .fetch_all(&mut *tx)
+            .await?
+        } else {
+            Vec::new()
+        };
+        let prior_revision_commit = if work.revision > 1 && work.repo.is_some() {
+            sqlx::query_scalar::<_, String>(
+                "SELECT a.source_commit \
+                 FROM artifact_refs a \
+                 JOIN work_attempts attempt ON attempt.id=a.attempt_id \
+                 WHERE a.work_id=$1 AND attempt.revision < $2 \
+                   AND a.source_commit IS NOT NULL \
+                 ORDER BY attempt.revision DESC, a.created_at DESC, a.id DESC \
+                 LIMIT 1",
+            )
+            .bind(work.id)
+            .bind(work.revision)
+            .fetch_optional(&mut *tx)
+            .await?
+        } else {
+            None
+        };
+        let effective_base_ref = resolve_attempt_base(
+            work.base_ref.as_deref(),
+            prior_revision_commit.as_deref(),
+            upstream_source_commits.as_slice(),
+        );
         let mut fingerprint_source = inputs
             .iter()
             .map(|artifact| {
@@ -89,6 +150,10 @@ impl OrgIntel {
             })
             .collect::<Vec<_>>()
             .join("\n");
+        fingerprint_source.push_str(&format!(
+            "\nworkspace_base:{}",
+            effective_base_ref.as_deref().unwrap_or("")
+        ));
         let feedback = sqlx::query_as::<_, MessageRow>(
             "SELECT id, from_actor, to_actor, body, created_at, read_at FROM (\
                SELECT m.id, m.from_actor, m.to_actor, m.body, m.created_at, m.read_at \
@@ -158,6 +223,7 @@ impl OrgIntel {
         tx.commit().await?;
         Ok(Some(ClaimedWork {
             work,
+            effective_base_ref,
             attempt_id,
             attempt_no: i32::try_from(attempt_no).unwrap_or(i32::MAX),
             session_id,
@@ -517,7 +583,8 @@ impl OrgIntel {
                 "SELECT NOT EXISTS (\
                    SELECT 1 FROM work_gates g \
                    LEFT JOIN work_gate_runs r ON r.gate_id=g.id AND r.attempt_id=$2 \
-                   WHERE g.work_id=$1 AND COALESCE(r.passed, false)=false\
+                   WHERE g.work_id=$1 AND g.retired_at IS NULL \
+                     AND COALESCE(r.passed, false)=false\
                  )",
             )
             .bind(work_id)
@@ -538,7 +605,8 @@ impl OrgIntel {
                 let probe_passed: bool = sqlx::query_scalar(
                     "SELECT EXISTS(\
                        SELECT 1 FROM work_gates g JOIN work_gate_runs r ON r.gate_id=g.id \
-                       WHERE g.work_id=$1 AND g.name=$2 AND r.attempt_id=$3 AND r.passed\
+                       WHERE g.work_id=$1 AND g.name=$2 AND g.retired_at IS NULL \
+                         AND r.attempt_id=$3 AND r.passed\
                      )",
                 )
                 .bind(work_id)
@@ -585,7 +653,9 @@ impl OrgIntel {
             }
         }
         sqlx::query(
-            "UPDATE work_attempts SET state = $2, summary = $3, finished_at = now() WHERE id = $1",
+            "UPDATE work_attempts SET state=$2, summary=$3, finished_at=now(), \
+                    supervisor_notice_owed=true, supervisor_notice_message_id=NULL \
+             WHERE id=$1",
         )
         .bind(attempt_id)
         .bind(effective)
@@ -670,6 +740,79 @@ impl OrgIntel {
         }
         tx.commit().await?;
         Ok(effective)
+    }
+
+    /// Flush terminal Attempt facts to their accountable leads. Completion
+    /// and this outbox bit commit together; message creation and clearing the
+    /// bit also commit together. Repeating after a crash is therefore safe.
+    pub async fn flush_terminal_supervisor_notices(&self, limit: i64) -> Result<Vec<i64>> {
+        if limit <= 0 {
+            return Ok(Vec::new());
+        }
+        self.ensure_actor("daemon", "system", "system-sender", "The daemon")
+            .await?;
+        let mut tx = self.pool.begin().await?;
+        let rows = sqlx::query(
+            "SELECT attempt.id AS attempt_id, attempt.actor_id, work.id AS work_id, \
+                    work.status, work.revision, work.resolution, team.lead_actor_id \
+             FROM work_attempts attempt \
+             JOIN work ON work.id=attempt.work_id \
+             JOIN actors work_owner ON work_owner.id=work.owner_id \
+             JOIN teams team ON team.id=work_owner.team_id AND team.disbanded_at IS NULL \
+             WHERE attempt.supervisor_notice_owed AND attempt.finished_at IS NOT NULL \
+             ORDER BY attempt.finished_at, attempt.id \
+             LIMIT $1 FOR UPDATE OF attempt SKIP LOCKED",
+        )
+        .bind(limit)
+        .fetch_all(&mut *tx)
+        .await?;
+        let mut message_ids = Vec::with_capacity(rows.len());
+        for row in rows {
+            let attempt_id: Uuid = row.get("attempt_id");
+            let actor_id: String = row.get("actor_id");
+            let work_id: Uuid = row.get("work_id");
+            let status: WorkStatus = row.get("status");
+            let revision: i64 = row.get("revision");
+            let resolution: String = row.get("resolution");
+            let lead_actor_id: String = row.get("lead_actor_id");
+            let status = match status {
+                WorkStatus::Proposed => "proposed",
+                WorkStatus::Active => "active",
+                WorkStatus::Blocked => "blocked",
+                WorkStatus::Completed => "completed",
+                WorkStatus::Abandoned => "abandoned",
+            };
+            let body = format!(
+                "Terminal Runtime observation for Work {work_id}, Attempt {attempt_id}, owner {actor_id}: status {status}, revision {revision}. Resolution: {resolution}"
+            );
+            let message_id: i64 = sqlx::query_scalar(
+                "INSERT INTO messages (from_actor, to_actor, body) \
+                 VALUES ('daemon',$1,$2) RETURNING id",
+            )
+            .bind(&lead_actor_id)
+            .bind(&body)
+            .fetch_one(&mut *tx)
+            .await?;
+            sqlx::query(
+                "INSERT INTO work_feedback (work_id, message_id, linked_by) \
+                 VALUES ($1,$2,'daemon')",
+            )
+            .bind(work_id)
+            .bind(message_id)
+            .execute(&mut *tx)
+            .await?;
+            sqlx::query(
+                "UPDATE work_attempts SET supervisor_notice_owed=false, \
+                        supervisor_notice_message_id=$2 WHERE id=$1",
+            )
+            .bind(attempt_id)
+            .bind(message_id)
+            .execute(&mut *tx)
+            .await?;
+            message_ids.push(message_id);
+        }
+        tx.commit().await?;
+        Ok(message_ids)
     }
 
     /// Resume a repaired Work node. The reason is operational evidence of

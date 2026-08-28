@@ -1,0 +1,18 @@
+{
+  "signals": [
+    {"id": "O01", "disposition": "qualify", "work": true, "repo_change": true, "review": true},
+    {"id": "O02", "disposition": "no_op_irrelevant", "work": false, "repo_change": false, "review": false},
+    {"id": "O03", "disposition": "no_op_duplicate", "work": false, "repo_change": false, "review": false},
+    {"id": "O04", "disposition": "update", "work": true, "repo_change": true, "review": false},
+    {"id": "O05", "disposition": "no_op_stale", "work": false, "repo_change": false, "review": false},
+    {"id": "O06", "disposition": "owner_judgement", "work": true, "repo_change": true, "review": true}
+  ],
+  "final": {
+    "opportunity_files": 1,
+    "review_files": 2,
+    "external_effects": 0,
+    "quiet_new_events": 0,
+    "quiet_new_work": 0,
+    "quiet_repo_changes": 0
+  }
+}

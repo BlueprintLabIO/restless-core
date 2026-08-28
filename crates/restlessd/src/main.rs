@@ -620,13 +620,16 @@ fn bind_runtime_actor(request: &mut Request, actor: &str) -> std::result::Result
         | "effect-reconcile" => pin_actor(&mut request.orgintel.actor, actor, "actor")?,
         "work-add"
         | "work-edge"
+        | "work-gate-retire"
         | "work-handoff-escalate"
         | "work-handoff-refresh"
         | "work-handoff-prepare-brief"
         | "work-handoff-resolve"
         | "work-resume"
         | "work-abandon"
-        | "judgement" => pin_actor(&mut request.common.as_actor, actor, "acting actor")?,
+        | "judgement"
+        | "schedule-list"
+        | "schedule-add" => pin_actor(&mut request.common.as_actor, actor, "acting actor")?,
         "message" => pin_actor(&mut request.common.from, actor, "message sender")?,
         "inbox" => {
             pin_actor(&mut request.orgintel.actor, actor, "inbox actor")?;
@@ -2198,6 +2201,28 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
             }
             _ => Response::err("work-gate needs work, name, cwd and command"),
         },
+        "work-gate-retire" => match (
+            request.common.id.as_deref(),
+            request.common.as_actor.as_deref(),
+            request.common.reason.as_deref(),
+        ) {
+            (Some(gate), Some(actor), Some(reason)) => {
+                let Ok(gate_id) = uuid::Uuid::parse_str(gate) else {
+                    return Response::err("bad Work gate id");
+                };
+                match daemon.orgintel.get(company).await {
+                    Ok(org) => match org.retire_work_gate(gate_id, actor, reason).await {
+                        Ok(retired) => Response::ok(serde_json::json!({
+                            "gate_id": gate_id,
+                            "retired": retired,
+                        })),
+                        Err(error) => Response::err(format!("{error:#}")),
+                    },
+                    Err(error) => Response::err(format!("{error:#}")),
+                }
+            }
+            _ => Response::err("work-gate-retire needs gate, actor and reason"),
+        },
         "work-handoff" => match (
             request.common.id.as_deref(),
             request.owner.category.as_deref(),
@@ -2510,6 +2535,72 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
                 Err(error) => Response::err(format!("{error:#}")),
             },
             _ => Response::err("message needs from and body"),
+        },
+        "schedule-list" => match daemon.orgintel.get(company).await {
+            Ok(org) => match org
+                .list_schedules(
+                    request.common.as_actor.as_deref(),
+                    request.orgintel.include_fired,
+                )
+                .await
+            {
+                Ok(schedules) => Response::ok_serialized(schedules),
+                Err(error) => Response::err(format!("{error:#}")),
+            },
+            Err(error) => Response::err(format!("{error:#}")),
+        },
+        "schedule-add" => match (
+            request.common.as_actor.as_deref(),
+            request.orgintel.fire_at.as_deref(),
+            request.common.reason.as_deref(),
+        ) {
+            (Some(actor), Some(fire_at), Some(reason)) => {
+                let fire_at = match chrono::DateTime::parse_from_rfc3339(fire_at) {
+                    Ok(fire_at) => fire_at.with_timezone(&chrono::Utc),
+                    Err(error) => {
+                        return Response::err(format!(
+                            "schedule --at must be RFC3339: {error}"
+                        ))
+                    }
+                };
+                let work_id = match request.common.id.as_deref() {
+                    Some(work) => match uuid::Uuid::parse_str(work) {
+                        Ok(work) => Some(work),
+                        Err(error) => {
+                            return Response::err(format!("bad scheduled Work id: {error}"))
+                        }
+                    },
+                    None => None,
+                };
+                match daemon.orgintel.get(company).await {
+                    Ok(org) => {
+                        if work_id.is_none() && actor != "exec" {
+                            let is_lead = match org.list_teams().await {
+                                Ok(teams) => {
+                                    teams.iter().any(|team| team.lead_actor_id == actor)
+                                }
+                                Err(error) => return Response::err(format!("{error:#}")),
+                            };
+                            if !is_lead {
+                                return Response::err(
+                                    "a free-standing schedule must target Exec or an accountable team lead; Staff time dependencies belong to Work",
+                                );
+                            }
+                        }
+                        match org.add_schedule(actor, work_id, reason, fire_at).await {
+                            Ok(schedule_id) => Response::ok(serde_json::json!({
+                                "schedule_id": schedule_id,
+                                "actor_id": actor,
+                                "work_id": work_id,
+                                "fire_at": fire_at,
+                            })),
+                            Err(error) => Response::err(format!("{error:#}")),
+                        }
+                    }
+                    Err(error) => Response::err(format!("{error:#}")),
+                }
+            }
+            _ => Response::err("schedule-add needs actor, RFC3339 fire time and reason"),
         },
         "events" => match daemon.orgintel.get(company).await {
             Ok(org) => match org.list_events(request.common.limit.unwrap_or(50)).await {

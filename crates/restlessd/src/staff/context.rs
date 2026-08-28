@@ -14,7 +14,7 @@ pub(super) fn actor_posture(accountable_lead: bool) -> &'static str {
     if accountable_lead {
         "You are the ACCOUNTABLE LEAD for this team's whole outcome, not a relay, producer, or smaller Exec. You remain a non-producing supervisor on every wake. Frame, commission, observe, guide, redirect, and repair through at least one Staff worker; never edit the candidate, perform its planned production, or silently repair its artifact yourself. You retain native review, completion judgement, and truthful attribution of every real contribution."
     } else {
-        "You are a SPECIALIST, not a smaller Exec. Own the bounded responsibility your role names, surface material contradictions early, and say plainly when something falls outside it. Do not quietly take over the whole team outcome: a specialist who does every job is a generalist with a job title."
+        "You are a SPECIALIST, not a smaller Exec. Own the bounded responsibility your role names, surface material contradictions early, and say plainly when something falls outside it. Do not quietly take over the whole team outcome: a specialist who does every job is a generalist with a job title. The Runtime sends your accountable lead one durable terminal Work fact after it observes your artifacts, gates, and final state. Do not send progress or completion mail merely to wake the lead; message the lead only for a genuinely new fact or contradiction that must be judged before your terminal result."
     }
 }
 
@@ -142,7 +142,8 @@ pub(super) fn bound_attempt_context(
     let workspace = serde_json::json!({
         "runtime_workdir": workdir,
         "repository": claimed.work.repo.clone(),
-        "base_ref": claimed.work.base_ref.clone(),
+        "declared_base_ref": claimed.work.base_ref.clone(),
+        "effective_base_ref": claimed.effective_base_ref.clone(),
         "integration_branch": claimed.work.integration_branch.clone(),
         "declared_worktree": claimed.work.worktree.clone(),
     });
@@ -270,8 +271,9 @@ pub(super) fn bound_attempt_context(
             .join("\n")
     };
     let workspace_lines = format!(
-        "- Runtime working directory: {workdir}\n- Repository: {}\n- Base ref: {}\n- Declared integration ref: {}\n- Declared worktree: {}",
+        "- Runtime working directory: {workdir}\n- Repository: {}\n- Effective base ref: {}\n- Declared base ref: {}\n- Declared integration ref: {}\n- Declared worktree: {}",
         claimed.work.repo.as_deref().unwrap_or("none — persistent company files only"),
+        claimed.effective_base_ref.as_deref().unwrap_or("none"),
         claimed.work.base_ref.as_deref().unwrap_or("none"),
         claimed.work.integration_branch.as_deref().unwrap_or("none"),
         claimed.work.worktree.as_deref().unwrap_or("Runtime-generated from Work id and revision"),
@@ -308,6 +310,16 @@ pub(super) fn bound_attempt_context(
             attempt_id = claimed.attempt_id,
         )
     };
+    let integration_note = claimed
+        .work
+        .integration_branch
+        .as_deref()
+        .map_or_else(String::new, |branch| {
+            format!(
+                "\n- This is the final attributed candidate for shared branch `{branch}`. Work only in this Attempt worktree. Do not move `{branch}` or touch its checkout: after your clean exact commit passes the gates, the Runtime will fast-forward that checked-out branch and will refuse a dirty or divergent integration."
+            )
+        });
+    let completion_evidence = format!("{completion_evidence}{integration_note}");
     let context = format!(
         "# Work {} revision {} attempt {}\nAttempt UUID: {}\n{}\n\nExpected artifact / proof: {}\nInput fingerprint: {}\n\n# Completion evidence [deterministic]\n{}\n\n# Bound workspace facts [automatic]\n{}\n\n# Bound upstream artifact versions [automatic]\n{}\n\n# Work-linked feedback [automatic]\n{}\n\n# Skill roots and truthful capability probes [automatic]\n- Skill roots available to OMP: {}\n- Probe Runtime tools at: `{}`\n- Probe company/runtime reachability at: `{}`\n- Probe configured credential references at: `{}`\n- Probe skill directories at: `{}`\nDo not treat a configured credential or an installed executable as provider acceptance, authority, or a successful effect.\n\n# Context accounting\n- Automatically attached: company doctrine and mission, actor role, Work/Attempt identity, exact workspace coordinates, upstream artifact versions, Work-linked feedback, skill roots, probe locations, and {}.\n- Retrieved depth at launch: none. Inspect bound files, project instructions, skills, Git history, and attached artifact content only when useful.\n- Not replayed: lead conversation, full team transcript, and unrelated actor messages.\n",
         claimed.work.id,

@@ -1,13 +1,18 @@
 # Experiment Sprint 09 - Continuous mission frontier
 
-**Status:** Draft for founder approval; no arm or implementation started
+**Status:** Complete; current primitives suffice after thin continuity and Runtime repairs
 
 **Decision owner:** Founder
 
 **Date:** 26 August 2026
 
-**Depends on:** Sprint 20's terminal research-publication report. If EXP-08 promotes a web-production
-playbook, both EXP-09 arms receive the same frozen version; playbook presence is not the treatment.
+**Original dependency:** Sprint 20's terminal research-publication report. The founder explicitly
+activated EXP-09 first on 26 August 2026. The first cell is therefore narrowed to an isolated
+editorial-continuity fixture derived only from completed EXP-05 evidence. It tests continuous
+architecture, not the finished public publication. Sprint 20 remains required before Dogfood 5.
+
+If EXP-08 later promotes a web-production playbook, both later EXP-09 arms receive the same frozen
+version; playbook presence is not the treatment.
 
 ## Decision this sprint must produce
 
@@ -200,3 +205,20 @@ incident or broaden the authority envelope.
 This sprint authorises only isolated continuous-mission comparisons and their evidence. It does not
 authorise a live watcher, autonomous public publishing, standing external-effects grant, production
 mission entity, workflow engine, general event taxonomy or permanent background actor.
+
+## Result
+
+The direct standing-lead editorial arm matched the relay arm's useful behavior while using 48.8% fewer
+model attempts, 63.8% fewer summed reported usage tokens, 58.6% less estimated list cost and one Exec
+wake rather than nine. The opportunity workload then handled qualified, irrelevant, duplicate,
+market-update, stale and high-value-exception signals with five bounded Work nodes, zero external
+effects and exact idle during the 45-second quiet interval.
+
+Invalid runs exposed exact Git lineage, revision continuity, workspace-scoped ACP reuse, safe branch
+promotion and terminal supervisor delivery defects. Each was repaired around the current Work,
+Attempt, Message, artifact and Runtime substrate. A clean targeted replay proved exact producer to
+reviewer lineage, clean final promotion and event-driven lead wakes without Staff status mail.
+
+Disposition: **current primitives suffice after thin affordances**. Do not add a `Mission` entity,
+poller, heartbeat, workflow engine or autonomous-improvement state machine. See
+[`EXP-09/RESULTS.md`](../coordination/experiments/EXP-09/RESULTS.md).

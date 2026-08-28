@@ -42,7 +42,9 @@ fn valid_schema_name(name: &str) -> bool {
 
 fn valid_runtime_slug(value: &str) -> bool {
     !value.is_empty()
-        && value.len() <= 64
+        // The Runtime uses the same bound for repository and worktree path
+        // segments. Reject an unusable coordinate before durable Work exists.
+        && value.len() <= 32
         && value
             .bytes()
             .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-')

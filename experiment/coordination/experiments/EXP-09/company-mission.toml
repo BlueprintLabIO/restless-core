@@ -1,0 +1,15 @@
+name = "exp09_editorial_mission_r1_test"
+mission = """# Continuous-value architecture test company
+
+Operate one isolated `_test` research publication across controlled source signals. Exec remains
+available, delegates to one accountable non-producing publication lead, and attributes all production
+to Staff. Maintain one evolving accepted Git artifact. Act only on material evidence, deduplicate by
+stable source reference, preserve explicit uncertainty, and return to idle when no valuable work is
+present. No external effect is permitted.
+"""
+spend_ceiling_usd = 30.0
+model = "openai-codex/gpt-5.6-sol"
+model_failover = []
+
+[credentials]
+"model.inference.openai-codex" = "omp-oauth:openai-codex"

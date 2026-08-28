@@ -15,11 +15,11 @@ declined or failed. This is the alternate outcome explicitly allowed by the spri
 
 | Contract | Observed result | Evidence |
 | --- | --- | --- |
-| Qualified owner review | The corrected Dogfood 2 Attempt created one owner-judgement handoff without an owner message; the stale predecessor created none. | [Dogfood 2 after-action](../../scenarios/dogfood-2-after-action.md) |
-| Source state | One Runtime manifest preserved 35 material records and distinguished `available_public` from `unverified_provider`. | [Dogfood 2 after-action](../../scenarios/dogfood-2-after-action.md) |
-| Historical candidate | The dedicated `robotics_ai_alpha_test` evaluation was repeatable and concluded `inconclusive`; it did not enter the live dossier. | [Alpha-test after-action](../../scenarios/dogfood-2-alpha-test-after-action.md) |
-| Provider lane | No signup, terms acceptance, credential ingress or authenticated probe was performed. The public-only Work and review state make that absence explicit. | [Dogfood 2 scenario](../../scenarios/dogfood-2.md#prepared-provider-owner-moment) |
-| Runtime path | The recorded run passed the source-manifest validator, the focused outcome-review live-DB test and `restless doctor -c robotics_ai_dogfood2_recovery` at the time of the run. | [Dogfood 2 after-action](../../scenarios/dogfood-2-after-action.md) |
+| Qualified owner review | The corrected Dogfood 2 Attempt created one owner-judgement handoff without an owner message; the stale predecessor created none. | [Dogfood 2 after-action](../../dogfood/dogfood-2-after-action.md) |
+| Source state | One Runtime manifest preserved 35 material records and distinguished `available_public` from `unverified_provider`. | [Dogfood 2 after-action](../../dogfood/dogfood-2-after-action.md) |
+| Historical candidate | The dedicated `robotics_ai_alpha_test` evaluation was repeatable and concluded `inconclusive`; it did not enter the live dossier. | [Alpha-test after-action](../../dogfood/dogfood-2-alpha-test-after-action.md) |
+| Provider lane | No signup, terms acceptance, credential ingress or authenticated probe was performed. The public-only Work and review state make that absence explicit. | [Dogfood 2 scenario](../../dogfood/dogfood-2.md#prepared-provider-owner-moment) |
+| Runtime path | The recorded run passed the source-manifest validator, the focused outcome-review live-DB test and `restless doctor -c robotics_ai_dogfood2_recovery` at the time of the run. | [Dogfood 2 after-action](../../dogfood/dogfood-2-after-action.md) |
 
 ## What was removed or not promoted
 

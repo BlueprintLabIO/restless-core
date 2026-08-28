@@ -17,9 +17,11 @@
 //!     not running, does not get woken.
 //!   * `classify` — what actually happened, read off how the turn ended plus
 //!     token consumption and transport status, never prose. The load-bearing
-//!     invariant is that **a turn which completed normally and consumed no
-//!     tokens did not happen, it failed**; that single tell catches quota,
-//!     auth, a deleted model, and a mis-negotiated capability alike.
+//!     invariant is that **a turn which completed normally, consumed no tokens,
+//!     and produced no observable activity did not happen, it failed**; that
+//!     single tell catches quota, auth, a deleted model, and a mis-negotiated
+//!     capability without erasing work when an ACP process exits before its
+//!     final usage report.
 //!
 //! `classify` is deliberately *total over [`acp::TurnEnd`]* and is the only
 //! reader of it. The previous shape — a predicate over two `Option`s, called
@@ -226,12 +228,22 @@ pub fn classify(end: &acp::TurnEnd) -> Verdict {
     match end {
         // The only arm entitled to read consumption as a verdict: the turn
         // ended by the agent's own choice, so a usage report should exist.
+        // ACP process termination can nevertheless surface as Completed after
+        // text or tool activity but before the final UsageUpdate. Observable
+        // activity makes that an interrupted, recoverable turn: unknown
+        // consumption is not zero, and the durable Runtime may contain work.
         acp::TurnEnd::Completed { transcript } => match transcript.usage.map(|usage| usage.used) {
+            Some(0) | None if transcript.has_observable_activity() => Verdict::Resume(
+                "the agent process ended without a final usage report after observable activity; \
+                 anything already written to the company computer is preserved, and the next wake \
+                 continues from durable state"
+                    .into(),
+            ),
             Some(0) | None => Verdict::Blocked(Blocked::new(
                 BlockKind::NoOp,
-                "the turn ended without consuming any tokens — the model never ran. \
-                 Check provider credit, credential validity, and that the configured \
-                 model still exists",
+                "the turn ended without consuming any tokens or producing observable activity — \
+                 the model never ran. Check provider credit, credential validity, and that the \
+                 configured model still exists",
             )),
             Some(_) => Verdict::Ran,
         },
@@ -524,6 +536,28 @@ mod tests {
             transcript: transcript(Some(16_042), None),
         };
         assert!(matches!(classify(&end), Verdict::Ran));
+    }
+
+    /// EXP-10 killed a live ACP worker after it had edited the game and made
+    /// tool calls. The adapter returned Completed without a final UsageUpdate,
+    /// and the old zero-only tell erased that evidence as a provider no-op and
+    /// cooled down a healthy model for fifteen minutes.
+    #[test]
+    fn completed_without_usage_after_activity_is_recoverable_not_a_no_op() {
+        for used in [Some(0), None] {
+            let mut observed = transcript(used, None);
+            observed.text = "I have started the requested repair".into();
+            observed.tool_calls.push("edit: main.gd".into());
+            let end = acp::TurnEnd::Completed {
+                transcript: observed,
+            };
+            let Verdict::Resume(reason) = classify(&end) else {
+                panic!("observed activity with unknown usage must remain recoverable");
+            };
+            assert!(reason.contains("observable activity"), "{reason}");
+            assert!(reason.contains("already written"), "{reason}");
+            assert!(!reason.contains("never ran"), "{reason}");
+        }
     }
 
     /// F1: the provider's error channel is deterministic. These exact shapes

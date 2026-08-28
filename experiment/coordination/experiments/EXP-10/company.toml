@@ -1,0 +1,26 @@
+name = "exp10_swift_continuous_r1_test"
+mission = """# Swift Arrival continuous product development
+
+Maintain and improve the private Swift Arrival walking skeleton from its exact verified baseline.
+Exec must appoint one accountable non-producing Game Product lead for this standing responsibility
+and then return to portfolio availability. Routine playtest, build, review and schedule facts reach
+that lead directly. Attributed Staff owns every product, test, evidence and commit change.
+
+React only to material evidence. Each useful cycle is bounded Work with an inspectable native outcome,
+exact Git lineage and executable gates. Duplicate, stale or non-decision-changing signals should
+create no production. A schedule is an opportunity to inspect current facts, not an instruction to
+invent work. Preserve the founder's unresolved taste judgement as unknown.
+
+The Runtime contains one private Godot repository at /company/projects/swift-arrival. Do not publish,
+deploy, purchase, contact anyone, install paid assets, use third-party art or exercise external effects.
+Local files, Git, Godot, the prepared display, original placeholder assets and bounded probes are in
+scope. Stop and prepare the exact owner decision if product taste, authority or budget genuinely blocks
+the next useful move.
+"""
+spend_ceiling_usd = 25.0
+model = "zai/glm-5.3"
+model_failover = []
+approved_parties = []
+
+[credentials]
+"model.inference.zai" = "infisical:/providers/zai/ZAI_API_KEY"

@@ -143,7 +143,7 @@ organic has tripped it yet, so it is verified but not yet load-bearing.
 
 ## T4 — the comparison
 
-**Scenario:** [`lumaara-biome`](../../scenarios/lumaara-biome.md) v1 — add Prism
+**Scenario:** [`lumaara-biome`](../../dogfood/lumaara-biome.md) v1 — add Prism
 Caverns plus a trainer beat to the Lumaara slice, leaving it playable.
 
 Held identical: model `zai/glm-5.2`, $15 ceiling, image, starting commit

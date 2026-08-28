@@ -56,6 +56,12 @@ Historical v23 remains indexed in `EVIDENCE.md` and does not change a cell above
 |---|---|---|---|---|
 | **EXP-05** | At what demand and response-time pressure do locally closing GLM-5.3 workers create net capacity, what value does event-responsive non-producing supervision add, and can several leads run while Exec remains available? | 240-account arrival queue; 96 support cases with a material policy change; 40-entity search monitoring; four concurrent departments | accepted | D0 sales Q2 crossed twice; paced D1/D2 did not improve p90; sales Q4 stopped on tail quality. Monitoring Q2 won without fan-in. Causal support closed 96/96 versus terminal 80/96. Four departments produced 90/90 exact units, but the semantic cell stopped evaluator-infrastructure-invalid. Consolidate exact failure delivery and asynchronous Exec dispatch before real inbound-signal dogfood. |
 
+## EXP-09 continuous mission frontier
+
+| ID | Question | Shapes | Status | Next gate |
+|---|---|---|---|---|
+| **EXP-09** | Can durable responsibility sustain useful multi-cycle work with less owner prompting while remaining correctly idle? | Owner/Exec relay versus direct standing editorial lead; direct standing opportunity lead across six signal classes; terminal callback replay | accepted | Keep current concepts. Carry thin lineage, promotion, workspace-reconstruction and terminal-outbox repairs into Dogfood 5. Next prove Authority-owned real inbound projection and governed effects; do not add a Mission entity or poller. |
+
 ## Wildcards
 
 | ID | Wildcard | Family | Dependency | Status | Next gate |

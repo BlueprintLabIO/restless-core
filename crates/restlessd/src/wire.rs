@@ -140,6 +140,10 @@ pub(crate) struct OrgIntelInput {
     pub(crate) cwd: Option<String>,
     #[serde(default)]
     pub(crate) argv: Option<Vec<String>>,
+    #[serde(default)]
+    pub(crate) fire_at: Option<String>,
+    #[serde(default)]
+    pub(crate) include_fired: bool,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -326,6 +330,7 @@ fn command_fields(command: &str) -> Option<&'static [&'static str]> {
             "label",
         ],
         "work-gate" => &["id", "name", "cwd", "argv", "actor"],
+        "work-gate-retire" => &["id", "reason", "as_actor"],
         "work-handoff" => &[
             "id",
             "attempt",
@@ -354,6 +359,8 @@ fn command_fields(command: &str) -> Option<&'static [&'static str]> {
         "inbox" => &["actor", "as_actor"],
         "message" => &["from", "to", "id", "body"],
         "events" => &["limit"],
+        "schedule-list" => &["as_actor", "include_fired"],
+        "schedule-add" => &["as_actor", "fire_at", "reason", "id"],
         "approve" | "revoke" | "decline" => &["party"],
         "browser-request" => &["id"],
         "effect" => &[
@@ -643,6 +650,7 @@ mod tests {
             "work-edge",
             "work-artifact",
             "work-gate",
+            "work-gate-retire",
             "work-handoff",
             "work-handoff-refresh",
             "work-handoff-prepare-brief",

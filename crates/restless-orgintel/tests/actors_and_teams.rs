@@ -7,6 +7,131 @@ use restless_orgintel::{
     WorkAttemptState, WorkspaceSpec,
 };
 
+#[tokio::test]
+async fn same_repository_dependency_starts_from_the_exact_upstream_commit() {
+    let Ok(url) = std::env::var("RESTLESS_TEST_DATABASE_URL") else {
+        eprintln!("RESTLESS_TEST_DATABASE_URL unset; skipping dependency lineage scenario");
+        return;
+    };
+    let company = format!("lineage{}", uuid::Uuid::new_v4().simple());
+    let org = OrgIntel::ensure(&url, &company)
+        .await
+        .expect("ensure scratch company schema");
+    org.ensure_actor("exec", "exec", "exec", "The Exec")
+        .await
+        .unwrap();
+    create_actor(&org, "delivery-builder", "builder").await;
+    create_actor(&org, "quality-reviewer", "reviewer").await;
+
+    let producer = org
+        .add_work(NewWork {
+            owner_id: "delivery-builder",
+            title: "Produce the candidate",
+            outcome: "commit one candidate",
+            goal_id: None,
+            priority: 10,
+            expected_artifact: "candidate",
+            workspace: WorkspaceSpec {
+                repo: Some("product".into()),
+                base_ref: Some("main".into()),
+                integration_branch: Some("main".into()),
+                worktree: None,
+            },
+            attempt_limit: Some(1),
+        })
+        .await
+        .unwrap();
+    let reviewer = org
+        .add_work_with_edges(
+            NewWork {
+                owner_id: "quality-reviewer",
+                title: "Review the candidate",
+                outcome: "inspect and record the exact candidate",
+                goal_id: None,
+                priority: 5,
+                expected_artifact: "review",
+                workspace: WorkspaceSpec {
+                    repo: Some("product".into()),
+                    base_ref: Some("main".into()),
+                    integration_branch: Some("main".into()),
+                    worktree: None,
+                },
+                attempt_limit: Some(1),
+            },
+            &[producer],
+            &[producer],
+        )
+        .await
+        .unwrap();
+
+    let producer_attempt = org.claim_ready_work("producer").await.unwrap().unwrap();
+    let commit = "0123456789012345678901234567890123456789";
+    org.link_work_artifact(NewArtifactRef {
+        kind: "output",
+        uri: "git:product@0123456:candidate.md",
+        note: "candidate linked without a redundant full hash",
+        created_by: "delivery-builder",
+        work_id: Some(producer),
+        attempt_id: Some(producer_attempt.attempt_id),
+        digest: None,
+        source_commit: None,
+        runtime_generation: None,
+        label: "candidate",
+    })
+    .await
+    .unwrap();
+    assert_eq!(
+        org.bind_attempt_artifacts_to_observed_commit(producer_attempt.attempt_id, commit)
+            .await
+            .unwrap(),
+        1
+    );
+    org.finish_work_attempt(
+        producer_attempt.attempt_id,
+        WorkAttemptState::Produced,
+        "candidate produced",
+    )
+    .await
+    .unwrap();
+
+    let review_attempt = org.claim_ready_work("review").await.unwrap().unwrap();
+    assert_eq!(review_attempt.work.id, reviewer);
+    assert_eq!(review_attempt.work.base_ref.as_deref(), Some("main"));
+    assert_eq!(review_attempt.effective_base_ref.as_deref(), Some(commit));
+    assert!(review_attempt
+        .inputs
+        .iter()
+        .any(|artifact| artifact.source_commit.as_deref() == Some(commit)));
+    org.finish_work_attempt(
+        review_attempt.attempt_id,
+        WorkAttemptState::ChangesRequested,
+        "one bounded source-grounding correction",
+    )
+    .await
+    .unwrap();
+    org.resume_work(
+        producer,
+        "exec",
+        "the reviewer supplied one bounded source-grounding correction",
+    )
+    .await
+    .unwrap();
+    let revision = org
+        .claim_ready_work("producer revision")
+        .await
+        .unwrap()
+        .expect("review feedback should release producer revision 2");
+    assert_eq!(revision.work.id, producer);
+    assert_eq!(revision.work.revision, 2);
+    assert_eq!(
+        revision.effective_base_ref.as_deref(),
+        Some(commit),
+        "revision starts from the rejected candidate rather than stale main"
+    );
+
+    org.drop_schema().await.expect("drop scratch schema");
+}
+
 async fn create_actor(org: &OrgIntel, id: &str, role: &str) {
     let display = format!("{} colleague", id.replace('-', " "));
     org.create_actor(
@@ -190,15 +315,16 @@ async fn initial_work_gates_commit_atomically_and_follow_the_attempt_workspace()
         vec![(0, "typecheck"), (1, "build")],
         "atomic gates retain the caller's declared pipeline order"
     );
-    org.add_work_gate(NewWorkGate {
-        work_id: work,
-        name: "smoke",
-        cwd: "/company",
-        command: &check,
-        created_by: "release-build",
-    })
-    .await
-    .unwrap();
+    let mistaken = org
+        .add_work_gate(NewWorkGate {
+            work_id: work,
+            name: "smoke",
+            cwd: "/company",
+            command: &check,
+            created_by: "release-build",
+        })
+        .await
+        .unwrap();
     let appended = org.list_work_gates(work).await.unwrap();
     assert_eq!(
         appended
@@ -208,6 +334,39 @@ async fn initial_work_gates_commit_atomically_and_follow_the_attempt_workspace()
         vec![(0, "typecheck"), (1, "build"), (2, "smoke")],
         "a later gate appends after the atomic pipeline"
     );
+    assert!(org
+        .retire_work_gate(
+            mistaken,
+            "release-build",
+            "the command checks the shared checkout rather than the Attempt",
+        )
+        .await
+        .unwrap());
+    assert!(!org
+        .retire_work_gate(
+            mistaken,
+            "release-build",
+            "a repeated repair must remain idempotent",
+        )
+        .await
+        .unwrap());
+    assert_eq!(
+        org.list_work_gates(work).await.unwrap().len(),
+        2,
+        "retired gates no longer participate in later Attempts"
+    );
+    let graph = org.work_graph_snapshot().await.unwrap();
+    let historical = graph
+        .gates
+        .iter()
+        .find(|gate| gate.id == mistaken)
+        .expect("retired gate remains visible with its historical runs");
+    assert_eq!(historical.retired_by.as_deref(), Some("release-build"));
+    assert!(historical
+        .retired_reason
+        .as_deref()
+        .unwrap()
+        .contains("shared checkout"));
 
     let duplicate = org
         .add_work_with_edges_and_gates(

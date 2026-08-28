@@ -119,6 +119,20 @@ and deadlocked. The causal lead still introduced a substantive unit-level judgem
 supervisor therefore needs exact changed facts, addressed Work and independent outcome evidence; a
 better wake path does not justify trusting the wake's judgement without review.
 
+EXP-09 adds the completion boundary. A worker's progress note is not terminal evidence and can reach
+the lead before Runtime gates finish. The Runtime therefore observes artifacts, gates and final Work
+state first, then delivers one durable Work-linked fact through a recoverable Attempt outbox. Staff
+uses direct mail only for a new fact or contradiction that needs judgement before completion. This is
+event-driven supervision: immediate on the material fact, recoverable after restart, and independent
+of timeouts or heartbeats.
+
+Continuous responsibility does not imply continuous execution. A standing lead may retain a mandate
+across many signals while every useful production cycle remains bounded Work and the correct response
+to irrelevant, duplicate, stale or absent evidence is quiet. EXP-09's direct standing editorial lead
+used materially less owner, Exec and model activity than relay while matching useful behavior; its
+opportunity lead completed useful updates and produced zero quiet-interval activity. No new Mission
+entity or workflow engine follows from that result.
+
 ## Why fast agents change the shape
 
 Fast inference makes an individual worker's production cheap relative to briefing and integration. A
@@ -195,12 +209,14 @@ chain of thought. A topology wins only in the work region it improves.
 
 The next useful frontier is implementation truth rather than another wildcard search:
 
-1. deliver exact terminal failure evidence through the existing event/gate path so a lead cannot wait
-   indefinitely on a success-only callback;
-2. make Exec dispatch durably accepted and asynchronously return portfolio availability before lead
+1. make Exec dispatch durably accepted and asynchronously return portfolio availability before lead
    model orientation completes;
-3. constrain experiment evaluator structure without inferring missing semantic decisions; and
-4. dogfood one provider-observed inbound signal in an isolated company through prepared native review.
+2. constrain experiment evaluator structure without inferring missing semantic decisions or hidden
+   representation requirements;
+3. project one provider-observed inbound signal to the nearest accountable lead without owner relay;
+4. distinguish a package prepared for future owner judgement from owner attention genuinely owed now;
+   and
+5. dogfood the standing-responsibility pattern through governed native review and real effects.
 
 Reopen a coordination mechanism only if that real path repeats one causal information-flow failure.
-No shared history, blackboard, fan-in or workflow engine is implied by EXP-05.
+No shared history, blackboard, fan-in, Mission entity or workflow engine is implied by EXP-09.

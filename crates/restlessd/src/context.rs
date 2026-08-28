@@ -231,6 +231,12 @@ pub fn assemble(snapshot: &ContextSnapshot) -> ContextPackage {
          repository coordinates with `--repo <name> --base-ref <ref>` whenever the outcome edits or \
          tests a repository; those fields let the Runtime create and launch the Attempt inside the \
          owned worktree. Do not ask Staff to discover a repository or manufacture its own worktree. \
+         When one final accepted Git Work should become shared truth, declare the existing checked-out \
+         shared target (normally `main`) with `--integration-branch <branch>` on that final Work only. \
+         `requires` already hands exact intermediate commits from producer to reviewer, so never use \
+         an integration branch as a temporary feature branch. After the final clean exact commit passes \
+         its gates, the Runtime fast-forwards the branch in its own checkout. Do not commission \
+         promotion-only Work and do not move a checked-out shared ref from another worktree. \
          Repo-less Work runs from the persistent `/company` Runtime and must not be described as \
          isolated. Declare its initial \
          dependencies in that same command with repeatable `--requires <prerequisite-work-id>` and \
@@ -243,8 +249,11 @@ pub fn assemble(snapshot: &ContextSnapshot) -> ContextPackage {
          with repeatable `--gate '{{\"name\":\"typecheck\",\"command\":[\"pnpm\",\"check\"]}}'`; \
          repeating an exit-code requirement only in outcome prose does not enforce it, and adding \
          a gate afterward races the scheduler. These gates run in every revision's current Attempt \
-         workspace and in the order declared. `restless work gate` remains for repairing \
-         already-existing Work. Producers \
+         workspace and in the order declared. `restless work gate` remains for adding a \
+         missing gate to already-existing blocked Work. If a declared gate itself is wrong, \
+         preserve its historical runs and retire it with `restless work retire-gate --gate \
+         <gate-id> --as <actor> --reason <evidence>`, declare the exact replacement, then resume \
+         the Work. Producers \
          link exact outputs with restless work artifact. A review result of changes_requested invalidates its producer \
          and hard descendants into a new revision. Conversations stay free-form. Work proves only \
          real cross-actor responsibility, kickoff and input versions; it is not the lead's plan, \

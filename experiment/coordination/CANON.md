@@ -36,6 +36,9 @@ linked run reports.
 | **CL-027** | Provisional | Causal supervision preserves the chance to prevent stale or harmful completion, but supervisory availability is not supervisory correctness. Address the exact lead and Work with changed facts, then retain independent exact and semantic review. | EXP-05 causal support closed 96/96 with zero stale v1 acceptance, yet the lead introduced duplicate-case contamination in C057 and the blind evaluator required repair. Terminal-only delivery accepted 80/96. |
 | **CL-028** | Provisional | Independent search breadth can parallelise without cognitive fan-in when each entity closes locally and the product is an alert feed rather than one memo. | EXP-05 monitoring Q2 delivered 1.917× throughput, 0.554× p90 and 0.853× charged cost/alert with both arms blind-accepted, though worst-unit consistency fell from 8.5 to 7. |
 | **CL-029** | Provisional | A truthful experiment needs distinct terminal dispositions for accepted outcomes, outcome failures and stopped infrastructure branches. Never replay production for evaluator luck or infer a missing field. | EXP-05 preserved support terminal as `counted_outcome_failure` and company concurrency as `branch_stopped_infrastructure_invalid` after two malformed support evaluations, while retaining exact product evidence separately. |
+| **CL-030** | Provisional | Continuous value generation is durable responsibility plus event-triggered bounded Work, not a continuously running model. Routine signals go directly to the nearest accountable lead; Exec remains available, and correct no-op or idle creates no production artifact. | EXP-09's direct editorial arm matched useful behavior with 48.8% fewer model attempts and 58.6% less estimated list cost than owner/Exec relay. The opportunity cell handled six signal classes and an exact 45-second quiet interval with zero idle delta. Real inbound projection remains unproved. |
+| **CL-031** | Provisional | Exact Git lineage is coordination truth. Same-repository dependencies start from the producer's observed full commit, revisions start from the rejected candidate, and only final accepted Work names a checked-out shared integration branch for a clean Runtime fast-forward. | EXP-09 r1-r4 repeatedly exposed sibling histories, dirty ref movement, ambiguous branch semantics, stale revision bases and workspace-mismatched ACP reuse. r5 and r6 closed with exact lineage and clean shared checkouts. |
+| **CL-032** | Provisional | A supervisor terminal callback lands only after artifacts, gates and final Work state. It is a durable Work-linked fact with a recoverable exactly-once outbox, not Staff status prose, polling, a heartbeat or elapsed-time completion. | EXP-09 r5 stalled when the lead consumed a progress note before terminal evidence. The r6 replay woke the lead after producer and reviewer completion without ceremonial Staff mail; the post-run outbox test closes the daemon-crash window. |
 
 ## Current routing prior
 
@@ -83,7 +86,11 @@ names the exact missing information flow; EXP-05 activated none.
   signal without its 1.5-point worst-unit consistency decline?
 - Can durable dispatch return Exec availability before lead orientation, rather than occupying the
   owner-facing request path for 68.68 seconds?
-- Can exact terminal failure evidence reach a lead through the existing event/gate path without
-  adding a workflow engine or turning every negative validator result into a model wake?
+- Which terminal facts can be safely batched for high-volume locally closing queues without hiding a
+  decision-relevant exception from the lead?
+- What is the smallest Authority-owned projector that routes authenticated external sources directly
+  to the nearest accountable lead without making OrgIntel a second source of provider truth?
+- When should an evidence-backed package create owner attention immediately, versus remain prepared
+  and quiet until an observable resume condition is met?
 - What constrained-output boundary makes blind evaluation reliable without hiding substantive model
   refusal or uncertainty behind schema repair?

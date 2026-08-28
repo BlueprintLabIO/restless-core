@@ -1,0 +1,44 @@
+{
+  "experiment": "EXP-09",
+  "cell": "editorial_continuity",
+  "date": "2026-08-26",
+  "model": "openai-codex/gpt-5.6-sol",
+  "arms": {
+    "owner_exec_relay": {
+      "company": "exp09_editorial_relay_r1_test",
+      "events": 205,
+      "model_attempts": 41,
+      "exec_wakes": 9,
+      "lead_wake_ends": 20,
+      "usage_tokens_sum": 2209976,
+      "estimated_list_cost_usd": 21.87841,
+      "work": 11,
+      "completed_work": 10,
+      "abandoned_work": 1,
+      "attempts": 13,
+      "external_effect_receipts": 0
+    },
+    "direct_standing_lead": {
+      "company": "exp09_editorial_mission_r1_test",
+      "events": 107,
+      "model_attempts": 21,
+      "exec_wakes": 1,
+      "lead_wake_ends": 13,
+      "usage_tokens_sum": 801082,
+      "estimated_list_cost_usd": 9.060358,
+      "work": 7,
+      "completed_work": 7,
+      "abandoned_work": 0,
+      "attempts": 7,
+      "external_effect_receipts": 0
+    }
+  },
+  "direct_vs_relay": {
+    "model_attempt_reduction_pct": 48.7805,
+    "usage_token_reduction_pct": 63.7516,
+    "estimated_list_cost_reduction_pct": 58.5877,
+    "work_reduction_pct": 36.3636
+  },
+  "result": "direct_standing_lead_advances",
+  "qualification": "Later signals were controlled owner-to-lead injections because a generic Authority external-source projector was not callable. This proves downstream topology, not zero-owner inbound autonomy."
+}

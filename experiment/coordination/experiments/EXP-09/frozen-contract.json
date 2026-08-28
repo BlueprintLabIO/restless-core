@@ -1,0 +1,46 @@
+{
+  "version": 1,
+  "frozen_at": "2026-08-26",
+  "founder_activation": "action exp-09, keep testing what the best architecture and system for continuous value generation and autonomous agent execution is",
+  "amendment": {
+    "prior_dependency": "Sprint 20 terminal research-publication report",
+    "reason": "Founder explicitly activated EXP-09 first. The first cell is narrowed to an isolated editorial continuity fixture based only on completed EXP-05 evidence.",
+    "scope_effect": "No claim about the finished public research site; continuous architecture only."
+  },
+  "model": {
+    "selector": "openai-codex/gpt-5.6-sol",
+    "fallback": [],
+    "exec_effort": "medium",
+    "lead_effort": "medium",
+    "staff_effort": "medium",
+    "peer_review_effort": "high when the actor can set it; otherwise recorded medium"
+  },
+  "companies": {
+    "repeated_request": "exp09_editorial_relay_r1_test",
+    "standing_mission": "exp09_editorial_mission_r1_test"
+  },
+  "spend_ceiling_usd_per_company": 30.0,
+  "external_effects": "forbidden",
+  "repository": "/company/repos/continuous-value",
+  "initial_branch": "main",
+  "event_order": [
+    "E01",
+    "E02",
+    "E02-redelivery",
+    "E04",
+    "E05",
+    "quiet"
+  ],
+  "arm_difference": {
+    "repeated_request": "Each event is relayed in a frozen owner directive to Exec.",
+    "standing_mission": "Each event is an addressed message from world to the durable accountable lead."
+  },
+  "quiet_observation_seconds": 45,
+  "semantic_completion": "Work, Attempt, artifact, review and lead judgement facts; never elapsed time",
+  "activation_gate_workload_b": [
+    "accepted artifact continuity across E01 and E02",
+    "zero duplicate substantive outcome for E02 redelivery",
+    "E05 no-op",
+    "zero production Work or model wake in quiet interval"
+  ]
+}

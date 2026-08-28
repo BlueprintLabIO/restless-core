@@ -1,0 +1,32 @@
+{
+  "experiment": "EXP-09",
+  "cell": "terminal_supervisor_callback_live_replay",
+  "company": "exp09_opportunity_mission_r6_test",
+  "date": "2026-08-26",
+  "model": "openai-codex/gpt-5.6-sol",
+  "scope": "standing desk setup plus O01 producer-reviewer cycle",
+  "result": "pass",
+  "events": 40,
+  "model_attempts": 7,
+  "exec_wakes": 1,
+  "lead_wake_ends": 4,
+  "usage_tokens_sum": 129990,
+  "estimated_list_cost_usd": 2.074125,
+  "work": 2,
+  "completed_work": 2,
+  "attempts": 2,
+  "external_effect_receipts": 0,
+  "producer_commit": "b46b44714b78ccc721d89588ce7bb6ccbb25d761",
+  "reviewer_commit": "5dfe29a8a7be505607564bf042d97a417aa710bc",
+  "reviewer_effective_base": "b46b44714b78ccc721d89588ce7bb6ccbb25d761",
+  "promoted_main": "5dfe29a8a7be505607564bf042d97a417aa710bc",
+  "dirty_entries": 0,
+  "verifier": {"opportunity_files": 1, "review_files": 1, "passed": true},
+  "observations": [
+    "Staff sent no progress or completion mail merely to wake the lead.",
+    "The lead woke after the Runtime observed the producer terminal state.",
+    "The lead woke again after exact reviewer completion and safe promotion.",
+    "The callback used a durable Work-linked terminal fact, not a timeout, heartbeat or owner relay."
+  ],
+  "post_run_hardening": "The live callback was then made crash-recoverable with an Attempt outbox bit. Completion and owed state commit together; message delivery and clearing commit together; daemon reconciliation flushes any owed fact exactly once."
+}

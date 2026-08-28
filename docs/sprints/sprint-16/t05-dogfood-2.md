@@ -13,7 +13,7 @@ paired historical evaluation remains visibly isolated in _test.
 
 ## Acceptance
 
-- Run [dogfood-2.md](../../scenarios/dogfood-2.md) against live sources. Use the verified provider
+- Run [dogfood-2.md](../../dogfood/dogfood-2.md) against live sources. Use the verified provider
   lane only if its owner handoff and authenticated probe succeeded; otherwise record public-only or
   blocked truthfully.
 - Deliver a native review target with an explicitly dated universe, evidence manifest, reverse

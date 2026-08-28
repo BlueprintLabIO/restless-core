@@ -30,5 +30,9 @@ does not authorise live-company effects, production promotion or an expanded tas
   — draft; tests whether the successful Restless web pattern transfers as a thin revisable playbook
   without anchoring teams to a workflow or visual template.
 - [`exp-sprint-09-continuous-mission-frontier.md`](exp-sprint-09-continuous-mission-frontier.md) —
-  draft; compares a standing event-driven mission with repeated owner requests and tests useful work,
-  correct no-op behaviour and current-primitives sufficiency.
+  complete; direct standing responsibility removes most owner/Exec relay cost, preserves useful
+  signal and no-op behavior, and needs only thin lineage, promotion and terminal-callback repairs on
+  the existing primitives.
+- [`exp-sprint-10-continuous-product-development.md`](exp-sprint-10-continuous-product-development.md)
+  — active; applies standing responsibility to repeated improvement of the real Swift Arrival game,
+  including direct scheduled review, duplicate suppression, local failure recovery and exact idle.

@@ -225,7 +225,7 @@ pub async fn dispatch_claimed_work(
         org.set_attempt_model(claimed.attempt_id, first_model)
             .await?;
         let workdir = if claimed.work.repo.is_some() {
-            ensure_worktree(config, &claimed.work).await?
+            ensure_worktree(config, &claimed.work, claimed.effective_base_ref.as_deref()).await?
         } else {
             "/company".to_string()
         };
@@ -610,6 +610,7 @@ mod tests {
                 created_at: Utc::now(),
                 updated_at: Utc::now(),
             },
+            effective_base_ref: None,
             attempt_id: uuid::Uuid::new_v4(),
             attempt_no: 1,
             session_id: uuid::Uuid::new_v4().to_string(),
@@ -628,7 +629,10 @@ mod tests {
 
         assert!(context.contains("Repository: cosmon"));
         assert!(context.contains("Runtime working directory: /company/worktrees/work-bound-r1"));
-        assert!(context.contains("Base ref: none"));
+        assert!(context.contains("Effective base ref: none"));
+        assert!(context.contains("Declared base ref: none"));
+        assert!(context.contains("Runtime will fast-forward"));
+        assert!(context.contains("Do not move `main`"));
         assert!(context.contains("# Completion evidence [deterministic]"));
         assert!(!context.contains("the active team charter and roster when present"));
         assert!(context.contains(&format!(
@@ -637,7 +641,7 @@ mod tests {
         )));
         assert!(context.contains("Not replayed: lead conversation"));
         assert_eq!(
-            accounting["automatically_attached"]["workspace"]["base_ref"],
+            accounting["automatically_attached"]["workspace"]["effective_base_ref"],
             serde_json::Value::Null
         );
         assert_eq!(
@@ -673,6 +677,7 @@ mod tests {
         assert!(rules.contains("scheduler-created"));
         assert!(rules.contains("prove that another actor contributed"));
         assert!(rules.contains("not the lead's plan, reasoning, checklist"));
+        assert!(rules.contains("do not commission promotion-only Work"));
 
         let lead = actor_posture(true);
         assert!(lead.contains("ACCOUNTABLE LEAD"));

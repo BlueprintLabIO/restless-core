@@ -243,7 +243,7 @@ starts. It contains references rather than copies where another layer owns the f
 - `deletion-record.md` — losing code/mechanisms removed or intentionally retained; and
 - `final-report.md` — terminal classification, limitations and next decision.
 
-The final after-action lives at `docs/scenarios/dogfood-3-after-action.md` after evidence exists. It is
+The final after-action lives at `docs/dogfood/dogfood-3-after-action.md` after evidence exists. It is
 not pre-written.
 
 ## Termination and classification

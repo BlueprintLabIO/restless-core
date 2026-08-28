@@ -301,6 +301,17 @@ async fn scan_company(daemon: &Arc<Daemon>, in_flight: &InFlight, company: &str)
         return;
     };
 
+    // Live Attempt completion flushes this outbox immediately. A daemon crash
+    // between terminal state and supervisor delivery leaves the owed bit set;
+    // reconciliation recreates the same durable lead wake without guessing
+    // completion from elapsed time or replaying production.
+    if let Err(error) = org.flush_terminal_supervisor_notices(100).await {
+        tracing::warn!(
+            company,
+            "could not flush terminal supervisor facts: {error:#}"
+        );
+    }
+
     // A daemon/process restart can cut a direct CLI wake after the durable
     // `wake` event but before `wake_end`. That work is still owed even when no
     // unread owner message remains. Recover it before claiming new schedules

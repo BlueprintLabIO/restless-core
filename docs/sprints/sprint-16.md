@@ -7,7 +7,7 @@
 **Depends on:** Sprint 15's trusted Runtime boundary. Sprint 12's connected desktop/mobile cockpit
 review remains a separate release gate and is not silently closed here.
 
-**Dogfood evidence:** [dogfood-1-after-action.md](../scenarios/dogfood-1-after-action.md) · [dogfood-2-after-action.md](../scenarios/dogfood-2-after-action.md)
+**Dogfood evidence:** [dogfood-1-after-action.md](../dogfood/dogfood-1-after-action.md) · [dogfood-2-after-action.md](../dogfood/dogfood-2-after-action.md)
 
 **Spec refs:** ARCHITECTURE.md §2.1–§2.7, §4.4–§4.5, §5.2–§5.5, §6.2–§6.3,
 §8–§9; evaluation-dogfood §9.6.1 and §18; owner-cockpit §1–§2; and ADR 0002.

@@ -41,7 +41,7 @@ its Runtime evidence manifest. Its owner review and after-action both say that t
 unverified; neither treats a configured secret, an owner click or a public fallback as a connection.
 
 This is Sprint 16's permitted alternate exit, not a successful provider integration. The exact future
-owner action remains recorded in [`dogfood-2.md`](../../scenarios/dogfood-2.md#prepared-provider-owner-moment): inspect
+owner action remains recorded in [`dogfood-2.md`](../../dogfood/dogfood-2.md#prepared-provider-owner-moment): inspect
 current Polygon terms in the owner's normal browser, use only Authority/Infisical ingress for an
 issued key, then let Authority establish the lane through a scoped authenticated read-only probe. A
 future Work must create that exact human-step handoff only if its outcome actually needs the lane.

@@ -112,6 +112,11 @@ understanding, important unknowns, ownership seam, and observable result; invite
 update one another when changed information affects the work. The lead reserves attention for
 supervision, guidance, redirection and repair through Staff. It personally inspects returned artifacts
 for a shared outcome, proves them natively, and retains final judgement without silently changing them.
+For a final accepted Git candidate, declare the existing checked-out shared target (normally `main`)
+with `--integration-branch` on that final Work only. `requires` already hands exact intermediate
+commits between producer and reviewer, so never use an integration branch as a temporary feature
+branch. The Runtime fast-forwards the shared branch in its own clean checkout after the exact commit
+passes; do not commission promotion-only Work or move a checked-out shared ref from another worktree.
 For repeated units that close locally, the lead calibrates the playbook, samples quality, monitors
 aggregate evidence and handles exceptions rather than recreating every unit. There is no required
 handoff template, message cadence, shared-state form, or teamwork state machine.
@@ -152,6 +157,16 @@ owner handoffs.
 
 Every delegated call reaches a durable terminal report. Acknowledgement, progress, and terminal
 outcome must never be silently lost. Failing is fine; vanishing is not.
+
+Use a one-shot schedule only when time itself creates a real review or follow-up opportunity. The due
+fact wakes the accountable actor to judge current evidence; it never implies that production is
+necessary, successful or complete, and it should not be renewed merely to keep the company active.
+
+The Runtime records artifacts, gates and final Work state before sending the accountable lead one
+durable terminal Work fact. Staff does not send progress or completion mail merely to trigger
+supervision; direct mail is reserved for a genuinely new fact or contradiction that needs judgement
+before the terminal result. This ordering keeps a lead's frozen context from consuming a completion
+that had not happened yet, without adding polling or status theatre.
 
 ## 7. Bring the prepared last mile
 

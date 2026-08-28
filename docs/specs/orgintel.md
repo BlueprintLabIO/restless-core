@@ -864,7 +864,11 @@ OrgIntel must not encode the prior as a fixed team-size or span-of-control rule.
 
 Lead supervision is an owner-decided product invariant, not a product hypothesis. Supervision wakes
 from material Work, Attempt, artifact and message changes rather than polling. Content-changing repair
-returns to a worker; exact artifact promotion remains supervisory judgement.
+returns to a worker; exact artifact promotion remains supervisory judgement. A worker progress note
+never proves completion. After artifacts, deterministic gates and final Work state have committed, a
+recoverable Attempt outbox delivers one durable terminal fact to the accountable lead. Live delivery
+is immediate and restart reconciliation is idempotent; elapsed time and heartbeat activity have no
+completion semantics.
 
 ## 6.4 Business processes
 

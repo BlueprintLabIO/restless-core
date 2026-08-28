@@ -1,6 +1,6 @@
 # Sprint 21 - Dogfood 5: operate the research company continuously
 
-**Status:** Draft for founder alignment; activation depends on EXP-09, no implementation or run started
+**Status:** Draft for founder alignment; EXP-09 gate passed, Sprint 20 and EXP-08 dependencies remain
 
 **Date:** 26 August 2026
 
@@ -29,14 +29,11 @@ product or operating gap; it does not prove a universal law about continuous age
 
 ## Activation rule
 
-Sprint 21 does not start merely because this specification exists.
-
-- If EXP-09 concludes `current primitives suffice`, use the existing Goal/responsibility,
-  event/schedule, Work/Attempt and file paths unchanged.
-- If EXP-09 earns one thin affordance, Sprint 21 depends on a separately founder-approved minimal
-  implementation sprint and its live proof.
-- If EXP-09 is rejected, product-invalid or inconclusive, revise or cancel Sprint 21 rather than
-  building the imagined continuous system.
+Sprint 21 does not start merely because this specification exists. EXP-09 has passed its activation
+gate: use the existing Goal/responsibility, event/schedule, Work/Attempt, Message and file paths with
+the now-verified exact-lineage, safe-promotion, workspace-reconstruction and recoverable terminal-
+delivery repairs. Sprint 20's accepted publication and EXP-08's playbook disposition remain hard
+dependencies, as does founder approval of this dogfood specification.
 
 No `Mission` table, workflow engine, polling service or permanent sampling loop is pre-authorised.
 
@@ -192,7 +189,7 @@ Founders observe rather than coach ordinary cycles.
 | The company overfits to its own research | **Guarded** | External/source-change cycle, peer review and honest counterevidence |
 | Three cycles are called proof of an autonomous business | **Guarded** | Scope the claim to one continuous research operation; economic extension remains activation-only |
 | Real demand is absent | **Accepted** | Publication output can succeed without demand; report external response honestly and choose the next market test |
-| A known callback/review bug causes owner rescue | **Pending fix at entry** | Must pass the EXP-09 activation gate or make the run product-invalid; founders do not patch it mid-run |
+| A callback/review bug causes owner rescue | **Guarded at entry** | EXP-09 repaired exact lineage, promotion, workspace reconstruction and recoverable terminal supervisor delivery; a recurrence makes the affected run product-invalid |
 
 ## Non-goals
 

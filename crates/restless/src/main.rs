@@ -153,6 +153,12 @@ enum Command {
         #[command(subcommand)]
         command: TeamCommand,
     },
+    /// Durable one-shot time facts. A schedule creates an opportunity to inspect; it does not prove
+    /// that work is necessary or complete.
+    Schedule {
+        #[command(subcommand)]
+        command: ScheduleCommand,
+    },
     /// Judgement an actor owes — a team lead's queue, the same shape as the
     /// owner's `attention` (S06-T5).
     Judgement {
@@ -425,6 +431,36 @@ enum TeamCommand {
 }
 
 #[derive(Subcommand)]
+enum ScheduleCommand {
+    /// Inspect pending schedules, or include already fired/cancelled history.
+    List {
+        #[arg(long, short = 'c', env = "RESTLESS_COMPANY")]
+        company: Option<String>,
+        /// Limit the view to one actor. Runtime actors may inspect only themselves.
+        #[arg(long = "as")]
+        as_actor: Option<String>,
+        #[arg(long)]
+        all: bool,
+    },
+    /// Add one genuinely time-driven wake. Recurrence remains later judgement, not scheduler policy.
+    Add {
+        #[arg(long, short = 'c', env = "RESTLESS_COMPANY")]
+        company: Option<String>,
+        /// The accountable actor to wake. Defaults to the current Runtime actor.
+        #[arg(long = "as", env = "RESTLESS_ACTOR")]
+        as_actor: Option<String>,
+        /// RFC3339 instant, for example 2026-08-28T09:30:00Z.
+        #[arg(long)]
+        at: String,
+        #[arg(long)]
+        reason: String,
+        /// Optional Work waiting on this exact time condition.
+        #[arg(long)]
+        work: Option<String>,
+    },
+}
+
+#[derive(Subcommand)]
 enum WorkCommand {
     List {
         #[arg(long, short = 'c', env = "RESTLESS_COMPANY")]
@@ -462,6 +498,8 @@ enum WorkCommand {
         repo: Option<String>,
         #[arg(long)]
         base_ref: Option<String>,
+        /// Existing checked-out shared branch to fast-forward after this
+        /// final accepted Work passes. Dependencies carry intermediate commits.
         #[arg(long)]
         integration_branch: Option<String>,
         #[arg(long)]
@@ -559,6 +597,18 @@ enum WorkCommand {
         cwd: String,
         #[arg(required = true, trailing_var_arg = true, allow_hyphen_values = true)]
         command: Vec<String>,
+    },
+    /// Retire a mistaken deterministic gate while preserving its historical
+    /// runs. Declare any replacement before resuming the blocked Work.
+    RetireGate {
+        #[arg(long, short = 'c', env = "RESTLESS_COMPANY")]
+        company: Option<String>,
+        #[arg(long)]
+        gate: String,
+        #[arg(long)]
+        reason: String,
+        #[arg(long = "as", env = "RESTLESS_ACTOR")]
+        as_actor: Option<String>,
     },
     Handoff {
         #[arg(long, short = 'c', env = "RESTLESS_COMPANY")]
@@ -1517,6 +1567,17 @@ fn request_json(command: Command) -> Result<serde_json::Value> {
                 "cwd": cwd, "argv": command,
                 "actor": std::env::var("RESTLESS_ACTOR").unwrap_or_else(|_| "owner".to_string()),
             }),
+            WorkCommand::RetireGate {
+                company,
+                gate,
+                reason,
+                as_actor,
+            } => serde_json::json!({
+                "cmd": "work-gate-retire", "company": company, "id": gate,
+                "reason": reason,
+                "as_actor": as_actor.or_else(|| std::env::var("RESTLESS_ACTOR").ok())
+                    .unwrap_or_else(|| "owner".to_string()),
+            }),
             WorkCommand::Handoff {
                 company,
                 work,
@@ -1613,6 +1674,29 @@ fn request_json(command: Command) -> Result<serde_json::Value> {
             } => serde_json::json!({
                 "cmd": "work-review", "company": company, "id": handoff, "state": decision,
                 "resolution": feedback,
+            }),
+        },
+        Command::Schedule { command } => match command {
+            ScheduleCommand::List {
+                company,
+                as_actor,
+                all,
+            } => serde_json::json!({
+                "cmd": "schedule-list", "company": company,
+                "as_actor": as_actor.or_else(|| std::env::var("RESTLESS_ACTOR").ok()),
+                "include_fired": all,
+            }),
+            ScheduleCommand::Add {
+                company,
+                as_actor,
+                at,
+                reason,
+                work,
+            } => serde_json::json!({
+                "cmd": "schedule-add", "company": company,
+                "as_actor": as_actor.or_else(|| std::env::var("RESTLESS_ACTOR").ok())
+                    .unwrap_or_else(|| "exec".to_string()),
+                "fire_at": at, "reason": reason, "id": work,
             }),
         },
         Command::Events { company: c, limit } => {
@@ -2362,9 +2446,8 @@ mod tests {
         let rendered = render_attention_summary(&projection);
 
         assert!(rendered.contains("restless approve -c 'demo_test' --party 'design@example.test'"));
-        assert!(rendered.contains(
-            "restless approve -c 'demo_test' --party 'design@example.test' --decline"
-        ));
+        assert!(rendered
+            .contains("restless approve -c 'demo_test' --party 'design@example.test' --decline"));
         assert!(rendered.contains(
             "restless work review -c 'demo_test' --handoff '2c5a5e28-6b4d-4b92-a39f-0a9c38d53552' --decision accept"
         ));

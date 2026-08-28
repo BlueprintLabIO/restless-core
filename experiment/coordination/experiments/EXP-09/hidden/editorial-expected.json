@@ -1,0 +1,9 @@
+{
+  "exp09://editorial/demand-capacity-v1": "publish",
+  "exp09://editorial/demand-capacity-correction-v2": ["update", "no_op_duplicate"],
+  "exp09://editorial/provider-conflict-v1": "defer",
+  "exp09://editorial/high-salience-irrelevant-v1": "no_op_irrelevant",
+  "expected_article_count": 1,
+  "expected_research_note_count": 1,
+  "minimum_review_count": 2
+}

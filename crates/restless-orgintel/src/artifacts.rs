@@ -62,6 +62,34 @@ impl OrgIntel {
         Ok(id)
     }
 
+    /// Canonicalise artifact versions against the clean Git commit observed
+    /// by the Runtime when their producing Attempt ends. Staff may omit the
+    /// redundant flag or provide an abbreviated hash; the Runtime observation
+    /// remains the authoritative source of the full commit.
+    pub async fn bind_attempt_artifacts_to_observed_commit(
+        &self,
+        attempt_id: Uuid,
+        observed_commit: &str,
+    ) -> Result<u64> {
+        if observed_commit.len() != 40
+            || !observed_commit.bytes().all(|byte| byte.is_ascii_hexdigit())
+        {
+            return Err(OrgIntelError::InvalidWork(
+                "an observed artifact commit must be a full Git object id".into(),
+            ));
+        }
+        let result = sqlx::query(
+            "UPDATE artifact_refs SET source_commit=$2 \
+             WHERE attempt_id=$1 AND state='available' \
+               AND (source_commit IS NULL OR $2 LIKE source_commit || '%')",
+        )
+        .bind(attempt_id)
+        .bind(observed_commit)
+        .execute(&self.pool)
+        .await?;
+        Ok(result.rows_affected())
+    }
+
     pub async fn list_artifact_refs(&self, work_id: Option<Uuid>) -> Result<Vec<ArtifactRefRow>> {
         Ok(sqlx::query_as(
             "SELECT id, kind, uri, note, created_by, work_id, attempt_id, digest, source_commit, \
@@ -116,12 +144,51 @@ impl OrgIntel {
 
     pub async fn list_work_gates(&self, work_id: Uuid) -> Result<Vec<WorkGateRow>> {
         Ok(sqlx::query_as(
-            "SELECT id, work_id, name, cwd, command, created_by, sequence_no, created_at \
-             FROM work_gates WHERE work_id = $1 ORDER BY sequence_no",
+            "SELECT id, work_id, name, cwd, command, created_by, sequence_no, created_at, \
+                    retired_at, retired_by, retired_reason \
+             FROM work_gates WHERE work_id = $1 AND retired_at IS NULL ORDER BY sequence_no",
         )
         .bind(work_id)
         .fetch_all(&self.pool)
         .await?)
+    }
+
+    /// Retire a mistaken gate without rewriting the evidence of earlier runs.
+    /// Work remains blocked until its accountable coordinator declares any
+    /// replacement gate and explicitly resumes it.
+    pub async fn retire_work_gate(
+        &self,
+        gate_id: Uuid,
+        retired_by: &str,
+        reason: &str,
+    ) -> Result<bool> {
+        if retired_by.trim().is_empty() || reason.trim().is_empty() {
+            return Err(OrgIntelError::InvalidWork(
+                "retiring a Work gate needs an actor and evidence-backed reason".into(),
+            ));
+        }
+        let result = sqlx::query(
+            "UPDATE work_gates SET retired_at=now(), retired_by=$2, retired_reason=$3 \
+             WHERE id=$1 AND retired_at IS NULL",
+        )
+        .bind(gate_id)
+        .bind(retired_by)
+        .bind(reason)
+        .execute(&self.pool)
+        .await?;
+        if result.rows_affected() == 0 {
+            let exists: bool =
+                sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM work_gates WHERE id=$1)")
+                    .bind(gate_id)
+                    .fetch_one(&self.pool)
+                    .await?;
+            if !exists {
+                return Err(OrgIntelError::InvalidWork(
+                    "Work gate does not exist".into(),
+                ));
+            }
+        }
+        Ok(result.rows_affected() == 1)
     }
 
     /// One repeatable-read projection for CLI and SPA. It is deliberately a
@@ -171,7 +238,8 @@ impl OrgIntel {
         .fetch_all(&mut *tx)
         .await?;
         let gates = sqlx::query_as(
-            "SELECT id, work_id, name, cwd, command, created_by, sequence_no, created_at \
+            "SELECT id, work_id, name, cwd, command, created_by, sequence_no, created_at, \
+                    retired_at, retired_by, retired_reason \
              FROM work_gates ORDER BY work_id, sequence_no",
         )
         .fetch_all(&mut *tx)
@@ -245,7 +313,8 @@ impl OrgIntel {
             "SELECT NOT EXISTS (\
                SELECT 1 FROM work_gates g \
                LEFT JOIN work_gate_runs r ON r.gate_id=g.id AND r.attempt_id=$2 \
-               WHERE g.work_id=$1 AND COALESCE(r.passed, false)=false\
+               WHERE g.work_id=$1 AND g.retired_at IS NULL \
+                 AND COALESCE(r.passed, false)=false\
              )",
         )
         .bind(work_id)

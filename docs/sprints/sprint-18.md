@@ -4,7 +4,7 @@
 
 **Date:** 26 August 2026
 
-**Scenario:** [Dogfood 3 — Release and operate](../scenarios/dogfood-3.md) v0.1
+**Scenario:** [Dogfood 3 — Release and operate](../dogfood/dogfood-3.md) v0.1
 
 **Depends on:** Sprint 17's implemented supervision, session continuity, inbound custody and native
 review paths. Its founder-deferred real-provider callback remains an observed open gate, not a claimed

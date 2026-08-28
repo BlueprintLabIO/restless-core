@@ -1,0 +1,16 @@
+name = "exp09_opportunity_mission_r3_test"
+mission = """# Continuous economic opportunity test company
+
+Operate one isolated `_test` opportunity desk across controlled signals. Exec remains available,
+delegates the standing responsibility once, and then receives no routine signal relay. One accountable
+non-producing opportunity lead judges source relevance and commissions attributed Staff only when a
+useful opportunity artifact should change. Maintain one evolving Git opportunity dossier, prepare the
+machine-doable last mile, preserve unsupported capabilities as unknown, and return to idle when no
+valuable work is present. No external effect is permitted.
+"""
+spend_ceiling_usd = 30.0
+model = "openai-codex/gpt-5.6-sol"
+model_failover = []
+
+[credentials]
+"model.inference.openai-codex" = "omp-oauth:openai-codex"

@@ -127,19 +127,30 @@ fn validate_session_locator(
     company: &str,
     actor: &str,
     responsibility: &str,
-    cwd: &str,
 ) -> Result<()> {
     if locator.version != 1
         || locator.company != company
         || locator.actor != actor
         || locator.responsibility != responsibility
-        || locator.cwd != cwd
     {
         anyhow::bail!(
             "refusing ACP session locator outside its company/actor/responsibility/workspace scope"
         );
     }
     Ok(())
+}
+
+fn session_locator_is_reusable(
+    locator: &SessionLocator,
+    cwd: &str,
+    model: &str,
+    effort: &str,
+    load_session_available: bool,
+) -> bool {
+    locator.cwd == cwd
+        && locator.model == model
+        && locator.effort == effort
+        && load_session_available
 }
 
 pub(crate) const AGENT_CONFIG_DIR: &str = "/company/home/.restless/omp-agent";
@@ -423,8 +434,9 @@ pub struct TurnTranscript {
     pub output_tokens: Option<u64>,
     pub tool_calls: Vec<String>,
     last_message_id: Option<String>,
-    /// Last usage report of the turn; `None` means the agent never sent one,
-    /// which `health::classify_turn` treats exactly like zero.
+    /// Last usage report of the turn; `None` means the agent never sent one.
+    /// A completed, otherwise-empty transcript treats that like zero; text or
+    /// tool activity makes it an interrupted, recoverable turn instead.
     pub usage: Option<TurnUsage>,
     /// Provider cumulative price at the start of this process. Kept private:
     /// consumers must use the per-wake delta in `usage`.
@@ -466,6 +478,15 @@ fn session_cost_delta(current: Option<f64>, baseline: Option<f64>) -> Option<f64
 }
 
 impl TurnTranscript {
+    /// Evidence that the agent ran even if the ACP process ended before its
+    /// final usage update. Thought-only activity deliberately does not qualify:
+    /// it is a liveness pulse, but leaves no replayable transcript or durable
+    /// operation from which the next wake can recover.
+    #[must_use]
+    pub fn has_observable_activity(&self) -> bool {
+        !self.text.trim().is_empty() || !self.tool_calls.is_empty()
+    }
+
     fn note(&mut self, update: &SessionUpdate) {
         // Every update is liveness, whatever it carries.
         self.last_activity = std::time::Instant::now();
@@ -843,7 +864,7 @@ where
     let locator_path = session_locator_path(&auth.company, actor, responsibility);
     let prior_locator = read_session_locator(container, &locator_path).await?;
     if let Some(locator) = &prior_locator {
-        validate_session_locator(locator, &auth.company, actor, responsibility, workdir)?;
+        validate_session_locator(locator, &auth.company, actor, responsibility)?;
     }
     // Every docker-exec process is a Linux session leader. Record this turn's
     // session id inside the container so cleanup can reap only its process
@@ -1071,9 +1092,13 @@ where
                 let (session_id, resumed, reconstructed, reconstruction_reason, baseline_cost) =
                     match prior_locator {
                         Some(prior)
-                            if prior.model == launch_auth.model
-                                && prior.effort == launch_auth.effort
-                                && initialized.agent_capabilities.load_session =>
+                            if session_locator_is_reusable(
+                                &prior,
+                                &workdir,
+                                &launch_auth.model,
+                                &launch_auth.effort,
+                                initialized.agent_capabilities.load_session,
+                            ) =>
                         {
                             let prior_id: SessionId = prior.session_id.clone().into();
                             match cx
@@ -1111,7 +1136,12 @@ where
                             }
                         }
                         Some(prior) => {
-                            let reason = if prior.model != launch_auth.model {
+                            let reason = if prior.cwd != workdir {
+                                format!(
+                                    "workspace changed from {} to {}; prior provider session is not reusable",
+                                    prior.cwd, workdir
+                                )
+                            } else if prior.model != launch_auth.model {
                                 format!(
                                     "model changed from {} to {}; prior provider session is not reusable",
                                     prior.model, launch_auth.model
@@ -1375,9 +1405,9 @@ mod tests {
 
     use super::{
         agent_exec_prefix, persist_session_locator, pids_in_session, read_session_locator,
-        session_cost_delta, session_locator_path, validate_session_locator, with_agent, AgentAuth,
-        AgentControls, SessionLocator, DEFAULT_REASONING_EFFORT, OMP_AGENT_TOOLS,
-        RESTLESS_OMP_CONFIG,
+        session_cost_delta, session_locator_is_reusable, session_locator_path,
+        validate_session_locator, with_agent, AgentAuth, AgentControls, SessionLocator,
+        DEFAULT_REASONING_EFFORT, OMP_AGENT_TOOLS, RESTLESS_OMP_CONFIG,
     };
 
     #[test]
@@ -1401,28 +1431,33 @@ mod tests {
             session_id: "session-1".into(),
             cumulative_cost_usd: Some(0.2),
         };
-        validate_session_locator(
+        validate_session_locator(&locator, "acme_test", "account-reply-writer", "work:abc")
+            .unwrap();
+        assert!(session_locator_is_reusable(
             &locator,
-            "acme_test",
-            "account-reply-writer",
-            "work:abc",
             "/company/worktrees/work-abc-r1",
-        )
-        .unwrap();
-        assert!(validate_session_locator(
-            &locator,
-            "acme_test",
-            "other-writer",
-            "work:abc",
-            "/company/worktrees/work-abc-r1",
-        )
-        .is_err());
+            "zai/glm-5.3",
+            DEFAULT_REASONING_EFFORT,
+            true,
+        ));
+        assert!(
+            !session_locator_is_reusable(
+                &locator,
+                "/company/worktrees/work-abc-r2",
+                "zai/glm-5.3",
+                DEFAULT_REASONING_EFFORT,
+                true,
+            ),
+            "a new revision worktree reconstructs rather than crashing or loading stale context"
+        );
+        assert!(
+            validate_session_locator(&locator, "acme_test", "other-writer", "work:abc",).is_err()
+        );
         assert!(validate_session_locator(
             &locator,
             "acme_test",
             "account-reply-writer",
             "work:def",
-            "/company/worktrees/work-abc-r1",
         )
         .is_err());
         assert_ne!(

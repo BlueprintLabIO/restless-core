@@ -198,7 +198,11 @@ pub(crate) async fn recorded_start_observation(
 
 /// Create or reuse the workspace recorded on Work. Git remains the source of
 /// file truth; OrgIntel stores only the path and exact artifact versions.
-pub(crate) async fn ensure_worktree(config: &CompanyConfig, work: &WorkRow) -> Result<String> {
+pub(crate) async fn ensure_worktree(
+    config: &CompanyConfig,
+    work: &WorkRow,
+    effective_base_ref: Option<&str>,
+) -> Result<String> {
     let container = runtime::container_name(&config.name);
     let repo = work.repo.as_deref().context("Work repo is missing")?;
     let path = workdir_for(work)?;
@@ -257,7 +261,7 @@ pub(crate) async fn ensure_worktree(config: &CompanyConfig, work: &WorkRow) -> R
         "-b",
         &branch,
     ]);
-    if let Some(base) = work.base_ref.as_deref() {
+    if let Some(base) = effective_base_ref {
         command.arg(base);
     }
     let output = command.output().await.context("create Work worktree")?;
@@ -305,6 +309,19 @@ fn valid_commit(commit: &str) -> bool {
     commit.len() == 40 && commit.bytes().all(|byte| byte.is_ascii_hexdigit())
 }
 
+fn valid_integration_branch(branch: &str) -> bool {
+    !branch.is_empty()
+        && branch.len() <= 255
+        && !branch.starts_with(['-', '/'])
+        && !branch.ends_with(['/', '.'])
+        && !branch.contains("..")
+        && !branch.contains("//")
+        && !branch.contains("@{")
+        && branch
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'/' | b'.' | b'_' | b'-'))
+}
+
 fn output_error(action: &str, output: &CommandOutput) -> anyhow::Error {
     anyhow::anyhow!(
         "{action}: {}",
@@ -322,6 +339,110 @@ async fn require_success(
         return Err(output_error(action, &output));
     }
     Ok(output)
+}
+
+/// Fast-forward one checked-out shared branch to an exact accepted Attempt
+/// commit. The update runs in the branch's own checkout so Git updates its
+/// index and files together; moving the ref from another worktree would leave
+/// this checkout falsely dirty and is deliberately refused.
+async fn promote_integration_commit_with(
+    command: &CompanyCommand,
+    repo_path: &str,
+    branch: &str,
+    source_commit: &str,
+) -> Result<WorkspaceObservation> {
+    if !valid_integration_branch(branch) || !valid_commit(source_commit) {
+        bail!("integration promotion needs a bounded branch and exact Git commit");
+    }
+    let before = observe_git_workspace(command, repo_path).await;
+    if before.dirty_entries != 0 {
+        bail!(
+            "integration checkout {repo_path} has {} changed entries; refusing to overwrite shared state",
+            before.dirty_entries
+        );
+    }
+    let current_branch = require_success(
+        command,
+        vec![
+            "git".into(),
+            "-C".into(),
+            repo_path.into(),
+            "symbolic-ref".into(),
+            "--quiet".into(),
+            "--short".into(),
+            "HEAD".into(),
+        ],
+        "read checked-out integration branch",
+    )
+    .await?;
+    if String::from_utf8_lossy(&current_branch.stdout).trim() != branch {
+        bail!("integration checkout {repo_path} is not on declared branch {branch:?}");
+    }
+    require_success(
+        command,
+        vec![
+            "git".into(),
+            "-C".into(),
+            repo_path.into(),
+            "cat-file".into(),
+            "-e".into(),
+            format!("{source_commit}^{{commit}}"),
+        ],
+        "verify integration candidate commit",
+    )
+    .await?;
+    require_success(
+        command,
+        vec![
+            "git".into(),
+            "-C".into(),
+            repo_path.into(),
+            "merge-base".into(),
+            "--is-ancestor".into(),
+            "HEAD".into(),
+            source_commit.into(),
+        ],
+        "require fast-forward integration history",
+    )
+    .await?;
+    require_success(
+        command,
+        vec![
+            "git".into(),
+            "-C".into(),
+            repo_path.into(),
+            "merge".into(),
+            "--ff-only".into(),
+            "--no-edit".into(),
+            source_commit.into(),
+        ],
+        "fast-forward accepted integration commit",
+    )
+    .await?;
+    let after = observe_git_workspace(command, repo_path).await;
+    if after.source_commit.as_deref() != Some(source_commit) || after.dirty_entries != 0 {
+        bail!("integration promotion did not leave the exact clean accepted commit");
+    }
+    Ok(after)
+}
+
+pub(crate) async fn promote_integration_commit(
+    container: &str,
+    repo: &str,
+    branch: &str,
+    source_commit: &str,
+) -> Result<WorkspaceObservation> {
+    if !valid_slug(repo) {
+        bail!("invalid integration repository {repo:?}");
+    }
+    let command = docker_company_command(container);
+    promote_integration_commit_with(
+        &*command,
+        &format!("/company/repos/{repo}"),
+        branch,
+        source_commit,
+    )
+    .await
 }
 
 async fn review_copy_is_exact(
@@ -457,8 +578,8 @@ mod tests {
     use std::sync::Arc;
 
     use super::{
-        observe_git_workspace, prepare_review_copy_with, CommandFuture, CommandOutput,
-        CompanyCommand,
+        observe_git_workspace, prepare_review_copy_with, promote_integration_commit_with,
+        CommandFuture, CommandOutput, CompanyCommand,
     };
 
     fn local_git_command() -> Arc<CompanyCommand> {
@@ -487,6 +608,78 @@ mod tests {
             args,
             String::from_utf8_lossy(&output.stderr)
         );
+    }
+
+    #[tokio::test]
+    async fn exact_promotion_fast_forwards_the_checked_out_branch_and_keeps_it_clean() {
+        let root = std::env::temp_dir().join(format!(
+            "restless-integration-promotion-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let repo = root.join("repo");
+        let candidate = root.join("candidate");
+        std::fs::create_dir_all(&repo).expect("create test repository");
+        git(&repo, &["init", "--initial-branch", "main"]).await;
+        git(&repo, &["config", "user.email", "promotion@test.invalid"]).await;
+        git(&repo, &["config", "user.name", "Promotion Test"]).await;
+        std::fs::write(repo.join("README.md"), "seed\n").expect("write seed");
+        git(&repo, &["add", "README.md"]).await;
+        git(&repo, &["commit", "-m", "seed"]).await;
+        git(
+            &repo,
+            &[
+                "worktree",
+                "add",
+                "-b",
+                "accepted-candidate",
+                candidate.to_str().expect("utf8 candidate path"),
+                "HEAD",
+            ],
+        )
+        .await;
+        std::fs::write(candidate.join("accepted.md"), "accepted\n").expect("write candidate");
+        git(&candidate, &["add", "accepted.md"]).await;
+        git(&candidate, &["commit", "-m", "accepted candidate"]).await;
+
+        let command = local_git_command();
+        let candidate_observation =
+            observe_git_workspace(&*command, candidate.to_str().unwrap()).await;
+        let candidate_commit = candidate_observation
+            .source_commit
+            .expect("candidate has an exact commit");
+        let promoted = promote_integration_commit_with(
+            &*command,
+            repo.to_str().unwrap(),
+            "main",
+            &candidate_commit,
+        )
+        .await
+        .expect("fast-forward accepted commit");
+
+        assert_eq!(
+            promoted.source_commit.as_deref(),
+            Some(candidate_commit.as_str())
+        );
+        assert_eq!(promoted.dirty_entries, 0);
+        assert_eq!(
+            std::fs::read_to_string(repo.join("accepted.md")).unwrap(),
+            "accepted\n"
+        );
+        std::fs::write(repo.join("uncommitted.txt"), "do not overwrite\n")
+            .expect("write shared dirty state");
+        let refused = promote_integration_commit_with(
+            &*command,
+            repo.to_str().unwrap(),
+            "main",
+            &candidate_commit,
+        )
+        .await
+        .unwrap_err();
+        assert!(refused
+            .to_string()
+            .contains("refusing to overwrite shared state"));
+
+        std::fs::remove_dir_all(&root).expect("remove isolated promotion test repository");
     }
 
     #[tokio::test]

@@ -100,7 +100,10 @@ unit.
 Lead supervision is a product invariant, not a posture selected by local cost. The lead frames,
 commissions, observes, guides, redirects, repairs through workers and judges the exact outcome; it does
 no planned production, silent artifact repair or private parallel implementation. Supervision is
-driven by material events and artifacts, never polling or status theatre.
+driven by material events and artifacts, never polling or status theatre. Staff does not send progress
+or completion mail merely to trigger supervision. After the Runtime observes artifacts, gates and the
+final Work state, one recoverable Work-linked terminal fact wakes the accountable lead; direct Staff
+mail is for a genuinely new fact or contradiction that needs judgement before completion.
 
 Leads coordinate directly through material facts, decisions, artifacts and sparse dependencies. One
 lead integrates any shared outcome. Cross-team priority, resource, charter and strategy conflicts go

@@ -330,6 +330,10 @@ pub struct AttemptRecoveryNotice {
 #[derive(Debug, Serialize)]
 pub struct ClaimedWork {
     pub work: WorkRow,
+    /// The immutable Git starting point for this Attempt. A moving Work ref
+    /// such as `main` resolves to the sole exact commit produced by a
+    /// completed same-repository prerequisite when one exists.
+    pub effective_base_ref: Option<String>,
     pub attempt_id: Uuid,
     pub attempt_no: i32,
     pub session_id: String,
@@ -348,6 +352,9 @@ pub struct WorkGateRow {
     pub created_by: String,
     pub sequence_no: i32,
     pub created_at: DateTime<Utc>,
+    pub retired_at: Option<DateTime<Utc>>,
+    pub retired_by: Option<String>,
+    pub retired_reason: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, sqlx::FromRow, ts_rs::TS)]

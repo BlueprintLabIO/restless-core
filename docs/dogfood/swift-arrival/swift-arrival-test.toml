@@ -1,0 +1,30 @@
+name = "swift_arrival_test"
+mission = """
+# Swift Arrival — Dogfood 4: networked delivery walking skeleton
+
+Build the private, original two-player Swift Arrival walking skeleton described in
+docs/dogfood/swift-arrival/dogfood-4.md. The required result is a reproducible local host and joining
+client completing one short delivery in a shared walk-through truck: both players move through the
+cab and cargo area; visible world-space hands support host-resolved crate pickup, carrying and release;
+a driver moves the truck along a bounded route; unloading the crate in the marked zone causes a
+host-authoritative completed delivery visible to both clients.
+
+Begin by live-probing the Runtime for engine, export, headless operation, local networking, capture,
+Git, storage and two-process launch. A configured or installed tool is unverified until it has run.
+Use original placeholder geometry and labels. Keep the game playable after every coherent slice and
+preserve ordinary Git checkpoints. Do not publish, spend, install paid software, enrol in Steam,
+contact people externally, use third-party assets, or claim an unrun capability works.
+
+The source packet is copied into /company/swift-arrival/docs/ before production. Treat the concept and
+development plan as product direction, the multiplayer architecture as a proposed ENet-first
+host-authoritative design to validate, and the idea vault as non-committed inspiration. The exact
+review target must be runnable, not a plan or a diff. Record commands, evidence and known limits under
+/company/swift-arrival/evidence/ without private chain-of-thought.
+"""
+spend_ceiling_usd = "25"
+model = "zai/glm-5.3"
+model_failover = []
+approved_parties = []
+
+[credentials]
+"model.inference.zai" = "infisical:/providers/zai/ZAI_API_KEY"

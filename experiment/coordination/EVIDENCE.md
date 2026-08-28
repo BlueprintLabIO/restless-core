@@ -87,6 +87,15 @@ This index maps current claims to inspectable evidence. It does not copy raw tra
 | [`Concurrent-company evidence`](experiments/EXP-05/results/company-q1x4-r1-20260826-glm53-r1/run-result.json) + [`result note`](experiments/EXP-05/t04-company-concurrency.md) | Four leads and four Staff produced 90/90 exact units with no observed cross-department leakage and Exec returned before the fourth request. Fourth dispatch took 68.679s. The cell is `branch_stopped_infrastructure_invalid` because the support blind evaluator omitted `decision` twice; no production was replayed and no field inferred. |
 | [`EXP-05 final synthesis`](experiments/EXP-05/t05-final-results.md) + [`demand/team size`](experiments/EXP-05/demand-team-size-guide.md) + [`supervisor span`](experiments/EXP-05/supervisor-span-guide.md) + [`fan-in/wildcards`](experiments/EXP-05/fan-in-wildcard-dispositions.md) | Demand shape, causal supervision and independent search breadth move the scoped team frontier. Q2 is useful in two measured queue regions; Q4 admission is real but its sales tail loses. Existing coordination primitives suffice; no fan-in or wildcard earned activation. |
 
+## Experiment Sprint 09
+
+| Evidence | What it supports or challenges |
+|---|---|
+| [`Editorial comparison`](experiments/EXP-09/results/editorial-comparison.json) | Direct standing-lead delivery matched the relay arm's useful editorial behavior with 21 versus 41 model attempts, 801,082 versus 2,209,976 summed usage tokens, $9.0604 versus $21.8784 estimated list cost and one versus nine Exec wakes. Controlled source injection means zero-owner inbound remains unproved. |
+| [`Opportunity full sequence`](experiments/EXP-09/results/opportunity-r5.json) | Qualified, irrelevant, duplicate, market-update, stale and high-value-exception signals created exactly five useful Work nodes and zero false-positive Work on the three no-op signals. The 45-second quiet interval had zero event, Work, model and Git delta. The terminal callback required one transparent repair. |
+| [`Terminal callback replay`](experiments/EXP-09/results/terminal-callback-r6.json) | Staff sent no ceremonial status mail; Runtime-observed producer completion woke the lead, the reviewer inherited the exact producer commit, exact reviewed promotion stayed clean, and final completion woke the lead without owner or Exec relay. |
+| [`EXP-09 synthesis`](experiments/EXP-09/RESULTS.md) | Existing Goal/responsibility, Work/Attempt, Message, artifact, Git and Runtime primitives suffice after thin exact-lineage, workspace reconstruction, safe-promotion and recoverable terminal-outbox repairs. No Mission entity, poller or workflow engine is earned. |
+
 ## External research priors
 
 These guide experiment selection but do not count as Restless product evidence.

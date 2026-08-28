@@ -1,0 +1,11 @@
+diff --git a/exp10_injected_regression.gd b/exp10_injected_regression.gd
+new file mode 100644
+index 0000000..85ec9a1
+--- /dev/null
++++ b/exp10_injected_regression.gd
+@@ -0,0 +1,5 @@
++extends Node
++
++# Controlled EXP-10 parse regression. The incomplete assignment is deliberate.
++func injected_failure() -> void:
++    var delivery_state =
