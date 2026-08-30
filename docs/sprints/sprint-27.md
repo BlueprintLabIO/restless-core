@@ -1,6 +1,6 @@
 # Sprint 27 — Network owner entry and pinnable releases
 
-**Status:** Planned — awaiting founder alignment on tickets
+**Status:** Active — T1–T3 implemented and unit-verified; their live-boot confirmations and T4–T5 remain
 
 **Date:** 30 August 2026
 
@@ -93,13 +93,64 @@ Each is headless-verifiable with stated inputs and observed output.
 Status lives only in this checklist; ticket files record scope and closure evidence, not a second
 status system.
 
+Status symbols: `[x]` closed on its stated evidence · `[~]` implementation landed, some stated
+evidence not yet observed · `[ ]` not started.
+
 | Status | Ticket | Slice | Outcome or friction served | Prior machinery made deletable |
 | --- | --- | --- | --- | --- |
-| [ ] | [S27-T1 · Verify an assertion at the plane edge](sprint-27/t1-assertion-verification.md) | Authority | No supported way to reach a plane that is not the machine you are sitting at | The unconditional loopback bail as the only network posture |
-| [ ] | [S27-T2 · Derive company scope from the assertion](sprint-27/t2-scope-derivation.md) | Authority | Scope taken from a URL is scope a client chooses | Route- and host-derived company scope |
-| [ ] | [S27-T3 · Refuse the adversarial cases, provably](sprint-27/t3-adversarial-refusal.md) | Authority + Evaluation | A check that happens to pass is not evidence | Trust that verification works because it compiles |
+| [~] | [S27-T1 · Verify an assertion at the plane edge](sprint-27/t1-assertion-verification.md) | Authority | No supported way to reach a plane that is not the machine you are sitting at | The unconditional loopback bail as the only network posture |
+| [~] | [S27-T2 · Derive company scope from the assertion](sprint-27/t2-scope-derivation.md) | Authority | Scope taken from a URL is scope a client chooses | Route- and host-derived company scope |
+| [x] | [S27-T3 · Refuse the adversarial cases, provably](sprint-27/t3-adversarial-refusal.md) | Authority + Evaluation | A check that happens to pass is not evidence | Trust that verification works because it compiles |
 | [ ] | [S27-T4 · Publish a pinnable, self-identifying release](sprint-27/t4-pinnable-release.md) | Runtime + Authority | Cloud cannot deploy what it cannot pin, and cannot debug what will not name itself | Mutable tags; "whatever Core was on that day" |
 | [ ] | [S27-T5 · Reach the cockpit over a network, end to end](sprint-27/t5-network-cockpit-run.md) | Full slice + Evaluation | Parts that each pass are not a product that works | Component-level confidence as a substitute for a run |
+
+## Evidence
+
+`crates/restlessd/src/entry.rs` is the new entry module; `owner.rs` dispatches on the mode.
+
+**Observed, with the command and its output:**
+
+- **Acceptance 5 — a plane refuses to start in network mode without complete verification
+  configuration.** Run against the built binary with progressively fuller environments:
+
+  ```text
+  RESTLESS_ENTRY_MODE=network
+    → Error: network entry mode requires RESTLESS_ENTRY_ISSUER; refusing to start rather than
+      accepting requests on network position alone
+  … + RESTLESS_ENTRY_ISSUER
+    → Error: network entry mode requires RESTLESS_ENTRY_AUDIENCE; …
+  … + AUDIENCE, PLANE, HOST
+    → Error: network entry mode requires RESTLESS_ENTRY_KEYS; …
+  RESTLESS_ENTRY_MODE=whatever
+    → Error: RESTLESS_ENTRY_MODE must be `local` or `network`, not `whatever`
+  ```
+
+- **Acceptance 4 — local mode is unchanged, and the loopback bail is conditional rather than
+  deleted.** `RESTLESS_OWNER_ADDR=0.0.0.0:7788` in local mode still fails with
+  `RESTLESS_OWNER_ADDR must remain loopback-only until network authentication exists`. The same
+  address in network mode passes that check and proceeds (it then fails on an unrelated missing model
+  provider in an empty home, which is what a temp `RESTLESS_HOME` is expected to do).
+
+- **The test issuer mints against the same wire format the verifier reads.**
+  `restlessd mint-entry-assertion` emitted a token whose header is
+  `{"alg":"HS256","typ":"restless-entry","kid":"v1"}` and whose claims carry `ver`, `iss`, `aud`,
+  `plane`, `owner`, `sub`, `scope`, `role`, `actor`, `iat`, `nbf`, `exp`, `jti`.
+
+- **Acceptance 2 — ten distinct refusals**, plus the inverse check S27-T3 requires: with signature
+  verification skipped, a forged assertion passes every other gate and verifies, proving the signature
+  check is what rejects it rather than some incidental later check.
+
+- **Acceptance 3 — scope from the assertion, not the route.** A company-scoped session reaches its own
+  company and is refused `company_out_of_scope` for another company on the same plane, on both the API
+  and desktop paths, and is not widened by an `X-Forwarded-Host` naming the other company.
+
+- `cargo test -p restlessd --bin restlessd` — **219 passed, 0 failed, 5 ignored.**
+
+**Not yet observed, and therefore not claimed.** T1 and T2 stay `[~]` because their stated evidence
+includes a live confirmation this work has not run: a plane booted in network mode serving the cockpit
+to a browser, with audit attribution compared against a local-mode run, and the scope refusal checked
+against a plane genuinely holding two companies. Both are S27-T5's end-to-end run. The unit and
+composition tests above are not a substitute for it.
 
 ## Non-goals
 

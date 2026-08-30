@@ -19,6 +19,7 @@ mod connected_tool;
 mod context;
 mod credential;
 mod effect;
+mod entry;
 mod exec;
 mod finance;
 mod health;
@@ -329,12 +330,22 @@ async fn main() -> Result<()> {
                 .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
         )
         .init();
+    // The test issuer for network entry (S27-T5). Restless Cloud is the real
+    // issuer; this exists so an end-to-end run can mint against the same wire
+    // format the verifier reads.
+    if std::env::args().nth(1).as_deref() == Some("mint-entry-assertion") {
+        println!("{}", entry::mint_from_env()?);
+        return Ok(());
+    }
+
     let root = runtime::state_root();
     std::fs::create_dir_all(root.join("companies"))
         .with_context(|| format!("create state root {}", root.display()))?;
     let capabilities = capability::CapabilityIssuer::open(&root)?;
-    // The current owner cockpit has one supported topology: direct loopback.
-    // Refuse network configuration before starting provider or scheduler work.
+    // Two supported topologies (ADR 0007): direct loopback, or a network
+    // entry that verifies a signed assertion. Resolve and validate the entry
+    // configuration before starting provider or scheduler work, so a plane
+    // that cannot describe how it verifies fails here rather than serving.
     let owner_config = owner::OwnerConfig::from_env()?;
 
     // Open authoritative charged-use accounting before the model relay. The
@@ -370,8 +381,7 @@ async fn main() -> Result<()> {
         // PostgreSQL before the daemon could finish booting. Keep only the
         // current company's pool alive; the runtime registry below remains
         // lazy and caches only companies that are actually used.
-        let org =
-            ensure_cell_orgintel(&root, &orgintel_config.database_url, &company).await?;
+        let org = ensure_cell_orgintel(&root, &orgintel_config.database_url, &company).await?;
         ensure_standing_actors(&org, Some(&config.model)).await?;
         let imported = authority
             .import_legacy_company(&company, &org, &approval::legacy_config_approvals(&config))
@@ -712,6 +722,7 @@ fn bind_runtime_actor(request: &mut Request, actor: &str) -> std::result::Result
         | "work-handoff-refresh"
         | "work-handoff-prepare-brief"
         | "work-handoff-resolve"
+        | "work-interrupt"
         | "work-resume"
         | "work-abandon"
         | "judgement"
@@ -2260,6 +2271,9 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
                             .map(|gate| restless_orgintel::InitialWorkGate {
                                 name: &gate.name,
                                 command: &gate.command,
+                                stage: &gate.stage,
+                                timeout_seconds: gate.timeout_seconds,
+                                resources: &gate.resources,
                             })
                             .collect::<Vec<_>>();
                         let added = if let Some(source_message_id) = request.orgintel.source_message_id
@@ -2402,7 +2416,18 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
                         })
                         .await
                     {
-                        Ok(id) => Response::ok(serde_json::json!({ "gate_id": id })),
+                        Ok(id) => match org
+                            .configure_work_gate(
+                                id,
+                                request.orgintel.stage.as_deref().unwrap_or("cumulative"),
+                                request.orgintel.timeout_seconds.unwrap_or(900),
+                                &request.orgintel.resources,
+                            )
+                            .await
+                        {
+                            Ok(()) => Response::ok(serde_json::json!({ "gate_id": id })),
+                            Err(error) => Response::err(format!("{error:#}")),
+                        },
                         Err(error) => Response::err(format!("{error:#}")),
                     },
                     Err(error) => Response::err(format!("{error:#}")),
@@ -2616,6 +2641,34 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
                 }
             }
             _ => Response::err("work-handoff-resolve needs handoff, state, resolution and --as"),
+        },
+        "work-interrupt" => match (
+            request.common.id.as_deref().map(uuid::Uuid::parse_str).transpose(),
+            request.common.as_actor.as_deref(),
+            request.common.reason.as_deref(),
+        ) {
+            (Ok(Some(id)), Some(actor), Some(reason)) => match daemon.orgintel.get(company).await {
+                Ok(org) => {
+                    let owner = match org.get_work(id).await {
+                        Ok(Some(work)) => work.owner_id,
+                        Ok(None) => return Response::err("Work does not exist"),
+                        Err(error) => return Response::err(format!("{error:#}")),
+                    };
+                    match org.request_attempt_interrupt(id, actor, reason).await {
+                        Ok(attempt_id) => {
+                            let signalled = daemon.staff.interrupt_work(company, &owner, id);
+                            Response::ok(serde_json::json!({
+                                "work_id": id, "attempt_id": attempt_id,
+                                "requested_by": actor, "signalled": signalled,
+                            }))
+                        }
+                        Err(error) => Response::err(format!("{error:#}")),
+                    }
+                }
+                Err(error) => Response::err(format!("{error:#}")),
+            },
+            (Err(error), _, _) => Response::err(format!("bad Work id: {error}")),
+            _ => Response::err("work-interrupt needs work, reason and --as"),
         },
         "work-resume" => match (
             request.common.id.as_deref().map(uuid::Uuid::parse_str).transpose(),

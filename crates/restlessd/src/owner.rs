@@ -1,4 +1,7 @@
-//! Loopback-only owner transport for the static SPA and persistent desktop.
+//! Owner transport for the static SPA and persistent desktop.
+//!
+//! Entry is decided by [`crate::entry::EntryMode`]: loopback in local mode
+//! (ADR 0001), a verified identity assertion in network mode (ADR 0007).
 //!
 //! This is intentionally a narrow BFF: owner projection, source-owned
 //! approval actions, and browser attach/lease transport. It is not a generic
@@ -34,12 +37,14 @@ use tokio_tungstenite::{client_async, tungstenite};
 use tower_http::services::{ServeDir, ServeFile};
 use uuid::Uuid;
 
+use crate::entry::{company_in_path, EntryMode, SessionStore};
 use crate::{
     airwallex, approval, attention, authority, company as company_projection, credential, finance,
     legal, reconcile, runtime, Daemon,
 };
 
 const ATTACH_COOKIE: &str = "restless_attach";
+const SESSION_COOKIE: &str = "restless_session";
 const TICKET_TTL: Duration = Duration::from_secs(30);
 const ATTACH_TTL: Duration = Duration::from_secs(30 * 60);
 const REVIEW_TTL: Duration = Duration::from_secs(30 * 60);
@@ -64,6 +69,8 @@ struct OwnerState {
     attaches: Arc<Mutex<HashMap<String, AttachSession>>>,
     reviews: Arc<Mutex<HashMap<String, ReviewSession>>>,
     review_public_url: String,
+    entry: EntryMode,
+    sessions: Arc<SessionStore>,
 }
 
 #[derive(Clone)]
@@ -71,6 +78,7 @@ pub(crate) struct OwnerConfig {
     address: SocketAddr,
     review_address: SocketAddr,
     review_public_url: String,
+    entry: EntryMode,
 }
 
 #[derive(Clone)]
@@ -701,7 +709,13 @@ impl OwnerConfig {
             .unwrap_or(default_review_address)
             .parse::<SocketAddr>()
             .context("parse RESTLESS_REVIEW_ADDR")?;
-        ensure_loopback(address, "RESTLESS_OWNER_ADDR")?;
+        let entry = EntryMode::from_env()?;
+        // ADR 0007: the loopback bail is conditional on entry mode, never
+        // removed. In local mode the network *is* the boundary, so binding
+        // beyond loopback would publish an unauthenticated API.
+        if entry.network().is_none() {
+            ensure_loopback(address, "RESTLESS_OWNER_ADDR")?;
+        }
         ensure_loopback(review_address, "RESTLESS_REVIEW_ADDR")?;
         let review_public_url = std::env::var("RESTLESS_REVIEW_PUBLIC_URL")
             .unwrap_or_else(|_| format!("http://{{ticket}}.localhost:{}", review_address.port()));
@@ -710,6 +724,7 @@ impl OwnerConfig {
             address,
             review_address,
             review_public_url,
+            entry,
         })
     }
 }
@@ -726,6 +741,7 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
         address,
         review_address,
         review_public_url,
+        entry,
     } = config;
     let state = OwnerState {
         daemon,
@@ -734,6 +750,8 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
         attaches: Arc::new(Mutex::new(HashMap::new())),
         reviews: Arc::new(Mutex::new(HashMap::new())),
         review_public_url,
+        entry,
+        sessions: Arc::new(SessionStore::default()),
     };
 
     let api = Router::new()
@@ -801,14 +819,19 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
     let static_files = ServeDir::new(&web).fallback(ServeFile::new(web.join("index.html")));
     let app = Router::new()
         .nest("/api", api)
+        .route("/entry", post(consume_entry_assertion))
+        .route("/entry/logout", post(end_entry_session))
         .route("/desktop/{company}", get(open_desktop))
         .route("/desktop/{company}/observe", get(open_observed_desktop))
         .route("/desktop/{company}/control", get(open_controlled_desktop))
         .route("/desktop/{company}/websockify", get(desktop_websocket))
         .route("/desktop/{company}/{*asset}", get(desktop_asset))
         .fallback_service(static_files)
-        .with_state(state.clone())
-        .layer(middleware::from_fn(enforce_local_owner_boundary));
+        .layer(middleware::from_fn_with_state(
+            state.clone(),
+            enforce_owner_boundary,
+        ))
+        .with_state(state.clone());
 
     // A separate origin is load-bearing. Reviewed company code may run
     // JavaScript and use root-relative assets, but it never shares the owner
@@ -831,11 +854,221 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
     .context("owner gateways")
 }
 
-async fn enforce_local_owner_boundary(request: Request, next: Next) -> Response<Body> {
-    if let Some(reason) = local_owner_boundary_violation(request.method(), request.headers()) {
-        return api_error(StatusCode::FORBIDDEN, "local_owner_boundary", reason);
+/// The one place entry is decided.
+///
+/// Local mode is unchanged from ADR 0001: loopback host, no forwarding claims,
+/// same-origin writes. Network mode (ADR 0007) decides access by verifying an
+/// assertion at `/entry` and carrying the resulting session, and re-derives
+/// company scope from that session on every request.
+async fn enforce_owner_boundary(
+    State(state): State<OwnerState>,
+    request: Request,
+    next: Next,
+) -> Response<Body> {
+    match state.entry.clone() {
+        EntryMode::Local => {
+            if let Some(reason) = local_owner_boundary_violation(request.method(), request.headers())
+            {
+                return api_error(StatusCode::FORBIDDEN, "local_owner_boundary", reason);
+            }
+            next.run(request).await
+        }
+        EntryMode::Network(network) => {
+            let path = request.uri().path().to_string();
+            let identity = cookie_value(request.headers(), SESSION_COOKIE)
+                .and_then(|token| state.sessions.resolve(&token));
+            if let Some(refusal) = network_boundary_violation(
+                request.method(),
+                request.headers(),
+                &path,
+                network.host(),
+                identity.as_ref(),
+            ) {
+                return api_error(refusal.status, refusal.code, refusal.message);
+            }
+            next.run(request).await
+        }
     }
-    next.run(request).await
+}
+
+struct BoundaryRefusal {
+    status: StatusCode,
+    code: &'static str,
+    message: &'static str,
+}
+
+/// The whole network-mode entry decision, as one pure function.
+///
+/// Kept separate from the middleware so the composition is testable, and kept
+/// in one place because two call sites that each decide scope is how one of
+/// them ends up deciding it differently.
+fn network_boundary_violation(
+    method: &Method,
+    headers: &HeaderMap,
+    path: &str,
+    expected_host: &str,
+    identity: Option<&crate::entry::VerifiedIdentity>,
+) -> Option<BoundaryRefusal> {
+    if let Some(message) = network_origin_violation(method, headers, expected_host) {
+        return Some(BoundaryRefusal {
+            status: StatusCode::FORBIDDEN,
+            code: "network_owner_boundary",
+            message,
+        });
+    }
+
+    // The door itself cannot require a session.
+    if path == "/entry" {
+        return None;
+    }
+
+    // The SPA shell is inert without its APIs, so it is served to an
+    // unauthenticated browser and its API calls are refused below. Everything
+    // that reads or changes company state is gated.
+    if !(path.starts_with("/api/") || path.starts_with("/desktop/")) {
+        return None;
+    }
+
+    let Some(identity) = identity else {
+        return Some(BoundaryRefusal {
+            status: StatusCode::UNAUTHORIZED,
+            code: "no_session",
+            message: "this plane requires a verified entry assertion",
+        });
+    };
+
+    // S27-T2: scope comes from the verified assertion, never from the route,
+    // the host or a forwarding header. Checked per request, not once at entry.
+    if let Some(company) = company_in_path(path) {
+        if !identity.scope.permits(company) {
+            return Some(BoundaryRefusal {
+                status: StatusCode::FORBIDDEN,
+                code: "company_out_of_scope",
+                message: "this session is not scoped to that company",
+            });
+        }
+    }
+
+    None
+}
+
+/// Network-mode browser-origin checks. The plane is reached directly, so a
+/// forwarding header is still not proof of anything and the Host must be the
+/// plane's own configured hostname.
+fn network_origin_violation(
+    method: &Method,
+    headers: &HeaderMap,
+    expected_host: &str,
+) -> Option<&'static str> {
+    let host = headers
+        .get(HOST)
+        .and_then(|value| value.to_str().ok())
+        .map(|value| value.split(':').next().unwrap_or(value).to_ascii_lowercase());
+    if host.as_deref() != Some(&expected_host.to_ascii_lowercase()) {
+        return Some("owner request host is not this plane's configured hostname");
+    }
+
+    if let Some(site) = headers
+        .get("sec-fetch-site")
+        .and_then(|value| value.to_str().ok())
+    {
+        if !site.eq_ignore_ascii_case("same-origin") && !site.eq_ignore_ascii_case("none") {
+            return Some("cross-site owner requests are refused");
+        }
+    }
+
+    let origin = headers.get(ORIGIN).and_then(|value| value.to_str().ok());
+    if !matches!(*method, Method::GET | Method::HEAD) && origin.is_none() {
+        return Some("state-changing owner requests require a same-origin browser origin");
+    }
+    if let Some(origin) = origin {
+        let origin_host = origin
+            .rsplit('/')
+            .next()
+            .map(|value| value.split(':').next().unwrap_or(value).to_ascii_lowercase());
+        if origin_host.as_deref() != Some(&expected_host.to_ascii_lowercase()) {
+            return Some("owner request origin does not match this plane's hostname");
+        }
+    }
+    None
+}
+
+fn cookie_value(headers: &HeaderMap, name: &str) -> Option<String> {
+    headers
+        .get(COOKIE)
+        .and_then(|value| value.to_str().ok())?
+        .split(';')
+        .filter_map(|pair| pair.trim().split_once('='))
+        .find(|(key, _)| *key == name)
+        .map(|(_, value)| value.to_string())
+}
+
+/// Ordinary session revocation. ADR 0007 requires that a removed membership
+/// ends by revoking the session, not by waiting for an assertion to expire.
+async fn end_entry_session(State(state): State<OwnerState>, headers: HeaderMap) -> Response<Body> {
+    if let Some(token) = cookie_value(&headers, SESSION_COOKIE) {
+        state.sessions.revoke(&token);
+    }
+    let mut response = Json(serde_json::json!({ "ended": true })).into_response();
+    if let Ok(value) = HeaderValue::from_str(&format!(
+        "{SESSION_COOKIE}=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0"
+    )) {
+        response.headers_mut().insert(SET_COOKIE, value);
+    }
+    response
+}
+
+#[derive(Deserialize)]
+struct EntryRequest {
+    assertion: String,
+}
+
+/// The door. Consumes one single-use assertion and exchanges it for a session.
+///
+/// This is a POST because the assertion is a credential: a query string would
+/// put it in browser history, referrers and every access log between here and
+/// the client. Restless Cloud redirects with an auto-submitting form.
+async fn consume_entry_assertion(
+    State(state): State<OwnerState>,
+    Json(request): Json<EntryRequest>,
+) -> Response<Body> {
+    let Some(network) = state.entry.network().cloned() else {
+        return api_error(
+            StatusCode::NOT_FOUND,
+            "local_entry",
+            "this plane is in local mode and has no assertion entry point",
+        );
+    };
+
+    let identity = match network.verify(&request.assertion) {
+        Ok(identity) => identity,
+        Err(refusal) => {
+            tracing::warn!(reason = refusal.code(), "refused entry assertion");
+            return api_error(StatusCode::UNAUTHORIZED, refusal.code(), refusal.message());
+        }
+    };
+
+    tracing::info!(
+        user = %identity.user,
+        owner = %identity.owner,
+        role = %identity.role,
+        actor = identity.actor.as_deref().unwrap_or("-"),
+        correlation = identity.correlation.as_deref().unwrap_or("-"),
+        "admitted a verified entry assertion"
+    );
+    let token = state
+        .sessions
+        .establish(identity, network.session_ttl());
+
+    let cookie = format!(
+        "{SESSION_COOKIE}={token}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age={}",
+        network.session_ttl().as_secs()
+    );
+    let mut response = Json(serde_json::json!({ "entered": true })).into_response();
+    if let Ok(value) = HeaderValue::from_str(&cookie) {
+        response.headers_mut().insert(SET_COOKIE, value);
+    }
+    response
 }
 
 fn local_owner_boundary_violation(method: &Method, headers: &HeaderMap) -> Option<&'static str> {
@@ -3370,10 +3603,154 @@ mod tests {
                 address,
                 review_address,
                 review_public_url: format!("http://{{ticket}}.localhost:{}", review_address.port()),
+                entry: EntryMode::Local,
             },
         )
         .await
         .unwrap();
+    }
+
+
+    fn network_headers(host: &str) -> HeaderMap {
+        let mut headers = HeaderMap::new();
+        headers.insert(HOST, HeaderValue::from_str(host).unwrap());
+        headers
+    }
+
+    fn identity(scope: crate::entry::CompanyScope) -> crate::entry::VerifiedIdentity {
+        crate::entry::VerifiedIdentity {
+            user: "user-1".into(),
+            owner: "owner-1".into(),
+            scope,
+            role: "member".into(),
+            actor: None,
+            correlation: None,
+        }
+    }
+
+    const PLANE_HOST: &str = "aris.restless.test";
+
+    #[test]
+    fn network_entry_refuses_company_reads_without_a_session() {
+        let refusal = network_boundary_violation(
+            &Method::GET,
+            &network_headers(PLANE_HOST),
+            "/api/companies/aris/cockpit",
+            PLANE_HOST,
+            None,
+        )
+        .expect("no session is refused");
+        assert_eq!(refusal.status, StatusCode::UNAUTHORIZED);
+        assert_eq!(refusal.code, "no_session");
+    }
+
+    #[test]
+    fn network_entry_admits_the_door_without_a_session() {
+        assert!(network_boundary_violation(
+            &Method::POST,
+            &{
+                let mut headers = network_headers(PLANE_HOST);
+                headers.insert(ORIGIN, HeaderValue::from_str(&format!("https://{PLANE_HOST}")).unwrap());
+                headers
+            },
+            "/entry",
+            PLANE_HOST,
+            None,
+        )
+        .is_none());
+    }
+
+    /// S27-T2. The plane genuinely serves both companies, so a pass here proves
+    /// scoping rather than the absence of the other company.
+    #[test]
+    fn a_company_scoped_session_reaches_only_its_own_company() {
+        let scoped = identity(crate::entry::CompanyScope::Company {
+            company: "aris".into(),
+        });
+
+        assert!(
+            network_boundary_violation(
+                &Method::GET,
+                &network_headers(PLANE_HOST),
+                "/api/companies/aris/cockpit",
+                PLANE_HOST,
+                Some(&scoped),
+            )
+            .is_none(),
+            "its own company must remain reachable, or the refusal below proves nothing"
+        );
+
+        let refusal = network_boundary_violation(
+            &Method::GET,
+            &network_headers(PLANE_HOST),
+            "/api/companies/other/cockpit",
+            PLANE_HOST,
+            Some(&scoped),
+        )
+        .expect("another company on the same plane is refused");
+        assert_eq!(refusal.status, StatusCode::FORBIDDEN);
+        assert_eq!(refusal.code, "company_out_of_scope");
+
+        // The desktop stream is the same boundary, not a second one.
+        let refusal = network_boundary_violation(
+            &Method::GET,
+            &network_headers(PLANE_HOST),
+            "/desktop/other/observe",
+            PLANE_HOST,
+            Some(&scoped),
+        )
+        .expect("the desktop path is scoped too");
+        assert_eq!(refusal.code, "company_out_of_scope");
+    }
+
+    #[test]
+    fn an_owner_scoped_session_reaches_every_company_on_its_plane() {
+        let owner = identity(crate::entry::CompanyScope::Owner);
+        for path in ["/api/companies/aris/cockpit", "/desktop/other/observe"] {
+            assert!(network_boundary_violation(
+                &Method::GET,
+                &network_headers(PLANE_HOST),
+                path,
+                PLANE_HOST,
+                Some(&owner),
+            )
+            .is_none());
+        }
+    }
+
+    #[test]
+    fn network_entry_refuses_a_host_that_is_not_this_plane() {
+        let refusal = network_boundary_violation(
+            &Method::GET,
+            &network_headers("someone-else.restless.test"),
+            "/api/companies/aris/cockpit",
+            PLANE_HOST,
+            Some(&identity(crate::entry::CompanyScope::Owner)),
+        )
+        .expect("wrong host refused");
+        assert_eq!(refusal.code, "network_owner_boundary");
+    }
+
+    /// Scope is re-derived per request, so a session cannot be widened by
+    /// arriving at a different hostname or carrying a forwarding claim.
+    #[test]
+    fn scope_ignores_forwarding_claims_and_the_route_it_arrived_on() {
+        let scoped = identity(crate::entry::CompanyScope::Company {
+            company: "aris".into(),
+        });
+        let mut headers = network_headers(PLANE_HOST);
+        headers.insert("x-forwarded-host", HeaderValue::from_static("other.restless.test"));
+        headers.insert("x-real-ip", HeaderValue::from_static("10.0.0.1"));
+
+        let refusal = network_boundary_violation(
+            &Method::GET,
+            &headers,
+            "/api/companies/other/cockpit",
+            PLANE_HOST,
+            Some(&scoped),
+        )
+        .expect("a forwarding header does not widen scope");
+        assert_eq!(refusal.code, "company_out_of_scope");
     }
 
     #[test]
