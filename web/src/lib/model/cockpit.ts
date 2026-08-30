@@ -18,6 +18,12 @@ export interface CompanyCatalogEntry {
 	spend_ceiling_usd: number;
 	runtime_status: 'running' | 'stopped' | 'absent' | 'unavailable';
 	lifecycle_status: 'active' | 'archived';
+	/**
+	 * Present when the account plane could not admit a model route for this
+	 * company at boot. The company is configured but cannot start until the
+	 * reason is resolved. Absent for every company that can start.
+	 */
+	unstartable_reason?: string;
 }
 
 export async function getCompanies(): Promise<CompanyCatalogEntry[]> {

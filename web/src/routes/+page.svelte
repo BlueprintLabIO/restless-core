@@ -43,6 +43,11 @@
 	}
 
 	function attentionLabel(company: CompanyCatalogEntry): string {
+		// A company that cannot start is the one fact worth stating before
+		// attention counts: nothing will happen in it until it is resolved.
+		if (company.unstartable_reason) {
+			return `Open ${company.name}. It cannot start: ${company.unstartable_reason}`;
+		}
 		const count = projections[company.id]?.attentionCount;
 		if (count === null || count === undefined) return `Open ${company.name}`;
 		if (count === 0) return `Open ${company.name}. No owner attention is waiting.`;
@@ -103,16 +108,28 @@
 								>
 									<span class="portfolio-company-cell">
 										<SemanticMark
-											meaning={company.runtime_status === 'running'
-												? 'presence'
-												: company.runtime_status === 'unavailable'
-													? 'unavailable'
-													: 'waiting'}
-											label={`${company.name} runtime: ${company.runtime_status}`}
+											meaning={company.unstartable_reason
+												? 'unavailable'
+												: company.runtime_status === 'running'
+													? 'presence'
+													: company.runtime_status === 'unavailable'
+														? 'unavailable'
+														: 'waiting'}
+											label={company.unstartable_reason
+												? `${company.name} cannot start: ${company.unstartable_reason}`
+												: `${company.name} runtime: ${company.runtime_status}`}
 										/>
 										<span class="portfolio-company-copy">
 											<strong>{company.name}</strong>
-											<small>{company.runtime_status}</small>
+											{#if company.unstartable_reason}
+												<!-- The exact reason is the hover explanation; the row stays
+												     one short phrase rather than growing a second line. -->
+												<small class="portfolio-company-unstartable" title={company.unstartable_reason}
+													>cannot start</small
+												>
+											{:else}
+												<small>{company.runtime_status}</small>
+											{/if}
 										</span>
 										<span class="portfolio-company-open" aria-hidden="true">
 											→

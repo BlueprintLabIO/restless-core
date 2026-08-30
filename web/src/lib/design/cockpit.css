@@ -532,6 +532,14 @@
 	color: var(--text-tertiary);
 }
 
+/* A company that cannot start is not merely idle: nothing will happen in it
+   until its configuration is resolved. The exact reason is the hover
+   explanation, so the row itself stays one short phrase. */
+.bridge-root .portfolio-company-copy small.portfolio-company-unstartable {
+	color: var(--text-secondary);
+	cursor: help;
+}
+
 .bridge-root .portfolio-company-open {
 	position: relative;
 	width: 29px;

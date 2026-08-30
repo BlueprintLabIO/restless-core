@@ -43,7 +43,10 @@ const ATTACH_COOKIE: &str = "restless_attach";
 const TICKET_TTL: Duration = Duration::from_secs(30);
 const ATTACH_TTL: Duration = Duration::from_secs(30 * 60);
 const REVIEW_TTL: Duration = Duration::from_secs(30 * 60);
-const CONTROL_TTL_SECONDS: i64 = 45;
+/// Owner desktop control is deliberately short-lived. The cockpit renews this
+/// only after input reaches the remote desktop; merely leaving a tab open must
+/// not strand the Company computer under an absent owner's control.
+const CONTROL_TTL_SECONDS: i64 = 60;
 const MAX_ATTACHMENTS: usize = 6;
 const MAX_ATTACHMENT_BYTES: usize = 5 * 1024 * 1024;
 const ATTACHMENT_BLOCK: &str = "\n\n[Restless attachments]\n";
@@ -131,8 +134,9 @@ struct PendingAttachment {
     bytes: Vec<u8>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
 struct OwnerAttachment {
     upload_id: Uuid,
     name: String,
@@ -141,8 +145,9 @@ struct OwnerAttachment {
     path: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "snake_case")]
+#[ts(rename_all = "snake_case")]
 enum OwnerIntentKind {
     Conversation,
     WorkFeedback,
@@ -150,7 +155,7 @@ enum OwnerIntentKind {
     Authority,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ts_rs::TS)]
 struct OwnerIntentReceipt {
     kind: OwnerIntentKind,
     summary: String,
@@ -159,6 +164,64 @@ struct OwnerIntentReceipt {
 #[derive(Debug, Deserialize)]
 struct OwnerMessageDetails {
     markdown: String,
+}
+
+/// The durable owner/actor transcript returned to both the browser and the
+/// terminal client. This is intentionally a small response contract instead
+/// of a `serde_json::Value`: messages remain source-owned by OrgIntel, while
+/// their owner-safe presentation metadata has one checked schema.
+#[derive(Debug, Serialize, ts_rs::TS)]
+struct ConversationView {
+    actor: ConversationActorView,
+    focus: Option<ConversationFocusView>,
+    messages: Vec<ConversationMessageView>,
+}
+
+#[derive(Debug, Serialize, ts_rs::TS)]
+struct ConversationActorView {
+    id: String,
+    display: String,
+    kind: String,
+    role: String,
+}
+
+#[derive(Debug, Serialize, ts_rs::TS)]
+struct ConversationFocusView {
+    after_message_id: i64,
+    started_at: Option<chrono::DateTime<Utc>>,
+}
+
+#[derive(Debug, Serialize, ts_rs::TS)]
+struct ConversationMessageView {
+    id: i64,
+    from_actor: String,
+    to_actor: Option<String>,
+    body: String,
+    attachments: Vec<OwnerAttachment>,
+    details: Option<String>,
+    intent: Option<OwnerIntentReceipt>,
+    context_path: Option<String>,
+    created_at: chrono::DateTime<Utc>,
+    read_at: Option<chrono::DateTime<Utc>>,
+}
+
+#[derive(Debug, Serialize, ts_rs::TS)]
+struct ConversationSendResponse {
+    message_id: i64,
+    interrupted: bool,
+    context_attached: bool,
+    context_omitted: bool,
+    focus: Option<ConversationFocusView>,
+}
+
+/// An explicit interruption does not manufacture a second owner message.
+/// `cancelled` means the durable input was consumed; `interrupted` says a
+/// currently-supervised process also received cancellation.
+#[derive(Debug, Serialize, ts_rs::TS)]
+struct ConversationInterruptResponse {
+    message_id: i64,
+    cancelled: bool,
+    interrupted: bool,
 }
 
 #[derive(Debug, Deserialize, Default)]
@@ -261,6 +324,11 @@ struct CompanyCatalogEntry {
     spend_ceiling_usd: f64,
     runtime_status: &'static str,
     lifecycle_status: &'static str,
+    /// Set when the account plane could not admit a model route for this
+    /// company at boot. The company is configured but cannot start until the
+    /// reason is resolved (cross-layer contract §1.4.1).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    unstartable_reason: Option<String>,
 }
 
 /// The one high-value owner read model. This remains a projection: every
@@ -621,14 +689,16 @@ fn cockpit_payment_intent(payment: finance::PaymentIntent) -> CockpitPaymentInte
 
 impl OwnerConfig {
     pub(crate) fn from_env() -> Result<Self> {
+        let default_address = format!("127.0.0.1:{}", crate::port_with_offset(7788)?);
         let address = std::env::var("RESTLESS_OWNER_ADDR")
-            .unwrap_or_else(|_| "127.0.0.1:7788".to_string())
+            .unwrap_or(default_address)
             .parse::<SocketAddr>()
             .context("parse RESTLESS_OWNER_ADDR")?;
+        let default_review_address = format!("127.0.0.1:{}", crate::port_with_offset(7794)?);
         let review_address = std::env::var("RESTLESS_REVIEW_ADDR")
             // 7788 is the owner gateway, 7789 the auth broker, 7790 the model
             // gateway, 7791 coordination, 7792 ingress and 7793 Infisical.
-            .unwrap_or_else(|_| "127.0.0.1:7794".to_string())
+            .unwrap_or(default_review_address)
             .parse::<SocketAddr>()
             .context("parse RESTLESS_REVIEW_ADDR")?;
         ensure_loopback(address, "RESTLESS_OWNER_ADDR")?;
@@ -686,6 +756,10 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
             get(actor_conversation).post(send_actor_message),
         )
         .route(
+            "/companies/{company}/actors/{actor}/conversation/{message_id}/interrupt",
+            post(interrupt_actor_conversation),
+        )
+        .route(
             "/companies/{company}/actors/{actor}/activity",
             get(agent_activity_live),
         )
@@ -711,7 +785,13 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
         )
         .route("/companies/{company}/browser/status", get(browser_status))
         .route("/companies/{company}/browser/take", post(take_control))
-        .route("/companies/{company}/browser/heartbeat", post(heartbeat))
+        // Kept at the existing path so an already-open cockpit stays
+        // compatible. Its meaning is input activity, not a background
+        // keepalive: callers may renew only after a real desktop event.
+        .route(
+            "/companies/{company}/browser/heartbeat",
+            post(record_activity),
+        )
         .route("/companies/{company}/browser/return", post(return_control))
         .fallback(api_not_found)
         .layer(DefaultBodyLimit::max(32 * 1024 * 1024));
@@ -885,6 +965,7 @@ async fn company_catalog_entry(
         Ok(runtime::ContainerStatus::Absent) => "absent",
         Err(_) => "unavailable",
     };
+    let name = config.name.clone();
     CompanyCatalogEntry {
         id: config.name.clone(),
         name: company_display_name(&config.name),
@@ -893,6 +974,7 @@ async fn company_catalog_entry(
         spend_ceiling_usd: config.spend_ceiling_usd.as_usd(),
         runtime_status,
         lifecycle_status,
+        unstartable_reason: crate::model_gateway::unstartable_reason(&name),
     }
 }
 
@@ -1503,6 +1585,49 @@ fn render_cockpit_bindings() -> String {
     rendered
 }
 
+#[cfg(test)]
+fn render_conversation_bindings() -> String {
+    use ts_rs::TS;
+
+    let config = ts_rs::Config::new().with_large_int("number");
+    let mut rendered = String::from(
+        "// GENERATED — do not edit.\n\
+         //\n\
+         // Source: crates/restlessd/src/owner.rs and crates/restlessd/src/activity.rs.\n\
+         // Regenerate: RESTLESS_WRITE_CONVERSATION_BINDINGS=1 cargo test -p restlessd conversation_typescript_bindings_match\n\
+         //\n\
+         // Shared owner conversation and live-turn response contract.\n\
+         \n",
+    );
+    for declaration in [
+        OwnerAttachment::decl(&config),
+        OwnerIntentKind::decl(&config),
+        OwnerIntentReceipt::decl(&config),
+        ConversationActorView::decl(&config),
+        ConversationFocusView::decl(&config),
+        ConversationMessageView::decl(&config),
+        ConversationView::decl(&config),
+        ConversationSendResponse::decl(&config),
+        ConversationInterruptResponse::decl(&config),
+        crate::activity::AgentActivityPhase::decl(&config),
+        crate::activity::AgentActivityItem::decl(&config),
+        crate::activity::AgentContextUsage::decl(&config),
+        crate::activity::AgentActivityState::decl(&config),
+    ] {
+        rendered.push_str("export ");
+        for (index, line) in declaration.lines().enumerate() {
+            if index > 0 {
+                rendered.push('\n');
+            }
+            rendered.push_str(line.trim_end());
+        }
+        rendered.push_str("\n\n");
+    }
+    rendered.truncate(rendered.trim_end_matches('\n').len());
+    rendered.push('\n');
+    rendered
+}
+
 async fn actor_conversation(
     State(state): State<OwnerState>,
     AxumPath((company, actor)): AxumPath<(String, String)>,
@@ -1562,37 +1687,42 @@ async fn actor_conversation(
     } else {
         None
     };
-    Json(serde_json::json!({
-        "actor": {
-            "id": actor_row.id,
-            "display": actor_row.display,
-            "kind": actor_row.kind,
-            "role": actor_row.role,
+    Json(ConversationView {
+        actor: ConversationActorView {
+            id: actor_row.id,
+            display: actor_row.display,
+            kind: actor_row.kind,
+            role: actor_row.role,
         },
-        "focus": focus.map(|focus| serde_json::json!({
-            "after_message_id": focus.after_message_id,
-            "started_at": focus.started_at,
-        })),
-        "messages": messages.into_iter().map(|message| {
-            let (body, intent) = split_intent_receipt(&message.body);
-            let (body, details) = split_message_details(body);
-            let (body, attachments) = split_attachment_block(body);
-            let (body, context_path) = split_context_marker(body);
-            serde_json::json!({
-                "id": message.id,
-                "from_actor": message.from_actor,
-                "to_actor": message.to_actor,
-                "body": body,
-                "attachments": attachments,
-                "intent": intent,
-                "details": details,
-                "context_path": context_path,
-                "created_at": message.created_at,
-                "read_at": message.read_at,
-            })
-        }).collect::<Vec<_>>(),
-    }))
+        focus: focus.map(|focus| ConversationFocusView {
+            after_message_id: focus.after_message_id,
+            started_at: focus.started_at,
+        }),
+        messages: messages
+            .into_iter()
+            .map(conversation_message_view)
+            .collect(),
+    })
     .into_response()
+}
+
+fn conversation_message_view(message: restless_orgintel::MessageRow) -> ConversationMessageView {
+    let (body, intent) = split_intent_receipt(&message.body);
+    let (body, details) = split_message_details(body);
+    let (body, attachments) = split_attachment_block(body);
+    let (body, context_path) = split_context_marker(body);
+    ConversationMessageView {
+        id: message.id,
+        from_actor: message.from_actor,
+        to_actor: message.to_actor,
+        body: body.to_string(),
+        attachments,
+        details,
+        intent,
+        context_path,
+        created_at: message.created_at,
+        read_at: message.read_at,
+    }
 }
 
 /// Reconnectable live projection for one agent turn. This endpoint never
@@ -1887,16 +2017,16 @@ async fn send_actor_message(
             } else {
                 false
             };
-            Json(serde_json::json!({
-                "message_id": message_id,
-                "interrupted": interrupted,
-                "context_attached": context_path.is_some(),
-                "context_omitted": context_omitted,
-                "focus": focus.map(|focus| serde_json::json!({
-                    "after_message_id": focus.after_message_id,
-                    "started_at": focus.started_at,
-                })),
-            }))
+            Json(ConversationSendResponse {
+                message_id,
+                interrupted,
+                context_attached: context_path.is_some(),
+                context_omitted,
+                focus: focus.map(|focus| ConversationFocusView {
+                    after_message_id: focus.after_message_id,
+                    started_at: focus.started_at,
+                }),
+            })
             .into_response()
         }
         Err(error) => {
@@ -1908,6 +2038,90 @@ async fn send_actor_message(
             )
         }
     }
+}
+
+/// Stop one ordinary owner conversation turn without adding synthetic prose to
+/// its durable transcript. The message is marked consumed atomically so a
+/// daemon restart cannot silently replay a direction the owner has cancelled.
+async fn interrupt_actor_conversation(
+    State(state): State<OwnerState>,
+    AxumPath((company, actor, message_id)): AxumPath<(String, String, i64)>,
+) -> impl IntoResponse {
+    let org = match state.daemon.orgintel.get(&company).await {
+        Ok(org) => org,
+        Err(error) => {
+            return api_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "orgintel",
+                format!("{error:#}"),
+            )
+        }
+    };
+    let actor_exists = match org.list_actors().await {
+        Ok(actors) => actors.iter().any(|row| row.id == actor),
+        Err(error) => {
+            return api_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "orgintel",
+                format!("{error:#}"),
+            )
+        }
+    };
+    if !actor_exists {
+        return api_error(
+            StatusCode::NOT_FOUND,
+            "actor",
+            "requesting actor no longer exists",
+        );
+    }
+
+    let cancelled = match org
+        .interrupt_owner_conversation_message(&actor, message_id)
+        .await
+    {
+        Ok(cancelled) => cancelled,
+        Err(error) => {
+            return api_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "orgintel",
+                format!("{error:#}"),
+            )
+        }
+    };
+    if !cancelled {
+        return api_error(
+            StatusCode::CONFLICT,
+            "conversation",
+            "message is no longer an unread ordinary owner conversation",
+        );
+    }
+
+    // End the reconnectable projection first so every attached client sees a
+    // terminal state promptly. The durable `read_at` above is still the
+    // source of truth if this process restarts between either operation.
+    state.daemon.activities.interrupt_message(
+        &company,
+        &actor,
+        message_id,
+        "Interrupted by owner.",
+    );
+    let interrupted = if actor == "exec" {
+        state
+            .daemon
+            .in_flight
+            .lock()
+            .map(|mut claims| claims.interrupt(&company))
+            .unwrap_or(false)
+    } else {
+        state.daemon.staff.interrupt(&company, &actor)
+    };
+
+    Json(ConversationInterruptResponse {
+        message_id,
+        cancelled,
+        interrupted,
+    })
+    .into_response()
 }
 
 async fn parse_owner_message(
@@ -2917,16 +3131,17 @@ async fn take_control(
         );
     }
     let prior = runtime::read_browser_control(&company).await.ok().flatten();
-    if prior.as_ref().is_some_and(|value| {
-        value["controller"] == "owner"
-            && value["client_id"].as_str() != Some(input.client_id.as_str())
-            && lease_is_live(value)
-    }) {
-        return api_error(
-            StatusCode::CONFLICT,
-            "controller",
-            "another owner tab already controls this browser",
-        );
+    if let Some(prior) = prior.as_ref() {
+        if prior["controller"] == "owner"
+            && prior["client_id"].as_str() != Some(input.client_id.as_str())
+            && lease_is_live(prior)
+        {
+            return api_error(
+                StatusCode::CONFLICT,
+                "controller",
+                "another owner tab already controls this browser",
+            );
+        }
     }
     let requester = prior.as_ref().and_then(|value| {
         value["requester"]
@@ -2940,6 +3155,7 @@ async fn take_control(
         "requester": requester,
         "requesting_actor": attach.requesting_actor,
         "acquired_at": Utc::now(),
+        "last_activity_at": Utc::now(),
         "expires_at": Utc::now() + ChronoDuration::seconds(CONTROL_TTL_SECONDS),
     });
     match runtime::write_browser_control(&company, &state_value).await {
@@ -2952,7 +3168,7 @@ async fn take_control(
     }
 }
 
-async fn heartbeat(
+async fn record_activity(
     AxumPath(company): AxumPath<String>,
     Json(input): Json<ControlRequest>,
 ) -> impl IntoResponse {
@@ -2960,7 +3176,7 @@ async fn heartbeat(
         return api_error(
             StatusCode::CONFLICT,
             "controller",
-            "browser is not owner-controlled",
+            "browser is not owner-controlled; desktop input cannot renew a lease",
         );
     };
     if current["controller"] != "owner" || current["client_id"].as_str() != Some(&input.client_id) {
@@ -2970,6 +3186,7 @@ async fn heartbeat(
             "this browser tab does not hold control",
         );
     }
+    current["last_activity_at"] = serde_json::json!(Utc::now());
     current["expires_at"] =
         serde_json::json!(Utc::now() + ChronoDuration::seconds(CONTROL_TTL_SECONDS));
     match runtime::write_browser_control(&company, &current).await {
@@ -3127,6 +3344,7 @@ mod tests {
             authority,
             orgintel: crate::OrgIntelRegistry {
                 database_url,
+                root: root.clone(),
                 handles: std::sync::Mutex::new(HashMap::new()),
             },
             staff: crate::staff::StaffRegistry::default(),
@@ -3182,6 +3400,81 @@ mod tests {
             committed, rendered,
             "cockpit TypeScript bindings drifted; regenerate with RESTLESS_WRITE_COCKPIT_BINDINGS=1 cargo test -p restlessd cockpit_typescript_bindings_match"
         );
+    }
+
+    #[test]
+    fn conversation_typescript_bindings_match() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../web/src/lib/model/generated/conversation.ts");
+        let rendered = render_conversation_bindings();
+
+        if std::env::var_os("RESTLESS_WRITE_CONVERSATION_BINDINGS").is_some() {
+            if let Some(directory) = path.parent() {
+                std::fs::create_dir_all(directory).expect("create conversation bindings directory");
+            }
+            std::fs::write(&path, rendered).expect("write conversation bindings");
+            return;
+        }
+
+        let committed = std::fs::read_to_string(&path).unwrap_or_else(|error| {
+            panic!(
+                "{}: {error}\nRegenerate with: RESTLESS_WRITE_CONVERSATION_BINDINGS=1 cargo test -p restlessd conversation_typescript_bindings_match",
+                path.display()
+            )
+        });
+        assert_eq!(
+            committed, rendered,
+            "conversation TypeScript bindings drifted; regenerate with RESTLESS_WRITE_CONVERSATION_BINDINGS=1 cargo test -p restlessd conversation_typescript_bindings_match"
+        );
+    }
+
+    #[test]
+    fn conversation_contract_preserves_transcript_and_attachment_wire_names() {
+        let at = chrono::DateTime::parse_from_rfc3339("2026-08-28T12:00:00Z")
+            .expect("fixture timestamp")
+            .with_timezone(&Utc);
+        let view = ConversationView {
+            actor: ConversationActorView {
+                id: "exec".into(),
+                display: "Exec".into(),
+                kind: "exec".into(),
+                role: "Executive".into(),
+            },
+            focus: Some(ConversationFocusView {
+                after_message_id: 41,
+                started_at: Some(at),
+            }),
+            messages: vec![ConversationMessageView {
+                id: 42,
+                from_actor: "owner".into(),
+                to_actor: Some("exec".into()),
+                body: "Please verify the launch plan.".into(),
+                attachments: vec![OwnerAttachment {
+                    upload_id: Uuid::nil(),
+                    name: "plan.md".into(),
+                    media_type: "text/markdown".into(),
+                    size_bytes: 42,
+                    path: "/company/inbox/owner-attachments/plan/content".into(),
+                }],
+                details: None,
+                intent: Some(OwnerIntentReceipt {
+                    kind: OwnerIntentKind::Conversation,
+                    summary: "Launch-plan check".into(),
+                }),
+                context_path: Some("/demo_test/company".into()),
+                created_at: at,
+                read_at: None,
+            }],
+        };
+
+        let value = serde_json::to_value(view).expect("encode conversation contract");
+        assert_eq!(value["focus"]["after_message_id"], 41);
+        assert_eq!(value["messages"][0]["from_actor"], "owner");
+        assert_eq!(
+            value["messages"][0]["attachments"][0]["uploadId"],
+            Uuid::nil().to_string()
+        );
+        assert_eq!(value["messages"][0]["intent"]["kind"], "conversation");
     }
 
     fn cockpit_contract_fixture(degraded: bool) -> CockpitView {

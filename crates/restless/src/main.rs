@@ -9,8 +9,10 @@
 //!   RESTLESS_COMPANY      — whose coordination state to touch
 //!   RESTLESS_ACTOR        — who "message send" is from
 //!   RESTLESS_COORDINATOR  — host:port; when set, TCP instead of unix socket
-//!   RESTLESS_OWNER_URL    — owner gateway probed by `doctor`
+//!   RESTLESS_OWNER_URL    — loopback owner gateway used by `chat` and probed by `doctor`
 //!   RESTLESS_COCKPIT_URL  — optional dev cockpit origin probed by `doctor`
+
+mod chat;
 
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{TcpStream, ToSocketAddrs};
@@ -39,6 +41,13 @@ enum Command {
     Credential {
         #[command(subcommand)]
         command: CredentialCommand,
+    },
+    /// External capabilities installed by Exec and attached to selected actor sessions.
+    ConnectedTool {
+        #[arg(long, short = 'c', env = "RESTLESS_COMPANY", global = true)]
+        company: Option<String>,
+        #[command(subcommand)]
+        command: ConnectedToolCommand,
     },
     /// Authority-owned legal identity safe for ordinary company use.
     Legal {
@@ -121,6 +130,14 @@ enum Command {
         #[arg(long, short = 'c', env = "RESTLESS_COMPANY")]
         company: Option<String>,
         body: String,
+    },
+    /// Hold a full-screen owner conversation through the same gateway as the Cockpit.
+    Chat {
+        #[arg(long, short = 'c', env = "RESTLESS_COMPANY")]
+        company: Option<String>,
+        /// Durable actor to talk with. Exec is the ordinary owner conversation.
+        #[arg(long, short = 'a', default_value = "exec")]
+        actor: String,
     },
     /// Stream the company's operational event stream (snapshot, then live).
     Watch {
@@ -225,7 +242,7 @@ enum Command {
         #[arg(long, default_value = "50")]
         limit: i64,
     },
-    /// Read unread mail — yours, or an actor's with --as. Reading marks read.
+    /// Read unread mail. Your own read consumes it; inspecting with --as does not.
     Inbox {
         #[arg(long, short = 'c', env = "RESTLESS_COMPANY")]
         company: Option<String>,
@@ -816,6 +833,62 @@ enum CredentialCommand {
 }
 
 #[derive(Subcommand)]
+enum ConnectedToolCommand {
+    /// List Authority-observed connections. Raw OAuth material is never shown.
+    List,
+    /// Discover OAuth, prepare one owner consent handoff, and install after observation.
+    Install {
+        #[arg(long)]
+        name: String,
+        #[arg(long)]
+        endpoint: String,
+        #[arg(long)]
+        purpose: String,
+        /// The only durable actor whose fresh sessions receive this MCP.
+        #[arg(long)]
+        actor: String,
+        #[arg(long)]
+        work: String,
+        #[arg(long)]
+        attempt: String,
+        /// Provider-advertised scope. Repeat to preserve the live observation.
+        #[arg(long = "scope", required = true)]
+        scopes: Vec<String>,
+    },
+    /// Repeat provider authorization after expiry or revocation.
+    Reconnect {
+        #[arg(long)]
+        name: String,
+        #[arg(long)]
+        endpoint: String,
+        #[arg(long)]
+        purpose: String,
+        #[arg(long)]
+        actor: String,
+        #[arg(long)]
+        work: String,
+        #[arg(long)]
+        attempt: String,
+        #[arg(long = "scope", required = true)]
+        scopes: Vec<String>,
+    },
+    /// Record the authenticated workspace and exact tools observed by the selected actor.
+    Observe {
+        #[arg(long)]
+        name: String,
+        #[arg(long)]
+        workspace: String,
+        #[arg(long = "tool", required = true)]
+        tools: Vec<String>,
+    },
+    /// Stop attaching this connection to all future sessions.
+    Disable {
+        #[arg(long)]
+        name: String,
+    },
+}
+
+#[derive(Subcommand)]
 enum LegalCommand {
     /// Show the safe current profile and registry observation.
     Show,
@@ -1084,6 +1157,13 @@ fn main() -> Result<()> {
             let request = stamp(serde_json::json!({ "cmd": "watch", "company": name }));
             watch(&request.to_string())
         }
+        Command::Chat {
+            company: name,
+            actor,
+        } => {
+            let name = name.context("no company: pass -c or set RESTLESS_COMPANY")?;
+            chat::run(name, actor)
+        }
         Command::Doctor { company } => doctor(company),
         Command::Attention { company, summary } => {
             let request = stamp(serde_json::json!({ "cmd": "attention", "company": company }));
@@ -1174,6 +1254,52 @@ fn request_json(command: Command) -> Result<serde_json::Value> {
             CredentialCommand::Check { company } => {
                 serde_json::json!({ "cmd": "credential-check", "company": company })
             }
+        },
+        Command::ConnectedTool { company, command } => match command {
+            ConnectedToolCommand::List => serde_json::json!({
+                "cmd": "connected-tools", "company": company,
+            }),
+            ConnectedToolCommand::Install {
+                name,
+                endpoint,
+                purpose,
+                actor,
+                work,
+                attempt,
+                scopes,
+            } => serde_json::json!({
+                "cmd": "connected-tool-install", "company": company,
+                "tool_name": name, "endpoint": endpoint, "purpose": purpose,
+                "assigned_actor": actor, "work_id": work, "attempt_id": attempt,
+                "requested_scopes": scopes, "actor": acting_actor(),
+            }),
+            ConnectedToolCommand::Reconnect {
+                name,
+                endpoint,
+                purpose,
+                actor,
+                work,
+                attempt,
+                scopes,
+            } => serde_json::json!({
+                "cmd": "connected-tool-reconnect", "company": company,
+                "tool_name": name, "endpoint": endpoint, "purpose": purpose,
+                "assigned_actor": actor, "work_id": work, "attempt_id": attempt,
+                "requested_scopes": scopes, "actor": acting_actor(),
+            }),
+            ConnectedToolCommand::Observe {
+                name,
+                workspace,
+                tools,
+            } => serde_json::json!({
+                "cmd": "connected-tool-observe", "company": company,
+                "tool_name": name, "workspace_reference": workspace,
+                "observed_tools": tools, "actor": acting_actor(),
+            }),
+            ConnectedToolCommand::Disable { name } => serde_json::json!({
+                "cmd": "connected-tool-disable", "company": company,
+                "tool_name": name, "actor": acting_actor(),
+            }),
         },
         Command::Legal { company, command } => match command {
             LegalCommand::Show => serde_json::json!({
@@ -1808,6 +1934,7 @@ fn request_json(command: Command) -> Result<serde_json::Value> {
         Command::Doctor { .. }
         | Command::Watch { .. }
         | Command::Attach { .. }
+        | Command::Chat { .. }
         | Command::EffectChild => {
             unreachable!("handled above")
         }
@@ -2053,24 +2180,50 @@ fn doctor(company: Option<String>) -> Result<()> {
         std::env::var("RESTLESS_OWNER_URL").unwrap_or_else(|_| "http://127.0.0.1:7788".to_string());
     let cockpit_url = std::env::var("RESTLESS_COCKPIT_URL").unwrap_or_else(|_| owner_url.clone());
 
-    let (owner_gateway, owner_gateway_ok) = http_check(
-        &owner_url,
-        "/api/companies",
-        &[200, 401],
-        "owner API must answer (an unauthenticated 401 is healthy)",
-    );
-    let (cockpit_shell, cockpit_shell_ok) = http_check(
-        &cockpit_url,
-        &format!("/{company}"),
-        &[200],
-        "cockpit shell must render",
-    );
-    let (cockpit_api, cockpit_api_ok) = http_check(
-        &cockpit_url,
-        "/api/companies",
-        &[200, 401],
-        "cockpit same-origin API path must reach the owner gateway",
-    );
+    // A Runtime client reaches the host through the authenticated coordinator
+    // bridge. Its loopback is the company container, not the owner's machine,
+    // so probing the owner gateway there manufactures a false outage and can
+    // send Staff into an impossible `restless-dev` repair loop.
+    let runtime_client = std::env::var_os("RESTLESS_COORDINATOR").is_some();
+    let not_observed_from_runtime = || {
+        (
+            serde_json::json!({
+                "status": "not_observed",
+                "detail": "host-only owner boundary; run doctor from the owner machine to probe it",
+            }),
+            true,
+        )
+    };
+    let (owner_gateway, owner_gateway_ok) = if runtime_client {
+        not_observed_from_runtime()
+    } else {
+        http_check(
+            &owner_url,
+            "/api/companies",
+            &[200, 401],
+            "owner API must answer (an unauthenticated 401 is healthy)",
+        )
+    };
+    let (cockpit_shell, cockpit_shell_ok) = if runtime_client {
+        not_observed_from_runtime()
+    } else {
+        http_check(
+            &cockpit_url,
+            &format!("/{company}"),
+            &[200],
+            "cockpit shell must render",
+        )
+    };
+    let (cockpit_api, cockpit_api_ok) = if runtime_client {
+        not_observed_from_runtime()
+    } else {
+        http_check(
+            &cockpit_url,
+            "/api/companies",
+            &[200, 401],
+            "cockpit same-origin API path must reach the owner gateway",
+        )
+    };
     let (storage, storage_ok) = storage_check();
 
     let coordinator_ok = runtime.is_ok();
@@ -2085,7 +2238,9 @@ fn doctor(company: Option<String>) -> Result<()> {
         && storage_ok;
 
     let mut actions = Vec::new();
-    if !coordinator_ok || !owner_gateway_ok || !cockpit_shell_ok || !cockpit_api_ok {
+    if !runtime_client
+        && (!coordinator_ok || !owner_gateway_ok || !cockpit_shell_ok || !cockpit_api_ok)
+    {
         actions.push(format!("restless-dev {company}"));
     }
     if !orgintel_ok {
@@ -2376,9 +2531,143 @@ fn connect() -> Result<Stream> {
             .with_context(|| format!("connect {coordinator} — is restlessd running?"));
     }
     let sock = state_root().join("restlessd.sock");
+    if let Ok(stream) = UnixStream::connect(&sock) {
+        return Ok(Stream::Unix(stream));
+    }
+    // Starting the account plane is not waking a company (cross-layer contract
+    // §1.4.2): the plane holds credentials but performs no work until asked, so
+    // starting it is free and side-effect-free. Waking a cell runs agents and
+    // spends money, and no owner surface may do that implicitly.
+    //
+    // Only when *nothing* is running: if a plane is up on another home, the
+    // owner meant that one, and silently starting a second is how installations
+    // multiply by accident.
+    if live_planes().is_empty() {
+        if let Err(error) = start_plane(&sock) {
+            return Err(error).with_context(|| no_plane_here(&sock));
+        }
+        if let Ok(stream) = UnixStream::connect(&sock) {
+            return Ok(Stream::Unix(stream));
+        }
+    }
     UnixStream::connect(&sock)
         .map(Stream::Unix)
-        .with_context(|| format!("connect {} — is restlessd running?", sock.display()))
+        .with_context(|| no_plane_here(&sock))
+}
+
+/// Start the account plane for this home and wait for its socket.
+///
+/// This is the fallback for a machine with no supervisor registered — a
+/// development checkout, CI, a fresh clone. On an installed machine the
+/// platform supervisor has already started it and this never runs.
+fn start_plane(sock: &std::path::Path) -> Result<()> {
+    let binary = std::env::current_exe()
+        .ok()
+        .and_then(|path| path.parent().map(|dir| dir.join("restlessd")))
+        .filter(|path| path.exists())
+        .context("cannot locate the restlessd binary next to this CLI")?;
+    eprintln!("starting the account plane ({})…", binary.display());
+    std::process::Command::new(&binary)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .with_context(|| format!("start {}", binary.display()))?;
+    // The plane probes its database, broker and gateway before it listens, so
+    // this is deliberately patient rather than a fixed short sleep.
+    for _ in 0..120 {
+        if sock.exists() {
+            return Ok(());
+        }
+        std::thread::sleep(std::time::Duration::from_millis(500));
+    }
+    anyhow::bail!("the account plane did not begin listening within 60s")
+}
+
+/// A plane may run on any `RESTLESS_HOME`, so "is restlessd running?" is a
+/// guess the CLI does not have to make. Enumerate the live planes and say
+/// exactly how to reach one.
+fn no_plane_here(sock: &std::path::Path) -> String {
+    let live = live_planes();
+    if live.is_empty() {
+        return format!(
+            "no account plane at {} — start one with `restless-dev` or `restlessd`",
+            sock.display()
+        );
+    }
+    let mut message = format!(
+        "no account plane at {}, but {} running elsewhere:\n",
+        sock.display(),
+        if live.len() == 1 {
+            "one is".to_string()
+        } else {
+            format!("{} are", live.len())
+        }
+    );
+    for plane in &live {
+        message.push_str(&format!(
+            "  RESTLESS_HOME={}  (pid {}{})\n",
+            plane.root,
+            plane.pid,
+            if plane.companies.is_empty() {
+                String::new()
+            } else {
+                format!(", companies: {}", plane.companies.join(", "))
+            }
+        ));
+    }
+    message.push_str("re-run with RESTLESS_HOME set to the plane you mean");
+    message
+}
+
+/// One plane's registry record. Read-only mirror of the daemon's
+/// `plane::PlaneRecord`; unknown fields are ignored so an older CLI can still
+/// enumerate a newer plane.
+#[derive(Debug, serde::Deserialize)]
+struct PlaneRecord {
+    root: String,
+    pid: u32,
+    #[serde(default)]
+    companies: Vec<String>,
+}
+
+/// Planes whose record exists *and* whose process is alive. A record is a
+/// claim; a dead pid means the plane died without cleaning up.
+fn live_planes() -> Vec<PlaneRecord> {
+    let Ok(home) = std::env::var("HOME") else {
+        return Vec::new();
+    };
+    let dir = PathBuf::from(home).join(".restless").join("planes");
+    let Ok(entries) = std::fs::read_dir(&dir) else {
+        return Vec::new();
+    };
+    let mut planes = Vec::new();
+    for entry in entries.flatten() {
+        let Ok(bytes) = std::fs::read(entry.path()) else {
+            continue;
+        };
+        let Ok(record) = serde_json::from_slice::<PlaneRecord>(&bytes) else {
+            continue;
+        };
+        if process_is_alive(record.pid) {
+            planes.push(record);
+        }
+    }
+    planes.sort_by(|a, b| a.root.cmp(&b.root));
+    planes
+}
+
+/// Signal 0 asks the kernel whether the pid exists without delivering
+/// anything. `kill` is used rather than a `/proc` read because this must work
+/// on macOS, where the daemon and this CLI usually run.
+fn process_is_alive(pid: u32) -> bool {
+    std::process::Command::new("kill")
+        .args(["-0", &pid.to_string()])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .map(|status| status.success())
+        .unwrap_or(false)
 }
 
 fn request_once(line: &str) -> Result<String> {

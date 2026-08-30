@@ -26,6 +26,46 @@ use uuid::Uuid;
 pub const COMPANY_IMAGE: &str = "restless-company-image:latest";
 const SOURCE_DIGEST_LABEL: &str = "io.restless.source-digest";
 
+/// Per-company runtime resource bounds.
+///
+/// A company computer is an unattended machine running agent-authored
+/// processes: dev servers, browsers, game engines. Any of them can spin, and
+/// an unbounded container spins on the *host's* cores. One abandoned Godot
+/// demo held ~6 of 12 cores for 23 hours and drove the host into swap while
+/// every disk-oriented debt check reported clean, because a busy container is
+/// not a leaked one — nothing was bounding CPU at all.
+///
+/// These bounds do not prevent a runaway; they make one survivable and local.
+/// Defaults are measured against observed healthy load, then given headroom.
+/// A company building several sites concurrently sat at 2.6 GiB and 720 PIDs
+/// with no leak present, so a 3 GiB cap ran at 86% of the limit on ordinary
+/// work — close enough that the first symptom of a bound set too tight would
+/// have been an OOM-killed build blamed on the build. Bounds exist to make a
+/// runaway survivable, not to right-size healthy work; when the two conflict,
+/// loosen the bound. Every value is overridable.
+const DEFAULT_CPUS: &str = "4.0";
+const DEFAULT_MEMORY: &str = "4g";
+const DEFAULT_PIDS_LIMIT: &str = "2048";
+
+/// Read a resource bound, preferring the environment override.
+///
+/// An explicitly empty override (`RESTLESS_COMPANY_CPUS=`) disables that one
+/// bound rather than passing an empty flag to docker — the escape hatch for
+/// diagnosing whether a bound is itself the problem.
+fn resource_bound(var: &str, default: &str) -> Option<String> {
+    resolve_resource_bound(std::env::var(var).ok().as_deref(), default)
+}
+
+/// The bound decision, split from the environment read so it is testable
+/// without mutating process-global state from concurrent tests.
+fn resolve_resource_bound(override_value: Option<&str>, default: &str) -> Option<String> {
+    match override_value {
+        Some(value) if value.trim().is_empty() => None,
+        Some(value) => Some(value.trim().to_string()),
+        None => Some(default.to_string()),
+    }
+}
+
 /// Exact model-spend ceiling in micro-USD. This is an Authority value, not a
 /// display float: `inf`, `NaN`, negative values and more than six fractional
 /// cents are configuration errors rather than a route to an uncapped company.
@@ -387,7 +427,7 @@ fn move_archived_config_to_active(root: &Path, company: &str) -> Result<()> {
     Ok(())
 }
 
-fn validate_company_name(name: &str) -> Result<()> {
+pub(crate) fn validate_company_name(name: &str) -> Result<()> {
     if name.is_empty()
         || name.len() > 63
         || !name.bytes().enumerate().all(|(index, byte)| {
@@ -515,6 +555,12 @@ pub async fn status(company: &str) -> Result<ContainerStatus> {
 /// replace an outdated container while keeping its named volume.
 pub async fn up(config: &CompanyConfig, reconcile: bool) -> Result<String> {
     let company = &config.name;
+    // A company the account plane could not admit a model route for cannot
+    // think, so waking its Runtime would only defer the failure into its first
+    // Attempt. Refuse here with the exact reason (cross-layer contract §1.4.1).
+    if let Some(reason) = crate::model_gateway::unstartable_reason(company) {
+        bail!("company {company} cannot start: {reason}");
+    }
     let mut rebuilt = false;
     let mut replaced = false;
     if reconcile {
@@ -547,20 +593,50 @@ pub async fn up(config: &CompanyConfig, reconcile: bool) -> Result<String> {
             let volume = volume_name(company);
             run_ok(&["volume", "create", &volume]).await?;
             let name = container_name(company);
-            run_ok(&[
+            let cpus = resource_bound("RESTLESS_COMPANY_CPUS", DEFAULT_CPUS);
+            let memory = resource_bound("RESTLESS_COMPANY_MEMORY", DEFAULT_MEMORY);
+            let pids = resource_bound("RESTLESS_COMPANY_PIDS_LIMIT", DEFAULT_PIDS_LIMIT);
+            let mut args: Vec<&str> = vec![
                 "run",
                 "-d",
                 "--name",
                 &name,
                 "--hostname",
                 company,
+            ];
+            if let Some(cpus) = cpus.as_deref() {
+                args.extend(["--cpus", cpus]);
+            }
+            if let Some(memory) = memory.as_deref() {
+                // --memory-swap equal to --memory denies the container swap, so
+                // a runaway is OOM-killed inside its own cgroup instead of
+                // pushing the shared VM — and then the host — into swap thrash.
+                args.extend(["--memory", memory, "--memory-swap", memory]);
+            }
+            if let Some(pids) = pids.as_deref() {
+                args.extend(["--pids-limit", pids]);
+            }
+            let company_env = format!("RESTLESS_COMPANY={company}");
+            // The image default names the appliance's established port, but an
+            // isolated account plane may use RESTLESS_PORT_OFFSET.  ACP turns
+            // already override this value; the persistent Runtime must receive
+            // the same endpoint so ordinary bridge tools and doctor do not
+            // silently talk to another plane (or fail while agent turns work).
+            let coordinator_env = format!(
+                "RESTLESS_COORDINATOR={}",
+                crate::runtime_coordinator()?
+            );
+            let volume_mount = format!("{volume}:/company");
+            args.extend([
                 "-e",
-                &format!("RESTLESS_COMPANY={company}"),
+                &company_env,
+                "-e",
+                &coordinator_env,
                 "-v",
-                &format!("{volume}:/company"),
+                &volume_mount,
                 COMPANY_IMAGE,
-            ])
-            .await?;
+            ]);
+            run_ok(&args).await?;
         }
     }
     seed_mission(config).await?;
@@ -907,6 +983,9 @@ pub struct RuntimeHttpTarget {
 }
 
 pub fn runtime_http_target(value: &str) -> Result<RuntimeHttpTarget> {
+    if value.trim() != value || value.chars().any(char::is_whitespace) {
+        bail!("review target must be a bare URL without surrounding notes");
+    }
     let url = url::Url::parse(value).context("parse runtime review URL")?;
     if url.scheme() != "http"
         || !matches!(url.host_str(), Some("127.0.0.1" | "localhost"))
@@ -1848,6 +1927,58 @@ pub fn state_root() -> PathBuf {
 
 #[cfg(test)]
 mod tests {
+    use super::{resolve_resource_bound, DEFAULT_CPUS, DEFAULT_MEMORY, DEFAULT_PIDS_LIMIT};
+
+    #[test]
+    fn an_absent_override_keeps_the_default_bound() {
+        assert_eq!(
+            resolve_resource_bound(None, DEFAULT_CPUS).as_deref(),
+            Some(DEFAULT_CPUS)
+        );
+        assert_eq!(
+            resolve_resource_bound(None, DEFAULT_MEMORY).as_deref(),
+            Some(DEFAULT_MEMORY)
+        );
+        assert_eq!(
+            resolve_resource_bound(None, DEFAULT_PIDS_LIMIT).as_deref(),
+            Some(DEFAULT_PIDS_LIMIT)
+        );
+    }
+
+    #[test]
+    fn an_explicit_override_replaces_the_default_bound() {
+        assert_eq!(
+            resolve_resource_bound(Some("8.0"), DEFAULT_CPUS).as_deref(),
+            Some("8.0")
+        );
+        // Surrounding whitespace is an editing artefact, not a value; passing
+        // it through would hand docker an argument it rejects at create time.
+        assert_eq!(
+            resolve_resource_bound(Some("  6g \n"), DEFAULT_MEMORY).as_deref(),
+            Some("6g")
+        );
+    }
+
+    #[test]
+    fn an_empty_override_disables_that_bound_rather_than_passing_an_empty_flag() {
+        // The escape hatch for diagnosing whether a bound is itself the
+        // problem. It must yield None so the flag is omitted entirely — an
+        // empty string would become `--cpus ""` and fail the run.
+        assert_eq!(resolve_resource_bound(Some(""), DEFAULT_CPUS), None);
+        assert_eq!(resolve_resource_bound(Some("   "), DEFAULT_MEMORY), None);
+    }
+
+    #[test]
+    fn default_bounds_leave_headroom_over_observed_healthy_load() {
+        // Measured peak for a company building sites concurrently was 2.6 GiB
+        // and 720 PIDs. A bound at or under that would throttle real work and
+        // teach operators to disable bounding altogether, so the memory bound
+        // must keep a clear margin above the observed peak rather than hug it.
+        assert_eq!(DEFAULT_MEMORY, "4g");
+        assert!(DEFAULT_PIDS_LIMIT.parse::<u32>().expect("pids limit") > 720);
+        assert!(DEFAULT_CPUS.parse::<f64>().expect("cpus") > 0.0);
+    }
+
     use std::path::Path;
 
     use super::{
@@ -1944,6 +2075,8 @@ model_failover = ["anthropic/claude-haiku-4-5", "zai/glm-5"]
             "http://localhost:6080/vnc.html",
             "http://127.0.0.1:9223/json/version",
             "http://user:secret@localhost:4173/",
+            "http://127.0.0.1:4173/ (local preview)",
+            " http://127.0.0.1:4173/",
         ] {
             assert!(runtime_http_target(refused).is_err(), "accepted {refused}");
         }

@@ -20,7 +20,7 @@ use axum::body::{Body, Bytes};
 use axum::extract::{DefaultBodyLimit, State};
 use axum::http::header::{ACCEPT, AUTHORIZATION, CACHE_CONTROL, CONTENT_TYPE};
 use axum::http::{HeaderMap, Response, StatusCode};
-use axum::routing::post;
+use axum::routing::{get, post};
 use axum::Router;
 use futures_util::{Stream, StreamExt as _};
 use serde::Deserialize;
@@ -30,25 +30,82 @@ use crate::runtime::CompanyConfig;
 
 const BROKER_PROFILE: &str = "restless-model-broker";
 const GATEWAY_PROFILE: &str = "restless-model-gateway";
-const BROKER_URL: &str = "http://127.0.0.1:7789";
-const BROKER_BIND: &str = "127.0.0.1:7789";
 /// OMP itself keeps the root provider bearer on this loopback-only listener.
+#[cfg(test)]
 const OMP_GATEWAY_HOST_URL: &str = "http://127.0.0.1:7796";
-const OMP_GATEWAY_BIND: &str = "127.0.0.1:7796";
 /// The Runtime-facing relay owns the established container route. It never
 /// accepts OMP's root bearer.
+#[cfg(test)]
 const RELAY_RUNTIME_URL: &str = "http://host.docker.internal:7790";
-const RELAY_BIND: &str = "0.0.0.0:7790";
 const MODEL_CAPABILITY_ENV: &str = "RESTLESS_MODEL_CAPABILITY";
 
+#[derive(Debug, Clone)]
+struct GatewayEndpoints {
+    broker_profile: String,
+    gateway_profile: String,
+    broker_url: String,
+    broker_bind: String,
+    gateway_host_url: String,
+    gateway_bind: String,
+    relay_runtime_url: String,
+    relay_bind: String,
+}
+
+impl GatewayEndpoints {
+    fn from_env() -> Result<Self> {
+        let offset = crate::port_offset()?;
+        let broker_port = crate::port_with_offset(7789)?;
+        let gateway_port = crate::port_with_offset(7796)?;
+        let relay_port = crate::port_with_offset(7790)?;
+        let profile_suffix = (offset != 0).then(|| format!("-{offset}"));
+        Ok(Self {
+            broker_profile: format!(
+                "{BROKER_PROFILE}{}",
+                profile_suffix.as_deref().unwrap_or_default()
+            ),
+            gateway_profile: format!(
+                "{GATEWAY_PROFILE}{}",
+                profile_suffix.as_deref().unwrap_or_default()
+            ),
+            broker_url: format!("http://127.0.0.1:{broker_port}"),
+            broker_bind: format!("127.0.0.1:{broker_port}"),
+            gateway_host_url: format!("http://127.0.0.1:{gateway_port}"),
+            gateway_bind: format!("127.0.0.1:{gateway_port}"),
+            relay_runtime_url: format!("http://host.docker.internal:{relay_port}"),
+            relay_bind: format!("0.0.0.0:{relay_port}"),
+        })
+    }
+}
+
 static CLIENT: OnceLock<ClientConfig> = OnceLock::new();
+
+/// Companies the account plane could not admit a model route for at boot.
+/// Consulted before a company wakes so the refusal names the exact reason
+/// instead of failing later inside the company's first Attempt.
+static UNSTARTABLE: OnceLock<BTreeMap<String, String>> = OnceLock::new();
+
+/// Why this company cannot start, if the plane could not admit it.
+pub fn unstartable_reason(company: &str) -> Option<String> {
+    UNSTARTABLE.get()?.get(company).cloned()
+}
+
 
 #[derive(Clone)]
 pub struct ClientConfig {
     providers: BTreeMap<String, ModelBilling>,
+    runtime_url: String,
 }
 
 impl ClientConfig {
+    fn billing_for(&self, model: &str) -> Result<ModelBilling> {
+        let (provider, _) = split_model(model)?;
+        self.providers.get(provider).copied().with_context(|| {
+            format!(
+                "model provider {provider} was not loaded into the host gateway at daemon boot; configure its credential and restart restlessd"
+            )
+        })
+    }
+
     pub fn auth_for(
         &self,
         model: &str,
@@ -58,13 +115,8 @@ impl ClientConfig {
         session: &str,
     ) -> Result<AgentGatewayAuth> {
         let (provider, _) = split_model(model)?;
-        let Some(billing) = self.providers.get(provider).copied() else {
-            bail!(
-                "model provider {provider} was not loaded into the host gateway at daemon boot; configure its credential and restart restlessd"
-            );
-        };
+        let billing = self.billing_for(model)?;
         Ok(AgentGatewayAuth {
-            provider: provider.to_string(),
             token_env: MODEL_CAPABILITY_ENV.to_string(),
             token: capabilities.issue_model_session(
                 company,
@@ -74,10 +126,16 @@ impl ClientConfig {
                 model,
                 billing.as_str(),
             )?,
-            runtime_url: RELAY_RUNTIME_URL.to_string(),
+            runtime_url: self.runtime_url.clone(),
             billing,
         })
     }
+}
+
+/// Return the boot-time billing contract for one exact model route without
+/// issuing a session capability or contacting the provider.
+pub fn billing_for_model(model: &str) -> Result<ModelBilling> {
+    client()?.billing_for(model)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -96,7 +154,6 @@ impl ModelBilling {
 }
 
 pub struct AgentGatewayAuth {
-    pub provider: String,
     pub token_env: String,
     pub token: String,
     pub runtime_url: String,
@@ -131,6 +188,20 @@ pub async fn available_actor_candidates(
     filter_cooling_candidates(ordered, &cooldowns)
 }
 
+/// A durable addressed message remains owed while its actor's exact policy is
+/// unavailable. Schedulers use this read-only preflight to stay quiet until a
+/// recorded cooldown expires instead of retrying the same conversation on
+/// every database scan.
+pub async fn actor_policy_is_cooling(
+    config: &CompanyConfig,
+    preferred: Option<&str>,
+    authority: &crate::authority::AuthorityStore,
+) -> Result<bool> {
+    let ordered = actor_candidates(config, preferred)?;
+    let cooldowns = authority.active_model_cooldowns(&config.name).await?;
+    Ok(candidates_all_cooling(&ordered, &cooldowns))
+}
+
 fn actor_candidates(config: &CompanyConfig, preferred: Option<&str>) -> Result<Vec<String>> {
     match preferred.map(str::trim).filter(|model| !model.is_empty()) {
         Some(model) => Ok(vec![model.to_string()]),
@@ -148,6 +219,16 @@ fn ordered_candidates(config: &CompanyConfig, preferred: Option<&str>) -> Result
             ordered.push(model.to_string());
         }
     }
+    // A candidate whose provider was never admitted at boot cannot be reached.
+    // Dropping it here keeps the boot-time warning and the runtime chain in
+    // agreement, rather than failing one request deep into a wake.
+    if let Some(client) = CLIENT.get() {
+        ordered.retain(|model| {
+            split_model(model)
+                .map(|(provider, _)| client.providers.contains_key(provider))
+                .unwrap_or(false)
+        });
+    }
     Ok(ordered)
 }
 
@@ -155,10 +236,13 @@ fn filter_cooling_candidates(
     mut ordered: Vec<String>,
     cooldowns: &[crate::authority::ModelCooldown],
 ) -> Result<Vec<String>> {
+    let configured = ordered.clone();
     ordered.retain(|model| !cooldowns.iter().any(|cooldown| &cooldown.model == model));
     if ordered.is_empty() {
         let next = cooldowns
-            .first()
+            .iter()
+            .filter(|cooldown| configured.iter().any(|model| model == &cooldown.model))
+            .min_by_key(|cooldown| cooldown.retry_at)
             .map(|cooldown| {
                 format!(
                     "{} until {} ({})",
@@ -171,6 +255,16 @@ fn filter_cooling_candidates(
         bail!("all model candidates are cooling down; next: {next}");
     }
     Ok(ordered)
+}
+
+fn candidates_all_cooling(
+    ordered: &[String],
+    cooldowns: &[crate::authority::ModelCooldown],
+) -> bool {
+    !ordered.is_empty()
+        && ordered
+            .iter()
+            .all(|model| cooldowns.iter().any(|cooldown| &cooldown.model == model))
 }
 
 pub async fn record_cooldown(
@@ -237,23 +331,29 @@ pub async fn start(
     capabilities: crate::capability::CapabilityIssuer,
     spend: crate::spend::SpendLedger,
 ) -> Result<Processes> {
-    let provider_credentials = provider_credentials(configs).await?;
+    let endpoints = GatewayEndpoints::from_env()?;
+    let mut provider_credentials = provider_credentials(configs).await?;
     if provider_credentials.is_empty() {
         bail!("no configured company model provider is available for the model gateway");
     }
 
     let omp = std::env::var("RESTLESS_OMP_BIN").unwrap_or_else(|_| "omp".to_string());
-    let broker_token = token(&omp, BROKER_PROFILE, "auth-broker").await?;
+    let broker_token = token(&omp, &endpoints.broker_profile, "auth-broker").await?;
     let mut broker = Command::new(&omp)
-        .env("OMP_PROFILE", BROKER_PROFILE)
-        .args(["auth-broker", "serve", "--bind", BROKER_BIND])
+        .env("OMP_PROFILE", &endpoints.broker_profile)
+        .args([
+            "auth-broker",
+            "serve",
+            "--bind",
+            endpoints.broker_bind.as_str(),
+        ])
         .stdin(Stdio::null())
         .stdout(Stdio::inherit())
         .stderr(Stdio::inherit())
         .kill_on_drop(true)
         .spawn()
         .context("start OMP model credential broker")?;
-    wait_for_broker(&mut broker, &broker_token).await?;
+    wait_for_broker(&mut broker, &broker_token, &endpoints.broker_url).await?;
 
     let http = reqwest::Client::builder()
         .timeout(Duration::from_secs(10))
@@ -262,6 +362,7 @@ pub async fn start(
     prune_unconfigured_credentials(
         &http,
         &broker_token,
+        &endpoints.broker_url,
         provider_credentials.keys().map(String::as_str).collect(),
     )
     .await?;
@@ -270,7 +371,7 @@ pub async fn start(
             continue;
         };
         let response = http
-            .post(format!("{BROKER_URL}/v1/credential"))
+            .post(format!("{}/v1/credential", endpoints.broker_url))
             .bearer_auth(&broker_token)
             .json(&serde_json::json!({
                 "provider": provider,
@@ -288,43 +389,79 @@ pub async fn start(
             );
         }
     }
-    reconcile_credentials(&http, &broker_token, &provider_credentials).await?;
+    let unadmitted = reconcile_credentials(
+        &http,
+        &broker_token,
+        &endpoints.broker_url,
+        &provider_credentials,
+    )
+    .await?;
+    provider_credentials.retain(|provider, _| !unadmitted.contains(provider));
+    if provider_credentials.is_empty() {
+        bail!("no configured company model provider could be admitted by the host model broker");
+    }
+    let admission = admit(configs, &provider_credentials)?;
+    for (company, reason) in &admission.unstartable {
+        tracing::warn!(company, reason, "company cannot start: {reason}");
+    }
+    let startable = admission.startable(configs);
+    let _ = UNSTARTABLE.set(admission.unstartable);
 
-    let gateway_token = token(&omp, GATEWAY_PROFILE, "auth-gateway").await?;
+    let gateway_token = token(&omp, &endpoints.gateway_profile, "auth-gateway").await?;
     let mut gateway = Command::new(&omp)
-        .env("OMP_PROFILE", GATEWAY_PROFILE)
-        .env("OMP_AUTH_BROKER_URL", BROKER_URL)
+        .env("OMP_PROFILE", &endpoints.gateway_profile)
+        .env("OMP_AUTH_BROKER_URL", &endpoints.broker_url)
         .env("OMP_AUTH_BROKER_TOKEN", &broker_token)
-        .args(["auth-gateway", "serve", "--bind", OMP_GATEWAY_BIND])
+        .args([
+            "auth-gateway",
+            "serve",
+            "--bind",
+            endpoints.gateway_bind.as_str(),
+        ])
         .stdin(Stdio::null())
         .stdout(Stdio::inherit())
         .stderr(Stdio::inherit())
         .kill_on_drop(true)
         .spawn()
         .context("start OMP model auth gateway")?;
-    let required = provider_credentials
+    let required_providers = provider_credentials
         .keys()
         .cloned()
         .collect::<BTreeSet<_>>();
-    wait_for_gateway(&mut gateway, &gateway_token, &required).await?;
+    let required_models = runtime_pinned_models(&startable)?;
+    wait_for_gateway(
+        &mut gateway,
+        &gateway_token,
+        &endpoints.gateway_host_url,
+        &required_providers,
+        &required_models,
+    )
+    .await?;
     let providers = provider_credentials
         .into_iter()
         .map(|(provider, credential)| (provider, credential.billing()))
         .collect();
 
     CLIENT
-        .set(ClientConfig { providers })
+        .set(ClientConfig {
+            providers,
+            runtime_url: endpoints.relay_runtime_url.clone(),
+        })
         .map_err(|_| anyhow::anyhow!("model gateway client was already installed"))?;
-    let relay = start_runtime_relay(RelayState {
-        root: root.to_path_buf(),
-        capabilities,
-        spend,
-        upstream_token: gateway_token,
-        http: reqwest::Client::builder()
-            .timeout(Duration::from_secs(15 * 60))
-            .build()
-            .context("build Runtime model relay client")?,
-    })
+    let relay = start_runtime_relay(
+        RelayState {
+            root: root.to_path_buf(),
+            capabilities,
+            spend,
+            upstream_token: gateway_token,
+            upstream_url: endpoints.gateway_host_url,
+            http: reqwest::Client::builder()
+                .timeout(Duration::from_secs(15 * 60))
+                .build()
+                .context("build Runtime model relay client")?,
+        },
+        &endpoints.relay_bind,
+    )
     .await?;
     Ok(Processes {
         broker,
@@ -356,9 +493,13 @@ impl BrokerCredential {
     }
 }
 
-async fn broker_snapshot(http: &reqwest::Client, broker_token: &str) -> Result<BrokerSnapshot> {
+async fn broker_snapshot(
+    http: &reqwest::Client,
+    broker_token: &str,
+    broker_url: &str,
+) -> Result<BrokerSnapshot> {
     let response = http
-        .get(format!("{BROKER_URL}/v1/snapshot"))
+        .get(format!("{broker_url}/v1/snapshot"))
         .bearer_auth(broker_token)
         .send()
         .await
@@ -378,12 +519,13 @@ async fn broker_snapshot(http: &reqwest::Client, broker_token: &str) -> Result<B
 async fn disable_credential(
     http: &reqwest::Client,
     broker_token: &str,
+    broker_url: &str,
     credential: &BrokerCredential,
     cause: &str,
 ) -> Result<()> {
     let response = http
         .post(format!(
-            "{BROKER_URL}/v1/credential/{}/disable",
+            "{broker_url}/v1/credential/{}/disable",
             credential.id
         ))
         .bearer_auth(broker_token)
@@ -408,9 +550,10 @@ async fn disable_credential(
 async fn prune_unconfigured_credentials(
     http: &reqwest::Client,
     broker_token: &str,
+    broker_url: &str,
     configured: BTreeSet<&str>,
 ) -> Result<()> {
-    let snapshot = broker_snapshot(http, broker_token).await?;
+    let snapshot = broker_snapshot(http, broker_token, broker_url).await?;
     for credential in snapshot
         .credentials
         .into_iter()
@@ -419,6 +562,7 @@ async fn prune_unconfigured_credentials(
         disable_credential(
             http,
             broker_token,
+            broker_url,
             &credential,
             "provider is not configured by any Restless company at daemon boot",
         )
@@ -432,18 +576,37 @@ async fn prune_unconfigured_credentials(
 /// however: after uploading the current Infisical value, disable every other
 /// active row for that provider. This both applies rotation and prevents daemon
 /// restarts from accumulating equally privileged fallback keys.
+/// Returns the providers that could **not** be canonicalised at the broker.
+/// A configured credential reference can resolve and still have no usable
+/// account behind it — an `omp-oauth:` provider the owner has not signed in to,
+/// for instance. That is one provider's fact, not the plane's: the provider is
+/// dropped and the companies that depend on it become unstartable, rather than
+/// the whole plane refusing to boot (cross-layer contract §1.4.1).
 async fn reconcile_credentials(
     http: &reqwest::Client,
     broker_token: &str,
+    broker_url: &str,
     provider_credentials: &BTreeMap<String, ProviderCredential>,
-) -> Result<()> {
-    let snapshot = broker_snapshot(http, broker_token).await?;
+) -> Result<BTreeSet<String>> {
+    let snapshot = broker_snapshot(http, broker_token, broker_url).await?;
+    let mut unadmitted = BTreeSet::new();
     for (provider, expected) in provider_credentials {
-        let (keep_id, superseded_ids) = match expected {
+        let canonical = match expected {
             ProviderCredential::ApiKey(expected_key) => {
-                canonical_api_key_credential(&snapshot, provider, expected_key)?
+                canonical_api_key_credential(&snapshot, provider, expected_key)
             }
-            ProviderCredential::OmpOauth => canonical_oauth_credential(&snapshot, provider)?,
+            ProviderCredential::OmpOauth => canonical_oauth_credential(&snapshot, provider),
+        };
+        let (keep_id, superseded_ids) = match canonical {
+            Ok(canonical) => canonical,
+            Err(error) => {
+                tracing::warn!(
+                    provider,
+                    "provider not admitted: {error:#}"
+                );
+                unadmitted.insert(provider.clone());
+                continue;
+            }
         };
         for credential in snapshot
             .credentials
@@ -453,13 +616,14 @@ async fn reconcile_credentials(
             disable_credential(
                 http,
                 broker_token,
+                broker_url,
                 credential,
                 "superseded by the current Restless model credential reference",
             )
             .await?;
         }
 
-        let verified = broker_snapshot(http, broker_token).await?;
+        let verified = broker_snapshot(http, broker_token, broker_url).await?;
         let active = verified
             .credentials
             .iter()
@@ -474,10 +638,14 @@ async fn reconcile_credentials(
                 ProviderCredential::OmpOauth => active[0].is_oauth(),
             };
         if !matches {
-            bail!("host model broker did not converge {provider} to one current credential");
+            tracing::warn!(
+                provider,
+                "provider not admitted: host model broker did not converge it to one current credential"
+            );
+            unadmitted.insert(provider.clone());
         }
     }
-    Ok(())
+    Ok(unadmitted)
 }
 
 fn canonical_api_key_credential(
@@ -541,14 +709,19 @@ struct RelayState {
     capabilities: crate::capability::CapabilityIssuer,
     spend: crate::spend::SpendLedger,
     upstream_token: String,
+    upstream_url: String,
     http: reqwest::Client,
 }
 
-async fn start_runtime_relay(state: RelayState) -> Result<tokio::task::JoinHandle<()>> {
-    let listener = tokio::net::TcpListener::bind(RELAY_BIND)
+async fn start_runtime_relay(
+    state: RelayState,
+    relay_bind: &str,
+) -> Result<tokio::task::JoinHandle<()>> {
+    let listener = tokio::net::TcpListener::bind(relay_bind)
         .await
-        .with_context(|| format!("bind Runtime model relay {RELAY_BIND}"))?;
+        .with_context(|| format!("bind Runtime model relay {relay_bind}"))?;
     let app = Router::new()
+        .route("/v1/models", get(relay_models))
         .route("/v1/pi/stream", post(relay_pi_stream))
         .layer(DefaultBodyLimit::max(2 * 1024 * 1024))
         .with_state(state);
@@ -557,6 +730,49 @@ async fn start_runtime_relay(state: RelayState) -> Result<tokio::task::JoinHandl
             tracing::error!("Runtime model relay stopped: {error}");
         }
     }))
+}
+
+/// Give a Runtime only the exact model named by its signed session grant.
+///
+/// Dynamic OpenAI-compatible providers need a catalogue before ACP can select
+/// a model. Letting them query the provider directly would bypass both host
+/// credential custody and exact-model authority. A static custom model is not
+/// equivalent: OMP currently drops the provider's `pi-native` transport while
+/// constructing that custom entry. This narrow catalogue preserves OMP's
+/// ordinary discovery/metadata merge and therefore its native gateway route.
+async fn relay_models(State(state): State<RelayState>, headers: HeaderMap) -> Response<Body> {
+    let token = match bearer_capability(&headers) {
+        Ok(token) => token,
+        Err(error) => return relay_error(StatusCode::UNAUTHORIZED, &error),
+    };
+    let grant = match state.capabilities.verify_model(token) {
+        Ok(grant) => grant,
+        Err(error) => {
+            return relay_error(
+                StatusCode::UNAUTHORIZED,
+                &format!("invalid model capability: {error:#}"),
+            );
+        }
+    };
+    let (_, model_id) = match split_model(&grant.model) {
+        Ok(parts) => parts,
+        Err(error) => return relay_error(StatusCode::UNAUTHORIZED, &format!("{error:#}")),
+    };
+    let body = serde_json::json!({
+        "object": "list",
+        "data": [{
+            "id": model_id,
+            "object": "model",
+            "owned_by": grant.provider,
+        }],
+    })
+    .to_string();
+    Response::builder()
+        .status(StatusCode::OK)
+        .header(CONTENT_TYPE, "application/json")
+        .header(CACHE_CONTROL, "no-store")
+        .body(Body::from(body))
+        .expect("static model catalogue response")
 }
 
 async fn relay_pi_stream(
@@ -631,7 +847,7 @@ async fn relay_pi_stream(
 
     let mut upstream_request = state
         .http
-        .post(format!("{OMP_GATEWAY_HOST_URL}/v1/pi/stream"))
+        .post(format!("{}/v1/pi/stream", state.upstream_url))
         .bearer_auth(&state.upstream_token)
         .header(CONTENT_TYPE, "application/json")
         .body(body);
@@ -1023,20 +1239,56 @@ pub fn oauth_is_loaded(provider: &str) -> Result<bool> {
     ))
 }
 
-pub fn models_config(provider: &str, runtime_url: &str, token_env: &str) -> Result<String> {
+pub fn models_config(model: &str, runtime_url: &str, token_env: &str) -> Result<String> {
+    let (provider, model_id) = split_model(model)?;
     if !provider
         .bytes()
         .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-')
     {
         bail!("invalid model provider identifier {provider:?}");
     }
-    if runtime_url != RELAY_RUNTIME_URL || token_env != MODEL_CAPABILITY_ENV {
+    let relay_url = reqwest::Url::parse(runtime_url).ok();
+    let recognised_runtime_relay = relay_url.as_ref().is_some_and(|url| {
+        url.scheme() == "http"
+            && url.host_str() == Some("host.docker.internal")
+            && url.port().is_some()
+            && url.username().is_empty()
+            && url.password().is_none()
+            && url.path() == "/"
+            && url.query().is_none()
+            && url.fragment().is_none()
+    });
+    if !recognised_runtime_relay || token_env != MODEL_CAPABILITY_ENV {
         bail!("refusing an unrecognised model gateway route");
     }
+    let api = if matches!(provider, "zai" | "zhipu-coding-plan") {
+        // GLM's ACP-compatible coding routes are Chat Completions. Advertising
+        // Responses makes OMP call an otherwise valid model through the wrong
+        // upstream path and can return a bare 404 as assistant content.
+        "openai-completions"
+    } else {
+        "openai-responses"
+    };
+    let catalogue = if provider == "litellm" {
+        // The relay's capability-filtered `/v1/models` returns only this
+        // session's exact grant. Discovery keeps OMP's provider-level
+        // `pi-native` transport intact; a custom `models:` entry does not.
+        "    discovery:\n      type: proxy\n"
+    } else if matches!(provider, "zai" | "zhipu-coding-plan")
+        && model_id == "glm-5.3-flash"
+    {
+        // Discover the one model authorised by the scoped relay and preserve
+        // its exact text+image contract across OMP catalogue versions. A
+        // static custom model would discard `pi-native` and bypass the only
+        // Runtime route Restless exposes, producing a false HTTP 404.
+        "    discovery:\n      type: proxy\n    modelOverrides:\n      glm-5.3-flash:\n        name: GLM 5.3 Flash\n        reasoning: true\n        supportsTools: true\n        input: [text, image]\n        cost: {input: 0, output: 0, cacheRead: 0, cacheWrite: 0}\n        contextWindow: 131072\n        maxTokens: 32768\n"
+    } else {
+        ""
+    };
     Ok(format!(
         "# Managed by Restless. Contains a gateway route, never a provider credential.\n\
-providers:\n  {provider}:\n    baseUrl: {runtime_url}\n    apiKey: {token_env}\n    transport: pi-native\n"
-    ))
+providers:\n  {provider}:\n    baseUrl: {runtime_url}\n    apiKey: {token_env}\n    transport: pi-native\n    api: {api}\n"
+    ) + catalogue)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1051,6 +1303,27 @@ impl ProviderCredential {
             Self::ApiKey(_) => ModelBilling::MeteredApi,
             Self::OmpOauth => ModelBilling::Subscription,
         }
+    }
+}
+
+/// The account plane's model admission for this owner's companies.
+///
+/// Cross-layer contract §1.4.1: one company's configuration must never prevent
+/// another company from starting. The plane validates its own credentials and
+/// records the companies it cannot admit, with the reason, instead of refusing
+/// to boot for all of them.
+pub struct Admission {
+    /// company name → why that company cannot start.
+    pub unstartable: BTreeMap<String, String>,
+}
+
+impl Admission {
+    /// Companies this plane can start, in configuration order.
+    fn startable<'a>(&self, configs: &'a [CompanyConfig]) -> Vec<&'a CompanyConfig> {
+        configs
+            .iter()
+            .filter(|config| !self.unstartable.contains_key(&config.name))
+            .collect()
     }
 }
 
@@ -1103,17 +1376,47 @@ async fn provider_credentials(
             }
         }
     }
+    Ok(credentials)
+}
+
+/// Decide which companies this plane can start, given the providers it managed
+/// to admit. Called after broker reconciliation, because a credential that
+/// resolves from configuration can still fail to canonicalise at the broker.
+///
+/// A company whose *primary* model has no admitted provider cannot think, so it
+/// cannot start. That is this company's fact, not the plane's. An unadmitted
+/// *failover* candidate is not fatal — the chain is a fallback, not a
+/// requirement — so it is dropped with a warning and the company still starts
+/// on the route it does have.
+fn admit(
+    configs: &[CompanyConfig],
+    credentials: &BTreeMap<String, ProviderCredential>,
+) -> Result<Admission> {
+    let mut unstartable = BTreeMap::<String, String>::new();
     for config in configs {
-        for model in config.model_candidates()? {
+        let (primary_provider, _) = split_model(&config.model)?;
+        if !credentials.contains_key(primary_provider) {
+            unstartable.insert(
+                config.name.clone(),
+                format!(
+                    "no usable host credential for model {}; set credentials.model.inference.{primary_provider}",
+                    config.model
+                ),
+            );
+            continue;
+        }
+        for model in config.model_candidates()?.into_iter().skip(1) {
             let (provider, _) = split_model(model)?;
             if !credentials.contains_key(provider) {
-                bail!(
-                    "no configured company provides a host credential reference for model {model}; set credentials.model.inference.{provider}"
+                tracing::warn!(
+                    company = %config.name,
+                    model,
+                    "dropping failover candidate: no usable host credential for provider {provider}"
                 );
             }
         }
     }
-    Ok(credentials)
+    Ok(Admission { unstartable })
 }
 
 fn split_model(model: &str) -> Result<(&str, &str)> {
@@ -1148,7 +1451,7 @@ async fn token(omp: &str, profile: &str, command: &str) -> Result<String> {
     Ok(value)
 }
 
-async fn wait_for_broker(child: &mut Child, token: &str) -> Result<()> {
+async fn wait_for_broker(child: &mut Child, token: &str, broker_url: &str) -> Result<()> {
     let http = reqwest::Client::builder()
         .timeout(Duration::from_secs(1))
         .build()?;
@@ -1157,7 +1460,7 @@ async fn wait_for_broker(child: &mut Child, token: &str) -> Result<()> {
             bail!("OMP model credential broker exited during boot ({status})");
         }
         if http
-            .get(format!("{BROKER_URL}/v1/healthz"))
+            .get(format!("{broker_url}/v1/healthz"))
             .bearer_auth(token)
             .send()
             .await
@@ -1180,10 +1483,36 @@ struct ModelRow {
     id: String,
 }
 
+fn missing_required_models(
+    required: &BTreeSet<String>,
+    observed: &BTreeSet<String>,
+) -> Vec<String> {
+    required.difference(observed).cloned().collect()
+}
+
+fn runtime_pinned_models(configs: &[&CompanyConfig]) -> Result<BTreeSet<String>> {
+    let mut required = BTreeSet::new();
+    for config in configs {
+        for model in config.model_candidates()? {
+            let (provider, _) = split_model(model)?;
+            // OpenAI-compatible catalogues are provider-discovered. They are
+            // also the models Restless must pin into the credential-free
+            // Runtime config, so seeing some other model from the same
+            // provider is not readiness for this exact launch contract.
+            if matches!(provider, "litellm" | "zhipu-coding-plan") {
+                required.insert(model.to_string());
+            }
+        }
+    }
+    Ok(required)
+}
+
 async fn wait_for_gateway(
     child: &mut Child,
     token: &str,
-    providers: &BTreeSet<String>,
+    gateway_host_url: &str,
+    required_providers: &BTreeSet<String>,
+    required_models: &BTreeSet<String>,
 ) -> Result<()> {
     let http = reqwest::Client::builder()
         .timeout(Duration::from_secs(2))
@@ -1194,24 +1523,22 @@ async fn wait_for_gateway(
             bail!("OMP model auth gateway exited during boot ({status})");
         }
         if let Ok(response) = http
-            .get(format!("{OMP_GATEWAY_HOST_URL}/v1/models"))
+            .get(format!("{gateway_host_url}/v1/models"))
             .bearer_auth(token)
             .send()
             .await
         {
             if response.status().is_success() {
                 if let Ok(list) = response.json::<ModelList>().await {
-                    observed = list
-                        .data
+                    observed = list.data.into_iter().map(|model| model.id).collect();
+                    let observed_providers = observed
                         .iter()
-                        .filter_map(|model| model.id.split_once('/').map(|(provider, _)| provider))
+                        .filter_map(|model| model.split_once('/').map(|(provider, _)| provider))
                         .map(str::to_string)
-                        .collect();
-                    let ready = providers.iter().all(|provider| {
-                        let prefix = format!("{provider}/");
-                        list.data.iter().any(|model| model.id.starts_with(&prefix))
-                    });
-                    if ready {
+                        .collect::<BTreeSet<_>>();
+                    if required_providers.is_subset(&observed_providers)
+                        && missing_required_models(required_models, &observed).is_empty()
+                    {
                         return Ok(());
                     }
                 }
@@ -1219,9 +1546,19 @@ async fn wait_for_gateway(
         }
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
-    let missing = providers.difference(&observed).cloned().collect::<Vec<_>>();
+    let observed_providers = observed
+        .iter()
+        .filter_map(|model| model.split_once('/').map(|(provider, _)| provider))
+        .map(str::to_string)
+        .collect::<BTreeSet<_>>();
+    let missing_providers = required_providers
+        .difference(&observed_providers)
+        .cloned()
+        .collect::<Vec<_>>();
+    let missing = missing_required_models(required_models, &observed);
     bail!(
-        "OMP model auth gateway did not expose configured providers {:?} (observed {:?})",
+        "OMP model auth gateway did not expose configured providers {:?} or pinned models {:?} (observed {:?})",
+        missing_providers,
         missing,
         observed
     )
@@ -1267,6 +1604,7 @@ mod tests {
             capabilities: capabilities.clone(),
             spend: spend.clone(),
             upstream_token: "host-only-root-bearer".into(),
+            upstream_url: OMP_GATEWAY_HOST_URL.into(),
             http: reqwest::Client::new(),
         };
         (capabilities, spend, state)
@@ -1280,7 +1618,8 @@ mod tests {
 
     #[test]
     fn runtime_model_config_contains_only_the_narrow_gateway_route() {
-        let config = models_config("moonshot", RELAY_RUNTIME_URL, MODEL_CAPABILITY_ENV).unwrap();
+        let config =
+            models_config("moonshot/kimi-k3", RELAY_RUNTIME_URL, MODEL_CAPABILITY_ENV).unwrap();
         assert!(config.contains("\n  moonshot:\n    baseUrl:"));
         assert!(config.contains("transport: pi-native"));
         assert!(config.contains("apiKey: RESTLESS_MODEL_CAPABILITY"));
@@ -1290,11 +1629,186 @@ mod tests {
 
     #[test]
     fn provider_and_route_are_not_open_ended_injection_points() {
-        assert!(
-            models_config("moonshot\nheaders", RELAY_RUNTIME_URL, MODEL_CAPABILITY_ENV).is_err()
+        assert!(models_config(
+            "moonshot\nheaders/kimi-k3",
+            RELAY_RUNTIME_URL,
+            MODEL_CAPABILITY_ENV
+        )
+        .is_err());
+        assert!(models_config(
+            "moonshot/kimi-k3",
+            "https://example.invalid",
+            MODEL_CAPABILITY_ENV
+        )
+        .is_err());
+        assert!(models_config(
+            "moonshot/kimi-k3",
+            "http://host.docker.internal:17790/v1",
+            MODEL_CAPABILITY_ENV
+        )
+        .is_err());
+        assert!(models_config(
+            "moonshot/kimi-k3",
+            "http://host.docker.internal:17790",
+            MODEL_CAPABILITY_ENV
+        )
+        .is_ok());
+    }
+
+    #[test]
+    fn runtime_model_config_discovers_only_through_the_scoped_relay() {
+        let config = models_config(
+            "litellm/gpt-5.6-sol",
+            RELAY_RUNTIME_URL,
+            MODEL_CAPABILITY_ENV,
+        )
+        .unwrap();
+        assert!(config.contains("\n  litellm:\n    baseUrl:"));
+        assert!(config.contains("    discovery:\n      type: proxy\n"));
+        assert!(!config.contains("    models:\n"));
+        assert!(!config.contains("GPT_API_KEY"));
+        assert!(!config.contains("GPT_BASE_URL"));
+    }
+
+    #[test]
+    fn runtime_pins_an_admitted_model_missing_from_the_bundled_catalogue() {
+        let config = models_config(
+            "zai/glm-5.3-flash",
+            RELAY_RUNTIME_URL,
+            MODEL_CAPABILITY_ENV,
+        )
+        .unwrap();
+        assert!(config.contains("    discovery:\n      type: proxy\n"));
+        assert!(config.contains("    modelOverrides:\n      glm-5.3-flash:\n"));
+        assert!(config.contains("        input: [text, image]\n"));
+        assert!(!config.contains("    models:\n"));
+        assert!(config.contains("    api: openai-completions\n"));
+        assert!(!config.contains("ZAI_API_KEY"));
+        assert!(!config.contains("ZAI_BASE_URL"));
+    }
+
+    #[test]
+    fn runtime_pins_glm_flash_on_the_bigmodel_coding_route() {
+        let config = models_config(
+            "zhipu-coding-plan/glm-5.3-flash",
+            RELAY_RUNTIME_URL,
+            MODEL_CAPABILITY_ENV,
+        )
+        .unwrap();
+        assert!(config.contains("\n  zhipu-coding-plan:\n    baseUrl:"));
+        assert!(config.contains("    discovery:\n      type: proxy\n"));
+        assert!(config.contains("    modelOverrides:\n      glm-5.3-flash:\n"));
+        assert!(config.contains("    api: openai-completions\n"));
+        assert!(!config.contains("ZAI_API_KEY"));
+    }
+
+    #[tokio::test]
+    async fn relay_catalogue_exposes_only_the_capability_model() {
+        use axum::body::to_bytes;
+
+        let root = test_root();
+        let (issuer, _spend, state) = test_relay_state(&root);
+        let token = issuer
+            .issue_model_session(
+                "acme_test",
+                "delivery-lead",
+                "session_123",
+                "moonshot",
+                "moonshot/kimi-k3",
+                "metered_api",
+            )
+            .unwrap();
+        let response = relay_models(State(state), bearer_headers(&token)).await;
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let catalogue: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(catalogue["data"].as_array().unwrap().len(), 1);
+        assert_eq!(catalogue["data"][0]["id"], "kimi-k3");
+        assert_eq!(catalogue["data"][0]["owned_by"], "moonshot");
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn gateway_readiness_requires_every_exact_configured_model() {
+        let required = BTreeSet::from([
+            "litellm/gpt-5.6-sol".to_string(),
+            "litellm/gpt-5.6-terra".to_string(),
+        ]);
+        let observed = BTreeSet::from(["litellm/gpt-5.6-terra".to_string()]);
+        assert_eq!(
+            missing_required_models(&required, &observed),
+            vec!["litellm/gpt-5.6-sol".to_string()]
+        );
+    }
+
+    #[test]
+    fn exact_readiness_is_reserved_for_runtime_pinned_catalogues() {
+        let config = CompanyConfig {
+            name: "catalogue_test".into(),
+            mission: String::new(),
+            spend_ceiling_usd: crate::runtime::SpendCeiling::from_micro_usd(2),
+            model: "litellm/gpt-5.6-sol".into(),
+            model_failover: vec!["zai/glm-5.3-flash".into()],
+            credentials: BTreeMap::new(),
+            approved_parties: Vec::new(),
+        };
+        assert_eq!(
+            runtime_pinned_models(&[&config]).unwrap(),
+            BTreeSet::from(["litellm/gpt-5.6-sol".to_string()])
+        );
+    }
+
+    /// Cross-layer contract §1.4.1: one company's configuration must never
+    /// prevent another company from starting. This is the invariant that
+    /// distinguishes the account plane from the cells it serves — a plane that
+    /// refuses to boot for one bad config has fused the two tiers.
+    #[test]
+    fn one_companys_unroutable_model_does_not_stop_the_others() {
+        let company = |name: &str, model: &str, failover: Vec<String>| CompanyConfig {
+            name: name.into(),
+            mission: String::new(),
+            spend_ceiling_usd: crate::runtime::SpendCeiling::from_micro_usd(2),
+            model: model.into(),
+            model_failover: failover,
+            credentials: BTreeMap::new(),
+            approved_parties: Vec::new(),
+        };
+        let configs = vec![
+            // Primary resolves; one failover candidate does not.
+            company(
+                "healthy_test",
+                "zai/glm-5.3",
+                vec!["anthropic/claude-haiku-4-5".into()],
+            ),
+            // Primary does not resolve at all.
+            company("broken_test", "openai-codex/gpt-5.6-sol", Vec::new()),
+        ];
+        let credentials =
+            BTreeMap::from([("zai".to_string(), ProviderCredential::ApiKey("k".into()))]);
+
+        let admission = admit(&configs, &credentials).unwrap();
+
+        // Only the company whose primary route is unusable is held back, and
+        // the reason names the exact missing configuration key.
+        assert_eq!(
+            admission.unstartable.keys().collect::<Vec<_>>(),
+            vec!["broken_test"]
         );
         assert!(
-            models_config("moonshot", "https://example.invalid", MODEL_CAPABILITY_ENV).is_err()
+            admission.unstartable["broken_test"].contains("credentials.model.inference.openai-codex"),
+            "reason must name the exact key to set, got {:?}",
+            admission.unstartable["broken_test"]
+        );
+        // A dead failover candidate is not fatal: the chain is a fallback, not
+        // a requirement, so the company still starts on the route it has.
+        assert!(!admission.unstartable.contains_key("healthy_test"));
+        assert_eq!(
+            admission
+                .startable(&configs)
+                .iter()
+                .map(|config| config.name.as_str())
+                .collect::<Vec<_>>(),
+            vec!["healthy_test"]
         );
     }
 
@@ -1304,6 +1818,7 @@ mod tests {
         let (issuer, _spend, _state) = test_relay_state(&root);
         let client = ClientConfig {
             providers: BTreeMap::from([("moonshot".into(), ModelBilling::MeteredApi)]),
+            runtime_url: RELAY_RUNTIME_URL.into(),
         };
         let access = client
             .auth_for(
@@ -1418,7 +1933,10 @@ mod tests {
             Some(1),
             "one terminal event writes one exact micro-USD record"
         );
-        let spool = std::fs::read_to_string(root.join("spend/spend.jsonl")).unwrap();
+        // Each cell keeps its own ledger; there is no installation-wide spool
+        // to read (cross-layer contract §1.4).
+        let spool =
+            std::fs::read_to_string(root.join("cells/acme_test/spend/spend.jsonl")).unwrap();
         let records = spool
             .lines()
             .map(|line| serde_json::from_str::<serde_json::Value>(line).unwrap())
@@ -1499,7 +2017,10 @@ mod tests {
                 .remaining_micro_usd(),
             Some(1),
         );
-        let spool = std::fs::read_to_string(root.join("spend/spend.jsonl")).unwrap();
+        // Each cell keeps its own ledger; there is no installation-wide spool
+        // to read (cross-layer contract §1.4).
+        let spool =
+            std::fs::read_to_string(root.join("cells/cancelled_test/spend/spend.jsonl")).unwrap();
         let record: serde_json::Value = serde_json::from_str(spool.trim()).unwrap();
         assert_eq!(record["sessionId"], "session_cancelled");
         assert_eq!(record["totalTokens"], 18);
@@ -1809,6 +2330,50 @@ mod tests {
         )
         .unwrap();
         assert_eq!(available, ["anthropic/claude-sonnet-4-5"]);
+    }
+
+    #[test]
+    fn all_cooling_error_names_only_the_candidate_policy() {
+        let now = chrono::Utc::now();
+        let error = filter_cooling_candidates(
+            vec!["zhipu-coding-plan/glm-5.3-flash".into()],
+            &[
+                crate::authority::ModelCooldown {
+                    model: "litellm/gpt-5.6-terra".into(),
+                    kind: "quota".into(),
+                    reason: "unrelated old route".into(),
+                    retry_at: now + chrono::Duration::minutes(10),
+                },
+                crate::authority::ModelCooldown {
+                    model: "zhipu-coding-plan/glm-5.3-flash".into(),
+                    kind: "quota".into(),
+                    reason: "current exact route".into(),
+                    retry_at: now + chrono::Duration::hours(1),
+                },
+            ],
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(error.contains("zhipu-coding-plan/glm-5.3-flash"));
+        assert!(!error.contains("litellm/gpt-5.6-terra"));
+    }
+
+    #[test]
+    fn actor_conversation_waits_only_when_its_entire_policy_is_cooling() {
+        let cooldown = crate::authority::ModelCooldown {
+            model: "zai/glm-5.3".into(),
+            kind: "quota".into(),
+            reason: "allowance exhausted".into(),
+            retry_at: chrono::Utc::now() + chrono::Duration::minutes(10),
+        };
+        assert!(candidates_all_cooling(
+            &["zai/glm-5.3".into()],
+            std::slice::from_ref(&cooldown)
+        ));
+        assert!(!candidates_all_cooling(
+            &["zai/glm-5.3".into(), "anthropic/claude-sonnet-4-6".into()],
+            &[cooldown]
+        ));
     }
 
     #[test]
