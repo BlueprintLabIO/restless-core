@@ -178,10 +178,34 @@ startable companies and let each report its own unstartable reason, which is S25
 one tier up. It also inverts Cloud's provisioning order, where Fleet creates the plane *before* the
 first cell, so a freshly provisioned hosted plane could never have started. It now warns and serves.
 
+**T4's image build found that `dev` does not compile.** Building the account-plane image was the
+first thing in this repository to compile HEAD rather than a working tree, and it failed:
+
+```text
+error[E0063]: missing fields `attempt_id` and `work_id` in initializer of `StaffRun`
+  --> crates/restlessd/src/staff/conversation.rs:437
+error: method `interrupt_message` not found for `AgentActivityStreams`
+```
+
+`780342a feat(cell): give each company its own database, role and spend ledger` added `work_id` and
+`attempt_id` to `StaffRun` in `staff/execution.rs` without updating its caller in
+`staff/conversation.rs` in the same commit. The branch has not built since. It predates this sprint —
+no commit here touches `execution.rs`, `conversation.rs` or `activity.rs` — and the working tree
+carries uncommitted changes to all three that make it compile locally.
+
+This is a live hole in "never report green without running it": every `cargo build` and `cargo test`
+in this repository, including this sprint's 221 passing tests, compiles the **working tree**. Nothing
+compiles what is committed. A release artifact does, which is why building one found it in its first
+minute, and why T4 is worth finishing rather than deferring.
+
+**T4 is therefore blocked on a compiling `dev`, not on disk.** Host headroom was sufficient — the
+build ran for 77 seconds and failed on type errors, not space. The image cannot be built from the
+working tree instead: the manifest emitter refuses a dirty tree, correctly, because a release names
+a revision and a dirty tree is not the revision it names. Fixing it means committing another
+session's in-flight substrate work, which is not this sprint's to commit.
+
 **Not yet observed, and therefore not claimed.** T4 stays `[~]`: the release *identity* is live, but
-no OCI image digest and no published manifest exist. Host headroom sits at the 30 GiB build floor and
-another session built the company image during this work, so starting a Docker build would be the
-exact failure `BUILD_STORAGE.md` records. T5 stays open: the live run above used `curl`, not a
+no OCI image digest and no published manifest exist, for the reason above. T5 stays open: the live run above used `curl`, not a
 browser against a non-loopback address, and it did not compare audit attribution against a local-mode
 run. The scope refusal was checked on a plane holding zero companies, so the 403s prove the gate but
 the 404 — not a second company's data — is what sat behind it.
