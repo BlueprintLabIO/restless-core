@@ -178,6 +178,40 @@ startable companies and let each report its own unstartable reason, which is S25
 one tier up. It also inverts Cloud's provisioning order, where Fleet creates the plane *before* the
 first cell, so a freshly provisioned hosted plane could never have started. It now warns and serves.
 
+**The account plane runs as a container and serves its cockpit.** Built from the working tree and
+tagged `worktree-verify` — deliberately not a release, and deleted afterwards so it could not be
+deployed — then run with its port published:
+
+```text
+owner gateway listening addr=0.0.0.0:7788
+GET  /health → {"core_version":"0.0.0","source_revision":"83bc1ea…-worktree",
+                "api_contract_version":1,"assertion_contract_version":1,"schema_version":20}
+GET  /       → HTTP 200, 1434 bytes   (cockpit shell, served from the image)
+POST /entry  → 200 + Set-Cookie: restless_session=…; HttpOnly; Secure; SameSite=Lax
+```
+
+The image is 43.9 MB against the company image's 4.16 GB — the intended shape for the tier that holds
+the owner's credentials.
+
+**Four defects, none of which reading would have found.** Building and running is the whole point of
+T4, and it paid for itself in its first three attempts:
+
+1. **`dev` does not compile** (below).
+2. **The build context excluded a compile-time dependency.** `context.rs:21` `include_str!`s
+   `docs/COMPANY_OPERATING_RULES.md`; `.dockerignore` is an allowlist and the company image never
+   needed it, because that image builds `-p restless`, not `-p restlessd`.
+3. **Allowlisting it was not enough.** `.dockerignore` permits; the Dockerfile must still `COPY`.
+4. **The plane could not serve its cockpit from an image.** The SPA was resolved through
+   `runtime::source_root()`, which requires `Cargo.toml` *and* `infra/company-image/Dockerfile`
+   because its other caller digests the source to decide whether to rebuild the Runtime image. Two
+   unrelated questions shared one answer, so a packaged plane refused to serve.
+   `RESTLESS_COCKPIT_DIR` now answers the first independently.
+
+**A gap defect 4 exposes, recorded rather than fixed:** building the company Runtime image is a
+**fleet** concern under `CELL_ARCHITECTURE.md`, but it lives in the plane and needs a source
+checkout. For Cloud the plane should consume a pinned Runtime digest from the release manifest. That
+is a real divergence between the release contract and the code, and it lands on Cloud 02.
+
 **T4's image build found that `dev` does not compile.** Building the account-plane image was the
 first thing in this repository to compile HEAD rather than a working tree, and it failed:
 
