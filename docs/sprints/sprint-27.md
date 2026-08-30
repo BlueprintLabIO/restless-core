@@ -1,0 +1,108 @@
+# Sprint 27 — Network owner entry and pinnable releases
+
+**Status:** Planned — awaiting founder alignment on tickets
+
+**Date:** 30 August 2026
+
+**Target:** [`ARCHITECTURE.md`](../../ARCHITECTURE.md) §7.4 ·
+[`docs/CELL_ARCHITECTURE.md`](../CELL_ARCHITECTURE.md) §2, §5 ·
+[ADR 0007](../adr/0007-network-owner-entry-by-verified-assertion.md) ·
+[Core/Cloud boundary](../specs/restless-cloud.md)
+
+**Depends on:** S25-T8 (plane restart does not stop a cell). Network entry to a plane whose restart
+kills companies is a worse product, not a bigger one.
+
+**Independent of Sprint 26.** Sprint 26 makes unattended company work exact and gates EXP-16; this
+sprint makes the plane reachable and gates every Cloud sprint. They touch different code and can run
+in either order or concurrently. Founders sequence them by which gate matters sooner.
+
+---
+
+## Why this sprint exists
+
+Sprint 25 split the tiers. This sprint makes the account plane reachable by someone who is not sitting
+at the machine — the last thing standing between Restless and a hosted product.
+
+Restless Cloud has specified an entire hosted product against a Core that no network client can reach.
+Core's owner gateway refuses a non-loopback bind (`crates/restlessd/src/owner.rs:717`) and refuses any
+request carrying a forwarding header (`owner.rs:850`). Both are deliberate — ADR 0001 chose them and
+named the condition that would end them. Neither has ended.
+
+The consequence is concrete and blocking. Every Cloud sprint from its first hosted cell onward is
+gated on this, and until it exists the only ways to reach a hosted Restless are a login page that
+gates nothing or a tunnel in front of a gateway that trusts network position. Cloud's roadmap
+prohibits the second and would be embarrassed by the first.
+
+Reviewing the Cloud specification set to write this sprint surfaced a second defect worth recording,
+because it is the same class of error Sprint 25 fixed in the code. Cloud described **two** tiers —
+Fleet and cells — with no account plane; the phrase appeared zero times in that repository. The
+cockpit had been attributed to the cell, and credential custody had nowhere to live but a shared
+multi-owner service, contradicting the structural property `CELL_ARCHITECTURE.md` §3 claims. The Cloud
+specs, its ADR 0001 and its roadmap are now corrected. Core's tier model was right and is unchanged;
+what was missing was that Cloud had not been told.
+
+## Outcome
+
+A real human reaches a Restless owner cockpit over a network, authenticated by a verified assertion
+rather than by network position — and Cloud can pin the exact build that did it.
+
+Two halves, both required: the plane verifies, and the artifact is identifiable. Either alone is
+unusable — verification nobody can pin cannot be deployed, and a pinned artifact that trusts its
+network is not deployable.
+
+## Acceptance criteria
+
+Each is headless-verifiable with stated inputs and observed output.
+
+1. **Network mode admits a valid assertion.** Start a plane configured with an issuer, audience and
+   verification key. Present a well-formed assertion; observe the cockpit served and the resolved
+   principal recorded in the audit attribution as the same stable owner principal local mode produces.
+2. **Every adversarial case is refused with its own reason.** Expired, not-yet-valid, wrong audience,
+   unknown issuer, unknown key version, unsupported contract version, wrong plane route, tampered
+   signature and replayed single-use identity each yield a distinct refusal. Ten inputs, ten recorded
+   refusals — not one catch-all.
+3. **Scope comes from the assertion, not the route.** An assertion scoped to company A, replayed
+   against company B's URL on the same plane, is refused. Verified by request, not only at entry.
+4. **Local mode is unchanged.** With no network configuration, the plane binds loopback, refuses
+   forwarding headers exactly as before, and requires no token.
+5. **A plane refuses to start in network mode without complete verification configuration.** Missing
+   issuer, audience or key is a startup failure naming the missing field, not a silent downgrade to
+   trusting the network.
+6. **The release is pinnable and self-identifying.** One published manifest names the account-plane
+   and Runtime image digests, schema versions, API version and assertion contract version. The
+   `/health` probe on a running plane and cell reports the same release identity as the manifest that
+   deployed it.
+7. **End to end.** From a clean checkout, one command builds the release, boots a plane in network
+   mode and a cell, mints a test assertion, and a browser reaches the cockpit over a non-loopback
+   address.
+
+## Slice per layer
+
+- **Authority Plane / account plane** — entry modes, assertion verification, single-use consumption,
+  session establishment, scope derivation per request.
+- **OrgIntel / cell** — unchanged. The cell gains no network entry and no credential; it is reached
+  through its plane exactly as today.
+- **Runtime / fleet** — release manifest, image digests and the health/version probe on both tiers.
+- **Out of scope** — the Fleet lifecycle operation contract (provision/start/stop/snapshot/restore as
+  a published API). Cloud 02 is the first thing that needs it; model it then, against a real caller,
+  per §16.1. Also out of scope: identity vendor selection, multi-human roles beyond the three Cloud
+  membership roles, and splitting the binary into three crates.
+
+## Ticket decomposition
+
+Status lives only in this checklist; ticket files record scope and closure evidence, not a second
+status system.
+
+| Status | Ticket | Slice | Outcome or friction served | Prior machinery made deletable |
+| --- | --- | --- | --- | --- |
+| [ ] | [S27-T1 · Verify an assertion at the plane edge](sprint-27/t1-assertion-verification.md) | Authority | No supported way to reach a plane that is not the machine you are sitting at | The unconditional loopback bail as the only network posture |
+| [ ] | [S27-T2 · Derive company scope from the assertion](sprint-27/t2-scope-derivation.md) | Authority | Scope taken from a URL is scope a client chooses | Route- and host-derived company scope |
+| [ ] | [S27-T3 · Refuse the adversarial cases, provably](sprint-27/t3-adversarial-refusal.md) | Authority + Evaluation | A check that happens to pass is not evidence | Trust that verification works because it compiles |
+| [ ] | [S27-T4 · Publish a pinnable, self-identifying release](sprint-27/t4-pinnable-release.md) | Runtime + Authority | Cloud cannot deploy what it cannot pin, and cannot debug what will not name itself | Mutable tags; "whatever Core was on that day" |
+| [ ] | [S27-T5 · Reach the cockpit over a network, end to end](sprint-27/t5-network-cockpit-run.md) | Full slice + Evaluation | Parts that each pass are not a product that works | Component-level confidence as a substitute for a run |
+
+## Non-goals
+
+No hosted deployment, no Cloud infrastructure, no Better Auth, no owner account system and no fleet
+automation is claimed by this sprint. Cloud owns the issuing half; this sprint owns the verifying half
+and the artifact. A test issuer is sufficient here and must not grow into a Core identity product.
