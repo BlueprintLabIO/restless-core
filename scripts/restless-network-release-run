@@ -111,6 +111,7 @@ target/release/restlessd mint-entry-assertion >"$scratch/assertion.txt"
 chmod 0600 "$scratch/assertion.txt"
 jq -n --arg assertion "$(tail -1 "$scratch/assertion.txt")" '{assertion:$assertion}' >"$scratch/entry.json"
 curl -fsS -c "$scratch/cookies.txt" -H 'Content-Type: application/json' \
+  -H "Origin: http://localhost:${plane_port}" \
   --data-binary "@$scratch/entry.json" "http://localhost:${plane_port}/entry" >/dev/null
 session_token="$(awk '$6 == "restless_session" { print $7; exit }' "$scratch/cookies.txt")"
 [[ -n "$session_token" ]] || { echo "entry exchange did not establish a browser session" >&2; exit 1; }
