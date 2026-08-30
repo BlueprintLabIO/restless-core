@@ -1,6 +1,6 @@
 # Sprint 27 — Network owner entry and pinnable releases
 
-**Status:** Active — T1–T3 closed against a live plane; T4 half-landed (identity yes, images no); T5 open
+**Status:** Active — T1–T4 closed against tagged artifacts; T5 is machine-green but browser evidence is open
 
 **Date:** 30 August 2026
 
@@ -101,8 +101,8 @@ evidence not yet observed · `[ ]` not started.
 | [x] | [S27-T1 · Verify an assertion at the plane edge](sprint-27/t1-assertion-verification.md) | Authority | No supported way to reach a plane that is not the machine you are sitting at | The unconditional loopback bail as the only network posture |
 | [x] | [S27-T2 · Derive company scope from the assertion](sprint-27/t2-scope-derivation.md) | Authority | Scope taken from a URL is scope a client chooses | Route- and host-derived company scope |
 | [x] | [S27-T3 · Refuse the adversarial cases, provably](sprint-27/t3-adversarial-refusal.md) | Authority + Evaluation | A check that happens to pass is not evidence | Trust that verification works because it compiles |
-| [~] | [S27-T4 · Publish a pinnable, self-identifying release](sprint-27/t4-pinnable-release.md) | Runtime + Authority | Cloud cannot deploy what it cannot pin, and cannot debug what will not name itself | Mutable tags; "whatever Core was on that day" |
-| [ ] | [S27-T5 · Reach the cockpit over a network, end to end](sprint-27/t5-network-cockpit-run.md) | Full slice + Evaluation | Parts that each pass are not a product that works | Component-level confidence as a substitute for a run |
+| [x] | [S27-T4 · Publish a pinnable, self-identifying release](sprint-27/t4-pinnable-release.md) | Runtime + Authority | Cloud cannot deploy what it cannot pin, and cannot debug what will not name itself | Mutable tags; "whatever Core was on that day" |
+| [~] | [S27-T5 · Reach the cockpit over a network, end to end](sprint-27/t5-network-cockpit-run.md) | Full slice + Evaluation | Parts that each pass are not a product that works | Component-level confidence as a substitute for a run |
 
 ## Evidence
 
@@ -207,10 +207,10 @@ T4, and it paid for itself in its first three attempts:
    unrelated questions shared one answer, so a packaged plane refused to serve.
    `RESTLESS_COCKPIT_DIR` now answers the first independently.
 
-**A gap defect 4 exposes, recorded rather than fixed:** building the company Runtime image is a
-**fleet** concern under `CELL_ARCHITECTURE.md`, but it lives in the plane and needs a source
-checkout. For Cloud the plane should consume a pinned Runtime digest from the release manifest. That
-is a real divergence between the release contract and the code, and it lands on Cloud 02.
+**The Runtime-digest drift is fixed.** In network entry mode the plane now requires
+`RESTLESS_COMPANY_IMAGE` to be an exact `repo@sha256:…` reference and pulls that artifact; it never
+builds a Runtime image from a Core checkout. Local development retains its source-derived image build
+in `scripts/restless-dev`, outside the plane.
 
 **T4's image build found that `dev` does not compile.** Building the account-plane image was the
 first thing in this repository to compile HEAD rather than a working tree, and it failed:
@@ -232,17 +232,27 @@ in this repository, including this sprint's 221 passing tests, compiles the **wo
 compiles what is committed. A release artifact does, which is why building one found it in its first
 minute, and why T4 is worth finishing rather than deferring.
 
-**T4 is therefore blocked on a compiling `dev`, not on disk.** Host headroom was sufficient — the
-build ran for 77 seconds and failed on type errors, not space. The image cannot be built from the
-working tree instead: the manifest emitter refuses a dirty tree, correctly, because a release names
-a revision and a dirty tree is not the revision it names. Fixing it means committing another
-session's in-flight substrate work, which is not this sprint's to commit.
+**T4 closure.** The coherent execution substrate was committed as `25e6e48`; an exact clean checkout
+then passed 223 daemon tests (6 ignored) and the cockpit production build. Tagged release
+`core-v0.0.0-preview.1` points to `e53946a`, which adds the cell-side release probe and emits this
+manifest identity:
 
-**Not yet observed, and therefore not claimed.** T4 stays `[~]`: the release *identity* is live, but
-no OCI image digest and no published manifest exist, for the reason above. T5 stays open: the live run above used `curl`, not a
-browser against a non-loopback address, and it did not compare audit attribution against a local-mode
-run. The scope refusal was checked on a plane holding zero companies, so the 403s prove the gate but
-the 404 — not a second company's data — is what sat behind it.
+```text
+account plane  127.0.0.1:5000/restless/account-plane@sha256:0e9d1d568ce1…
+Runtime        127.0.0.1:5000/restless/company-runtime@sha256:8241368d1d68…
+source         e53946ad99456651ce1cd91e41e203415befdc03
+contracts      API 1, assertion 1, schema 20
+```
+
+Both images were pulled by digest and run. Plane `/health` and Runtime `/health` each reported the
+same five release fields, compared by Cloud's compatibility probe: 9 passed, 0 failed, 0 blocked.
+The manifest emitter's health-field typo was corrected as part of the tagged release.
+
+**T5 remains `[~]`, not `[x]`.** The clean artifacts, network plane, two scoped `_test` identities,
+sleeping-cell cockpit, exact refusal reasons and test cleanup were exercised. No in-app browser was
+available in this environment, so the required browser-render observation cannot honestly be
+claimed. The credential-free technical plane also cannot prove “wake plus one Attempt proceeds.”
+Those are the two remaining observations; they are not blockers on T4 or Cloud's technical tests.
 
 ## Non-goals
 
