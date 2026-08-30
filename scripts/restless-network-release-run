@@ -1,0 +1,147 @@
+#!/usr/bin/env bash
+# One-command S27-T5 release run. From a clean checkout this builds both
+# artifacts, boots a network plane and an initially sleeping `_test` cell,
+# mints/uses an assertion, then pauses for the browser observation before
+# starting the Runtime. Ctrl-C performs the required teardown.
+set -euo pipefail
+
+root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$root"
+
+for command in cargo curl docker git jq npm; do
+  command -v "$command" >/dev/null || { echo "missing required command: $command" >&2; exit 1; }
+done
+if [[ -n "$(git status --porcelain)" ]]; then
+  echo "refusing network release run from a dirty checkout" >&2
+  exit 1
+fi
+
+revision="$(git rev-parse HEAD)"
+version="$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)"
+run_id="${RESTLESS_NETWORK_TEST_RUN_ID:-$$}"
+company="core27_network_${run_id}_test"
+registry_port="${RESTLESS_NETWORK_TEST_REGISTRY_PORT:-15000}"
+postgres_port="${RESTLESS_NETWORK_TEST_POSTGRES_PORT:-15432}"
+plane_port="${RESTLESS_NETWORK_TEST_PLANE_PORT:-17888}"
+port_offset="${RESTLESS_NETWORK_TEST_PORT_OFFSET:-7000}"
+coordinator_port="$((7791 + port_offset))"
+prefix="restless-core27-${run_id}"
+network="${prefix}-net"
+registry="${prefix}-registry"
+postgres="${prefix}-postgres"
+cell="restless-co-${company}"
+cell_volume="restless-vol-${company}"
+scratch="$(mktemp -d "/tmp/${prefix}.XXXXXX")"
+home="${scratch}/home"
+daemon_pid=""
+
+cleanup() {
+  set +e
+  if [[ -n "$daemon_pid" ]]; then kill "$daemon_pid" 2>/dev/null; wait "$daemon_pid" 2>/dev/null; fi
+  docker rm -f "$cell" "$postgres" "$registry" >/dev/null 2>&1
+  docker volume rm "$cell_volume" >/dev/null 2>&1
+  docker network rm "$network" >/dev/null 2>&1
+  find "$scratch" -depth -delete 2>/dev/null
+}
+trap cleanup EXIT INT TERM
+
+mkdir -p "$home/companies"
+cat >"$home/orgintel.toml" <<EOF
+database_url = "postgres://restless:restless-test@127.0.0.1:${postgres_port}/restless"
+EOF
+cat >"$home/companies/${company}.toml" <<EOF
+name = "${company}"
+mission = "Prove the network cockpit with a bounded test company. Perform no external effect."
+spend_ceiling_usd = 0.0
+model = "test/unavailable"
+model_failover = []
+EOF
+
+docker network create "$network" >/dev/null
+docker run -d --name "$registry" --network "$network" -p "127.0.0.1:${registry_port}:5000" registry:2 >/dev/null
+docker run -d --name "$postgres" --network "$network" -p "127.0.0.1:${postgres_port}:5432" \
+  -e POSTGRES_USER=restless -e POSTGRES_PASSWORD=restless-test -e POSTGRES_DB=restless postgres:16-alpine >/dev/null
+for _ in {1..30}; do
+  docker exec "$postgres" pg_isready -U restless >/dev/null 2>&1 && break
+  sleep 1
+done
+docker exec "$postgres" pg_isready -U restless >/dev/null
+
+npm --prefix web ci
+npm --prefix web run build
+RESTLESS_SOURCE_REVISION="$revision" cargo build --release -p restlessd
+
+plane_tag="127.0.0.1:${registry_port}/restless/account-plane:${version}"
+runtime_tag="127.0.0.1:${registry_port}/restless/company-runtime:${version}"
+docker build -f infra/account-plane/Dockerfile --build-arg SOURCE_REVISION="$revision" -t "$plane_tag" .
+docker build -f infra/company-image/Dockerfile \
+  --build-arg RESTLESS_CORE_VERSION="$version" \
+  --build-arg RESTLESS_SOURCE_REVISION="$revision" \
+  --build-arg RESTLESS_API_CONTRACT_VERSION=1 \
+  --build-arg RESTLESS_ASSERTION_CONTRACT_VERSION=1 \
+  --build-arg RESTLESS_SCHEMA_VERSION=20 \
+  -t "$runtime_tag" .
+docker push "$plane_tag" >/dev/null
+docker push "$runtime_tag" >/dev/null
+plane_ref="$(docker image inspect "$plane_tag" --format '{{range .RepoDigests}}{{println .}}{{end}}' | awk -v p="127.0.0.1:${registry_port}/restless/account-plane@" 'index($0,p)==1 {print; exit}')"
+runtime_ref="$(docker image inspect "$runtime_tag" --format '{{range .RepoDigests}}{{println .}}{{end}}' | awk -v p="127.0.0.1:${registry_port}/restless/company-runtime@" 'index($0,p)==1 {print; exit}')"
+[[ -n "$plane_ref" && -n "$runtime_ref" ]] || { echo "pushed image digest did not resolve" >&2; exit 1; }
+
+export RESTLESS_HOME="$home"
+export RESTLESS_PORT_OFFSET="$port_offset"
+export RESTLESS_OWNER_ADDR="0.0.0.0:${plane_port}"
+export RESTLESS_ENTRY_MODE=network
+export RESTLESS_ENTRY_ISSUER=core27-test-issuer
+export RESTLESS_ENTRY_AUDIENCE=core27-test-plane
+export RESTLESS_ENTRY_PLANE=core27-test-plane
+export RESTLESS_ENTRY_HOST=localhost
+export RESTLESS_ENTRY_KEYS=v1:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+export RESTLESS_ENTRY_ACTIVE_KID=v1
+export RESTLESS_COMPANY_IMAGE="$runtime_ref"
+target/release/restlessd >"$scratch/plane.log" 2>&1 &
+daemon_pid="$!"
+for _ in {1..30}; do
+  curl -fsS "http://localhost:${plane_port}/health" >"$scratch/plane-health.json" 2>/dev/null && break
+  kill -0 "$daemon_pid" 2>/dev/null || { cat "$scratch/plane.log" >&2; exit 1; }
+  sleep 1
+done
+jq -e --arg revision "$revision" '.release.source_revision == $revision' "$scratch/plane-health.json" >/dev/null
+
+target/release/restlessd mint-entry-assertion >"$scratch/assertion.txt"
+chmod 0600 "$scratch/assertion.txt"
+jq -n --arg assertion "$(tail -1 "$scratch/assertion.txt")" '{assertion:$assertion}' >"$scratch/entry.json"
+curl -fsS -c "$scratch/cookies.txt" -H 'Content-Type: application/json' \
+  --data-binary "@$scratch/entry.json" "http://localhost:${plane_port}/entry" >/dev/null
+curl -fsS -b "$scratch/cookies.txt" \
+  "http://localhost:${plane_port}/api/companies/${company}/cockpit" >"$scratch/cockpit-asleep.json"
+
+echo "release revision: $revision"
+echo "account plane:    $plane_ref"
+echo "Runtime:          $runtime_ref"
+echo "cockpit:          http://localhost:${plane_port}/${company}"
+echo "test assertion:   $scratch/assertion.txt"
+echo "sleeping cockpit probe: PASS"
+
+if [[ "${RESTLESS_NETWORK_TEST_AUTO_WAKE:-0}" != 1 ]]; then
+  echo "Open the cockpit and verify the sleeping-cell state, then press Return to start the Runtime."
+  read -r _
+fi
+
+docker volume create "$cell_volume" >/dev/null
+docker run -d --name "$cell" --network bridge -v "${cell_volume}:/company" \
+  -e RESTLESS_COMPANY="$company" \
+  -e RESTLESS_COORDINATOR="host.docker.internal:${coordinator_port}" \
+  "$runtime_ref" >/dev/null
+for _ in {1..30}; do
+  docker exec "$cell" curl -fsS http://127.0.0.1:7789/health >"$scratch/cell-health.json" 2>/dev/null && break
+  sleep 1
+done
+jq -e --arg revision "$revision" '.release.source_revision == $revision' "$scratch/cell-health.json" >/dev/null
+curl -fsS -b "$scratch/cookies.txt" \
+  "http://localhost:${plane_port}/api/companies/${company}/cockpit" >"$scratch/cockpit-awake.json"
+echo "awake Runtime health and cockpit probes: PASS"
+
+if [[ "${RESTLESS_NETWORK_TEST_KEEP_RUNNING:-1}" == 1 ]]; then
+  echo "Verify the awake state in the same browser. Press Return (or Ctrl-C) to tear everything down."
+  read -r _
+fi
