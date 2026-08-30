@@ -112,7 +112,13 @@ chmod 0600 "$scratch/assertion.txt"
 jq -n --arg assertion "$(tail -1 "$scratch/assertion.txt")" '{assertion:$assertion}' >"$scratch/entry.json"
 curl -fsS -c "$scratch/cookies.txt" -H 'Content-Type: application/json' \
   --data-binary "@$scratch/entry.json" "http://localhost:${plane_port}/entry" >/dev/null
-curl -fsS -b "$scratch/cookies.txt" \
+session_token="$(awk '$6 == "restless_session" { print $7; exit }' "$scratch/cookies.txt")"
+[[ -n "$session_token" ]] || { echo "entry exchange did not establish a browser session" >&2; exit 1; }
+# Production sessions are Secure. curl correctly refuses to replay that cookie
+# over this harness's loopback HTTP endpoint, so make the test-only replay
+# explicit instead of weakening the production cookie.
+session_header="Cookie: restless_session=${session_token}"
+curl -fsS -H "$session_header" \
   "http://localhost:${plane_port}/api/companies/${company}/cockpit" >"$scratch/cockpit-asleep.json"
 
 echo "release revision: $revision"
@@ -137,7 +143,7 @@ for _ in {1..30}; do
   sleep 1
 done
 jq -e --arg revision "$revision" '.release.source_revision == $revision' "$scratch/cell-health.json" >/dev/null
-curl -fsS -b "$scratch/cookies.txt" \
+curl -fsS -H "$session_header" \
   "http://localhost:${plane_port}/api/companies/${company}/cockpit" >"$scratch/cockpit-awake.json"
 echo "awake Runtime health and cockpit probes: PASS"
 
