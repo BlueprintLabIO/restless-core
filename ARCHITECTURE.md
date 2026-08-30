@@ -772,7 +772,7 @@ This is ordinary delegated management, not a universal governance protocol.
 
 ## 7.4 Initial product and deployment posture
 
-The near-term product is a **single-company operating system**: one owner, one persistent Exec and a small set of agents working inside one isolated company environment. This is sufficient to test Restless's core claim.
+The near-term product is a **single-company operating system**: one persistent Exec and a small set of agents working inside one isolated company environment. That cell is the unit; one owner may hold several, each isolated from the others, served by that owner's single account plane. Proving one company is sufficient to test Restless's core claim — several companies is a deployment fact, not a second product.
 
 Multiplayer and managed company deployment remain deliberately deferred. This does not prohibit a
 separately governed static public publication surface: publishing owner-authorised Restless research or
@@ -785,21 +785,52 @@ the landing page is an external effect, not evidence that Restless is hosting a 
 - Build managed hosting when users want Restless but will not operate it. Begin with a dedicated deployment per company.
 - Build shared multi-tenancy only when proven demand exists and the cost of dedicated deployments materially blocks scale.
 
-The target is a **cell-based SaaS architecture with a shared cloud control plane and one strongly
-isolated cell per company**. The tenancy boundary is a company, not a human user. Restless Core and
-Restless Cloud run the same company-cell architecture:
+The target is a **cell-based SaaS architecture with one strongly isolated cell per company**. The
+tenancy boundary is a company, not a human user. Restless Core and Restless Cloud run the same
+architecture; only the fleet backend and the owner authenticator differ.
 
-- **Restless Core** is one self-hosted company cell and its local owner entry point.
+**The deployment tiers are the plane boundaries.** §3.2 already places provider credentials,
+consequential effect execution, budgets and receipts in the kernel, and §4 places actors, Work,
+messages and context in OrgIntel. Those are trust boundaries, so they are also process boundaries:
+
+- **Cell — per company.** OrgIntel in its own database, and the Company Runtime in its own container,
+  with that company's secret scope, volumes and browser profile. This is the blast radius.
+- **Account plane — per owner.** The Authority Plane: the owner's provider accounts and secret-backend
+  identity, effect execution, approvals, budget enforcement, receipts, the owner cockpit and CLI
+  endpoint, and the owner↔company directory. It spans only that owner's companies, never owners.
+- **Fleet — per host or region.** Provisions, starts, stops, health-checks and upgrades cells. Holds
+  no credential and no company state, so it cannot act as any company even in Cloud, where it spans
+  owners.
+
+One rule places every boundary:
+
+> **Effects execute where the credential lives. The cell requests; it never holds.**
+
+This generalises the rule already enforced at the container edge — provider keys never cross into the
+Company Runtime. A process serving a company's agents is inside that company's blast radius, so it
+must not hold the owner's credentials either. A cell therefore cannot self-authorise: authorisation
+is not a value it possesses. Authority *state* for a company is that company's record; authority
+*enforcement* runs beside the credential.
+
+Two lifecycle invariants follow, and they are how you test whether the split is real:
+
+- **Each tier must be independently restartable without losing data or work in the others.** Restarting
+  the account plane must not stop a company; losing a cell must not affect another company. One
+  company's configuration must never prevent another company from starting.
+- **Starting the account plane is not waking a company.** The plane is inert and supervised; waking a
+  cell runs agents and spends money. No owner surface may auto-wake a cell, and the cockpit must be
+  fully readable with every cell asleep — otherwise the owner pays to look at their own business.
+
+Multiple cells may share physical hosts or mature commodity infrastructure, but they do not share
+mutable runtime or organisational state, and each cell owns a dedicated database rather than a schema
+inside a shared one. This is also called cell-per-tenant, managed single tenancy, a silo tenancy
+model or a deployment stamp. The detailed target, tier ownership table and Core/Cloud responsibility
+split are in [`docs/CELL_ARCHITECTURE.md`](docs/CELL_ARCHITECTURE.md).
+
+- **Restless Core** runs one account plane for the local owner, over that owner's company cells.
 - **Restless Cloud** owns the public Restless landing page and owner-authorised research/results, then
-  adds accounts, subscription/billing, provisioning, routing and fleet health in a shared control
-  plane that operates one isolated cell for each company.
-
-A cell contains that company's Authority Plane, OrgIntel, Company Runtime, database credentials,
-filesystem/browser state and secret scope. Multiple cells may share physical hosts or mature
-commodity infrastructure, but they do not share mutable runtime, authority or organisational state.
-This is also called cell-per-tenant, managed single tenancy, a silo tenancy model or a deployment
-stamp. The detailed target and Core/Cloud responsibility split are in
-[`docs/CELL_ARCHITECTURE.md`](docs/CELL_ARCHITECTURE.md).
+  adds accounts, subscription/billing, provisioning, routing and fleet health at the fleet tier,
+  operating one account plane per owner and one isolated cell for each company.
 
 The public surface is neither an Owner Cockpit nor a company cell: it receives only owner-authorised
 public material through a separately governed publication effect, never direct mutable company state.

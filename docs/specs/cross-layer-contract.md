@@ -77,6 +77,59 @@ The system exposes several small semantic interfaces:
 
 Do not force all cross-layer actions into one universal `Command`, mutation protocol, or state machine.
 
+## 1.4 Deployment scope of each plane — *Core contract*
+
+The planes are trust boundaries, so they are also **deployment** boundaries. Each plane has a scope,
+and a component may not silently widen it. See
+[`docs/CELL_ARCHITECTURE.md`](../CELL_ARCHITECTURE.md) for the full target.
+
+| Plane | Deployment tier | Scope | Instance count |
+|---|---|---|---|
+| Authority Plane | account plane | **owner** | one per owner |
+| OrgIntel | cell | **company** | one per company |
+| Company Runtime | cell | **company** | one per company |
+| Owner Cockpit / CLI endpoint | account plane | **owner** | one per owner |
+| Container and cell lifecycle | fleet | **host or region** | one per host |
+
+The rule that decides placement when a concern looks like it could sit in either:
+
+> **Effects execute where the credential lives. The cell requests; it never holds.**
+
+Consequences that bind implementations:
+
+- **A cell never holds a provider key, owner OAuth token, or secret-backend machine identity.** It
+  holds its own scoped secrets and asks the account plane for anything consequential.
+- **Authority state is per-company; authority enforcement is per-owner.** A company's grants, budget
+  consumption and receipts are that company's record, written by the account plane. A cell cannot
+  self-authorise because authorisation is not a value it possesses.
+- **Each cell owns a dedicated database**, not a schema inside a shared one. Schema separation behind
+  one database role is a convention, not a boundary: a single connection can read every schema.
+- **No shared store with a company column.** A ledger, projection or cursor covering several companies
+  belongs to the account plane as a rollup computed by reading up, never as the source of truth.
+
+### 1.4.1 Independent restartability — *Core contract*
+
+> **Each tier must be independently restartable without losing data or work in the others.**
+
+- Restarting the account plane must not stop a running company. Capabilities are short-lived and
+  re-mintable; effects are idempotent; reconnection reconciles unknown outcomes (§ reconciliation).
+- Losing or restarting one cell must not affect another company or the owner's other surfaces.
+- **One company's configuration must never prevent another company from starting.** Credential
+  resolution and model routing are per-cell concerns; the account plane validates its own credentials
+  and marks an unresolvable company unstartable with a reason, rather than refusing to start.
+- Restarting the fleet must not interrupt a running cell.
+
+### 1.4.2 Starting is not waking — *Core contract*
+
+Starting the account plane and waking a company are different acts with different consequences, and
+must not share a trigger.
+
+- The account plane is inert: it holds credentials but performs no work until asked. It is supervised
+  by the platform (launchd/systemd/container supervisor) and may be started automatically.
+- **Waking a cell runs agents and spends money. No owner surface may auto-wake a cell.** A CLI verb or
+  cockpit view targeting a sleeping company reports that it is asleep and offers to wake it.
+- The cockpit must be fully readable with every cell asleep, from account-plane projections.
+
 ---
 
 # 2. Shared identity model

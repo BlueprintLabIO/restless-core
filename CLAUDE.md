@@ -264,6 +264,16 @@ This repo is built in sprints by two founders collaborating on the `dev` branch.
   `restless-model-gateway` (host-side model access and spend accounting). Do not pre-scaffold new
   layer crates; grow a crate or service only when a proved slice needs its ownership or failure
   boundary, per §16.1.
+- **Deployment tiers are the plane boundaries.** `restlessd` today runs three trust domains in one
+  process; the target splits them, and new code should respect the boundary even before the binary
+  does. **Cell** = per company (OrgIntel in its own database, Runtime in its own container) — the
+  blast radius. **Account plane** = per owner (the Authority Plane: credentials, effect execution,
+  approvals, budgets, cockpit, CLI endpoint). **Fleet** = per host (container lifecycle; no credential,
+  no company state). One rule places every boundary: **effects execute where the credential lives; the
+  cell requests, it never holds.** Before adding state, ask which tier owns it — and never add a store
+  that spans companies with a company column, or a boot check where one company's config can stop
+  another. See [`docs/CELL_ARCHITECTURE.md`](./docs/CELL_ARCHITECTURE.md) and
+  [cross-layer contract §1.4](./docs/specs/cross-layer-contract.md).
 - **The operator SPA is in `web/`** — lifted from the prior control plane (`cf8a028`) and now wired
   to company-scoped owner APIs. It carries projections, never source truth. Its read models in
   `web/src/lib/model/` are the owner-surface contracts — read them before designing anything
