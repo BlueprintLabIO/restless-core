@@ -1,0 +1,89 @@
+#!/usr/bin/env bash
+# Emit the Core release manifest Restless Cloud pins (S27-T4).
+#
+# Cloud's release contract forbids resolving a mutable tag or a branch name, so
+# Core must publish something exact to pin. This emits that manifest from a real
+# build: the source revision, the contract versions the binary actually carries,
+# and the image digests as built.
+#
+# It refuses to emit a manifest it cannot substantiate. A manifest naming a
+# digest that was never built, or a contract version transcribed by hand, is the
+# failure this exists to prevent — Cloud would pin it and the first incident
+# would ask "which Core is running" and get a confident wrong answer.
+#
+# Usage:
+#   scripts/restless-release-manifest                  # identity only, no digests
+#   scripts/restless-release-manifest --with-images    # requires both images built
+set -euo pipefail
+
+root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$root"
+
+with_images=false
+[[ "${1:-}" == "--with-images" ]] && with_images=true
+
+revision="$(git rev-parse HEAD)"
+if [[ -n "$(git status --porcelain --untracked-files=no)" ]]; then
+  echo "refusing to emit a manifest from a dirty tree: commit or stash first" >&2
+  echo "a release manifest names a revision; a dirty tree is not the revision it names" >&2
+  exit 1
+fi
+
+core_version="$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)"
+
+# Contract versions come from the source that defines them, never retyped here.
+api_contract="$(sed -n 's/.*API_CONTRACT_VERSION: u32 = \([0-9]*\);.*/\1/p' crates/restlessd/src/release.rs)"
+assertion_contract="$(sed -n 's/.*ASSERTION_CONTRACT_VERSION: u32 = \([0-9]*\);.*/\1/p' crates/restlessd/src/entry.rs)"
+schema="$(sed -n 's/.*SCHEMA_VERSION: u32 = \([0-9]*\);.*/\1/p' crates/restlessd/src/release.rs)"
+
+for name in core_version api_contract assertion_contract schema; do
+  if [[ -z "${!name}" ]]; then
+    echo "could not read $name from the source that defines it" >&2
+    exit 1
+  fi
+done
+
+plane_digest=null
+runtime_digest=null
+if $with_images; then
+  read_digest() {
+    local image="$1"
+    local digest
+    digest="$(docker image inspect "$image" --format '{{index .RepoDigests 0}}' 2>/dev/null || true)"
+    if [[ -z "$digest" ]]; then
+      # Not pushed, so no repository digest exists yet. The local content ID is
+      # exact for a local probe but is NOT a pinnable registry digest, and is
+      # labelled as such rather than passed off as one.
+      digest="$(docker image inspect "$image" --format '{{.Id}}' 2>/dev/null || true)"
+      [[ -n "$digest" ]] && digest="local:$digest"
+    fi
+    if [[ -z "$digest" ]]; then
+      echo "image $image is not built; build it before emitting a manifest with digests" >&2
+      exit 1
+    fi
+    printf '"%s"' "$digest"
+  }
+  plane_digest="$(read_digest "restless-account-plane:$core_version")"
+  runtime_digest="$(read_digest "restless-company-image:latest")"
+fi
+
+cat <<JSON
+{
+  "manifest_version": 1,
+  "core_version": "$core_version",
+  "source_revision": "$revision",
+  "images": {
+    "account_plane": $plane_digest,
+    "company_runtime": $runtime_digest
+  },
+  "contracts": {
+    "api": $api_contract,
+    "identity_assertion": $assertion_contract,
+    "schema": $schema
+  },
+  "health": {
+    "path": "/health",
+    "reports": ["core_version", "source_revision", "api_contract_version", "identity_assertion_version", "schema_version"]
+  }
+}
+JSON

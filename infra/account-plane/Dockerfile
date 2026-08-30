@@ -1,0 +1,54 @@
+# Restless account plane — the per-owner Authority Plane (CELL_ARCHITECTURE.md §2).
+#
+# Build from the REPO ROOT:
+#   docker build -f infra/account-plane/Dockerfile \
+#     --build-arg SOURCE_REVISION="$(git rev-parse HEAD)" \
+#     -t restless-account-plane:<version> .
+#
+# This is the tier that holds the owner's provider credentials, executes
+# effects, enforces budgets and serves the owner cockpit. It performs no company
+# work: company Runtimes are separate containers from the company image.
+#
+# It is deliberately NOT the company image. That image is a persistent company
+# computer with a desktop, browser and toolchain; this one runs a single
+# credential-holding service and should stay as small as its job.
+
+FROM rust:1-bookworm AS build
+WORKDIR /src
+COPY Cargo.toml Cargo.lock ./
+COPY crates ./crates
+
+# Stamped into the binary so a running plane can report the exact revision it is
+# (S27-T4). Without it a build from an exported tree reports "unknown", which is
+# an honest answer but not a pinnable one.
+ARG SOURCE_REVISION=""
+ENV RESTLESS_SOURCE_REVISION=${SOURCE_REVISION}
+RUN cargo build --release -p restlessd
+
+FROM debian:bookworm-slim
+ENV DEBIAN_FRONTEND=noninteractive
+
+# ca-certificates for provider TLS; curl so the image can probe its own health
+# without a second tool. Nothing else: this tier stays narrow because it is the
+# one holding the credentials.
+RUN apt-get update \
+    && apt-get install --yes --no-install-recommends \
+        ca-certificates \
+        curl \
+        tini \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY --from=build /src/target/release/restlessd /usr/local/bin/restlessd
+
+# The plane serves the owner cockpit and the CLI endpoint. In network mode it
+# verifies an identity assertion; in local mode it refuses a non-loopback bind.
+# The mode is configuration, never a default: a plane with incomplete network
+# entry configuration refuses to start rather than trusting its network.
+EXPOSE 7788
+
+# Release identity, not company state. Fleet reads this to confirm the running
+# plane is the release its manifest deployed.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
+    CMD curl -fsS http://127.0.0.1:7788/health || exit 1
+
+ENTRYPOINT ["/usr/bin/tini", "--", "/usr/local/bin/restlessd"]

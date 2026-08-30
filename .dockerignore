@@ -10,6 +10,8 @@
 infra/*
 !infra/company-image/
 !infra/company-image/**
+!infra/account-plane/
+!infra/account-plane/**
 !tools/
 tools/*
 !tools/scenario/
