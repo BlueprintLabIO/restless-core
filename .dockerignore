@@ -12,6 +12,18 @@ infra/*
 !infra/company-image/**
 !infra/account-plane/
 !infra/account-plane/**
+# `restlessd` include_str!s this at compile time (crates/restlessd/src/context.rs:21),
+# so the account-plane build fails without it. Allowlist the exact file: docs/ is
+# hundreds of files and none of the rest belongs in a build context.
+!docs/
+docs/*
+!docs/COMPANY_OPERATING_RULES.md
+# The built cockpit SPA, served by the account plane. Source and node_modules
+# stay out; only the build output enters the context.
+!web/
+web/*
+!web/build/
+!web/build/**
 !tools/
 tools/*
 !tools/scenario/

@@ -24,5 +24,18 @@ that manifest report, through `/health`, the same release identity the manifest 
 field by field, not eyeballed. Deploying a deliberately mismatched digest is detectable from the
 health output alone, verified by doing it.
 
+**Found by building it.** Two defects that no amount of reading would have surfaced:
+
+1. **`dev` does not compile.** `780342a` added `work_id`/`attempt_id` to `StaffRun` without updating
+   its caller, and a second half-landed change leaves `interrupt_message` undefined on
+   `AgentActivityStreams`. Every `cargo build` and `cargo test` here compiles the *working tree*,
+   which carries uncommitted fixes; the image build was the first thing to compile HEAD. This blocks
+   a release image, and the fix belongs to whoever owns that in-flight work.
+2. **The build context excluded `docs/`.** `crates/restlessd/src/context.rs:21` `include_str!`s
+   `docs/COMPANY_OPERATING_RULES.md` at compile time, so the account-plane build failed on a missing
+   file. `.dockerignore` is an allowlist and the company image never needed it, because that image
+   builds `-p restless`, not `-p restlessd`. Fixed by allowlisting the exact file — `docs/` is
+   hundreds of files and none of the rest belongs in a build context.
+
 **Deletion target:** Mutable container tags; version notes maintained by hand; "whatever Core was on
 that day".

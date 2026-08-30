@@ -17,6 +17,10 @@ FROM rust:1-bookworm AS build
 WORKDIR /src
 COPY Cargo.toml Cargo.lock ./
 COPY crates ./crates
+# restlessd include_str!s this at compile time (crates/restlessd/src/context.rs:21),
+# resolving to /src/docs. Copy the exact file rather than the directory: docs/ is
+# hundreds of files and none of the rest belongs in a build context.
+COPY docs/COMPANY_OPERATING_RULES.md ./docs/COMPANY_OPERATING_RULES.md
 
 # Stamped into the binary so a running plane can report the exact revision it is
 # (S27-T4). Without it a build from an exported tree reports "unknown", which is
@@ -39,6 +43,14 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=build /src/target/release/restlessd /usr/local/bin/restlessd
+
+# The owner cockpit's built SPA. The plane serves it directly to the browser
+# (CELL_ARCHITECTURE.md §5), so a plane image without it can start but cannot
+# do its main job. Built outside this Dockerfile and copied in, because the
+# cockpit is a separate toolchain and baking node into this tier would widen
+# the container that holds the credentials.
+COPY web/build /opt/restless/cockpit
+ENV RESTLESS_COCKPIT_DIR=/opt/restless/cockpit
 
 # The plane serves the owner cockpit and the CLI endpoint. In network mode it
 # verifies an identity assertion; in local mode it refuses a non-loopback bind.

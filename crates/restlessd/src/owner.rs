@@ -814,8 +814,22 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
         .fallback(api_not_found)
         .layer(DefaultBodyLimit::max(32 * 1024 * 1024));
 
-    let source = runtime::source_root()?;
-    let web = source.join("web/build");
+    // Where the cockpit's built SPA lives. Deliberately separate from
+    // `source_root()`: that answers "where is the Restless source tree", which
+    // the plane needs to build the company Runtime image, and a packaged plane
+    // has no source tree. Conflating them meant a containerised plane refused
+    // to serve its cockpit at all — observed as
+    // `owner gateway stopped: /src is not a Restless source tree`.
+    let web = match std::env::var("RESTLESS_COCKPIT_DIR") {
+        Ok(dir) if !dir.trim().is_empty() => PathBuf::from(dir),
+        _ => runtime::source_root()?.join("web/build"),
+    };
+    if !web.join("index.html").is_file() {
+        anyhow::bail!(
+            "cockpit assets are missing at {}; set RESTLESS_COCKPIT_DIR to the built SPA",
+            web.display()
+        );
+    }
     let static_files = ServeDir::new(&web).fallback(ServeFile::new(web.join("index.html")));
     let app = Router::new()
         .nest("/api", api)
