@@ -29,7 +29,7 @@ ARG SOURCE_REVISION=""
 ENV RESTLESS_SOURCE_REVISION=${SOURCE_REVISION}
 RUN cargo build --release -p restlessd
 
-FROM debian:bookworm-slim
+FROM node:24-bookworm-slim
 ENV DEBIAN_FRONTEND=noninteractive
 
 # ca-certificates for provider TLS; curl so the image can probe its own health
@@ -41,6 +41,20 @@ RUN apt-get update \
         curl \
         tini \
     && rm -rf /var/lib/apt/lists/*
+
+# The Authority plane starts OMP's credential broker and model gateway whenever
+# a configured company has a model route. Keep that host-side dependency here,
+# not in the credential-free Runtime. Its profile lives below the plane's
+# persistent state mount so OAuth and broker identity survive plane restarts.
+ARG OMP_VERSION=18.0.10
+ENV BUN_INSTALL=/usr/local/bun \
+    HOME=/state/authority-home
+RUN npm install -g bun@1.3.14 \
+    && bun install -g "@oh-my-pi/pi-coding-agent@${OMP_VERSION}" \
+    && ln -sf ${BUN_INSTALL}/bin/omp /usr/local/bin/omp \
+    && chmod -R a+rX ${BUN_INSTALL} \
+    && npm cache clean --force \
+    && omp --version
 
 COPY --from=build /src/target/release/restlessd /usr/local/bin/restlessd
 
