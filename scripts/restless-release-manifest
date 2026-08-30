@@ -83,7 +83,7 @@ cat <<JSON
   },
   "health": {
     "path": "/health",
-    "reports": ["core_version", "source_revision", "api_contract_version", "identity_assertion_version", "schema_version"]
+    "reports": ["core_version", "source_revision", "api_contract_version", "assertion_contract_version", "schema_version"]
   }
 }
 JSON

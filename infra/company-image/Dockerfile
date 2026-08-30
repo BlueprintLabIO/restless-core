@@ -20,6 +20,16 @@ RUN cargo build --release -p restless
 FROM node:24-bookworm-slim
 
 ENV DEBIAN_FRONTEND=noninteractive
+ARG RESTLESS_CORE_VERSION=0.0.0
+ARG RESTLESS_SOURCE_REVISION=unknown
+ARG RESTLESS_API_CONTRACT_VERSION=1
+ARG RESTLESS_ASSERTION_CONTRACT_VERSION=1
+ARG RESTLESS_SCHEMA_VERSION=20
+ENV RESTLESS_CORE_VERSION=${RESTLESS_CORE_VERSION} \
+    RESTLESS_SOURCE_REVISION=${RESTLESS_SOURCE_REVISION} \
+    RESTLESS_API_CONTRACT_VERSION=${RESTLESS_API_CONTRACT_VERSION} \
+    RESTLESS_ASSERTION_CONTRACT_VERSION=${RESTLESS_ASSERTION_CONTRACT_VERSION} \
+    RESTLESS_SCHEMA_VERSION=${RESTLESS_SCHEMA_VERSION}
 
 RUN apt-get update \
     && apt-get install --yes --no-install-recommends \
@@ -139,6 +149,7 @@ COPY infra/company-image/skills /opt/restless/skills
 COPY infra/company-image/tint2rc /etc/restless/tint2rc
 COPY infra/company-image/company-browser.desktop /usr/share/applications/company-browser.desktop
 COPY infra/company-image/browser-broker.mjs /usr/local/lib/restless/browser-broker.mjs
+COPY infra/company-image/release-health.mjs /usr/local/lib/restless/release-health.mjs
 COPY tools/scenario/restless-scenario.mjs /usr/local/lib/restless/restless-scenario.mjs
 COPY infra/company-image/supervisord.conf /etc/supervisor/conf.d/restless.conf
 RUN chmod 0555 /usr/local/bin/company-init /usr/local/bin/wait-for-company-display \
@@ -146,7 +157,8 @@ RUN chmod 0555 /usr/local/bin/company-init /usr/local/bin/wait-for-company-displ
         /usr/local/bin/focus-company-chromium /usr/local/bin/git-credential-restless \
         /usr/local/lib/restless/restless-scenario.mjs \
     && chmod -R a=rX /opt/restless/skills \
-    && chmod 0444 /usr/local/lib/restless/browser-broker.mjs /etc/supervisor/conf.d/restless.conf \
+    && chmod 0444 /usr/local/lib/restless/browser-broker.mjs \
+        /usr/local/lib/restless/release-health.mjs /etc/supervisor/conf.d/restless.conf \
         /etc/restless/tint2rc /usr/share/applications/company-browser.desktop
 RUN ln -s /usr/local/lib/restless/restless-scenario.mjs /usr/local/bin/restless-scenario
 
