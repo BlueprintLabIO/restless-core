@@ -291,9 +291,55 @@ This repo is built in sprints by two founders collaborating on the `dev` branch.
 - **Local cockpit stack.** Use `restless-dev <company>` rather than starting Vite alone; use
   `restless doctor -c <company>` to probe the browser-to-runtime path before reporting it live. A
   rendered SPA shell is not evidence that its owner APIs are connected.
+- **Local GPT provider fallback.** If the selected company model route is unavailable because of
+  quota, cooldown, credential failure, or missing modality, first probe the locally provisioned
+  OpenAI-compatible route from `GPT_BASE_URL` and `GPT_API_KEY`; never print, copy into committed
+  config, or otherwise expose either value. Use `gpt-5.6-sol` for vision-critical review and the
+  hardest production or judgement work; `gpt-5.6-terra` is the default cost-conscious fallback for
+  general work. Through OMP's broker gateway, use its `litellm` OpenAI-compatible adapter and map
+  `LITELLM_BASE_URL` from `GPT_BASE_URL`; the bundled `openai` selector intentionally ignores local
+  provider-routing overrides and may otherwise reach the official endpoint. Admit the exact model
+  and required modality with one real request before waking a
+  company, then reference the environment-backed credential from company configuration. Do not ask
+  the owner to complete OAuth when this route is already provisioned. Change Coolify limits only
+  after a live admission probe shows that capacity, rather than model or configuration, is the
+  blocker. For a vision-capable exact model, ingest a capture through OMP's ordinary `read` tool so
+  the image stays on that model route; OMP intentionally hides delegated `inspect_image` in auto mode
+  and it must not be hard-coded as the only valid image path. A fallback failure must enter cooldown
+  or stop cleanly; it must not create a wake/retry loop.
 - **Build storage is bounded operating state.** Before full Rust verification or build-heavy scratch
   work, follow [`docs/BUILD_STORAGE.md`](./docs/BUILD_STORAGE.md). Keep throwaway targets isolated,
   check host headroom, and clean only exact regenerable locations while their tools are idle.
+- **You own everything you start that outlives your turn.** Not a list of nouns — anything still
+  running, registered, or occupying disk after you stop typing. A `_test` company, container, volume,
+  daemon or scratch clone, and equally: a dev server, a preview server, a game or render loop, a
+  supervisor program, a scratch worktree. Teardown happens in the same turn, whether or not the run
+  succeeded. These leak silently and in two directions:
+  - *Disk*, which was bounded first: 79 orphaned test companies, 51 volumes, 21 containers and
+    ~30 GiB of Docker cache, surfacing as an unrelated build failing on headroom.
+  - *CPU and memory*, which nothing bounded at all: one abandoned Godot demo held ~6 of 12 host
+    cores for 23 hours and drove the host into swap, alongside a dozen forgotten dev servers, while
+    every disk check reported clean. A container that is busy is not a container that is leaking —
+    so measure both.
+  Cleanup is part of the work, not a later chore.
+  - `restless-reap --check` reports host resource debt and is read-only; `--purge` removes it.
+    `restless-dev doctor` prints the same report. Run the check after any run that creates a
+    company, and before reporting a heavy task complete.
+  - **A supervisor program you register is durable, and `autorestart=true` outlives you.**
+    `/company/services/supervisor/*.conf` is included by the Company Runtime's supervisor, and the
+    conf lives on the company volume — so it survives container replacement and starts again on the
+    next `up`. Killing the process cannot work; supervisord restarts it within seconds. Deregister
+    it instead: `supervisorctl stop <prog>`, remove the conf, then `supervisorctl reread && update`.
+    Prefer `autorestart=false` for anything a single task needs, and register a durable program only
+    when the company genuinely needs the service after your turn ends.
+  - **Only `_test` companies are ever disposable.** A company without the suffix is owner data.
+    Name every throwaway company with the `_test` suffix so the reaper can see it — an unsuffixed
+    throwaway is indistinguishable from owner data and will accumulate forever.
+  - **Never `docker volume prune`,** and never force-remove a running container you did not start.
+    Remove volumes by exact name; an unused volume may still hold company data, and a running
+    container may be live work from a concurrent agent session. Report those instead.
+  - A long-lived daemon you start for a probe is also a resource. Stop it, or say plainly in your
+    summary that you left it running and why.
 - **Never report green without running it.** No component is described as working — in a commit
   message, spec, or summary — unless it has been executed with stated inputs and observed output.
   "Compiles" is not "works"; "tests pass" is not "the company produced the artifact".
