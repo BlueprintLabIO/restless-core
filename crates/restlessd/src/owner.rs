@@ -819,6 +819,10 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
     let static_files = ServeDir::new(&web).fallback(ServeFile::new(web.join("index.html")));
     let app = Router::new()
         .nest("/api", api)
+        // Ungated on purpose: a fleet probe must be able to ask which release
+        // is running without holding a session, and the answer carries release
+        // identity only — never company, owner or configuration detail.
+        .route("/health", get(release_health))
         .route("/entry", post(consume_entry_assertion))
         .route("/entry/logout", post(end_entry_session))
         .route("/desktop/{company}", get(open_desktop))
@@ -1001,6 +1005,15 @@ fn cookie_value(headers: &HeaderMap, name: &str) -> Option<String> {
         .filter_map(|pair| pair.trim().split_once('='))
         .find(|(key, _)| *key == name)
         .map(|(_, value)| value.to_string())
+}
+
+/// Which release this plane is actually running (S27-T4).
+async fn release_health() -> Response<Body> {
+    Json(serde_json::json!({
+        "status": "ok",
+        "release": crate::release::ReleaseIdentity::current(),
+    }))
+    .into_response()
 }
 
 /// Ordinary session revocation. ADR 0007 requires that a removed membership
