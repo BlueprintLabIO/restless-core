@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Hourly `restless-reap --check`. Install:
+
+    cp infra/launchd/io.restless.reap.plist ~/Library/LaunchAgents/
+    launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/io.restless.reap.plist
+
+  Remove:
+
+    launchctl bootout gui/$(id -u)/io.restless.reap
+    rm ~/Library/LaunchAgents/io.restless.reap.plist
+
+  ProgramArguments carries an absolute path because launchd runs with a minimal
+  environment and no working directory; update it if the checkout moves.
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>io.restless.reap</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Users/yao/Learning/restless/restless-core/scripts/restless-reap-scheduled</string>
+    </array>
+
+    <key>StartInterval</key>
+    <integer>3600</integer>
+
+    <!-- Do not fire a burst of catch-up runs after the laptop wakes; the next
+         hourly tick is soon enough and each run shells out to docker. -->
+    <key>RunAtLoad</key>
+    <false/>
+
+    <key>ProcessType</key>
+    <string>Background</string>
+
+    <!-- The wrapper owns its own bounded logs under ~/.restless/logs. These
+         capture only a crash in the wrapper itself. -->
+    <key>StandardOutPath</key>
+    <string>/tmp/io.restless.reap.out</string>
+    <key>StandardErrorPath</key>
+    <string>/tmp/io.restless.reap.err</string>
+</dict>
+</plist>

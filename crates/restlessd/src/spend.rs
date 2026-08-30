@@ -35,9 +35,17 @@ use crate::{
 /// Authority Plane's coarse outer fuse rather than perfect per-task costing.
 #[derive(Clone)]
 pub struct SpendLedger {
-    store: Arc<SpendStore>,
+    /// `$RESTLESS_HOME`. Each cell's ledger lives under `cells/<company>/spend/`.
+    root: Arc<Path2>,
+    /// One store per cell, opened on first use. Cross-layer contract §1.4: a
+    /// store that spans companies is never the source of truth, so the owner
+    /// total is a sum over these rather than a shared file with a company
+    /// column.
+    stores: Arc<Mutex<HashMap<String, Arc<SpendStore>>>>,
     metered_turn_lanes: Arc<Mutex<HashMap<String, Arc<MeteredTurnLane>>>>,
 }
+
+type Path2 = std::path::PathBuf;
 
 /// The first product workload that needed same-company parallel model work
 /// was EXP-05's four independently closing Staff units. Keep the outer limit
@@ -92,10 +100,11 @@ impl Drop for MeteredTurnPermit {
 }
 
 /// Writes turn costs into the ledger. Cloneable so supervised staff processes
-/// can meter themselves without borrowing the daemon.
+/// can meter themselves without borrowing the daemon. Holds the ledger rather
+/// than one store, because each cell keeps its own.
 #[derive(Clone)]
 pub struct TurnMeter {
-    store: Arc<SpendStore>,
+    ledger: SpendLedger,
 }
 
 /// The one authoritative answer to whether a charged model turn may begin.
@@ -215,8 +224,15 @@ impl TurnMeter {
             session_id: session.to_owned(),
             occurred_at: Utc::now(),
         };
-        if self.store.record(&record).is_err() {
-            self.store.poison(company);
+        let Ok(store) = self.ledger.store(company) else {
+            tracing::error!(
+                company,
+                "cell spend ledger unavailable; turn charge not recorded"
+            );
+            return;
+        };
+        if store.record(&record).is_err() {
+            store.poison(company);
             tracing::error!(
                 company,
                 "turn spend record failed; company poisoned fail-closed"
@@ -225,8 +241,70 @@ impl TurnMeter {
     }
 
     pub fn poison(&self, company: &str) {
-        self.store.poison(company);
+        if let Ok(store) = self.ledger.store(company) {
+            store.poison(company);
+        }
     }
+}
+
+
+/// A ledger directory is owner-private: it records money.
+fn create_private_dir(dir: &Path) -> Result<()> {
+    if dir.exists() {
+        return Ok(());
+    }
+    let mut builder = std::fs::DirBuilder::new();
+    builder.recursive(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::DirBuilderExt as _;
+        builder.mode(0o700);
+    }
+    builder
+        .create(dir)
+        .with_context(|| format!("create {}", dir.display()))
+}
+
+/// Copy this company's rows out of the installation-wide spool into its own
+/// cell ledger, once. Non-destructive: the shared spool is left in place so an
+/// operator can verify the split before removing it. The ceiling is enforced
+/// against accumulated history, so starting a migrated company from zero would
+/// silently raise its budget.
+fn extract_legacy_company_spool(root: &Path, cell_dir: &Path, company: &str) -> Result<()> {
+    let cell_spool = cell_dir.join("spend.jsonl");
+    if cell_spool.exists() {
+        return Ok(());
+    }
+    let shared = root.join("spend").join("spend.jsonl");
+    let Ok(text) = std::fs::read_to_string(&shared) else {
+        return Ok(());
+    };
+    let mut mine = String::new();
+    for line in text.lines() {
+        if line.trim().is_empty() {
+            continue;
+        }
+        let Ok(value) = serde_json::from_str::<serde_json::Value>(line) else {
+            // A torn or corrupt shared line is the shared spool's problem;
+            // SpendStore::open repairs its own tail. Never guess ownership.
+            continue;
+        };
+        if value["companyId"].as_str() == Some(company) {
+            mine.push_str(line);
+            mine.push('\n');
+        }
+    }
+    if mine.is_empty() {
+        return Ok(());
+    }
+    std::fs::write(&cell_spool, &mine)
+        .with_context(|| format!("write {}", cell_spool.display()))?;
+    tracing::info!(
+        company,
+        rows = mine.lines().count(),
+        "extracted this company's spend history into its own cell ledger"
+    );
+    Ok(())
 }
 
 impl SpendLedger {
@@ -234,35 +312,48 @@ impl SpendLedger {
     /// totals from the spool. Failure to open is fatal: a daemon that cannot
     /// account does not run companies.
     pub fn open(root: &Path) -> Result<Self> {
-        let dir = root.join("spend");
-        if !dir.exists() {
-            let mut builder = std::fs::DirBuilder::new();
-            builder.recursive(true);
-            #[cfg(unix)]
-            {
-                use std::os::unix::fs::DirBuilderExt as _;
-                builder.mode(0o700);
-            }
-            builder
-                .create(&dir)
-                .with_context(|| format!("create {}", dir.display()))?;
-        }
         // The spool used to live under gateway/spend/ when this was a proxy.
-        // Carry it across rather than silently starting a company's accounting
-        // from zero — the ceiling is enforced against this history.
+        // Normalise that to the installation spool first so per-cell extraction
+        // below has exactly one legacy source to read.
+        let dir = root.join("spend");
         let legacy = root.join("gateway").join("spend").join("spend.jsonl");
         let current = dir.join("spend.jsonl");
         if legacy.exists() && !current.exists() {
+            create_private_dir(&dir)?;
             std::fs::rename(&legacy, &current)
                 .with_context(|| format!("migrate spend spool from {}", legacy.display()))?;
             tracing::info!(from = %legacy.display(), "migrated spend spool out of the retired gateway directory");
         }
-        let store =
-            SpendStore::open(&dir).map_err(|error| anyhow::anyhow!("spend store: {error}"))?;
         Ok(Self {
-            store: Arc::new(store),
+            root: Arc::new(root.to_path_buf()),
+            stores: Arc::new(Mutex::new(HashMap::new())),
             metered_turn_lanes: Arc::new(Mutex::new(HashMap::new())),
         })
+    }
+
+    /// This cell's ledger, opened on first use. Failure is not silently
+    /// tolerated by callers that record money: a cell that cannot account does
+    /// not get charged turns.
+    fn store(&self, company: &str) -> Result<Arc<SpendStore>> {
+        if let Some(store) = self
+            .stores
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .get(company)
+        {
+            return Ok(Arc::clone(store));
+        }
+        let dir = self.root.join("cells").join(company).join("spend");
+        create_private_dir(&dir)?;
+        extract_legacy_company_spool(&self.root, &dir, company)?;
+        let store = Arc::new(
+            SpendStore::open(&dir).map_err(|error| anyhow::anyhow!("cell spend store: {error}"))?,
+        );
+        self.stores
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .insert(company.to_string(), Arc::clone(&store));
+        Ok(store)
     }
 
     /// Admit one of at most four same-company charged sessions and reserve it
@@ -327,7 +418,10 @@ impl SpendLedger {
     /// size its own ambition rather than discovering it is broke mid-turn.
     #[must_use]
     pub fn spent_usd(&self, company: &str) -> f64 {
-        self.store.accounted_micro_usd(company) as f64 / 1_000_000.0
+        match self.store(company) {
+            Ok(store) => store.accounted_micro_usd(company) as f64 / 1_000_000.0,
+            Err(_) => 0.0,
+        }
     }
 
     /// Classify charged-model admission from exact accounting and an explicit
@@ -340,7 +434,16 @@ impl SpendLedger {
     #[must_use]
     pub fn budget_state_for(&self, company: &str, ceiling: SpendCeiling) -> ModelBudgetState {
         let ceiling_micro_usd = ceiling.micro_usd();
-        match self.store.company_state(company) {
+        // A cell whose ledger cannot be opened must not be treated as having
+        // spent nothing: that would silently grant it a full budget. Refuse
+        // charged admission until accounting is available again.
+        let Ok(store) = self.store(company) else {
+            return ModelBudgetState::MeteringUnknown {
+                accounted_micro_usd: 0,
+                ceiling_micro_usd,
+            };
+        };
+        match store.company_state(company) {
             CompanySpendState::MeteringUnknown {
                 accounted_micro_usd,
             } => ModelBudgetState::MeteringUnknown {
@@ -368,14 +471,14 @@ impl SpendLedger {
     #[must_use]
     pub fn meter(&self) -> TurnMeter {
         TurnMeter {
-            store: Arc::clone(&self.store),
+            ledger: self.clone(),
         }
     }
 
     /// Clear a fail-closed poison once an operator has looked. The spool keeps
     /// both records, so the incident stays legible after recovery.
     pub fn clear_poison(&self, company: &str) -> Result<()> {
-        self.store
+        self.store(company)?
             .clear_poison(company)
             .map_err(|error| anyhow::anyhow!("clear poison: {error}"))
     }
@@ -383,7 +486,10 @@ impl SpendLedger {
     /// S04-T9. Spend by `(actor, model)` for one company.
     #[must_use]
     pub fn breakdown(&self, company: &str) -> Vec<(String, String, f64)> {
-        self.store
+        let Ok(store) = self.store(company) else {
+            return Vec::new();
+        };
+        store
             .breakdown_micro_usd(company)
             .into_iter()
             .map(|(actor, model, micro)| (actor, model, micro as f64 / 1_000_000.0))
@@ -401,7 +507,7 @@ impl SpendLedger {
         reason: &str,
         corrected_by: &str,
     ) -> Result<SpendCorrectionPreview> {
-        self.store
+        self.store(company)?
             .preview_correction(
                 correction_id,
                 company,
@@ -424,7 +530,7 @@ impl SpendLedger {
         reason: &str,
         corrected_by: &str,
     ) -> Result<(SpendCorrection, SpendCorrectionPreview)> {
-        self.store
+        self.store(company)?
             .correct(
                 correction_id,
                 company,
@@ -438,9 +544,16 @@ impl SpendLedger {
 
     /// S04-T1. Drop a destroyed company's accounted spend.
     pub fn forget(&self, company: &str) -> Result<()> {
-        self.store
+        self.store(company)?
             .forget(company)
-            .map_err(|error| anyhow::anyhow!("forget spend: {error}"))
+            .map_err(|error| anyhow::anyhow!("forget spend: {error}"))?;
+        // A destroyed company's ledger goes with it; leaving the handle cached
+        // would serve a store for a cell that no longer exists.
+        self.stores
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .remove(company);
+        Ok(())
     }
 }
 
@@ -449,6 +562,58 @@ mod tests {
     use std::{sync::Arc, time::Duration};
 
     use super::*;
+
+    /// Cross-layer contract §1.4: no shared store with a company column. Each
+    /// cell's ledger holds only its own rows, and a company migrated off the
+    /// installation-wide spool keeps its accumulated history — starting it
+    /// from zero would silently grant it a fresh budget.
+    #[test]
+    fn each_cell_ledger_holds_only_its_own_history() {
+        let root = std::env::temp_dir().join(format!("restless-cell-spend-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(root.join("spend")).unwrap();
+        let row = |company: &str, cost: u64, session: &str| {
+            serde_json::json!({
+                "requestId": Uuid::new_v4(),
+                "companyId": company,
+                "model": "zai/glm-5.3",
+                "inputTokens": 0,
+                "outputTokens": 0,
+                "totalTokens": 10,
+                "costMicroUsd": cost,
+                "actorId": "exec",
+                "sessionId": session,
+                "occurredAt": Utc::now(),
+            })
+            .to_string()
+        };
+        // One installation-wide spool holding two companies — the legacy shape.
+        std::fs::write(
+            root.join("spend").join("spend.jsonl"),
+            format!(
+                "{}\n{}\n{}\n",
+                row("alpha_test", 7, "s1"),
+                row("beta_test", 500, "s2"),
+                row("alpha_test", 3, "s3")
+            ),
+        )
+        .unwrap();
+
+        let ledger = SpendLedger::open(&root).unwrap();
+        // alpha keeps exactly its own accumulated spend, not the shared total.
+        assert_eq!(ledger.spent_usd("alpha_test"), 10.0 / 1_000_000.0);
+        assert_eq!(ledger.spent_usd("beta_test"), 500.0 / 1_000_000.0);
+
+        let alpha = std::fs::read_to_string(root.join("cells/alpha_test/spend/spend.jsonl")).unwrap();
+        assert_eq!(alpha.lines().count(), 2, "alpha takes only its own rows");
+        assert!(
+            !alpha.contains("beta_test"),
+            "a cell ledger must never contain another company's rows: {alpha}"
+        );
+        // Non-destructive: the shared spool stays until an operator removes it.
+        assert!(root.join("spend").join("spend.jsonl").exists());
+
+        std::fs::remove_dir_all(&root).unwrap();
+    }
 
     #[tokio::test]
     async fn charged_turns_reserve_one_envelope_across_four_company_slots() {

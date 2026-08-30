@@ -465,8 +465,36 @@ async fn retrieve_received_email(
 /// idempotent projection closes the crash window without a cross-database
 /// transaction or workflow lifecycle.
 pub async fn reconcile_pending(daemon: &crate::Daemon) -> Result<usize> {
-    let companies = daemon.authority.inbound_companies().await?;
+    let companies = daemon
+        .authority
+        .inbound_companies()
+        .await?
+        .into_iter()
+        .filter_map(|company| match has_live_company_config(&daemon.root, &company) {
+            Ok(true) => Some(Ok(company)),
+            Ok(false) => {
+                // Authority history outlives a throwaway company's Runtime.
+                // It is not pending work until that company exists again, so
+                // do not turn preserved evidence into a five-second warning
+                // and filesystem retry loop.
+                tracing::debug!(
+                    company = %company,
+                    "preserved inbound Authority history has no live company projection target"
+                );
+                None
+            }
+            Err(error) => Some(Err(error)),
+        })
+        .collect::<Result<Vec<_>>>()?;
     Ok(reconcile_companies(daemon, &companies).await)
+}
+
+fn has_live_company_config(root: &std::path::Path, company: &str) -> Result<bool> {
+    crate::runtime::validate_company_name(company)?;
+    Ok(root
+        .join("companies")
+        .join(format!("{company}.toml"))
+        .is_file())
 }
 
 async fn reconcile_companies(daemon: &crate::Daemon, companies: &[String]) -> usize {
@@ -600,6 +628,20 @@ mod tests {
             .with_context(|| format!("set {name} for the opt-in real-provider probe"))
     }
 
+    #[test]
+    fn preserved_inbound_history_is_not_pending_without_a_live_company() {
+        let root = std::env::temp_dir().join(format!(
+            "restless-inbound-live-config-{}",
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(root.join("companies")).unwrap();
+        assert!(!has_live_company_config(&root, "retired_test").unwrap());
+        std::fs::write(root.join("companies/live_test.toml"), "not parsed here\n").unwrap();
+        assert!(has_live_company_config(&root, "live_test").unwrap());
+        assert!(has_live_company_config(&root, "../escape").is_err());
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
     async fn create_temporary_resend_webhook(
         client: &reqwest::Client,
         api_key: &str,
@@ -729,6 +771,7 @@ mod tests {
             authority: authority.clone(),
             orgintel: crate::OrgIntelRegistry {
                 database_url,
+                root: root.clone(),
                 handles: std::sync::Mutex::new(std::collections::HashMap::new()),
             },
             staff: crate::staff::StaffRegistry::default(),
@@ -899,6 +942,7 @@ mod tests {
             authority: authority.clone(),
             orgintel: crate::OrgIntelRegistry {
                 database_url,
+                root: root.clone(),
                 handles: std::sync::Mutex::new(std::collections::HashMap::new()),
             },
             staff: crate::staff::StaffRegistry::default(),
@@ -993,6 +1037,7 @@ mod tests {
             authority: authority.clone(),
             orgintel: crate::OrgIntelRegistry {
                 database_url,
+                root: root.clone(),
                 handles: std::sync::Mutex::new(std::collections::HashMap::new()),
             },
             staff: crate::staff::StaffRegistry::default(),

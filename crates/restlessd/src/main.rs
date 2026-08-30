@@ -13,7 +13,9 @@ mod attention;
 mod authority;
 mod capability;
 mod capability_sourcing;
+mod cell;
 mod company;
+mod connected_tool;
 mod context;
 mod credential;
 mod effect;
@@ -26,6 +28,7 @@ mod legal;
 mod model_gateway;
 mod owner;
 mod owner_brief;
+mod plane;
 mod reconcile;
 mod runtime;
 mod schedule;
@@ -100,13 +103,46 @@ fn configured_companies(root: &Path) -> Result<Vec<String>> {
     Ok(companies)
 }
 
-/// Lazily ensured per-company OrgIntel handles (one pool per company).
+/// Provision this company's cell storage, import a legacy shared schema if one
+/// is still the only copy, and return a handle bound to the cell's own
+/// database and role. This is the single path to an OrgIntel handle — there is
+/// no shared-database fallback, because two ways to reach company state is
+/// exactly the split brain the cell boundary exists to remove.
+async fn ensure_cell_orgintel(
+    root: &std::path::Path,
+    admin_url: &str,
+    company: &str,
+) -> Result<OrgIntel> {
+    let cell_url = cell::ensure_database(root, admin_url, company).await?;
+    if cell::import_legacy_schema(admin_url, &cell_url, company).await? {
+        tracing::info!(
+            company,
+            "imported the legacy shared OrgIntel schema into this cell's own database; \
+             the legacy schema is left in place for verification"
+        );
+    }
+    OrgIntel::ensure(&cell_url, company)
+        .await
+        .with_context(|| format!("open cell OrgIntel for {company}"))
+}
+
+/// Lazily ensured per-cell OrgIntel handles (one pool per company, against
+/// that company's **own** database and role — see `cell.rs`). `database_url`
+/// is the account plane's admin connection, used only to provision cells and
+/// to read a legacy shared schema during import; no company query runs on it.
 pub(crate) struct OrgIntelRegistry {
     pub(crate) database_url: String,
+    pub(crate) root: std::path::PathBuf,
     handles: std::sync::Mutex<HashMap<String, OrgIntel>>,
 }
 
 impl OrgIntelRegistry {
+    /// This cell's own connection string, provisioning it if absent.
+    /// Idempotent, and the only way anything reaches a cell's database.
+    pub(crate) async fn cell_database_url(&self, company: &str) -> Result<String> {
+        cell::ensure_database(&self.root, &self.database_url, company).await
+    }
+
     async fn get(&self, company: &str) -> Result<OrgIntel> {
         let cached = self
             .handles
@@ -127,7 +163,7 @@ impl OrgIntelRegistry {
                 "orgintel schema vanished under a cached handle; re-ensuring"
             );
         }
-        let handle = OrgIntel::ensure(&self.database_url, company).await?;
+        let handle = ensure_cell_orgintel(&self.root, &self.database_url, company).await?;
         self.handles
             .lock()
             .expect("orgintel registry")
@@ -192,9 +228,33 @@ pub(crate) async fn materialize_runtime_bridge(daemon: &Daemon, company: &str) -
         .context("install Runtime bridge capability")
 }
 
-/// TCP port the company containers reach the daemon on (T10). Next to the
+/// Base TCP port the company containers reach the daemon on (T10). Next to the
 /// model gateway's 7790; reachable as host.docker.internal from containers.
 pub(crate) const COORD_TCP_PORT: u16 = 7791;
+
+/// Namespace every host listener owned by one daemon with a single bounded
+/// offset. The default remains the established port map. A second isolated
+/// daemon can set `RESTLESS_PORT_OFFSET` and receive a coherent model relay,
+/// coordination plane, owner surface, and ingress set without borrowing or
+/// terminating the first daemon's processes.
+pub(crate) fn port_offset() -> Result<u16> {
+    let raw = std::env::var("RESTLESS_PORT_OFFSET").unwrap_or_else(|_| "0".to_string());
+    raw.parse::<u16>()
+        .with_context(|| format!("parse RESTLESS_PORT_OFFSET {raw:?} as a non-negative integer"))
+}
+
+pub(crate) fn port_with_offset(base: u16) -> Result<u16> {
+    base.checked_add(port_offset()?).with_context(|| {
+        format!("RESTLESS_PORT_OFFSET places base port {base} outside the TCP port range")
+    })
+}
+
+pub(crate) fn runtime_coordinator() -> Result<String> {
+    Ok(format!(
+        "host.docker.internal:{}",
+        port_with_offset(COORD_TCP_PORT)?
+    ))
+}
 
 /// The listener is identity evidence. A Unix socket is the local appliance
 /// owner boundary; TCP is only the Company Runtime bridge and therefore must
@@ -310,7 +370,8 @@ async fn main() -> Result<()> {
         // PostgreSQL before the daemon could finish booting. Keep only the
         // current company's pool alive; the runtime registry below remains
         // lazy and caches only companies that are actually used.
-        let org = OrgIntel::ensure(&orgintel_config.database_url, &company).await?;
+        let org =
+            ensure_cell_orgintel(&root, &orgintel_config.database_url, &company).await?;
         ensure_standing_actors(&org, Some(&config.model)).await?;
         let imported = authority
             .import_legacy_company(&company, &org, &approval::legacy_config_approvals(&config))
@@ -333,6 +394,7 @@ async fn main() -> Result<()> {
         authority,
         orgintel: OrgIntelRegistry {
             database_url: orgintel_config.database_url,
+            root: root.clone(),
             handles: std::sync::Mutex::new(HashMap::new()),
         },
         staff: staff::StaffRegistry::default(),
@@ -371,11 +433,29 @@ async fn main() -> Result<()> {
     let listener = UnixListener::bind(&sock).with_context(|| format!("bind {}", sock.display()))?;
     tracing::info!(socket = %sock.display(), "restlessd listening");
 
+    // Publish this plane so a CLI pointed at another home can name the live
+    // planes instead of reporting that none is running. Dropped on exit.
+    let _plane_registration = match plane::register(
+        &root,
+        &sock,
+        port_offset()?,
+        company_configs
+            .iter()
+            .map(|config| config.name.clone())
+            .collect(),
+    ) {
+        Ok(registration) => Some(registration),
+        Err(error) => {
+            tracing::warn!("could not publish this plane for CLI discovery: {error:#}");
+            None
+        }
+    };
+
     // Unix sockets do not cross the Docker Desktop file share (probed: the
     // mount hangs), so containers reach the daemon over TCP on the same
     // proven path as the model relay. TCP is capability-authenticated before
     // dispatch; company identity is never trusted as JSON sent by the caller.
-    let coord_addr = format!("0.0.0.0:{COORD_TCP_PORT}");
+    let coord_addr = format!("0.0.0.0:{}", port_with_offset(COORD_TCP_PORT)?);
     match tokio::net::TcpListener::bind(&coord_addr).await {
         Ok(tcp) => {
             tracing::info!(addr = %coord_addr, "coordination TCP listening (company containers)");
@@ -418,7 +498,14 @@ async fn main() -> Result<()> {
                 daemon: std::sync::Arc::clone(&daemon),
             });
             tokio::spawn(async move {
-                if let Err(error) = ingress::serve(ingress::INGRESS_PORT, secret, sink).await {
+                let port = match port_with_offset(ingress::INGRESS_PORT) {
+                    Ok(port) => port,
+                    Err(error) => {
+                        tracing::error!("event ingress port is invalid: {error:#}");
+                        return;
+                    }
+                };
+                if let Err(error) = ingress::serve(port, secret, sink).await {
                     tracing::error!("event ingress stopped: {error:#}");
                 }
             });
@@ -1117,6 +1204,128 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
                 Response::ok(serde_json::Value::Array(rows))
             }
             Err(error) => Response::err(format!("{error:#}")),
+        },
+        "connected-tools" => match connected_tool::list(daemon.authority.pool(), company).await {
+            Ok(connections) => Response::ok_serialized(connections),
+            Err(error) => Response::err(format!("{error:#}")),
+        },
+        "connected-tool-install" | "connected-tool-reconnect" => match (
+            request.connected_tool.tool_name.as_deref(),
+            request.connected_tool.endpoint.as_deref(),
+            request.authority.purpose.as_deref(),
+            request.connected_tool.assigned_actor.as_deref(),
+            request.connected_tool.work_id.as_deref(),
+            request.connected_tool.attempt_id.as_deref(),
+            request.orgintel.actor.as_deref(),
+        ) {
+            (
+                Some(name),
+                Some(endpoint),
+                Some(purpose),
+                Some(assigned_actor),
+                Some(work),
+                Some(attempt),
+                Some(requested_by),
+            ) if !request.connected_tool.requested_scopes.is_empty() => {
+                let work_id = match uuid::Uuid::parse_str(work) {
+                    Ok(id) => id,
+                    Err(error) => return Response::err(format!("bad Work id: {error}")),
+                };
+                let attempt_id = match uuid::Uuid::parse_str(attempt) {
+                    Ok(id) => id,
+                    Err(error) => return Response::err(format!("bad Attempt id: {error}")),
+                };
+                match daemon.orgintel.get(company).await {
+                    Ok(org) => match connected_tool::begin_oauth_install(
+                        &daemon.root,
+                        &daemon.authority,
+                        &org,
+                        company,
+                        name,
+                        endpoint,
+                        purpose,
+                        assigned_actor,
+                        &request.connected_tool.requested_scopes,
+                        work_id,
+                        attempt_id,
+                        requested_by,
+                        request.cmd == "connected-tool-reconnect",
+                    )
+                    .await
+                    {
+                        Ok(launch) => Response::ok_serialized(launch),
+                        Err(error) => Response::err(format!("{error:#}")),
+                    },
+                    Err(error) => Response::err(format!("{error:#}")),
+                }
+            }
+            _ => Response::err(
+                "connected-tool install needs name, endpoint, purpose, actor, Work, Attempt and scopes",
+            ),
+        },
+        "connected-tool-observe" => match (
+            request.connected_tool.tool_name.as_deref(),
+            request.connected_tool.workspace_reference.as_deref(),
+            request.orgintel.actor.as_deref(),
+        ) {
+            (Some(name), Some(workspace), Some(actor))
+                if !request.connected_tool.observed_tools.is_empty() =>
+            {
+                match connected_tool::observe_workspace(
+                    daemon.authority.pool(),
+                    company,
+                    name,
+                    actor,
+                    workspace,
+                    &request.connected_tool.observed_tools,
+                )
+                .await
+                {
+                    Ok(connection) => {
+                        let _ = daemon
+                            .authority
+                            .emit(
+                                company,
+                                "provider_connection_observed",
+                                Some(actor),
+                                serde_json::json!({
+                                    "name": name,
+                                    "workspace_reference": workspace,
+                                    "observed_tools": request.connected_tool.observed_tools,
+                                }),
+                            )
+                            .await;
+                        Response::ok_serialized(connection)
+                    }
+                    Err(error) => Response::err(format!("{error:#}")),
+                }
+            }
+            _ => Response::err(
+                "connected-tool observe needs name, workspace identity and observed tools",
+            ),
+        },
+        "connected-tool-disable" => match (
+            request.connected_tool.tool_name.as_deref(),
+            request.orgintel.actor.as_deref(),
+        ) {
+            (Some(name), Some(actor)) => {
+                match connected_tool::disable(daemon.authority.pool(), company, name).await {
+                    Ok(connection) => {
+                        let _ = daemon
+                            .authority
+                            .emit(
+                                company,
+                                "provider_connection_disabled",
+                                Some(actor),
+                                serde_json::json!({ "name": name }),
+                            )
+                            .await;
+                        Response::ok_serialized(connection)
+                    }
+                    Err(error) => Response::err(format!("{error:#}")),
+                }
+            }
+            _ => Response::err("connected-tool disable needs name and actor"),
         },
         "legal-show" => match legal::get_profile(&daemon.authority, company).await {
             Ok(profile) => Response::ok(serde_json::json!({

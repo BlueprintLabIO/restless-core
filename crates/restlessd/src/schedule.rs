@@ -146,41 +146,110 @@ impl Drop for WakeGuard {
 
 pub async fn run(daemon: Arc<Daemon>) {
     let in_flight = Arc::clone(&daemon.in_flight);
-    let mut listener = connect(&daemon).await;
+    // Each cell owns its database, so `NOTIFY` fires there and nowhere else.
+    // One listener per cell, multiplexed into this loop — a single listener on
+    // the admin connection would hear nothing and degrade every wake to the
+    // periodic scan, silently.
+    let (wakes, mut inbox) = tokio::sync::mpsc::channel::<String>(256);
+    let mut listening = std::collections::HashSet::<String>::new();
+    ensure_cell_listeners(&daemon, &wakes, &mut listening).await;
     scan_all_companies(&daemon, &in_flight).await;
     let mut scan = tokio::time::interval(SCAN_INTERVAL);
     loop {
         tokio::select! {
             _ = scan.tick() => {
+                // A company created since boot needs its own listener; this is
+                // also where a cell whose listener never started is retried.
+                ensure_cell_listeners(&daemon, &wakes, &mut listening).await;
                 fire_pending(&daemon, &in_flight).await;
                 scan_all_companies(&daemon, &in_flight).await;
             }
-            notification = listener.recv() => match notification {
-                Ok(notification) => handle_notification(&daemon, &in_flight, notification.payload()).await,
+            Some(payload) = inbox.recv() => {
+                // Wake delivery crosses a process and a database boundary now,
+                // so make arrival observable: a silent scheduler is otherwise
+                // indistinguishable from a cell whose listener never attached.
+                tracing::debug!(payload, "cell wake received");
+                handle_notification(&daemon, &in_flight, &payload).await;
+            }
+        }
+    }
+}
+
+/// Start a listener for every configured cell that does not have one.
+async fn ensure_cell_listeners(
+    daemon: &Arc<Daemon>,
+    wakes: &tokio::sync::mpsc::Sender<String>,
+    listening: &mut std::collections::HashSet<String>,
+) {
+    for company in configured_companies(daemon) {
+        if listening.contains(&company) {
+            continue;
+        }
+        let url = match daemon.orgintel.cell_database_url(&company).await {
+            Ok(url) => url,
+            Err(error) => {
+                tracing::warn!(company, "cannot reach this cell to listen for wakes: {error:#}");
+                continue;
+            }
+        };
+        listening.insert(company.clone());
+        let wakes = wakes.clone();
+        tokio::spawn(listen_to_cell(company, url, wakes));
+    }
+}
+
+/// One cell's wake listener. Reconnects forever: losing it would silently
+/// degrade that company to the periodic scan.
+async fn listen_to_cell(company: String, url: String, wakes: tokio::sync::mpsc::Sender<String>) {
+    loop {
+        let mut listener = match PgListener::connect(&url).await {
+            Ok(listener) => listener,
+            Err(error) => {
+                tracing::warn!(company, "cell LISTEN connect failed: {error}; retrying");
+                tokio::time::sleep(Duration::from_secs(5)).await;
+                continue;
+            }
+        };
+        if listener.listen(OrgIntel::NOTIFY_CHANNEL).await.is_err() {
+            tracing::warn!(company, "cell LISTEN failed; retrying");
+            tokio::time::sleep(Duration::from_secs(5)).await;
+            continue;
+        }
+        tracing::info!(company, "listening for cell wakes");
+        loop {
+            match listener.recv().await {
+                Ok(notification) => {
+                    if wakes.send(notification.payload().to_string()).await.is_err() {
+                        return; // scheduler stopped
+                    }
+                }
                 Err(error) => {
-                    tracing::warn!("orgintel LISTEN dropped: {error}; reconnecting");
+                    tracing::warn!(company, "cell LISTEN dropped: {error}; reconnecting");
                     tokio::time::sleep(Duration::from_secs(2)).await;
-                    listener = connect(&daemon).await;
-                    scan_all_companies(&daemon, &in_flight).await;
+                    break;
                 }
             }
         }
     }
 }
 
-async fn connect(daemon: &Daemon) -> PgListener {
-    loop {
-        match PgListener::connect(&daemon.orgintel.database_url).await {
-            Ok(mut listener) => {
-                if listener.listen(OrgIntel::NOTIFY_CHANNEL).await.is_ok() {
-                    return listener;
-                }
-                tracing::warn!("orgintel LISTEN failed; retrying");
-            }
-            Err(error) => tracing::warn!("orgintel LISTEN connect failed: {error}; retrying"),
+/// Companies configured in this plane, by config file.
+fn configured_companies(daemon: &Arc<Daemon>) -> Vec<String> {
+    let Ok(entries) = std::fs::read_dir(daemon.root.join("companies")) else {
+        return Vec::new();
+    };
+    let mut companies = Vec::new();
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.extension().and_then(|value| value.to_str()) != Some("toml") {
+            continue;
         }
-        tokio::time::sleep(Duration::from_secs(5)).await;
+        if let Some(company) = path.file_stem().and_then(|value| value.to_str()) {
+            companies.push(company.to_string());
+        }
     }
+    companies.sort();
+    companies
 }
 
 async fn handle_notification(daemon: &Arc<Daemon>, in_flight: &InFlight, payload: &str) {
@@ -275,18 +344,8 @@ fn is_exec_self_message(value: &serde_json::Value) -> bool {
 }
 
 async fn scan_all_companies(daemon: &Arc<Daemon>, in_flight: &InFlight) {
-    let Ok(entries) = std::fs::read_dir(daemon.root.join("companies")) else {
-        return;
-    };
-    for entry in entries.flatten() {
-        let path = entry.path();
-        if path.extension().and_then(|value| value.to_str()) != Some("toml") {
-            continue;
-        }
-        let Some(company) = path.file_stem().and_then(|value| value.to_str()) else {
-            continue;
-        };
-        scan_company(daemon, in_flight, company).await;
+    for company in configured_companies(daemon) {
+        scan_company(daemon, in_flight, &company).await;
     }
 }
 
@@ -584,7 +643,19 @@ pub(crate) async fn run_exec_turn(
 
     if cancellation.is_cancelled() {
         if !owner_message_ids.is_empty() {
-            live_turn.fail("Interrupted by owner; new direction is queued for a fresh turn.");
+            // A replacement message is normally persisted before an
+            // interruption. The full-screen owner chat can also cancel the
+            // exact pending message without adding synthetic prose, so do not
+            // claim a fresh direction is queued when that durable input was
+            // explicitly consumed.
+            let replacement_is_owed = org.inbox(Some("exec")).await.ok().is_some_and(|messages| {
+                messages.iter().any(|message| message.from_actor == "owner")
+            });
+            live_turn.fail(if replacement_is_owed {
+                "Interrupted by owner; new direction is queued for a fresh turn."
+            } else {
+                "Interrupted by owner."
+            });
         }
         return outcome;
     }

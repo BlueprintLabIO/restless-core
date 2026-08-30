@@ -21,6 +21,8 @@ pub(super) struct StaffRun {
     pub(super) company: String,
     pub(super) actor: String,
     pub(super) responsibility: String,
+    pub(super) work_id: Option<uuid::Uuid>,
+    pub(super) attempt_id: Option<uuid::Uuid>,
     pub(super) name: String,
     /// Trusted assignment/team state assembled by OrgIntel and the bridge.
     pub(super) task: String,
@@ -51,6 +53,14 @@ pub(super) struct StaffOutcome {
 
 pub(super) async fn run_staff_with_failover(run: StaffRun) -> Result<StaffOutcome> {
     let mut continuity_note: Option<String> = None;
+    let mcp_servers = crate::connected_tool::session_servers(
+        run.authority.pool(),
+        &run.company,
+        &run.actor,
+        run.work_id,
+        run.attempt_id,
+    )
+    .await?;
 
     for (index, model) in run.candidates.iter().enumerate() {
         run.org
@@ -157,6 +167,7 @@ pub(super) async fn run_staff_with_failover(run: StaffRun) -> Result<StaffOutcom
             enforce_spend_budget: billing == crate::model_gateway::ModelBilling::MeteredApi,
             conversation: run.conversation,
             accountable_lead: run.accountable_lead,
+            mcp_servers: mcp_servers.clone(),
             observer: run.observer.clone(),
             cancellation: run.cancellation.clone(),
         })
@@ -164,7 +175,9 @@ pub(super) async fn run_staff_with_failover(run: StaffRun) -> Result<StaffOutcom
 
         let failure_kind = match &outcome {
             Ok((Termination::Blocked, reason, _, _)) => health::block_kind_from_message(reason)
-                .or_else(|| health::classify_provider_error(reason).map(|blocked| blocked.kind)),
+                .or_else(|| {
+                    health::classify_provider_error_content(reason).map(|blocked| blocked.kind)
+                }),
             Err(error) => {
                 let text = format!("{error:#}");
                 Some(
@@ -185,6 +198,40 @@ pub(super) async fn run_staff_with_failover(run: StaffRun) -> Result<StaffOutcom
         // The relay's terminal record is visible before a waiting charged turn
         // starts. Cooldown and failover bookkeeping do not hold the lane.
         drop(metered_turn);
+
+        if failure_kind == Some(health::BlockKind::Context) {
+            // Reusing the same hot provider session deterministically resends
+            // the same oversized history. Drop only this responsibility's
+            // locator; the addressed message, Work graph, files and evidence
+            // stay durable and form the next wake's compact reconstruction.
+            acp::discard_session_locator(
+                &run.container,
+                &run.company,
+                &run.actor,
+                &run.responsibility,
+            )
+            .await?;
+            let reason = match &outcome {
+                Ok((_, reason, _, _)) => reason.clone(),
+                Err(error) => format!("{error:#}"),
+            };
+            run.org
+                .emit_event(
+                    "model_context_reconstruction_scheduled",
+                    Some(&run.actor),
+                    serde_json::json!({
+                        "model": model,
+                        "responsibility": run.responsibility,
+                        "reason": reason.chars().take(300).collect::<String>(),
+                    }),
+                )
+                .await?;
+            return outcome.map(|(termination, summary, _, output_tokens)| StaffOutcome {
+                termination,
+                summary,
+                output_tokens,
+            });
+        }
 
         if let Some(kind) = failure_kind.filter(|kind| health::is_provider_failover_kind(*kind)) {
             let reason = match &outcome {
@@ -365,6 +412,7 @@ struct StaffBrief {
     /// brief rather than inventing a second runtime class.
     conversation: bool,
     accountable_lead: bool,
+    mcp_servers: Vec<agent_client_protocol::schema::v1::McpServer>,
     observer: Option<acp::SessionObserver>,
     cancellation: CancellationToken,
 }
@@ -455,6 +503,7 @@ async fn run_staff(
         enforce_spend_budget,
         conversation,
         accountable_lead,
+        mcp_servers,
         observer,
         cancellation,
     } = brief;
@@ -488,7 +537,7 @@ async fn run_staff(
     );
     const CONTINUE_PROMPT: &str =
         "Continue the task. If it is done or you are stuck, stop writing.";
-    let controls = acp::AgentControls::company_actor(system_prompt)?;
+    let controls = acp::AgentControls::company_actor(system_prompt)?.with_mcp_servers(mcp_servers);
     let controls = if conversation {
         controls.for_team_coordination()
     } else {
@@ -581,7 +630,7 @@ async fn run_staff(
                                 transcript.output_tokens,
                             ));
                         }
-                        if let Some(blocked) = health::classify_provider_error(&reply) {
+                        if let Some(blocked) = health::classify_provider_error_content(&reply) {
                             return Ok((
                                 Termination::Blocked,
                                 blocked.message(),
@@ -649,7 +698,7 @@ async fn run_staff(
                             // hit `429 [1113] Insufficient balance` and was reported
                             // as "staff produced no parseable termination decision"
                             // — which blames the specialist for the wallet.
-                            if let Some(blocked) = health::classify_provider_error(&said) {
+                            if let Some(blocked) = health::classify_provider_error_content(&said) {
                                 tracing::warn!(
                                     kind = blocked.kind.as_str(),
                                     "staff blocked by the provider, not by its own output"
@@ -720,7 +769,6 @@ mod live_product_tests {
         AgentAuth {
             model: model.to_string(),
             effort: crate::acp::DEFAULT_REASONING_EFFORT.into(),
-            provider: provider.clone(),
             company: company.to_string(),
             session_id: launch_id.clone(),
             coordination_token_env: "RESTLESS_SESSION_CAPABILITY".into(),
@@ -811,6 +859,7 @@ mod live_product_tests {
             authority: authority.clone(),
             orgintel: crate::OrgIntelRegistry {
                 database_url: database_url.clone(),
+                root: root.clone(),
                 handles: std::sync::Mutex::new(std::collections::HashMap::new()),
             },
             staff: crate::staff::StaffRegistry::default(),
@@ -1000,6 +1049,7 @@ mod live_product_tests {
             enforce_spend_budget: true,
             conversation: false,
             accountable_lead: false,
+            mcp_servers: Vec::new(),
             observer: None,
             cancellation: CancellationToken::new(),
         })
@@ -1073,6 +1123,7 @@ mod live_product_tests {
             enforce_spend_budget: true,
             conversation: true,
             accountable_lead: true,
+            mcp_servers: Vec::new(),
             observer: None,
             cancellation: CancellationToken::new(),
         })
