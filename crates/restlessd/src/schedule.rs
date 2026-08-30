@@ -188,7 +188,10 @@ async fn ensure_cell_listeners(
         let url = match daemon.orgintel.cell_database_url(&company).await {
             Ok(url) => url,
             Err(error) => {
-                tracing::warn!(company, "cannot reach this cell to listen for wakes: {error:#}");
+                tracing::warn!(
+                    company,
+                    "cannot reach this cell to listen for wakes: {error:#}"
+                );
                 continue;
             }
         };
@@ -219,7 +222,11 @@ async fn listen_to_cell(company: String, url: String, wakes: tokio::sync::mpsc::
         loop {
             match listener.recv().await {
                 Ok(notification) => {
-                    if wakes.send(notification.payload().to_string()).await.is_err() {
+                    if wakes
+                        .send(notification.payload().to_string())
+                        .await
+                        .is_err()
+                    {
                         return; // scheduler stopped
                     }
                 }
@@ -302,34 +309,9 @@ async fn handle_notification(daemon: &Arc<Daemon>, in_flight: &InFlight, payload
             // Member/owner mail to a lead is an owed coordination condition.
             // Work-linked feedback is filtered by the actor dispatcher and
             // remains graph input rather than racing a conversation session.
-            // If that exact worker is already running, the new factual input
-            // invalidates its frozen prompt: interrupt only that actor. The
-            // preserved Attempt becomes unknown and its lead repairs/resumes
-            // the same Work with this message in the next bound context.
-            let actor = value["body"]["to"].as_str().unwrap_or_default();
-            if let Some(message_id) = value["body"]["message_id"].as_i64() {
-                let routed_work = match daemon.orgintel.get(company).await {
-                    Ok(org)
-                        if org
-                            .message_is_work_attempt_input(message_id)
-                            .await
-                            .unwrap_or(false) =>
-                    {
-                        org.message_work_id(message_id).await.ok().flatten()
-                    }
-                    _ => None,
-                };
-                if routed_work
-                    .is_some_and(|work_id| daemon.staff.interrupt_work(company, actor, work_id))
-                {
-                    tracing::info!(
-                        company,
-                        actor,
-                        message_id,
-                        "material Work feedback interrupted the exact active Staff session"
-                    );
-                }
-            }
+            // Ordinary Work feedback is queued and delivered by the active
+            // session at its next safe checkpoint. Cancellation is a separate
+            // authority-bearing `work interrupt` operation.
             scan_company(daemon, in_flight, company).await;
         }
         Some("work_changed" | "artifact_linked" | "handoff_changed") => {
@@ -359,6 +341,15 @@ async fn scan_company(daemon: &Arc<Daemon>, in_flight: &InFlight, company: &str)
     let Ok(org) = daemon.orgintel.get(company).await else {
         return;
     };
+
+    if let Err(error) =
+        crate::staff::reconcile_execution_substrate(&org, &runtime::container_name(company)).await
+    {
+        tracing::warn!(
+            company,
+            "could not reconcile exact execution substrate: {error:#}"
+        );
+    }
 
     // Live Attempt completion flushes this outbox immediately. A daemon crash
     // between terminal state and supervisor delivery leaves the owed bit set;

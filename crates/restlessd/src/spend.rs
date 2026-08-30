@@ -247,7 +247,6 @@ impl TurnMeter {
     }
 }
 
-
 /// A ledger directory is owner-private: it records money.
 fn create_private_dir(dir: &Path) -> Result<()> {
     if dir.exists() {
@@ -603,7 +602,8 @@ mod tests {
         assert_eq!(ledger.spent_usd("alpha_test"), 10.0 / 1_000_000.0);
         assert_eq!(ledger.spent_usd("beta_test"), 500.0 / 1_000_000.0);
 
-        let alpha = std::fs::read_to_string(root.join("cells/alpha_test/spend/spend.jsonl")).unwrap();
+        let alpha =
+            std::fs::read_to_string(root.join("cells/alpha_test/spend/spend.jsonl")).unwrap();
         assert_eq!(alpha.lines().count(), 2, "alpha takes only its own rows");
         assert!(
             !alpha.contains("beta_test"),

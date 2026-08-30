@@ -203,7 +203,13 @@ pub async fn import_legacy_schema(admin_url: &str, cell_url: &str, company: &str
     // to move a schema between databases, and it preserves types, defaults,
     // indexes and triggers that a hand-rolled copy would silently drop.
     let dump = std::process::Command::new("pg_dump")
-        .args(["--schema", company, "--no-owner", "--no-privileges", admin_url])
+        .args([
+            "--schema",
+            company,
+            "--no-owner",
+            "--no-privileges",
+            admin_url,
+        ])
         .stderr(std::process::Stdio::piped())
         .output()
         .context("run pg_dump for the legacy OrgIntel schema")?;
@@ -265,7 +271,13 @@ mod tests {
 
     #[test]
     fn cell_url_keeps_the_host_and_swaps_database_and_credentials() {
-        let url = cell_url("postgres://yao@localhost/restless", "restless_cell_aris", "restless_cell_aris", "pw").unwrap();
+        let url = cell_url(
+            "postgres://yao@localhost/restless",
+            "restless_cell_aris",
+            "restless_cell_aris",
+            "pw",
+        )
+        .unwrap();
         assert_eq!(
             url,
             "postgres://restless_cell_aris:pw@localhost/restless_cell_aris"
@@ -281,7 +293,10 @@ mod tests {
             "pw",
         )
         .unwrap();
-        assert_eq!(url, "postgres://restless_cell_x:pw@db.internal:6543/restless_cell_x");
+        assert_eq!(
+            url,
+            "postgres://restless_cell_x:pw@db.internal:6543/restless_cell_x"
+        );
     }
 
     #[test]

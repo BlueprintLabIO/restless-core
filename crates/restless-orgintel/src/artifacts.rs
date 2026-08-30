@@ -38,6 +38,43 @@ impl OrgIntel {
                     "artifact producer, Attempt and Work do not match".into(),
                 ));
             }
+
+            // Retried tool calls inside one Attempt are idempotent for the
+            // same exact artifact version. A later Attempt may publish a new
+            // version at the same locator, but two available references must
+            // never disagree about what that mutable path currently means.
+            let existing: Option<Uuid> = sqlx::query_scalar(
+                "SELECT id FROM artifact_refs \
+                 WHERE work_id=$1 AND attempt_id=$2 AND kind=$3 AND uri=$4 \
+                   AND digest IS NOT DISTINCT FROM $5 \
+                   AND source_commit IS NOT DISTINCT FROM $6 \
+                   AND runtime_generation IS NOT DISTINCT FROM $7 \
+                   AND state='available' \
+                 ORDER BY created_at DESC, id DESC LIMIT 1",
+            )
+            .bind(work_id)
+            .bind(attempt_id)
+            .bind(artifact.kind)
+            .bind(artifact.uri)
+            .bind(artifact.digest)
+            .bind(artifact.source_commit)
+            .bind(artifact.runtime_generation)
+            .fetch_optional(&mut *tx)
+            .await?;
+            if let Some(existing) = existing {
+                tx.commit().await?;
+                return Ok(existing);
+            }
+
+            sqlx::query(
+                "UPDATE artifact_refs SET state='superseded', superseded_at=now() \
+                 WHERE work_id=$1 AND kind=$2 AND uri=$3 AND state='available'",
+            )
+            .bind(work_id)
+            .bind(artifact.kind)
+            .bind(artifact.uri)
+            .execute(&mut *tx)
+            .await?;
         }
         sqlx::query(
             "INSERT INTO artifact_refs \
@@ -110,7 +147,8 @@ impl OrgIntel {
         }
         if !valid_company_cwd(gate.cwd) || gate.command.iter().any(|part| part.contains('\0')) {
             return Err(OrgIntelError::InvalidWork(
-                "a Work gate needs NUL-free argv and an absolute cwd under /company".into(),
+                "a Work gate needs NUL-free argv and @attempt or an absolute cwd under /company"
+                    .into(),
             ));
         }
         let id = Uuid::new_v4();
@@ -142,10 +180,39 @@ impl OrgIntel {
         Ok(id)
     }
 
+    pub async fn configure_work_gate(
+        &self,
+        gate_id: Uuid,
+        stage: &str,
+        timeout_seconds: i32,
+        resources: &[String],
+    ) -> Result<()> {
+        if !matches!(stage, "focused" | "blind" | "cumulative")
+            || !(1..=7200).contains(&timeout_seconds)
+            || resources
+                .iter()
+                .any(|resource| !matches!(resource.as_str(), "port" | "display"))
+        {
+            return Err(OrgIntelError::InvalidWork(
+                "gate stage, timeout or resources are invalid".into(),
+            ));
+        }
+        let resources = serde_json::to_value(resources)
+            .map_err(|error| OrgIntelError::Db(sqlx::Error::Protocol(error.to_string())))?;
+        sqlx::query("UPDATE work_gates SET stage=$2,timeout_seconds=$3,resources=$4 WHERE id=$1")
+            .bind(gate_id)
+            .bind(stage)
+            .bind(timeout_seconds)
+            .bind(resources)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
     pub async fn list_work_gates(&self, work_id: Uuid) -> Result<Vec<WorkGateRow>> {
         Ok(sqlx::query_as(
-            "SELECT id, work_id, name, cwd, command, created_by, sequence_no, created_at, \
-                    retired_at, retired_by, retired_reason \
+            "SELECT id, work_id, name, cwd, command, created_by, sequence_no, stage, \
+                    timeout_seconds, resources, created_at, retired_at, retired_by, retired_reason \
              FROM work_gates WHERE work_id = $1 AND retired_at IS NULL ORDER BY sequence_no",
         )
         .bind(work_id)
@@ -213,7 +280,10 @@ impl OrgIntel {
         .await?;
         let attempts = sqlx::query_as(
             "SELECT id, work_id, revision, attempt_no, actor_id, session_id, state, trigger, \
-                    input_fingerprint, feedback_cursor, model, started_at, finished_at, summary \
+                    input_fingerprint, feedback_cursor, requested_source_ref, source_commit, \
+                    source_tree, gate_set_digest, environment_fingerprint, materialized_at, \
+                    interrupt_requested_at, interrupt_requested_by, interrupt_reason, \
+                    feedback_checkpoint_cursor, model, started_at, finished_at, summary \
              FROM work_attempts ORDER BY started_at, id",
         )
         .fetch_all(&mut *tx)
@@ -238,15 +308,17 @@ impl OrgIntel {
         .fetch_all(&mut *tx)
         .await?;
         let gates = sqlx::query_as(
-            "SELECT id, work_id, name, cwd, command, created_by, sequence_no, created_at, \
-                    retired_at, retired_by, retired_reason \
+            "SELECT id, work_id, name, cwd, command, created_by, sequence_no, stage, \
+                    timeout_seconds, resources, created_at, retired_at, retired_by, retired_reason \
              FROM work_gates ORDER BY work_id, sequence_no",
         )
         .fetch_all(&mut *tx)
         .await?;
         let gate_runs = sqlx::query_as(
-            "SELECT id, gate_id, attempt_id, exit_code, output_digest, output_excerpt, \
-                    passed, ran_at FROM work_gate_runs ORDER BY ran_at, id",
+            "SELECT id, gate_id, attempt_id, exit_code, output_digest, output_excerpt, passed, \
+                    candidate_tree, definition_digest, toolchain_fingerprint, status, duration_ms, \
+                    cache_source_run_id, leaked_processes, ran_at \
+             FROM work_gate_runs ORDER BY ran_at, id",
         )
         .fetch_all(&mut *tx)
         .await?;
@@ -303,6 +375,86 @@ impl OrgIntel {
         .bind(run.output_digest)
         .bind(run.output_excerpt)
         .bind(run.passed)
+        .execute(&self.pool)
+        .await?;
+        Ok(id)
+    }
+
+    pub async fn find_cached_gate_run(
+        &self,
+        gate_id: Uuid,
+        candidate_tree: &str,
+        definition_digest: &str,
+        toolchain_fingerprint: &str,
+    ) -> Result<Option<WorkGateRunRow>> {
+        Ok(sqlx::query_as(
+            "SELECT id, gate_id, attempt_id, exit_code, output_digest, output_excerpt, passed, \
+                    candidate_tree, definition_digest, toolchain_fingerprint, status, duration_ms, \
+                    cache_source_run_id, leaked_processes, ran_at \
+             FROM work_gate_runs WHERE gate_id=$1 AND candidate_tree=$2 \
+               AND definition_digest=$3 AND toolchain_fingerprint=$4 \
+               AND status='conclusive' ORDER BY ran_at DESC,id DESC LIMIT 1",
+        )
+        .bind(gate_id)
+        .bind(candidate_tree)
+        .bind(definition_digest)
+        .bind(toolchain_fingerprint)
+        .fetch_optional(&self.pool)
+        .await?)
+    }
+
+    pub async fn record_governed_gate_run(&self, run: NewGateRunEvidence<'_>) -> Result<Uuid> {
+        if !matches!(
+            run.status,
+            "conclusive" | "cached" | "timeout" | "infrastructure_error" | "cancelled"
+        ) || run.leaked_processes < 0
+        {
+            return Err(OrgIntelError::InvalidWork(
+                "invalid governed gate evidence".into(),
+            ));
+        }
+        let id = Uuid::new_v4();
+        let valid: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM work_gates g JOIN work_attempts a \
+             ON a.work_id=g.work_id WHERE g.id=$1 AND a.id=$2)",
+        )
+        .bind(run.gate_id)
+        .bind(run.attempt_id)
+        .fetch_one(&self.pool)
+        .await?;
+        if !valid {
+            return Err(OrgIntelError::InvalidWork(
+                "gate and Attempt must belong to the same Work".into(),
+            ));
+        }
+        sqlx::query(
+            "INSERT INTO work_gate_runs \
+             (id,gate_id,attempt_id,exit_code,output_digest,output_excerpt,passed, \
+              candidate_tree,definition_digest,toolchain_fingerprint,status,duration_ms, \
+              cache_source_run_id,leaked_processes) \
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) \
+             ON CONFLICT (gate_id,attempt_id) DO UPDATE SET \
+              exit_code=EXCLUDED.exit_code,output_digest=EXCLUDED.output_digest, \
+              output_excerpt=EXCLUDED.output_excerpt,passed=EXCLUDED.passed, \
+              candidate_tree=EXCLUDED.candidate_tree,definition_digest=EXCLUDED.definition_digest, \
+              toolchain_fingerprint=EXCLUDED.toolchain_fingerprint,status=EXCLUDED.status, \
+              duration_ms=EXCLUDED.duration_ms,cache_source_run_id=EXCLUDED.cache_source_run_id, \
+              leaked_processes=EXCLUDED.leaked_processes,ran_at=now()",
+        )
+        .bind(id)
+        .bind(run.gate_id)
+        .bind(run.attempt_id)
+        .bind(run.exit_code)
+        .bind(run.output_digest)
+        .bind(run.output_excerpt)
+        .bind(run.passed)
+        .bind(run.candidate_tree)
+        .bind(run.definition_digest)
+        .bind(run.toolchain_fingerprint)
+        .bind(run.status)
+        .bind(run.duration_ms)
+        .bind(run.cache_source_run_id)
+        .bind(run.leaked_processes)
         .execute(&self.pool)
         .await?;
         Ok(id)

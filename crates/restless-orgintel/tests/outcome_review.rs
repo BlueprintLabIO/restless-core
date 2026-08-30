@@ -33,6 +33,9 @@ async fn add_review_required_work(org: &OrgIntel, title: &str) -> uuid::Uuid {
         &[InitialWorkGate {
             name: REVIEW_TARGET_LIVE_PROBE_GATE,
             command: &probe_command,
+            stage: "cumulative",
+            timeout_seconds: 900,
+            resources: &[],
         }],
     )
     .await

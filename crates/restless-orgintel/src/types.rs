@@ -150,6 +150,9 @@ pub struct NewWork<'a> {
 pub struct InitialWorkGate<'a> {
     pub name: &'a str,
     pub command: &'a [String],
+    pub stage: &'a str,
+    pub timeout_seconds: i32,
+    pub resources: &'a [String],
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -264,6 +267,16 @@ pub struct WorkAttemptRow {
     pub trigger: String,
     pub input_fingerprint: String,
     pub feedback_cursor: i64,
+    pub requested_source_ref: Option<String>,
+    pub source_commit: Option<String>,
+    pub source_tree: Option<String>,
+    pub gate_set_digest: String,
+    pub environment_fingerprint: String,
+    pub materialized_at: Option<DateTime<Utc>>,
+    pub interrupt_requested_at: Option<DateTime<Utc>>,
+    pub interrupt_requested_by: Option<String>,
+    pub interrupt_reason: Option<String>,
+    pub feedback_checkpoint_cursor: i64,
     pub model: Option<String>,
     pub started_at: DateTime<Utc>,
     pub finished_at: Option<DateTime<Utc>>,
@@ -351,6 +364,9 @@ pub struct WorkGateRow {
     pub command: serde_json::Value,
     pub created_by: String,
     pub sequence_no: i32,
+    pub stage: String,
+    pub timeout_seconds: i32,
+    pub resources: serde_json::Value,
     pub created_at: DateTime<Utc>,
     pub retired_at: Option<DateTime<Utc>>,
     pub retired_by: Option<String>,
@@ -366,7 +382,76 @@ pub struct WorkGateRunRow {
     pub output_digest: String,
     pub output_excerpt: String,
     pub passed: bool,
+    pub candidate_tree: String,
+    pub definition_digest: String,
+    pub toolchain_fingerprint: String,
+    pub status: String,
+    pub duration_ms: Option<i64>,
+    pub cache_source_run_id: Option<Uuid>,
+    pub leaked_processes: i32,
     pub ran_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, sqlx::FromRow, ts_rs::TS)]
+pub struct RuntimeResourceLeaseRow {
+    pub id: Uuid,
+    pub attempt_id: Uuid,
+    pub gate_id: Option<Uuid>,
+    pub kind: String,
+    pub value: String,
+    pub holder_token: String,
+    pub acquired_at: DateTime<Utc>,
+    pub released_at: Option<DateTime<Utc>>,
+    pub release_reason: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, sqlx::FromRow, ts_rs::TS)]
+pub struct CandidatePromotionRow {
+    pub id: Uuid,
+    pub work_id: Uuid,
+    pub attempt_id: Uuid,
+    pub repo: String,
+    pub integration_branch: String,
+    pub source_commit: String,
+    pub source_tree: String,
+    pub manifest: serde_json::Value,
+    pub state: String,
+    pub failure: Option<String>,
+    pub created_at: DateTime<Utc>,
+    pub completed_at: Option<DateTime<Utc>>,
+}
+
+pub struct NewCandidatePromotion<'a> {
+    pub work_id: Uuid,
+    pub attempt_id: Uuid,
+    pub repo: &'a str,
+    pub integration_branch: &'a str,
+    pub source_commit: &'a str,
+    pub source_tree: &'a str,
+    pub manifest: &'a serde_json::Value,
+}
+
+#[derive(Debug, Clone, Serialize, sqlx::FromRow, ts_rs::TS)]
+pub struct ImmutableReviewTargetRow {
+    pub id: Uuid,
+    pub work_id: Uuid,
+    pub attempt_id: Uuid,
+    pub content_digest: String,
+    pub uri: String,
+    pub alias_uri: Option<String>,
+    pub source_commit: Option<String>,
+    pub manifest: serde_json::Value,
+    pub created_at: DateTime<Utc>,
+}
+
+pub struct NewImmutableReviewTarget<'a> {
+    pub work_id: Uuid,
+    pub attempt_id: Uuid,
+    pub content_digest: &'a str,
+    pub uri: &'a str,
+    pub alias_uri: Option<&'a str>,
+    pub source_commit: Option<&'a str>,
+    pub manifest: &'a serde_json::Value,
 }
 
 #[derive(Debug, Clone, Serialize, sqlx::FromRow, ts_rs::TS)]
@@ -396,6 +481,25 @@ pub struct NewGateRun<'a> {
     pub output_digest: &'a str,
     pub output_excerpt: &'a str,
     pub passed: bool,
+}
+
+/// Complete Runtime evidence for a governed gate execution. The older
+/// `NewGateRun` remains only for importing historical/manual evidence; new
+/// Runtime executions must use this exact-keyed form.
+pub struct NewGateRunEvidence<'a> {
+    pub gate_id: Uuid,
+    pub attempt_id: Uuid,
+    pub exit_code: Option<i32>,
+    pub output_digest: &'a str,
+    pub output_excerpt: &'a str,
+    pub passed: bool,
+    pub candidate_tree: &'a str,
+    pub definition_digest: &'a str,
+    pub toolchain_fingerprint: &'a str,
+    pub status: &'a str,
+    pub duration_ms: Option<i64>,
+    pub cache_source_run_id: Option<Uuid>,
+    pub leaked_processes: i32,
 }
 
 #[derive(Debug, Clone, Serialize, sqlx::FromRow, ts_rs::TS)]

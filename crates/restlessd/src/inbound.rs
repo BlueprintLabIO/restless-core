@@ -470,21 +470,23 @@ pub async fn reconcile_pending(daemon: &crate::Daemon) -> Result<usize> {
         .inbound_companies()
         .await?
         .into_iter()
-        .filter_map(|company| match has_live_company_config(&daemon.root, &company) {
-            Ok(true) => Some(Ok(company)),
-            Ok(false) => {
-                // Authority history outlives a throwaway company's Runtime.
-                // It is not pending work until that company exists again, so
-                // do not turn preserved evidence into a five-second warning
-                // and filesystem retry loop.
-                tracing::debug!(
-                    company = %company,
-                    "preserved inbound Authority history has no live company projection target"
-                );
-                None
-            }
-            Err(error) => Some(Err(error)),
-        })
+        .filter_map(
+            |company| match has_live_company_config(&daemon.root, &company) {
+                Ok(true) => Some(Ok(company)),
+                Ok(false) => {
+                    // Authority history outlives a throwaway company's Runtime.
+                    // It is not pending work until that company exists again, so
+                    // do not turn preserved evidence into a five-second warning
+                    // and filesystem retry loop.
+                    tracing::debug!(
+                        company = %company,
+                        "preserved inbound Authority history has no live company projection target"
+                    );
+                    None
+                }
+                Err(error) => Some(Err(error)),
+            },
+        )
         .collect::<Result<Vec<_>>>()?;
     Ok(reconcile_companies(daemon, &companies).await)
 }
@@ -1090,6 +1092,9 @@ mod tests {
         )
         .await
         .unwrap();
+        for message in org.inbox(Some("customer-direction")).await.unwrap() {
+            org.mark_read(message.id).await.unwrap();
+        }
 
         let event = InboundEvent {
             provider_event_id: format!("evt-{suffix}-1"),

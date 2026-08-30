@@ -696,6 +696,10 @@ fn cockpit_payment_intent(payment: finance::PaymentIntent) -> CockpitPaymentInte
 }
 
 impl OwnerConfig {
+    pub(crate) fn is_network(&self) -> bool {
+        self.entry.network().is_some()
+    }
+
     pub(crate) fn from_env() -> Result<Self> {
         let default_address = format!("127.0.0.1:{}", crate::port_with_offset(7788)?);
         let address = std::env::var("RESTLESS_OWNER_ADDR")
@@ -885,7 +889,8 @@ async fn enforce_owner_boundary(
 ) -> Response<Body> {
     match state.entry.clone() {
         EntryMode::Local => {
-            if let Some(reason) = local_owner_boundary_violation(request.method(), request.headers())
+            if let Some(reason) =
+                local_owner_boundary_violation(request.method(), request.headers())
             {
                 return api_error(StatusCode::FORBIDDEN, "local_owner_boundary", reason);
             }
@@ -981,7 +986,13 @@ fn network_origin_violation(
     let host = headers
         .get(HOST)
         .and_then(|value| value.to_str().ok())
-        .map(|value| value.split(':').next().unwrap_or(value).to_ascii_lowercase());
+        .map(|value| {
+            value
+                .split(':')
+                .next()
+                .unwrap_or(value)
+                .to_ascii_lowercase()
+        });
     if host.as_deref() != Some(&expected_host.to_ascii_lowercase()) {
         return Some("owner request host is not this plane's configured hostname");
     }
@@ -1000,10 +1011,13 @@ fn network_origin_violation(
         return Some("state-changing owner requests require a same-origin browser origin");
     }
     if let Some(origin) = origin {
-        let origin_host = origin
-            .rsplit('/')
-            .next()
-            .map(|value| value.split(':').next().unwrap_or(value).to_ascii_lowercase());
+        let origin_host = origin.rsplit('/').next().map(|value| {
+            value
+                .split(':')
+                .next()
+                .unwrap_or(value)
+                .to_ascii_lowercase()
+        });
         if origin_host.as_deref() != Some(&expected_host.to_ascii_lowercase()) {
             return Some("owner request origin does not match this plane's hostname");
         }
@@ -1083,9 +1097,7 @@ async fn consume_entry_assertion(
         correlation = identity.correlation.as_deref().unwrap_or("-"),
         "admitted a verified entry assertion"
     );
-    let token = state
-        .sessions
-        .establish(identity, network.session_ttl());
+    let token = state.sessions.establish(identity, network.session_ttl());
 
     let cookie = format!(
         "{SESSION_COOKIE}={token}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age={}",
@@ -3637,7 +3649,6 @@ mod tests {
         .unwrap();
     }
 
-
     fn network_headers(host: &str) -> HeaderMap {
         let mut headers = HeaderMap::new();
         headers.insert(HOST, HeaderValue::from_str(host).unwrap());
@@ -3677,7 +3688,10 @@ mod tests {
             &Method::POST,
             &{
                 let mut headers = network_headers(PLANE_HOST);
-                headers.insert(ORIGIN, HeaderValue::from_str(&format!("https://{PLANE_HOST}")).unwrap());
+                headers.insert(
+                    ORIGIN,
+                    HeaderValue::from_str(&format!("https://{PLANE_HOST}")).unwrap(),
+                );
                 headers
             },
             "/entry",
@@ -3766,7 +3780,10 @@ mod tests {
             company: "aris".into(),
         });
         let mut headers = network_headers(PLANE_HOST);
-        headers.insert("x-forwarded-host", HeaderValue::from_static("other.restless.test"));
+        headers.insert(
+            "x-forwarded-host",
+            HeaderValue::from_static("other.restless.test"),
+        );
         headers.insert("x-real-ip", HeaderValue::from_static("10.0.0.1"));
 
         let refusal = network_boundary_violation(

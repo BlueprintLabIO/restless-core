@@ -488,6 +488,15 @@ async fn company_schema_round_trip() {
     )
     .await
     .unwrap();
+    assert_eq!(
+        org.get_work(running_handoff_work)
+            .await
+            .unwrap()
+            .unwrap()
+            .attempt_limit,
+        Some(1),
+        "resolving a live Attempt's handoff must not grant a speculative retry"
+    );
     let resumed_input = org.consume_inbox_for_actor("delivery-build").await.unwrap();
     let resumed_message_id = resumed_input
         .iter()
@@ -1426,12 +1435,35 @@ async fn superseded_work_is_abandoned_with_attribution_but_never_while_running()
         })
         .await
         .unwrap();
+    let stale_handoff = org
+        .request_owner_handoff(NewOwnerHandoff {
+            work_id: proposed,
+            attempt_id: None,
+            requested_by: "delivery-build",
+            category: OwnerHandoffCategory::Identity,
+            requested_action: "Authorize the superseded path",
+            prepared_state: "The obsolete provider page is prepared",
+            resume_condition: "The obsolete connection reports ready",
+        })
+        .await
+        .unwrap();
     org.abandon_work(proposed, "owner", "the review target moved")
         .await
         .unwrap();
     let row = org.get_work(proposed).await.unwrap().unwrap();
     assert_eq!(row.status, WorkStatus::Abandoned);
     assert!(row.resolution.contains("the review target moved"));
+    let retired_handoff = org
+        .list_owner_handoffs()
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|handoff| handoff.id == stale_handoff)
+        .unwrap();
+    assert_eq!(retired_handoff.state, OwnerHandoffState::Withdrawn);
+    assert!(retired_handoff
+        .resolution
+        .contains("Work was abandoned by owner"));
     assert!(org
         .list_events(10)
         .await

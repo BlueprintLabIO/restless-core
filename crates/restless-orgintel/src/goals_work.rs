@@ -424,10 +424,21 @@ impl OrgIntel {
             .await?;
         }
         for (sequence_no, gate) in gates.iter().enumerate() {
+            if !matches!(gate.stage, "focused" | "blind" | "cumulative")
+                || !(1..=7200).contains(&gate.timeout_seconds)
+                || gate
+                    .resources
+                    .iter()
+                    .any(|resource| !matches!(resource.as_str(), "port" | "display"))
+            {
+                return Err(OrgIntelError::InvalidWork(
+                    "initial gate stage, timeout or resources are invalid".into(),
+                ));
+            }
             sqlx::query(
                 "INSERT INTO work_gates \
-                 (id, work_id, name, cwd, command, created_by, sequence_no) \
-                 VALUES ($1,$2,$3,'@attempt',$4,$5,$6)",
+                 (id, work_id, name, cwd, command, created_by, sequence_no, stage, timeout_seconds, resources) \
+                 VALUES ($1,$2,$3,'@attempt',$4,$5,$6,$7,$8,$9)",
             )
             .bind(Uuid::new_v4())
             .bind(id)
@@ -442,6 +453,11 @@ impl OrgIntel {
                     OrgIntelError::InvalidWork("too many initial Work gates".into())
                 })?,
             )
+            .bind(gate.stage)
+            .bind(gate.timeout_seconds)
+            .bind(serde_json::to_value(gate.resources).map_err(|error| {
+                OrgIntelError::Db(sqlx::Error::Protocol(error.to_string()))
+            })?)
             .execute(&mut *tx)
             .await?;
         }

@@ -3,9 +3,247 @@
 //! `RESTLESS_TEST_DATABASE_URL` is available.
 
 use restless_orgintel::{
-    InitialWorkGate, NewArtifactRef, NewAttemptRecovery, NewWork, NewWorkGate, OrgIntel,
-    WorkAttemptState, WorkspaceSpec,
+    ArtifactRefState, InitialWorkGate, NewArtifactRef, NewAttemptRecovery, NewWork, NewWorkGate,
+    OrgIntel, WorkAttemptState, WorkspaceSpec,
 };
+
+#[tokio::test]
+async fn mutable_artifact_locator_has_one_available_version() {
+    let Ok(url) = std::env::var("RESTLESS_TEST_DATABASE_URL") else {
+        eprintln!("RESTLESS_TEST_DATABASE_URL unset; skipping artifact version scenario");
+        return;
+    };
+    let company = format!("artifact{}", uuid::Uuid::new_v4().simple());
+    let org = OrgIntel::ensure(&url, &company)
+        .await
+        .expect("ensure scratch company schema");
+    org.ensure_actor("owner", "owner", "owner", "The Owner")
+        .await
+        .unwrap();
+    org.ensure_actor("exec", "exec", "exec", "The Exec")
+        .await
+        .unwrap();
+    create_actor(&org, "evidence-writer", "writer").await;
+
+    let work = org
+        .add_work(NewWork {
+            owner_id: "evidence-writer",
+            title: "Publish a changing campaign ledger",
+            outcome: "one current attributable ledger version",
+            goal_id: None,
+            priority: 1,
+            expected_artifact: "/company/outputs/campaign.jsonl",
+            workspace: WorkspaceSpec::default(),
+            attempt_limit: Some(2),
+        })
+        .await
+        .unwrap();
+    let first = org
+        .claim_ready_work("first version")
+        .await
+        .unwrap()
+        .unwrap();
+    let old = NewArtifactRef {
+        kind: "output",
+        uri: "/company/outputs/campaign.jsonl",
+        note: "first version",
+        created_by: "evidence-writer",
+        work_id: Some(work),
+        attempt_id: Some(first.attempt_id),
+        digest: Some("sha256:old"),
+        source_commit: None,
+        runtime_generation: Some("test"),
+        label: "campaign ledger",
+    };
+    let old_id = org.link_work_artifact(old).await.unwrap();
+    let duplicate_id = org
+        .link_work_artifact(NewArtifactRef {
+            kind: "output",
+            uri: "/company/outputs/campaign.jsonl",
+            note: "replayed attachment",
+            created_by: "evidence-writer",
+            work_id: Some(work),
+            attempt_id: Some(first.attempt_id),
+            digest: Some("sha256:old"),
+            source_commit: None,
+            runtime_generation: Some("test"),
+            label: "campaign ledger",
+        })
+        .await
+        .unwrap();
+    assert_eq!(
+        duplicate_id, old_id,
+        "same-Attempt replay must be idempotent"
+    );
+    org.finish_work_attempt(
+        first.attempt_id,
+        WorkAttemptState::Blocked,
+        "output repair needed",
+    )
+    .await
+    .unwrap();
+    org.resume_work(work, "owner", "output location is writable")
+        .await
+        .unwrap();
+    let second = org
+        .claim_ready_work("publish replacement")
+        .await
+        .unwrap()
+        .unwrap();
+    let new_id = org
+        .link_work_artifact(NewArtifactRef {
+            kind: "output",
+            uri: "/company/outputs/campaign.jsonl",
+            note: "current version",
+            created_by: "evidence-writer",
+            work_id: Some(work),
+            attempt_id: Some(second.attempt_id),
+            digest: Some("sha256:new"),
+            source_commit: None,
+            runtime_generation: Some("test"),
+            label: "campaign ledger",
+        })
+        .await
+        .unwrap();
+
+    let versions = org.list_artifact_refs(Some(work)).await.unwrap();
+    assert_eq!(versions.len(), 2);
+    assert_eq!(
+        versions.iter().find(|row| row.id == old_id).unwrap().state,
+        ArtifactRefState::Superseded
+    );
+    assert_eq!(
+        versions.iter().find(|row| row.id == new_id).unwrap().state,
+        ArtifactRefState::Available
+    );
+    assert_eq!(
+        versions
+            .iter()
+            .filter(|row| row.state == ArtifactRefState::Available)
+            .count(),
+        1
+    );
+
+    org.finish_work_attempt(
+        second.attempt_id,
+        WorkAttemptState::Abandoned,
+        "test cleanup",
+    )
+    .await
+    .unwrap();
+    org.drop_schema().await.expect("drop scratch schema");
+}
+
+#[tokio::test]
+async fn successor_attempt_consumes_prior_same_revision_output_without_relabelling_its_producer() {
+    let Ok(url) = std::env::var("RESTLESS_TEST_DATABASE_URL") else {
+        eprintln!("RESTLESS_TEST_DATABASE_URL unset; skipping successor artifact scenario");
+        return;
+    };
+    let company = format!("successorartifact{}", uuid::Uuid::new_v4().simple());
+    let org = OrgIntel::ensure(&url, &company)
+        .await
+        .expect("ensure scratch company schema");
+    org.ensure_actor("exec", "exec", "exec", "The Exec")
+        .await
+        .unwrap();
+    create_actor(&org, "evidence-writer", "writer").await;
+
+    let work = org
+        .add_work(NewWork {
+            owner_id: "evidence-writer",
+            title: "Publish one evidence record",
+            outcome: "retain the exact artifact while narrowing its claim",
+            goal_id: None,
+            priority: 1,
+            expected_artifact: "/company/outputs/loop.md",
+            workspace: WorkspaceSpec {
+                repo: Some("product".into()),
+                base_ref: Some("main".into()),
+                integration_branch: None,
+                worktree: None,
+            },
+            attempt_limit: Some(1),
+        })
+        .await
+        .unwrap();
+    let first = org
+        .claim_ready_work("produce evidence")
+        .await
+        .unwrap()
+        .unwrap();
+    let candidate = "1234567890abcdef1234567890abcdef12345678";
+    let artifact = org
+        .link_work_artifact(NewArtifactRef {
+            kind: "output",
+            uri: "/company/outputs/loop.md",
+            note: "exact evidence version",
+            created_by: "evidence-writer",
+            work_id: Some(work),
+            attempt_id: Some(first.attempt_id),
+            digest: Some("sha256:exact"),
+            source_commit: Some(candidate),
+            runtime_generation: Some("test"),
+            label: "loop evidence",
+        })
+        .await
+        .unwrap();
+    let feedback = org
+        .send_work_message(
+            "exec",
+            "evidence-writer",
+            work,
+            "Keep the exact artifact; narrow only the conclusion drawn from it.",
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        org.finish_work_attempt(
+            first.attempt_id,
+            WorkAttemptState::Produced,
+            "the artifact exists but this terminal report predates direct feedback",
+        )
+        .await
+        .unwrap(),
+        WorkAttemptState::Produced
+    );
+
+    let successor = org
+        .claim_ready_work("consume corrected claim")
+        .await
+        .unwrap()
+        .expect("late feedback opens one successor revision without discarding output");
+    assert!(successor
+        .feedback
+        .iter()
+        .any(|message| message.id == feedback));
+    assert!(successor.inputs.iter().any(|input| input.id == artifact));
+    assert_eq!(successor.effective_base_ref.as_deref(), Some(candidate));
+    let snapshot = org.work_graph_snapshot().await.unwrap();
+    assert!(snapshot.attempt_inputs.iter().any(|input| {
+        input.attempt_id == successor.attempt_id && input.artifact_ref_id == artifact
+    }));
+    assert_eq!(
+        org.finish_work_attempt(
+            successor.attempt_id,
+            WorkAttemptState::Produced,
+            "validated the inherited artifact against the new feedback without changing it",
+        )
+        .await
+        .unwrap(),
+        WorkAttemptState::Produced,
+        "consuming an exact prior artifact is valid provenance; the successor need not pretend to produce it"
+    );
+    let artifacts = org.list_artifact_refs(Some(work)).await.unwrap();
+    assert_eq!(artifacts.len(), 1);
+    assert_eq!(artifacts[0].attempt_id, Some(first.attempt_id));
+    assert_eq!(
+        org.get_work(work).await.unwrap().unwrap().status,
+        restless_orgintel::WorkStatus::Completed
+    );
+
+    org.drop_schema().await.expect("drop scratch schema");
+}
 
 #[tokio::test]
 async fn same_repository_dependency_starts_from_the_exact_upstream_commit() {
@@ -293,10 +531,16 @@ async fn initial_work_gates_commit_atomically_and_follow_the_attempt_workspace()
                 InitialWorkGate {
                     name: "typecheck",
                     command: &check,
+                    stage: "focused",
+                    timeout_seconds: 900,
+                    resources: &[],
                 },
                 InitialWorkGate {
                     name: "build",
                     command: &build,
+                    stage: "cumulative",
+                    timeout_seconds: 900,
+                    resources: &[],
                 },
             ],
         )
@@ -386,10 +630,16 @@ async fn initial_work_gates_commit_atomically_and_follow_the_attempt_workspace()
                 InitialWorkGate {
                     name: "verify",
                     command: &check,
+                    stage: "cumulative",
+                    timeout_seconds: 900,
+                    resources: &[],
                 },
                 InitialWorkGate {
                     name: "verify",
                     command: &build,
+                    stage: "cumulative",
+                    timeout_seconds: 900,
+                    resources: &[],
                 },
             ],
         )
@@ -424,6 +674,12 @@ async fn unknown_attempt_recovery_is_one_capsule_addressed_to_the_accountable_le
         )
         .await
         .unwrap();
+    let commission = org
+        .consume_inbox_for_actor("product-direction")
+        .await
+        .unwrap();
+    assert_eq!(commission.len(), 1);
+    assert!(commission[0].body.contains(&team.to_string()));
     org.set_actor_team(
         "world-builder",
         Some(team),
@@ -446,7 +702,7 @@ async fn unknown_attempt_recovery_is_one_capsule_addressed_to_the_accountable_le
                 integration_branch: Some("dev".into()),
                 worktree: Some("crossing-recovery".into()),
             },
-            attempt_limit: Some(2),
+            attempt_limit: Some(1),
         })
         .await
         .unwrap();
@@ -577,6 +833,11 @@ async fn unknown_attempt_recovery_is_one_capsule_addressed_to_the_accountable_le
     )
     .await
     .unwrap();
+    assert_eq!(
+        org.get_work(work).await.unwrap().unwrap().attempt_limit,
+        Some(2),
+        "an explicit repaired resume grants exactly one attributable successor Attempt"
+    );
     let repaired = org
         .claim_ready_work("lead-approved repair")
         .await
@@ -650,6 +911,12 @@ async fn material_member_message_wakes_the_lead_and_late_direct_feedback_gets_a_
         )
         .await
         .unwrap();
+    let commission = org
+        .consume_inbox_for_actor("product-direction")
+        .await
+        .unwrap();
+    assert_eq!(commission.len(), 1);
+    assert!(commission[0].body.contains(&team.to_string()));
     org.set_actor_team(
         "world-builder",
         Some(team),
@@ -749,13 +1016,19 @@ async fn material_member_message_wakes_the_lead_and_late_direct_feedback_gets_a_
         )
         .await
         .unwrap(),
-        WorkAttemptState::Superseded,
-        "a member process cannot close Work after direct input arrived outside its frozen snapshot"
+        WorkAttemptState::Produced,
+        "late ordinary feedback preserves useful output and opens one successor revision"
     );
     let attempts = org.list_work_attempts(Some(work)).await.unwrap();
     assert_eq!(attempts.len(), 1);
-    assert_eq!(attempts[0].state, WorkAttemptState::Superseded);
-    assert!(attempts[0].summary.contains(&direct_decision.to_string()));
+    assert_eq!(attempts[0].state, WorkAttemptState::Produced);
+    assert!(org
+        .get_work(work)
+        .await
+        .unwrap()
+        .unwrap()
+        .resolution
+        .contains(&direct_decision.to_string()));
     assert_eq!(
         org.get_work(work).await.unwrap().unwrap().status,
         restless_orgintel::WorkStatus::Active,
@@ -775,7 +1048,8 @@ async fn material_member_message_wakes_the_lead_and_late_direct_feedback_gets_a_
         .unwrap()
         .expect("the changed direct feedback releases one successor Attempt");
     assert_eq!(successor.work.id, work);
-    assert_eq!(successor.attempt_no, 2);
+    assert_eq!(successor.work.revision, 2);
+    assert_eq!(successor.attempt_no, 1);
     assert!(successor.feedback.iter().any(|message| {
         message.id == direct_decision && message.body.contains("landing_zone_id")
     }));

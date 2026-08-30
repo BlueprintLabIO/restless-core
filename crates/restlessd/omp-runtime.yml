@@ -31,3 +31,10 @@ skills:
     - /company/skills
 autolearn:
   enabled: false
+# Restless owns provider continuity and durable cooldowns. Surface the first
+# provider refusal instead of hiding it behind OMP's default ten same-route
+# retries; otherwise a terminal quota can hold an actor forever and the Work
+# never reaches its durable blocked state.
+retry:
+  enabled: false
+  modelFallback: false

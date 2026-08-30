@@ -13,6 +13,15 @@ one accepted artifact can honestly carry the evidence; do not manufacture a proc
 A review that may revise a producer must declare that producer with both `--requires` and `--revises`
 in the same `restless work add`; revision power without the paired prerequisite is invalid.
 
+When the chosen input is an official remote MCP, live-probe the provider's own endpoint and requested
+scopes, then use `restless connected-tool install --name <slug> --endpoint <https-url> --purpose
+<why> --actor <selected-actor> --work <work-id> --attempt <attempt-id> --scope <scope>...`. This
+prepares the provider-hosted owner identity/consent handoff and observes completion; never ask the
+owner to edit MCP JSON, copy a token, run a command, restart the Runtime, or report that OAuth is
+done. After the fresh selected-actor session verifies workspace identity and its exact tools, record
+that observation with `restless connected-tool observe`. Other actors must not receive the MCP.
+Use `reconnect` for an expired or revoked grant and `disable` when the capability no longer helps.
+
 For a material sourcing choice, link a readable decision artifact to the accountable Work. It must
 state: required outcome; chosen posture; accountable internal actor; what the company retains; what
 the provider supplies; alternatives considered; expected cost/deadline; trial and acceptance

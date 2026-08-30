@@ -38,8 +38,9 @@ enum ActivityScope {
 
 type StreamKey = (String, String, ActivityScope);
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, ts_rs::TS)]
 #[serde(rename_all = "snake_case")]
+#[ts(rename_all = "snake_case")]
 pub enum AgentActivityPhase {
     Queued,
     Thinking,
@@ -58,8 +59,9 @@ impl AgentActivityPhase {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
 pub struct AgentActivityItem {
     pub id: String,
     pub kind: String,
@@ -71,8 +73,9 @@ pub struct AgentActivityItem {
     pub reply_offset: usize,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
 pub struct AgentContextUsage {
     pub used: u64,
     pub size: u64,
@@ -82,8 +85,9 @@ pub struct AgentContextUsage {
 /// A complete snapshot sent on each SSE event. Snapshot delivery lets an
 /// EventSource reconnect without rebuilding text from a potentially dropped
 /// delta.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
 pub struct AgentActivityState {
     pub stream_id: Uuid,
     pub sequence: u64,
@@ -104,12 +108,16 @@ pub struct AgentActivityState {
     pub completed_message_id: Option<i64>,
     pub error: Option<String>,
     #[serde(skip)]
+    #[ts(skip)]
     reply_message_id: Option<String>,
     #[serde(skip)]
+    #[ts(skip)]
     reply_pending: String,
     #[serde(skip)]
+    #[ts(skip)]
     suppress_reply_tail: bool,
     #[serde(skip)]
+    #[ts(skip)]
     last_incremental_emit: Instant,
 }
 
@@ -447,6 +455,36 @@ impl AgentActivityStreams {
         AgentActivityTurn { senders }
     }
 
+    /// End the live projection for one owner message immediately. The caller
+    /// is still responsible for cancelling the supervised process and marking
+    /// its durable input consumed; this registry owns only the reconnectable
+    /// ephemeral view.
+    pub fn interrupt_message(
+        &self,
+        company: &str,
+        actor: &str,
+        message_id: i64,
+        message: &str,
+    ) -> bool {
+        let key = (
+            company.to_string(),
+            actor.to_string(),
+            ActivityScope::Message(message_id),
+        );
+        let sender = self
+            .streams
+            .lock()
+            .ok()
+            .and_then(|streams| streams.get(&key).cloned());
+        sender.is_some_and(|sender| {
+            if !sender.borrow().phase.is_live() {
+                return false;
+            }
+            sender.send_modify(|state| state.fail(message));
+            true
+        })
+    }
+
     pub fn start_work(
         &self,
         company: &str,
@@ -659,5 +697,20 @@ mod tests {
         state.complete(Some(8), Some(2));
         assert_eq!(state.phase, AgentActivityPhase::Complete);
         assert_eq!(state.reply, "SSE smoke");
+    }
+
+    #[test]
+    fn interrupting_a_message_ends_its_live_snapshot_once() {
+        let streams = AgentActivityStreams::default();
+        streams.expect_message("company_test", "exec", 7, None);
+        let receiver = streams.subscribe("company_test", "exec", Some(7), None);
+
+        assert!(streams.interrupt_message("company_test", "exec", 7, "Interrupted by owner."));
+        assert_eq!(receiver.borrow().phase, AgentActivityPhase::Failed);
+        assert_eq!(
+            receiver.borrow().error.as_deref(),
+            Some("Interrupted by owner.")
+        );
+        assert!(!streams.interrupt_message("company_test", "exec", 7, "Interrupted again."));
     }
 }

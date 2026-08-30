@@ -81,6 +81,76 @@ async fn owner_queue(org: &OrgIntel) -> Vec<uuid::Uuid> {
 }
 
 #[tokio::test]
+async fn resolving_a_handoff_reopens_one_exhausted_attempt() {
+    let Ok(url) = std::env::var("RESTLESS_TEST_DATABASE_URL") else {
+        eprintln!("RESTLESS_TEST_DATABASE_URL unset; skipping handoff resume scenario");
+        return;
+    };
+    let company = format!("handoff_resume{}", std::process::id());
+    let org = OrgIntel::ensure(&url, &company)
+        .await
+        .expect("ensure schema");
+
+    org.ensure_actor("owner", "owner", "owner", "The Owner")
+        .await
+        .unwrap();
+    org.ensure_actor("exec", "exec", "exec", "The Exec")
+        .await
+        .unwrap();
+    org.ensure_actor("repair-producer", "staff", "producer", "Producer")
+        .await
+        .unwrap();
+
+    let work = work_for(&org, "repair-producer", "Run after a repaired mechanism").await;
+    let first = org
+        .claim_ready_work("initial mechanism")
+        .await
+        .unwrap()
+        .unwrap();
+    org.finish_work_attempt(
+        first.attempt_id,
+        restless_orgintel::WorkAttemptState::Failed,
+        "repository setup failed before productive work",
+    )
+    .await
+    .unwrap();
+
+    let handoff = judgement(&org, "repair-producer", work).await;
+    org.resolve_handoff_as(
+        handoff,
+        "exec",
+        OwnerHandoffState::Resolved,
+        "repository ownership repaired and worktree creation now passes",
+    )
+    .await
+    .unwrap();
+
+    let resumed = org.get_work(work).await.unwrap().unwrap();
+    assert_eq!(resumed.status, restless_orgintel::WorkStatus::Active);
+    assert_eq!(
+        resumed.attempt_limit,
+        Some(2),
+        "the resolved blocker must grant exactly one runnable successor"
+    );
+    let successor = org
+        .claim_ready_work("resolved mechanism")
+        .await
+        .unwrap()
+        .expect("resolved Work must be runnable rather than active-but-starved");
+    assert_eq!(successor.work.id, work);
+    assert_eq!(successor.attempt_no, 2);
+    org.finish_work_attempt(
+        successor.attempt_id,
+        restless_orgintel::WorkAttemptState::Abandoned,
+        "test cleanup",
+    )
+    .await
+    .unwrap();
+
+    org.drop_schema().await.expect("drop scratch schema");
+}
+
+#[tokio::test]
 async fn judgement_routes_to_the_lead_before_the_owner() {
     let Ok(url) = std::env::var("RESTLESS_TEST_DATABASE_URL") else {
         eprintln!("RESTLESS_TEST_DATABASE_URL unset; skipping escalation scenario");

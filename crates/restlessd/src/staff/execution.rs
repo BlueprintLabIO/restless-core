@@ -157,6 +157,7 @@ pub(super) async fn run_staff_with_failover(run: StaffRun) -> Result<StaffOutcom
             company: run.company.clone(),
             actor: run.actor.clone(),
             responsibility: run.responsibility.clone(),
+            attempt_id: run.attempt_id,
             org: run.org.clone(),
             name: run.name.clone(),
             task: run.task.clone(),
@@ -389,6 +390,7 @@ struct StaffBrief {
     company: String,
     actor: String,
     responsibility: String,
+    attempt_id: Option<uuid::Uuid>,
     org: restless_orgintel::OrgIntel,
     name: String,
     task: String,
@@ -493,6 +495,7 @@ async fn run_staff(
         company,
         actor,
         responsibility,
+        attempt_id,
         org,
         name,
         task,
@@ -644,6 +647,24 @@ async fn run_staff(
                             spent,
                             transcript.output_tokens,
                         ));
+                    }
+
+                    if let Some(attempt_id) = attempt_id {
+                        let feedback = org.checkpoint_attempt_feedback(attempt_id).await?;
+                        if !feedback.is_empty() {
+                            next = format!(
+                                "# Work feedback delivered at a safe checkpoint\n{}\n\nApply this feedback to the same Attempt. Preserve useful work already completed, then continue until the outcome is done or genuinely blocked.",
+                                feedback
+                                    .iter()
+                                    .map(|message| format!(
+                                        "- message {} from {}: {}",
+                                        message.id, message.from_actor, message.body
+                                    ))
+                                    .collect::<Vec<_>>()
+                                    .join("\n")
+                            );
+                            continue;
+                        }
                     }
 
                     // The Work termination envelope is deterministic internal
@@ -982,6 +1003,9 @@ mod live_product_tests {
         let gates = [InitialWorkGate {
             name: REVIEW_TARGET_LIVE_PROBE_GATE,
             command: &gate_command,
+            stage: "cumulative",
+            timeout_seconds: 900,
+            resources: &[],
         }];
         let new_work = NewWork {
             owner_id: "customer-writer",
@@ -1039,6 +1063,7 @@ mod live_product_tests {
             company: company.clone(),
             actor: "customer-writer".into(),
             responsibility: format!("work:{work_id}"),
+            attempt_id: Some(attempt_id),
             org: org.clone(),
             name: "Mira Chen".into(),
             task,
@@ -1113,6 +1138,7 @@ mod live_product_tests {
             company: company.clone(),
             actor: "customer-direction".into(),
             responsibility: format!("team:{team}"),
+            attempt_id: None,
             org: org.clone(),
             name: "Avery Holt".into(),
             task: lead_task,

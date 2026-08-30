@@ -28,6 +28,10 @@ pub const GOVERNANCE_KINDS: &[&str] = &[
     "approval_revoked",
     "lifecycle",
     "mandate_revision",
+    "provider_connection_requested",
+    "provider_connection_enabled",
+    "provider_connection_observed",
+    "provider_connection_disabled",
 ];
 
 const IMPORT_VERSION: i32 = 2;
@@ -161,6 +165,7 @@ impl AuthorityStore {
         crate::legal::ensure_schema(&pool).await?;
         crate::finance::ensure_schema(&pool).await?;
         crate::airwallex::ensure_schema(&pool).await?;
+        crate::connected_tool::ensure_schema(&pool).await?;
         Ok(Self { pool })
     }
 
@@ -517,6 +522,10 @@ impl AuthorityStore {
             .execute(&mut *tx)
             .await?;
         sqlx::query("DELETE FROM restless_authority.airwallex_connections WHERE company = $1")
+            .bind(company)
+            .execute(&mut *tx)
+            .await?;
+        sqlx::query("DELETE FROM restless_authority.provider_connections WHERE company = $1")
             .bind(company)
             .execute(&mut *tx)
             .await?;

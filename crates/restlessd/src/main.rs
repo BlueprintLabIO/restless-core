@@ -348,6 +348,7 @@ async fn main() -> Result<()> {
     // configuration before starting provider or scheduler work, so a plane
     // that cannot describe how it verifies fails here rather than serving.
     let owner_config = owner::OwnerConfig::from_env()?;
+    runtime::validate_company_image_config(owner_config.is_network())?;
 
     // Open authoritative charged-use accounting before the model relay. The
     // relay receives this exact ledger and is the only model path permitted to

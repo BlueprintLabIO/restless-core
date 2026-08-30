@@ -8,11 +8,13 @@ use std::sync::{Arc, Mutex};
 
 use anyhow::{bail, Context as _, Result};
 use restless_orgintel::{ClaimedWork, WorkAttemptState};
+use sha2::Digest as _;
 use tokio_util::sync::CancellationToken;
 
 mod context;
 mod conversation;
 mod execution;
+mod gates;
 mod recovery;
 mod workspace;
 
@@ -21,9 +23,11 @@ use crate::spend::SpendLedger;
 use context::{bound_attempt_context, shared_spine};
 pub use conversation::{dispatch_actor_conversation, ConversationRuntime};
 use execution::{run_staff_with_failover, StaffRun};
+pub(crate) use recovery::reconcile_execution_substrate;
 use recovery::{record_staff_outcome, record_unknown_recovery, StaffAttemptContext};
 use workspace::{
-    ensure_worktree, observe_workspace, recorded_start_observation, valid_slug, workdir_for,
+    cleanup_attempt_runtime, ensure_worktree, observe_workspace, recorded_start_observation,
+    valid_slug, workdir_for,
 };
 
 #[cfg(test)]
@@ -32,6 +36,7 @@ use context::{actor_posture, team_capacity_context, workspace_instruction};
 use conversation::{conversation_turn_prompt, internal_message_context};
 #[cfg(test)]
 use execution::{final_staff_usage, staff_spend_limit_reached, termination_prompt};
+use gates::reap_orphan_gate_processes;
 #[cfg(test)]
 use recovery::gate_cwd;
 #[cfg(test)]
@@ -40,6 +45,10 @@ use workspace::WorkspaceObservation;
 /// Resource guardrail, not a coordination policy. OrgIntel readiness and one
 /// live process per durable actor still determine which Staff may run.
 const STAFF_CAP_PER_COMPANY: usize = 100;
+const CONVERSATION_BACKOFF_FIRST: std::time::Duration = std::time::Duration::from_secs(30);
+const CONVERSATION_BACKOFF_CEILING: std::time::Duration = std::time::Duration::from_secs(300);
+type ActorKey = (String, String);
+type ConversationBackoff = (std::time::Instant, u32);
 /// (company, actor) pairs with a live supervised process.
 #[derive(Clone)]
 struct RunningStaff {
@@ -49,7 +58,12 @@ struct RunningStaff {
 
 #[derive(Clone, Default)]
 pub struct StaffRegistry {
-    running: Arc<Mutex<HashMap<(String, String), RunningStaff>>>,
+    running: Arc<Mutex<HashMap<ActorKey, RunningStaff>>>,
+    /// Coordination messages remain durable in OrgIntel. This local timer
+    /// only prevents one unavailable lead session from being relaunched on
+    /// every five-second scan; a daemon restart deliberately permits one new
+    /// recovery attempt.
+    conversation_backoff: Arc<Mutex<HashMap<ActorKey, ConversationBackoff>>>,
 }
 
 impl StaffRegistry {
@@ -101,6 +115,35 @@ impl StaffRegistry {
         if let Ok(mut running) = self.running.lock() {
             running.remove(&(company.to_string(), actor.to_string()));
         }
+    }
+
+    fn conversation_is_backing_off(&self, company: &str, actor: &str) -> bool {
+        self.conversation_backoff
+            .lock()
+            .map(|backoff| {
+                backoff
+                    .get(&(company.to_string(), actor.to_string()))
+                    .is_some_and(|(until, _)| std::time::Instant::now() < *until)
+            })
+            .unwrap_or(true)
+    }
+
+    fn record_conversation_wake(&self, company: &str, actor: &str, usable: bool) {
+        let Ok(mut backoff) = self.conversation_backoff.lock() else {
+            return;
+        };
+        let key = (company.to_string(), actor.to_string());
+        if usable {
+            backoff.remove(&key);
+            return;
+        }
+        let failures = backoff
+            .get(&key)
+            .map_or(1, |(_, failures)| failures.saturating_add(1));
+        let delay = CONVERSATION_BACKOFF_FIRST
+            .saturating_mul(1u32 << failures.saturating_sub(1).min(4))
+            .min(CONVERSATION_BACKOFF_CEILING);
+        backoff.insert(key, (std::time::Instant::now() + delay, failures));
     }
 
     /// Whether this durable actor currently has a supervised process. The
@@ -225,8 +268,39 @@ pub async fn dispatch_claimed_work(
         org.set_attempt_model(claimed.attempt_id, first_model)
             .await?;
         let workdir = if claimed.work.repo.is_some() {
-            ensure_worktree(config, &claimed.work, claimed.effective_base_ref.as_deref()).await?
+            ensure_worktree(
+                config,
+                &claimed.work,
+                claimed.effective_base_ref.as_deref(),
+                claimed.attempt_id,
+                org,
+            )
+            .await?
         } else {
+            let container_image = tokio::process::Command::new("docker")
+                .args(["inspect", "--format", "{{.Image}}", &container])
+                .output()
+                .await
+                .context("fingerprint non-repository Runtime")?;
+            if !container_image.status.success() {
+                bail!("could not fingerprint non-repository Runtime");
+            }
+            let environment = format!(
+                "{:x}",
+                sha2::Sha256::digest(
+                    String::from_utf8_lossy(&container_image.stdout)
+                        .trim()
+                        .as_bytes()
+                )
+            );
+            org.bind_attempt_execution_coordinates(
+                claimed.attempt_id,
+                None,
+                None,
+                None,
+                &environment,
+            )
+            .await?;
             "/company".to_string()
         };
         let accountable_lead = org
@@ -329,6 +403,8 @@ pub async fn dispatch_claimed_work(
             company: company.clone(),
             actor: actor.clone(),
             responsibility: format!("work:{work_id}"),
+            work_id: Some(work_id),
+            attempt_id: Some(attempt_id),
             name: name.clone(),
             task,
             turn_prompt,
@@ -396,6 +472,18 @@ pub async fn sweep_orphans(root: &std::path::Path, orgintel: &crate::OrgIntelReg
             continue;
         }
         let container = runtime::container_name(name);
+        match reap_orphan_gate_processes(&container).await {
+            Ok(reaped) if reaped > 0 => tracing::warn!(
+                company = name,
+                reaped,
+                "reaped governed gate process groups from before restart"
+            ),
+            Ok(_) => {}
+            Err(error) => tracing::warn!(
+                company = name,
+                "could not reap orphan governed gate processes: {error:#}"
+            ),
+        }
         let reaped = crate::acp::reap_orphan_sessions(&container).await;
         if reaped > 0 {
             tracing::warn!(
@@ -425,9 +513,26 @@ pub async fn sweep_orphans(root: &std::path::Path, orgintel: &crate::OrgIntelReg
             let start = recorded_start_observation(&org, attempt.id, &workdir).await;
             let end = observe_workspace(&container, &workdir).await;
             let note = "supervisor restarted; cognitive process was lost before trustworthy semantic completion";
-            if let Err(error) = record_unknown_recovery(&org, attempt.id, note, &start, &end).await
-            {
-                tracing::warn!(attempt = %attempt.id, "failed to preserve orphan recovery capsule: {error:#}");
+            match record_unknown_recovery(&org, attempt.id, note, &start, &end).await {
+                Ok(()) => {
+                    if let Err(error) = org
+                        .release_attempt_resources(
+                            attempt.id,
+                            "daemon restart closed orphaned Attempt",
+                        )
+                        .await
+                    {
+                        tracing::warn!(attempt = %attempt.id, "failed to release orphaned Attempt resources: {error:#}");
+                    }
+                    if let Err(error) =
+                        cleanup_attempt_runtime(&container, &workdir, attempt.id).await
+                    {
+                        tracing::warn!(attempt = %attempt.id, "failed to clean orphaned Attempt runtime: {error:#}");
+                    }
+                }
+                Err(error) => {
+                    tracing::warn!(attempt = %attempt.id, "failed to preserve orphan recovery capsule: {error:#}");
+                }
             }
         }
     }
@@ -443,7 +548,10 @@ mod tests {
     use crate::acp::TurnUsage;
     use crate::model_gateway::ModelBilling;
     use chrono::Utc;
-    use restless_orgintel::{ActorRow, ClaimedWork, MessageRow, TeamRow, WorkRow, WorkStatus};
+    use restless_orgintel::{
+        ActorRow, ArtifactRefRow, ArtifactRefState, ClaimedWork, MessageRow, TeamRow, WorkRow,
+        WorkStatus,
+    };
 
     #[test]
     fn accountable_lead_context_includes_its_small_current_team_without_a_staff_quota() {
@@ -652,6 +760,33 @@ mod tests {
             .get("active_team_capacity")
             .is_none());
 
+        claimed.inputs.push(ArtifactRefRow {
+            id: uuid::Uuid::new_v4(),
+            kind: "output".into(),
+            uri: "/company/outputs/playable-room.html".into(),
+            note: "prior exact version".into(),
+            created_by: "world-builder".into(),
+            work_id: Some(work_id),
+            attempt_id: Some(uuid::Uuid::new_v4()),
+            digest: Some("sha256:prior".into()),
+            source_commit: Some("1234567890abcdef1234567890abcdef12345678".into()),
+            runtime_generation: None,
+            label: "prior output".into(),
+            state: ArtifactRefState::Available,
+            created_at: Utc::now(),
+            superseded_at: None,
+        });
+        let (successor_context, _) = bound_attempt_context(
+            &claimed,
+            "world builder",
+            "/company/worktrees/work-bound-r1",
+            "cosmon_test",
+            false,
+        );
+        assert!(successor_context.contains("consumes same-Work output artifact"));
+        assert!(successor_context.contains("without re-linking or relabelling its producer"));
+        assert!(successor_context.contains("# Bound artifact versions [automatic]"));
+
         claimed.work.owner_review_required = true;
         let (review_context, _) = bound_attempt_context(
             &claimed,
@@ -684,6 +819,8 @@ mod tests {
         assert!(lead.contains("non-producing supervisor"));
         assert!(lead.contains("at least one Staff worker"));
         assert!(lead.contains("truthful attribution"));
+        assert!(lead.contains("terminal Staff callback is a decision boundary"));
+        assert!(lead.contains("Never leave an incomplete charter quiescent"));
         assert!(!lead.contains("You are a SPECIALIST"));
 
         let specialist = actor_posture(false);
@@ -721,6 +858,7 @@ mod tests {
         let start = WorkspaceObservation {
             workdir: missing.workdir.clone(),
             source_commit: Some("aaaaaaaa".into()),
+            source_tree: Some("tree-aaaaaaaa".into()),
             status_digest: Some("clean".into()),
             dirty_entries: 0,
         };
@@ -760,6 +898,22 @@ mod tests {
         assert!(registry.interrupt("company_test", "research-lead"));
         assert!(cancellation.is_cancelled());
         assert!(!registry.interrupt("company_test", "other-actor"));
+    }
+
+    #[test]
+    fn unusable_lead_wake_backs_off_without_consuming_its_durable_message() {
+        let registry = StaffRegistry::default();
+        assert!(!registry.conversation_is_backing_off("company_test", "delivery-lead"));
+
+        registry.record_conversation_wake("company_test", "delivery-lead", false);
+        assert!(registry.conversation_is_backing_off("company_test", "delivery-lead"));
+        assert!(
+            !registry.conversation_is_backing_off("company_test", "another-lead"),
+            "one oversized responsibility must not stall another department"
+        );
+
+        registry.record_conversation_wake("company_test", "delivery-lead", true);
+        assert!(!registry.conversation_is_backing_off("company_test", "delivery-lead"));
     }
 
     #[test]

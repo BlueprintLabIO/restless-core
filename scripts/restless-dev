@@ -162,6 +162,30 @@ dev() {
   cargo build --quiet --manifest-path "${STACK_REPO_ROOT}/Cargo.toml" \
     --target-dir "$STACK_TARGET_DIR" -p restlessd -p restless
 
+  # Local development owns its source build. The account plane only consumes
+  # an image reference, matching the hosted path where Fleet publishes and
+  # pins the Runtime artifact before asking a plane to reconcile it.
+  if [ "$STACK_RECONCILE" = "--reconcile" ]; then
+    local source_digest
+    source_digest="$(
+      cd "$STACK_REPO_ROOT"
+      find Cargo.toml Cargo.lock crates infra/company-image -type f -print \
+        | LC_ALL=C sort \
+        | while IFS= read -r image_input; do
+            printf '%s\0' "$image_input"
+            command cat "$image_input"
+            printf '\0'
+          done \
+        | shasum -a 256 \
+        | awk '{print $1}'
+    )"
+    docker build --quiet \
+      --file "${STACK_REPO_ROOT}/infra/company-image/Dockerfile" \
+      --tag restless-company-image:latest \
+      --label "io.restless.source-digest=${source_digest}" \
+      "$STACK_REPO_ROOT" >/dev/null
+  fi
+
   if [ "$(http_status "${STACK_WEB_URL}/${STACK_COMPANY}")" = "200" ]; then
     if [ "$STACK_RECONCILE" = "--reconcile" ]; then
       "${STACK_TARGET_DIR}/debug/restless" up -c "$STACK_COMPANY" --reconcile
@@ -217,9 +241,27 @@ if ! [[ "$STACK_COMPANY" =~ ^[a-z][a-z0-9_]{0,62}$ ]]; then
   exit 2
 fi
 
+# Resource debt is reported alongside the explicit doctor, not inside doctor()
+# — wait_for_doctor polls that up to 40 times and this shells out to Docker.
+# It reports and never changes doctor's exit status: debt is an operator
+# decision, and a stack that works should not fail its health check over it.
+report_resource_debt() {
+  local reaper="${STACK_SCRIPT_DIR}/restless-reap"
+  [ -x "$reaper" ] || return 0
+  printf '\n'
+  "$reaper" --check || true
+}
+
 case "$STACK_ACTION" in
   dev) dev ;;
-  doctor) doctor ;;
+  doctor)
+    # Report debt even when doctor fails — a degraded stack is exactly when
+    # accumulated resources are worth seeing. doctor still owns the exit code.
+    doctor_status=0
+    doctor || doctor_status=$?
+    report_resource_debt
+    exit "$doctor_status"
+    ;;
   help) usage ;;
   *) usage >&2; exit 2 ;;
 esac

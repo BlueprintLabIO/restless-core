@@ -36,8 +36,8 @@ pub(crate) struct LifecycleInput {
     pub(crate) from_company: Option<String>,
     #[serde(default)]
     pub(crate) destroy: bool,
-    /// Rebuild and reconcile the Company Runtime image. Docker remains a
-    /// Runtime implementation detail, not part of an owner transcript.
+    /// Fetch and reconcile the configured Company Runtime image. Building and
+    /// publishing the artifact is a release/Fleet concern.
     #[serde(default)]
     pub(crate) reconcile: bool,
 }
@@ -74,10 +74,44 @@ pub(crate) struct AuthorityInput {
     pub(crate) party: Option<String>,
 }
 
+#[derive(Debug, Default, Deserialize)]
+pub(crate) struct ConnectedToolInput {
+    #[serde(default)]
+    pub(crate) tool_name: Option<String>,
+    #[serde(default)]
+    pub(crate) endpoint: Option<String>,
+    #[serde(default)]
+    pub(crate) assigned_actor: Option<String>,
+    #[serde(default)]
+    pub(crate) work_id: Option<String>,
+    #[serde(default)]
+    pub(crate) attempt_id: Option<String>,
+    #[serde(default)]
+    pub(crate) requested_scopes: Vec<String>,
+    #[serde(default)]
+    pub(crate) workspace_reference: Option<String>,
+    #[serde(default)]
+    pub(crate) observed_tools: Vec<String>,
+}
+
 #[derive(Debug, Deserialize)]
 pub(crate) struct InitialWorkGateRequest {
     pub(crate) name: String,
     pub(crate) command: Vec<String>,
+    #[serde(default = "default_gate_stage")]
+    pub(crate) stage: String,
+    #[serde(default = "default_gate_timeout")]
+    pub(crate) timeout_seconds: i32,
+    #[serde(default)]
+    pub(crate) resources: Vec<String>,
+}
+
+fn default_gate_stage() -> String {
+    "cumulative".into()
+}
+
+fn default_gate_timeout() -> i32 {
+    900
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -141,6 +175,12 @@ pub(crate) struct OrgIntelInput {
     #[serde(default)]
     pub(crate) argv: Option<Vec<String>>,
     #[serde(default)]
+    pub(crate) stage: Option<String>,
+    #[serde(default)]
+    pub(crate) timeout_seconds: Option<i32>,
+    #[serde(default)]
+    pub(crate) resources: Vec<String>,
+    #[serde(default)]
     pub(crate) fire_at: Option<String>,
     #[serde(default)]
     pub(crate) include_fired: bool,
@@ -197,6 +237,8 @@ pub(crate) struct Request {
     pub(crate) lifecycle: LifecycleInput,
     #[serde(flatten)]
     pub(crate) authority: AuthorityInput,
+    #[serde(flatten)]
+    pub(crate) connected_tool: ConnectedToolInput,
     #[serde(flatten)]
     pub(crate) orgintel: OrgIntelInput,
     #[serde(flatten)]
@@ -257,7 +299,8 @@ fn command_fields(command: &str) -> Option<&'static [&'static str]> {
         "company-list" | "status" | "doctor" | "company-show" | "credential-check"
         | "legal-show" | "legal-probe" | "finance-show" | "finance-balances" | "finance-probe"
         | "orgintel-init" | "teams" | "spend" | "goals" | "work" | "work-graph"
-        | "clear-poison" | "attention" | "browser-status" | "browser-release" | "watch" => &[],
+        | "clear-poison" | "attention" | "browser-status" | "browser-release" | "watch"
+        | "connected-tools" => &[],
         "up" => &["from", "from_company", "reconcile"],
         "down" => &["destroy"],
         "company-create"
@@ -329,7 +372,16 @@ fn command_fields(command: &str) -> Option<&'static [&'static str]> {
             "source_commit",
             "label",
         ],
-        "work-gate" => &["id", "name", "cwd", "argv", "actor"],
+        "work-gate" => &[
+            "id",
+            "name",
+            "cwd",
+            "argv",
+            "actor",
+            "stage",
+            "timeout_seconds",
+            "resources",
+        ],
         "work-gate-retire" => &["id", "reason", "as_actor"],
         "work-handoff" => &[
             "id",
@@ -354,7 +406,7 @@ fn command_fields(command: &str) -> Option<&'static [&'static str]> {
             "deadline",
         ],
         "work-handoff-resolve" => &["id", "state", "resolution", "as_actor"],
-        "work-resume" | "work-abandon" => &["id", "as_actor", "reason"],
+        "work-interrupt" | "work-resume" | "work-abandon" => &["id", "as_actor", "reason"],
         "work-review" => &["id", "state", "resolution"],
         "inbox" => &["actor", "as_actor"],
         "message" => &["from", "to", "id", "body"],
@@ -375,6 +427,23 @@ fn command_fields(command: &str) -> Option<&'static [&'static str]> {
             "secret_bindings",
         ],
         "effect-reconcile" => &["key", "execution_no", "state", "id", "actor"],
+        "connected-tool-install" | "connected-tool-reconnect" => &[
+            "tool_name",
+            "endpoint",
+            "purpose",
+            "assigned_actor",
+            "work_id",
+            "attempt_id",
+            "requested_scopes",
+            "actor",
+        ],
+        "connected-tool-observe" => &[
+            "tool_name",
+            "workspace_reference",
+            "observed_tools",
+            "actor",
+        ],
+        "connected-tool-disable" => &["tool_name", "actor"],
         _ => return None,
     })
 }
@@ -655,6 +724,7 @@ mod tests {
             "work-handoff-refresh",
             "work-handoff-prepare-brief",
             "work-handoff-resolve",
+            "work-interrupt",
             "work-resume",
             "work-abandon",
             "work-review",
@@ -672,6 +742,11 @@ mod tests {
             "effect",
             "effect-reconcile",
             "watch",
+            "connected-tools",
+            "connected-tool-install",
+            "connected-tool-reconnect",
+            "connected-tool-observe",
+            "connected-tool-disable",
         ];
         for command in COMMANDS {
             assert!(
@@ -679,5 +754,28 @@ mod tests {
                 "dispatch command {command:?} has no checked input view"
             );
         }
+    }
+
+    #[test]
+    fn connected_tool_install_decodes_one_authority_owned_purpose() {
+        let request = Request::decode(
+            r#"{"cmd":"connected-tool-install","company":"exp12_attio_test","tool_name":"attio","endpoint":"https://mcp.attio.com/mcp","purpose":"Operate the tutoring-centre pipeline","assigned_actor":"crm-operations","work_id":"ebc5691f-f865-402c-8b31-d8389b5a9ea7","attempt_id":"59b6fd81-438d-48cd-992c-ccd4b0c7eb3f","requested_scopes":["openid","offline_access","mcp"],"actor":"crm-operations"}"#,
+        )
+        .expect("decode connected-tool install");
+
+        assert_eq!(
+            request.authority.purpose.as_deref(),
+            Some("Operate the tutoring-centre pipeline")
+        );
+        assert_eq!(request.connected_tool.tool_name.as_deref(), Some("attio"));
+        assert_eq!(
+            request.connected_tool.assigned_actor.as_deref(),
+            Some("crm-operations")
+        );
+        assert_eq!(request.orgintel.actor.as_deref(), Some("crm-operations"));
+        assert_eq!(
+            request.connected_tool.requested_scopes,
+            ["openid", "offline_access", "mcp"]
+        );
     }
 }

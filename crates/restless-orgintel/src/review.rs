@@ -467,12 +467,30 @@ impl OrgIntel {
         } else {
             "blocked"
         };
-        sqlx::query("UPDATE work SET status=$2::work_state, resolution=$3 WHERE id=$1")
-            .bind(work_id)
-            .bind(work_status)
-            .bind(resolution)
-            .execute(&mut *tx)
-            .await?;
+        // A resolved handoff is the same attributable mechanism change as an
+        // explicit `work resume`: it must release exactly one successor when
+        // the prior bounded allowance was consumed by a terminal Attempt.
+        // Do not extend a Work whose live Attempt is merely waiting for the
+        // answer; that same process receives the feedback and continues.
+        sqlx::query(
+            "UPDATE work SET status=$2::work_state, resolution=$3, \
+                    attempt_limit=CASE \
+                      WHEN $4 AND attempt_limit IS NOT NULL \
+                        AND NOT EXISTS (SELECT 1 FROM work_attempts a \
+                                        WHERE a.work_id=work.id AND a.state='running') \
+                        AND (SELECT count(*) FROM work_attempts a \
+                             WHERE a.work_id=work.id AND a.revision=work.revision \
+                               AND a.state <> 'superseded') >= attempt_limit \
+                        AND attempt_limit < 2147483647 \
+                      THEN attempt_limit + 1 ELSE attempt_limit END \
+             WHERE id=$1",
+        )
+        .bind(work_id)
+        .bind(work_status)
+        .bind(resolution)
+        .bind(state == OwnerHandoffState::Resolved)
+        .execute(&mut *tx)
+        .await?;
         tx.commit().await?;
         Ok(true)
     }

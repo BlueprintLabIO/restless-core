@@ -24,7 +24,58 @@ use tokio::process::{Child, ChildStdin, ChildStdout};
 use uuid::Uuid;
 
 pub const COMPANY_IMAGE: &str = "restless-company-image:latest";
+const COMPANY_IMAGE_ENV: &str = "RESTLESS_COMPANY_IMAGE";
 const SOURCE_DIGEST_LABEL: &str = "io.restless.source-digest";
+
+/// Resolve the company Runtime artifact the plane operates.
+///
+/// Local appliance development keeps the historical local tag. A hosted
+/// plane supplies the exact manifest digest through `RESTLESS_COMPANY_IMAGE`;
+/// the plane never resolves a release tag or builds Core source itself.
+fn company_image() -> String {
+    resolve_company_image(std::env::var(COMPANY_IMAGE_ENV).ok().as_deref())
+}
+
+fn resolve_company_image(configured: Option<&str>) -> String {
+    configured
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or(COMPANY_IMAGE)
+        .to_string()
+}
+
+fn is_immutable_image_digest(image: &str) -> bool {
+    let Some((repository, digest)) = image.rsplit_once("@sha256:") else {
+        return false;
+    };
+    !repository.is_empty()
+        && digest.len() == 64
+        && digest
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+}
+
+/// A network-reachable account plane is a Cloud release consumer. Refuse to
+/// start unless Fleet supplied the immutable Runtime artifact from its lock.
+pub(crate) fn validate_company_image_config(network_mode: bool) -> Result<()> {
+    if !network_mode {
+        return Ok(());
+    }
+    let configured = std::env::var(COMPANY_IMAGE_ENV).unwrap_or_default();
+    if configured.trim().is_empty() {
+        bail!(
+            "network entry mode requires {COMPANY_IMAGE_ENV}=<registry/repository>@sha256:<digest>; \
+             the account plane must consume the Runtime artifact pinned by Fleet"
+        );
+    }
+    if !is_immutable_image_digest(configured.trim()) {
+        bail!(
+            "{COMPANY_IMAGE_ENV} must be an immutable OCI digest in network entry mode, not {:?}",
+            configured.trim()
+        );
+    }
+    Ok(())
+}
 
 /// Per-company runtime resource bounds.
 ///
@@ -551,8 +602,9 @@ pub async fn status(company: &str) -> Result<ContainerStatus> {
 }
 
 /// Create if absent, start if stopped, no-op if running. With `reconcile`,
-/// rebuild the versioned company image from the current Restless source and
-/// replace an outdated container while keeping its named volume.
+/// fetch the configured company image and replace an outdated container while
+/// keeping its named volume. Building and publishing that image belongs to the
+/// release/Fleet path, not to the credential-holding account plane.
 pub async fn up(config: &CompanyConfig, reconcile: bool) -> Result<String> {
     let company = &config.name;
     // A company the account plane could not admit a model route for cannot
@@ -561,10 +613,11 @@ pub async fn up(config: &CompanyConfig, reconcile: bool) -> Result<String> {
     if let Some(reason) = crate::model_gateway::unstartable_reason(company) {
         bail!("company {company} cannot start: {reason}");
     }
-    let mut rebuilt = false;
+    let image = company_image();
+    let mut fetched = false;
     let mut replaced = false;
     if reconcile {
-        rebuilt = ensure_current_image().await?;
+        fetched = ensure_image_available(&image).await?;
         if status(company).await? != ContainerStatus::Absent
             && (container_uses_old_image(company).await?
                 || !container_uses_company_volume(company).await?)
@@ -596,14 +649,7 @@ pub async fn up(config: &CompanyConfig, reconcile: bool) -> Result<String> {
             let cpus = resource_bound("RESTLESS_COMPANY_CPUS", DEFAULT_CPUS);
             let memory = resource_bound("RESTLESS_COMPANY_MEMORY", DEFAULT_MEMORY);
             let pids = resource_bound("RESTLESS_COMPANY_PIDS_LIMIT", DEFAULT_PIDS_LIMIT);
-            let mut args: Vec<&str> = vec![
-                "run",
-                "-d",
-                "--name",
-                &name,
-                "--hostname",
-                company,
-            ];
+            let mut args: Vec<&str> = vec!["run", "-d", "--name", &name, "--hostname", company];
             if let Some(cpus) = cpus.as_deref() {
                 args.extend(["--cpus", cpus]);
             }
@@ -622,10 +668,7 @@ pub async fn up(config: &CompanyConfig, reconcile: bool) -> Result<String> {
             // already override this value; the persistent Runtime must receive
             // the same endpoint so ordinary bridge tools and doctor do not
             // silently talk to another plane (or fail while agent turns work).
-            let coordinator_env = format!(
-                "RESTLESS_COORDINATOR={}",
-                crate::runtime_coordinator()?
-            );
+            let coordinator_env = format!("RESTLESS_COORDINATOR={}", crate::runtime_coordinator()?);
             let volume_mount = format!("{volume}:/company");
             args.extend([
                 "-e",
@@ -634,15 +677,15 @@ pub async fn up(config: &CompanyConfig, reconcile: bool) -> Result<String> {
                 &coordinator_env,
                 "-v",
                 &volume_mount,
-                COMPANY_IMAGE,
+                &image,
             ]);
             run_ok(&args).await?;
         }
     }
     seed_mission(config).await?;
-    let suffix = match (rebuilt, replaced) {
-        (true, true) => " (image rebuilt; container replaced; volume kept)",
-        (true, false) => " (image rebuilt)",
+    let suffix = match (fetched, replaced) {
+        (true, true) => " (image fetched; container replaced; volume kept)",
+        (true, false) => " (image fetched)",
         (false, true) => " (container replaced; volume kept)",
         (false, false) if reconcile => " (runtime already current)",
         (false, false) => "",
@@ -704,6 +747,7 @@ pub async fn install_runtime_bridge_capability(company: &str, capability: &str) 
 
 /// Check the replaceable runtime image independently of an agent report.
 pub async fn doctor(company: &str) -> Result<RuntimeDoctor> {
+    let image = company_image();
     let container = status(company).await?;
     let volume = volume_name(company);
     let volume_exists = docker(&["volume", "inspect", &volume])
@@ -717,20 +761,26 @@ pub async fn doctor(company: &str) -> Result<RuntimeDoctor> {
     } else {
         inspect_value(&["inspect", "-f", "{{.Image}}", &container_name(company)]).await?
     };
-    let target_image_id =
-        inspect_value(&["image", "inspect", "-f", "{{.Id}}", COMPANY_IMAGE]).await?;
+    let target_image_id = inspect_value(&["image", "inspect", "-f", "{{.Id}}", &image]).await?;
     let image_source_digest = inspect_value(&[
         "image",
         "inspect",
         "-f",
         &format!("{{{{index .Config.Labels \"{SOURCE_DIGEST_LABEL}\"}}}}"),
-        COMPANY_IMAGE,
+        &image,
     ])
     .await?
     .filter(|value| value != "<no value>");
-    let source_digest = source_root()
-        .ok()
-        .and_then(|root| digest_source(&root).ok());
+    // Source comparison is a local-development diagnostic only. A released
+    // plane may contain no Core checkout and identifies the Runtime by the
+    // configured OCI digest instead.
+    let source_digest = (image == COMPANY_IMAGE)
+        .then(|| {
+            source_root()
+                .ok()
+                .and_then(|root| digest_source(&root).ok())
+        })
+        .flatten();
 
     let runtime_missing_or_stale = container == ContainerStatus::Absent
         || !volume_exists
@@ -747,8 +797,7 @@ pub async fn doctor(company: &str) -> Result<RuntimeDoctor> {
         ReconciliationStatus::Required
     } else if container_image_id.is_some()
         && target_image_id.is_some()
-        && source_digest.is_some()
-        && image_source_digest.is_some()
+        && (image != COMPANY_IMAGE || (source_digest.is_some() && image_source_digest.is_some()))
     {
         ReconciliationStatus::Current
     } else {
@@ -775,7 +824,7 @@ pub async fn doctor(company: &str) -> Result<RuntimeDoctor> {
         volume,
         volume_exists,
         volume_mounted,
-        image: COMPANY_IMAGE.to_string(),
+        image,
         container_image_id,
         target_image_id,
         source_digest,
@@ -1499,42 +1548,22 @@ pub async fn write_browser_control(company: &str, state: &serde_json::Value) -> 
     Ok(())
 }
 
-/// Build only when the image's source label differs. Docker remains the
-/// mature V0 lifecycle mechanism; the owner asks Restless to reconcile and
-/// never has to know the build invocation.
-async fn ensure_current_image() -> Result<bool> {
-    let root = source_root()?;
-    let digest = digest_source(&root)?;
-    let labelled = inspect_value(&[
-        "image",
-        "inspect",
-        "-f",
-        &format!("{{{{index .Config.Labels \"{SOURCE_DIGEST_LABEL}\"}}}}"),
-        COMPANY_IMAGE,
-    ])
-    .await?
-    .filter(|value| value != "<no value>");
-    if labelled.as_deref() == Some(digest.as_str()) {
+/// Ensure the release artifact selected by Fleet is present. This function is
+/// intentionally incapable of building from a source checkout: doing that in
+/// the plane would make the deployed Runtime differ from the pinned manifest.
+async fn ensure_image_available(image: &str) -> Result<bool> {
+    if inspect_value(&["image", "inspect", "-f", "{{.Id}}", image])
+        .await?
+        .is_some()
+    {
         return Ok(false);
     }
 
-    let dockerfile = root.join("infra/company-image/Dockerfile");
-    let output = tokio::process::Command::new("docker")
-        .arg("build")
-        .arg("--quiet")
-        .arg("--file")
-        .arg(&dockerfile)
-        .arg("--tag")
-        .arg(COMPANY_IMAGE)
-        .arg("--label")
-        .arg(format!("{SOURCE_DIGEST_LABEL}={digest}"))
-        .arg(&root)
-        .output()
-        .await
-        .with_context(|| format!("build company image from {}", root.display()))?;
+    let output = docker(&["pull", image]).await?;
     if !output.status.success() {
         bail!(
-            "company image build failed: {}",
+            "company image {image} is unavailable and could not be pulled: {}. \
+             Fleet must publish and pin it; local development can build it with scripts/restless-dev --reconcile",
             String::from_utf8_lossy(&output.stderr).trim()
         );
     }
@@ -1542,14 +1571,15 @@ async fn ensure_current_image() -> Result<bool> {
 }
 
 async fn container_uses_old_image(company: &str) -> Result<bool> {
+    let image = company_image();
     let name = container_name(company);
     let container_id = inspect_value(&["inspect", "-f", "{{.Image}}", &name]).await?;
-    let target_id = inspect_value(&["image", "inspect", "-f", "{{.Id}}", COMPANY_IMAGE]).await?;
+    let target_id = inspect_value(&["image", "inspect", "-f", "{{.Id}}", &image]).await?;
     Ok(match (container_id, target_id) {
         (Some(container_id), Some(target_id)) => container_id != target_id,
         // If the target disappeared after a successful build, state is
         // unknowable and replacement would be a guess.
-        (_, None) => bail!("company image {COMPANY_IMAGE} is unavailable after reconciliation"),
+        (_, None) => bail!("company image {image} is unavailable after reconciliation"),
         (None, Some(_)) => true,
     })
 }
@@ -1927,7 +1957,40 @@ pub fn state_root() -> PathBuf {
 
 #[cfg(test)]
 mod tests {
-    use super::{resolve_resource_bound, DEFAULT_CPUS, DEFAULT_MEMORY, DEFAULT_PIDS_LIMIT};
+    use super::{
+        is_immutable_image_digest, resolve_company_image, resolve_resource_bound, COMPANY_IMAGE,
+        DEFAULT_CPUS, DEFAULT_MEMORY, DEFAULT_PIDS_LIMIT,
+    };
+
+    #[test]
+    fn hosted_runtime_reference_accepts_only_an_exact_oci_digest() {
+        let digest = "a".repeat(64);
+        assert!(is_immutable_image_digest(&format!(
+            "registry.example/restless/company@sha256:{digest}"
+        )));
+        for mutable_or_malformed in [
+            "restless-company-image:latest",
+            "registry.example/restless/company:0.0.0",
+            "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "registry.example/restless/company@sha256:abc",
+            "registry.example/restless/company@sha256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        ] {
+            assert!(
+                !is_immutable_image_digest(mutable_or_malformed),
+                "accepted {mutable_or_malformed:?} as immutable"
+            );
+        }
+    }
+
+    #[test]
+    fn local_runtime_reference_keeps_the_appliance_default() {
+        assert_eq!(resolve_company_image(None), COMPANY_IMAGE);
+        assert_eq!(resolve_company_image(Some("  ")), COMPANY_IMAGE);
+        assert_eq!(
+            resolve_company_image(Some(" registry.example/company@sha256:abc ")),
+            "registry.example/company@sha256:abc"
+        );
+    }
 
     #[test]
     fn an_absent_override_keeps_the_default_bound() {

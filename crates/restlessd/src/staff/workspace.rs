@@ -31,6 +31,7 @@ pub(crate) fn valid_slug(slug: &str) -> bool {
 pub(crate) struct WorkspaceObservation {
     pub(crate) workdir: String,
     pub(crate) source_commit: Option<String>,
+    pub(crate) source_tree: Option<String>,
     pub(crate) status_digest: Option<String>,
     pub(crate) dirty_entries: usize,
 }
@@ -40,6 +41,7 @@ impl WorkspaceObservation {
         self.source_commit.is_some()
             && start.source_commit.is_some()
             && (self.source_commit != start.source_commit
+                || self.source_tree != start.source_tree
                 || self.status_digest != start.status_digest)
     }
 
@@ -49,7 +51,8 @@ impl WorkspaceObservation {
                 "{:x}",
                 Sha256::digest(
                     format!(
-                        "{commit}\\n{}\\n{}",
+                        "{commit}\\n{}\\n{}\\n{}",
+                        self.source_tree.as_deref().unwrap_or(""),
                         self.status_digest.as_deref().unwrap_or(""),
                         self.dirty_entries
                     )
@@ -136,6 +139,24 @@ async fn observe_git_workspace(command: &CompanyCommand, workdir: &str) -> Works
     }
     observation.source_commit = Some(commit);
 
+    let tree = command(vec![
+        "git".into(),
+        "-C".into(),
+        workdir.into(),
+        "rev-parse".into(),
+        "--verify".into(),
+        "HEAD^{tree}".into(),
+    ])
+    .await;
+    if let Ok(tree) = tree {
+        if tree.success {
+            let tree = String::from_utf8_lossy(&tree.stdout).trim().to_string();
+            if !tree.is_empty() {
+                observation.source_tree = Some(tree);
+            }
+        }
+    }
+
     let status = command(vec![
         "git".into(),
         "-C".into(),
@@ -202,6 +223,8 @@ pub(crate) async fn ensure_worktree(
     config: &CompanyConfig,
     work: &WorkRow,
     effective_base_ref: Option<&str>,
+    attempt_id: Uuid,
+    org: &restless_orgintel::OrgIntel,
 ) -> Result<String> {
     let container = runtime::container_name(&config.name);
     let repo = work.repo.as_deref().context("Work repo is missing")?;
@@ -210,6 +233,134 @@ pub(crate) async fn ensure_worktree(
         .rsplit('/')
         .next()
         .context("Work worktree path has no leaf")?;
+    let repo_path = format!("/company/repos/{repo}");
+    let runtime_root = format!("/company/run/attempts/{attempt_id}");
+    let normalise = tokio::process::Command::new("docker")
+        .args([
+            "exec",
+            "-u",
+            "0:0",
+            &container,
+            "sh",
+            "-c",
+            "set -eu; mkdir -p \"$2/cache\" \"$2/tmp\" \"$2/godot\" /company/worktrees /company/reviews; chown -R 2000:2000 \"$1\" \"$2\" /company/worktrees /company/reviews",
+            "restless-workspace",
+            &repo_path,
+            &runtime_root,
+        ])
+        .output()
+        .await
+        .context("normalise Attempt workspace ownership")?;
+    if !normalise.status.success() {
+        bail!(
+            "workspace ownership normalisation failed: {}",
+            String::from_utf8_lossy(&normalise.stderr)
+        );
+    }
+
+    let image = tokio::process::Command::new("docker")
+        .args(["inspect", "--format", "{{.Image}}", &container])
+        .output()
+        .await
+        .context("fingerprint Runtime image")?;
+    if !image.status.success() {
+        bail!("could not fingerprint Runtime image");
+    }
+    let environment_fingerprint = format!(
+        "{:x}",
+        Sha256::digest(String::from_utf8_lossy(&image.stdout).trim().as_bytes())
+    );
+
+    let attempt = org
+        .list_work_attempts(Some(work.id))
+        .await?
+        .into_iter()
+        .find(|attempt| attempt.id == attempt_id)
+        .context("Attempt disappeared before workspace materialisation")?;
+    if attempt.requested_source_ref.as_deref() != effective_base_ref {
+        bail!(
+            "Attempt requested source {:?}, but dispatch supplied {:?}",
+            attempt.requested_source_ref,
+            effective_base_ref
+        );
+    }
+    let requested_source_ref = attempt.requested_source_ref.clone();
+    let (exact_commit, exact_tree) = if attempt.materialized_at.is_some() {
+        let exact_commit = attempt
+            .source_commit
+            .context("materialized Attempt lost its exact source commit")?;
+        let exact_tree = attempt
+            .source_tree
+            .context("materialized Attempt lost its exact source tree")?;
+        // Rebinding is an idempotent verification. A changed Runtime image or
+        // source coordinate fails before any workspace or model process runs.
+        org.bind_attempt_execution_coordinates(
+            attempt_id,
+            requested_source_ref.as_deref(),
+            Some(&exact_commit),
+            Some(&exact_tree),
+            &environment_fingerprint,
+        )
+        .await?;
+        (exact_commit, exact_tree)
+    } else {
+        let requested = requested_source_ref.as_deref().unwrap_or("HEAD");
+        let resolved = tokio::process::Command::new("docker")
+            .args([
+                "exec",
+                "-u",
+                "company",
+                &container,
+                "git",
+                "-C",
+                &repo_path,
+                "rev-parse",
+                "--verify",
+                &format!("{requested}^{{commit}}"),
+            ])
+            .output()
+            .await
+            .context("resolve frozen Attempt source")?;
+        if !resolved.status.success() {
+            bail!(
+                "requested source {requested:?} is not an exact reachable commit: {}",
+                String::from_utf8_lossy(&resolved.stderr).trim()
+            );
+        }
+        let exact_commit = String::from_utf8_lossy(&resolved.stdout).trim().to_string();
+        let tree = tokio::process::Command::new("docker")
+            .args([
+                "exec",
+                "-u",
+                "company",
+                &container,
+                "git",
+                "-C",
+                &repo_path,
+                "rev-parse",
+                "--verify",
+                &format!("{exact_commit}^{{tree}}"),
+            ])
+            .output()
+            .await
+            .context("resolve frozen Attempt tree")?;
+        if !tree.status.success() {
+            bail!("could not resolve tree for source {exact_commit}");
+        }
+        let exact_tree = String::from_utf8_lossy(&tree.stdout).trim().to_string();
+        // Freeze the resolved symbolic ref before creating or reusing a
+        // mutable worktree. Later branch movement cannot change this Attempt.
+        org.bind_attempt_execution_coordinates(
+            attempt_id,
+            requested_source_ref.as_deref(),
+            Some(&exact_commit),
+            Some(&exact_tree),
+            &environment_fingerprint,
+        )
+        .await?;
+        (exact_commit, exact_tree)
+    };
+
     let exists = tokio::process::Command::new("docker")
         .args([
             "exec",
@@ -223,50 +374,9 @@ pub(crate) async fn ensure_worktree(
         .status()
         .await
         .context("probe Work worktree")?;
-    if exists.success() {
-        return Ok(path);
-    }
-    let mkdir = tokio::process::Command::new("docker")
-        .args([
-            "exec",
-            "-u",
-            "company",
-            &container,
-            "mkdir",
-            "-p",
-            "/company/worktrees",
-        ])
-        .output()
-        .await
-        .context("create worktree directory")?;
-    if !mkdir.status.success() {
-        bail!(
-            "worktree directory failed: {}",
-            String::from_utf8_lossy(&mkdir.stderr)
-        );
-    }
-    let branch = format!("work/{leaf}");
-    let mut command = tokio::process::Command::new("docker");
-    command.args([
-        "exec",
-        "-u",
-        "company",
-        &container,
-        "git",
-        "-C",
-        &format!("/company/repos/{repo}"),
-        "worktree",
-        "add",
-        &path,
-        "-b",
-        &branch,
-    ]);
-    if let Some(base) = effective_base_ref {
-        command.arg(base);
-    }
-    let output = command.output().await.context("create Work worktree")?;
-    if !output.status.success() {
-        let reuse = tokio::process::Command::new("docker")
+    if !exists.success() {
+        let branch = format!("work/{leaf}");
+        let output = tokio::process::Command::new("docker")
             .args([
                 "exec",
                 "-u",
@@ -274,22 +384,75 @@ pub(crate) async fn ensure_worktree(
                 &container,
                 "git",
                 "-C",
-                &format!("/company/repos/{repo}"),
+                &repo_path,
                 "worktree",
                 "add",
                 &path,
+                "-b",
                 &branch,
+                &exact_commit,
             ])
             .output()
             .await
-            .context("reuse Work branch")?;
-        if !reuse.status.success() {
-            bail!(
-                "worktree setup failed: {}",
-                String::from_utf8_lossy(&reuse.stderr)
-            );
+            .context("create Work worktree")?;
+        if !output.status.success() {
+            let reuse = tokio::process::Command::new("docker")
+                .args([
+                    "exec", "-u", "company", &container, "git", "-C", &repo_path, "worktree",
+                    "add", &path, &branch,
+                ])
+                .output()
+                .await
+                .context("reuse Work branch")?;
+            if !reuse.status.success() {
+                bail!(
+                    "worktree setup failed: {}",
+                    String::from_utf8_lossy(&reuse.stderr)
+                );
+            }
         }
     }
+
+    let observed = observe_workspace(&container, &path).await;
+    if observed.source_commit.as_deref() != Some(exact_commit.as_str())
+        || observed.source_tree.as_deref() != Some(exact_tree.as_str())
+    {
+        bail!(
+            "materialized workspace differs from requested source: requested {exact_commit}/{exact_tree}, observed {}/{}",
+            observed.source_commit.as_deref().unwrap_or("missing"),
+            observed.source_tree.as_deref().unwrap_or("missing")
+        );
+    }
+    let cache = tokio::process::Command::new("docker")
+        .args([
+            "exec",
+            "-u",
+            "company",
+            &container,
+            "sh",
+            "-c",
+            "set -eu; if [ -f \"$1/project.godot\" ]; then mkdir -p \"$2/godot\"; if [ ! -e \"$1/.godot\" ] && [ ! -L \"$1/.godot\" ]; then ln -s \"$2/godot\" \"$1/.godot\"; fi; common=$(git -C \"$1\" rev-parse --git-common-dir); mkdir -p \"$common/info\"; grep -qxF .godot \"$common/info/exclude\" 2>/dev/null || printf '.godot\\n' >> \"$common/info/exclude\"; fi",
+            "restless-cache",
+            &path,
+            &runtime_root,
+        ])
+        .output()
+        .await
+        .context("externalise Attempt caches")?;
+    if !cache.status.success() {
+        bail!(
+            "could not externalise Attempt cache: {}",
+            String::from_utf8_lossy(&cache.stderr)
+        );
+    }
+    org.bind_attempt_execution_coordinates(
+        attempt_id,
+        requested_source_ref.as_deref(),
+        Some(&exact_commit),
+        Some(&exact_tree),
+        &environment_fingerprint,
+    )
+    .await?;
     Ok(path)
 }
 
@@ -301,8 +464,8 @@ pub(crate) struct PreparedReviewCopy {
     pub(crate) source_after: WorkspaceObservation,
 }
 
-fn review_workdir_for(attempt_id: Uuid) -> String {
-    format!("/company/reviews/attempt-{}", attempt_id.simple())
+fn review_workdir_for(source_commit: &str) -> String {
+    format!("/company/reviews/git/{source_commit}")
 }
 
 fn valid_commit(commit: &str) -> bool {
@@ -445,6 +608,39 @@ pub(crate) async fn promote_integration_commit(
     .await
 }
 
+/// Remove only transient state owned by one exact Attempt. The source
+/// worktree and Git checkpoint remain available for recovery/review.
+pub(crate) async fn cleanup_attempt_runtime(
+    container: &str,
+    workdir: &str,
+    attempt_id: Uuid,
+) -> Result<()> {
+    let attempt = attempt_id.to_string();
+    let output = tokio::process::Command::new("docker")
+        .args([
+            "exec",
+            "-u",
+            "root",
+            container,
+            "sh",
+            "-lc",
+            "if test -L \"$1/.godot\"; then rm -f \"$1/.godot\"; fi; rm -rf \"/company/run/attempts/$2\" \"/company/run/gates/$2\"",
+            "attempt-cleanup",
+            workdir,
+            &attempt,
+        ])
+        .output()
+        .await
+        .context("clean exact Attempt Runtime state")?;
+    if !output.status.success() {
+        bail!(
+            "clean exact Attempt Runtime state: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        );
+    }
+    Ok(())
+}
+
 async fn review_copy_is_exact(
     command: &CompanyCommand,
     review_workdir: &str,
@@ -560,17 +756,42 @@ pub(crate) async fn prepare_review_copy(
         bail!("invalid completed Work repo {repo:?}");
     }
     let source_workdir = workdir_for(work)?;
-    let review_workdir = review_workdir_for(attempt_id);
+    let review_workdir = review_workdir_for(source_commit);
     let repo_path = format!("/company/repos/{repo}");
     let command = docker_company_command(container);
-    prepare_review_copy_with(
+    let prepared = prepare_review_copy_with(
         &*command,
         &source_workdir,
         &repo_path,
         &review_workdir,
         source_commit,
     )
-    .await
+    .await?;
+    require_success(
+        &*command,
+        vec![
+            "mkdir".into(),
+            "-p".into(),
+            "/company/reviews/by-attempt".into(),
+        ],
+        "create review alias directory",
+    )
+    .await?;
+    let alias = format!("/company/reviews/by-attempt/{}", attempt_id.simple());
+    let existing = command(vec!["readlink".into(), alias.clone()]).await?;
+    if existing.success {
+        if String::from_utf8_lossy(&existing.stdout).trim() != review_workdir {
+            bail!("review alias {alias} already resolves to different immutable content");
+        }
+    } else {
+        require_success(
+            &*command,
+            vec!["ln".into(), "-s".into(), review_workdir, alias],
+            "create immutable review alias",
+        )
+        .await?;
+    }
+    Ok(prepared)
 }
 
 #[cfg(test)]

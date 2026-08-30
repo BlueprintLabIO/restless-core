@@ -59,6 +59,52 @@ async fn judgement_from(org: &OrgIntel, by: &str, work: uuid::Uuid) -> uuid::Uui
     .unwrap()
 }
 
+#[tokio::test]
+async fn accountable_lead_can_reply_to_owner_for_staff_work() {
+    let Some(org) = company("leadreply").await else {
+        eprintln!("RESTLESS_TEST_DATABASE_URL unset; skipping lead-reply scenario");
+        return;
+    };
+    org.ensure_actor("game-product", "staff", "lead", "Game lead")
+        .await
+        .unwrap();
+    org.ensure_actor("gameplay-build", "staff", "builder", "Gameplay builder")
+        .await
+        .unwrap();
+    let team = org
+        .create_team(
+            "Game product",
+            "own the playable result",
+            "game-product",
+            "exec",
+        )
+        .await
+        .unwrap();
+    org.set_actor_team(
+        "gameplay-build",
+        Some(team),
+        "exec",
+        "the builder owns implementation under the accountable lead",
+    )
+    .await
+    .unwrap();
+    let work = work_for(&org, "gameplay-build").await;
+
+    let message = org
+        .send_work_message_to_owner(
+            "game-product",
+            work,
+            "The team repaired the route-zero rejection and the exact candidate is ready.",
+        )
+        .await
+        .expect("the accountable lead speaks for Staff-owned Work");
+    assert_eq!(org.message_work_id(message).await.unwrap(), Some(work));
+    assert!(org
+        .send_work_message_to_owner("exec", work, "I am not this Work's accountable lead.")
+        .await
+        .is_err());
+}
+
 /// The exact reported failure. A judgement sits assigned to the Exec; Exec is
 /// given it once; it stays pending because Exec did not settle it that turn.
 /// Under the watermark it never triggered a wake again. It must stay owed until

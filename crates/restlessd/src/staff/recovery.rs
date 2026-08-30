@@ -5,11 +5,14 @@
 
 use anyhow::{Context as _, Result};
 use restless_orgintel::{NewAttemptRecovery, WorkAttemptState};
-use sha2::{Digest as _, Sha256};
+use sha2::Digest as _;
 
 use crate::exec::Termination;
 
-use super::workspace::{observe_workspace, promote_integration_commit, WorkspaceObservation};
+use super::gates::run_gates;
+use super::workspace::{
+    cleanup_attempt_runtime, observe_workspace, promote_integration_commit, WorkspaceObservation,
+};
 
 /// Close the exact Attempt that launched this process. Completion is accepted
 /// only after its declared artifact and deterministic gates are observed.
@@ -211,6 +214,9 @@ pub(super) async fn record_staff_outcome(
             }
         };
         if terminal_fact_recorded {
+            org.release_attempt_resources(attempt_id, "Attempt reached terminal state")
+                .await?;
+            cleanup_attempt_runtime(container, workdir, attempt_id).await?;
             org.flush_terminal_supervisor_notices(16).await?;
         }
         anyhow::Ok(())
@@ -218,6 +224,72 @@ pub(super) async fn record_staff_outcome(
     if let Err(error) = record.await {
         tracing::error!(staff = name, "failed to record staff outcome: {error:#}");
     }
+}
+
+/// Reconcile journals and leases after a scheduler restart. A pending Git
+/// promotion is idempotently replayed from its exact commit; no model is
+/// asked to rediscover or narrate the mechanical repair.
+pub(crate) async fn reconcile_execution_substrate(
+    org: &restless_orgintel::OrgIntel,
+    container: &str,
+) -> Result<()> {
+    let released = org.reconcile_runtime_resources().await?;
+    if released > 0 {
+        tracing::warn!(released, "released stale Runtime resource leases");
+    }
+    for promotion in org.pending_candidate_promotions().await? {
+        match promote_integration_commit(
+            container,
+            &promotion.repo,
+            &promotion.integration_branch,
+            &promotion.source_commit,
+        )
+        .await
+        {
+            Ok(_) => {
+                org.finish_candidate_promotion(promotion.id, true, None)
+                    .await?;
+                if org
+                    .list_work_attempts(Some(promotion.work_id))
+                    .await?
+                    .iter()
+                    .any(|attempt| {
+                        attempt.id == promotion.attempt_id
+                            && attempt.state == WorkAttemptState::Running
+                    })
+                {
+                    org.finish_work_attempt(
+                        promotion.attempt_id,
+                        WorkAttemptState::Produced,
+                        "exact candidate promotion recovered after Runtime restart",
+                    )
+                    .await?;
+                }
+            }
+            Err(error) => {
+                let failure = format!("restart promotion reconciliation failed: {error:#}");
+                org.finish_candidate_promotion(promotion.id, false, Some(&failure))
+                    .await?;
+                if org
+                    .list_work_attempts(Some(promotion.work_id))
+                    .await?
+                    .iter()
+                    .any(|attempt| {
+                        attempt.id == promotion.attempt_id
+                            && attempt.state == WorkAttemptState::Running
+                    })
+                {
+                    org.finish_work_attempt(
+                        promotion.attempt_id,
+                        WorkAttemptState::Failed,
+                        &failure,
+                    )
+                    .await?;
+                }
+            }
+        }
+    }
+    Ok(())
 }
 
 /// Apply one Staff actor's structured result to its claimed Attempt. Leads
@@ -241,7 +313,88 @@ async fn finish_claimed_attempt(
                 .get_work(work_id)
                 .await?
                 .context("claimed Work disappeared")?;
-            let artifacts = org.list_artifact_refs(Some(work_id)).await?;
+            let mut artifacts = org.list_artifact_refs(Some(work_id)).await?;
+            if !work.expected_artifact.trim().is_empty()
+                && work.repo.is_none()
+                && work.expected_artifact.starts_with("/company/")
+                && !artifacts.iter().any(|artifact| {
+                    artifact.attempt_id == Some(attempt_id)
+                        && artifact.state == restless_orgintel::ArtifactRefState::Available
+                })
+            {
+                let digest = tokio::process::Command::new("docker")
+                    .args([
+                        "exec",
+                        "-u",
+                        "company",
+                        container,
+                        "sha256sum",
+                        "--",
+                        &work.expected_artifact,
+                    ])
+                    .output()
+                    .await
+                    .context("observe declared file artifact")?;
+                if digest.status.success() {
+                    let digest = String::from_utf8_lossy(&digest.stdout)
+                        .split_whitespace()
+                        .next()
+                        .unwrap_or_default()
+                        .to_string();
+                    if digest.len() == 64 {
+                        org.link_work_artifact(restless_orgintel::NewArtifactRef {
+                            kind: "file",
+                            uri: &work.expected_artifact,
+                            note: "Runtime-linked exact declared file; no model bookkeeping turn required.",
+                            created_by: &work.owner_id,
+                            work_id: Some(work_id),
+                            attempt_id: Some(attempt_id),
+                            digest: Some(&digest),
+                            source_commit: None,
+                            runtime_generation: None,
+                            label: &work.expected_artifact,
+                        })
+                        .await?;
+                        artifacts = org.list_artifact_refs(Some(work_id)).await?;
+                    }
+                }
+            }
+            if !work.expected_artifact.trim().is_empty()
+                && work.repo.is_some()
+                && end_observation.dirty_entries == 0
+                && !artifacts.iter().any(|artifact| {
+                    artifact.attempt_id == Some(attempt_id)
+                        && artifact.state == restless_orgintel::ArtifactRefState::Available
+                })
+            {
+                let commit = end_observation
+                    .source_commit
+                    .as_deref()
+                    .context("repository outcome has no exact commit")?;
+                let tree = end_observation
+                    .source_tree
+                    .as_deref()
+                    .context("repository outcome has no exact tree")?;
+                let uri = format!(
+                    "git:/company/repos/{}#{commit}",
+                    work.repo.as_deref().unwrap_or_default()
+                );
+                org.link_work_artifact(restless_orgintel::NewArtifactRef {
+                    kind: "repository_tree",
+                    uri: &uri,
+                    note:
+                        "Runtime-linked exact clean candidate; no model bookkeeping turn required.",
+                    created_by: &work.owner_id,
+                    work_id: Some(work_id),
+                    attempt_id: Some(attempt_id),
+                    digest: Some(tree),
+                    source_commit: Some(commit),
+                    runtime_generation: None,
+                    label: &work.expected_artifact,
+                })
+                .await?;
+                artifacts = org.list_artifact_refs(Some(work_id)).await?;
+            }
             let observed = work.expected_artifact.trim().is_empty()
                 || artifacts.iter().any(|artifact| {
                     artifact.attempt_id == Some(attempt_id)
@@ -278,14 +431,91 @@ async fn finish_claimed_attempt(
                     "repository Work completed without an artifact bound to its clean terminal commit",
                 )
                 .await?;
-            } else if run_gates(org, container, work_id, attempt_id, workdir).await? {
+            } else {
+                let candidate_identity = end_observation
+                    .source_tree
+                    .clone()
+                    .or_else(|| {
+                        let mut digests = artifacts
+                            .iter()
+                            .filter(|artifact| artifact.attempt_id == Some(attempt_id))
+                            .filter_map(|artifact| artifact.digest.clone())
+                            .collect::<Vec<_>>();
+                        digests.sort();
+                        (!digests.is_empty()).then(|| {
+                            format!("{:x}", sha2::Sha256::digest(digests.join("\n").as_bytes()))
+                        })
+                    })
+                    .unwrap_or_else(|| format!("attempt:{attempt_id}"));
+                let gates_passed = match run_gates(
+                    org,
+                    container,
+                    work_id,
+                    attempt_id,
+                    workdir,
+                    &candidate_identity,
+                )
+                .await
+                {
+                    Ok(passed) => passed,
+                    Err(error) => {
+                        org.finish_work_attempt(
+                            attempt_id,
+                            WorkAttemptState::Failed,
+                            &format!("governed gate infrastructure failed: {error:#}"),
+                        )
+                        .await?;
+                        return Ok(());
+                    }
+                };
+                if !gates_passed {
+                    org.finish_work_attempt(
+                        attempt_id,
+                        WorkAttemptState::Failed,
+                        "one or more deterministic Work gates failed",
+                    )
+                    .await?;
+                    return Ok(());
+                }
                 if let (Some(repo), Some(branch), Some(commit)) = (
                     work.repo.as_deref(),
                     work.integration_branch.as_deref(),
                     end_observation.source_commit.as_deref(),
                 ) {
+                    let tree = end_observation
+                        .source_tree
+                        .as_deref()
+                        .context("promotable candidate has no exact tree")?;
+                    let manifest = serde_json::json!({
+                        "work_id": work_id,
+                        "attempt_id": attempt_id,
+                        "source_commit": commit,
+                        "source_tree": tree,
+                        "artifacts": artifacts.iter().filter(|artifact| {
+                            artifact.attempt_id == Some(attempt_id)
+                                && artifact.state == restless_orgintel::ArtifactRefState::Available
+                        }).map(|artifact| serde_json::json!({
+                            "id": artifact.id,
+                            "kind": artifact.kind,
+                            "uri": artifact.uri,
+                            "digest": artifact.digest,
+                        })).collect::<Vec<_>>(),
+                    });
+                    let promotion = org
+                        .begin_candidate_promotion(restless_orgintel::NewCandidatePromotion {
+                            work_id,
+                            attempt_id,
+                            repo,
+                            integration_branch: branch,
+                            source_commit: commit,
+                            source_tree: tree,
+                            manifest: &manifest,
+                        })
+                        .await?;
                     match promote_integration_commit(container, repo, branch, commit).await {
                         Ok(promoted) => {
+                            org.finish_candidate_promotion(promotion.id, true, None)
+                                .await?;
                             org.emit_event(
                                 "work_artifact_promoted",
                                 Some(&work.owner_id),
@@ -301,6 +531,12 @@ async fn finish_claimed_attempt(
                             .await?;
                         }
                         Err(error) => {
+                            org.finish_candidate_promotion(
+                                promotion.id,
+                                false,
+                                Some(&format!("{error:#}")),
+                            )
+                            .await?;
                             org.finish_work_attempt(
                                 attempt_id,
                                 WorkAttemptState::Failed,
@@ -313,13 +549,6 @@ async fn finish_claimed_attempt(
                 }
                 org.finish_work_attempt(attempt_id, WorkAttemptState::Produced, summary)
                     .await?;
-            } else {
-                org.finish_work_attempt(
-                    attempt_id,
-                    WorkAttemptState::Failed,
-                    "one or more deterministic Work gates failed",
-                )
-                .await?;
             }
         }
         Termination::ChangesRequested => {
@@ -340,44 +569,6 @@ async fn finish_claimed_attempt(
         }
     }
     Ok(())
-}
-
-async fn run_gates(
-    org: &restless_orgintel::OrgIntel,
-    container: &str,
-    work_id: uuid::Uuid,
-    attempt_id: uuid::Uuid,
-    workdir: &str,
-) -> Result<bool> {
-    let gates = org.list_work_gates(work_id).await?;
-    for gate in gates {
-        let argv: Vec<String> = serde_json::from_value(gate.command.clone())
-            .with_context(|| format!("gate {} has invalid argv", gate.name))?;
-        let (program, args) = argv.split_first().context("gate command is empty")?;
-        let cwd = gate_cwd(&gate.cwd, workdir);
-        let output = tokio::process::Command::new("docker")
-            .args(["exec", "-u", "company", "-w", cwd, container, program])
-            .args(args)
-            .output()
-            .await
-            .with_context(|| format!("run gate {}", gate.name))?;
-        let combined = format!(
-            "{}{}",
-            String::from_utf8_lossy(&output.stdout),
-            String::from_utf8_lossy(&output.stderr)
-        );
-        let digest = format!("{:x}", Sha256::digest(combined.as_bytes()));
-        org.record_gate_run(restless_orgintel::NewGateRun {
-            gate_id: gate.id,
-            attempt_id,
-            exit_code: output.status.code(),
-            output_digest: &digest,
-            output_excerpt: &combined.chars().take(2_000).collect::<String>(),
-            passed: output.status.success(),
-        })
-        .await?;
-    }
-    Ok(org.gates_passed(work_id, attempt_id).await?)
 }
 
 pub(super) fn gate_cwd<'a>(declared: &'a str, attempt_workdir: &'a str) -> &'a str {
@@ -446,6 +637,9 @@ mod tests {
         )
         .await
         .unwrap();
+        for message in org.inbox(Some("opportunity-direction")).await.unwrap() {
+            org.mark_read(message.id).await.unwrap();
+        }
         let work_id = org
             .add_work(NewWork {
                 owner_id: "opportunity-research",

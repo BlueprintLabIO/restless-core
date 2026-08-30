@@ -411,7 +411,13 @@ pub async fn project(
         let brief = handoff.owner_brief.as_ref();
         let mut evidence = Vec::new();
         let mut seen = HashSet::new();
-        let mut review_artifact = None;
+        // Select the review target independently of evidence de-duplication.
+        // Multiple attempts commonly publish the same runtime URL; if the old
+        // attempt is encountered first it must not consume that URL and hide
+        // the current attempt's ReviewTarget (S22-T5).
+        let review_artifact = work_graph.as_ref().and_then(|graph| {
+            select_review_artifact(&graph.artifacts, handoff.work_id, handoff.attempt_id).cloned()
+        });
         // Treat an externally hosted URL in a prepared human handoff as a
         // normal-browser step. This preserves the owner-only boundary for
         // provider-root enrolment, verification and credential issuance; do
@@ -430,11 +436,6 @@ pub async fn project(
             if seen.insert(artifact.uri.clone()) {
                 let is_url = is_url(&artifact.uri);
                 let runtime_local = is_runtime_local_url(&artifact.uri);
-                if artifact.kind == restless_orgintel::REVIEW_TARGET_ARTIFACT_KIND
-                    && (handoff.attempt_id.is_none() || artifact.attempt_id == handoff.attempt_id)
-                {
-                    review_artifact = Some(artifact.clone());
-                }
                 evidence.push(AttentionEvidence {
                     label: artifact.label.clone(),
                     uri: (is_url && !runtime_local).then(|| artifact.uri.clone()),
@@ -1040,6 +1041,22 @@ pub async fn project(
     })
 }
 
+fn select_review_artifact(
+    artifacts: &[restless_orgintel::ArtifactRefRow],
+    work_id: uuid::Uuid,
+    attempt_id: Option<uuid::Uuid>,
+) -> Option<&restless_orgintel::ArtifactRefRow> {
+    artifacts
+        .iter()
+        .filter(|artifact| {
+            artifact.work_id == Some(work_id)
+                && artifact.state == restless_orgintel::ArtifactRefState::Available
+                && artifact.kind == restless_orgintel::REVIEW_TARGET_ARTIFACT_KIND
+                && (attempt_id.is_none() || artifact.attempt_id == attempt_id)
+        })
+        .max_by_key(|artifact| artifact.created_at)
+}
+
 fn work_status(status: restless_orgintel::WorkStatus) -> &'static str {
     match status {
         restless_orgintel::WorkStatus::Proposed => "proposed",
@@ -1307,6 +1324,9 @@ mod tests {
         let gates = [restless_orgintel::InitialWorkGate {
             name: restless_orgintel::REVIEW_TARGET_LIVE_PROBE_GATE,
             command: &gate_command,
+            stage: "cumulative",
+            timeout_seconds: 900,
+            resources: &[],
         }];
         let work_id = org
             .add_work_from_external_message_with_edges_and_gates(
@@ -1479,6 +1499,39 @@ mod tests {
             ),
             None
         );
+    }
+
+    #[test]
+    fn review_target_selection_prefers_the_current_attempt_even_when_urls_repeat() {
+        let work_id = uuid::Uuid::new_v4();
+        let old_attempt = uuid::Uuid::new_v4();
+        let current_attempt = uuid::Uuid::new_v4();
+        let now = Utc::now();
+        let artifact = |attempt_id, created_at| restless_orgintel::ArtifactRefRow {
+            id: uuid::Uuid::new_v4(),
+            kind: restless_orgintel::REVIEW_TARGET_ARTIFACT_KIND.into(),
+            uri: "http://127.0.0.1:4323/".into(),
+            note: "bounded review target".into(),
+            created_by: "web-product".into(),
+            work_id: Some(work_id),
+            attempt_id: Some(attempt_id),
+            digest: None,
+            source_commit: None,
+            runtime_generation: None,
+            label: "Sprint 22 candidate".into(),
+            state: restless_orgintel::ArtifactRefState::Available,
+            created_at,
+            superseded_at: None,
+        };
+        let artifacts = vec![
+            artifact(old_attempt, now - chrono::Duration::minutes(1)),
+            artifact(current_attempt, now),
+        ];
+
+        let selected = select_review_artifact(&artifacts, work_id, Some(current_attempt))
+            .expect("current attempt ReviewTarget");
+        assert_eq!(selected.attempt_id, Some(current_attempt));
+        assert_eq!(selected.uri, artifacts[0].uri);
     }
 
     #[test]

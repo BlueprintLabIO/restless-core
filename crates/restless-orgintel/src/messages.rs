@@ -325,9 +325,11 @@ impl OrgIntel {
         .await?)
     }
 
-    /// Reply from the accountable Work owner to the human owner, preserving
-    /// the same Work-scoped conversation. The owner inbox remains the existing
-    /// `to_actor = NULL` convention; no thread entity is introduced.
+    /// Reply from the producing actor or its accountable lead to the human
+    /// owner, preserving the same Work-scoped conversation. The lead speaks
+    /// for the complete team outcome while Staff retains production
+    /// attribution. The owner inbox remains the existing `to_actor = NULL`
+    /// convention; no thread entity is introduced.
     pub async fn send_work_message_to_owner(
         &self,
         from: &str,
@@ -344,9 +346,18 @@ impl OrgIntel {
             .bind(work_id)
             .fetch_one(&mut *tx)
             .await?;
-        if owner != from {
+        let accountable_lead: Option<String> = sqlx::query_scalar(
+            "SELECT team.lead_actor_id FROM actors actor \
+             JOIN teams team ON team.id=actor.team_id AND team.disbanded_at IS NULL \
+             WHERE actor.id=$1 AND actor.retired_at IS NULL",
+        )
+        .bind(&owner)
+        .fetch_optional(&mut *tx)
+        .await?;
+        if owner != from && accountable_lead.as_deref() != Some(from) {
             return Err(OrgIntelError::InvalidWork(format!(
-                "Work {work_id} belongs to {owner:?}, not replying actor {from:?}"
+                "Work {work_id} belongs to {owner:?}; its accountable lead is {:?}, not replying actor {from:?}",
+                accountable_lead
             )));
         }
         let id: i64 = sqlx::query_scalar(
@@ -526,6 +537,43 @@ impl OrgIntel {
                 "active conversation actor {actor:?} does not exist"
             ))
         })
+    }
+
+    /// Consume one unread owner conversation message because the owner
+    /// explicitly interrupted it before an answer was recorded. This is a
+    /// durable delivery decision, not a second conversation message: the
+    /// original directive remains visible in the transcript and the event
+    /// records why it will not be retried after a daemon restart.
+    pub async fn interrupt_owner_conversation_message(
+        &self,
+        actor: &str,
+        message_id: i64,
+    ) -> Result<bool> {
+        let mut tx = self.pool.begin().await?;
+        let consumed: Option<i64> = sqlx::query_scalar(
+            "UPDATE messages SET read_at=now() \
+             WHERE id=$1 AND from_actor='owner' AND to_actor=$2 AND read_at IS NULL \
+               AND NOT EXISTS (SELECT 1 FROM work_feedback WHERE message_id=messages.id) \
+             RETURNING id",
+        )
+        .bind(message_id)
+        .bind(actor)
+        .fetch_optional(&mut *tx)
+        .await?;
+        let Some(consumed) = consumed else {
+            return Ok(false);
+        };
+        sqlx::query("INSERT INTO events (kind, actor_id, body) VALUES ($1,$2,$3)")
+            .bind("owner_conversation_interrupted")
+            .bind("owner")
+            .bind(serde_json::json!({
+                "message_id": consumed,
+                "actor": actor,
+            }))
+            .execute(&mut *tx)
+            .await?;
+        tx.commit().await?;
+        Ok(true)
     }
 
     /// The bounded owner/actor transcript newer than a known focus cursor.

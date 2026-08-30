@@ -244,7 +244,16 @@ pub async fn wake(
             // sessions deliberately do not use the fuse.
             .unwrap_or_default();
         let metered = auth.billing == crate::model_gateway::ModelBilling::MeteredApi;
-        let controls = acp::AgentControls::company_actor(package.system_prompt.clone())?;
+        let mcp_servers = crate::connected_tool::session_servers(
+            authority.pool(),
+            &config.name,
+            "exec",
+            None,
+            None,
+        )
+        .await?;
+        let controls = acp::AgentControls::company_actor(package.system_prompt.clone())?
+            .with_mcp_servers(mcp_servers);
         let outcome = acp::with_agent(
             &container,
             &auth,
@@ -393,7 +402,6 @@ pub(crate) async fn agent_auth_for_model(
     Ok(acp::AgentAuth {
         model: model.to_string(),
         effort: acp::DEFAULT_REASONING_EFFORT.to_string(),
-        provider: access.provider,
         company: company.to_string(),
         session_id: session_id.clone(),
         coordination_token_env: "RESTLESS_SESSION_CAPABILITY".to_string(),
@@ -648,7 +656,7 @@ async fn termination_decision(
                 // ended; this reads what the agent said. Same deterministic
                 // status-class parser, and it is named for the text it reads so
                 // that the difference cannot be mistaken for the same check.
-                if let Some(blocked) = health::classify_provider_error(&transcript.text) {
+                if let Some(blocked) = health::classify_provider_error_content(&transcript.text) {
                     return TerminationDecision {
                         termination: Termination::Blocked,
                         reason: blocked.message(),

@@ -304,10 +304,7 @@ impl NetworkEntry {
         if consumed.contains_key(jti) {
             return Err(Refusal::Replayed);
         }
-        consumed.insert(
-            jti.to_string(),
-            UNIX_EPOCH + Duration::from_secs(exp),
-        );
+        consumed.insert(jti.to_string(), UNIX_EPOCH + Duration::from_secs(exp));
         Ok(())
     }
 }
@@ -329,9 +326,7 @@ fn decode_segment<T: for<'de> Deserialize<'de>>(
 }
 
 fn unix_seconds(at: SystemTime) -> u64 {
-    at.duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs()
+    at.duration_since(UNIX_EPOCH).unwrap_or_default().as_secs()
 }
 
 /// Mint an assertion. Restless Cloud is the real issuer; this exists so the
@@ -397,9 +392,9 @@ impl EntryMode {
                     consumed: Mutex::new(HashMap::new()),
                 })))
             }
-            other => anyhow::bail!(
-                "RESTLESS_ENTRY_MODE must be `local` or `network`, not `{other}`"
-            ),
+            other => {
+                anyhow::bail!("RESTLESS_ENTRY_MODE must be `local` or `network`, not `{other}`")
+            }
         }
     }
 
@@ -514,10 +509,7 @@ pub(crate) fn mint_from_env() -> anyhow::Result<String> {
     let audience = required("RESTLESS_ENTRY_AUDIENCE")?;
     let plane = required("RESTLESS_ENTRY_PLANE")?;
     let keys = parse_keys(&required("RESTLESS_ENTRY_KEYS")?)?;
-    let (key_version, key) = keys
-        .iter()
-        .next()
-        .expect("parse_keys refuses an empty set");
+    let (key_version, key) = keys.iter().next().expect("parse_keys refuses an empty set");
 
     let scope = match std::env::var("RESTLESS_ENTRY_TEST_COMPANY") {
         Ok(company) if !company.trim().is_empty() => CompanyScope::Company {
@@ -723,7 +715,11 @@ mod tests {
     fn every_refusal_reason_is_distinct() {
         let reasons = [
             Refusal::Malformed("x").code(),
-            Refusal::UnsupportedVersion { got: 2, supported: 1 }.code(),
+            Refusal::UnsupportedVersion {
+                got: 2,
+                supported: 1,
+            }
+            .code(),
             Refusal::UnknownIssuer.code(),
             Refusal::WrongAudience.code(),
             Refusal::UnknownKeyVersion.code(),

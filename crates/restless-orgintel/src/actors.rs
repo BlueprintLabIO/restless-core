@@ -464,6 +464,23 @@ impl OrgIntel {
             }))
             .execute(&mut *tx)
             .await?;
+        // A team row is durable structure, but structure alone does not start
+        // accountable work. Deliver one ordinary addressed fact in the same
+        // transaction so the existing message outbox wakes the lead and can
+        // recover the commission after a daemon restart. Keep the charter in
+        // `teams.brief`; the message points to that source instead of copying
+        // a second mutable version of it.
+        sqlx::query(
+            "INSERT INTO messages (from_actor,to_actor,body) VALUES ($1,$2,$3)",
+        )
+        .bind(created_by)
+        .bind(lead_actor_id)
+        .bind(format!(
+            "You have been commissioned to lead team `{id}` ({name}). Read the current team charter, commission Staff production for the first useful outcome, and report only material results or blockers.",
+            name = name.trim()
+        ))
+        .execute(&mut *tx)
+        .await?;
         tx.commit().await?;
         Ok(id)
     }

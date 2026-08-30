@@ -64,7 +64,7 @@ if $with_images; then
     printf '"%s"' "$digest"
   }
   plane_digest="$(read_digest "restless-account-plane:$core_version")"
-  runtime_digest="$(read_digest "restless-company-image:latest")"
+  runtime_digest="$(read_digest "restless-company-image:$core_version")"
 fi
 
 cat <<JSON

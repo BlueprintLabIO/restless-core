@@ -21,6 +21,7 @@ mod goals_work;
 mod messages;
 mod review;
 mod schedules;
+mod substrate;
 mod types;
 
 pub use types::*;
@@ -103,7 +104,8 @@ fn valid_git_ref(value: &str) -> bool {
 }
 
 fn valid_company_cwd(value: &str) -> bool {
-    value == "/company"
+    value == "@attempt"
+        || value == "/company"
         || (value.starts_with("/company/") && !value.split('/').any(|part| part == ".."))
 }
 

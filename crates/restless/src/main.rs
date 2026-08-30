@@ -612,6 +612,13 @@ enum WorkCommand {
         name: String,
         #[arg(long)]
         cwd: String,
+        #[arg(long, default_value = "cumulative")]
+        stage: String,
+        #[arg(long, default_value_t = 900)]
+        timeout_seconds: i32,
+        /// Scarce Runtime resource to lease: port or display. Repeatable.
+        #[arg(long = "resource")]
+        resources: Vec<String>,
         #[arg(required = true, trailing_var_arg = true, allow_hyphen_values = true)]
         command: Vec<String>,
     },
@@ -713,6 +720,17 @@ enum WorkCommand {
         as_actor: String,
         #[arg(long)]
         reason: String,
+    },
+    /// Resume a blocked node after changing the failed mechanism.
+    Interrupt {
+        #[arg(long, short = 'c', env = "RESTLESS_COMPANY")]
+        company: Option<String>,
+        #[arg(long)]
+        work: String,
+        #[arg(long)]
+        reason: String,
+        #[arg(long = "as", env = "RESTLESS_ACTOR")]
+        as_actor: Option<String>,
     },
     /// Resume a blocked node after changing the failed mechanism.
     Resume {
@@ -1687,10 +1705,14 @@ fn request_json(command: Command) -> Result<serde_json::Value> {
                 work,
                 name,
                 cwd,
+                stage,
+                timeout_seconds,
+                resources,
                 command,
             } => serde_json::json!({
                 "cmd": "work-gate", "company": company, "id": work, "name": name,
-                "cwd": cwd, "argv": command,
+                "cwd": cwd, "argv": command, "stage": stage,
+                "timeout_seconds": timeout_seconds, "resources": resources,
                 "actor": std::env::var("RESTLESS_ACTOR").unwrap_or_else(|_| "owner".to_string()),
             }),
             WorkCommand::RetireGate {
@@ -1779,6 +1801,16 @@ fn request_json(command: Command) -> Result<serde_json::Value> {
                 as_actor,
             } => serde_json::json!({
                 "cmd": "work-resume", "company": company, "id": work, "reason": reason,
+                "as_actor": as_actor.or_else(|| std::env::var("RESTLESS_ACTOR").ok())
+                    .unwrap_or_else(|| "owner".to_string()),
+            }),
+            WorkCommand::Interrupt {
+                company,
+                work,
+                reason,
+                as_actor,
+            } => serde_json::json!({
+                "cmd": "work-interrupt", "company": company, "id": work, "reason": reason,
                 "as_actor": as_actor.or_else(|| std::env::var("RESTLESS_ACTOR").ok())
                     .unwrap_or_else(|| "owner".to_string()),
             }),

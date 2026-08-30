@@ -14,7 +14,10 @@ pub const AIRWALLEX_INGRESS_PORT: u16 = 7795;
 const MAX_BODY: usize = 256 * 1024;
 
 pub async fn serve(daemon: Arc<crate::Daemon>) -> Result<()> {
-    let address = format!("0.0.0.0:{AIRWALLEX_INGRESS_PORT}");
+    let address = format!(
+        "0.0.0.0:{}",
+        crate::port_with_offset(AIRWALLEX_INGRESS_PORT)?
+    );
     let listener = tokio::net::TcpListener::bind(&address)
         .await
         .with_context(|| format!("bind Airwallex ingress {address}"))?;

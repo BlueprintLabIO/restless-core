@@ -79,7 +79,7 @@ owner_review_required: boolean, repo: string | null, base_ref: string | null, in
 
 export type WorkEdgeRow = { from_work_id: string, to_work_id: string, kind: WorkEdgeKind, created_at: string, };
 
-export type WorkAttemptRow = { id: string, work_id: string, revision: number, attempt_no: number, actor_id: string, session_id: string, state: WorkAttemptState, trigger: string, input_fingerprint: string, feedback_cursor: number, model: string | null, started_at: string, finished_at: string | null, summary: string, };
+export type WorkAttemptRow = { id: string, work_id: string, revision: number, attempt_no: number, actor_id: string, session_id: string, state: WorkAttemptState, trigger: string, input_fingerprint: string, feedback_cursor: number, requested_source_ref: string | null, source_commit: string | null, source_tree: string | null, gate_set_digest: string, environment_fingerprint: string, materialized_at: string | null, interrupt_requested_at: string | null, interrupt_requested_by: string | null, interrupt_reason: string | null, feedback_checkpoint_cursor: number, model: string | null, started_at: string, finished_at: string | null, summary: string, };
 
 export type WorkAttemptInputRow = { attempt_id: string, artifact_ref_id: string, };
 
@@ -87,9 +87,9 @@ export type WorkAttemptFeedbackRow = { attempt_id: string, message_id: number, }
 
 export type ArtifactRefRow = { id: string, kind: string, uri: string, note: string, created_by: string, work_id: string | null, attempt_id: string | null, digest: string | null, source_commit: string | null, runtime_generation: string | null, label: string, state: ArtifactRefState, created_at: string, superseded_at: string | null, };
 
-export type WorkGateRow = { id: string, work_id: string, name: string, cwd: string, command: JsonValue, created_by: string, sequence_no: number, created_at: string, retired_at: string | null, retired_by: string | null, retired_reason: string | null, };
+export type WorkGateRow = { id: string, work_id: string, name: string, cwd: string, command: JsonValue, created_by: string, sequence_no: number, stage: string, timeout_seconds: number, resources: JsonValue, created_at: string, retired_at: string | null, retired_by: string | null, retired_reason: string | null, };
 
-export type WorkGateRunRow = { id: string, gate_id: string, attempt_id: string, exit_code: number | null, output_digest: string, output_excerpt: string, passed: boolean, ran_at: string, };
+export type WorkGateRunRow = { id: string, gate_id: string, attempt_id: string, exit_code: number | null, output_digest: string, output_excerpt: string, passed: boolean, candidate_tree: string, definition_digest: string, toolchain_fingerprint: string, status: string, duration_ms: number | null, cache_source_run_id: string | null, leaked_processes: number, ran_at: string, };
 
 export type OwnerHandoffRow = { id: string, work_id: string, attempt_id: string | null, requested_by: string, category: OwnerHandoffCategory, requested_action: string, prepared_state: string, resume_condition: string, state: OwnerHandoffState, resolution: string,
 /**

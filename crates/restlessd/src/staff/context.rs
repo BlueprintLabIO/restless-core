@@ -12,7 +12,7 @@ use crate::runtime::CompanyConfig;
 /// its productive Work wake called the same actor a mere specialist.
 pub(super) fn actor_posture(accountable_lead: bool) -> &'static str {
     if accountable_lead {
-        "You are the ACCOUNTABLE LEAD for this team's whole outcome, not a relay, producer, or smaller Exec. You remain a non-producing supervisor on every wake. Frame, commission, observe, guide, redirect, and repair through at least one Staff worker; never edit the candidate, perform its planned production, or silently repair its artifact yourself. You retain native review, completion judgement, and truthful attribution of every real contribution."
+        "You are the ACCOUNTABLE LEAD for this team's whole outcome, not a relay, producer, or smaller Exec. You remain a non-producing supervisor on every wake. Frame, commission, observe, guide, redirect, and repair through at least one Staff worker; never edit the candidate, perform its planned production, or silently repair its artifact yourself. You retain native review, completion judgement, and truthful attribution of every real contribution. A terminal Staff callback is a decision boundary, not a status-update opportunity: before ending that wake, either prove the whole team charter is complete, record the concrete blocker that prevents further machine work, or commission the next smallest attributable Staff-owned Work. Never leave an incomplete charter quiescent after merely reporting progress."
     } else {
         "You are a SPECIALIST, not a smaller Exec. Own the bounded responsibility your role names, surface material contradictions early, and say plainly when something falls outside it. Do not quietly take over the whole team outcome: a specialist who does every job is a generalist with a job title. The Runtime sends your accountable lead one durable terminal Work fact after it observes your artifacts, gates, and final state. Do not send progress or completion mail merely to wake the lead; message the lead only for a genuinely new fact or contradiction that must be judged before your terminal result."
     }
@@ -108,7 +108,7 @@ pub(super) async fn shared_spine(
         );
     } else if accountable_lead {
         spine.push_str(
-            "\nYou are the non-producing accountable supervisor for this team's outcome. Resolve ordinary uncertainty and local blockers inside the charter by guiding or recommissioning Staff; message Exec only for cross-team resources, company priority, strategy, charter scope, or authority escalation. Use the Work CLI to make every Staff contribution and its exact artifact observable.\n",
+            "\nYou are the non-producing accountable supervisor for this team's outcome. Resolve ordinary uncertainty and local blockers inside the charter by guiding or recommissioning Staff; message Exec only for cross-team resources, company priority, strategy, charter scope, or authority escalation. Use the Work CLI to make every Staff contribution and its exact artifact observable. After a terminal Staff callback, do not end with a progress-only conversation while the charter remains incomplete: commission the next smallest Staff-owned Work in that wake, record a genuine blocker, or prove the charter outcome.\n",
         );
     } else {
         let coordinator = org
@@ -293,6 +293,12 @@ pub(super) fn bound_attempt_context(
     } else {
         String::new()
     };
+    let inherited_output_ids = claimed
+        .inputs
+        .iter()
+        .filter(|artifact| artifact.work_id == Some(claimed.work.id) && artifact.kind == "output")
+        .map(|artifact| artifact.id.to_string())
+        .collect::<Vec<_>>();
     let completion_evidence = if expected_artifact.is_empty() {
         "- This Work has no declared output URI. Do not invent one; report the observed native result through the ordinary Work outcome.".to_string()
     } else if expected_artifact.starts_with('/') || expected_artifact.contains("://") {
@@ -319,9 +325,18 @@ pub(super) fn bound_attempt_context(
                 "\n- This is the final attributed candidate for shared branch `{branch}`. Work only in this Attempt worktree. Do not move `{branch}` or touch its checkout: after your clean exact commit passes the gates, the Runtime will fast-forward that checked-out branch and will refuse a dirty or divergent integration."
             )
         });
-    let completion_evidence = format!("{completion_evidence}{integration_note}");
+    let inherited_output_note = if inherited_output_ids.is_empty() {
+        String::new()
+    } else {
+        format!(
+            "\n- This successor Attempt already consumes same-Work output artifact(s) {} as immutable inputs. If an exact inherited version still meets the outcome after applying current feedback, validate and retain it without re-linking or relabelling its producer. If you change the output, link the new version to this Attempt normally.",
+            inherited_output_ids.join(", ")
+        )
+    };
+    let completion_evidence =
+        format!("{completion_evidence}{inherited_output_note}{integration_note}");
     let context = format!(
-        "# Work {} revision {} attempt {}\nAttempt UUID: {}\n{}\n\nExpected artifact / proof: {}\nInput fingerprint: {}\n\n# Completion evidence [deterministic]\n{}\n\n# Bound workspace facts [automatic]\n{}\n\n# Bound upstream artifact versions [automatic]\n{}\n\n# Work-linked feedback [automatic]\n{}\n\n# Skill roots and truthful capability probes [automatic]\n- Skill roots available to OMP: {}\n- Probe Runtime tools at: `{}`\n- Probe company/runtime reachability at: `{}`\n- Probe configured credential references at: `{}`\n- Probe skill directories at: `{}`\nDo not treat a configured credential or an installed executable as provider acceptance, authority, or a successful effect.\n\n# Context accounting\n- Automatically attached: company doctrine and mission, actor role, Work/Attempt identity, exact workspace coordinates, upstream artifact versions, Work-linked feedback, skill roots, probe locations, and {}.\n- Retrieved depth at launch: none. Inspect bound files, project instructions, skills, Git history, and attached artifact content only when useful.\n- Not replayed: lead conversation, full team transcript, and unrelated actor messages.\n",
+        "# Work {} revision {} attempt {}\nAttempt UUID: {}\n{}\n\nExpected artifact / proof: {}\nInput fingerprint: {}\n\n# Completion evidence [deterministic]\n{}\n\n# Bound workspace facts [automatic]\n{}\n\n# Bound artifact versions [automatic]\n{}\n\n# Work-linked feedback [automatic]\n{}\n\n# Skill roots and truthful capability probes [automatic]\n- Skill roots available to OMP: {}\n- Probe Runtime tools at: `{}`\n- Probe company/runtime reachability at: `{}`\n- Probe configured credential references at: `{}`\n- Probe skill directories at: `{}`\nDo not treat a configured credential or an installed executable as provider acceptance, authority, or a successful effect.\n\n# Context accounting\n- Automatically attached: company doctrine and mission, actor role, Work/Attempt identity, exact workspace coordinates, bound artifact versions, Work-linked feedback, skill roots, probe locations, and {}.\n- Retrieved depth at launch: none. Inspect bound files, project instructions, skills, Git history, and attached artifact content only when useful.\n- Not replayed: lead conversation, full team transcript, and unrelated actor messages.\n",
         claimed.work.id,
         claimed.work.revision,
         claimed.attempt_no,

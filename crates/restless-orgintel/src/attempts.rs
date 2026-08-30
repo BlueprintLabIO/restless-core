@@ -10,6 +10,8 @@ struct QualifiedOutcomeReview {
     outcome: String,
 }
 
+type SupervisorNoticeFact = (Uuid, Uuid, String, WorkStatus, i64, String);
+
 fn looks_like_exact_git_commit(value: &str) -> bool {
     (7..=64).contains(&value.len()) && value.bytes().all(|byte| byte.is_ascii_hexdigit())
 }
@@ -49,6 +51,9 @@ impl OrgIntel {
         excluded_actor_ids: &[String],
     ) -> Result<Option<ClaimedWork>> {
         let mut tx = self.pool.begin().await?;
+        // Supersession means the frozen input snapshot changed. It is not an
+        // attributable execution failure and must leave room for the promised
+        // successor Attempt even when the Work allows only one real attempt.
         let work = sqlx::query_as::<_, WorkRow>(
             "SELECT w.id, w.goal_id, w.owner_id, w.title, w.outcome, w.status, \
                     w.resolution, w.priority, w.expected_artifact, w.owner_review_required, \
@@ -74,7 +79,8 @@ impl OrgIntel {
                ) \
                AND (w.attempt_limit IS NULL OR (\
                     SELECT count(*) FROM work_attempts a \
-                    WHERE a.work_id = w.id AND a.revision = w.revision\
+                    WHERE a.work_id = w.id AND a.revision = w.revision \
+                      AND a.state <> 'superseded'\
                ) < w.attempt_limit) \
              ORDER BY w.priority DESC, w.created_at \
              FOR UPDATE OF w SKIP LOCKED LIMIT 1",
@@ -91,11 +97,20 @@ impl OrgIntel {
             "SELECT a.id, a.kind, a.uri, a.note, a.created_by, a.work_id, a.attempt_id, \
                     a.digest, a.source_commit, a.runtime_generation, a.label, a.state, \
                     a.created_at, a.superseded_at \
-             FROM work_edges e JOIN artifact_refs a ON a.work_id = e.from_work_id \
-             WHERE e.to_work_id = $1 AND e.kind = 'requires' AND a.state = 'available' \
-             ORDER BY e.from_work_id, a.created_at, a.id",
+             FROM artifact_refs a \
+             WHERE (a.state = 'available' AND EXISTS(SELECT 1 FROM work_edges e \
+                      WHERE e.to_work_id=$1 AND e.kind='requires' \
+                        AND e.from_work_id=a.work_id)) \
+               OR (a.work_id=$1 AND a.state IN ('available','superseded') \
+                   AND a.kind IN ('output','review_target','repository_tree') AND EXISTS(\
+                     SELECT 1 FROM work_attempts prior \
+                     WHERE prior.id=a.attempt_id AND prior.revision <= $2 \
+                       AND prior.state IN ('produced','superseded')\
+                  )) \
+             ORDER BY a.work_id, a.created_at, a.id",
         )
         .bind(work.id)
+        .bind(work.revision)
         .fetch_all(&mut *tx)
         .await?;
         let upstream_source_commits = if let Some(repo) = work.repo.as_deref() {
@@ -116,14 +131,16 @@ impl OrgIntel {
         } else {
             Vec::new()
         };
-        let prior_revision_commit = if work.revision > 1 && work.repo.is_some() {
+        let prior_work_commit = if work.repo.is_some() {
             sqlx::query_scalar::<_, String>(
                 "SELECT a.source_commit \
                  FROM artifact_refs a \
                  JOIN work_attempts attempt ON attempt.id=a.attempt_id \
-                 WHERE a.work_id=$1 AND attempt.revision < $2 \
-                   AND a.source_commit IS NOT NULL \
-                 ORDER BY attempt.revision DESC, a.created_at DESC, a.id DESC \
+                 WHERE a.work_id=$1 AND attempt.revision <= $2 \
+                   AND a.source_commit IS NOT NULL AND a.state IN ('available','superseded') \
+                   AND attempt.state IN ('produced','superseded') \
+                 ORDER BY attempt.revision DESC, attempt.attempt_no DESC, \
+                          a.created_at DESC, a.id DESC \
                  LIMIT 1",
             )
             .bind(work.id)
@@ -135,7 +152,7 @@ impl OrgIntel {
         };
         let effective_base_ref = resolve_attempt_base(
             work.base_ref.as_deref(),
-            prior_revision_commit.as_deref(),
+            prior_work_commit.as_deref(),
             upstream_source_commits.as_slice(),
         );
         let mut fingerprint_source = inputs
@@ -173,6 +190,27 @@ impl OrgIntel {
             ));
         }
         let input_fingerprint = format!("{:x}", Sha256::digest(fingerprint_source.as_bytes()));
+        let gate_rows = sqlx::query(
+            "SELECT name,cwd,command,sequence_no,stage,timeout_seconds,resources \
+             FROM work_gates WHERE work_id=$1 AND retired_at IS NULL ORDER BY sequence_no",
+        )
+        .bind(work.id)
+        .fetch_all(&mut *tx)
+        .await?;
+        let mut gate_source = String::new();
+        for gate in gate_rows {
+            gate_source.push_str(&format!(
+                "{}\0{}\0{}\0{}\0{}\0{}\0{}\n",
+                gate.get::<String, _>("name"),
+                gate.get::<String, _>("cwd"),
+                gate.get::<serde_json::Value, _>("command"),
+                gate.get::<i32, _>("sequence_no"),
+                gate.get::<String, _>("stage"),
+                gate.get::<i32, _>("timeout_seconds"),
+                gate.get::<serde_json::Value, _>("resources"),
+            ));
+        }
+        let gate_set_digest = format!("{:x}", Sha256::digest(gate_source.as_bytes()));
         let attempt_no: i64 = sqlx::query_scalar(
             "SELECT count(*) + 1 FROM work_attempts WHERE work_id = $1 AND revision = $2",
         )
@@ -184,8 +222,9 @@ impl OrgIntel {
         let session_id = Uuid::new_v4().to_string();
         sqlx::query(
             "INSERT INTO work_attempts \
-             (id, work_id, revision, attempt_no, actor_id, session_id, trigger, input_fingerprint, feedback_cursor) \
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)",
+             (id, work_id, revision, attempt_no, actor_id, session_id, trigger, input_fingerprint, \
+              feedback_cursor, feedback_checkpoint_cursor, requested_source_ref, gate_set_digest) \
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$9,$10,$11)",
         )
         .bind(attempt_id)
         .bind(work.id)
@@ -196,6 +235,8 @@ impl OrgIntel {
         .bind(trigger)
         .bind(&input_fingerprint)
         .bind(feedback_cursor)
+        .bind(effective_base_ref.as_deref())
+        .bind(&gate_set_digest)
         .execute(&mut *tx)
         .await?;
         for artifact in &inputs {
@@ -245,7 +286,10 @@ impl OrgIntel {
     pub async fn list_work_attempts(&self, work_id: Option<Uuid>) -> Result<Vec<WorkAttemptRow>> {
         Ok(sqlx::query_as(
             "SELECT id, work_id, revision, attempt_no, actor_id, session_id, state, trigger, \
-                    input_fingerprint, feedback_cursor, model, started_at, finished_at, summary \
+                    input_fingerprint, feedback_cursor, requested_source_ref, source_commit, \
+                    source_tree, gate_set_digest, environment_fingerprint, materialized_at, \
+                    interrupt_requested_at, interrupt_requested_by, interrupt_reason, \
+                    feedback_checkpoint_cursor, model, started_at, finished_at, summary \
              FROM work_attempts WHERE ($1::uuid IS NULL OR work_id = $1) \
              ORDER BY started_at, id",
         )
@@ -483,7 +527,7 @@ impl OrgIntel {
         }
         let mut tx = self.pool.begin().await?;
         let row = sqlx::query(
-            "SELECT a.work_id, a.actor_id, a.revision AS attempt_revision, a.feedback_cursor, a.state, \
+            "SELECT a.work_id, a.actor_id, a.revision AS attempt_revision, a.state, \
                     w.revision AS work_revision \
              FROM work_attempts a JOIN work w ON w.id = a.work_id \
              WHERE a.id = $1 FOR UPDATE OF a, w",
@@ -494,7 +538,6 @@ impl OrgIntel {
         let work_id: Uuid = row.get("work_id");
         let attempt_actor: String = row.get("actor_id");
         let attempt_revision: i64 = row.get("attempt_revision");
-        let feedback_cursor: i64 = row.get("feedback_cursor");
         let work_revision: i64 = row.get("work_revision");
         let current_state: WorkAttemptState = row.get("state");
         if current_state != WorkAttemptState::Running {
@@ -508,41 +551,27 @@ impl OrgIntel {
         };
         let mut effective_summary = summary.to_string();
         let mut qualified_outcome_review = None;
-        if effective != WorkAttemptState::Superseded {
-            // Work-linked mail sent directly to this Attempt's owner after
-            // its frozen input cursor is a changed assignment fact. The live
-            // process may have ended before it could observe that fact; never
-            // let its stale terminal report close the Work. Superseding keeps
-            // the original Attempt truthful and lets the ordinary scheduler
-            // create one sequential successor with the exact message bound as
-            // initial input. Messages to the accountable lead are deliberately
-            // excluded: they wake judgement, not the member's producer.
-            let late_direct_feedback = sqlx::query_scalar::<_, i64>(
-                "SELECT m.id FROM work_feedback f \
-                 JOIN messages m ON m.id=f.message_id \
-                 WHERE f.work_id=$1 AND m.to_actor=$2 AND m.id>$3 \
+        // Ordinary feedback is queued information, never an implicit
+        // interrupt. Feedback delivered by a safe checkpoint is already in
+        // `work_attempt_feedback`. A final race after the last checkpoint
+        // preserves this Attempt's useful result and schedules one successor
+        // revision instead of relabelling the work as superseded.
+        let late_direct_feedback = if effective != WorkAttemptState::Superseded {
+            sqlx::query_scalar::<_, i64>(
+                "SELECT m.id FROM work_feedback f JOIN messages m ON m.id=f.message_id \
+                 WHERE f.work_id=$1 AND m.to_actor=$2 \
                    AND NOT EXISTS (SELECT 1 FROM work_attempt_feedback af \
-                                   WHERE af.attempt_id=$4 AND af.message_id=m.id) \
+                                   WHERE af.attempt_id=$3 AND af.message_id=m.id) \
                  ORDER BY m.id",
             )
             .bind(work_id)
             .bind(&attempt_actor)
-            .bind(feedback_cursor)
             .bind(attempt_id)
             .fetch_all(&mut *tx)
-            .await?;
-            if !late_direct_feedback.is_empty() {
-                effective = WorkAttemptState::Superseded;
-                effective_summary = format!(
-                    "direct Work feedback {} arrived after this Attempt's frozen input snapshot; its terminal report is stale and the Work remains active for a successor Attempt",
-                    late_direct_feedback
-                        .iter()
-                        .map(i64::to_string)
-                        .collect::<Vec<_>>()
-                        .join(", ")
-                );
-            }
-        }
+            .await?
+        } else {
+            Vec::new()
+        };
         if effective == WorkAttemptState::ChangesRequested {
             let has_revision_target: bool = sqlx::query_scalar(
                 "SELECT EXISTS(SELECT 1 FROM work_edges WHERE from_work_id=$1 AND kind='revises')",
@@ -572,8 +601,13 @@ impl OrgIntel {
             let expected_artifact: String = work.get("expected_artifact");
             let owner_review_required: bool = work.get("owner_review_required");
             let artifact_present: bool = sqlx::query_scalar(
-                "SELECT EXISTS(SELECT 1 FROM artifact_refs \
-                 WHERE work_id=$1 AND attempt_id=$2 AND state='available')",
+                "SELECT EXISTS(SELECT 1 FROM artifact_refs a \
+                 WHERE a.work_id=$1 AND a.state='available' AND (\
+                   a.attempt_id=$2 OR EXISTS(\
+                     SELECT 1 FROM work_attempt_inputs input \
+                     WHERE input.attempt_id=$2 AND input.artifact_ref_id=a.id\
+                   )\
+                 ))",
             )
             .bind(work_id)
             .bind(attempt_id)
@@ -652,20 +686,39 @@ impl OrgIntel {
                 effective_summary = "one or more deterministic Work gates did not pass".into();
             }
         }
+        let followup_revision = effective == WorkAttemptState::Produced
+            && !late_direct_feedback.is_empty()
+            && qualified_outcome_review.is_none();
         sqlx::query(
             "UPDATE work_attempts SET state=$2, summary=$3, finished_at=now(), \
-                    supervisor_notice_owed=true, supervisor_notice_message_id=NULL \
+                    supervisor_notice_owed=$4, supervisor_notice_message_id=NULL \
              WHERE id=$1",
         )
         .bind(attempt_id)
         .bind(effective)
         .bind(&effective_summary)
+        .bind(!followup_revision)
         .execute(&mut *tx)
         .await?;
 
         match effective {
             WorkAttemptState::Produced => {
-                if let Some(review) = qualified_outcome_review {
+                if followup_revision {
+                    sqlx::query(
+                        "UPDATE work SET status='active', revision=revision+1, resolution=$2 WHERE id=$1",
+                    )
+                    .bind(work_id)
+                    .bind(format!(
+                        "Attempt {attempt_id} produced useful output; direct feedback {} arrived after its final checkpoint and is queued for the next revision",
+                        late_direct_feedback
+                            .iter()
+                            .map(i64::to_string)
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    ))
+                    .execute(&mut *tx)
+                    .await?;
+                } else if let Some(review) = qualified_outcome_review {
                     let handoff_id = create_qualified_outcome_review(
                         &mut tx,
                         work_id,
@@ -766,24 +819,42 @@ impl OrgIntel {
         .bind(limit)
         .fetch_all(&mut *tx)
         .await?;
-        let mut message_ids = Vec::with_capacity(rows.len());
+        let mut by_lead: std::collections::BTreeMap<String, Vec<SupervisorNoticeFact>> =
+            std::collections::BTreeMap::new();
         for row in rows {
-            let attempt_id: Uuid = row.get("attempt_id");
-            let actor_id: String = row.get("actor_id");
-            let work_id: Uuid = row.get("work_id");
-            let status: WorkStatus = row.get("status");
-            let revision: i64 = row.get("revision");
-            let resolution: String = row.get("resolution");
-            let lead_actor_id: String = row.get("lead_actor_id");
-            let status = match status {
-                WorkStatus::Proposed => "proposed",
-                WorkStatus::Active => "active",
-                WorkStatus::Blocked => "blocked",
-                WorkStatus::Completed => "completed",
-                WorkStatus::Abandoned => "abandoned",
-            };
+            by_lead.entry(row.get("lead_actor_id")).or_default().push((
+                row.get("attempt_id"),
+                row.get("work_id"),
+                row.get("actor_id"),
+                row.get("status"),
+                row.get("revision"),
+                row.get("resolution"),
+            ));
+        }
+        let mut message_ids = Vec::with_capacity(by_lead.len());
+        for (lead_actor_id, notices) in by_lead {
+            let body = notices
+                .iter()
+                .map(
+                    |(attempt_id, work_id, actor_id, status, revision, resolution)| {
+                        let status = match status {
+                            WorkStatus::Proposed => "proposed",
+                            WorkStatus::Active => "active",
+                            WorkStatus::Blocked => "blocked",
+                            WorkStatus::Completed => "completed",
+                            WorkStatus::Abandoned => "abandoned",
+                        };
+                        format!(
+                            "Work {work_id}, Attempt {attempt_id}, owner {actor_id}: status {status}, revision {revision}. Resolution: {resolution}"
+                        )
+                    },
+                )
+                .collect::<Vec<_>>()
+                .join("\n");
             let body = format!(
-                "Terminal Runtime observation for Work {work_id}, Attempt {attempt_id}, owner {actor_id}: status {status}, revision {revision}. Resolution: {resolution}"
+                "Coalesced terminal Runtime observations ({} decision checkpoint{}):\n{body}",
+                notices.len(),
+                if notices.len() == 1 { "" } else { "s" },
             );
             let message_id: i64 = sqlx::query_scalar(
                 "INSERT INTO messages (from_actor, to_actor, body) \
@@ -793,22 +864,28 @@ impl OrgIntel {
             .bind(&body)
             .fetch_one(&mut *tx)
             .await?;
+            // One canonical Work link preserves existing conversation
+            // semantics. The compact body carries every causally coalesced
+            // terminal fact and all Attempts point at this one wake.
+            let (_, first_work_id, ..) = &notices[0];
             sqlx::query(
                 "INSERT INTO work_feedback (work_id, message_id, linked_by) \
                  VALUES ($1,$2,'daemon')",
             )
-            .bind(work_id)
+            .bind(first_work_id)
             .bind(message_id)
             .execute(&mut *tx)
             .await?;
-            sqlx::query(
-                "UPDATE work_attempts SET supervisor_notice_owed=false, \
-                        supervisor_notice_message_id=$2 WHERE id=$1",
-            )
-            .bind(attempt_id)
-            .bind(message_id)
-            .execute(&mut *tx)
-            .await?;
+            for (attempt_id, ..) in &notices {
+                sqlx::query(
+                    "UPDATE work_attempts SET supervisor_notice_owed=false, \
+                            supervisor_notice_message_id=$2 WHERE id=$1",
+                )
+                .bind(attempt_id)
+                .bind(message_id)
+                .execute(&mut *tx)
+                .await?;
+            }
             message_ids.push(message_id);
         }
         tx.commit().await?;
@@ -849,24 +926,37 @@ impl OrgIntel {
         }
         let exhausted: bool = sqlx::query_scalar(
             "SELECT attempt_limit IS NOT NULL AND (SELECT count(*) FROM work_attempts \
-             WHERE work_id=$1 AND revision=work.revision) >= attempt_limit FROM work WHERE id=$1",
+             WHERE work_id=$1 AND revision=work.revision AND state <> 'superseded') \
+             >= attempt_limit FROM work WHERE id=$1",
         )
         .bind(work_id)
         .fetch_one(&mut *tx)
         .await?;
-        if exhausted {
-            return Err(OrgIntelError::InvalidWork(
-                "attempt limit reached; revise or replace the Work instead of resuming it".into(),
-            ));
-        }
-        sqlx::query("UPDATE work SET status='active', resolution=$2 WHERE id=$1")
-            .bind(work_id)
-            .bind(format!("resumed by {by}: {}", reason.trim()))
-            .execute(&mut *tx)
-            .await?;
+        // `resume` is the accountable coordinator's explicit decision that a
+        // concrete repair changed the mechanism. If the old bounded allowance
+        // is exhausted, grant exactly one successor Attempt rather than
+        // forcing a fake replacement Work node or silently retrying. Each
+        // additional grant therefore requires another terminal observation
+        // and another attributable repair decision.
+        sqlx::query(
+            "UPDATE work SET status='active', resolution=$2, \
+                    attempt_limit=CASE WHEN $3 AND attempt_limit IS NOT NULL \
+                                             AND attempt_limit < 2147483647 \
+                                       THEN attempt_limit + 1 ELSE attempt_limit END \
+             WHERE id=$1",
+        )
+        .bind(work_id)
+        .bind(format!("resumed by {by}: {}", reason.trim()))
+        .bind(exhausted)
+        .execute(&mut *tx)
+        .await?;
         sqlx::query("INSERT INTO events (kind, actor_id, body) VALUES ('work_repaired',$1,$2)")
             .bind(by)
-            .bind(serde_json::json!({ "work_id": work_id, "reason": reason.trim() }))
+            .bind(serde_json::json!({
+                "work_id": work_id,
+                "reason": reason.trim(),
+                "attempt_limit_extended": exhausted,
+            }))
             .execute(&mut *tx)
             .await?;
         tx.commit().await?;
@@ -920,6 +1010,23 @@ impl OrgIntel {
         )
         .bind(work_id)
         .bind(format!("abandoned by {by}: {}", reason.trim()))
+        .execute(&mut *tx)
+        .await?;
+        // A pending handoff is a projection of this Work's current blocker,
+        // not an independent owner obligation. Retiring the Work must retire
+        // that prepared action in the same OrgIntel transaction; otherwise
+        // Attention keeps asking the owner to authorize a path the company
+        // has already declared obsolete.
+        sqlx::query(
+            "UPDATE owner_handoffs SET state='withdrawn', \
+                    resolution=$2, resolved_at=now() \
+             WHERE work_id=$1 AND state='pending'",
+        )
+        .bind(work_id)
+        .bind(format!(
+            "Withdrawn because Work was abandoned by {by}: {}",
+            reason.trim()
+        ))
         .execute(&mut *tx)
         .await?;
         sqlx::query("INSERT INTO events (kind, actor_id, body) VALUES ('work_abandoned',$1,$2)")

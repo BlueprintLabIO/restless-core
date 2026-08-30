@@ -21,7 +21,9 @@ use agent_client_protocol::{
             CancelNotification, ContentBlock, InitializeRequest, LoadSessionRequest, McpServer,
             NewSessionRequest, PermissionOptionKind, PromptRequest, PromptResponse,
             RequestPermissionOutcome, RequestPermissionRequest, RequestPermissionResponse,
-            SelectedPermissionOutcome, SessionId, SessionNotification, SessionUpdate, TextContent,
+            SelectedPermissionOutcome, SessionConfigKind, SessionConfigOption,
+            SessionConfigOptionCategory, SessionConfigSelectOptions, SessionId,
+            SessionNotification, SessionUpdate, SetSessionConfigOptionRequest, TextContent,
             ToolCallStatus,
         },
         ProtocolVersion,
@@ -66,6 +68,14 @@ fn test_coordinator_override() -> Option<String> {
         .clone()
 }
 
+fn runtime_coordinator() -> Result<String> {
+    #[cfg(test)]
+    if let Some(coordinator) = test_coordinator_override() {
+        return Ok(coordinator);
+    }
+    crate::runtime_coordinator()
+}
+
 /// Everything a wake needs to start an agent against a provider.
 ///
 /// The agent binary is `omp` (Oh My Pi), which speaks ACP natively and
@@ -78,7 +88,6 @@ pub struct AgentAuth {
     pub model: String,
     /// Explicit provider-supported reasoning effort for this actor launch.
     pub effort: String,
-    pub provider: String,
     pub company: String,
     /// The host-generated session identifier binds coordination and model
     /// grants to this one supervised ACP process.
@@ -155,6 +164,94 @@ fn session_locator_is_reusable(
 
 pub(crate) const AGENT_CONFIG_DIR: &str = "/company/home/.restless/omp-agent";
 const OMP_RUNTIME_CONFIG: &str = "/company/home/.restless/omp-agent/restless-runtime.yml";
+
+/// OMP owns model and runtime selection as top-level flags. Its `acp`
+/// subcommand exposes no flags, so placing these arguments after `acp` starts
+/// the server without selecting a model and fails only when the first prompt
+/// arrives. Keep the subcommand last and the ordering independently testable.
+fn omp_agent_command_args(model: &str, effort: &str, system_prompt_path: &str) -> Vec<String> {
+    [
+        "omp",
+        "--model",
+        model,
+        "--thinking",
+        effort,
+        "--system-prompt",
+        system_prompt_path,
+        "--config",
+        OMP_RUNTIME_CONFIG,
+        "--no-extensions",
+        "--no-rules",
+        "--tools",
+        OMP_AGENT_TOOLS,
+        "acp",
+    ]
+    .iter()
+    .map(|arg| (*arg).to_string())
+    .collect()
+}
+
+/// Resolve the exact provider-qualified model value OMP advertised for this
+/// session. Process flags are useful defaults for interactive OMP, but ACP
+/// makes the session configuration response authoritative.
+fn exact_model_config_selection(
+    options: &[SessionConfigOption],
+    requested_model: &str,
+) -> Result<(String, String)> {
+    let option = options
+        .iter()
+        .find(|option| {
+            matches!(
+                option.category.as_ref(),
+                Some(SessionConfigOptionCategory::Model)
+            ) || option.id.to_string() == "model"
+        })
+        .with_context(|| {
+            format!(
+                "ACP agent did not advertise a model session option; requested {requested_model}"
+            )
+        })?;
+    let SessionConfigKind::Select(select) = &option.kind else {
+        anyhow::bail!(
+            "ACP model session option {} is not a select option",
+            option.id
+        );
+    };
+    let value = match &select.options {
+        SessionConfigSelectOptions::Ungrouped(values) => values
+            .iter()
+            .find(|value| value.value.to_string() == requested_model)
+            .map(|value| value.value.to_string()),
+        SessionConfigSelectOptions::Grouped(groups) => groups
+            .iter()
+            .flat_map(|group| group.options.iter())
+            .find(|value| value.value.to_string() == requested_model)
+            .map(|value| value.value.to_string()),
+        _ => None,
+    }
+    .with_context(|| {
+        format!(
+            "ACP agent model selector did not advertise exact requested value {requested_model}; options={}",
+            serde_json::to_string(options).unwrap_or_else(|_| "<unserializable>".into())
+        )
+    })?;
+    Ok((option.id.to_string(), value))
+}
+
+fn model_config_is_selected(
+    options: &[SessionConfigOption],
+    config_id: &str,
+    expected_value: &str,
+) -> bool {
+    options.iter().any(|option| {
+        option.id.to_string() == config_id
+            && matches!(
+                &option.kind,
+                SessionConfigKind::Select(select)
+                    if select.current_value.to_string() == expected_value
+            )
+    })
+}
 
 /// User-relevant pieces of a live ACP turn. The completed OrgIntel message is
 /// still authoritative; these events are a bounded, ephemeral owner view.
@@ -238,7 +335,6 @@ impl AgentControls {
     /// Attach only connections selected for this actor and session. Provider
     /// discovery and credentials remain Authority concerns; this method merely
     /// carries an already-authorised ACP description to the agent.
-    #[allow(dead_code)]
     pub fn with_mcp_servers(mut self, mcp_servers: Vec<McpServer>) -> Self {
         self.mcp_servers = mcp_servers;
         self
@@ -336,6 +432,44 @@ async fn persist_session_locator(
     write_private_container_file(container, path, &body).await
 }
 
+/// Forget only the hot provider session for one exact actor responsibility.
+/// Durable company files, messages, Work and evidence remain the reconstruction
+/// source. This is used when the provider rejects accumulated session history
+/// as too large; retrying the same locator can never make that request smaller.
+pub(crate) async fn discard_session_locator(
+    container: &str,
+    company: &str,
+    actor: &str,
+    responsibility: &str,
+) -> Result<()> {
+    let path = session_locator_path(company, actor, responsibility);
+    let output = tokio::process::Command::new("docker")
+        .args([
+            "exec",
+            "-u",
+            "company",
+            container,
+            "sh",
+            "-c",
+            "test ! -e \"$1\" || unlink \"$1\"",
+            "restless-discard-session",
+            path.as_str(),
+        ])
+        .output()
+        .await
+        .with_context(|| format!("discard ACP session locator {path}"))?;
+    if !output.status.success() {
+        anyhow::bail!(
+            "discard ACP session locator {path} failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+                .chars()
+                .take(300)
+                .collect::<String>()
+        );
+    }
+    Ok(())
+}
+
 /// Probe the exact short-lived coordination capability before model spend.
 /// Native OMP tools are fixed by this launch's argv; this read-only call proves
 /// that the same launch id can reach the coordination plane through the
@@ -350,11 +484,8 @@ async fn prove_tool_contract(container: &str, auth: &AgentAuth, actor: &str) -> 
         "-e".to_string(),
         format!("RESTLESS_ACTOR={actor}"),
     ];
-    #[cfg(test)]
-    if let Some(coordinator) = test_coordinator_override() {
-        args.push("-e".to_string());
-        args.push(format!("RESTLESS_COORDINATOR={coordinator}"));
-    }
+    args.push("-e".to_string());
+    args.push(format!("RESTLESS_COORDINATOR={}", runtime_coordinator()?));
     args.extend([
         container.to_string(),
         "restless".to_string(),
@@ -391,7 +522,7 @@ async fn prove_tool_contract(container: &str, auth: &AgentAuth, actor: &str) -> 
 /// and never writes a capability or provider key to the volume.
 pub(crate) async fn prepare_agent_runtime(container: &str, auth: &AgentAuth) -> Result<()> {
     let config = crate::model_gateway::models_config(
-        &auth.provider,
+        &auth.model,
         &auth.gateway_url,
         &auth.gateway_token_env,
     )?;
@@ -873,6 +1004,27 @@ where
     let launch_id = auth.session_id.clone();
     let session_marker = format!("/tmp/restless-agent-{launch_id}.sid");
     let system_prompt_path = format!("/tmp/restless-agent-{launch_id}.system.md");
+    let session_runtime = format!("/company/run/agent-sessions/{launch_id}");
+    let runtime_dirs = tokio::process::Command::new("docker")
+        .args([
+            "exec",
+            "-u",
+            "company",
+            container,
+            "mkdir",
+            "-p",
+            &format!("{session_runtime}/cache"),
+            &format!("{session_runtime}/tmp"),
+        ])
+        .output()
+        .await
+        .context("prepare external agent cache directories")?;
+    if !runtime_dirs.status.success() {
+        anyhow::bail!(
+            "prepare external agent cache directories: {}",
+            String::from_utf8_lossy(&runtime_dirs.stderr)
+        );
+    }
     write_private_container_file(container, &system_prompt_path, &controls.system_prompt).await?;
     // docker exec takes its -e flags BEFORE the container name; anything after
     // it belongs to the command. Build the vector explicitly rather than
@@ -886,11 +1038,12 @@ where
         args.push("-e".to_string());
         args.push("RESTLESS_COORDINATION_WAKE=1".to_string());
     }
-    #[cfg(test)]
-    if let Some(coordinator) = test_coordinator_override() {
-        args.push("-e".to_string());
-        args.push(format!("RESTLESS_COORDINATOR={coordinator}"));
-    }
+    args.push("-e".to_string());
+    args.push(format!("RESTLESS_COORDINATOR={}", runtime_coordinator()?));
+    args.push("-e".to_string());
+    args.push(format!("XDG_CACHE_HOME={session_runtime}/cache"));
+    args.push("-e".to_string());
+    args.push(format!("TMPDIR={session_runtime}/tmp"));
     args.push("-e".to_string());
     args.push(auth.coordination_token_env.clone());
     args.push("-e".to_string());
@@ -910,24 +1063,15 @@ where
             "umask 007; printf '%s\\n' \"$$\" > \"$1\"; shift; exec \"$@\"",
             "restless-agent",
             session_marker.as_str(),
-            "omp",
-            "acp",
-            "--model",
-            auth.model.as_str(),
-            "--thinking",
-            auth.effort.as_str(),
-            "--system-prompt",
-            system_prompt_path.as_str(),
-            "--config",
-            OMP_RUNTIME_CONFIG,
-            "--no-extensions",
-            "--no-rules",
-            "--tools",
-            OMP_AGENT_TOOLS,
         ]
         .iter()
         .map(|arg| (*arg).to_string()),
     );
+    args.extend(omp_agent_command_args(
+        &auth.model,
+        &auth.effort,
+        &system_prompt_path,
+    ));
     let spawned = tokio::process::Command::new("docker")
         .env(&auth.coordination_token_env, &auth.coordination_token)
         .env(&auth.gateway_token_env, &auth.gateway_token)
@@ -1089,8 +1233,14 @@ where
                     .unwrap_or_else(|| "unknown".to_string());
                 tracing::info!(agent = %agent_name, "acp agent initialized");
 
-                let (session_id, resumed, reconstructed, reconstruction_reason, baseline_cost) =
-                    match prior_locator {
+                let (
+                    session_id,
+                    resumed,
+                    reconstructed,
+                    reconstruction_reason,
+                    baseline_cost,
+                    config_options,
+                ) = match prior_locator {
                         Some(prior)
                             if session_locator_is_reusable(
                                 &prior,
@@ -1109,12 +1259,13 @@ where
                                 .block_task()
                                 .await
                             {
-                                Ok(_) => (
+                                Ok(loaded) => (
                                     prior_id,
                                     true,
                                     false,
                                     None,
                                     prior.cumulative_cost_usd,
+                                    loaded.config_options.unwrap_or_default(),
                                 ),
                                 Err(error) => {
                                     let session = cx
@@ -1131,6 +1282,7 @@ where
                                         true,
                                         Some(format!("session/load failed: {error}")),
                                         None,
+                                        session.config_options.unwrap_or_default(),
                                     )
                                 }
                             }
@@ -1162,7 +1314,14 @@ where
                                 .block_task()
                                 .await
                                 .context("acp session/new for explicit reconstruction")?;
-                            (session.session_id, false, true, Some(reason), None)
+                            (
+                                session.session_id,
+                                false,
+                                true,
+                                Some(reason),
+                                None,
+                                session.config_options.unwrap_or_default(),
+                            )
                         }
                         None => {
                             let session = cx
@@ -1173,9 +1332,39 @@ where
                                 .block_task()
                                 .await
                                 .context("acp session/new")?;
-                            (session.session_id, false, false, None, None)
+                            (
+                                session.session_id,
+                                false,
+                                false,
+                                None,
+                                None,
+                                session.config_options.unwrap_or_default(),
+                            )
                         }
                     };
+
+                let (model_config_id, model_value) =
+                    exact_model_config_selection(&config_options, &launch_auth.model)
+                        .context("select exact ACP session model")?;
+                let configured = cx
+                    .send_request(SetSessionConfigOptionRequest::new(
+                        session_id.clone(),
+                        model_config_id.clone(),
+                        model_value.as_str(),
+                    ))
+                    .block_task()
+                    .await
+                    .context("acp session/set_config_option for exact model")?;
+                if !model_config_is_selected(
+                    &configured.config_options,
+                    &model_config_id,
+                    &model_value,
+                ) {
+                    anyhow::bail!(
+                        "ACP agent did not confirm exact selected model {}",
+                        launch_auth.model
+                    );
+                }
 
                 let locator = SessionLocator {
                     version: 1,
@@ -1253,6 +1442,18 @@ where
         .await;
     let _ = tokio::process::Command::new("docker")
         .args(["exec", container, "unlink", &system_prompt_path])
+        .output()
+        .await;
+    let _ = tokio::process::Command::new("docker")
+        .args([
+            "exec",
+            "-u",
+            "root",
+            container,
+            "rm",
+            "-rf",
+            &session_runtime,
+        ])
         .output()
         .await;
     if let Ok(mut slot) = failure.lock() {
@@ -1401,10 +1602,14 @@ fn pids_in_session(table: &str, session_id: &str) -> Vec<String> {
 
 #[cfg(test)]
 mod tests {
-    use agent_client_protocol::schema::v1::ClientCapabilities;
+    use agent_client_protocol::schema::v1::{
+        ClientCapabilities, SessionConfigOption, SessionConfigOptionCategory,
+        SessionConfigSelectOption,
+    };
 
     use super::{
-        agent_exec_prefix, persist_session_locator, pids_in_session, read_session_locator,
+        agent_exec_prefix, exact_model_config_selection, model_config_is_selected,
+        omp_agent_command_args, persist_session_locator, pids_in_session, read_session_locator,
         session_cost_delta, session_locator_is_reusable, session_locator_path,
         validate_session_locator, with_agent, AgentAuth, AgentControls, SessionLocator,
         DEFAULT_REASONING_EFFORT, OMP_AGENT_TOOLS, RESTLESS_OMP_CONFIG,
@@ -1498,7 +1703,6 @@ mod tests {
             AgentAuth {
                 model: model.clone(),
                 effort: DEFAULT_REASONING_EFFORT.into(),
-                provider: provider.clone(),
                 company: company.clone(),
                 session_id: launch_id.clone(),
                 coordination_token_env: "RESTLESS_SESSION_CAPABILITY".into(),
@@ -1710,6 +1914,12 @@ mod tests {
     fn omp_cannot_create_invisible_staff() {
         let tools: Vec<_> = OMP_AGENT_TOOLS.split(',').collect();
         assert_eq!(tools, ["read", "bash", "edit", "write", "grep"]);
+        // Vision-capable OMP models ingest images through `read`. OMP hides
+        // its delegated `inspect_image` tool in auto mode for those models;
+        // forcing it would permit a second model route and weaken exact-model
+        // evidence.
+        assert!(tools.contains(&"read"));
+        assert!(!tools.contains(&"inspect_image"));
         assert!(!tools.contains(&"task"));
     }
 
@@ -1737,12 +1947,78 @@ mod tests {
     }
 
     #[test]
+    fn omp_global_launch_flags_precede_the_acp_subcommand() {
+        let args = omp_agent_command_args(
+            "zai/glm-5.3-flash",
+            "medium",
+            "/tmp/restless-agent.system.md",
+        );
+        assert_eq!(args.first().map(String::as_str), Some("omp"));
+        assert_eq!(args.last().map(String::as_str), Some("acp"));
+        let acp = args.iter().position(|arg| arg == "acp").unwrap();
+        for flag in [
+            "--model",
+            "--thinking",
+            "--system-prompt",
+            "--config",
+            "--no-extensions",
+            "--no-rules",
+            "--tools",
+        ] {
+            assert!(
+                args.iter().position(|arg| arg == flag).unwrap() < acp,
+                "{flag} must be parsed as an OMP global flag before `acp`"
+            );
+        }
+    }
+
+    #[test]
+    fn exact_acp_model_selection_is_advertised_and_verified() {
+        let options = vec![SessionConfigOption::select(
+            "model",
+            "Model",
+            "zai/glm-5.3",
+            vec![
+                SessionConfigSelectOption::new("zai/glm-5.3", "GLM 5.3"),
+                SessionConfigSelectOption::new("zai/glm-5.3-flash", "GLM 5.3 Flash"),
+            ],
+        )
+        .category(SessionConfigOptionCategory::Model)];
+        let selected = exact_model_config_selection(&options, "zai/glm-5.3-flash").unwrap();
+        assert_eq!(selected, ("model".into(), "zai/glm-5.3-flash".into()));
+        assert!(!model_config_is_selected(
+            &options,
+            &selected.0,
+            &selected.1
+        ));
+
+        let confirmed = vec![SessionConfigOption::select(
+            "model",
+            "Model",
+            "zai/glm-5.3-flash",
+            vec![SessionConfigSelectOption::new(
+                "zai/glm-5.3-flash",
+                "GLM 5.3 Flash",
+            )],
+        )
+        .category(SessionConfigOptionCategory::Model)];
+        assert!(model_config_is_selected(
+            &confirmed,
+            &selected.0,
+            &selected.1
+        ));
+        assert!(exact_model_config_selection(&options, "zai/glm-does-not-exist").is_err());
+    }
+
+    #[test]
     fn omp_profile_rejects_ambient_agent_capabilities() {
         assert!(RESTLESS_OMP_CONFIG.contains("enableProjectConfig: false"));
         assert!(RESTLESS_OMP_CONFIG.contains("enableAgentsUser: false"));
         assert!(RESTLESS_OMP_CONFIG.contains("enableAgentsProject: true"));
         assert!(RESTLESS_OMP_CONFIG.contains("/opt/restless/skills"));
         assert!(RESTLESS_OMP_CONFIG.contains("/company/skills"));
+        assert!(RESTLESS_OMP_CONFIG.contains("retry:\n  enabled: false"));
+        assert!(RESTLESS_OMP_CONFIG.contains("modelFallback: false"));
         for provider in ["claude", "codex", "github", "opencode"] {
             assert!(RESTLESS_OMP_CONFIG.contains(&format!("  - {provider}\n")));
         }

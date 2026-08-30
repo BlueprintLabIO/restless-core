@@ -54,6 +54,10 @@ pub enum BlockKind {
     Quota,
     /// The configured model is not one the provider offers.
     Model,
+    /// The provider session history no longer fits in one request. This is a
+    /// responsibility-local continuity failure, not a dead model: discard the
+    /// hot session and reconstruct the next wake from durable company state.
+    Context,
     /// The turn completed but consumed nothing — it did not happen.
     NoOp,
     /// The company reached its spend ceiling. Owner action, not a fault.
@@ -73,6 +77,7 @@ impl BlockKind {
             Self::Credential => "credential",
             Self::Quota => "quota",
             Self::Model => "model",
+            Self::Context => "context",
             Self::NoOp => "no-op",
             Self::Budget => "budget",
             Self::Transport => "transport",
@@ -91,6 +96,7 @@ pub fn block_kind_from_message(message: &str) -> Option<BlockKind> {
         BlockKind::Credential,
         BlockKind::Quota,
         BlockKind::Model,
+        BlockKind::Context,
         BlockKind::NoOp,
         BlockKind::Budget,
         BlockKind::Transport,
@@ -311,6 +317,16 @@ pub fn classify_provider_error(text: &str) -> Option<Blocked> {
     let lower = text.to_lowercase();
     let has = |needle: &str| lower.contains(needle);
 
+    if has("413") && (has("payload too large") || has("request too large")) {
+        return Some(Blocked::new(
+            BlockKind::Context,
+            format!(
+                "the provider session history exceeded the request limit; the next wake will reconstruct from durable company state: {}",
+                trim(text)
+            ),
+        ));
+    }
+
     if has("402") || has("insufficient") || has("credit") || has("quota") {
         return Some(Blocked::new(
             BlockKind::Quota,
@@ -335,6 +351,15 @@ pub fn classify_provider_error(text: &str) -> Option<Blocked> {
             format!("provider rate-limited the company: {}", trim(text)),
         ));
     }
+    if has("404") {
+        return Some(Blocked::new(
+            BlockKind::Transport,
+            format!(
+                "the configured provider route was not found: {}",
+                trim(text)
+            ),
+        ));
+    }
     if has("model") && (has("not found") || has("unknown") || has("does not exist")) {
         return Some(Blocked::new(
             BlockKind::Model,
@@ -345,6 +370,67 @@ pub fn classify_provider_error(text: &str) -> Option<Blocked> {
         ));
     }
     None
+}
+
+/// Classify an upstream refusal that OMP delivered as assistant *content*.
+///
+/// Unlike [`classify_provider_error`], this entry point receives model prose,
+/// not a failed transport envelope. Ordinary company language routinely says
+/// things such as "unauthorised", "quota", "credit", or includes a commit
+/// whose digits happen to contain an HTTP status. Those words are not
+/// substrate evidence. Require the content itself to have the shape of a
+/// provider error before reading its status class.
+#[must_use]
+pub fn classify_provider_error_content(text: &str) -> Option<Blocked> {
+    let trimmed = text.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+
+    if let Ok(value) = serde_json::from_str::<serde_json::Value>(trimmed) {
+        let error = value.get("error")?;
+        let encoded = if error.is_string() {
+            error.as_str()?.to_string()
+        } else {
+            error.to_string()
+        };
+        return classify_provider_error(&encoded);
+    }
+
+    let first = trimmed.lines().next().unwrap_or(trimmed).trim();
+    let lower = first.to_ascii_lowercase();
+    let status_prefix = ["401", "402", "403", "404", "413", "429"]
+        .into_iter()
+        .any(|status| {
+            lower.starts_with(status)
+                || lower.starts_with(&format!("http {status}"))
+                || lower.starts_with(&format!("http/{status}"))
+                || lower.starts_with(&format!("error {status}"))
+                || lower.starts_with(&format!("error: {status}"))
+                || lower.starts_with(&format!("provider error {status}"))
+                || lower.starts_with(&format!("provider error: {status}"))
+                || lower.starts_with(&format!("auth-gateway {status}"))
+        });
+    let named_error_prefix = [
+        "invalid authentication",
+        "authentication failed",
+        "unauthorized",
+        "unauthorised",
+        "insufficient balance",
+        "insufficient credit",
+        "rate limit exceeded",
+        "rate limited",
+    ]
+    .into_iter()
+    .any(|prefix| lower.starts_with(prefix));
+    let explicit_error_prefix = lower.starts_with("api error")
+        || lower.starts_with("upstream error")
+        || lower.starts_with("provider error")
+        || lower.starts_with("error:");
+
+    (status_prefix || named_error_prefix || explicit_error_prefix)
+        .then(|| classify_provider_error(trimmed))
+        .flatten()
 }
 
 fn trim(text: &str) -> String {
@@ -570,6 +656,7 @@ mod tests {
             ("401 Invalid Authentication", BlockKind::Credential),
             ("upstream returned 403", BlockKind::Credential),
             ("429 rate limit exceeded", BlockKind::Quota),
+            ("HTTP 413 Payload Too Large", BlockKind::Context),
             ("model glm-5.1 not found", BlockKind::Model),
         ];
         for (text, expected) in cases {
@@ -578,6 +665,44 @@ mod tests {
                 transcript: transcript(Some(10), None),
             };
             assert_eq!(blocked(classify(&end)).kind, expected, "{text}");
+        }
+    }
+
+    #[test]
+    fn provider_error_content_requires_an_error_envelope() {
+        let normal_company_prose = [
+            "The unauthorised action was correctly rejected and the work is complete.",
+            "We stayed within the research quota and preserved credit attribution.",
+            "Candidate 84ff1745b29267708599e94036ec6f7a2a7e0457 is ready.",
+            "The model does not exist as a separate organisational role.",
+        ];
+        for prose in normal_company_prose {
+            assert!(
+                classify_provider_error_content(prose).is_none(),
+                "ordinary model prose must not create a provider cooldown: {prose}"
+            );
+        }
+
+        let provider_content = [
+            (
+                "429 [1113] Insufficient balance. Please recharge.",
+                BlockKind::Quota,
+            ),
+            ("HTTP 403: credential refused", BlockKind::Credential),
+            ("404 status code (no body)", BlockKind::Transport),
+            ("Invalid Authentication", BlockKind::Credential),
+            (
+                r#"{"error":{"status":429,"message":"rate limit exceeded"}}"#,
+                BlockKind::Quota,
+            ),
+            ("auth-gateway 413: Payload Too Large", BlockKind::Context),
+        ];
+        for (content, expected) in provider_content {
+            assert_eq!(
+                classify_provider_error_content(content).map(|blocked| blocked.kind),
+                Some(expected),
+                "{content}"
+            );
         }
     }
 
