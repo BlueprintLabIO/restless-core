@@ -234,13 +234,14 @@ minute, and why T4 is worth finishing rather than deferring.
 
 **T4 closure.** The coherent execution substrate was committed as `25e6e48`; an exact clean checkout
 then passed 223 daemon tests (6 ignored) and the cockpit production build. Tagged release
-`core-v0.0.0-preview.1` points to `e53946a`, which adds the cell-side release probe and emits this
+`core-v0.0.0-preview.2` points to `10192cc`, which adds the cell-side release probe and packages the
+Authority plane's OMP broker/gateway dependency with persistent profile state. It emits this
 manifest identity:
 
 ```text
-account plane  127.0.0.1:5000/restless/account-plane@sha256:0e9d1d568ce1…
-Runtime        127.0.0.1:5000/restless/company-runtime@sha256:8241368d1d68…
-source         e53946ad99456651ce1cd91e41e203415befdc03
+account plane  127.0.0.1:5000/restless/account-plane@sha256:8d9cfcc28d62…
+Runtime        127.0.0.1:5000/restless/company-runtime@sha256:fe3bb930f538…
+source         10192cc068ef0d6bc9f17442fe39ebf3263d2487
 contracts      API 1, assertion 1, schema 20
 ```
 
@@ -249,10 +250,11 @@ same five release fields, compared by Cloud's compatibility probe: 9 passed, 0 f
 The manifest emitter's health-field typo was corrected as part of the tagged release.
 
 **T5 remains `[~]`, not `[x]`.** The clean artifacts, network plane, two scoped `_test` identities,
-sleeping-cell cockpit, exact refusal reasons and test cleanup were exercised. No in-app browser was
-available in this environment, so the required browser-render observation cannot honestly be
-claimed. The credential-free technical plane also cannot prove “wake plus one Attempt proceeds.”
-Those are the two remaining observations; they are not blockers on T4 or Cloud's technical tests.
+sleeping-cell cockpit, exact refusal reasons and test cleanup were exercised. The credentialed restart
+run also proved the Runtime retained the same container ID while the plane was down, then resumed the
+same ACP session and started a subsequent Staff Attempt after the plane returned. No in-app browser
+was available in this environment—browser discovery returned no connected surfaces—so the required
+browser-render observation is the sole remaining T5 observation and cannot honestly be claimed.
 
 ## Non-goals
 
