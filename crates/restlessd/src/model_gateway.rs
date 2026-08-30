@@ -89,7 +89,6 @@ pub fn unstartable_reason(company: &str) -> Option<String> {
     UNSTARTABLE.get()?.get(company).cloned()
 }
 
-
 #[derive(Clone)]
 pub struct ClientConfig {
     providers: BTreeMap<String, ModelBilling>,
@@ -330,11 +329,25 @@ pub async fn start(
     root: &std::path::Path,
     capabilities: crate::capability::CapabilityIssuer,
     spend: crate::spend::SpendLedger,
-) -> Result<Processes> {
+) -> Result<Option<Processes>> {
     let endpoints = GatewayEndpoints::from_env()?;
     let mut provider_credentials = provider_credentials(configs).await?;
     if provider_credentials.is_empty() {
-        bail!("no configured company model provider is available for the model gateway");
+        // The account plane is not a company. It serves the cockpit, holds the
+        // owner's credentials and routes surfaces; it performs no company work,
+        // so it must start with zero startable companies and report them
+        // unstartable — the same admission rule S25-T1 established per company,
+        // applied to the plane itself.
+        //
+        // Refusing to boot here would make a freshly provisioned hosted plane
+        // unstartable until its first company existed, which inverts Cloud's
+        // provisioning order: Fleet creates the plane, then the cell.
+        tracing::warn!(
+            companies = configs.len(),
+            "no company model provider is available; the plane will serve the cockpit \
+             and every company will report its own unstartable reason"
+        );
+        return Ok(None);
     }
 
     let omp = std::env::var("RESTLESS_OMP_BIN").unwrap_or_else(|_| "omp".to_string());
@@ -408,10 +421,17 @@ pub async fn start(
     let _ = UNSTARTABLE.set(admission.unstartable);
 
     let gateway_token = token(&omp, &endpoints.gateway_profile, "auth-gateway").await?;
-    let mut gateway = Command::new(&omp)
+    let mut gateway_command = Command::new(&omp);
+    gateway_command
         .env("OMP_PROFILE", &endpoints.gateway_profile)
         .env("OMP_AUTH_BROKER_URL", &endpoints.broker_url)
-        .env("OMP_AUTH_BROKER_TOKEN", &broker_token)
+        .env("OMP_AUTH_BROKER_TOKEN", &broker_token);
+    if provider_credentials.contains_key("litellm") {
+        let base_url = std::env::var("GPT_BASE_URL")
+            .context("litellm model route needs GPT_BASE_URL for OMP discovery")?;
+        gateway_command.env("LITELLM_BASE_URL", base_url);
+    }
+    let mut gateway = gateway_command
         .args([
             "auth-gateway",
             "serve",
@@ -463,11 +483,11 @@ pub async fn start(
         &endpoints.relay_bind,
     )
     .await?;
-    Ok(Processes {
+    Ok(Some(Processes {
         broker,
         gateway,
         relay,
-    })
+    }))
 }
 
 #[derive(Deserialize)]
@@ -600,10 +620,7 @@ async fn reconcile_credentials(
         let (keep_id, superseded_ids) = match canonical {
             Ok(canonical) => canonical,
             Err(error) => {
-                tracing::warn!(
-                    provider,
-                    "provider not admitted: {error:#}"
-                );
+                tracing::warn!(provider, "provider not admitted: {error:#}");
                 unadmitted.insert(provider.clone());
                 continue;
             }
@@ -1274,9 +1291,7 @@ pub fn models_config(model: &str, runtime_url: &str, token_env: &str) -> Result<
         // session's exact grant. Discovery keeps OMP's provider-level
         // `pi-native` transport intact; a custom `models:` entry does not.
         "    discovery:\n      type: proxy\n"
-    } else if matches!(provider, "zai" | "zhipu-coding-plan")
-        && model_id == "glm-5.3-flash"
-    {
+    } else if matches!(provider, "zai" | "zhipu-coding-plan") && model_id == "glm-5.3-flash" {
         // Discover the one model authorised by the scoped relay and preserve
         // its exact text+image contract across OMP catalogue versions. A
         // static custom model would discard `pi-native` and bypass the only
@@ -1672,12 +1687,8 @@ mod tests {
 
     #[test]
     fn runtime_pins_an_admitted_model_missing_from_the_bundled_catalogue() {
-        let config = models_config(
-            "zai/glm-5.3-flash",
-            RELAY_RUNTIME_URL,
-            MODEL_CAPABILITY_ENV,
-        )
-        .unwrap();
+        let config =
+            models_config("zai/glm-5.3-flash", RELAY_RUNTIME_URL, MODEL_CAPABILITY_ENV).unwrap();
         assert!(config.contains("    discovery:\n      type: proxy\n"));
         assert!(config.contains("    modelOverrides:\n      glm-5.3-flash:\n"));
         assert!(config.contains("        input: [text, image]\n"));
@@ -1795,7 +1806,8 @@ mod tests {
             vec!["broken_test"]
         );
         assert!(
-            admission.unstartable["broken_test"].contains("credentials.model.inference.openai-codex"),
+            admission.unstartable["broken_test"]
+                .contains("credentials.model.inference.openai-codex"),
             "reason must name the exact key to set, got {:?}",
             admission.unstartable["broken_test"]
         );

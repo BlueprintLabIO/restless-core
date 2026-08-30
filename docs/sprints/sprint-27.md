@@ -1,6 +1,6 @@
 # Sprint 27 — Network owner entry and pinnable releases
 
-**Status:** Active — T1–T3 implemented and unit-verified; their live-boot confirmations and T4–T5 remain
+**Status:** Active — T1–T3 closed against a live plane; T4 half-landed (identity yes, images no); T5 open
 
 **Date:** 30 August 2026
 
@@ -98,10 +98,10 @@ evidence not yet observed · `[ ]` not started.
 
 | Status | Ticket | Slice | Outcome or friction served | Prior machinery made deletable |
 | --- | --- | --- | --- | --- |
-| [~] | [S27-T1 · Verify an assertion at the plane edge](sprint-27/t1-assertion-verification.md) | Authority | No supported way to reach a plane that is not the machine you are sitting at | The unconditional loopback bail as the only network posture |
-| [~] | [S27-T2 · Derive company scope from the assertion](sprint-27/t2-scope-derivation.md) | Authority | Scope taken from a URL is scope a client chooses | Route- and host-derived company scope |
+| [x] | [S27-T1 · Verify an assertion at the plane edge](sprint-27/t1-assertion-verification.md) | Authority | No supported way to reach a plane that is not the machine you are sitting at | The unconditional loopback bail as the only network posture |
+| [x] | [S27-T2 · Derive company scope from the assertion](sprint-27/t2-scope-derivation.md) | Authority | Scope taken from a URL is scope a client chooses | Route- and host-derived company scope |
 | [x] | [S27-T3 · Refuse the adversarial cases, provably](sprint-27/t3-adversarial-refusal.md) | Authority + Evaluation | A check that happens to pass is not evidence | Trust that verification works because it compiles |
-| [ ] | [S27-T4 · Publish a pinnable, self-identifying release](sprint-27/t4-pinnable-release.md) | Runtime + Authority | Cloud cannot deploy what it cannot pin, and cannot debug what will not name itself | Mutable tags; "whatever Core was on that day" |
+| [~] | [S27-T4 · Publish a pinnable, self-identifying release](sprint-27/t4-pinnable-release.md) | Runtime + Authority | Cloud cannot deploy what it cannot pin, and cannot debug what will not name itself | Mutable tags; "whatever Core was on that day" |
 | [ ] | [S27-T5 · Reach the cockpit over a network, end to end](sprint-27/t5-network-cockpit-run.md) | Full slice + Evaluation | Parts that each pass are not a product that works | Component-level confidence as a substitute for a run |
 
 ## Evidence
@@ -146,11 +146,45 @@ evidence not yet observed · `[ ]` not started.
 
 - `cargo test -p restlessd --bin restlessd` — **219 passed, 0 failed, 5 ignored.**
 
-**Not yet observed, and therefore not claimed.** T1 and T2 stay `[~]` because their stated evidence
-includes a live confirmation this work has not run: a plane booted in network mode serving the cockpit
-to a browser, with audit attribution compared against a local-mode run, and the scope refusal checked
-against a plane genuinely holding two companies. Both are S27-T5's end-to-end run. The unit and
-composition tests above are not a substitute for it.
+**Observed against a live plane** booted in network mode on a temp home (torn down in the same
+turn), reached over HTTP:
+
+```text
+GET  /health          → {"status":"ok","release":{"core_version":"0.0.0",
+                          "source_revision":"770fcbf…-dirty","api_contract_version":1,
+                          "assertion_contract_version":1,"schema_version":20}}
+GET  /api/companies   → 401 {"error":"no_session"}            (no session)
+POST /entry  (valid)  → 200 + Set-Cookie: restless_session=…; HttpOnly; Secure; SameSite=Lax
+GET  /api/companies   → 200                                   (with that session)
+POST /entry  (replay) → 401 {"error":"assertion_replayed"}
+POST /entry  (expired)→ 401 {"error":"assertion_expired"}
+POST /entry  (wrong aud) → 401 {"error":"assertion_wrong_audience"}
+```
+
+With a session scoped to one company, on the same plane:
+
+```text
+GET /api/companies/other/cockpit → 403 {"error":"company_out_of_scope"}
+GET /desktop/other/observe       → 403 {"error":"company_out_of_scope"}
+GET /api/companies/aris/cockpit  → 404   (past the scope gate, into the handler —
+                                          which is what makes the 403s above mean something)
+```
+
+**A defect found by trying to run it, and fixed.** The plane refused to boot unless at least one
+company had a usable model provider: `no configured company model provider is available for the
+model gateway`. Under the tier split that is wrong. The account plane is not a company — it serves
+the cockpit, holds the owner's credentials and performs no company work, so it must start with zero
+startable companies and let each report its own unstartable reason, which is S25-T1's rule applied
+one tier up. It also inverts Cloud's provisioning order, where Fleet creates the plane *before* the
+first cell, so a freshly provisioned hosted plane could never have started. It now warns and serves.
+
+**Not yet observed, and therefore not claimed.** T4 stays `[~]`: the release *identity* is live, but
+no OCI image digest and no published manifest exist. Host headroom sits at the 30 GiB build floor and
+another session built the company image during this work, so starting a Docker build would be the
+exact failure `BUILD_STORAGE.md` records. T5 stays open: the live run above used `curl`, not a
+browser against a non-loopback address, and it did not compare audit attribution against a local-mode
+run. The scope refusal was checked on a plane holding zero companies, so the 403s prove the gate but
+the 404 — not a second company's data — is what sat behind it.
 
 ## Non-goals
 
