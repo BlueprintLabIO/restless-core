@@ -1,0 +1,66 @@
+{
+  "work": [
+    {
+      "id": "34b296dd-1927-4f8f-a60e-94a78c3f9086",
+      "goal_id": null,
+      "owner_id": "gameplay-player",
+      "title": "Judge the frozen delivery journey through blinded native play",
+      "outcome": "This will produce an independent visual verdict showing whether the game rejects the walking shortcut and whether its intended truck-delivery journey can be completed. The preserved screenshots and trace will let the referee audit that verdict without exposing production knowledge to the player.\n\nEvaluate the frozen Swift Arrival candidate at /company/projects/swift-arrival-candidate. Do not edit the game or any candidate file. Write immutable evidence only below /company/outputs/exp11-referee/candidate-r13; preserve that exact locator unchanged as the Work output.\n\nYou are a fresh blinded native player. You receive only this public gameplay objective: collect the parcel, make one ordinary recoverable mistake, drive the truck to the destination, leave the seat and deliver the parcel. Public controls are W/A/S/D movement or driving, mouse look, E interact and Q deliberate drop. Do not inspect source, Git history, producer messages, tests, logs, known defects, prior reports, or inferred solutions.\n\nLaunch the prepared native processes with:\nDISPLAY=:1 godot --path /company/projects/swift-arrival-candidate -- --host\nDISPLAY=:1 godot --path /company/projects/swift-arrival-candidate -- --client\n\nFor each fresh launch, start the host first, wait until its window is visible and record its numeric ID, then start the client and identify the newly visible numeric ID whose title says CLIENT. Before the first capture, use ordinary X11 window controls to resize and move both windows into non-overlapping screen regions. Record the final numeric IDs, titles, and geometries. Raise and focus the isolated CLIENT window and capture only its non-overlapping region. If the windows overlap again, re-separate those exact IDs before capture. Never treat pixels from a covering window as pixels from the selected window.\n\nRun two independent fresh native launches in this order. Run 1: naturally test whether carrying the parcel to the destination on foot without a loaded truck journey can complete delivery. Record the direct visible rejection or any bypass. Then terminate both native processes and restart from clean state. Run 2: attempt the complete intended journey—collect the parcel, make one ordinary recoverable mistake, recover, load the truck, drive to the destination, leave the seat, and unload. A pass requires direct visual evidence that the shortcut does not complete and that the complete journey does complete. Never infer either result from logs, source, scripts, or the other run.\n\nBefore gameplay, create a fresh initial client PNG, read that exact PNG with OMP's ordinary read tool so its pixels enter your active Sol turn, and record what the pixels show. Then act only through ordinary keyboard/pointer input, recapture, read the resulting exact PNG in the same Sol session, and continue only from direct pixel observation. File existence, metadata, or command success is not image observation.\n\nFor every input or capture: enumerate visible Swift Arrival numeric window IDs and map each ID to its title; choose the numeric ID whose title says CLIENT; raise and focus that exact ID; obtain its geometry with xdotool getwindowgeometry --shell; and capture the corresponding screen region with scrot -a X,Y,WIDTH,HEIGHT. Do not use scrot -u as client-routing proof. Read the exact PNG and proceed only if its pixels visibly identify CLIENT. Before the first capture of each launch, ensure and record non-overlapping host/client geometry as required above. A first launch, focus, or capture command failure may receive at most one bounded setup repair, with both failure and repair retained in the action trace. Report invalid only if exact routing, native image ingestion, native input, or recapture remains unavailable after that repair; do not substitute source, logs, scripts, or another evidence path.\n\nAttempt the goal naturally. Explicitly separate direct visual observation from inference and uncertainty. Stop only on completion or a reproducible blocker. Evidence below /company/outputs/exp11-referee/candidate-r13 must include fresh PNGs, an ordered action/observation trace with window IDs, titles, geometries, inputs, visible observations, and any setup failure/repair, plus a concise verdict report identifying pass, fail, or invalid and naming all gaps. Link the exact outputs to this Work and provide a durable terminal report.\n\nDo not prescribe a backlog, contact production, deploy, publish, purchase, or declare founder acceptance.",
+      "status": "completed",
+      "resolution": "Completed and linked the blinded native-play evidence, ordered trace, checksums, and evidence-bounded FAIL verdict identifying the unproven shortcut rejection and visually completed intended journey.",
+      "priority": 0,
+      "expected_artifact": "/company/outputs/exp11-referee/candidate-r13",
+      "owner_review_required": false,
+      "repo": null,
+      "base_ref": null,
+      "integration_branch": null,
+      "worktree": null,
+      "revision": 1,
+      "attempt_limit": null,
+      "created_at": "2026-08-28T12:20:31.706333Z",
+      "updated_at": "2026-08-28T12:46:11.211059Z"
+    }
+  ],
+  "edges": [],
+  "attempts": [
+    {
+      "id": "8580189c-9ce5-49af-8e03-1be5f4af9364",
+      "work_id": "34b296dd-1927-4f8f-a60e-94a78c3f9086",
+      "revision": 1,
+      "attempt_no": 1,
+      "actor_id": "gameplay-player",
+      "session_id": "36e2950c-b482-42ff-a535-43080ddfec16",
+      "state": "produced",
+      "trigger": "dependency graph became ready",
+      "input_fingerprint": "56720e0c78eeea131d0fdff2d618abecf554d93abe59b227c0ddcea60ac46172",
+      "feedback_cursor": 0,
+      "model": "litellm/gpt-5.6-sol",
+      "started_at": "2026-08-28T12:20:33.258729Z",
+      "finished_at": "2026-08-28T12:46:11.211059Z",
+      "summary": "Completed and linked the blinded native-play evidence, ordered trace, checksums, and evidence-bounded FAIL verdict identifying the unproven shortcut rejection and visually completed intended journey."
+    }
+  ],
+  "attempt_inputs": [],
+  "attempt_feedback": [],
+  "artifacts": [
+    {
+      "id": "1f8e8293-5b75-425c-8b8d-128729566d0a",
+      "kind": "output",
+      "uri": "/company/outputs/exp11-referee/candidate-r13",
+      "note": "",
+      "created_by": "gameplay-player",
+      "work_id": "34b296dd-1927-4f8f-a60e-94a78c3f9086",
+      "attempt_id": "8580189c-9ce5-49af-8e03-1be5f4af9364",
+      "digest": null,
+      "source_commit": null,
+      "runtime_generation": null,
+      "label": "output",
+      "state": "available",
+      "created_at": "2026-08-28T12:45:55.924298Z",
+      "superseded_at": null
+    }
+  ],
+  "gates": [],
+  "gate_runs": [],
+  "handoffs": []
+}

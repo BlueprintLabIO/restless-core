@@ -1,0 +1,18 @@
+RUN 2 — intended journey
+Freshness: run 1 host/client were stopped and pgrep showed no Godot processes before these host/client launches.
+Initial window enumeration returned IDs 20971523 and 23068675. A first title mapping appeared to associate 20971523 with CLIENT, but capture 001 from that ID visibly identified HOST. Gameplay did not continue from it. This exact failure is retained as 001-initial-client.png.
+Bounded routing repair: titles were immediately re-read; 20971523 then reported "Swift Arrival Dogfood 4 (DEBUG)" and 23068675 reported "Swift Arrival Dogfood 4 — CLIENT (peer 323827995)". ID 23068675 was selected. Its geometry was X=2 Y=43 WIDTH=1278 HEIGHT=720 SCREEN=0. Capture 002 used scrot -a 2,43,1278,720 after raise/focus and visibly identified CLIENT. All subsequent input and capture raised/focused 23068675 first.
+Direct visual sequence from read PNG pixels:
+- 002: fresh CLIENT, connected, on foot, delivery in progress, route 0/40 m, crate nearby.
+- 003: crate carried by player.
+- 004: deliberate Q mistake visibly left crate free nearby and HUD said dropped; route remained 0/40 m.
+- 005: E recovery visibly restored CRATE CARRIED BY YOU.
+- 006: player carrying crate at green driver seat with visible E action.
+- 007: IN DRIVER SEAT and CRATE LOADED; route 0/40 m.
+- 008: loaded driving progressed route to 12/40 m.
+- 009: loaded driving reached route 40/40 m; destination marker visible.
+- 010: after E, ON FOOT with crate carried and route 40/40 m.
+- 011–012: player moved toward destination but was initially too far from exact eligible threshold; first E caused no visual state change.
+- 013: at the threshold, pixels visibly said OBJECTIVE: DESTINATION REACHED and E UNLOAD CRATE NOW.
+- 014: after E, pixels visibly said DELIVERY DELIVERED, CRATE free, ROUTE 40/40 m, OBJECTIVE: DELIVERY COMPLETE, and "Crate accepted in the yellow destination zone."
+No gameplay conclusion uses source, tests, logs, history, producer messages, prior reports, or process output.

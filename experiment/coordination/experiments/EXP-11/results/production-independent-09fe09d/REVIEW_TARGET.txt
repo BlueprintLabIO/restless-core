@@ -1,0 +1,26 @@
+NATIVE FOUNDER REVIEW TARGET
+
+Exact candidate: 09fe09d30c65b811c0904508525a6ab8af02145c
+Workspace: /company/worktrees/work-ebdd971f0732-r1
+Display: :1
+State when prepared: fresh host and client connected at route 0/40, crate free, initial objective PICK UP THE CRATE
+Visible client process: PID 26435 at preparation
+Host process: PID 26332 at preparation
+Connection: local ENet 127.0.0.1:24565
+Target screenshot: review-target/live-client-start.png
+Live logs: review-target/host.log and review-target/client.log
+
+Controls shown in target:
+WASD move/drive; mouse look; E use shown action; Q safely drop/recover; Esc frees mouse.
+
+If reconnect is needed while host remains live:
+DISPLAY=:1 HOME=/tmp/godot-home-founder-review godot --path /company/worktrees/work-ebdd971f0732-r1 --resolution 1280x720 --position 1320,100 -- --client --shots=/company/outputs/swift-arrival-independent-20260828T095848Z/review-target/shots
+
+If a full fresh restart is needed, stop both Godot processes, then run host first:
+DISPLAY=:1 HOME=/tmp/godot-home-founder-review godot --path /company/worktrees/work-ebdd971f0732-r1 --resolution 1280x720 --position 0,100 -- --host --shots=/company/outputs/swift-arrival-independent-20260828T095848Z/review-target/shots
+Then run the client reconnect command above.
+
+Bounded founder question:
+Do movement, interaction feedback, driving, and the delivery loop feel coherent and genuinely playable?
+
+Known target gap: audio uses Godot's dummy driver in this environment, so judge visual/input feel rather than sound.

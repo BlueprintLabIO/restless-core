@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "experiment": "EXP-16",
+  "amendment": 1,
+  "activated_at": "2026-08-30T03:14:00Z",
+  "reason": "The activation transfer included the exact Git candidate but omitted the frozen opaque rendered-review target required by the protocol. The omission was detected before any S0 Work reached a terminal counted result.",
+  "change": {
+    "kind": "add_missing_frozen_evaluation_fixture",
+    "product_source_changed": false,
+    "protocol_or_rubric_changed": false,
+    "model_or_effort_changed": false,
+    "seed_commitment_changed": false,
+    "budget_changed": false,
+    "review_target_path": "/company/playtest/swift-arrival-29f2fe75",
+    "review_target_files_sha256": "a1d73d37a9be7fbc201c6eb5c3d17bd3e75263b3d02245f7893ad649ae268295",
+    "review_contract_path": "/company/playtest/SWIFT_ARRIVAL_REVIEW.txt",
+    "review_contract_sha256": "e2a9497e1ccd36be7742c01acfc00631c3739644caf0fd8feb06f135c139a19f",
+    "opaque_session_tool_path": "/company/tools/native-session/native-session",
+    "opaque_session_tool_sha256": "2afd30802b304ea37f4e5dba424c4369e9c897698ed2d5df320e17b61972305a"
+  },
+  "validity": {
+    "terminal_counted_runs_before_amendment": 0,
+    "invalidated_run_ids": [],
+    "rule": "All S0 public-surface evidence must use this exact read-only target and tool. Any evidence produced before fixture availability is setup-only and cannot count."
+  }
+}

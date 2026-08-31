@@ -1,0 +1,49 @@
+{
+  "artifacts": [],
+  "attempt_feedback": [],
+  "attempt_inputs": [],
+  "attempts": [
+    {
+      "actor_id": "game-player",
+      "attempt_no": 1,
+      "feedback_cursor": 0,
+      "finished_at": null,
+      "id": "df095e40-29d9-476c-bf54-aad829f08172",
+      "input_fingerprint": "56720e0c78eeea131d0fdff2d618abecf554d93abe59b227c0ddcea60ac46172",
+      "model": "litellm/gpt-5.6-sol",
+      "revision": 1,
+      "session_id": "62273fdf-38ad-4a43-965f-521c5b024ea5",
+      "started_at": "2026-08-28T16:34:28.032374Z",
+      "state": "running",
+      "summary": "",
+      "trigger": "dependency graph became ready",
+      "work_id": "48146f5a-4dd2-4d55-8355-baffadb21b3d"
+    }
+  ],
+  "edges": [],
+  "gate_runs": [],
+  "gates": [],
+  "handoffs": [],
+  "work": [
+    {
+      "attempt_limit": 1,
+      "base_ref": null,
+      "created_at": "2026-08-28T16:34:27.991658Z",
+      "expected_artifact": "Immutable direct CLIENT PNG evidence and a terminal observation report for the immediate on-foot delivery attempt",
+      "goal_id": null,
+      "id": "48146f5a-4dd2-4d55-8355-baffadb21b3d",
+      "integration_branch": null,
+      "outcome": "Produce direct visual evidence showing whether carrying the parcel to the destination on foot is immediately rejected or bypasses the required truck journey. This protects the final verdict from relying on delayed state, logs, or inference.\n\nUse only the frozen candidate at /company/projects/swift-arrival-candidate and write immutable evidence only below /company/outputs/exp11-referee/candidate-r18/work-1-shortcut. Your Attempt workdir must remain ordinary /company. Do not inspect source, Git history, producer messages, tests, logs, known defects, prior reports, or any other Work evidence. Do not edit the game.\n\nYour only public objective is: collect the parcel, make one ordinary recoverable mistake, drive the truck to the destination, leave the seat and deliver the parcel. Public controls are W/A/S/D movement or driving, mouse look, E interact, and Q deliberate drop. For this Work, run only the on-foot shortcut launch: naturally carry the parcel to the destination on foot without a loaded-truck journey. Act only through ordinary keyboard/pointer input. Do not launch or attempt the complete intended journey.\n\nStart a fresh host first with DISPLAY=:1 godot --path /company/projects/swift-arrival-candidate -- --host, then a fresh client with the corresponding --client argument. Enumerate every visible Swift Arrival numeric window ID and map each ID to its title. Record and minimize the exact HOST window. Identify the newly visible numeric ID whose title says CLIENT, keep it at native full viewport size, raise and focus it, record its title and geometry, and capture only its unobstructed region. If minimizing HOST fails, one bounded setup repair may move that exact window fully off screen; retain the failure and repair evidence. Never resize CLIENT or accept pixels from a covering window. A first launch, focus, or capture failure may receive one bounded setup repair, with both failure and repair retained.\n\nBefore gameplay, create a fresh initial CLIENT PNG. Before every input or capture, raise and focus the exact CLIENT ID, query its geometry with xdotool getwindowgeometry --shell, capture that exact screen region with scrot -a X,Y,WIDTH,HEIGHT, and read the exact PNG with OMP's ordinary read tool so its pixels enter your active Sol turn. Continue only if the pixels visibly identify CLIENT. File existence, metadata, focus success, or command success is not image observation. Recapture and read every decision-relevant state.\n\nDo not press E merely because the yellow structure is nearby. Continue positioning and facing until direct CLIENT pixels simultaneously show CRATE CARRIED BY YOU, ROUTE 0 / 40 m, and the public HUD objective TRUCK JOURNEY REQUIRED. Preserve and read that exact direct PNG as the before-input state. The very next single bash tool call MUST raise/focus the exact CLIENT ID, query its geometry, press E exactly once, sleep 0.50 seconds, and capture that same exact region into a fresh after-input PNG. Do not insert a model turn, another tool call, or a focus/geometry-only call between the E input and scrot. Then read the after-input PNG.\n\nReturn terminally only if that immediate pair visibly shows the explicit red truck-journey rejection or a delivery bypass. A later HUD state, mere non-completion, an outside-zone rejection, or a filename is insufficient. Separate observation from inference and uncertainty. Report exact observed inputs and pixel outputs, all setup failures and repairs, gaps, contradictions, or reproducible blockers. Link the initial CLIENT PNG, exact before-input PNG, exact immediate after-input PNG, window-ID/title mapping, geometry record, and concise terminal report to this Work/Attempt with truthful labels. Invite referee judgement on any contradiction rather than guessing.",
+      "owner_id": "game-player",
+      "owner_review_required": false,
+      "priority": 0,
+      "repo": null,
+      "resolution": "",
+      "revision": 1,
+      "status": "active",
+      "title": "Test the on-foot delivery shortcut",
+      "updated_at": "2026-08-28T16:34:28.032374Z",
+      "worktree": null
+    }
+  ]
+}

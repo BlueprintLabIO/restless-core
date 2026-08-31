@@ -16,7 +16,9 @@ outcome or a new evaluation question—not for the next slice of the same dogfoo
 | [Dogfood 2](./dogfood-2.md) | Emerging robotics and AI scale-up alpha candidate | [After-action](./dogfood-2-after-action.md) · [alpha-test after-action](./dogfood-2-alpha-test-after-action.md) |
 | [Dogfood 3](./dogfood-3.md) | Restless release and operation | Ready for founder alignment |
 | [Lumaara biome](./lumaara-biome.md) | Matched building scenario | Frozen result bundles: [`lumaara-biome-results/`](./lumaara-biome-results/) and [`lumaara-biome-results-glm/`](./lumaara-biome-results-glm/) |
-| [Dogfood 4 — Swift Arrival](./swift-arrival/dogfood-4.md) | Two-player networked delivery walking skeleton | [Technical after-action](./swift-arrival/dogfood-4-after-action.md) · founder review pending |
+| [Dogfood 4 — Swift Arrival](./swift-arrival/dogfood-4.md) | Persistent networked delivery game charter | [v0.4–v0.5 after-action](./swift-arrival/dogfood-4-after-action.md) · EXP-15 campaign · EXP-16 embodied NPC layer fully specified after Sprint 26 |
+| [Dogfood 6 — Restless interaction foundry](./dogfood-6.md) | Complete motion-first Svelte interaction registry and restrained Restless site integration | Draft v0.1 for founder alignment; Sprint 24 is the first bounded run |
+| [Dogfood 7 — Aris recurring sales operation](./dogfood-7.md) | Weekday local-time commercial-lead wake for the real Aris tutoring-centre campaign | [Activated 2026-08-31](./dogfood-7-run-log.md); first natural 09:00 occurrence pending |
 
 Each run owns its source packet and after-action beside the scenario. Evidence is created only when a
 run begins, at the path named in its scenario document.

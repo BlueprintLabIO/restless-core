@@ -1,0 +1,42 @@
+{
+  "work_id": "85ced0c3-ddde-46f3-9003-3cdc50f8ebd7",
+  "attempt_id": "00731352-959f-4706-8a9e-611deb2fa2a8",
+  "candidate": {
+    "repo": "swift-arrival",
+    "commit": "2ebfd6932d7709bf03410c2b864731ef0394c05f",
+    "base": "09fe09d30c65b811c0904508525a6ab8af02145c"
+  },
+  "diagnosis": {
+    "blind_input": "/company/inputs/exp11-referee-r9",
+    "summary": "/company/outputs/swift-arrival-journey-r1/summary.txt"
+  },
+  "deterministic_probes": {
+    "parse": "probes/parse.log",
+    "positive_host": "probes/positive-host.log",
+    "positive_client": "probes/positive-client.log",
+    "on_foot_bypass_host": "probes/bypass-host.log",
+    "on_foot_bypass_client": "probes/bypass-client.log",
+    "recovery_host": "probes/recovery-host.log",
+    "recovery_client": "probes/recovery-client.log",
+    "mechanics_host": "probes/mechanics-host.log",
+    "mechanics_client": "probes/mechanics-client.log"
+  },
+  "native_positive": {
+    "result": "native-positive/result.txt",
+    "input_trace": "native-positive/input-trace.tsv",
+    "host_log": "native-positive/host.log",
+    "client_log": "native-positive/client.log",
+    "completion_pixels": "native-positive/shots/ev_delivered.png",
+    "shots": "native-positive/shots/"
+  },
+  "native_on_foot_bypass": {
+    "result": "native-bypass/result.txt",
+    "input_trace": "native-bypass/input-trace.tsv",
+    "host_log": "native-bypass/host.log",
+    "client_log": "native-bypass/client.log",
+    "rejection_pixels": "native-bypass/shots/ev_reject_journey.png",
+    "shots": "native-bypass/shots/"
+  },
+  "mechanical_result": "verified",
+  "human_judgement_still_required": "Gameplay feel and founder taste are not established by these probes or traces."
+}

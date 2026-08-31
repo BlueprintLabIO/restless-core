@@ -1,0 +1,37 @@
+Work 1 terminal observation report
+Work: 48146f5a-4dd2-4d55-8355-baffadb21b3d
+Attempt: df095e40-29d9-476c-bf54-aad829f08172
+Candidate: /company/projects/swift-arrival-candidate
+Scope: on-foot shortcut launch only
+
+Observation method
+- Launched a fresh HOST first and then a fresh CLIENT on DISPLAY=:1 using the assigned Godot commands.
+- Enumerated visible Swift Arrival windows, mapped numeric IDs to titles, minimized the first-launched HOST, and verified only CLIENT ID 23068675 remained visible.
+- Kept CLIENT at its native 1278x720 viewport geometry at X=2,Y=43. Before inputs/captures, raised/focused that exact window and queried its geometry. Read each captured PNG directly as pixels.
+- Used only W/A/S/D movement, mouse look, and E interaction. Did not launch or attempt the intended truck journey.
+
+Direct observations
+1. initial-client.png visibly identifies "SWIFT ARRIVAL · CLIENT · peer 1829282534 · connected 1" and the initial parcel objective.
+2. state-34-picked.png visibly shows "CRATE CARRIED BY YOU" after the crate pickup.
+3. before-immediate-e.png visibly and simultaneously shows:
+   - "CRATE CARRIED BY YOU"
+   - "ROUTE 0 / 40 m"
+   - "OBJECTIVE: TRUCK JOURNEY REQUIRED"
+   The player is visibly standing within the yellow destination/unload region.
+4. The next single bash call raised/focused CLIENT 23068675, queried the same geometry, pressed E exactly once, slept 0.50 seconds, and captured after-immediate-e.png from the same region.
+5. after-immediate-e.png immediately and visibly shows the red message:
+   "REJECTED: truck journey incomplete — drive the loaded truck to 40 m, then exit there"
+   It continues to show "CRATE CARRIED BY YOU", "ROUTE 0 / 40 m", and "OBJECTIVE: TRUCK JOURNEY REQUIRED".
+
+Inference for referee judgement
+- The direct immediate pair supports that the on-foot delivery shortcut is rejected rather than accepted or bypassed.
+
+Setup failures and repairs
+- HOST minimization succeeded; no off-screen movement repair was used.
+- Initial relative mouse-look input did not visibly change the view before mouse capture was engaged. One bounded setup repair clicked the focused CLIENT viewport; subsequent relative mouse-look visibly worked. No CLIENT resize occurred.
+- No first launch, focus, or screenshot capture failure was observed.
+
+Gaps / not done
+- This Work did not run the complete intended truck journey, by assignment.
+- No source, Git history, tests, logs, producer messages, prior reports, or other Work evidence were inspected.
+- This report does not declare the full candidate pass/fail or founder acceptance; complete-journey evidence remains for Work 2 and referee judgement.

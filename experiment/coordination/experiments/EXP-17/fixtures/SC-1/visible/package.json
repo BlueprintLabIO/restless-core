@@ -1,0 +1,8 @@
+{
+  "name": "exp17-sc1-callback-store",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test test/visible.test.mjs"
+  }
+}

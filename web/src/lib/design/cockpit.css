@@ -993,9 +993,19 @@
 }
 
 .bridge-root .attention-item-action {
-	justify-self: end;
-	font: 500 var(--t-label) var(--font-mono);
+	display: -webkit-box;
+	overflow: hidden;
+	-webkit-box-orient: vertical;
+	-webkit-line-clamp: 2;
+	font-size: var(--t-label);
+	font-weight: 500;
+	line-height: 1.4;
 	color: var(--text-secondary);
+}
+
+.bridge-root .attention-item-action > span:first-child {
+	font-weight: 650;
+	color: var(--ink);
 }
 
 .bridge-root .attention-item time {
@@ -1814,6 +1824,60 @@
 	min-width: 0;
 }
 
+.bridge-root .work-reader-summary {
+	margin-bottom: 22px;
+	padding: 18px 20px 20px;
+	border: 1px solid color-mix(in srgb, var(--intent-feedback) 24%, var(--border));
+	border-radius: var(--radius-lg);
+	background:
+		linear-gradient(
+			120deg,
+			color-mix(in srgb, var(--intent-feedback-soft) 72%, white),
+			transparent
+		),
+		var(--surface);
+	box-shadow: var(--bevel);
+}
+
+.bridge-root .work-reader-summary .md {
+	margin-top: 8px;
+	font-size: var(--t-head);
+	line-height: 1.55;
+	color: var(--ink);
+}
+
+.bridge-root .work-reader-summary .md > :first-child {
+	margin-top: 0;
+}
+
+.bridge-root .work-reader-summary .md > :last-child {
+	margin-bottom: 0;
+}
+
+.bridge-root .work-technical-details {
+	margin-top: 18px;
+	border: 1px solid var(--border);
+	border-radius: var(--radius-control);
+	background: color-mix(in srgb, var(--surface-muted) 62%, var(--surface));
+}
+
+.bridge-root .work-technical-details > summary {
+	padding: 13px 15px;
+	font: 600 var(--t-label) var(--font-mono);
+	letter-spacing: 0.05em;
+	color: var(--text-secondary);
+	cursor: pointer;
+}
+
+.bridge-root .work-technical-details[open] > summary {
+	border-bottom: 1px solid var(--border);
+	color: var(--ink);
+}
+
+.bridge-root .work-technical-body {
+	padding: 17px 16px 16px;
+}
+
 .bridge-root .work-detail-rail {
 	display: grid;
 	align-content: start;
@@ -2084,11 +2148,27 @@
 
 .bridge-root .detail-artifact small {
 	margin-top: 3px;
-	overflow: hidden;
-	font: var(--t-label) var(--font-mono);
-	text-overflow: ellipsis;
-	white-space: nowrap;
+	font: var(--t-body) var(--font-ui);
+	line-height: 1.4;
 	color: var(--text-tertiary);
+}
+
+.bridge-root .artifact-actions {
+	display: grid;
+	justify-items: end;
+	gap: 4px;
+}
+
+.bridge-root .artifact-actions a {
+	font-size: var(--t-label);
+	font-weight: 650;
+	text-decoration: none;
+	color: var(--intent-feedback);
+}
+
+.bridge-root .artifact-actions a:hover,
+.bridge-root .artifact-actions a:focus-visible {
+	text-decoration: underline;
 }
 
 .bridge-root .detail-artifact em {

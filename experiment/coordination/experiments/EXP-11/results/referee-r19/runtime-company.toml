@@ -1,0 +1,77 @@
+name = "exp11_vision_referee_r19_test"
+mission = """
+# EXP-11 blind native Sol referee, endpoint-repaired candidate R19
+
+Independently judge frozen Swift Arrival candidate
+`41f4fa53a2cd05ab17aea473f3d1be28979b2dcf` without helping produce it. Exec delegates once and
+remains available. One non-producing Referee lead commissions exactly one fresh Staff player on
+exact `litellm/gpt-5.6-sol`; Exec and lead also use that exact selector. Do not substitute another
+model or provider route.
+
+The lead must split gameplay into two sequential Work nodes assigned to the same sole Staff player.
+Work 1 runs only the on-foot shortcut launch and returns a terminal evidence result. After the lead
+audits that result, Work 2 starts under a fresh model-process capability and runs only the complete
+intended journey. Never place both launches in one Work Attempt, run them in parallel, or commission
+a second player. Both Work nodes MUST omit repo, base-ref, integration-branch, and worktree metadata:
+the frozen candidate is an ordinary read-only directory at `/company/projects/swift-arrival-candidate`,
+not a Runtime-managed repository. The Attempt workdir must therefore remain ordinary `/company`.
+
+Once a player Attempt is live, the lead MUST NOT send it direct Work feedback, even if process output
+or another Runtime fact arrives. Preserve that observation for the post-terminal audit. Late direct
+feedback changes the frozen input snapshot and would supersede otherwise valid native evidence.
+Before returning terminally, the player must link the required current-launch PNGs, window/geometry
+record, and terminal report to its exact current Work and Attempt. A filename or old Attempt link is
+not enough.
+
+The player receives only this public objective: collect the parcel, make one ordinary recoverable
+mistake, drive the truck to the destination, leave the seat and deliver the parcel. Public controls
+are W/A/S/D movement or driving, mouse look, E interact and Q deliberate drop. Launch a fresh host
+first with `DISPLAY=:1 godot --path /company/projects/swift-arrival-candidate -- --host`, then a fresh
+client with the corresponding `--client` argument. The player must not inspect source, Git history,
+producer messages, tests, logs, known defects, prior reports, or the other Work node's evidence.
+
+For each launch, enumerate every visible Swift Arrival numeric window ID and map each ID to its title.
+Record and minimize the exact HOST window. Identify the newly visible numeric ID whose title says
+CLIENT, keep it at native full viewport size, raise and focus it, record its title and geometry, and
+capture only its unobstructed region. If minimizing HOST fails, one bounded setup repair may move that
+exact window fully off screen. Never resize CLIENT or accept pixels from a covering window.
+
+Before gameplay, create a fresh initial CLIENT PNG. Before every input or capture, raise and focus the
+exact CLIENT ID, query its geometry with `xdotool getwindowgeometry --shell`, capture that screen
+region with `scrot -a X,Y,WIDTH,HEIGHT`, and read the exact PNG with OMP's ordinary `read` tool so its
+pixels enter the active Sol turn. Continue only if the pixels visibly identify CLIENT. File existence,
+metadata, focus success, or command success is not image observation. A first launch, focus, or
+capture failure may receive one bounded setup repair, with both failure and repair retained.
+
+Work 1 must naturally carry the parcel to the destination on foot without a loaded-truck journey.
+Do not press E merely because the yellow structure is nearby. Continue positioning and facing until
+direct CLIENT pixels simultaneously show `CRATE CARRIED BY YOU`, `ROUTE 0 / 40 m`, and the public HUD
+objective `TRUCK JOURNEY REQUIRED`; this HUD state is the game's visible confirmation that the current
+forward unload point is in the destination zone. Preserve and read that exact direct PNG as the
+before-input state. The very next single bash tool call MUST raise/focus the exact CLIENT ID, query its
+geometry, press E exactly once, sleep 0.50 seconds, and capture that same exact region into the fresh
+after-input PNG. Do not insert a model turn, another tool call, or a focus/geometry-only call between
+the E input and `scrot`; the atomic action-plus-capture only compensates for OMP turn latency and
+changes no gameplay fact. Then read the after-input PNG. Return terminally only if the immediate pair
+shows the explicit red truck-journey rejection or a delivery bypass. A later HUD state, mere
+non-completion, an outside-zone rejection, or a filename is insufficient.
+
+Only after lead audit may Work 2 start from clean native state. It must collect the parcel,
+deliberately make and recover from one ordinary mistake using the public controls, enter and drive the
+loaded truck until direct pixels explicitly confirm the route end, leave the seat, unload in the
+destination, and stop on visible delivery completion or a reproducible blocker. A pass requires
+direct pixels showing both the immediate shortcut rejection and complete-journey success.
+
+Act only through ordinary keyboard/pointer input, recapture and read every decision-relevant state,
+separate observation from inference and uncertainty, and never infer gameplay from logs, source,
+scripts, or another run. Write immutable evidence only below
+`/company/outputs/exp11-referee/candidate-r19`. Do not edit the game, prescribe a backlog, contact
+production, deploy, publish, purchase, or declare founder acceptance.
+"""
+spend_ceiling_usd = "25"
+model = "litellm/gpt-5.6-sol"
+model_failover = []
+approved_parties = []
+
+[credentials]
+"model.inference.litellm" = "env:GPT_API_KEY"

@@ -1,0 +1,66 @@
+{
+  "schema_version": 1,
+  "sprint": "S26",
+  "result": "pass",
+  "closed_at": "2026-08-30T12:52:00+10:00",
+  "source": {
+    "git_base_commit": "fcc59659073a802ea24f78a394ecbf1517e58819",
+    "runtime_source_digest": "36a9319a6285a44e67190702e381bd068af95af8aa8dfffc5bb57f038d75156a",
+    "coordinate_kind": "git_base_plus_runtime_content_digest",
+    "working_tree_clean": false
+  },
+  "runtime": {
+    "host_restless_sha256": "c3f2975a87d653ddfd120014fd0ed37c1cc5ac58b4ca59f2cd7e4cc8940cbcff",
+    "host_restlessd_sha256": "6d6307cfda56b372a822ffde06e3e722760fa212440bda7f3866dc33c19bb74b",
+    "company_image_id": "sha256:2787bb8b545dce13015919bec8334894ddeb47bc6bc97b2df8f8eabba3ef0574",
+    "company_image_source_digest": "36a9319a6285a44e67190702e381bd068af95af8aa8dfffc5bb57f038d75156a",
+    "company_restless_sha256": "21afc1ae53a95675bd4c32d11b7249d102c53d9dd6e5f4e12a5230dda1dd9431",
+    "qualification_company": "swift_arrival_npc_test",
+    "reconciliation": "current",
+    "doctor_status": "live"
+  },
+  "fingerprints": {
+    "migration_0020_sha256": "e41c899fc14018910f91c9c06ee758769aceb7542e656c457adf2665a1808c2a",
+    "gate_executor_source_sha256": "1e9bb805eae29faa217eb8558a509d97f21c2f6e2023819e5384ea513c3bee8b",
+    "workspace_source_sha256": "ca7dc42bb895d9a04b97417992cc40fa8128d9f47a9ff5810219df235e371781"
+  },
+  "verification": {
+    "workspace_tests": "pass",
+    "clippy_warnings_denied": "pass",
+    "format_check": "pass",
+    "orgintel_exact_execution_tests": {
+      "passed": 2,
+      "failed": 0
+    },
+    "integrated_live_fixture": {
+      "name": "live_integrated_gate_leasing_cache_failure_and_restart_cleanup",
+      "passed": 1,
+      "failed": 0,
+      "elapsed_seconds": 11.85,
+      "model_turns": 0,
+      "lead_wakes": 0,
+      "manual_repairs": 0,
+      "same_key_callers": 3,
+      "same_key_gate_processes": 1,
+      "total_governed_gate_processes": 7
+    },
+    "supervisory_wake_fixture": {
+      "progress_artifacts": 100,
+      "progress_wakes": 0,
+      "terminal_facts": 2,
+      "coalesced_terminal_wakes": 1,
+      "blockers": 1,
+      "prompt_blocker_wakes": 1
+    },
+    "cleanup": {
+      "scratch_schemas": 0,
+      "fixture_repositories": 0,
+      "fixture_worktrees": 0,
+      "attempt_runtime_directories": 0,
+      "lease_or_process_markers": 0,
+      "leaked_child_processes": 0,
+      "raw_captures": 0
+    }
+  },
+  "activation_rule": "EXP-16 may count work only while its frozen manifest names this source digest and image ID; any semantic substrate change requires focused requalification."
+}

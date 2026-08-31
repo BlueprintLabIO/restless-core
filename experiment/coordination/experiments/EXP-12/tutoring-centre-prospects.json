@@ -1,0 +1,179 @@
+{
+  "schema_version": 1,
+  "frozen_at": "2026-08-29T01:00:00+10:00",
+  "purpose": "EXP-12 disposable Attio workload only; no outreach is authorised",
+  "excluded_previously_contacted": [
+    "hello@braintreecoaching.com.au",
+    "info@newcollege.com.au",
+    "info@matrix.edu.au"
+  ],
+  "defaults": {
+    "owner": "Sales lead",
+    "status": "Qualified — uncontacted",
+    "next_action": "Review fit and prepare an unsent first-contact draft",
+    "due_date": "2026-09-04",
+    "contact_completed": false
+  },
+  "prospects": [
+    {
+      "centre": "Wisdom Education",
+      "domain": "wisdomeducation.com.au",
+      "email": "hello@wisdomeducation.com.au",
+      "source_url": "https://www.wisdomeducation.com.au/contact",
+      "qualification_evidence": "The centre publishes this email and offers OC tutoring and a Selective School Trial Test course in Lidcombe.",
+      "tier": "A"
+    },
+    {
+      "centre": "MWNS Rosebery",
+      "domain": "mwns.com.au",
+      "email": "rosebery@mwns.com.au",
+      "source_url": "https://mwns.edu.au/our-tutoring-centres/",
+      "qualification_evidence": "MWNS publishes the Rosebery manager inbox and lists OC and Selective School tutoring among its NSW programs.",
+      "tier": "A"
+    },
+    {
+      "centre": "MWNS Waverley",
+      "domain": "mwns.com.au",
+      "email": "waverley@mwns.com.au",
+      "source_url": "https://mwns.edu.au/our-tutoring-centres/",
+      "qualification_evidence": "MWNS publishes the Waverley manager inbox and lists OC and Selective School tutoring among its NSW programs.",
+      "tier": "A"
+    },
+    {
+      "centre": "MWNS Dulwich Hill",
+      "domain": "mwns.com.au",
+      "email": "dulwichhill@mwns.com.au",
+      "source_url": "https://mwns.edu.au/our-tutoring-centres/",
+      "qualification_evidence": "MWNS publishes the Dulwich Hill manager inbox and lists OC and Selective School tutoring among its NSW programs.",
+      "tier": "A"
+    },
+    {
+      "centre": "Carlton Tutor Centre",
+      "domain": "carltontutorcentre.com.au",
+      "email": "mitford.paul@yahoo.com.au",
+      "source_url": "https://carltontutorcentre.com.au/",
+      "qualification_evidence": "The centre publishes this contact email and names Selective School tests as a speciality.",
+      "tier": "B"
+    },
+    {
+      "centre": "Pre-Uni New College Parramatta",
+      "domain": "preuniparramatta.com.au",
+      "email": "office@preuniparramatta.com.au",
+      "source_url": "https://www.preuniparramatta.com.au/",
+      "qualification_evidence": "The branch publishes this office inbox and describes itself as an OC and Selective School coaching specialist.",
+      "tier": "A"
+    },
+    {
+      "centre": "Pre-Uni New College Gosford",
+      "domain": "preunigosford.com.au",
+      "email": "gosford@newcollege.com.au",
+      "source_url": "https://www.preunigosford.com.au/",
+      "qualification_evidence": "The branch publishes this inbox and offers Selective High School and Opportunity Class preparation, including trial-test courses.",
+      "tier": "A"
+    },
+    {
+      "centre": "The Education Hub Online",
+      "domain": "tehol.com.au",
+      "email": "hellotehol@gmail.com",
+      "source_url": "https://www.tehol.com.au/",
+      "qualification_evidence": "The Blacktown provider publishes this email and offers Selective Schools exam preparation.",
+      "tier": "B"
+    },
+    {
+      "centre": "DNA Education",
+      "domain": "dnaeducation.com.au",
+      "email": "dnatuition@gmail.com",
+      "source_url": "https://www.dnaeducation.com.au/",
+      "qualification_evidence": "The Kogarah centre publishes this email and offers Selective School and scholarship preparation for primary students.",
+      "tier": "A"
+    },
+    {
+      "centre": "CS Education Blacktown",
+      "domain": "cseducationblacktown.com.au",
+      "email": "blacktown@cseducation.com.au",
+      "source_url": "https://www.cseducationblacktown.com.au/",
+      "qualification_evidence": "The centre publishes this email and runs computer-based OC and Selective Trial Tests.",
+      "tier": "A"
+    },
+    {
+      "centre": "Australia ABC College",
+      "domain": "abccollege.com.au",
+      "email": "hello@abccollege.com.au",
+      "source_url": "https://www.abccollege.com.au/",
+      "qualification_evidence": "The Cabramatta centre publishes this email and offers dedicated OC and Selective tutoring courses.",
+      "tier": "A"
+    },
+    {
+      "centre": "Hornsby Pre-Uni New College",
+      "domain": "hornsbypreuni.com",
+      "email": "hornsbypreuni@hotmail.com",
+      "source_url": "https://www.hornsbypreuni.com/",
+      "qualification_evidence": "The branch publishes this email and describes itself as an OC and Selective School specialist.",
+      "tier": "A"
+    },
+    {
+      "centre": "MangoTree Tutoring",
+      "domain": "mangotreetutoring.com.au",
+      "email": "info@mangotreetutoring.com.au",
+      "source_url": "https://mangotreetutoring.com.au/selective-oc/",
+      "qualification_evidence": "The Carlingford centre publishes this inbox on its Selective and OC preparation page.",
+      "tier": "A"
+    },
+    {
+      "centre": "Newcastle Tutors",
+      "domain": "newcastletutors.info",
+      "email": "newcastle.tutors@yahoo.com.au",
+      "source_url": "https://newcastletutors.wixsite.com/info",
+      "qualification_evidence": "The centre publishes this email and explicitly focuses on OC, Selective School and scholarship tests.",
+      "tier": "B"
+    },
+    {
+      "centre": "Modulus Academy",
+      "domain": "modmaths.com",
+      "email": "modulusacademy.au@gmail.com",
+      "source_url": "https://www.modmaths.com/",
+      "qualification_evidence": "The North Strathfield provider publishes this email and offers Opportunity Class and Selective School Test preparation.",
+      "tier": "B"
+    },
+    {
+      "centre": "ACER Education",
+      "domain": "acereducation.com.au",
+      "email": "admin@acereducation.com.au",
+      "source_url": "https://www.acereducation.com.au/",
+      "qualification_evidence": "The Hurstville centre publishes this inbox and specialises in NSW OC and Selective preparation.",
+      "tier": "A"
+    },
+    {
+      "centre": "Bullseye Education",
+      "domain": "bullseyeeducation.com.au",
+      "email": "admin@bullseyeeducation.com.au",
+      "source_url": "https://bullseyeeducation.com.au/contact-us/",
+      "qualification_evidence": "The centre publishes this email and offers Opportunity Class and Selective School preparation at its NSW locations.",
+      "tier": "A"
+    },
+    {
+      "centre": "Mr Paul's Tutoring",
+      "domain": "mrpaulstutoring.com.au",
+      "email": "hello@mrpaulstutoring.com.au",
+      "source_url": "https://www.mrpaulstutoring.com.au/",
+      "qualification_evidence": "The Liverpool provider publishes this email and advertises more than 20 years of OC and Selective School preparation.",
+      "tier": "A"
+    },
+    {
+      "centre": "Newport Education Centre",
+      "domain": "newporteducationcentre.com.au",
+      "email": "hello@newporteducationcentre.com.au",
+      "source_url": "https://www.newporteducationcentre.com.au/answers/",
+      "qualification_evidence": "The centre publishes this email and confirms it has prepared students for Selective High, scholarship and OC tests for more than 20 years.",
+      "tier": "B"
+    },
+    {
+      "centre": "CS Education Bella Vista",
+      "domain": "cseducation.com.au",
+      "email": "norwest@cseducation.com.au",
+      "source_url": "https://cseducation.com.au/campus-primary-school/",
+      "qualification_evidence": "CS Education publishes the Bella Vista campus inbox beside its Year 5 Selective and Year 3 OC trial-test offerings.",
+      "tier": "A"
+    }
+  ]
+}

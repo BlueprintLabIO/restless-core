@@ -5,6 +5,10 @@ catalogue to import wholesale and it does not override the Owner Cockpit contrac
 remain a calm, minimalist owner surface; these references set the bar for craft, continuity, spatial
 precision, and small moments of delight.
 
+For implementation reuse, start with the product-first
+[`FRONTEND_PATTERN_REGISTRY.md`](./FRONTEND_PATTERN_REGISTRY.md). This sheet says where to study;
+the registry says which Restless semantic pattern an implementation is allowed to serve.
+
 Prefer references whose implementation can be fetched and inspected. A polished screenshot proves
 taste, not production fitness. Before reusing code, re-check the current source, license,
 dependencies, accessibility, touch behaviour, reduced-motion behaviour, and fit with the existing

@@ -1,0 +1,7 @@
+Terminal native-input failure
+Command attempted:
+DISPLAY=:1 xdotool windowactivate --sync 16777219 key e sleep 0.5 keydown d sleep 2.5 keyup d sleep 0.4 && scrot -u .../exit-strafe-right-38.png
+Observed output:
+X Error of failed request: BadWindow (invalid Window parameter), Resource id 0x1000003; command exited 1.
+Consequence:
+The previously observed client window was no longer a valid native input target. Per assignment, native input failure makes the gameplay attempt invalid and requires stopping. No further launch, input, capture, or gameplay claim was attempted.

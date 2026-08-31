@@ -388,6 +388,8 @@ pub async fn dispatch_claimed_work(
     let registry = registry.clone();
     let spend = spend.clone();
     let spend_ceiling = config.spend_ceiling_usd;
+    let worker_runtime = config.worker_runtime;
+    let reasoning_effort = config.reasoning_effort.clone();
     let authority = authority.clone();
     let capabilities = capabilities.clone();
     let role = actor_row.role;
@@ -414,6 +416,8 @@ pub async fn dispatch_claimed_work(
             org: org.clone(),
             spend,
             spend_ceiling,
+            worker_runtime,
+            reasoning_effort,
             authority,
             capabilities,
             conversation: false,
@@ -743,8 +747,12 @@ mod tests {
         assert!(context.contains("Do not move `main`"));
         assert!(context.contains("# Completion evidence [deterministic]"));
         assert!(!context.contains("the active team charter and roster when present"));
-        assert!(context.contains(&format!(
-            "restless work artifact --work {work_id} --attempt {} --kind output --uri /company/outputs/playable-room.html",
+        assert!(context.contains("Runtime binds this Attempt's clean terminal commit and tree"));
+        assert!(context.contains("may materialize that evidence themselves"));
+        assert!(context
+            .contains("declare `outcome_met` even if gate-generated evidence does not exist yet"));
+        assert!(!context.contains(&format!(
+            "restless work artifact --work {work_id} --attempt {}",
             claimed.attempt_id
         )));
         assert!(context.contains("Not replayed: lead conversation"));

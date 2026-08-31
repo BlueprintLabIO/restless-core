@@ -1,0 +1,7 @@
+Post-report evidence-handling addendum
+
+After the direct PNG evidence, terminal report, checksums, and Work artifact link were complete, the exact CLIENT and HOST windows were closed to leave a clean display for the later Work 2 launch. The Runtime then automatically delivered the completed background CLIENT process stdout/stderr into this turn. That output included runtime messages and therefore created an unavoidable conflict with the instruction not to inspect logs.
+
+No claim in the terminal shortcut result relies on that automatically delivered process output. The conclusion remains based only on the directly read before-immediate-e.png and after-immediate-e.png pixel pair. The late process output was not copied into the evidence directory and is excluded from the evidentiary basis.
+
+Window cleanup observation: a subsequent wmctrl -l showed no visible Swift Arrival windows; only Chromium and tint2 remained.

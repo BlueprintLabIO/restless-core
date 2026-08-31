@@ -1,0 +1,20 @@
+SWIFT ARRIVAL — EXACT LOCAL FOUNDER REVIEW TARGET
+
+Candidate: 7e76d1e087cf4cde12aaf1fa6d5e9309f39bcddd
+Evidence manifest: /company/outputs/swift-arrival-independent-journey-r1-20260828T1140Z/manifest.json
+Working tree: /company/worktrees/work-af5ef98a1cff-r1
+
+Launch/restart from a terminal on display :1:
+  cd /company/worktrees/work-af5ef98a1cff-r1
+  DISPLAY=:1 HOME=/tmp/godot-founder-host /usr/local/bin/godot --path . --resolution 1280x720 --position 0,100 -- --host
+Then, in a second terminal:
+  cd /company/worktrees/work-af5ef98a1cff-r1
+  DISPLAY=:1 HOME=/tmp/godot-founder-client /usr/local/bin/godot --path . --resolution 1280x720 --position 1320,100 -- --client
+
+Reconnect: close only the CLIENT window and rerun the second command. Full restart: close both windows, rerun host first, wait for it to listen, then rerun client. A clean start must show CLIENT connected 1, ON FOOT, DELIVERY IN PROGRESS, crate free, ROUTE 0/40, and PICK UP THE CRATE.
+
+Controls: click CLIENT viewport to capture mouse; WASD move/drive; mouse look; E uses the shown action (pickup/seat/exit/unload); Q safely drops the crate; Esc frees mouse.
+
+Bounded founder question: Does the pickup → recoverable drop → seat → drive to 40 m → rear exit → unload loop feel coherent and genuinely playable, particularly movement/driving response, collision, and the clarity of the corrective feedback if you try to unload without driving?
+
+Limits: audio was unavailable under the dummy driver; host/client proof is local loopback rather than remote-network play; deterministic probes establish mechanics only, not feel; founder taste remains explicitly unverified. This target is local and unpublished.

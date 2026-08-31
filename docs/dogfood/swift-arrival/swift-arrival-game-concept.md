@@ -249,6 +249,26 @@ All shipped assets should have recorded source, licence and AI provenance.
 
 Gameplay content should be data-driven. New cargo, missions and destinations should mostly be new resource files rather than bespoke code.
 
+### Tuning-first fun architecture
+
+Fun is treated primarily as a searchable product surface over stable mechanics, not as permission to
+rewrite the game after every playtest. Vehicle dimensions and handling, grip assistance, snapping,
+cargo mass and instability, player movement, camera feel, event cadence, recovery cost, route pressure
+and interaction placement must be represented as validated data with named presets and fixed scenario
+seeds. A playtest should be able to compare materially different feel variants without editing the
+network authority, physics ownership or mission-state implementation.
+
+The target is for at least 80% of ordinary feel feedback to close through tuning, content or presentation
+changes. This is a design target rather than a pass-by-count metric: a core mechanic still changes when
+evidence shows that the available parameter space cannot produce legible intention, reliable teamwork
+or an enjoyable central activity. Refactoring is justified by a violated foundation, not by the fact
+that one preset was unfun.
+
+Every tunable value has one authoritative owner, a documented safe range and a default preset. Scenario
+evidence records the exact preset and seed. Runtime-only debug overrides never silently become shipped
+defaults. The game preserves an end-to-end playable build while alternative presets branch, run and
+purge back to one canonical choice.
+
 ## First vertical slice
 
 Build only enough to prove the central experience:

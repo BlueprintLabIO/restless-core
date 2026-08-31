@@ -79,7 +79,7 @@ docker build -f infra/company-image/Dockerfile \
   --build-arg RESTLESS_SOURCE_REVISION="$revision" \
   --build-arg RESTLESS_API_CONTRACT_VERSION=1 \
   --build-arg RESTLESS_ASSERTION_CONTRACT_VERSION=1 \
-  --build-arg RESTLESS_SCHEMA_VERSION=20 \
+  --build-arg RESTLESS_SCHEMA_VERSION=21 \
   -t "$runtime_tag" .
 docker push "$plane_tag" >/dev/null
 docker push "$runtime_tag" >/dev/null

@@ -1,0 +1,43 @@
+Swift Arrival candidate R8 — independent referee report
+
+Verdict: PLAYABLE, DELIVERY NOT COMPLETED
+
+The corrected public host/client launch produced a specifically titled CLIENT window and enabled a native, pixel-observed gameplay session. I could move on foot, capture and use mouse look, pick up and drop the crate, recover it, enter and leave the truck, drive the bounded route to visible Truck z 40.0, and attempt unloading near the route endpoint. The mission remained visibly `IN PROGRESS (0)` and the crate remained `CARRIED BY YOU`; I did not observe delivery success.
+
+Routing and native evidence
+- Corrected visible map: 23068675 → `Swift Arrival Dogfood 4 — CLIENT (peer 1247581821)`; 18874371 → `Swift Arrival Dogfood 4 (DEBUG)`.
+- Exact CLIENT ID 23068675 was raised and focused before every input and capture.
+- Geometry was X=2, Y=43, WIDTH=1278, HEIGHT=720. Every image used `scrot -a` on that region, never `scrot -u`.
+- `001-initial-client.png` was freshly created and read with OMP before gameplay. Its pixels visibly identified CLIENT, one connected peer, an in-progress mission, free crate, and free driver.
+- All 21 numbered PNGs were read in the same Sol session and are preserved with the ordered trace.
+
+Delivery outcome
+Attempted but not completed. I carried the crate outside, entered the truck, drove the bounded route until the visible value reached z 40.0, left the seat, searched the endpoint area, and pressed E in plausible unload locations. E repeatedly seated the player again; the final image still showed `Mission: IN PROGRESS (0)` and `Crate: CARRIED BY YOU`.
+
+Control observations
+- W moved the player forward and drove the truck forward.
+- Mouse look visibly rotated the camera after a center click captured the pointer.
+- E recovered a dropped crate, seated the player, and left the seat. In the endpoint searches it reseated the player instead of visibly unloading.
+- Q dropped a carried crate.
+- S was not exercised.
+- Esc was not exercised because pointer release was not necessary to continue.
+
+Intentional recoverable mistake
+I intentionally pressed Q while the crate was visibly carried. The next exact PNG showed `Crate: free` and feedback instructing the player to walk up and press E. Pressing E recovered the crate; the following PNG visibly showed `Crate: CARRIED BY YOU` and pickup feedback.
+
+Direct observation versus inference
+Direct observations are limited to the exact displayed states described in `action-trace.txt` and the corresponding PNGs. I infer that z 40.0 was the route endpoint because continued forward driving did not visibly increase it. I was uncertain whether the partial exterior `IVER` marking or red endpoint surfaces represented the unload zone. I do not infer a defect from failure to complete; the delivery interaction may require a positioning or orientation I did not discover.
+
+Setup correction preserved
+The initial public launch syntax produced DEBUG-titled windows only. After the owner/referee supplied omitted public `-- --host` and `-- --client` syntax as the allowed repair, exactly one host and one client were launched and the CLIENT title became available. At correction time no Godot processes were returned by `pgrep`, so none were live to terminate. The earlier failure remains recorded in the trace.
+
+Explicit gaps / not done
+- No Mission COMPLETE state or delivery score increment was observed.
+- The correct unload position/mechanism remains unverified.
+- S and Esc were not tested.
+- No audio judgement was made.
+- I did not inspect source, project files, Git history, producer messages, tests, logs, known defects, or prior reports.
+- I did not edit the game, prescribe a backlog, contact production, deploy, publish, purchase, or declare founder acceptance.
+
+Evidence locator
+`/company/outputs/exp11-referee/candidate-r8`

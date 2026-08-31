@@ -386,6 +386,7 @@
 							text={message.text}
 							createdAt={message.createdAt}
 							details={message.details}
+							intent={message.intent}
 							attachments={message.attachments}
 							hrefFor={attachmentHref}
 						/>

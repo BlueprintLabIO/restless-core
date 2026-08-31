@@ -1,0 +1,43 @@
+Swift Arrival candidate R8 — ordered action trace
+Work: ce310dc9-8c91-4fbb-abc3-380456a44236
+Attempt: af6b1b47-45b4-43fc-84ed-baa6e58c4908
+Frozen candidate: a1d96fe4ce7280501f3d193fc3c3058a23e8a914
+Input fingerprint: bb54bc9c7cdf8a0a943c8c704cd42d1ba897dad4c1ef1403883d59c0c6109e79
+
+Labels: OBSERVATION is direct command output. PIXEL OBSERVATION is content of the named exact PNG read with OMP read in this same Sol session. INFERENCE/UNCERTAINTY is explicitly marked.
+
+SETUP FAILURE PRESERVED
+01. Probes: godot, xdotool, scrot, restless were installed. `godot --help` identified Godot 4.7.2 and documented `--path`. `ps -ef` showed Xtigervnc on DISPLAY :1.
+02. First launch used the initially supplied ordinary invocation. Visible Swift Arrival ID 20971523 mapped to `Swift Arrival Dogfood 4 (DEBUG)`; no visible CLIENT title existed.
+03. A repeated ordinary invocation yielded IDs 20971523 and 23068675, both DEBUG. This did not establish a CLIENT and was stopped.
+04. The owner and referee then supplied a public launch-packet correction: terminate the two candidate processes and use `-- --host` and `-- --client` as the bounded repair. At correction time `pgrep -a godot` returned no running processes, so there were no live candidate Godot processes to terminate.
+05. Launched exactly one host with DISPLAY=:1 `godot --quiet --path /company/projects/swift-arrival-candidate -- --host` and exactly one client with the corresponding `-- --client` command.
+06. Corrected visible map, in xdotool result order:
+- 23068675 → `Swift Arrival Dogfood 4 — CLIENT (peer 1247581821)`
+- 18874371 → `Swift Arrival Dogfood 4 (DEBUG)`
+Chosen exact CLIENT ID: 23068675. Geometry repeatedly observed before captures: X=2, Y=43, WIDTH=1278, HEIGHT=720, SCREEN=0. Before every input and capture, ID 23068675 was raised and focused. Every capture used `scrot -a 2,43,1278,720`; `scrot -u` was never used.
+
+GAMEPLAY SEQUENCE
+07. `001-initial-client.png` — PIXEL OBSERVATION: top line visibly said CLIENT, one peer connected; status was on foot, Mission IN PROGRESS (0), Crate free, Driver free. Interior corridor/loading scene visible. This exact fresh PNG was read before gameplay input.
+08. Input W for 2 seconds. `002-forward.png` — PIXEL OBSERVATION: camera advanced in the interior; CLIENT and mission status remained visible.
+09. Mouse-look right initially showed no visible rotation in `003-look-right.png`. After a center click to capture the mouse and another right movement, `004-look-retry.png` visibly showed a rotated view. INFERENCE: mouse look required pointer capture.
+10. A Q exploration unexpectedly coincided with `005-mistake-q.png` showing Crate CARRIED BY YOU and feedback `Picked up the crate`. UNCERTAINTY: the prior center click may have interacted despite only E being publicly documented; attribution was not assumed.
+11. INTENTIONAL RECOVERABLE MISTAKE: focused CLIENT and pressed Q while the crate was visibly carried. `006-crate-dropped.png` visibly showed Crate free and feedback `Dropped the crate — walk up and press E to pick it up again`.
+12. RECOVERY: pressed E. `007-crate-recovered.png` visibly showed Crate CARRIED BY YOU and `Picked up the crate` feedback.
+13. Turned toward the observed exit and held W. `008-exit-attempt.png` visibly showed the player outside on a road/yard while still carrying the crate.
+14. Natural visual search with mouse look. `009-outside-look.png` showed an exterior building wall; `010-outside-left.png` showed the yard and a partial large wall marking ending in `IVER`. INFERENCE: this might indicate a delivery area, but the full label was not visible.
+15. Pressed E near that area. `011-unload-attempt.png` visibly changed status to driving, Driver YOU DRIVING, with feedback `Seated — W/S drives the bounded route, E leaves the seat`; crate remained carried.
+16. Drove forward 6 seconds then 5 seconds. `012-drive-forward.png` and `013-route-end.png` visibly showed Truck z increasing while mission stayed IN PROGRESS.
+17. Pressed E to leave the seat. `014-left-seat.png` visibly showed on foot, Driver free, crate carried, plus `HOST corrected your position (left the driver seat)`.
+18. Looked around and attempted E; `015-endpoint-look.png` and `016-endpoint-unload.png` showed the truck interior/yard and then reseating, not delivery.
+19. Drove forward 8 more seconds. `017-far-route.png` visibly showed Truck z: 40.0, mission still IN PROGRESS, crate carried. Further W did not visibly exceed z 40; INFERENCE: this was the bounded route endpoint.
+20. Left the seat, moved forward on foot, and inspected `018-delivery-zone-approach.png`: status on foot, Truck z 40.0, crate carried, with a large red surface to the right.
+21. E at that position produced `019-delivery-result.png`, visibly reseating in the truck; mission remained IN PROGRESS.
+22. Left again, turned away and moved on foot. `020-zone-search.png` visibly showed an almost entirely red enclosed/surface view, on foot, crate carried, Truck z 40.0.
+23. Final E attempt there produced `021-mission-result.png`: visibly driving again, Mission IN PROGRESS (0), crate still carried, Truck z 40.0. Thus the delivery goal was attempted but not completed in the observed session.
+
+STOP CONDITION AND GAPS
+- Exact CLIENT routing, native PNG ingestion, input, and recapture all functioned after the corrected launch repair.
+- Delivery was not achieved; no visual Mission COMPLETE or score increment was observed.
+- WASD forward movement, mouse look, E pickup/seat/leave-seat attempts, Q drop, and mistake recovery were directly exercised. S was not exercised. Esc was not exercised because pointer release was not needed to continue.
+- No source, project files, Git history, producer messages, tests, logs, known defects, or prior reports were inspected. No game files were edited.

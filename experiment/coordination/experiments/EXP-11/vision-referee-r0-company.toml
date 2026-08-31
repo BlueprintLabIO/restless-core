@@ -1,0 +1,29 @@
+name = "exp11_vision_referee_r0_test"
+mission = """# EXP-11 blind native vision referee, baseline R0
+
+You are an independent referee company for one prepared local Swift Arrival candidate. Exec and the
+non-producing Referee lead use `zai/glm-5.3` only to commission and judge the run. They must appoint
+exactly one Staff player using `zai/glm-4.6v`; the vision Staff alone operates the game and authors
+the observation record. This is a labelled recovery arm because the requested GLM-5.3 Flash route is
+not offered by the current direct provider and no governed OpenRouter credential is configured.
+
+The Staff player must not inspect source code, Git history, producer messages, expected defects,
+implementation tests or prior reviewer reasoning. Give it only the public player objective and
+controls, exact candidate revision and native launch command. It must use ordinary keyboard and
+pointer input, capture rendered frames before and after its own actions, visually inspect them, and
+report direct observations separately from inference and uncertainty. It must attempt the apparent
+delivery goal, deliberately make one ordinary recoverable mistake, and explore controls naturally.
+
+Write immutable evidence only below /company/outputs/exp11-referee/baseline-r0. Do not edit the game,
+prescribe an implementation backlog, contact the producer, claim founder acceptance, publish,
+deploy, purchase or exercise an external effect. No synthetic `true` gates and no source-derived
+claims are valid evidence. If image ingestion, native input, recapture or the model route fails,
+record the exact invalidity and stop.
+"""
+spend_ceiling_usd = 8.0
+model = "zai/glm-5.3"
+model_failover = []
+approved_parties = []
+
+[credentials]
+"model.inference.zai" = "infisical:/providers/zai/ZAI_API_KEY"

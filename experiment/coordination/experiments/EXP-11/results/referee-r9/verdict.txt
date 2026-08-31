@@ -1,0 +1,9 @@
+TERMINAL VERDICT: FAIL — prescribed journey is bypassable; candidate declared completion without truck driving or seat exit.
+
+The native CLIENT was routable, ingestible, controllable, and recapturable. The parcel was collected, deliberately dropped with Q, recovered with E, carried on foot to the yellow zone, and unloaded with E. The candidate visibly declared `OBJECTIVE: DELIVERY COMPLETE`.
+
+However, the public objective required driving the truck to the destination and leaving the seat before delivery. Direct pixels showed `ON FOOT` throughout, route `0 / 40 m` at completion, and no driving or seat-exit state. The yellow destination was reachable on foot behind the truck, so completion occurred without those required journey stages.
+
+This is not `invalid`: all required native evidence mechanisms worked, exact CLIENT routing was retained, and no setup repair was needed. It is a gameplay outcome failure against the prescribed journey despite an internally declared game completion.
+
+Not done / unverified: no source, logs, tests, history, producer material, or prior reports were inspected; no implementation cause is claimed; no founder/product acceptance is declared.

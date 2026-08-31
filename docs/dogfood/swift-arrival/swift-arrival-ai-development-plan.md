@@ -25,6 +25,8 @@ The main sequence is:
 5. **Give every mechanic a reproducible scenario.**
 6. **Automate objective verification; reserve human attention for feel and creative judgment.**
 7. **Keep work-in-progress low and make changes easy to reverse.**
+8. **Search a data-driven fun surface before changing stable simulation architecture.**
+9. **Record the exact preset and seed behind every feel claim.**
 
 ## Locked product decisions
 
@@ -37,6 +39,9 @@ The main sequence is:
 - Persistent company, fleet, regions and customer story chains.
 - Temporary per-workday cargo combinations, damage, routes and upgrades.
 - Trucks can change mid-workday through a shared data-driven vehicle interface.
+- Core feel parameters are live-reloadable validated data, with named presets and scenario-safe ranges.
+- Ordinary playtest feedback should change tuning, content or presentation; refactor stable mechanics
+  only when evidence shows that the available tuning surface cannot express the intended experience.
 
 ## Phase 0 — Build the development machine
 
@@ -51,6 +56,10 @@ Before substantial gameplay, establish:
 - Player-input record and replay.
 - Structured crash reports and assertion failures.
 - A small set of smoke tests that prove the project launches, hosts and joins.
+- One authoritative tuning schema covering player, hands, truck, cargo, route, encounter and recovery
+  parameters, plus named presets and fixed scenario seeds.
+- A local tuning surface that can apply and compare presets without recompiling or changing network
+  authority.
 
 This harness is what allows AI agents to work with less supervision. An agent should be able to change code, run the relevant scenario and return evidence without requiring manual use of the Godot editor.
 

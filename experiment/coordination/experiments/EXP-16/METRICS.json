@@ -1,0 +1,216 @@
+{
+  "experiment": "EXP-16",
+  "through_stage": "S7-negative-closure",
+  "stage_4_status": "mechanics-conformance-passed-producer-visible-seeds",
+  "stage_5_status": "mechanics-conformance-passed-producer-visible-seeds",
+  "stage_6_status": "one-product-repair-audited-full-regression-passed",
+  "stage_7_status": "failed-required-rendered-role-integration",
+  "candidate_commit": "7964d772d53f1b414d92129b207a5a3bb7bb3617",
+  "candidate_tree": "ce10b298455e206504c7338df2823133b7224f24",
+  "held_out_release_sha256": "117d9874812c6c1256ff607a37e3d6277908820c10011c4da2c670718c0bf237",
+  "policy_versions": {
+    "delivery": "s2-delivery-v2",
+    "recovery": "s3-visible-recovery-v1"
+  },
+  "thresholds": {
+    "delivery": "at least 5 of 6 objective completions; every case bounded",
+    "recovery": "at least 6 of 8 objective completions; every case bounded"
+  },
+  "stage_2": {
+    "held_out_delivery": {
+      "count": 6,
+      "objective_completions": 6,
+      "failures": 0,
+      "all_bounded": true,
+      "elapsed_ms": {
+        "count": 6,
+        "median": 93731,
+        "range": [
+          93102,
+          94044
+        ]
+      },
+      "active_control_decisions": {
+        "count": 6,
+        "median": 42,
+        "range": [
+          42,
+          42
+        ]
+      },
+      "goal_transitions": {
+        "count": 6,
+        "median": 18,
+        "range": [
+          18,
+          18
+        ]
+      },
+      "action_failures": {
+        "count": 6,
+        "median": 3,
+        "range": [
+          3,
+          3
+        ]
+      },
+      "stalls": {
+        "count": 6,
+        "median": 0,
+        "range": [
+          0,
+          0
+        ]
+      },
+      "oscillations": {
+        "count": 6,
+        "median": 0,
+        "range": [
+          0,
+          0
+        ]
+      },
+      "recoveries": {
+        "count": 6,
+        "median": 0,
+        "range": [
+          0,
+          0
+        ]
+      }
+    }
+  },
+  "stage_3": {
+    "held_out_recovery": {
+      "count": 8,
+      "objective_completions": 7,
+      "bounded_terminal_packets": 1,
+      "all_bounded": true,
+      "elapsed_ms": {
+        "count": 8,
+        "median": 32162,
+        "range": [
+          169,
+          94128
+        ]
+      },
+      "active_control_decisions": {
+        "count": 8,
+        "median": 3,
+        "range": [
+          2,
+          5
+        ]
+      },
+      "goal_transitions": {
+        "count": 8,
+        "median": 1,
+        "range": [
+          1,
+          1
+        ]
+      },
+      "action_failures": {
+        "count": 8,
+        "median": 0,
+        "range": [
+          0,
+          3
+        ]
+      },
+      "stalls": {
+        "count": 8,
+        "median": 0,
+        "range": [
+          0,
+          7
+        ]
+      },
+      "oscillations": {
+        "count": 8,
+        "median": 0,
+        "range": [
+          0,
+          1
+        ]
+      },
+      "recoveries": {
+        "count": 8,
+        "median": 1,
+        "range": [
+          1,
+          1
+        ]
+      }
+    }
+  },
+  "stage_4": {
+    "robber_mechanics": {
+      "count": 6,
+      "passed": 6,
+      "native_authority_smoke": true,
+      "rendered_main_world_policy_integration": false,
+      "held_out_generalisation": false
+    }
+  },
+  "stage_5": {
+    "vampire_mechanics": {
+      "count": 6,
+      "passed": 6,
+      "enet_authority_smoke": true,
+      "rendered_main_world_policy_integration": false,
+      "held_out_generalisation": false
+    }
+  },
+  "stage_6": {
+    "product_repair_loops": 1,
+    "accepted_finding": "S2-DEL-C1-PICKUP-RANGE",
+    "runtime_gate_id": "720ced30-e1f7-451d-9a5a-63d398c200ec",
+    "full_regression_passed": true,
+    "candidate_unchanged": true
+  },
+  "stage_7": {
+    "source_blind_score": null,
+    "critic_frames": 0,
+    "founder_human_samples": 0,
+    "opaque_access_seam_prepared": true,
+    "required_hidden_journey_coverage": false,
+    "blocker": "exact candidate lacks rendered controller-injectable recovery, robber and vampire integration"
+  },
+  "experiment_accounting": {
+    "accounted_usd": 87.2923,
+    "ceiling_usd": 120.0,
+    "producer_sol_usd": 59.2115,
+    "lead_terra_usd": 26.6498,
+    "exec_terra_usd": 1.2662,
+    "critic_terra_usd": 0.1647
+  },
+  "ten_x": {
+    "claimed": false,
+    "public_surface_elapsed_baseline_ms": 231221,
+    "held_out_delivery_median_ms": 93731,
+    "elapsed_improvement_ratio": 2.47,
+    "motor_model_calls": 0,
+    "reason_not_claimed": "the baseline lacks a compatible counted model-call and spend denominator, elapsed improvement is below 10x, and S7 failed"
+  },
+  "model_cost": {
+    "motor_model_calls": 0,
+    "vision_frames": 0,
+    "spend_usd": 0
+  },
+  "authority": {
+    "violations": 0,
+    "manual_interventions": 0
+  },
+  "cleanup": {
+    "raw_frames": 0,
+    "videos": 0,
+    "temporary_native_logs": 0,
+    "engine_cache_removed": true
+  },
+  "counter_evidence": [
+    "Native recovery gates do not expose complete adverse-placement injection; released-seed-derived placements are exercised in the conformance fixture and the limitation is retained per run.",
+    "REC-OSC-H terminates with a compact bounded failure packet rather than objective completion.",
+    "Bot mechanics evidence does not establish playability, fun, human legibility, player acceptance, or a 10x result."
+  ]
+}

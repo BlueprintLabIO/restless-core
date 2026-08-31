@@ -598,6 +598,8 @@ mod tests {
             mission: String::new(),
             spend_ceiling_usd: crate::runtime::SpendCeiling::from_micro_usd(30_000_000),
             model: "moonshot/kimi-k3".to_string(),
+            worker_runtime: crate::runtime::WorkerRuntime::Omp,
+            reasoning_effort: crate::acp::DEFAULT_REASONING_EFFORT.to_string(),
             model_failover: Vec::new(),
             credentials,
             approved_parties: Vec::new(),

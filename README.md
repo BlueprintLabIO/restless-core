@@ -62,7 +62,7 @@ writes through company-scoped owner APIs; the supported local entrypoint is `scr
 not a standalone Vite shell. See [`web/README.md`](./web/README.md).
 
 The public landing page and experiment findings journal now live in the sibling
-[`restless-cloud` repository](https://github.com/BlueprintLabIO/restless-cloud) at `apps/public/`.
+[`restless-cloud` repository](https://github.com/BlueprintLabIO/restless-cloud) at `site/`.
 Core retains the local company cell and the historical experiment evidence that the public research
 locators reference.
 

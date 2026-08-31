@@ -312,6 +312,14 @@ it in the whole outcome. This is model-driven judgement, not a topology router o
 The deterministic Work substrate proves only that cross-actor responsibility and its evidence were
 real; it does not represent the lead's private plan, reasoning or checklist.
 
+Lead accountability does not require a fresh high-effort model turn for every deterministic state
+transition. The lead identity, charter, authority and relevant context remain durable. Exact routing,
+gates and receipts can carry routine successful facts; supervisory intelligence wakes when framing or
+judgement is material, evidence fails, requirements change, lineage conflicts, effects are unsafe or a
+worker needs repair. EXP-17 found the fully serial R1 call chain at quality parity but 1.73x-3.30x the
+spend and 1.77x-2.94x the latency of the same solo producer across four bounded shapes. The architecture
+therefore preserves the lead while minimising ritual model wakes.
+
 After framing the company-level intent, choosing the lead and allocating an initial envelope, the Exec
 ends its dispatch wake so it remains available for the next owner request or department-level
 exception. Results and blockers return asynchronously. The Exec retains portfolio prioritisation,
@@ -384,6 +392,9 @@ Messages are organisational communication, not security-sensitive state transiti
 - Event-driven wakeups.
 - Retry and escalation timing.
 - Daily, weekly and strategic review cadence.
+- Recurring schedules express a local-time opportunity to wake accountable judgement, never an
+  embedded command or proof that production should occur. Missed occurrences coalesce to one current
+  opportunity, and each scheduled occurrence has one durable delivery identity.
 
 ### Context assembly
 

@@ -1,0 +1,2 @@
+invalid
+Reason: native xdotool input targeting the active client failed with X BadWindow before delivery/unload completion; assignment required immediate invalidation and stop.

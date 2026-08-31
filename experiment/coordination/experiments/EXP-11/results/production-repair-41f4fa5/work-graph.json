@@ -1,0 +1,2761 @@
+{
+  "work": [
+    {
+      "id": "11554293-9030-457d-88c0-43397d341be4",
+      "goal_id": null,
+      "owner_id": "swiftarrival-gameplay",
+      "title": "Make the playable core real: view-relative movement, solid collision, recoverable crate",
+      "outcome": "The founder's two reports - sideways movement feeling reversed and the solid-looking truck not stopping anyone - share one root: the prototype has no physics at all. The player is moved numerically on fixed truck axes while the camera is locked facing the cab, and nothing in the world has a collision shape. This work makes first-person movement follow the view with real mouse look, gives the truck and world real collision the player can walk in, and guarantees a dropped crate can always be picked back up, so an ordinary mistake can never soft-lock the delivery.\n\nExact contract. Repo slug swift-arrival (checked out at /company/projects/swift-arrival), from baseline commit 84ff1745b29267708599e94036ec6f7a2a7e0457 (tree 25733ead6eb7c83221048d323838a5cadc2a235e). Preserve the original placeholder assets and labels, the bounded truck route (z 0..40) and destination zone, the ENet host-authoritative model, and the scripted-probe discipline. No content broadening, no third-party assets, no external effects.\n\nDiagnosis to build against, verified in baseline main.gd:\n- Strafe inversion and no look: _apply_player_move adds raw truck-local Vector3(mv.x,0,mv.y) while the camera always faces truck-local +Z, so D moves toward camera-left; there is no mouse look at all.\n- Clamp-only collision: every object is a MeshInstance3D; the player is clamped to the truck interior (x -1..1, z -3.3..3.3) with one special-cased doorway rule; the player can never leave the truck; the truck drives through a dropped crate.\n- Unrecoverable drop: _request_release teleports the crate to world z = truck_z - 5 no matter where the player stands. Hands cannot reach below truck_z - 2.85 and the grab limit is 1.6 m, so a release at route start (truck_z = 0, and the truck cannot reverse below 0) is permanently unrecoverable. This is the owner-observed intermittent failure.\n\nRequired result, one candidate commit:\n1. View-relative first-person movement: strafe and forward follow the camera basis; mouse-look yaw rotates the view and the movement basis; turning while blocked stays coherent (no wall pass-through while turning).\n2. Real collision boundaries replacing clamps: solid truck and world geometry blocks the player from both sides (for example CharacterBody3D move_and_slide against StaticBody3D), the player can leave the truck and walk the bounded area on the ground, the crate is a physical object that rests on geometry, and the truck cannot drive through a dropped crate.\n3. Recoverable crate handling: release places the crate relative to the player's actual position and facing, and every dropped crate in the bounded area remains pick-up-able, including behind the truck at route start; no reachable state requires a restart.\n4. Host-authoritative shared player, vehicle, cargo and delivery state: clients request, the host validates and resolves (including player movement validity, not just interactions), and joining clients receive coherent state.\n5. Legible feedback for pickup, drop, seat and unload: distinct visible cues plus the HUD log; rejections (grab refused, seat occupied) are visible to the requester.\n6. Honest presentation: controls shown match reality; nothing is labeled physical that is not.\n\nProbe contract - probes assert observed state and exit nonzero when the mechanic is broken; a printed PASS without an assertion is not acceptance. These four commands are the acceptance gates, declared atomically with this Work and run in the Attempt workspace:\n- sh run-probe.sh HOSTLOG CLIENTLOG - positive delivery loop green end-to-end (join, pickup, seat, drive bounded route, unload in zone, host-authoritative completion visible on both, clean shutdown).\n- sh run-probe.sh --negative HOSTLOG CLIENTLOG - release outside the zone is rejected by the host, delivery does not complete, both processes log PASS (the baseline host-side negative shutdown was declared not acceptance evidence; finish it).\n- sh run-probe.sh --mechanics HOSTLOG CLIENTLOG - asserts the movement basis follows view yaw (at a set yaw, strafe displaces the player along camera right, not a fixed world axis) and that closed solid geometry blocks movement (near-zero displacement into a wall).\n- sh run-probe.sh --recovery HOSTLOG CLIENTLOG - asserts a crate released behind the truck at route start is recovered and the delivery still completes.\n\nEvidence to preserve and link as artifacts:\n- Headless logs of all four probe modes from the accepted candidate.\n- One native OS-input playtest bundle under /company/outputs/exp11/playtests/RUNID/ (input trace, host and client logs, screenshots, result) including at least one deliberate mistake and its recovery. Native feel evidence is material for lead judgement, not a gate.\n- A plain summary of what changed, what was verified, and known limits; say plainly what was not done. Keep it compact: one focused candidate beats many passes; about 50 USD remains for the whole slice.",
+      "status": "completed",
+      "resolution": "Candidate a1d96fe4ce7280501f3d193fc3c3058a23e8a914 and native playtest bundle are linked; all acceptance probes passed, deliberate drop recovery completed, and evidence includes logs, screenshots, input trace, summary, and known limits.",
+      "priority": 0,
+      "expected_artifact": "Headless probe logs for all four modes (positive, negative, mechanics, recovery) from the accepted candidate commit; a native OS-input playtest bundle with a deliberate-mistake recovery under /company/outputs/exp11/playtests/ (input trace, host+client logs, screenshots, result); and a plain change summary with known limits recorded with the evidence",
+      "owner_review_required": false,
+      "repo": "swift-arrival",
+      "base_ref": "84ff1745b29267708599e94036ec6f7a2a7e0457",
+      "integration_branch": null,
+      "worktree": null,
+      "revision": 1,
+      "attempt_limit": null,
+      "created_at": "2026-08-28T04:42:43.483062Z",
+      "updated_at": "2026-08-28T08:28:29.672729Z"
+    },
+    {
+      "id": "5fff51d1-1b74-4d30-a98d-be6c3fa005b1",
+      "goal_id": null,
+      "owner_id": "swiftarrival-experience",
+      "title": "Independently play the candidate from pickup through delivery",
+      "outcome": "A fresh reviewer will establish whether the compact delivery loop is understandable and genuinely playable without relying on the implementation author's expectations. The result will identify any experience defect that should block the founder review, while preserving what was actually observed rather than converting taste into a test claim.\n\nExact contract. In repo slug swift-arrival, play only exact candidate commit a1d96fe4ce7280501f3d193fc3c3058a23e8a914, descended from baseline 84ff1745b29267708599e94036ec6f7a2a7e0457. This is independent evidence Work: do not change source, tests, assets, candidate commits, or the producer's existing evidence. Before inspecting the producer's playtest bundle or implementation details, launch a fresh native host and client using the candidate's own documented surfaces and attempt the bounded route as a new player. Probe the real installed capabilities first; do not substitute headless assertions for native play. Exercise and observe: initial control and objective comprehension; view-relative forward/strafe movement after meaningful mouse-look changes; blocked movement against visibly solid truck/world boundaries; pickup, deliberate drop away from the destination, recovery and re-pickup; entering and leaving the driver seat; bounded W/S driving; unloading both outside and inside the valid destination; host-authoritative player, vehicle, cargo and completion state visible to the client; and recovery from ordinary mistakes without restart or soft lock. Attempt at least one adverse interaction order a reasonable new player might try. Record where the view, geometry, feedback, or control mapping misleads you, including whether any debug presentation materially obstructs play. Distinguish direct observation, deterministic probe output, and product judgement. Do not call mechanics fun or founder-ready merely because probes pass.\n\nPreserve a compact native evidence bundle outside the repo with the exact candidate hash, launch commands, environment/capability observations, timestamped input/action trace, host and client logs, screenshots of the strongest positive and negative moments, and a concise independent report. The report must state: whether the full loop completed; observed blockers and severity; the first moment of confusion; collision and movement feel; feedback legibility; recovery result; multiplayer coherence; presentation limits; and one lead-facing verdict of ACCEPT FOR FOUNDER TASTE REVIEW or REVISE BEFORE FOUNDER REVIEW, with source-supported reasons and uncertainties. Link the bundle and report to this Attempt. No publishing, deployment, purchases, external effects, third-party assets, content expansion, or promotion into the source Dogfood 4 company.",
+      "status": "completed",
+      "resolution": "Fresh native X11 route failed after driver-seat exit (reseated instead of reaching/unloading); linked independent bundle documents the REVISE BEFORE FOUNDER REVIEW verdict and concrete legibility/navigation defects.",
+      "priority": 0,
+      "expected_artifact": "A linked native playtest bundle for exact candidate a1d96fe4ce7280501f3d193fc3c3058a23e8a914 containing launch/capability notes, timestamped input trace, host and client logs, strongest screenshots, and an independent report that separates observations from judgement and ends with an accept-or-revise founder-review verdict.",
+      "owner_review_required": false,
+      "repo": "swift-arrival",
+      "base_ref": "a1d96fe4ce7280501f3d193fc3c3058a23e8a914",
+      "integration_branch": null,
+      "worktree": null,
+      "revision": 1,
+      "attempt_limit": null,
+      "created_at": "2026-08-28T08:29:56.116572Z",
+      "updated_at": "2026-08-28T09:43:51.425954Z"
+    },
+    {
+      "id": "841a9c7a-0c89-4a5e-9df2-5432e760bb78",
+      "goal_id": null,
+      "owner_id": "swiftarrival-gameplay",
+      "title": "Repair the exit-to-unload route and make the delivery objective legible",
+      "outcome": "Players will be able to leave the truck at the route end, find the delivery point, and unload without being pulled back into the driver seat. The compact first-person view will make the current objective and usable action clear enough to complete the local delivery loop.\n\nExact contract. Repo slug swift-arrival, start from exact candidate a1d96fe4ce7280501f3d193fc3c3058a23e8a914, which descends from baseline 84ff1745b29267708599e94036ec6f7a2a7e0457. Independent native X11 evidence bundle file:///company/outputs/swift-arrival-independent-playtest-20260828T043000Z is the source observation. It recorded: after driving to z=40 and pressing E to leave the seat, the prescribed A/S/mouse movement did not reach unloading; the final E reseated the player, host delivery completion never occurred, and playtest.sh exited 1. It also observed that persistent multi-line debug/event text obscured the scene and the HUD lacked an exit-state/destination cue.\n\nChange the smallest gameplay and presentation mechanisms needed so, after a seat exit at route end while carrying the crate, the player can orient, reach an unloadable destination position, and unload without accidental reseating. Make the live objective, destination/interaction affordance, and seat-exit state legible in the rendered first-person view; debug/event text must not materially cover normal play. Preserve the bounded local route, original placeholder assets, host-authoritative player/vehicle/cargo/delivery state, view-relative movement, real physical boundaries, deliberate-drop recovery, and positive/negative multiplayer semantics. Do not broaden content, publish, deploy, or use external effects.\n\nCommit all source/test/evidence changes as one candidate descended from a1d96fe4ce7280501f3d193fc3c3058a23e8a914. Run the declared gates and the documented player-like rendered X11 lane from pickup through deliberate drop/re-pickup, driving, seat exit, post-exit movement, and successful unload; preserve timestamped input trace, host/client logs, and strongest screenshots for exit and delivery. Report observations separately from judgement, name any known limits, and do not represent scripted probes as proof of player feel. A later independent reviewer, not this Work, will decide founder-review readiness.",
+      "status": "completed",
+      "resolution": "Committed candidate 09fe09d with passing native X11 delivery lane and positive, negative, mechanics, and recovery probes; linked the complete evidence bundle and exact commit to the Work Attempt.",
+      "priority": 0,
+      "expected_artifact": "A new Swift Arrival candidate commit descended from a1d96fe4ce7280501f3d193fc3c3058a23e8a914; a linked repair evidence bundle with the fresh native X11 input trace, host/client logs, screenshots of seat exit and completed delivery, deterministic probe logs, and a concise change summary with known limits.",
+      "owner_review_required": false,
+      "repo": "swift-arrival",
+      "base_ref": "a1d96fe4ce7280501f3d193fc3c3058a23e8a914",
+      "integration_branch": null,
+      "worktree": null,
+      "revision": 1,
+      "attempt_limit": null,
+      "created_at": "2026-08-28T09:44:47.035476Z",
+      "updated_at": "2026-08-28T09:56:44.109312Z"
+    },
+    {
+      "id": "ebdd971f-0732-4330-8204-fad8e7d06757",
+      "goal_id": null,
+      "owner_id": "swiftarrival-playtest",
+      "title": "Prove the repaired delivery loop in a fresh independent playtest",
+      "outcome": "A fresh reviewer will determine whether the repaired compact delivery route can now be completed naturally from pickup through unloading, without relying on the repair author's expectations. If it is ready, the founder will receive one exact running target and a bounded playability question; if it is not, the observed blocker will return to the producer rather than reaching founder review.\n\nExact contract. In repo slug swift-arrival, use only exact candidate commit 09fe09d30c65b811c0904508525a6ab8af02145c, descended from baseline 84ff1745b29267708599e94036ec6f7a2a7e0457 through the prior candidate and repair Work. This is independent evidence Work: do not change source, tests, assets, scenarios, candidate commits, or producer evidence. Start with a fresh native X11 host/client session and ordinary OS input, not a headless probe or scripted gameplay substitute. Before reading the producer's playtest conclusions, attempt the complete bounded route as a new player: understand the current objective; use view-relative movement and coherent mouse look; encounter the truck as real blocking geometry; pick up and load cargo; enter and drive the truck; leave the seat at the route end without accidental reseating; locate the unload area; unload and observe delivery completion. Include at least one ordinary recoverable mistake, such as a premature drop or wrong interaction, and establish whether the game recovers without a soft lock. Exercise both host and client observations and separately run the existing positive and negative multiplayer probes so host-authoritative shared player, vehicle, cargo and delivery state have fresh evidence. Treat deterministic probes as mechanics evidence only, never as proof of feel or playability.\n\nPreserve a compact evidence bundle outside the repo with exact commit, environment and capability observations; timestamped input trace; host/client logs; strongest screenshots; probe outputs; observations separated from interpretation; and known gaps. End with one independent verdict: ACCEPT FOR FOUNDER REVIEW or REVISE BEFORE FOUNDER REVIEW. A revise verdict must identify the smallest observed experience blocker and link the evidence; do not repair it. An accept verdict must additionally prepare and leave live the strongest native founder ReviewTarget for this exact commit, record a successful review-target-live-probe gate, link the target and exact launch/reconnect details, and state the single founder judgement still not machine-verifiable: whether movement, interaction feedback, driving and the delivery loop feel coherent and genuinely playable. Never claim fun, founder approval, or business acceptance. No publishing, deployment, purchases, third-party assets, external effects, broad content, or promotion into the source Dogfood 4 company.",
+      "status": "completed",
+      "resolution": "Fresh native host/client playtest, positive/negative/mechanics probes, ACCEPT verdict, linked evidence bundle, and live-probed founder ReviewTarget for exact commit 09fe09d30c65b811c0904508525a6ab8af02145c are complete.",
+      "priority": 0,
+      "expected_artifact": "A linked fresh native playtest bundle for exact candidate 09fe09d30c65b811c0904508525a6ab8af02145c containing capability/launch observations, a timestamped input trace, host and client logs, strongest screenshots, observed positive and negative multiplayer results, an independent accept-or-revise verdict, and—only if accepted—a live probed native founder ReviewTarget with exact launch and judgement notes.",
+      "owner_review_required": false,
+      "repo": "swift-arrival",
+      "base_ref": "09fe09d30c65b811c0904508525a6ab8af02145c",
+      "integration_branch": null,
+      "worktree": null,
+      "revision": 1,
+      "attempt_limit": null,
+      "created_at": "2026-08-28T09:58:07.409859Z",
+      "updated_at": "2026-08-28T10:11:27.583462Z"
+    },
+    {
+      "id": "3589d1a0-c6ec-468a-8c99-8811d6025782",
+      "goal_id": null,
+      "owner_id": "swiftarrival-playtest",
+      "title": "Keep the accepted slice ready for founder play",
+      "outcome": "The independently accepted Swift Arrival slice will remain ready as one exact local founder play target. This closes the machine-doable work and leaves only the founder’s judgement of whether the compact loop feels coherent and genuinely playable.\n\nExact contract. Use only exact candidate 09fe09d30c65b811c0904508525a6ab8af02145c and the linked independent ACCEPT evidence at file:///company/outputs/swift-arrival-independent-20260828T095848Z. Do not change source, tests, assets, candidate commits, or evidence. Re-probe the prepared native host/client ReviewTarget described by REVIEW_TARGET.txt on display :1. If the target is no longer live, restore the exact host/client target using those recorded instructions, then prove it is visible, connected, and at the initial PICK UP THE CRATE objective. Link the strongest native target first with controls and reconnect details. Preserve these evidence limits: audio is unavailable under the dummy driver; host and client use local loopback; deterministic probes prove mechanics, not feel; founder taste remains unverified. Prepare the owner review around exactly one question: whether movement, interaction feedback, driving, and the delivery loop feel coherent and genuinely playable. No publishing, deployment, purchases, external effects, broad content, or promotion into the source Dogfood 4 company. Do not claim founder approval. If the target cannot be restored or live-probed, block with the exact observed condition rather than presenting it.",
+      "status": "abandoned",
+      "resolution": "abandoned by swiftarrival-gameproduct: Superseded by newer blind native evidence at /company/inputs/exp11-referee-r9: exact candidate 09fe09d30c65b811c0904508525a6ab8af02145c declared DELIVERY COMPLETE while ON FOOT at ROUTE 0 / 40 m after the crate was carried to the starting bay. The prior founder-ready claim and its owner handoff are invalid; do not restore or present this target.",
+      "priority": 0,
+      "expected_artifact": "A live founder ReviewTarget for exact candidate 09fe09d30c65b811c0904508525a6ab8af02145c, linked with exact controls, reconnect instructions, the bounded feel question, and the independent evidence bundle.",
+      "owner_review_required": true,
+      "repo": "swift-arrival",
+      "base_ref": "09fe09d30c65b811c0904508525a6ab8af02145c",
+      "integration_branch": null,
+      "worktree": null,
+      "revision": 1,
+      "attempt_limit": null,
+      "created_at": "2026-08-28T10:12:28.652487Z",
+      "updated_at": "2026-08-28T11:13:46.402816Z"
+    },
+    {
+      "id": "85ced0c3-ddde-46f3-9003-3cdc50f8ebd7",
+      "goal_id": null,
+      "owner_id": "swiftarrival-gameplay",
+      "title": "Require the truck journey before delivery can complete",
+      "outcome": "The compact delivery will require the intended pickup, drive, seat-exit, and unload journey instead of allowing the crate to be carried directly to the nearby bay. This preserves the truck as the core of the experience and makes completion truthful.\n\nExact contract. Repo slug swift-arrival, start from exact base commit 09fe09d30c65b811c0904508525a6ab8af02145c. Treat /company/inputs/exp11-referee-r9 as the superseding blind native observation: its action trace and final pixels show ON FOOT, DELIVERY COMPLETE, and ROUTE 0 / 40 m after walking the crate from the truck to the yellow bay without entering or driving the truck. Diagnose the smallest host-authoritative cause and repair the delivery state machine so unloading/completion is rejected until the authoritative journey has actually advanced through truck driving to the route destination and a valid post-arrival seat exit. Client HUD feedback must explain the unmet stage without falsely declaring destination reached or delivery complete. Preserve view-relative movement and driving, physical collision boundaries, mouse look, pickup/drop/recovery, host-authoritative shared player/vehicle/cargo/delivery state, placeholder assets, and the bounded local route. Do not solve this with presentation-only gating, a client-only check, hidden teleport, clamp-only collision, broad content, third-party assets, publishing, deployment, or external effects. Extend deterministic probes with a negative on-foot carry bypass from route 0 that must remain incomplete, plus positive pickup-drive-arrive-exit-unload completion and ordinary recovery. Run a fresh native X11 host/client journey showing the repaired positive route and the rejected starting-bay bypass. Commit all source and test changes in the Attempt workspace. Report exact observations, known limits, and anything not verified; deterministic probes establish mechanics, not feel.",
+      "status": "completed",
+      "resolution": "Committed the safe gate-mode parser at 7e76d1e087cf4cde12aaf1fa6d5e9309f39bcddd, reran every exact Work gate successfully, and linked the revised manifest and preserved logs as artifact 17a3a26f-ae03-4f7e-b0f6-1851cc6e217b.",
+      "priority": 0,
+      "expected_artifact": "A new candidate commit descended from 09fe09d30c65b811c0904508525a6ab8af02145c; a linked repair evidence bundle containing the superseding blind-evidence diagnosis, positive and on-foot-bypass negative probe logs, fresh native host/client input traces and screenshots for both routes, and a concise change summary with known limits.",
+      "owner_review_required": false,
+      "repo": "swift-arrival",
+      "base_ref": "09fe09d30c65b811c0904508525a6ab8af02145c",
+      "integration_branch": null,
+      "worktree": null,
+      "revision": 1,
+      "attempt_limit": null,
+      "created_at": "2026-08-28T11:14:01.929779Z",
+      "updated_at": "2026-08-28T11:35:56.753194Z"
+    },
+    {
+      "id": "bf0531c6-d0a5-4529-b4d0-baf65d1b3397",
+      "goal_id": null,
+      "owner_id": "swiftarrival-playtest",
+      "title": "Blindly verify that delivery now requires the truck journey",
+      "outcome": "A fresh independent reviewer will determine whether the repaired slice truly requires pickup, driving, arrival, seat exit, and unloading while still remaining understandable and recoverable. Founder review will proceed only if both the intended journey succeeds and the old on-foot shortcut fails.\n\nExact contract. In repo slug swift-arrival, use only the exact candidate commit produced by prerequisite Work 85ced0c3-ddde-46f3-9003-3cdc50f8ebd7, descended from 09fe09d30c65b811c0904508525a6ab8af02145c. This is independent evidence Work: do not change source, tests, assets, scenarios, candidate commits, or producer evidence. Before reading implementation details or the producer's native playtest interpretation, launch a fresh native host/client session and retain exact window routing. First attempt the superseding blind route from /company/inputs/exp11-referee-r9: pick up the crate, deliberately drop and recover it, remain on foot at route 0, carry it to the nearby yellow bay, and attempt unloading. Observe whether authoritative state rejects completion and whether the feedback explains the unmet truck journey. Then restart cleanly and complete pickup, seat entry, driving to route 40, seat exit, and unloading; include one ordinary mistake and recovery. Confirm host/client agreement, blocked movement and collision behavior, and that no stale completion survives restart or invalid order. Record pixels, timestamped input trace, host/client logs, positive and negative outcomes, and an accept-or-revise verdict separating direct observations from judgement. Deterministic producer probes are supporting evidence only and do not establish feel. If and only if both native routes behave correctly and no material playability blocker is observed, prepare one exact local founder ReviewTarget with controls, bounded feel question, restart/reconnect instructions, and explicit audio, loopback, and unverified-founder-taste limits. Do not publish, deploy, use external effects, broaden content, or claim founder acceptance.",
+      "status": "abandoned",
+      "resolution": "abandoned by swiftarrival-gameproduct: Invalid version lineage before any verdict: the running Attempt launched with source_commit 09fe09d30c65b811c0904508525a6ab8af02145c rather than repaired candidate 7e76d1e087cf4cde12aaf1fa6d5e9309f39bcddd. Evidence from this old-base Attempt must not be counted, linked, or used for founder review.",
+      "priority": 0,
+      "expected_artifact": "A linked fresh independent native playtest bundle for the exact repaired candidate containing window-routing observations, timestamped traces, host/client logs, strongest screenshots, an explicit rejected on-foot-bypass result, a successful full truck-journey result, an independent accept-or-revise verdict, and only if accepted an exact prepared founder ReviewTarget.",
+      "owner_review_required": false,
+      "repo": "swift-arrival",
+      "base_ref": "09fe09d30c65b811c0904508525a6ab8af02145c",
+      "integration_branch": null,
+      "worktree": null,
+      "revision": 1,
+      "attempt_limit": null,
+      "created_at": "2026-08-28T11:14:17.214336Z",
+      "updated_at": "2026-08-28T11:37:15.180050Z"
+    },
+    {
+      "id": "af5ef98a-1cff-45c9-b245-c7bd0aebc61a",
+      "goal_id": null,
+      "owner_id": "swiftarrival-playtest",
+      "title": "Blindly verify the repaired truck-journey requirement from the exact candidate",
+      "outcome": "A fresh independent reviewer will establish whether the actual repaired candidate rejects the on-foot shortcut and supports the complete truck journey without introducing a new playability blocker. Only evidence whose recorded source version matches the repair will count.\n\nExact contract. Repo slug swift-arrival. Base_ref is exactly 7e76d1e087cf4cde12aaf1fa6d5e9309f39bcddd, the candidate produced by prerequisite repair Work 85ced0c3-ddde-46f3-9003-3cdc50f8ebd7 and descended from 09fe09d30c65b811c0904508525a6ab8af02145c. Before any launch, source inspection, producer-evidence inspection, or play input, inspect the Runtime Attempt start event and record its source_commit in the evidence manifest. Proceed only if that event reports source_commit exactly 7e76d1e087cf4cde12aaf1fa6d5e9309f39bcddd; otherwise stop with INVALID VERSION LINEAGE and no gameplay verdict. Do not count or reuse any evidence from abandoned old-base Work bf0531c6-d0a5-4529-b4d0-baf65d1b3397 or its Attempt. This is independent evidence Work: do not change source, tests, assets, scenarios, candidate commits, or producer evidence.\n\nPreserve the same blind native contract. With exact CLIENT window routing, first replay the superseding route from /company/inputs/exp11-referee-r9: pick up the crate, deliberately drop and recover it, remain on foot at route 0, carry it to the nearby yellow bay, and attempt unloading. Directly observe whether authoritative state rejects completion and whether feedback explains the unmet truck journey. Restart cleanly, then complete pickup, seat entry, driving to route 40, seat exit, and unloading, including one ordinary mistake and recovery. Confirm host/client agreement, blocked movement and collision behavior, and that no stale completion survives restart or invalid order. Record direct pixels, timestamped input trace, host/client logs, positive and negative outcomes, the exact start-event source_commit, and an accept-or-revise verdict separating observations from judgement. Deterministic producer probes are supporting evidence only and do not establish feel. If and only if both native routes behave correctly and no material playability blocker is observed, prepare one exact local founder ReviewTarget with controls, bounded feel question, restart/reconnect instructions, and explicit audio, loopback, and unverified-founder-taste limits. Do not publish, deploy, use external effects, broaden content, or claim founder acceptance.",
+      "status": "abandoned",
+      "resolution": "abandoned by swiftarrival-gameproduct: Superseded by newer blind native evidence at /company/inputs/exp11-referee-r15. The route-zero shortcut was rejected, but the intended loaded journey drove to visible ROUTE 40 / 40 m, exited, entered the destination structure, and still received TRUCK JOURNEY REQUIRED; natural seat re-entry recovery was unavailable. The prior ACCEPT verdict, prepared founder target, and pending owner review are invalid. Do not present or reuse them.",
+      "priority": 0,
+      "expected_artifact": "A linked fresh independent native playtest bundle whose manifest records Attempt start source_commit exactly 7e76d1e087cf4cde12aaf1fa6d5e9309f39bcddd; exact window-routing observations; timestamped traces; host/client logs; strongest screenshots; an explicit rejected on-foot-bypass result; a successful full truck-journey result; an independent accept-or-revise verdict; and only if accepted an exact prepared founder ReviewTarget. No artifact from the abandoned old-base Attempt may be reused.",
+      "owner_review_required": false,
+      "repo": "swift-arrival",
+      "base_ref": "7e76d1e087cf4cde12aaf1fa6d5e9309f39bcddd",
+      "integration_branch": null,
+      "worktree": null,
+      "revision": 1,
+      "attempt_limit": null,
+      "created_at": "2026-08-28T11:37:33.069745Z",
+      "updated_at": "2026-08-28T14:32:21.531751Z"
+    },
+    {
+      "id": "f531188b-a8e3-450f-9e4b-e218f68c0c37",
+      "goal_id": null,
+      "owner_id": "swiftarrival-gameplay",
+      "title": "Make the visible route endpoint complete reliably",
+      "outcome": "Players who visibly reach the end of the loaded route will be able to exit, unload, and finish without an invisible fractional shortfall or losing the ability to recover through the driver seat. The on-foot shortcut will remain blocked.\n\nExact contract. Repo slug swift-arrival, start from exact base commit 7e76d1e087cf4cde12aaf1fa6d5e9309f39bcddd. Treat immutable blind native evidence at /company/inputs/exp11-referee-r15 as defect evidence, not an implementation prescription. It directly records: the route-zero on-foot shortcut remained rejected; a fresh player collected the crate, deliberately dropped and recovered it, entered the driver seat carrying it, drove from displayed ROUTE 0 / 40 m to displayed ROUTE 40 / 40 m, exited with the crate, entered the destination structure, and pressed E, but delivery remained incomplete with TRUCK JOURNEY REQUIRED. Further natural attempts did not restore usable driver-seat interaction. Diagnose the smallest host-authoritative cause, including whether rounded display can conceal a fractional authoritative endpoint and why natural seat re-entry recovery was unavailable.\n\nImplement the smallest host-authoritative correction that makes the visible route endpoint, journey-stage transition, valid exit interaction, destination unload, and ordinary seat re-entry recovery coherent. When the player is shown ROUTE 40 / 40 m after a valid loaded drive, authoritative journey state must be complete enough for the subsequent valid exit and unload; presentation and authoritative thresholds must not disagree. Preserve the route-zero shortcut guard, view-relative on-foot movement and driving, mouse look, physical truck/world collision, host-authoritative shared player/vehicle/cargo/delivery state, pickup/drop recovery, legible interaction feedback, placeholder assets, and bounded local route. Rejection and recovery guidance must be truthful and actionable. Do not solve this with client-only state, presentation-only gating, hidden teleport, broad content, third-party assets, publishing, deployment, or external effects.\n\nExtend deterministic probes to cover: positive loaded journey through the visibly complete endpoint, valid exit and unload; route-zero inside-zone shortcut rejection; recovery and natural seat re-entry after an incomplete or mistaken exit path; existing view-relative movement, driving, blocked movement, physical collision, pickup/drop recovery, and host/client agreement; and script validation. Produce fresh native host/client evidence for the repaired loaded route and the preserved route-zero rejection. Commit all source and test changes cleanly in the Attempt workspace. Report exact observations, source lineage, known limits, and anything not verified; deterministic probes establish mechanics, not feel.",
+      "status": "completed",
+      "resolution": "Candidate 41f4fa53 is clean and correctly descended, all exact deterministic gates freshly pass including dedicated seat recovery, and the complete evidence bundle is linked while native evidence attribution remains intact.",
+      "priority": 0,
+      "expected_artifact": "A clean candidate commit descended from 7e76d1e087cf4cde12aaf1fa6d5e9309f39bcddd; a linked repair evidence bundle containing the r15 diagnosis, positive loaded-route and route-zero rejection logs, seat re-entry recovery evidence, movement/collision preservation evidence, fresh native host/client traces and screenshots, exact source lineage, and a concise change summary with known limits.",
+      "owner_review_required": false,
+      "repo": "swift-arrival",
+      "base_ref": "7e76d1e087cf4cde12aaf1fa6d5e9309f39bcddd",
+      "integration_branch": null,
+      "worktree": null,
+      "revision": 1,
+      "attempt_limit": null,
+      "created_at": "2026-08-28T14:33:00.142689Z",
+      "updated_at": "2026-08-28T15:18:34.843358Z"
+    },
+    {
+      "id": "731bd86c-6507-4ae1-a7bf-37b3b20980b7",
+      "goal_id": null,
+      "owner_id": "swiftarrival-playtest",
+      "title": "Blindly verify the final endpoint and recovery candidate",
+      "outcome": "A fresh independent reviewer will establish whether the final exact candidate reliably completes the loaded route at the visible endpoint, keeps the route-zero shortcut blocked, and permits natural driver-seat recovery. A founder target will exist only if these native routes pass without a material playability blocker.\n\nExact contract. Repo slug swift-arrival. Base_ref and only candidate under review are exactly 41f4fa53a2cd05ab17aea473f3d1be28979b2dcf, produced by prerequisite Work f531188b-a8e3-450f-9e4b-e218f68c0c37 and descended cleanly from 7e76d1e087cf4cde12aaf1fa6d5e9309f39bcddd. Before any launch, source inspection, producer-evidence inspection, or play input, record the Runtime Attempt start event source_commit and checked-out HEAD. Proceed only if both equal 41f4fa53a2cd05ab17aea473f3d1be28979b2dcf; otherwise stop INVALID VERSION LINEAGE with no gameplay verdict. The valid terminal producer artifact is b90c08dd-6845-4d80-8923-5ea796824da6. Earlier artifacts and native evidence on parent commit 0602bc78e37e57db1c4328c12df9c15e72c5e010 are historical context only and must not be reused or relabelled as exact-candidate evidence. This is independent evidence Work: do not change source, tests, assets, candidate commit, or producer evidence.\n\nUse fresh native host/client processes and exact visible CLIENT routing. First replay the r15 positive route from a clean state: pick up the crate, deliberately Q drop and E recover it, enter the driver seat, drive using ordinary input until the HUD visibly reports ROUTE 40 / 40 m, validly exit, enter the destination, and unload. Direct pixels and host/client logs must show authoritative delivery completion. Restart cleanly and replay the route-zero on-foot carry to the destination; E unload must remain rejected with truthful actionable feedback and no completion state. Restart cleanly again and prove natural seat re-entry after an early or mistaken exit using ordinary movement and E, without internal state APIs. Confirm host/client agreement, no stale state across restarts, exact input routing, view-relative movement/mouse look on the bounded paths, and no material collision blocker. Record timestamped traces, host/client logs, strongest direct screenshots, exact lineage, and an accept-or-revise verdict separating observations from judgement. Deterministic producer gates support mechanics only and do not establish feel. If and only if all three native routes pass and no material blocker is observed, prepare one exact local founder ReviewTarget with controls, host-first/client-second restart and reconnect instructions, a bounded feel question, and explicit audio, loopback, renderer, collision-scope, and unverified-founder-taste limits. Do not publish, deploy, use external effects, broaden content, or claim founder acceptance.",
+      "status": "blocked",
+      "resolution": "awaiting exec judgement, handoff 39e8048b-ae1d-42ba-a216-5d2bb9e4f802",
+      "priority": 0,
+      "expected_artifact": "A linked fresh independent native bundle for exact candidate 41f4fa53a2cd05ab17aea473f3d1be28979b2dcf containing start-event and checked-out lineage, explicit exclusion of parent-commit evidence, exact window routing, three fresh route traces, host/client logs, strongest positive/rejection/re-entry screenshots, an accept-or-revise verdict, known limits, and only if accepted an exact prepared local founder ReviewTarget.",
+      "owner_review_required": false,
+      "repo": "swift-arrival",
+      "base_ref": "41f4fa53a2cd05ab17aea473f3d1be28979b2dcf",
+      "integration_branch": null,
+      "worktree": null,
+      "revision": 1,
+      "attempt_limit": null,
+      "created_at": "2026-08-28T15:19:12.501975Z",
+      "updated_at": "2026-08-28T15:28:02.757447Z"
+    }
+  ],
+  "edges": [
+    {
+      "from_work_id": "11554293-9030-457d-88c0-43397d341be4",
+      "to_work_id": "5fff51d1-1b74-4d30-a98d-be6c3fa005b1",
+      "kind": "requires",
+      "created_at": "2026-08-28T08:29:56.116572Z"
+    },
+    {
+      "from_work_id": "5fff51d1-1b74-4d30-a98d-be6c3fa005b1",
+      "to_work_id": "841a9c7a-0c89-4a5e-9df2-5432e760bb78",
+      "kind": "requires",
+      "created_at": "2026-08-28T09:44:47.035476Z"
+    },
+    {
+      "from_work_id": "841a9c7a-0c89-4a5e-9df2-5432e760bb78",
+      "to_work_id": "ebdd971f-0732-4330-8204-fad8e7d06757",
+      "kind": "requires",
+      "created_at": "2026-08-28T09:58:07.409859Z"
+    },
+    {
+      "from_work_id": "ebdd971f-0732-4330-8204-fad8e7d06757",
+      "to_work_id": "841a9c7a-0c89-4a5e-9df2-5432e760bb78",
+      "kind": "revises",
+      "created_at": "2026-08-28T09:58:07.409859Z"
+    },
+    {
+      "from_work_id": "3589d1a0-c6ec-468a-8c99-8811d6025782",
+      "to_work_id": "841a9c7a-0c89-4a5e-9df2-5432e760bb78",
+      "kind": "revises",
+      "created_at": "2026-08-28T10:12:28.652487Z"
+    },
+    {
+      "from_work_id": "841a9c7a-0c89-4a5e-9df2-5432e760bb78",
+      "to_work_id": "3589d1a0-c6ec-468a-8c99-8811d6025782",
+      "kind": "requires",
+      "created_at": "2026-08-28T10:12:28.652487Z"
+    },
+    {
+      "from_work_id": "ebdd971f-0732-4330-8204-fad8e7d06757",
+      "to_work_id": "3589d1a0-c6ec-468a-8c99-8811d6025782",
+      "kind": "requires",
+      "created_at": "2026-08-28T10:12:28.652487Z"
+    },
+    {
+      "from_work_id": "85ced0c3-ddde-46f3-9003-3cdc50f8ebd7",
+      "to_work_id": "bf0531c6-d0a5-4529-b4d0-baf65d1b3397",
+      "kind": "requires",
+      "created_at": "2026-08-28T11:14:17.214336Z"
+    },
+    {
+      "from_work_id": "bf0531c6-d0a5-4529-b4d0-baf65d1b3397",
+      "to_work_id": "85ced0c3-ddde-46f3-9003-3cdc50f8ebd7",
+      "kind": "revises",
+      "created_at": "2026-08-28T11:14:17.214336Z"
+    },
+    {
+      "from_work_id": "85ced0c3-ddde-46f3-9003-3cdc50f8ebd7",
+      "to_work_id": "af5ef98a-1cff-45c9-b245-c7bd0aebc61a",
+      "kind": "requires",
+      "created_at": "2026-08-28T11:37:33.069745Z"
+    },
+    {
+      "from_work_id": "af5ef98a-1cff-45c9-b245-c7bd0aebc61a",
+      "to_work_id": "85ced0c3-ddde-46f3-9003-3cdc50f8ebd7",
+      "kind": "revises",
+      "created_at": "2026-08-28T11:37:33.069745Z"
+    },
+    {
+      "from_work_id": "731bd86c-6507-4ae1-a7bf-37b3b20980b7",
+      "to_work_id": "f531188b-a8e3-450f-9e4b-e218f68c0c37",
+      "kind": "revises",
+      "created_at": "2026-08-28T15:19:12.501975Z"
+    },
+    {
+      "from_work_id": "f531188b-a8e3-450f-9e4b-e218f68c0c37",
+      "to_work_id": "731bd86c-6507-4ae1-a7bf-37b3b20980b7",
+      "kind": "requires",
+      "created_at": "2026-08-28T15:19:12.501975Z"
+    }
+  ],
+  "attempts": [
+    {
+      "id": "31e996ea-3575-4007-9d45-61054558f569",
+      "work_id": "11554293-9030-457d-88c0-43397d341be4",
+      "revision": 1,
+      "attempt_no": 1,
+      "actor_id": "swiftarrival-gameplay",
+      "session_id": "2aefb079-8e78-4779-80d6-e6022df68695",
+      "state": "failed",
+      "trigger": "dependency graph became ready",
+      "input_fingerprint": "329330f2749374b8187fe6394ce9cfbea8ff25e0b8927224ad6cb95d4614c4e2",
+      "feedback_cursor": 0,
+      "model": "zai/glm-5.3",
+      "started_at": "2026-08-28T04:42:43.851205Z",
+      "finished_at": "2026-08-28T04:42:44.194898Z",
+      "summary": "runtime refused claimed Work: worktree setup failed: fatal: cannot change to '/company/repos/swift-arrival': No such file or directory\nexit status 128\n"
+    },
+    {
+      "id": "a228522b-fca3-46de-9d7c-0b8f0fa004db",
+      "work_id": "11554293-9030-457d-88c0-43397d341be4",
+      "revision": 1,
+      "attempt_no": 2,
+      "actor_id": "swiftarrival-gameplay",
+      "session_id": "a0d56af7-6610-43c4-afcc-18f555769b8b",
+      "state": "blocked",
+      "trigger": "dependency graph became ready",
+      "input_fingerprint": "40d949a8071683e173dd7d881de3808bc605ea29f556c61a805d7072f30f63d0",
+      "feedback_cursor": 4,
+      "model": "zai/glm-5.3",
+      "started_at": "2026-08-28T04:43:56.564614Z",
+      "finished_at": "2026-08-28T05:02:16.327705Z",
+      "summary": "staff produced no parseable termination decision"
+    },
+    {
+      "id": "4315a9df-a533-4448-9607-e02f9f21b83e",
+      "work_id": "11554293-9030-457d-88c0-43397d341be4",
+      "revision": 1,
+      "attempt_no": 3,
+      "actor_id": "swiftarrival-gameplay",
+      "session_id": "60475180-357d-4041-b01b-352233152bc6",
+      "state": "blocked",
+      "trigger": "dependency graph became ready",
+      "input_fingerprint": "52e2736fecdfea1e2a3c6393af7e88acc14c9351fbe55d642fd865e527df875a",
+      "feedback_cursor": 6,
+      "model": "zai/glm-5.3",
+      "started_at": "2026-08-28T05:07:02.514001Z",
+      "finished_at": "2026-08-28T05:52:25.602638Z",
+      "summary": "staff produced no parseable termination decision"
+    },
+    {
+      "id": "bcdc84bb-b9ab-4b64-b815-7d63836a7b9f",
+      "work_id": "11554293-9030-457d-88c0-43397d341be4",
+      "revision": 1,
+      "attempt_no": 4,
+      "actor_id": "swiftarrival-gameplay",
+      "session_id": "5818b805-44c2-4b94-9842-810404f99805",
+      "state": "superseded",
+      "trigger": "dependency graph became ready",
+      "input_fingerprint": "54c3a7eb04399ad2a892930969bcab2549a7e7aab0c431bf440e130ce1adea98",
+      "feedback_cursor": 8,
+      "model": "zai/glm-5.3",
+      "started_at": "2026-08-28T05:55:02.961065Z",
+      "finished_at": "2026-08-28T06:00:12.997150Z",
+      "summary": "direct Work feedback 10 arrived after this Attempt's frozen input snapshot; its terminal report is stale and the Work remains active for a successor Attempt"
+    },
+    {
+      "id": "d6ec69d8-40c8-41a6-bfc1-8472ddbcd19f",
+      "work_id": "11554293-9030-457d-88c0-43397d341be4",
+      "revision": 1,
+      "attempt_no": 5,
+      "actor_id": "swiftarrival-gameplay",
+      "session_id": "1acd628d-7d51-489c-b9f9-ff40d87f9713",
+      "state": "blocked",
+      "trigger": "dependency graph became ready",
+      "input_fingerprint": "35f6a4c85c7ab4a0a69615f70ac52e18bf242f02adf9079acf7cec6b2fb04cd4",
+      "feedback_cursor": 11,
+      "model": "zai/glm-5.3",
+      "started_at": "2026-08-28T06:00:13.034278Z",
+      "finished_at": "2026-08-28T06:23:28.266533Z",
+      "summary": "[quota] provider rate-limited the company: 429 {\"type\":\"error\",\"error\":{\"type\":\"rate_limit_error\",\"code\":\"1308\",\"message\":\"[1308][Usage limit reached for 5 hour. Your limit will reset at 2026-08-28 16:46:09][20260828142327695f2d4f74fa412b]\"},\""
+    },
+    {
+      "id": "275af4b3-8aa3-4504-88d8-22582dbc2c57",
+      "work_id": "11554293-9030-457d-88c0-43397d341be4",
+      "revision": 1,
+      "attempt_no": 6,
+      "actor_id": "swiftarrival-gameplay",
+      "session_id": "26849ccf-74e2-4efa-bbcc-da548d24521e",
+      "state": "failed",
+      "trigger": "dependency graph became ready",
+      "input_fingerprint": "8a79046a6e322d854ff5ae49194fb21cdd2c2c424732de8f3833376c04c3408c",
+      "feedback_cursor": 12,
+      "model": "litellm/gpt-5.6-sol",
+      "started_at": "2026-08-28T07:50:02.164500Z",
+      "finished_at": "2026-08-28T07:50:08.082175Z",
+      "summary": "cognitive process ended without trustworthy semantic completion; productive outcome unknown: cognitive process ended before a trustworthy semantic result: select exact ACP session model: ACP agent did not advertise a model session option; requested litellm/gpt-5.6-sol"
+    },
+    {
+      "id": "36846e22-d50e-4aaa-9cda-25e6cc041854",
+      "work_id": "11554293-9030-457d-88c0-43397d341be4",
+      "revision": 1,
+      "attempt_no": 7,
+      "actor_id": "swiftarrival-gameplay",
+      "session_id": "fa27de7a-1a25-40e5-baf0-0d8daa12ca6d",
+      "state": "blocked",
+      "trigger": "dependency graph became ready",
+      "input_fingerprint": "4b51cda25c9400120a6de62df383e91561db1f3372cc8c2d121e39d941ec2d33",
+      "feedback_cursor": 13,
+      "model": "litellm/gpt-5.6-sol",
+      "started_at": "2026-08-28T07:54:43.624578Z",
+      "finished_at": "2026-08-28T07:54:46.025531Z",
+      "summary": "staff produced no parseable termination decision"
+    },
+    {
+      "id": "822f8aa5-e8c1-4438-9442-09e39bf0100a",
+      "work_id": "11554293-9030-457d-88c0-43397d341be4",
+      "revision": 1,
+      "attempt_no": 8,
+      "actor_id": "swiftarrival-gameplay",
+      "session_id": "d9ad3ed2-70f9-426a-8bf3-6fc391b1d082",
+      "state": "blocked",
+      "trigger": "dependency graph became ready",
+      "input_fingerprint": "9bb5ae05283c3da8e62452314c7ffed1af03b95d987bed3b114830847330ef6b",
+      "feedback_cursor": 14,
+      "model": "litellm/gpt-5.6-sol",
+      "started_at": "2026-08-28T08:05:42.277123Z",
+      "finished_at": "2026-08-28T08:05:44.687348Z",
+      "summary": "staff produced no parseable termination decision"
+    },
+    {
+      "id": "973a1b7e-3165-48ab-bbe5-56c15dc1d1c9",
+      "work_id": "11554293-9030-457d-88c0-43397d341be4",
+      "revision": 1,
+      "attempt_no": 9,
+      "actor_id": "swiftarrival-gameplay",
+      "session_id": "5afcfb0a-0720-4b99-ac85-80279c68f9e5",
+      "state": "produced",
+      "trigger": "dependency graph became ready",
+      "input_fingerprint": "71be7412914bd7d124cbcb33bf90f1ba528398ab9b3c45efaefcdaf485ff7057",
+      "feedback_cursor": 15,
+      "model": "litellm/gpt-5.6-sol",
+      "started_at": "2026-08-28T08:13:49.708216Z",
+      "finished_at": "2026-08-28T08:28:29.672729Z",
+      "summary": "Candidate a1d96fe4ce7280501f3d193fc3c3058a23e8a914 and native playtest bundle are linked; all acceptance probes passed, deliberate drop recovery completed, and evidence includes logs, screenshots, input trace, summary, and known limits."
+    },
+    {
+      "id": "0170f5a1-ba2d-4e5c-9310-9f8fa4931436",
+      "work_id": "5fff51d1-1b74-4d30-a98d-be6c3fa005b1",
+      "revision": 1,
+      "attempt_no": 1,
+      "actor_id": "swiftarrival-playtest",
+      "session_id": "8b1d028d-57c5-4194-8cc7-2ec4a395980c",
+      "state": "failed",
+      "trigger": "dependency graph became ready",
+      "input_fingerprint": "334d67dc756426c9e6006abd0e9679ae50b0d5f17e26a5cd4119771552a89414",
+      "feedback_cursor": 0,
+      "model": "litellm/gpt-5.6-sol",
+      "started_at": "2026-08-28T08:29:56.182837Z",
+      "finished_at": "2026-08-28T08:39:41.386062Z",
+      "summary": "cognitive process ended without trustworthy semantic completion; productive outcome unknown: supervisor restarted; cognitive process was lost before trustworthy semantic completion"
+    },
+    {
+      "id": "86706113-0dde-4e9d-af84-af538a760d0a",
+      "work_id": "5fff51d1-1b74-4d30-a98d-be6c3fa005b1",
+      "revision": 1,
+      "attempt_no": 2,
+      "actor_id": "swiftarrival-experience",
+      "session_id": "417a3a48-a69f-4d9c-9190-d0cc63d34cdc",
+      "state": "produced",
+      "trigger": "dependency graph became ready",
+      "input_fingerprint": "7ee82209a543e9fc67d0e0a007c4d0c5e53475746b9bc41378a6539b5cd0ebe3",
+      "feedback_cursor": 17,
+      "model": "litellm/gpt-5.6-terra",
+      "started_at": "2026-08-28T09:38:35.094516Z",
+      "finished_at": "2026-08-28T09:43:51.425954Z",
+      "summary": "Fresh native X11 route failed after driver-seat exit (reseated instead of reaching/unloading); linked independent bundle documents the REVISE BEFORE FOUNDER REVIEW verdict and concrete legibility/navigation defects."
+    },
+    {
+      "id": "a7169b1e-f7fb-4c38-b216-9bec4ed399db",
+      "work_id": "841a9c7a-0c89-4a5e-9df2-5432e760bb78",
+      "revision": 1,
+      "attempt_no": 1,
+      "actor_id": "swiftarrival-gameplay",
+      "session_id": "820e82cb-147b-47bd-81c5-6ea96a303cad",
+      "state": "produced",
+      "trigger": "dependency graph became ready",
+      "input_fingerprint": "2c6667f4e8e957711bd19d55332c2dadafe9162fa7cdb43736b7c0d3c98157e5",
+      "feedback_cursor": 0,
+      "model": "litellm/gpt-5.6-sol",
+      "started_at": "2026-08-28T09:44:47.091232Z",
+      "finished_at": "2026-08-28T09:56:44.109312Z",
+      "summary": "Committed candidate 09fe09d with passing native X11 delivery lane and positive, negative, mechanics, and recovery probes; linked the complete evidence bundle and exact commit to the Work Attempt."
+    },
+    {
+      "id": "1555485d-6d03-4f25-8a7c-1c2dca2db173",
+      "work_id": "ebdd971f-0732-4330-8204-fad8e7d06757",
+      "revision": 1,
+      "attempt_no": 1,
+      "actor_id": "swiftarrival-playtest",
+      "session_id": "543216bf-8f75-4458-ad71-6dec9b14ad66",
+      "state": "produced",
+      "trigger": "dependency graph became ready",
+      "input_fingerprint": "22827b4f05f9e93a8bc21998c15c109554d950994fc0e02e174e5ba147d74d46",
+      "feedback_cursor": 0,
+      "model": "litellm/gpt-5.6-sol",
+      "started_at": "2026-08-28T09:58:07.446834Z",
+      "finished_at": "2026-08-28T10:11:27.583462Z",
+      "summary": "Fresh native host/client playtest, positive/negative/mechanics probes, ACCEPT verdict, linked evidence bundle, and live-probed founder ReviewTarget for exact commit 09fe09d30c65b811c0904508525a6ab8af02145c are complete."
+    },
+    {
+      "id": "cb458c31-9603-4f4d-b96b-db65991b4ba0",
+      "work_id": "3589d1a0-c6ec-468a-8c99-8811d6025782",
+      "revision": 1,
+      "attempt_no": 1,
+      "actor_id": "swiftarrival-playtest",
+      "session_id": "d3f56afc-ccac-4d7a-984c-438aa93a7d2f",
+      "state": "produced",
+      "trigger": "dependency graph became ready",
+      "input_fingerprint": "955a9850a0e95b32e0f40a0379b37e4798f1cc88b6809485e859e78981e74531",
+      "feedback_cursor": 0,
+      "model": "litellm/gpt-5.6-sol",
+      "started_at": "2026-08-28T10:12:30.348643Z",
+      "finished_at": "2026-08-28T10:14:49.707773Z",
+      "summary": "Exact candidate 09fe09d30c65b811c0904508525a6ab8af02145c is restored as a live visible connected host/client ReviewTarget at the initial objective, with controls, reconnect instructions, bounded founder question, current native capture, and independent ACCEPT evidence linked."
+    },
+    {
+      "id": "9d28346b-f80d-496b-86a9-a3cfeb75d6c5",
+      "work_id": "3589d1a0-c6ec-468a-8c99-8811d6025782",
+      "revision": 1,
+      "attempt_no": 2,
+      "actor_id": "swiftarrival-playtest",
+      "session_id": "cbb68843-ee9e-4de8-ac7c-6bd2c2078211",
+      "state": "blocked",
+      "trigger": "dependency graph became ready",
+      "input_fingerprint": "a58622d4e13b5918355e50da3dacaed94387b49dcfa970e5c3c6927a14fcf7cc",
+      "feedback_cursor": 26,
+      "model": "litellm/gpt-5.6-sol",
+      "started_at": "2026-08-28T10:15:36.099269Z",
+      "finished_at": "2026-08-28T10:15:38.474954Z",
+      "summary": "[resumable] a material direction interrupted this turn; anything already written to the company computer is preserved for supervised recovery"
+    },
+    {
+      "id": "afc83be0-11e6-46a3-8f00-cd0bcb161a2c",
+      "work_id": "3589d1a0-c6ec-468a-8c99-8811d6025782",
+      "revision": 1,
+      "attempt_no": 3,
+      "actor_id": "swiftarrival-playtest",
+      "session_id": "b3d7ff51-a777-4ae7-ac76-557b2daa77db",
+      "state": "produced",
+      "trigger": "dependency graph became ready",
+      "input_fingerprint": "4d1c76111b12c0397b3db7f0be6774ee9ba8cb18b5fb338b69ae4c53ab23f994",
+      "feedback_cursor": 27,
+      "model": "litellm/gpt-5.6-sol",
+      "started_at": "2026-08-28T10:16:15.525121Z",
+      "finished_at": "2026-08-28T10:17:52.336889Z",
+      "summary": "The exact candidate is persistently live, visible, connected at the initial pickup objective, and the ReviewTarget, current native capture, controls, reconnect instructions, bounded founder question, and independent ACCEPT evidence are linked to the correct Attempt."
+    },
+    {
+      "id": "163a7a05-315a-4819-b43f-ea57064ab00d",
+      "work_id": "3589d1a0-c6ec-468a-8c99-8811d6025782",
+      "revision": 1,
+      "attempt_no": 4,
+      "actor_id": "swiftarrival-playtest",
+      "session_id": "6cedf4a6-a237-42ad-b1c0-a8f1d4193d3a",
+      "state": "blocked",
+      "trigger": "dependency graph became ready",
+      "input_fingerprint": "b06cf1e7e575db9bba4dd3249529639f849106cce6840fb411b5cfe450d00d16",
+      "feedback_cursor": 29,
+      "model": "litellm/gpt-5.6-sol",
+      "started_at": "2026-08-28T10:18:55.603501Z",
+      "finished_at": "2026-08-28T10:18:58.073779Z",
+      "summary": "[resumable] a material direction interrupted this turn; anything already written to the company computer is preserved for supervised recovery"
+    },
+    {
+      "id": "da15b7e2-0653-46d9-bf57-5276ddebeece",
+      "work_id": "3589d1a0-c6ec-468a-8c99-8811d6025782",
+      "revision": 1,
+      "attempt_no": 5,
+      "actor_id": "swiftarrival-playtest",
+      "session_id": "77678c37-23b2-48b2-9d07-aa09180f3b2a",
+      "state": "blocked",
+      "trigger": "dependency graph became ready",
+      "input_fingerprint": "ade0207cbd43cf4a8e5090368ba25f580f6e6e6a9354cdc6bb3a243f6c4bdf47",
+      "feedback_cursor": 31,
+      "model": "litellm/gpt-5.6-sol",
+      "started_at": "2026-08-28T10:19:28.076307Z",
+      "finished_at": "2026-08-28T10:19:31.146554Z",
+      "summary": "[resumable] a material direction interrupted this turn; anything already written to the company computer is preserved for supervised recovery"
+    },
+    {
+      "id": "00731352-959f-4706-8a9e-611deb2fa2a8",
+      "work_id": "85ced0c3-ddde-46f3-9003-3cdc50f8ebd7",
+      "revision": 1,
+      "attempt_no": 1,
+      "actor_id": "swiftarrival-gameplay",
+      "session_id": "f04be8ea-81fd-436e-9d90-7c2f40dff00e",
+      "state": "failed",
+      "trigger": "dependency graph became ready",
+      "input_fingerprint": "fd63194055fddb0c62bef1ba425fc5076fffe50c56af0a06ad535b9b793c6ef9",
+      "feedback_cursor": 0,
+      "model": "litellm/gpt-5.6-sol",
+      "started_at": "2026-08-28T11:14:02.766163Z",
+      "finished_at": "2026-08-28T11:28:49.429949Z",
+      "summary": "one or more deterministic Work gates failed"
+    },
+    {
+      "id": "ec9e77bf-f378-41a0-9c7b-765b3a162407",
+      "work_id": "85ced0c3-ddde-46f3-9003-3cdc50f8ebd7",
+      "revision": 1,
+      "attempt_no": 2,
+      "actor_id": "swiftarrival-gameplay",
+      "session_id": "27ac776f-969f-4111-bc82-03b12f2a99b7",
+      "state": "produced",
+      "trigger": "dependency graph became ready",
+      "input_fingerprint": "5231be06eb3728a4f25ca85d9b6a74c960bc270a0a6b47fcecfd7d0a09eec5f4",
+      "feedback_cursor": 40,
+      "model": "litellm/gpt-5.6-sol",
+      "started_at": "2026-08-28T11:29:18.703633Z",
+      "finished_at": "2026-08-28T11:35:56.753194Z",
+      "summary": "Committed the safe gate-mode parser at 7e76d1e087cf4cde12aaf1fa6d5e9309f39bcddd, reran every exact Work gate successfully, and linked the revised manifest and preserved logs as artifact 17a3a26f-ae03-4f7e-b0f6-1851cc6e217b."
+    },
+    {
+      "id": "b6547e88-7e46-40b4-8092-d74f602cb9ec",
+      "work_id": "bf0531c6-d0a5-4529-b4d0-baf65d1b3397",
+      "revision": 1,
+      "attempt_no": 1,
+      "actor_id": "swiftarrival-playtest",
+      "session_id": "a6c77937-9262-436c-a1d1-c5be692052cd",
+      "state": "superseded",
+      "trigger": "dependency graph became ready",
+      "input_fingerprint": "6137526f66964bd62a6235d29947818c67daba9e377dc0a23ebbf29a85fa247c",
+      "feedback_cursor": 0,
+      "model": "litellm/gpt-5.6-sol",
+      "started_at": "2026-08-28T11:35:57.848427Z",
+      "finished_at": "2026-08-28T11:37:15.055413Z",
+      "summary": "direct Work feedback 43 arrived after this Attempt's frozen input snapshot; its terminal report is stale and the Work remains active for a successor Attempt"
+    },
+    {
+      "id": "452fa911-ffc9-4c3a-8180-0d56ed3ebe8a",
+      "work_id": "af5ef98a-1cff-45c9-b245-c7bd0aebc61a",
+      "revision": 1,
+      "attempt_no": 1,
+      "actor_id": "swiftarrival-playtest",
+      "session_id": "91034521-6fd3-48ce-a5e5-8bcd03561424",
+      "state": "superseded",
+      "trigger": "dependency graph became ready",
+      "input_fingerprint": "916201bdd6106627392d66ff9e72c5ad635ee0fd34b383857f8b68119e05f851",
+      "feedback_cursor": 0,
+      "model": "litellm/gpt-5.6-sol",
+      "started_at": "2026-08-28T11:37:33.164500Z",
+      "finished_at": "2026-08-28T11:38:08.505336Z",
+      "summary": "direct Work feedback 45 arrived after this Attempt's frozen input snapshot; its terminal report is stale and the Work remains active for a successor Attempt"
+    },
+    {
+      "id": "5e7832ba-ff8a-4c51-8dc5-bb06187929c9",
+      "work_id": "af5ef98a-1cff-45c9-b245-c7bd0aebc61a",
+      "revision": 1,
+      "attempt_no": 2,
+      "actor_id": "swiftarrival-playtest",
+      "session_id": "9aa4e2b9-fc20-426b-8c50-14fa606df04e",
+      "state": "produced",
+      "trigger": "dependency graph became ready",
+      "input_fingerprint": "cee7113bfbfb2713be845d5f6c152d1efa90262c953d619065c04113afafbd73",
+      "feedback_cursor": 46,
+      "model": "litellm/gpt-5.6-sol",
+      "started_at": "2026-08-28T11:38:08.542295Z",
+      "finished_at": "2026-08-28T11:44:42.020484Z",
+      "summary": "Fresh exact-lineage native evidence proves the route-zero on-foot bypass is rejected, the complete truck journey succeeds after drop recovery, and the linked bundle includes logs, traces, screenshots, verdict, and founder ReviewTarget."
+    },
+    {
+      "id": "4209acdc-c1fb-444e-8d56-c9212956a654",
+      "work_id": "f531188b-a8e3-450f-9e4b-e218f68c0c37",
+      "revision": 1,
+      "attempt_no": 1,
+      "actor_id": "swiftarrival-gameplay",
+      "session_id": "45dcbd1b-8f3e-40ca-a5c1-b19380864d44",
+      "state": "blocked",
+      "trigger": "dependency graph became ready",
+      "input_fingerprint": "2076b22754a02b2784cf095791606e88826623f3a8ea4b8ee4fde1e5b4172444",
+      "feedback_cursor": 0,
+      "model": "litellm/gpt-5.6-sol",
+      "started_at": "2026-08-28T14:33:00.593599Z",
+      "finished_at": "2026-08-28T14:41:32.793564Z",
+      "summary": "The committed repair and all deterministic host/client probes pass, but the required fresh native screenshots need a display-capable runtime because this Attempt has no DISPLAY, Xvfb, Wayland compositor, or non-dummy headless renderer."
+    },
+    {
+      "id": "a47dfac1-7f47-43c3-8194-958e9d8d2c43",
+      "work_id": "f531188b-a8e3-450f-9e4b-e218f68c0c37",
+      "revision": 1,
+      "attempt_no": 2,
+      "actor_id": "swiftarrival-playtest",
+      "session_id": "389c1a65-131a-4b92-bb48-de12255cfa33",
+      "state": "failed",
+      "trigger": "dependency graph became ready",
+      "input_fingerprint": "95be699c65b138aa35af605a45e1e5bc6a64cc52d3bb9fa2d38f90e827e835e0",
+      "feedback_cursor": 53,
+      "model": "litellm/gpt-5.6-sol",
+      "started_at": "2026-08-28T14:42:13.573018Z",
+      "finished_at": "2026-08-28T14:44:59.808141Z",
+      "summary": "cognitive process ended without trustworthy semantic completion; productive outcome unknown: supervisor restarted; cognitive process was lost before trustworthy semantic completion"
+    },
+    {
+      "id": "afc2c9af-7c28-4b46-a0f5-cccde2e406bc",
+      "work_id": "f531188b-a8e3-450f-9e4b-e218f68c0c37",
+      "revision": 1,
+      "attempt_no": 3,
+      "actor_id": "swiftarrival-playtest",
+      "session_id": "eb4748da-bab9-4860-b6f2-e0e2bc58b38f",
+      "state": "blocked",
+      "trigger": "dependency graph became ready",
+      "input_fingerprint": "b2cc8607dacc1bd97224d546214dd726086eb5f3f7844a3431cd9c4804693ba5",
+      "feedback_cursor": 55,
+      "model": "litellm/gpt-5.6-sol",
+      "started_at": "2026-08-28T14:45:26.960126Z",
+      "finished_at": "2026-08-28T14:45:30.500353Z",
+      "summary": "[resumable] a material direction interrupted this turn; anything already written to the company computer is preserved for supervised recovery"
+    },
+    {
+      "id": "f7ba9565-9e02-48a9-a77c-dffc7a451598",
+      "work_id": "f531188b-a8e3-450f-9e4b-e218f68c0c37",
+      "revision": 1,
+      "attempt_no": 4,
+      "actor_id": "swiftarrival-playtest",
+      "session_id": "aa723049-1483-4d75-ba0e-877839509dda",
+      "state": "failed",
+      "trigger": "dependency graph became ready",
+      "input_fingerprint": "10b7bdf823100625e6c16a46604bb500129c348f4341bb52af5ad32715cc9e4e",
+      "feedback_cursor": 56,
+      "model": "litellm/gpt-5.6-sol",
+      "started_at": "2026-08-28T14:46:09.684128Z",
+      "finished_at": "2026-08-28T14:51:22.831793Z",
+      "summary": "one or more deterministic Work gates failed"
+    },
+    {
+      "id": "6c6ac916-971c-424a-a39b-c25b555360c2",
+      "work_id": "f531188b-a8e3-450f-9e4b-e218f68c0c37",
+      "revision": 1,
+      "attempt_no": 5,
+      "actor_id": "swiftarrival-gameplay",
+      "session_id": "30dae111-30ca-4b1a-97df-4e30285d0254",
+      "state": "failed",
+      "trigger": "dependency graph became ready",
+      "input_fingerprint": "ea558e0a5e1463ca47cc2a8bf45e620968f4dc734017d00e6f70679918695e6c",
+      "feedback_cursor": 58,
+      "model": "litellm/gpt-5.6-sol",
+      "started_at": "2026-08-28T14:52:35.009746Z",
+      "finished_at": "2026-08-28T15:13:15.760942Z",
+      "summary": "cognitive process ended without trustworthy semantic completion; productive outcome unknown: supervisor restarted; cognitive process was lost before trustworthy semantic completion"
+    },
+    {
+      "id": "fad2aea8-10c9-4efe-b39d-6b149be5b972",
+      "work_id": "f531188b-a8e3-450f-9e4b-e218f68c0c37",
+      "revision": 1,
+      "attempt_no": 6,
+      "actor_id": "swiftarrival-gameplay",
+      "session_id": "e1844758-185a-486d-94ed-b4bec5482ec1",
+      "state": "produced",
+      "trigger": "dependency graph became ready",
+      "input_fingerprint": "ee79fb14a51f92a55aa5790b78c657a0f81013005ee549770526d2e9479a4155",
+      "feedback_cursor": 59,
+      "model": "litellm/gpt-5.6-sol",
+      "started_at": "2026-08-28T15:13:39.033099Z",
+      "finished_at": "2026-08-28T15:18:34.843358Z",
+      "summary": "Candidate 41f4fa53 is clean and correctly descended, all exact deterministic gates freshly pass including dedicated seat recovery, and the complete evidence bundle is linked while native evidence attribution remains intact."
+    },
+    {
+      "id": "b8e3161f-302e-4e67-8b6d-28fcb43c0d79",
+      "work_id": "731bd86c-6507-4ae1-a7bf-37b3b20980b7",
+      "revision": 1,
+      "attempt_no": 1,
+      "actor_id": "swiftarrival-playtest",
+      "session_id": "95c1a30a-f974-48cb-a5dc-ee8edaf02e52",
+      "state": "produced",
+      "trigger": "dependency graph became ready",
+      "input_fingerprint": "754929ad3eefea37080f2cba880461c3e65b97df498401868a26be02d6bde0f2",
+      "feedback_cursor": 0,
+      "model": "litellm/gpt-5.6-sol",
+      "started_at": "2026-08-28T15:19:12.549078Z",
+      "finished_at": "2026-08-28T15:27:24.822731Z",
+      "summary": "Exact candidate 41f4fa53 passed all three fresh native routes without a material blocker, and the linked independent bundle includes lineage, traces, logs, screenshots, verdict, limits, and the prepared local founder ReviewTarget."
+    }
+  ],
+  "attempt_inputs": [
+    {
+      "attempt_id": "0170f5a1-ba2d-4e5c-9310-9f8fa4931436",
+      "artifact_ref_id": "10729804-6e09-46f9-be49-9c01acb1f433"
+    },
+    {
+      "attempt_id": "0170f5a1-ba2d-4e5c-9310-9f8fa4931436",
+      "artifact_ref_id": "d99149c2-7f10-4fa6-9e30-8436709be1c6"
+    },
+    {
+      "attempt_id": "1555485d-6d03-4f25-8a7c-1c2dca2db173",
+      "artifact_ref_id": "21c3ec85-1f95-4bb9-91ea-f1ef9f97d27e"
+    },
+    {
+      "attempt_id": "1555485d-6d03-4f25-8a7c-1c2dca2db173",
+      "artifact_ref_id": "76965ba0-073f-4eb9-94dc-f74456ae0d30"
+    },
+    {
+      "attempt_id": "163a7a05-315a-4819-b43f-ea57064ab00d",
+      "artifact_ref_id": "21c3ec85-1f95-4bb9-91ea-f1ef9f97d27e"
+    },
+    {
+      "attempt_id": "163a7a05-315a-4819-b43f-ea57064ab00d",
+      "artifact_ref_id": "65ac7d43-d2ac-4bac-a444-efb8e1e8b1e9"
+    },
+    {
+      "attempt_id": "163a7a05-315a-4819-b43f-ea57064ab00d",
+      "artifact_ref_id": "76965ba0-073f-4eb9-94dc-f74456ae0d30"
+    },
+    {
+      "attempt_id": "163a7a05-315a-4819-b43f-ea57064ab00d",
+      "artifact_ref_id": "8ec7cd2d-c91e-4376-ab81-5617b9e1be68"
+    },
+    {
+      "attempt_id": "163a7a05-315a-4819-b43f-ea57064ab00d",
+      "artifact_ref_id": "e783ecbc-75cd-4583-91c0-91beaa9d8504"
+    },
+    {
+      "attempt_id": "452fa911-ffc9-4c3a-8180-0d56ed3ebe8a",
+      "artifact_ref_id": "17a3a26f-ae03-4f7e-b0f6-1851cc6e217b"
+    },
+    {
+      "attempt_id": "452fa911-ffc9-4c3a-8180-0d56ed3ebe8a",
+      "artifact_ref_id": "a24f9422-7247-49a2-9179-91206b342d8a"
+    },
+    {
+      "attempt_id": "5e7832ba-ff8a-4c51-8dc5-bb06187929c9",
+      "artifact_ref_id": "17a3a26f-ae03-4f7e-b0f6-1851cc6e217b"
+    },
+    {
+      "attempt_id": "5e7832ba-ff8a-4c51-8dc5-bb06187929c9",
+      "artifact_ref_id": "a24f9422-7247-49a2-9179-91206b342d8a"
+    },
+    {
+      "attempt_id": "86706113-0dde-4e9d-af84-af538a760d0a",
+      "artifact_ref_id": "10729804-6e09-46f9-be49-9c01acb1f433"
+    },
+    {
+      "attempt_id": "86706113-0dde-4e9d-af84-af538a760d0a",
+      "artifact_ref_id": "d99149c2-7f10-4fa6-9e30-8436709be1c6"
+    },
+    {
+      "attempt_id": "9d28346b-f80d-496b-86a9-a3cfeb75d6c5",
+      "artifact_ref_id": "21c3ec85-1f95-4bb9-91ea-f1ef9f97d27e"
+    },
+    {
+      "attempt_id": "9d28346b-f80d-496b-86a9-a3cfeb75d6c5",
+      "artifact_ref_id": "65ac7d43-d2ac-4bac-a444-efb8e1e8b1e9"
+    },
+    {
+      "attempt_id": "9d28346b-f80d-496b-86a9-a3cfeb75d6c5",
+      "artifact_ref_id": "76965ba0-073f-4eb9-94dc-f74456ae0d30"
+    },
+    {
+      "attempt_id": "9d28346b-f80d-496b-86a9-a3cfeb75d6c5",
+      "artifact_ref_id": "8ec7cd2d-c91e-4376-ab81-5617b9e1be68"
+    },
+    {
+      "attempt_id": "9d28346b-f80d-496b-86a9-a3cfeb75d6c5",
+      "artifact_ref_id": "e783ecbc-75cd-4583-91c0-91beaa9d8504"
+    },
+    {
+      "attempt_id": "a7169b1e-f7fb-4c38-b216-9bec4ed399db",
+      "artifact_ref_id": "9addc6c8-ebfc-4dd3-a36e-6a79741a6b7d"
+    },
+    {
+      "attempt_id": "afc83be0-11e6-46a3-8f00-cd0bcb161a2c",
+      "artifact_ref_id": "21c3ec85-1f95-4bb9-91ea-f1ef9f97d27e"
+    },
+    {
+      "attempt_id": "afc83be0-11e6-46a3-8f00-cd0bcb161a2c",
+      "artifact_ref_id": "65ac7d43-d2ac-4bac-a444-efb8e1e8b1e9"
+    },
+    {
+      "attempt_id": "afc83be0-11e6-46a3-8f00-cd0bcb161a2c",
+      "artifact_ref_id": "76965ba0-073f-4eb9-94dc-f74456ae0d30"
+    },
+    {
+      "attempt_id": "afc83be0-11e6-46a3-8f00-cd0bcb161a2c",
+      "artifact_ref_id": "8ec7cd2d-c91e-4376-ab81-5617b9e1be68"
+    },
+    {
+      "attempt_id": "afc83be0-11e6-46a3-8f00-cd0bcb161a2c",
+      "artifact_ref_id": "e783ecbc-75cd-4583-91c0-91beaa9d8504"
+    },
+    {
+      "attempt_id": "b6547e88-7e46-40b4-8092-d74f602cb9ec",
+      "artifact_ref_id": "17a3a26f-ae03-4f7e-b0f6-1851cc6e217b"
+    },
+    {
+      "attempt_id": "b6547e88-7e46-40b4-8092-d74f602cb9ec",
+      "artifact_ref_id": "a24f9422-7247-49a2-9179-91206b342d8a"
+    },
+    {
+      "attempt_id": "b8e3161f-302e-4e67-8b6d-28fcb43c0d79",
+      "artifact_ref_id": "17c32cf1-21a7-4fc4-b9d7-20554c1bda35"
+    },
+    {
+      "attempt_id": "b8e3161f-302e-4e67-8b6d-28fcb43c0d79",
+      "artifact_ref_id": "462dd3c5-9a4d-4b5b-906a-8e4f04dba04d"
+    },
+    {
+      "attempt_id": "b8e3161f-302e-4e67-8b6d-28fcb43c0d79",
+      "artifact_ref_id": "681cdb47-71ed-45a7-9c92-944497915507"
+    },
+    {
+      "attempt_id": "b8e3161f-302e-4e67-8b6d-28fcb43c0d79",
+      "artifact_ref_id": "6af5f84f-ea7a-46ab-ae54-7b05bf079dda"
+    },
+    {
+      "attempt_id": "b8e3161f-302e-4e67-8b6d-28fcb43c0d79",
+      "artifact_ref_id": "6f70c7eb-08c4-4f79-a21e-99ae76eb98dd"
+    },
+    {
+      "attempt_id": "b8e3161f-302e-4e67-8b6d-28fcb43c0d79",
+      "artifact_ref_id": "b90c08dd-6845-4d80-8923-5ea796824da6"
+    },
+    {
+      "attempt_id": "b8e3161f-302e-4e67-8b6d-28fcb43c0d79",
+      "artifact_ref_id": "d5e6abf3-603e-47aa-b094-ef2a6e883fdd"
+    },
+    {
+      "attempt_id": "cb458c31-9603-4f4d-b96b-db65991b4ba0",
+      "artifact_ref_id": "21c3ec85-1f95-4bb9-91ea-f1ef9f97d27e"
+    },
+    {
+      "attempt_id": "cb458c31-9603-4f4d-b96b-db65991b4ba0",
+      "artifact_ref_id": "65ac7d43-d2ac-4bac-a444-efb8e1e8b1e9"
+    },
+    {
+      "attempt_id": "cb458c31-9603-4f4d-b96b-db65991b4ba0",
+      "artifact_ref_id": "76965ba0-073f-4eb9-94dc-f74456ae0d30"
+    },
+    {
+      "attempt_id": "cb458c31-9603-4f4d-b96b-db65991b4ba0",
+      "artifact_ref_id": "8ec7cd2d-c91e-4376-ab81-5617b9e1be68"
+    },
+    {
+      "attempt_id": "cb458c31-9603-4f4d-b96b-db65991b4ba0",
+      "artifact_ref_id": "e783ecbc-75cd-4583-91c0-91beaa9d8504"
+    },
+    {
+      "attempt_id": "da15b7e2-0653-46d9-bf57-5276ddebeece",
+      "artifact_ref_id": "21c3ec85-1f95-4bb9-91ea-f1ef9f97d27e"
+    },
+    {
+      "attempt_id": "da15b7e2-0653-46d9-bf57-5276ddebeece",
+      "artifact_ref_id": "65ac7d43-d2ac-4bac-a444-efb8e1e8b1e9"
+    },
+    {
+      "attempt_id": "da15b7e2-0653-46d9-bf57-5276ddebeece",
+      "artifact_ref_id": "76965ba0-073f-4eb9-94dc-f74456ae0d30"
+    },
+    {
+      "attempt_id": "da15b7e2-0653-46d9-bf57-5276ddebeece",
+      "artifact_ref_id": "8ec7cd2d-c91e-4376-ab81-5617b9e1be68"
+    },
+    {
+      "attempt_id": "da15b7e2-0653-46d9-bf57-5276ddebeece",
+      "artifact_ref_id": "e783ecbc-75cd-4583-91c0-91beaa9d8504"
+    }
+  ],
+  "attempt_feedback": [
+    {
+      "attempt_id": "163a7a05-315a-4819-b43f-ea57064ab00d",
+      "message_id": 25
+    },
+    {
+      "attempt_id": "163a7a05-315a-4819-b43f-ea57064ab00d",
+      "message_id": 26
+    },
+    {
+      "attempt_id": "163a7a05-315a-4819-b43f-ea57064ab00d",
+      "message_id": 27
+    },
+    {
+      "attempt_id": "163a7a05-315a-4819-b43f-ea57064ab00d",
+      "message_id": 28
+    },
+    {
+      "attempt_id": "163a7a05-315a-4819-b43f-ea57064ab00d",
+      "message_id": 29
+    },
+    {
+      "attempt_id": "275af4b3-8aa3-4504-88d8-22582dbc2c57",
+      "message_id": 4
+    },
+    {
+      "attempt_id": "275af4b3-8aa3-4504-88d8-22582dbc2c57",
+      "message_id": 5
+    },
+    {
+      "attempt_id": "275af4b3-8aa3-4504-88d8-22582dbc2c57",
+      "message_id": 6
+    },
+    {
+      "attempt_id": "275af4b3-8aa3-4504-88d8-22582dbc2c57",
+      "message_id": 7
+    },
+    {
+      "attempt_id": "275af4b3-8aa3-4504-88d8-22582dbc2c57",
+      "message_id": 8
+    },
+    {
+      "attempt_id": "275af4b3-8aa3-4504-88d8-22582dbc2c57",
+      "message_id": 9
+    },
+    {
+      "attempt_id": "275af4b3-8aa3-4504-88d8-22582dbc2c57",
+      "message_id": 10
+    },
+    {
+      "attempt_id": "275af4b3-8aa3-4504-88d8-22582dbc2c57",
+      "message_id": 11
+    },
+    {
+      "attempt_id": "275af4b3-8aa3-4504-88d8-22582dbc2c57",
+      "message_id": 12
+    },
+    {
+      "attempt_id": "36846e22-d50e-4aaa-9cda-25e6cc041854",
+      "message_id": 4
+    },
+    {
+      "attempt_id": "36846e22-d50e-4aaa-9cda-25e6cc041854",
+      "message_id": 5
+    },
+    {
+      "attempt_id": "36846e22-d50e-4aaa-9cda-25e6cc041854",
+      "message_id": 6
+    },
+    {
+      "attempt_id": "36846e22-d50e-4aaa-9cda-25e6cc041854",
+      "message_id": 7
+    },
+    {
+      "attempt_id": "36846e22-d50e-4aaa-9cda-25e6cc041854",
+      "message_id": 8
+    },
+    {
+      "attempt_id": "36846e22-d50e-4aaa-9cda-25e6cc041854",
+      "message_id": 9
+    },
+    {
+      "attempt_id": "36846e22-d50e-4aaa-9cda-25e6cc041854",
+      "message_id": 10
+    },
+    {
+      "attempt_id": "36846e22-d50e-4aaa-9cda-25e6cc041854",
+      "message_id": 11
+    },
+    {
+      "attempt_id": "36846e22-d50e-4aaa-9cda-25e6cc041854",
+      "message_id": 12
+    },
+    {
+      "attempt_id": "36846e22-d50e-4aaa-9cda-25e6cc041854",
+      "message_id": 13
+    },
+    {
+      "attempt_id": "4315a9df-a533-4448-9607-e02f9f21b83e",
+      "message_id": 4
+    },
+    {
+      "attempt_id": "4315a9df-a533-4448-9607-e02f9f21b83e",
+      "message_id": 5
+    },
+    {
+      "attempt_id": "4315a9df-a533-4448-9607-e02f9f21b83e",
+      "message_id": 6
+    },
+    {
+      "attempt_id": "5e7832ba-ff8a-4c51-8dc5-bb06187929c9",
+      "message_id": 45
+    },
+    {
+      "attempt_id": "5e7832ba-ff8a-4c51-8dc5-bb06187929c9",
+      "message_id": 46
+    },
+    {
+      "attempt_id": "6c6ac916-971c-424a-a39b-c25b555360c2",
+      "message_id": 52
+    },
+    {
+      "attempt_id": "6c6ac916-971c-424a-a39b-c25b555360c2",
+      "message_id": 53
+    },
+    {
+      "attempt_id": "6c6ac916-971c-424a-a39b-c25b555360c2",
+      "message_id": 54
+    },
+    {
+      "attempt_id": "6c6ac916-971c-424a-a39b-c25b555360c2",
+      "message_id": 55
+    },
+    {
+      "attempt_id": "6c6ac916-971c-424a-a39b-c25b555360c2",
+      "message_id": 56
+    },
+    {
+      "attempt_id": "6c6ac916-971c-424a-a39b-c25b555360c2",
+      "message_id": 57
+    },
+    {
+      "attempt_id": "6c6ac916-971c-424a-a39b-c25b555360c2",
+      "message_id": 58
+    },
+    {
+      "attempt_id": "822f8aa5-e8c1-4438-9442-09e39bf0100a",
+      "message_id": 4
+    },
+    {
+      "attempt_id": "822f8aa5-e8c1-4438-9442-09e39bf0100a",
+      "message_id": 5
+    },
+    {
+      "attempt_id": "822f8aa5-e8c1-4438-9442-09e39bf0100a",
+      "message_id": 6
+    },
+    {
+      "attempt_id": "822f8aa5-e8c1-4438-9442-09e39bf0100a",
+      "message_id": 7
+    },
+    {
+      "attempt_id": "822f8aa5-e8c1-4438-9442-09e39bf0100a",
+      "message_id": 8
+    },
+    {
+      "attempt_id": "822f8aa5-e8c1-4438-9442-09e39bf0100a",
+      "message_id": 9
+    },
+    {
+      "attempt_id": "822f8aa5-e8c1-4438-9442-09e39bf0100a",
+      "message_id": 10
+    },
+    {
+      "attempt_id": "822f8aa5-e8c1-4438-9442-09e39bf0100a",
+      "message_id": 11
+    },
+    {
+      "attempt_id": "822f8aa5-e8c1-4438-9442-09e39bf0100a",
+      "message_id": 12
+    },
+    {
+      "attempt_id": "822f8aa5-e8c1-4438-9442-09e39bf0100a",
+      "message_id": 13
+    },
+    {
+      "attempt_id": "822f8aa5-e8c1-4438-9442-09e39bf0100a",
+      "message_id": 14
+    },
+    {
+      "attempt_id": "86706113-0dde-4e9d-af84-af538a760d0a",
+      "message_id": 17
+    },
+    {
+      "attempt_id": "973a1b7e-3165-48ab-bbe5-56c15dc1d1c9",
+      "message_id": 4
+    },
+    {
+      "attempt_id": "973a1b7e-3165-48ab-bbe5-56c15dc1d1c9",
+      "message_id": 5
+    },
+    {
+      "attempt_id": "973a1b7e-3165-48ab-bbe5-56c15dc1d1c9",
+      "message_id": 6
+    },
+    {
+      "attempt_id": "973a1b7e-3165-48ab-bbe5-56c15dc1d1c9",
+      "message_id": 7
+    },
+    {
+      "attempt_id": "973a1b7e-3165-48ab-bbe5-56c15dc1d1c9",
+      "message_id": 8
+    },
+    {
+      "attempt_id": "973a1b7e-3165-48ab-bbe5-56c15dc1d1c9",
+      "message_id": 9
+    },
+    {
+      "attempt_id": "973a1b7e-3165-48ab-bbe5-56c15dc1d1c9",
+      "message_id": 10
+    },
+    {
+      "attempt_id": "973a1b7e-3165-48ab-bbe5-56c15dc1d1c9",
+      "message_id": 11
+    },
+    {
+      "attempt_id": "973a1b7e-3165-48ab-bbe5-56c15dc1d1c9",
+      "message_id": 12
+    },
+    {
+      "attempt_id": "973a1b7e-3165-48ab-bbe5-56c15dc1d1c9",
+      "message_id": 13
+    },
+    {
+      "attempt_id": "973a1b7e-3165-48ab-bbe5-56c15dc1d1c9",
+      "message_id": 14
+    },
+    {
+      "attempt_id": "973a1b7e-3165-48ab-bbe5-56c15dc1d1c9",
+      "message_id": 15
+    },
+    {
+      "attempt_id": "9d28346b-f80d-496b-86a9-a3cfeb75d6c5",
+      "message_id": 25
+    },
+    {
+      "attempt_id": "9d28346b-f80d-496b-86a9-a3cfeb75d6c5",
+      "message_id": 26
+    },
+    {
+      "attempt_id": "a228522b-fca3-46de-9d7c-0b8f0fa004db",
+      "message_id": 4
+    },
+    {
+      "attempt_id": "a47dfac1-7f47-43c3-8194-958e9d8d2c43",
+      "message_id": 52
+    },
+    {
+      "attempt_id": "a47dfac1-7f47-43c3-8194-958e9d8d2c43",
+      "message_id": 53
+    },
+    {
+      "attempt_id": "afc2c9af-7c28-4b46-a0f5-cccde2e406bc",
+      "message_id": 52
+    },
+    {
+      "attempt_id": "afc2c9af-7c28-4b46-a0f5-cccde2e406bc",
+      "message_id": 53
+    },
+    {
+      "attempt_id": "afc2c9af-7c28-4b46-a0f5-cccde2e406bc",
+      "message_id": 54
+    },
+    {
+      "attempt_id": "afc2c9af-7c28-4b46-a0f5-cccde2e406bc",
+      "message_id": 55
+    },
+    {
+      "attempt_id": "afc83be0-11e6-46a3-8f00-cd0bcb161a2c",
+      "message_id": 25
+    },
+    {
+      "attempt_id": "afc83be0-11e6-46a3-8f00-cd0bcb161a2c",
+      "message_id": 26
+    },
+    {
+      "attempt_id": "afc83be0-11e6-46a3-8f00-cd0bcb161a2c",
+      "message_id": 27
+    },
+    {
+      "attempt_id": "bcdc84bb-b9ab-4b64-b815-7d63836a7b9f",
+      "message_id": 4
+    },
+    {
+      "attempt_id": "bcdc84bb-b9ab-4b64-b815-7d63836a7b9f",
+      "message_id": 5
+    },
+    {
+      "attempt_id": "bcdc84bb-b9ab-4b64-b815-7d63836a7b9f",
+      "message_id": 6
+    },
+    {
+      "attempt_id": "bcdc84bb-b9ab-4b64-b815-7d63836a7b9f",
+      "message_id": 7
+    },
+    {
+      "attempt_id": "bcdc84bb-b9ab-4b64-b815-7d63836a7b9f",
+      "message_id": 8
+    },
+    {
+      "attempt_id": "d6ec69d8-40c8-41a6-bfc1-8472ddbcd19f",
+      "message_id": 4
+    },
+    {
+      "attempt_id": "d6ec69d8-40c8-41a6-bfc1-8472ddbcd19f",
+      "message_id": 5
+    },
+    {
+      "attempt_id": "d6ec69d8-40c8-41a6-bfc1-8472ddbcd19f",
+      "message_id": 6
+    },
+    {
+      "attempt_id": "d6ec69d8-40c8-41a6-bfc1-8472ddbcd19f",
+      "message_id": 7
+    },
+    {
+      "attempt_id": "d6ec69d8-40c8-41a6-bfc1-8472ddbcd19f",
+      "message_id": 8
+    },
+    {
+      "attempt_id": "d6ec69d8-40c8-41a6-bfc1-8472ddbcd19f",
+      "message_id": 9
+    },
+    {
+      "attempt_id": "d6ec69d8-40c8-41a6-bfc1-8472ddbcd19f",
+      "message_id": 10
+    },
+    {
+      "attempt_id": "d6ec69d8-40c8-41a6-bfc1-8472ddbcd19f",
+      "message_id": 11
+    },
+    {
+      "attempt_id": "da15b7e2-0653-46d9-bf57-5276ddebeece",
+      "message_id": 25
+    },
+    {
+      "attempt_id": "da15b7e2-0653-46d9-bf57-5276ddebeece",
+      "message_id": 26
+    },
+    {
+      "attempt_id": "da15b7e2-0653-46d9-bf57-5276ddebeece",
+      "message_id": 27
+    },
+    {
+      "attempt_id": "da15b7e2-0653-46d9-bf57-5276ddebeece",
+      "message_id": 28
+    },
+    {
+      "attempt_id": "da15b7e2-0653-46d9-bf57-5276ddebeece",
+      "message_id": 29
+    },
+    {
+      "attempt_id": "da15b7e2-0653-46d9-bf57-5276ddebeece",
+      "message_id": 30
+    },
+    {
+      "attempt_id": "da15b7e2-0653-46d9-bf57-5276ddebeece",
+      "message_id": 31
+    },
+    {
+      "attempt_id": "ec9e77bf-f378-41a0-9c7b-765b3a162407",
+      "message_id": 39
+    },
+    {
+      "attempt_id": "ec9e77bf-f378-41a0-9c7b-765b3a162407",
+      "message_id": 40
+    },
+    {
+      "attempt_id": "f7ba9565-9e02-48a9-a77c-dffc7a451598",
+      "message_id": 52
+    },
+    {
+      "attempt_id": "f7ba9565-9e02-48a9-a77c-dffc7a451598",
+      "message_id": 53
+    },
+    {
+      "attempt_id": "f7ba9565-9e02-48a9-a77c-dffc7a451598",
+      "message_id": 54
+    },
+    {
+      "attempt_id": "f7ba9565-9e02-48a9-a77c-dffc7a451598",
+      "message_id": 55
+    },
+    {
+      "attempt_id": "f7ba9565-9e02-48a9-a77c-dffc7a451598",
+      "message_id": 56
+    },
+    {
+      "attempt_id": "fad2aea8-10c9-4efe-b39d-6b149be5b972",
+      "message_id": 52
+    },
+    {
+      "attempt_id": "fad2aea8-10c9-4efe-b39d-6b149be5b972",
+      "message_id": 53
+    },
+    {
+      "attempt_id": "fad2aea8-10c9-4efe-b39d-6b149be5b972",
+      "message_id": 54
+    },
+    {
+      "attempt_id": "fad2aea8-10c9-4efe-b39d-6b149be5b972",
+      "message_id": 55
+    },
+    {
+      "attempt_id": "fad2aea8-10c9-4efe-b39d-6b149be5b972",
+      "message_id": 56
+    },
+    {
+      "attempt_id": "fad2aea8-10c9-4efe-b39d-6b149be5b972",
+      "message_id": 57
+    },
+    {
+      "attempt_id": "fad2aea8-10c9-4efe-b39d-6b149be5b972",
+      "message_id": 58
+    },
+    {
+      "attempt_id": "fad2aea8-10c9-4efe-b39d-6b149be5b972",
+      "message_id": 59
+    }
+  ],
+  "artifacts": [
+    {
+      "id": "10729804-6e09-46f9-be49-9c01acb1f433",
+      "kind": "output",
+      "uri": "repo:swift-arrival@a1d96fe4ce7280501f3d193fc3c3058a23e8a914",
+      "note": "",
+      "created_by": "swiftarrival-gameplay",
+      "work_id": "11554293-9030-457d-88c0-43397d341be4",
+      "attempt_id": "973a1b7e-3165-48ab-bbe5-56c15dc1d1c9",
+      "digest": null,
+      "source_commit": "a1d96fe4ce7280501f3d193fc3c3058a23e8a914",
+      "runtime_generation": null,
+      "label": "output",
+      "state": "available",
+      "created_at": "2026-08-28T08:26:54.966377Z",
+      "superseded_at": null
+    },
+    {
+      "id": "d99149c2-7f10-4fa6-9e30-8436709be1c6",
+      "kind": "output",
+      "uri": "file:///company/outputs/exp11/playtests/attempt9-native-accepted",
+      "note": "",
+      "created_by": "swiftarrival-gameplay",
+      "work_id": "11554293-9030-457d-88c0-43397d341be4",
+      "attempt_id": "973a1b7e-3165-48ab-bbe5-56c15dc1d1c9",
+      "digest": null,
+      "source_commit": "a1d96fe4ce7280501f3d193fc3c3058a23e8a914",
+      "runtime_generation": null,
+      "label": "output",
+      "state": "available",
+      "created_at": "2026-08-28T08:26:54.985242Z",
+      "superseded_at": null
+    },
+    {
+      "id": "9addc6c8-ebfc-4dd3-a36e-6a79741a6b7d",
+      "kind": "output",
+      "uri": "file:///company/outputs/swift-arrival-independent-playtest-20260828T043000Z",
+      "note": "Fresh native X11 review: documented route failed after seat exit; report verdict REVISE BEFORE FOUNDER REVIEW. Includes trace, host/client logs, actual screenshots, and separately labelled deterministic probes.",
+      "created_by": "swiftarrival-experience",
+      "work_id": "5fff51d1-1b74-4d30-a98d-be6c3fa005b1",
+      "attempt_id": "86706113-0dde-4e9d-af84-af538a760d0a",
+      "digest": "sha256:0a195fbe8d46324f3c1c82de02f32263021ed00d859e8079099eb1605de27ada",
+      "source_commit": "a1d96fe4ce7280501f3d193fc3c3058a23e8a914",
+      "runtime_generation": null,
+      "label": "independent-native-playtest-bundle",
+      "state": "available",
+      "created_at": "2026-08-28T09:43:13.931197Z",
+      "superseded_at": null
+    },
+    {
+      "id": "21c3ec85-1f95-4bb9-91ea-f1ef9f97d27e",
+      "kind": "output",
+      "uri": "file:///company/outputs/swift-arrival-exit-repair-20260828T094818Z",
+      "note": "",
+      "created_by": "swiftarrival-gameplay",
+      "work_id": "841a9c7a-0c89-4a5e-9df2-5432e760bb78",
+      "attempt_id": "a7169b1e-f7fb-4c38-b216-9bec4ed399db",
+      "digest": null,
+      "source_commit": "09fe09d30c65b811c0904508525a6ab8af02145c",
+      "runtime_generation": null,
+      "label": "output",
+      "state": "available",
+      "created_at": "2026-08-28T09:55:01.642470Z",
+      "superseded_at": null
+    },
+    {
+      "id": "76965ba0-073f-4eb9-94dc-f74456ae0d30",
+      "kind": "output",
+      "uri": "git+file:///company/projects/swift-arrival#09fe09d30c65b811c0904508525a6ab8af02145c",
+      "note": "Descends from a1d96fe4ce7280501f3d193fc3c3058a23e8a914; native X11 and deterministic evidence linked separately.",
+      "created_by": "swiftarrival-gameplay",
+      "work_id": "841a9c7a-0c89-4a5e-9df2-5432e760bb78",
+      "attempt_id": "a7169b1e-f7fb-4c38-b216-9bec4ed399db",
+      "digest": null,
+      "source_commit": "09fe09d30c65b811c0904508525a6ab8af02145c",
+      "runtime_generation": null,
+      "label": "route-end-exit-candidate",
+      "state": "available",
+      "created_at": "2026-08-28T09:55:16.692803Z",
+      "superseded_at": null
+    },
+    {
+      "id": "8ec7cd2d-c91e-4376-ab81-5617b9e1be68",
+      "kind": "output",
+      "uri": "file:///company/outputs/swift-arrival-independent-20260828T095848Z",
+      "note": "",
+      "created_by": "swiftarrival-playtest",
+      "work_id": "ebdd971f-0732-4330-8204-fad8e7d06757",
+      "attempt_id": "1555485d-6d03-4f25-8a7c-1c2dca2db173",
+      "digest": null,
+      "source_commit": "09fe09d30c65b811c0904508525a6ab8af02145c",
+      "runtime_generation": null,
+      "label": "output",
+      "state": "available",
+      "created_at": "2026-08-28T10:10:50.672412Z",
+      "superseded_at": null
+    },
+    {
+      "id": "65ac7d43-d2ac-4bac-a444-efb8e1e8b1e9",
+      "kind": "evidence",
+      "uri": "file:///company/outputs/swift-arrival-independent-20260828T095848Z/run-manifest.json",
+      "note": "",
+      "created_by": "swiftarrival-playtest",
+      "work_id": "ebdd971f-0732-4330-8204-fad8e7d06757",
+      "attempt_id": "1555485d-6d03-4f25-8a7c-1c2dca2db173",
+      "digest": null,
+      "source_commit": "09fe09d30c65b811c0904508525a6ab8af02145c",
+      "runtime_generation": null,
+      "label": "output",
+      "state": "available",
+      "created_at": "2026-08-28T10:11:00.245326Z",
+      "superseded_at": null
+    },
+    {
+      "id": "e783ecbc-75cd-4583-91c0-91beaa9d8504",
+      "kind": "review-target",
+      "uri": "file:///company/outputs/swift-arrival-independent-20260828T095848Z/REVIEW_TARGET.txt",
+      "note": "",
+      "created_by": "swiftarrival-playtest",
+      "work_id": "ebdd971f-0732-4330-8204-fad8e7d06757",
+      "attempt_id": "1555485d-6d03-4f25-8a7c-1c2dca2db173",
+      "digest": null,
+      "source_commit": "09fe09d30c65b811c0904508525a6ab8af02145c",
+      "runtime_generation": null,
+      "label": "output",
+      "state": "available",
+      "created_at": "2026-08-28T10:11:00.249139Z",
+      "superseded_at": null
+    },
+    {
+      "id": "6bf25722-4e67-482f-9b36-570768d12296",
+      "kind": "review_target",
+      "uri": "file:///company/outputs/swift-arrival-independent-20260828T095848Z/REVIEW_TARGET.txt",
+      "note": "Exact local candidate; restored on DISPLAY=:1 with host PID 27198 and client PID 27301 observed as two visible windows. Current client capture review-target/shots/seq_001_02.png shows CLIENT connected 1, route 0/40, crate free, and OBJECTIVE: PICK UP THE CRATE. REVIEW_TARGET.txt contains controls, loopback reconnect/restart commands, audio limitation, and the single bounded founder feel question.",
+      "created_by": "swiftarrival-playtest",
+      "work_id": "3589d1a0-c6ec-468a-8c99-8811d6025782",
+      "attempt_id": "cb458c31-9603-4f4d-b96b-db65991b4ba0",
+      "digest": null,
+      "source_commit": "09fe09d30c65b811c0904508525a6ab8af02145c",
+      "runtime_generation": null,
+      "label": "founder-native-target",
+      "state": "available",
+      "created_at": "2026-08-28T10:13:58.459063Z",
+      "superseded_at": null
+    },
+    {
+      "id": "45f3f842-9fb8-4a44-8c62-694bcc3a391d",
+      "kind": "evidence",
+      "uri": "file:///company/outputs/swift-arrival-independent-20260828T095848Z",
+      "note": "Independent ACCEPT FOR FOUNDER REVIEW bundle. Limits preserved: dummy-driver audio unavailable; local-loopback host/client; deterministic probes prove mechanics, not feel; founder taste unverified.",
+      "created_by": "swiftarrival-playtest",
+      "work_id": "3589d1a0-c6ec-468a-8c99-8811d6025782",
+      "attempt_id": "cb458c31-9603-4f4d-b96b-db65991b4ba0",
+      "digest": null,
+      "source_commit": "09fe09d30c65b811c0904508525a6ab8af02145c",
+      "runtime_generation": null,
+      "label": "independent-accept-evidence",
+      "state": "available",
+      "created_at": "2026-08-28T10:14:10.006145Z",
+      "superseded_at": null
+    },
+    {
+      "id": "479daca1-871e-44b8-9ce1-558d9732da0e",
+      "kind": "evidence",
+      "uri": "file:///company/outputs/swift-arrival-independent-20260828T095848Z/review-target/shots/seq_001_02.png",
+      "note": "Live re-probe capture: CLIENT peer 854978579, connected 1, route 0/40 m, crate free, OBJECTIVE: PICK UP THE CRATE; observed after exact recorded restart on DISPLAY=:1.",
+      "created_by": "swiftarrival-playtest",
+      "work_id": "3589d1a0-c6ec-468a-8c99-8811d6025782",
+      "attempt_id": "cb458c31-9603-4f4d-b96b-db65991b4ba0",
+      "digest": null,
+      "source_commit": "09fe09d30c65b811c0904508525a6ab8af02145c",
+      "runtime_generation": null,
+      "label": "live-client-initial-objective",
+      "state": "available",
+      "created_at": "2026-08-28T10:14:10.023918Z",
+      "superseded_at": null
+    },
+    {
+      "id": "858c1645-6fd3-4140-b3eb-89f450f80a82",
+      "kind": "review_copy",
+      "uri": "/company/reviews/attempt-cb458c3196034f4db96bdb65991b4ba0",
+      "note": "Supporting review copy prepared by the Runtime from the exact completed Attempt commit; it is not a replacement candidate.",
+      "created_by": "swiftarrival-playtest",
+      "work_id": "3589d1a0-c6ec-468a-8c99-8811d6025782",
+      "attempt_id": "cb458c31-9603-4f4d-b96b-db65991b4ba0",
+      "digest": "74f8a596a9da177f95dc31d852bfbfefa811f556299e28494acbd93b37a172f4",
+      "source_commit": "09fe09d30c65b811c0904508525a6ab8af02145c",
+      "runtime_generation": null,
+      "label": "Supporting review copy (not candidate)",
+      "state": "available",
+      "created_at": "2026-08-28T10:14:51.224718Z",
+      "superseded_at": null
+    },
+    {
+      "id": "86613862-2003-4891-9695-fb5d23d54e2f",
+      "kind": "review_target",
+      "uri": "file:///company/outputs/swift-arrival-independent-20260828T095848Z/REVIEW_TARGET.txt",
+      "note": "Exact local candidate persistently restored on DISPLAY=:1 via nohup: host PID 28431 and client PID 28566, two visible windows. Client peer 984715471 is connected; refreshed native capture review-target/shots/seq_000_01.png shows route 0/40, crate free, and OBJECTIVE: PICK UP THE CRATE. Controls, reconnect/full-restart commands, dummy-audio limitation, and single bounded founder feel question are in REVIEW_TARGET.txt.",
+      "created_by": "swiftarrival-playtest",
+      "work_id": "3589d1a0-c6ec-468a-8c99-8811d6025782",
+      "attempt_id": "afc83be0-11e6-46a3-8f00-cd0bcb161a2c",
+      "digest": null,
+      "source_commit": "09fe09d30c65b811c0904508525a6ab8af02145c",
+      "runtime_generation": null,
+      "label": "founder-native-target",
+      "state": "available",
+      "created_at": "2026-08-28T10:17:22.751104Z",
+      "superseded_at": null
+    },
+    {
+      "id": "4a57242e-24ff-4c31-8a96-868a9f1ef88c",
+      "kind": "evidence",
+      "uri": "file:///company/outputs/swift-arrival-independent-20260828T095848Z",
+      "note": "Independent ACCEPT bundle. Limits: dummy-driver audio unavailable, local-loopback networking, deterministic probes do not establish feel, and founder taste remains unverified.",
+      "created_by": "swiftarrival-playtest",
+      "work_id": "3589d1a0-c6ec-468a-8c99-8811d6025782",
+      "attempt_id": "afc83be0-11e6-46a3-8f00-cd0bcb161a2c",
+      "digest": null,
+      "source_commit": "09fe09d30c65b811c0904508525a6ab8af02145c",
+      "runtime_generation": null,
+      "label": "independent-accept-evidence",
+      "state": "available",
+      "created_at": "2026-08-28T10:17:32.661178Z",
+      "superseded_at": null
+    },
+    {
+      "id": "5b91f84b-5ad6-40a7-85a8-d8be999a13f8",
+      "kind": "evidence",
+      "uri": "file:///company/outputs/swift-arrival-independent-20260828T095848Z/review-target/shots/seq_000_01.png",
+      "note": "Current native capture: CLIENT peer 984715471, connected 1, route 0/40 m, crate free, OBJECTIVE: PICK UP THE CRATE.",
+      "created_by": "swiftarrival-playtest",
+      "work_id": "3589d1a0-c6ec-468a-8c99-8811d6025782",
+      "attempt_id": "afc83be0-11e6-46a3-8f00-cd0bcb161a2c",
+      "digest": null,
+      "source_commit": "09fe09d30c65b811c0904508525a6ab8af02145c",
+      "runtime_generation": null,
+      "label": "live-client-initial-objective",
+      "state": "available",
+      "created_at": "2026-08-28T10:17:32.667491Z",
+      "superseded_at": null
+    },
+    {
+      "id": "ca5050c6-688c-4eed-a71c-44b7e3b96249",
+      "kind": "review_copy",
+      "uri": "/company/reviews/attempt-afc83be011e646a38f00cd0bcb161a2c",
+      "note": "Supporting review copy prepared by the Runtime from the exact completed Attempt commit; it is not a replacement candidate.",
+      "created_by": "swiftarrival-playtest",
+      "work_id": "3589d1a0-c6ec-468a-8c99-8811d6025782",
+      "attempt_id": "afc83be0-11e6-46a3-8f00-cd0bcb161a2c",
+      "digest": "74f8a596a9da177f95dc31d852bfbfefa811f556299e28494acbd93b37a172f4",
+      "source_commit": "09fe09d30c65b811c0904508525a6ab8af02145c",
+      "runtime_generation": null,
+      "label": "Supporting review copy (not candidate)",
+      "state": "available",
+      "created_at": "2026-08-28T10:17:53.196978Z",
+      "superseded_at": null
+    },
+    {
+      "id": "a24f9422-7247-49a2-9179-91206b342d8a",
+      "kind": "output",
+      "uri": "/company/outputs/swift-arrival-journey-r1/manifest.json",
+      "note": "",
+      "created_by": "swiftarrival-gameplay",
+      "work_id": "85ced0c3-ddde-46f3-9003-3cdc50f8ebd7",
+      "attempt_id": "00731352-959f-4706-8a9e-611deb2fa2a8",
+      "digest": null,
+      "source_commit": "2ebfd6932d7709bf03410c2b864731ef0394c05f",
+      "runtime_generation": null,
+      "label": "output",
+      "state": "available",
+      "created_at": "2026-08-28T11:28:06.953637Z",
+      "superseded_at": null
+    },
+    {
+      "id": "17a3a26f-ae03-4f7e-b0f6-1851cc6e217b",
+      "kind": "output",
+      "uri": "/company/outputs/swift-arrival-journey-r1/manifest.json",
+      "note": "",
+      "created_by": "swiftarrival-gameplay",
+      "work_id": "85ced0c3-ddde-46f3-9003-3cdc50f8ebd7",
+      "attempt_id": "ec9e77bf-f378-41a0-9c7b-765b3a162407",
+      "digest": null,
+      "source_commit": "7e76d1e087cf4cde12aaf1fa6d5e9309f39bcddd",
+      "runtime_generation": null,
+      "label": "output",
+      "state": "available",
+      "created_at": "2026-08-28T11:34:08.006723Z",
+      "superseded_at": null
+    },
+    {
+      "id": "a4ed1ca6-583b-4ef5-b466-dc5ab3ee83fb",
+      "kind": "output",
+      "uri": "file:///company/outputs/swift-arrival-independent-journey-r1-20260828T1140Z/manifest.json",
+      "note": "Fresh exact-lineage native bundle: route-zero bypass with Q drop/E recovery rejected with corrective feedback; clean restart full truck journey completed; ACCEPT FOR FOUNDER REVIEW. Stale 2ebfd artifact and abandoned old-base evidence explicitly excluded.",
+      "created_by": "swiftarrival-playtest",
+      "work_id": "af5ef98a-1cff-45c9-b245-c7bd0aebc61a",
+      "attempt_id": "5e7832ba-ff8a-4c51-8dc5-bb06187929c9",
+      "digest": "sha256:16883e87a0b7852b8e5b0b55f99a5248b81236f94652c6d570034aa0864b8e5f",
+      "source_commit": "7e76d1e087cf4cde12aaf1fa6d5e9309f39bcddd",
+      "runtime_generation": null,
+      "label": "independent-native-playtest",
+      "state": "available",
+      "created_at": "2026-08-28T11:44:25.111718Z",
+      "superseded_at": null
+    },
+    {
+      "id": "af142f16-3991-4dd2-b380-77a8575bc95b",
+      "kind": "review_target",
+      "uri": "file:///company/outputs/swift-arrival-independent-journey-r1-20260828T1140Z/REVIEW_TARGET.txt",
+      "note": "Prepared only after both native routes passed; includes controls, restart/reconnect, bounded feel question, and audio/loopback/unverified-taste limits.",
+      "created_by": "swiftarrival-playtest",
+      "work_id": "af5ef98a-1cff-45c9-b245-c7bd0aebc61a",
+      "attempt_id": "5e7832ba-ff8a-4c51-8dc5-bb06187929c9",
+      "digest": null,
+      "source_commit": "7e76d1e087cf4cde12aaf1fa6d5e9309f39bcddd",
+      "runtime_generation": null,
+      "label": "founder-local-target",
+      "state": "available",
+      "created_at": "2026-08-28T11:44:25.135541Z",
+      "superseded_at": null
+    },
+    {
+      "id": "681cdb47-71ed-45a7-9c92-944497915507",
+      "kind": "output",
+      "uri": "repo://swift-arrival/commit/0602bc78e37e57db1c4328c12df9c15e72c5e010?path=evidence%2Frepair-r15",
+      "note": "All deterministic probes pass. REPORT.txt records exact observations and the explicit fresh-screenshot gap caused by absent graphical display capability.",
+      "created_by": "swiftarrival-gameplay",
+      "work_id": "f531188b-a8e3-450f-9e4b-e218f68c0c37",
+      "attempt_id": "4209acdc-c1fb-444e-8d56-c9212956a654",
+      "digest": null,
+      "source_commit": "0602bc78e37e57db1c4328c12df9c15e72c5e010",
+      "runtime_generation": null,
+      "label": "route-end repair candidate and evidence",
+      "state": "available",
+      "created_at": "2026-08-28T14:41:05.774551Z",
+      "superseded_at": null
+    },
+    {
+      "id": "6af5f84f-ea7a-46ab-ae54-7b05bf079dda",
+      "kind": "output",
+      "uri": "/company/outputs/swift-arrival-r15-native-f7ba9565",
+      "note": "",
+      "created_by": "swiftarrival-playtest",
+      "work_id": "f531188b-a8e3-450f-9e4b-e218f68c0c37",
+      "attempt_id": "f7ba9565-9e02-48a9-a77c-dffc7a451598",
+      "digest": null,
+      "source_commit": "0602bc78e37e57db1c4328c12df9c15e72c5e010",
+      "runtime_generation": null,
+      "label": "output",
+      "state": "available",
+      "created_at": "2026-08-28T14:49:40.648873Z",
+      "superseded_at": null
+    },
+    {
+      "id": "d5e6abf3-603e-47aa-b094-ef2a6e883fdd",
+      "kind": "output",
+      "uri": "/company/outputs/swift-arrival-r15-bypass-f7ba9565",
+      "note": "",
+      "created_by": "swiftarrival-playtest",
+      "work_id": "f531188b-a8e3-450f-9e4b-e218f68c0c37",
+      "attempt_id": "f7ba9565-9e02-48a9-a77c-dffc7a451598",
+      "digest": null,
+      "source_commit": "0602bc78e37e57db1c4328c12df9c15e72c5e010",
+      "runtime_generation": null,
+      "label": "output",
+      "state": "available",
+      "created_at": "2026-08-28T14:49:40.669690Z",
+      "superseded_at": null
+    },
+    {
+      "id": "17c32cf1-21a7-4fc4-b9d7-20554c1bda35",
+      "kind": "output",
+      "uri": "/company/outputs/swift-arrival-r15-reentry-f7ba9565",
+      "note": "",
+      "created_by": "swiftarrival-playtest",
+      "work_id": "f531188b-a8e3-450f-9e4b-e218f68c0c37",
+      "attempt_id": "f7ba9565-9e02-48a9-a77c-dffc7a451598",
+      "digest": null,
+      "source_commit": "0602bc78e37e57db1c4328c12df9c15e72c5e010",
+      "runtime_generation": null,
+      "label": "output",
+      "state": "available",
+      "created_at": "2026-08-28T14:49:40.685632Z",
+      "superseded_at": null
+    },
+    {
+      "id": "462dd3c5-9a4d-4b5b-906a-8e4f04dba04d",
+      "kind": "output",
+      "uri": "file:///company/outputs/swift-arrival-r15-seat-gate-6c6ac916",
+      "note": "Exact --seat-recovery dispatch added without gameplay changes; every exact Work gate passed. Report preserves native evidence lineage and limits.",
+      "created_by": "swiftarrival-gameplay",
+      "work_id": "f531188b-a8e3-450f-9e4b-e218f68c0c37",
+      "attempt_id": "6c6ac916-971c-424a-a39b-c25b555360c2",
+      "digest": null,
+      "source_commit": "41f4fa53a2cd05ab17aea473f3d1be28979b2dcf",
+      "runtime_generation": null,
+      "label": "seat-recovery gate revision",
+      "state": "available",
+      "created_at": "2026-08-28T14:56:05.511657Z",
+      "superseded_at": null
+    },
+    {
+      "id": "6f70c7eb-08c4-4f79-a21e-99ae76eb98dd",
+      "kind": "git_worktree_observation",
+      "uri": "/company/worktrees/work-f531188ba8e3-r1",
+      "note": "Runtime observed changed Git state after the cognitive process ended without a trustworthy semantic result. This locator is recovery evidence, not outcome acceptance.",
+      "created_by": "daemon",
+      "work_id": "f531188b-a8e3-450f-9e4b-e218f68c0c37",
+      "attempt_id": "6c6ac916-971c-424a-a39b-c25b555360c2",
+      "digest": "cd06591a570f432ed4bed6994e80844d1e22b561094963e8e2173f73a141a3f1",
+      "source_commit": "41f4fa53a2cd05ab17aea473f3d1be28979b2dcf",
+      "runtime_generation": null,
+      "label": "Runtime-observed preserved worktree",
+      "state": "available",
+      "created_at": "2026-08-28T15:13:15.760942Z",
+      "superseded_at": null
+    },
+    {
+      "id": "b90c08dd-6845-4d80-8923-5ea796824da6",
+      "kind": "output",
+      "uri": "file:///company/outputs/swift-arrival-r15-final-fad2aea8",
+      "note": "Recovered candidate inspected cleanly; preserved checksums verified; every exact Work gate freshly passed. Native evidence remains attributed to unchanged gameplay parent.",
+      "created_by": "swiftarrival-gameplay",
+      "work_id": "f531188b-a8e3-450f-9e4b-e218f68c0c37",
+      "attempt_id": "fad2aea8-10c9-4efe-b39d-6b149be5b972",
+      "digest": null,
+      "source_commit": "41f4fa53a2cd05ab17aea473f3d1be28979b2dcf",
+      "runtime_generation": null,
+      "label": "final exact-gate recovery evidence",
+      "state": "available",
+      "created_at": "2026-08-28T15:16:25.728336Z",
+      "superseded_at": null
+    },
+    {
+      "id": "a323ef28-7228-403a-884c-0d132ffa751f",
+      "kind": "output",
+      "uri": "file:///company/outputs/swift-arrival-r15-final-independent-b8e3161f",
+      "note": "Fresh exact-candidate native ACCEPT bundle: loaded 40/40 delivery, route-zero rejection, and natural early-exit seat re-entry; parent evidence excluded; limits and transient endpoint HUD inconsistency disclosed.",
+      "created_by": "swiftarrival-playtest",
+      "work_id": "731bd86c-6507-4ae1-a7bf-37b3b20980b7",
+      "attempt_id": "b8e3161f-302e-4e67-8b6d-28fcb43c0d79",
+      "digest": "sha256:9e49e761f3640edd10bce1891690a7762320e7ebeaa40a4074ee52c5c5fb970f",
+      "source_commit": "41f4fa53a2cd05ab17aea473f3d1be28979b2dcf",
+      "runtime_generation": null,
+      "label": "independent-native-accept-bundle",
+      "state": "available",
+      "created_at": "2026-08-28T15:26:58.562930Z",
+      "superseded_at": null
+    },
+    {
+      "id": "a63ffb42-916e-43ac-91a9-a3499f83de6a",
+      "kind": "evidence",
+      "uri": "file:///company/outputs/swift-arrival-r15-final-independent-b8e3161f/run-manifest.json",
+      "note": "Manifest records Runtime start lineage, checkout HEAD, three fresh route traces/logs/screenshots, exclusions, and ACCEPT judgement.",
+      "created_by": "swiftarrival-playtest",
+      "work_id": "731bd86c-6507-4ae1-a7bf-37b3b20980b7",
+      "attempt_id": "b8e3161f-302e-4e67-8b6d-28fcb43c0d79",
+      "digest": null,
+      "source_commit": "41f4fa53a2cd05ab17aea473f3d1be28979b2dcf",
+      "runtime_generation": null,
+      "label": "exact-lineage-native-manifest",
+      "state": "available",
+      "created_at": "2026-08-28T15:26:58.599396Z",
+      "superseded_at": null
+    },
+    {
+      "id": "a081dc46-cdaa-4c3d-ba04-e961cc0f8805",
+      "kind": "review_target",
+      "uri": "file:///company/outputs/swift-arrival-r15-final-independent-b8e3161f/REVIEW_TARGET.txt",
+      "note": "Prepared only after all three native routes passed; exact controls, host-first/client-second restart, reconnect, bounded feel question, and audio/loopback/renderer/collision/taste limits.",
+      "created_by": "swiftarrival-playtest",
+      "work_id": "731bd86c-6507-4ae1-a7bf-37b3b20980b7",
+      "attempt_id": "b8e3161f-302e-4e67-8b6d-28fcb43c0d79",
+      "digest": null,
+      "source_commit": "41f4fa53a2cd05ab17aea473f3d1be28979b2dcf",
+      "runtime_generation": null,
+      "label": "founder-local-target",
+      "state": "available",
+      "created_at": "2026-08-28T15:26:58.617194Z",
+      "superseded_at": null
+    }
+  ],
+  "gates": [
+    {
+      "id": "22400083-396b-43d2-ad2e-8c7a3f4a7709",
+      "work_id": "11554293-9030-457d-88c0-43397d341be4",
+      "name": "GDScript parse validation",
+      "cwd": "@attempt",
+      "command": [
+        "sh",
+        "validate-scripts.sh"
+      ],
+      "created_by": "swiftarrival-gameplay",
+      "sequence_no": 0,
+      "created_at": "2026-08-28T04:42:43.483062Z",
+      "retired_at": null,
+      "retired_by": null,
+      "retired_reason": null
+    },
+    {
+      "id": "87b835b1-0696-4e4e-8dac-f7963258d97c",
+      "work_id": "11554293-9030-457d-88c0-43397d341be4",
+      "name": "Positive multiplayer delivery probe",
+      "cwd": "@attempt",
+      "command": [
+        "sh",
+        "run-probe.sh",
+        "/tmp/exp11-gate-positive-host.log",
+        "/tmp/exp11-gate-positive-client.log"
+      ],
+      "created_by": "swiftarrival-gameplay",
+      "sequence_no": 1,
+      "created_at": "2026-08-28T04:42:43.483062Z",
+      "retired_at": null,
+      "retired_by": null,
+      "retired_reason": null
+    },
+    {
+      "id": "527c7e67-7e21-402a-b567-f79e94bc1dc0",
+      "work_id": "11554293-9030-457d-88c0-43397d341be4",
+      "name": "Negative multiplayer probe (drop outside zone rejected)",
+      "cwd": "@attempt",
+      "command": [
+        "sh",
+        "run-probe.sh",
+        "--negative",
+        "/tmp/exp11-gate-negative-host.log",
+        "/tmp/exp11-gate-negative-client.log"
+      ],
+      "created_by": "swiftarrival-gameplay",
+      "sequence_no": 2,
+      "created_at": "2026-08-28T04:42:43.483062Z",
+      "retired_at": null,
+      "retired_by": null,
+      "retired_reason": null
+    },
+    {
+      "id": "89fb7ed4-1553-4106-bd52-f101ff0eefde",
+      "work_id": "11554293-9030-457d-88c0-43397d341be4",
+      "name": "Movement mechanics probe (view-relative strafe, blocked movement)",
+      "cwd": "@attempt",
+      "command": [
+        "sh",
+        "run-probe.sh",
+        "--mechanics",
+        "/tmp/exp11-gate-mechanics-host.log",
+        "/tmp/exp11-gate-mechanics-client.log"
+      ],
+      "created_by": "swiftarrival-gameplay",
+      "sequence_no": 3,
+      "created_at": "2026-08-28T04:42:43.483062Z",
+      "retired_at": null,
+      "retired_by": null,
+      "retired_reason": null
+    },
+    {
+      "id": "ff4825fe-5e1f-4a70-808f-5bd60aa85cb4",
+      "work_id": "11554293-9030-457d-88c0-43397d341be4",
+      "name": "Recovery probe (crate behind truck recoverable)",
+      "cwd": "@attempt",
+      "command": [
+        "sh",
+        "run-probe.sh",
+        "--recovery",
+        "/tmp/exp11-gate-recovery-host.log",
+        "/tmp/exp11-gate-recovery-client.log"
+      ],
+      "created_by": "swiftarrival-gameplay",
+      "sequence_no": 4,
+      "created_at": "2026-08-28T04:42:43.483062Z",
+      "retired_at": null,
+      "retired_by": null,
+      "retired_reason": null
+    },
+    {
+      "id": "4b7f9519-7019-4670-91d4-a1b5afac5b67",
+      "work_id": "3589d1a0-c6ec-468a-8c99-8811d6025782",
+      "name": "review-target-live-probe",
+      "cwd": "@attempt",
+      "command": [
+        "sh",
+        "-c",
+        "pgrep -f 'godot.*work-ebdd971f0732-r1.*--host' >/dev/null && pgrep -f 'godot.*work-ebdd971f0732-r1.*--client' >/dev/null && test -s /company/outputs/swift-arrival-independent-20260828T095848Z/review-target/live-client-start.png"
+      ],
+      "created_by": "swiftarrival-playtest",
+      "sequence_no": 0,
+      "created_at": "2026-08-28T10:12:28.652487Z",
+      "retired_at": null,
+      "retired_by": null,
+      "retired_reason": null
+    },
+    {
+      "id": "2b86c222-47fe-4769-b499-fad2e51d1f3b",
+      "work_id": "731bd86c-6507-4ae1-a7bf-37b3b20980b7",
+      "name": "Exact final candidate lineage",
+      "cwd": "@attempt",
+      "command": [
+        "sh",
+        "-c",
+        "test \"$(git rev-parse HEAD)\" = 41f4fa53a2cd05ab17aea473f3d1be28979b2dcf"
+      ],
+      "created_by": "swiftarrival-playtest",
+      "sequence_no": 0,
+      "created_at": "2026-08-28T15:19:12.501975Z",
+      "retired_at": null,
+      "retired_by": null,
+      "retired_reason": null
+    },
+    {
+      "id": "f942bfc0-03d5-45fd-9642-8b627a8ddabe",
+      "work_id": "841a9c7a-0c89-4a5e-9df2-5432e760bb78",
+      "name": "GDScript parse validation",
+      "cwd": "@attempt",
+      "command": [
+        "sh",
+        "validate-scripts.sh"
+      ],
+      "created_by": "swiftarrival-gameplay",
+      "sequence_no": 0,
+      "created_at": "2026-08-28T09:44:47.035476Z",
+      "retired_at": null,
+      "retired_by": null,
+      "retired_reason": null
+    },
+    {
+      "id": "ba326b44-e9b5-490d-94e7-55c2266c898c",
+      "work_id": "841a9c7a-0c89-4a5e-9df2-5432e760bb78",
+      "name": "Positive multiplayer delivery probe",
+      "cwd": "@attempt",
+      "command": [
+        "sh",
+        "run-probe.sh",
+        "/tmp/exit-route-positive-host.log",
+        "/tmp/exit-route-positive-client.log"
+      ],
+      "created_by": "swiftarrival-gameplay",
+      "sequence_no": 1,
+      "created_at": "2026-08-28T09:44:47.035476Z",
+      "retired_at": null,
+      "retired_by": null,
+      "retired_reason": null
+    },
+    {
+      "id": "b6fa1665-7358-4129-9020-54c0c8bc0e08",
+      "work_id": "841a9c7a-0c89-4a5e-9df2-5432e760bb78",
+      "name": "Negative multiplayer delivery probe",
+      "cwd": "@attempt",
+      "command": [
+        "sh",
+        "run-probe.sh",
+        "--negative",
+        "/tmp/exit-route-negative-host.log",
+        "/tmp/exit-route-negative-client.log"
+      ],
+      "created_by": "swiftarrival-gameplay",
+      "sequence_no": 2,
+      "created_at": "2026-08-28T09:44:47.035476Z",
+      "retired_at": null,
+      "retired_by": null,
+      "retired_reason": null
+    },
+    {
+      "id": "a735aa14-3906-425a-a1c5-e2e4dcf058e1",
+      "work_id": "841a9c7a-0c89-4a5e-9df2-5432e760bb78",
+      "name": "Movement and physical-boundary probe",
+      "cwd": "@attempt",
+      "command": [
+        "sh",
+        "run-probe.sh",
+        "--mechanics",
+        "/tmp/exit-route-mechanics-host.log",
+        "/tmp/exit-route-mechanics-client.log"
+      ],
+      "created_by": "swiftarrival-gameplay",
+      "sequence_no": 3,
+      "created_at": "2026-08-28T09:44:47.035476Z",
+      "retired_at": null,
+      "retired_by": null,
+      "retired_reason": null
+    },
+    {
+      "id": "6e764f12-6daf-4794-b9c7-2c6b830cc6b4",
+      "work_id": "841a9c7a-0c89-4a5e-9df2-5432e760bb78",
+      "name": "Dropped-cargo recovery probe",
+      "cwd": "@attempt",
+      "command": [
+        "sh",
+        "run-probe.sh",
+        "--recovery",
+        "/tmp/exit-route-recovery-host.log",
+        "/tmp/exit-route-recovery-client.log"
+      ],
+      "created_by": "swiftarrival-gameplay",
+      "sequence_no": 4,
+      "created_at": "2026-08-28T09:44:47.035476Z",
+      "retired_at": null,
+      "retired_by": null,
+      "retired_reason": null
+    },
+    {
+      "id": "4cabc23a-ef78-4cff-b2f4-5ebf3d897a0e",
+      "work_id": "85ced0c3-ddde-46f3-9003-3cdc50f8ebd7",
+      "name": "GDScript parse validation",
+      "cwd": "@attempt",
+      "command": [
+        "sh",
+        "validate-scripts.sh"
+      ],
+      "created_by": "swiftarrival-gameplay",
+      "sequence_no": 0,
+      "created_at": "2026-08-28T11:14:01.929779Z",
+      "retired_at": null,
+      "retired_by": null,
+      "retired_reason": null
+    },
+    {
+      "id": "5927d5c0-9924-41cd-a760-067b60c2cb42",
+      "work_id": "85ced0c3-ddde-46f3-9003-3cdc50f8ebd7",
+      "name": "Positive authoritative truck journey",
+      "cwd": "@attempt",
+      "command": [
+        "sh",
+        "run-probe.sh",
+        "--journey-positive",
+        "/tmp/journey-positive-host.log",
+        "/tmp/journey-positive-client.log"
+      ],
+      "created_by": "swiftarrival-gameplay",
+      "sequence_no": 1,
+      "created_at": "2026-08-28T11:14:01.929779Z",
+      "retired_at": null,
+      "retired_by": null,
+      "retired_reason": null
+    },
+    {
+      "id": "5c3e5dec-c3d8-4374-94dc-44cd3d22c38b",
+      "work_id": "85ced0c3-ddde-46f3-9003-3cdc50f8ebd7",
+      "name": "On-foot delivery bypass rejected",
+      "cwd": "@attempt",
+      "command": [
+        "sh",
+        "run-probe.sh",
+        "--journey-bypass",
+        "/tmp/journey-bypass-host.log",
+        "/tmp/journey-bypass-client.log"
+      ],
+      "created_by": "swiftarrival-gameplay",
+      "sequence_no": 2,
+      "created_at": "2026-08-28T11:14:01.929779Z",
+      "retired_at": null,
+      "retired_by": null,
+      "retired_reason": null
+    },
+    {
+      "id": "0a7d6eb1-1e62-4050-8438-4875a8bc09d1",
+      "work_id": "85ced0c3-ddde-46f3-9003-3cdc50f8ebd7",
+      "name": "Movement, collision, and recovery preserved",
+      "cwd": "@attempt",
+      "command": [
+        "sh",
+        "run-probe.sh",
+        "--mechanics-recovery",
+        "/tmp/journey-mechanics-host.log",
+        "/tmp/journey-mechanics-client.log"
+      ],
+      "created_by": "swiftarrival-gameplay",
+      "sequence_no": 3,
+      "created_at": "2026-08-28T11:14:01.929779Z",
+      "retired_at": null,
+      "retired_by": null,
+      "retired_reason": null
+    },
+    {
+      "id": "56ec58b8-7ac7-4e48-84fc-69dc268ca778",
+      "work_id": "af5ef98a-1cff-45c9-b245-c7bd0aebc61a",
+      "name": "Exact repaired candidate lineage",
+      "cwd": "@attempt",
+      "command": [
+        "sh",
+        "-c",
+        "test \"$(git rev-parse HEAD)\" = 7e76d1e087cf4cde12aaf1fa6d5e9309f39bcddd"
+      ],
+      "created_by": "swiftarrival-playtest",
+      "sequence_no": 0,
+      "created_at": "2026-08-28T11:37:33.069745Z",
+      "retired_at": null,
+      "retired_by": null,
+      "retired_reason": null
+    },
+    {
+      "id": "c8eb09b8-0940-4ffd-a221-684cf24348d3",
+      "work_id": "f531188b-a8e3-450f-9e4b-e218f68c0c37",
+      "name": "Script validation",
+      "cwd": "@attempt",
+      "command": [
+        "sh",
+        "validate-scripts.sh"
+      ],
+      "created_by": "swiftarrival-gameplay",
+      "sequence_no": 0,
+      "created_at": "2026-08-28T14:33:00.142689Z",
+      "retired_at": null,
+      "retired_by": null,
+      "retired_reason": null
+    },
+    {
+      "id": "b567adfd-f51a-40da-a834-5e80cfe9edf8",
+      "work_id": "f531188b-a8e3-450f-9e4b-e218f68c0c37",
+      "name": "Visible endpoint loaded journey completes",
+      "cwd": "@attempt",
+      "command": [
+        "sh",
+        "run-probe.sh",
+        "--journey-positive",
+        "/tmp/endpoint-positive-host.log",
+        "/tmp/endpoint-positive-client.log"
+      ],
+      "created_by": "swiftarrival-gameplay",
+      "sequence_no": 1,
+      "created_at": "2026-08-28T14:33:00.142689Z",
+      "retired_at": null,
+      "retired_by": null,
+      "retired_reason": null
+    },
+    {
+      "id": "a73a5de7-2e27-4d1e-b18a-3208a0fe6ace",
+      "work_id": "f531188b-a8e3-450f-9e4b-e218f68c0c37",
+      "name": "Route-zero shortcut remains rejected",
+      "cwd": "@attempt",
+      "command": [
+        "sh",
+        "run-probe.sh",
+        "--journey-bypass",
+        "/tmp/endpoint-bypass-host.log",
+        "/tmp/endpoint-bypass-client.log"
+      ],
+      "created_by": "swiftarrival-gameplay",
+      "sequence_no": 2,
+      "created_at": "2026-08-28T14:33:00.142689Z",
+      "retired_at": null,
+      "retired_by": null,
+      "retired_reason": null
+    },
+    {
+      "id": "1e3ce293-a821-4962-b292-79dd8d8f6282",
+      "work_id": "f531188b-a8e3-450f-9e4b-e218f68c0c37",
+      "name": "Seat re-entry and journey recovery",
+      "cwd": "@attempt",
+      "command": [
+        "sh",
+        "run-probe.sh",
+        "--seat-recovery",
+        "/tmp/endpoint-seat-host.log",
+        "/tmp/endpoint-seat-client.log"
+      ],
+      "created_by": "swiftarrival-gameplay",
+      "sequence_no": 3,
+      "created_at": "2026-08-28T14:33:00.142689Z",
+      "retired_at": null,
+      "retired_by": null,
+      "retired_reason": null
+    },
+    {
+      "id": "bff9f180-e6fd-4b0b-b161-e9a0e4306ce2",
+      "work_id": "f531188b-a8e3-450f-9e4b-e218f68c0c37",
+      "name": "Movement collision and cargo recovery preserved",
+      "cwd": "@attempt",
+      "command": [
+        "sh",
+        "run-probe.sh",
+        "--mechanics-recovery",
+        "/tmp/endpoint-mechanics-host.log",
+        "/tmp/endpoint-mechanics-client.log"
+      ],
+      "created_by": "swiftarrival-gameplay",
+      "sequence_no": 4,
+      "created_at": "2026-08-28T14:33:00.142689Z",
+      "retired_at": null,
+      "retired_by": null,
+      "retired_reason": null
+    }
+  ],
+  "gate_runs": [
+    {
+      "id": "a163f178-74f0-430d-97b4-c4172441f276",
+      "gate_id": "22400083-396b-43d2-ad2e-8c7a3f4a7709",
+      "attempt_id": "973a1b7e-3165-48ab-bbe5-56c15dc1d1c9",
+      "exit_code": 0,
+      "output_digest": "be8ead5d281d096e8c8e7e14e63dee49429701035858efff81681d7d0ed09c45",
+      "output_excerpt": "== GDScript parse validation (/usr/local/bin/godot --check-only)\n-- checking main.gd\nGodot Engine v4.7.2.stable.official.ed1daf0bf - https://godotengine.org\n\n   OK: main.gd parses\n== VALIDATION PASS: all scripts parse\n",
+      "passed": true,
+      "ran_at": "2026-08-28T08:27:24.026490Z"
+    },
+    {
+      "id": "38190492-5f0b-4b5b-966e-efd59dd75c06",
+      "gate_id": "87b835b1-0696-4e4e-8dac-f7963258d97c",
+      "attempt_id": "973a1b7e-3165-48ab-bbe5-56c15dc1d1c9",
+      "exit_code": 0,
+      "output_digest": "28483e1ce321db97ae5930d30ecf6e865ce74a9fe9669dfbb95b0b60617b246f",
+      "output_excerpt": "== host: /usr/local/bin/godot --headless --path /company/worktrees/work-115542939030-r1 -- --probe --host\n== client: /usr/local/bin/godot --headless --path /company/worktrees/work-115542939030-r1 -- --probe --client\n== host exit=0 client exit=0\n== PROBE VERIFIED: host PASS + client PASS\n== GDScript parse validation (/usr/local/bin/godot --check-only)\n-- checking main.gd\nGodot Engine v4.7.2.stable.official.ed1daf0bf - https://godotengine.org\n\n   OK: main.gd parses\n== VALIDATION PASS: all scripts parse\n",
+      "passed": true,
+      "ran_at": "2026-08-28T08:27:47.498557Z"
+    },
+    {
+      "id": "e129b897-af10-44fd-9d42-23062beb9615",
+      "gate_id": "527c7e67-7e21-402a-b567-f79e94bc1dc0",
+      "attempt_id": "973a1b7e-3165-48ab-bbe5-56c15dc1d1c9",
+      "exit_code": 0,
+      "output_digest": "d17bd8d7cb4a1e58ba1675d51723829a1ef84f96a98c23354b41a92d108a1fcc",
+      "output_excerpt": "== host: /usr/local/bin/godot --headless --path /company/worktrees/work-115542939030-r1 -- --probe --negative --host\n== client: /usr/local/bin/godot --headless --path /company/worktrees/work-115542939030-r1 -- --probe --negative --client\n== host exit=0 client exit=0\n== PROBE VERIFIED: host PASS + client PASS\n== GDScript parse validation (/usr/local/bin/godot --check-only)\n-- checking main.gd\nGodot Engine v4.7.2.stable.official.ed1daf0bf - https://godotengine.org\n\n   OK: main.gd parses\n== VALIDATION PASS: all scripts parse\n",
+      "passed": true,
+      "ran_at": "2026-08-28T08:27:53.732535Z"
+    },
+    {
+      "id": "c55a8bbc-bc28-4602-a290-0af59ea6c220",
+      "gate_id": "89fb7ed4-1553-4106-bd52-f101ff0eefde",
+      "attempt_id": "973a1b7e-3165-48ab-bbe5-56c15dc1d1c9",
+      "exit_code": 0,
+      "output_digest": "8d8d667f16c8d14cdca63a6afb2e8eba2ff9a9ae3a84097fa7d09c58888cc44e",
+      "output_excerpt": "== host: /usr/local/bin/godot --headless --path /company/worktrees/work-115542939030-r1 -- --probe --mechanics --host\n== client: /usr/local/bin/godot --headless --path /company/worktrees/work-115542939030-r1 -- --probe --mechanics --client\n== host exit=0 client exit=0\n== PROBE VERIFIED: host PASS + client PASS\n== GDScript parse validation (/usr/local/bin/godot --check-only)\n-- checking main.gd\nGodot Engine v4.7.2.stable.official.ed1daf0bf - https://godotengine.org\n\n   OK: main.gd parses\n== VALIDATION PASS: all scripts parse\n",
+      "passed": true,
+      "ran_at": "2026-08-28T08:28:04.569314Z"
+    },
+    {
+      "id": "ae9a01ca-cd6c-4a0e-b0c8-fa00a8cffb28",
+      "gate_id": "ff4825fe-5e1f-4a70-808f-5bd60aa85cb4",
+      "attempt_id": "973a1b7e-3165-48ab-bbe5-56c15dc1d1c9",
+      "exit_code": 0,
+      "output_digest": "7a531e8c7896133fd98bb828f54775d2781b955d05eb7bb290441667569db12d",
+      "output_excerpt": "== host: /usr/local/bin/godot --headless --path /company/worktrees/work-115542939030-r1 -- --probe --recovery --host\n== client: /usr/local/bin/godot --headless --path /company/worktrees/work-115542939030-r1 -- --probe --recovery --client\n== host exit=0 client exit=0\n== PROBE VERIFIED: host PASS + client PASS\n== GDScript parse validation (/usr/local/bin/godot --check-only)\n-- checking main.gd\nGodot Engine v4.7.2.stable.official.ed1daf0bf - https://godotengine.org\n\n   OK: main.gd parses\n== VALIDATION PASS: all scripts parse\n",
+      "passed": true,
+      "ran_at": "2026-08-28T08:28:29.670115Z"
+    },
+    {
+      "id": "e8d5a093-e3f3-4b01-b583-fc70c0b2f8c2",
+      "gate_id": "f942bfc0-03d5-45fd-9642-8b627a8ddabe",
+      "attempt_id": "a7169b1e-f7fb-4c38-b216-9bec4ed399db",
+      "exit_code": 0,
+      "output_digest": "be8ead5d281d096e8c8e7e14e63dee49429701035858efff81681d7d0ed09c45",
+      "output_excerpt": "== GDScript parse validation (/usr/local/bin/godot --check-only)\n-- checking main.gd\nGodot Engine v4.7.2.stable.official.ed1daf0bf - https://godotengine.org\n\n   OK: main.gd parses\n== VALIDATION PASS: all scripts parse\n",
+      "passed": true,
+      "ran_at": "2026-08-28T09:55:35.042850Z"
+    },
+    {
+      "id": "537e2b55-595e-4bda-ad62-c3d398678e2e",
+      "gate_id": "ba326b44-e9b5-490d-94e7-55c2266c898c",
+      "attempt_id": "a7169b1e-f7fb-4c38-b216-9bec4ed399db",
+      "exit_code": 0,
+      "output_digest": "27d5ccc236132a6cf2c60b8cecb7b7b8cb4310e414626ded940efa387844f12b",
+      "output_excerpt": "== host: /usr/local/bin/godot --headless --path /company/worktrees/work-841a9c7a0c89-r1 -- --probe --host\n== client: /usr/local/bin/godot --headless --path /company/worktrees/work-841a9c7a0c89-r1 -- --probe --client\n== host exit=0 client exit=0\n== PROBE VERIFIED: host PASS + client PASS\n== GDScript parse validation (/usr/local/bin/godot --check-only)\n-- checking main.gd\nGodot Engine v4.7.2.stable.official.ed1daf0bf - https://godotengine.org\n\n   OK: main.gd parses\n== VALIDATION PASS: all scripts parse\n",
+      "passed": true,
+      "ran_at": "2026-08-28T09:56:00.210086Z"
+    },
+    {
+      "id": "e4efb9c3-3a2f-44fc-9e72-c42f808c9bfb",
+      "gate_id": "b6fa1665-7358-4129-9020-54c0c8bc0e08",
+      "attempt_id": "a7169b1e-f7fb-4c38-b216-9bec4ed399db",
+      "exit_code": 0,
+      "output_digest": "f8f35392cedb08f66e027b9202782cbe827f4622c903bba006b4f21a2c6b368b",
+      "output_excerpt": "== host: /usr/local/bin/godot --headless --path /company/worktrees/work-841a9c7a0c89-r1 -- --probe --negative --host\n== client: /usr/local/bin/godot --headless --path /company/worktrees/work-841a9c7a0c89-r1 -- --probe --negative --client\n== host exit=0 client exit=0\n== PROBE VERIFIED: host PASS + client PASS\n== GDScript parse validation (/usr/local/bin/godot --check-only)\n-- checking main.gd\nGodot Engine v4.7.2.stable.official.ed1daf0bf - https://godotengine.org\n\n   OK: main.gd parses\n== VALIDATION PASS: all scripts parse\n",
+      "passed": true,
+      "ran_at": "2026-08-28T09:56:06.383970Z"
+    },
+    {
+      "id": "5d090165-e2f0-4414-9c13-99898df341d6",
+      "gate_id": "a735aa14-3906-425a-a1c5-e2e4dcf058e1",
+      "attempt_id": "a7169b1e-f7fb-4c38-b216-9bec4ed399db",
+      "exit_code": 0,
+      "output_digest": "1149491e960f227679f6865a8ae71a4f2be327e8b28bacbaebd907703396de43",
+      "output_excerpt": "== host: /usr/local/bin/godot --headless --path /company/worktrees/work-841a9c7a0c89-r1 -- --probe --mechanics --host\n== client: /usr/local/bin/godot --headless --path /company/worktrees/work-841a9c7a0c89-r1 -- --probe --mechanics --client\n== host exit=0 client exit=0\n== PROBE VERIFIED: host PASS + client PASS\n== GDScript parse validation (/usr/local/bin/godot --check-only)\n-- checking main.gd\nGodot Engine v4.7.2.stable.official.ed1daf0bf - https://godotengine.org\n\n   OK: main.gd parses\n== VALIDATION PASS: all scripts parse\n",
+      "passed": true,
+      "ran_at": "2026-08-28T09:56:17.217909Z"
+    },
+    {
+      "id": "5f2ede67-5b7f-4579-8878-f58be79c2f15",
+      "gate_id": "6e764f12-6daf-4794-b9c7-2c6b830cc6b4",
+      "attempt_id": "a7169b1e-f7fb-4c38-b216-9bec4ed399db",
+      "exit_code": 0,
+      "output_digest": "977fad8adcdc058de538fc2c7b18549b8dc110c497c976e7a403ba72ccec5c3d",
+      "output_excerpt": "== host: /usr/local/bin/godot --headless --path /company/worktrees/work-841a9c7a0c89-r1 -- --probe --recovery --host\n== client: /usr/local/bin/godot --headless --path /company/worktrees/work-841a9c7a0c89-r1 -- --probe --recovery --client\n== host exit=0 client exit=0\n== PROBE VERIFIED: host PASS + client PASS\n== GDScript parse validation (/usr/local/bin/godot --check-only)\n-- checking main.gd\nGodot Engine v4.7.2.stable.official.ed1daf0bf - https://godotengine.org\n\n   OK: main.gd parses\n== VALIDATION PASS: all scripts parse\n",
+      "passed": true,
+      "ran_at": "2026-08-28T09:56:44.106941Z"
+    },
+    {
+      "id": "9935fd73-ca92-4324-9526-9407dc56e76d",
+      "gate_id": "4b7f9519-7019-4670-91d4-a1b5afac5b67",
+      "attempt_id": "cb458c31-9603-4f4d-b96b-db65991b4ba0",
+      "exit_code": 0,
+      "output_digest": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "output_excerpt": "",
+      "passed": true,
+      "ran_at": "2026-08-28T10:14:49.705271Z"
+    },
+    {
+      "id": "434d7731-b3b2-4eea-a6cb-5ca813d4b5d0",
+      "gate_id": "4b7f9519-7019-4670-91d4-a1b5afac5b67",
+      "attempt_id": "afc83be0-11e6-46a3-8f00-cd0bcb161a2c",
+      "exit_code": 0,
+      "output_digest": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "output_excerpt": "",
+      "passed": true,
+      "ran_at": "2026-08-28T10:17:52.334242Z"
+    },
+    {
+      "id": "97151b97-3a3d-4e5e-9a09-078685278463",
+      "gate_id": "4cabc23a-ef78-4cff-b2f4-5ebf3d897a0e",
+      "attempt_id": "00731352-959f-4706-8a9e-611deb2fa2a8",
+      "exit_code": 0,
+      "output_digest": "be8ead5d281d096e8c8e7e14e63dee49429701035858efff81681d7d0ed09c45",
+      "output_excerpt": "== GDScript parse validation (/usr/local/bin/godot --check-only)\n-- checking main.gd\nGodot Engine v4.7.2.stable.official.ed1daf0bf - https://godotengine.org\n\n   OK: main.gd parses\n== VALIDATION PASS: all scripts parse\n",
+      "passed": true,
+      "ran_at": "2026-08-28T11:28:36.290922Z"
+    },
+    {
+      "id": "9cb0cd0e-1485-4d18-bd4b-8c4da2c6405a",
+      "gate_id": "5927d5c0-9924-41cd-a760-067b60c2cb42",
+      "attempt_id": "00731352-959f-4706-8a9e-611deb2fa2a8",
+      "exit_code": 1,
+      "output_digest": "f8906c3f5a2dd4be9514a1dda5f954d57ef8394899ee476017a1dbb5c296f92d",
+      "output_excerpt": "== host: /usr/local/bin/godot --path /company/worktrees/work-85ced0c3ddde-r1 --resolution 1280x720 --position 0,100 -- --probe --host --shots=/tmp/journey-positive-client.log\n== client: /usr/local/bin/godot --path /company/worktrees/work-85ced0c3ddde-r1 --resolution 1280x720 --position 1320,100 -- --probe --client --shots=/tmp/journey-positive-client.log\n== GDScript parse validation (/usr/local/bin/godot --check-only)\n-- checking main.gd\nGodot Engine v4.7.2.stable.official.ed1daf0bf - https://godotengine.org\n\n   OK: main.gd parses\n== VALIDATION PASS: all scripts parse\ngrep: unrecognized option '--journey-positive'\nUsage: grep [OPTION]... PATTERNS [FILE]...\nTry 'grep --help' for more information.\n== FAIL: process ended without PASS (host exit=1 client exit=1).\n== FAIL: host log = --journey-positive ; client log = /tmp/journey-positive-host.log\nexit status 1\n",
+      "passed": false,
+      "ran_at": "2026-08-28T11:28:40.575583Z"
+    },
+    {
+      "id": "c4c93144-35a4-4953-af32-042de96c1380",
+      "gate_id": "5c3e5dec-c3d8-4374-94dc-44cd3d22c38b",
+      "attempt_id": "00731352-959f-4706-8a9e-611deb2fa2a8",
+      "exit_code": 1,
+      "output_digest": "cfc26b97c8c3c4690131e942b51a4263d93ea73e9a7b79ee6e4e4fc6084d8a2a",
+      "output_excerpt": "== host: /usr/local/bin/godot --path /company/worktrees/work-85ced0c3ddde-r1 --resolution 1280x720 --position 0,100 -- --probe --host --shots=/tmp/journey-bypass-client.log\n== client: /usr/local/bin/godot --path /company/worktrees/work-85ced0c3ddde-r1 --resolution 1280x720 --position 1320,100 -- --probe --client --shots=/tmp/journey-bypass-client.log\n== GDScript parse validation (/usr/local/bin/godot --check-only)\n-- checking main.gd\nGodot Engine v4.7.2.stable.official.ed1daf0bf - https://godotengine.org\n\n   OK: main.gd parses\n== VALIDATION PASS: all scripts parse\ngrep: unrecognized option '--journey-bypass'\nUsage: grep [OPTION]... PATTERNS [FILE]...\nTry 'grep --help' for more information.\n== FAIL: process ended without PASS (host exit=1 client exit=1).\n== FAIL: host log = --journey-bypass ; client log = /tmp/journey-bypass-host.log\nexit status 1\n",
+      "passed": false,
+      "ran_at": "2026-08-28T11:28:44.979427Z"
+    },
+    {
+      "id": "e8e82d17-69d3-48b3-911c-2bf9d71d8337",
+      "gate_id": "0a7d6eb1-1e62-4050-8438-4875a8bc09d1",
+      "attempt_id": "00731352-959f-4706-8a9e-611deb2fa2a8",
+      "exit_code": 1,
+      "output_digest": "dfb85256cb7139f76e64fc20cb27ae1b511ef8f39b3c8cd6f1f47b68bce7986b",
+      "output_excerpt": "== host: /usr/local/bin/godot --path /company/worktrees/work-85ced0c3ddde-r1 --resolution 1280x720 --position 0,100 -- --probe --host --shots=/tmp/journey-mechanics-client.log\n== client: /usr/local/bin/godot --path /company/worktrees/work-85ced0c3ddde-r1 --resolution 1280x720 --position 1320,100 -- --probe --client --shots=/tmp/journey-mechanics-client.log\n== GDScript parse validation (/usr/local/bin/godot --check-only)\n-- checking main.gd\nGodot Engine v4.7.2.stable.official.ed1daf0bf - https://godotengine.org\n\n   OK: main.gd parses\n== VALIDATION PASS: all scripts parse\ngrep: unrecognized option '--mechanics-recovery'\nUsage: grep [OPTION]... PATTERNS [FILE]...\nTry 'grep --help' for more information.\n== FAIL: process ended without PASS (host exit=1 client exit=1).\n== FAIL: host log = --mechanics-recovery ; client log = /tmp/journey-mechanics-host.log\nexit status 1\n",
+      "passed": false,
+      "ran_at": "2026-08-28T11:28:49.427521Z"
+    },
+    {
+      "id": "d25a7705-2e3e-4e3c-bfbe-fd9c61bafb64",
+      "gate_id": "4cabc23a-ef78-4cff-b2f4-5ebf3d897a0e",
+      "attempt_id": "ec9e77bf-f378-41a0-9c7b-765b3a162407",
+      "exit_code": 0,
+      "output_digest": "be8ead5d281d096e8c8e7e14e63dee49429701035858efff81681d7d0ed09c45",
+      "output_excerpt": "== GDScript parse validation (/usr/local/bin/godot --check-only)\n-- checking main.gd\nGodot Engine v4.7.2.stable.official.ed1daf0bf - https://godotengine.org\n\n   OK: main.gd parses\n== VALIDATION PASS: all scripts parse\n",
+      "passed": true,
+      "ran_at": "2026-08-28T11:34:32.071794Z"
+    },
+    {
+      "id": "808db97f-ca62-4333-a1ad-c971c1005a12",
+      "gate_id": "5927d5c0-9924-41cd-a760-067b60c2cb42",
+      "attempt_id": "ec9e77bf-f378-41a0-9c7b-765b3a162407",
+      "exit_code": 0,
+      "output_digest": "8e6c210a3ff7c544692a706d49bd4dd3d5429059379c03549fbf944442def7ba",
+      "output_excerpt": "== host: /usr/local/bin/godot --headless --path /company/worktrees/work-85ced0c3ddde-r1 -- --probe --host\n== client: /usr/local/bin/godot --headless --path /company/worktrees/work-85ced0c3ddde-r1 -- --probe --client\n== host exit=0 client exit=0\n== PROBE VERIFIED: host PASS + client PASS\n== GDScript parse validation (/usr/local/bin/godot --check-only)\n-- checking main.gd\nGodot Engine v4.7.2.stable.official.ed1daf0bf - https://godotengine.org\n\n   OK: main.gd parses\n== VALIDATION PASS: all scripts parse\n",
+      "passed": true,
+      "ran_at": "2026-08-28T11:34:57.447862Z"
+    },
+    {
+      "id": "52ad6add-3555-43fb-97af-e461605012a0",
+      "gate_id": "5c3e5dec-c3d8-4374-94dc-44cd3d22c38b",
+      "attempt_id": "ec9e77bf-f378-41a0-9c7b-765b3a162407",
+      "exit_code": 0,
+      "output_digest": "82eb474be6e99eb162f5c031b768b4b3497f9a668a003ebab3a4ec4b9970b394",
+      "output_excerpt": "== host: /usr/local/bin/godot --headless --path /company/worktrees/work-85ced0c3ddde-r1 -- --probe --negative --host\n== client: /usr/local/bin/godot --headless --path /company/worktrees/work-85ced0c3ddde-r1 -- --probe --negative --client\n== host exit=0 client exit=0\n== PROBE VERIFIED: host PASS + client PASS\n== GDScript parse validation (/usr/local/bin/godot --check-only)\n-- checking main.gd\nGodot Engine v4.7.2.stable.official.ed1daf0bf - https://godotengine.org\n\n   OK: main.gd parses\n== VALIDATION PASS: all scripts parse\n",
+      "passed": true,
+      "ran_at": "2026-08-28T11:35:20.609878Z"
+    },
+    {
+      "id": "242aa29e-5ec1-46a1-9102-75e513be9f39",
+      "gate_id": "0a7d6eb1-1e62-4050-8438-4875a8bc09d1",
+      "attempt_id": "ec9e77bf-f378-41a0-9c7b-765b3a162407",
+      "exit_code": 0,
+      "output_digest": "8ad7dad08fe765acd3b9aa065f148d06899f03bb087729ba4cd0b664a59a3540",
+      "output_excerpt": "== host: /usr/local/bin/godot --headless --path /company/worktrees/work-85ced0c3ddde-r1 -- --probe --mechanics --host\n== client: /usr/local/bin/godot --headless --path /company/worktrees/work-85ced0c3ddde-r1 -- --probe --mechanics --client\n== host exit=0 client exit=0\n== PROBE VERIFIED: host PASS + client PASS\n== host: /usr/local/bin/godot --headless --path /company/worktrees/work-85ced0c3ddde-r1 -- --probe --recovery --host\n== client: /usr/local/bin/godot --headless --path /company/worktrees/work-85ced0c3ddde-r1 -- --probe --recovery --client\n== host exit=0 client exit=0\n== PROBE VERIFIED: host PASS + client PASS\n== COMPOSITE VERIFIED: mechanics PASS + recovery PASS\n== GDScript parse validation (/usr/local/bin/godot --check-only)\n-- checking main.gd\nGodot Engine v4.7.2.stable.official.ed1daf0bf - https://godotengine.org\n\n   OK: main.gd parses\n== VALIDATION PASS: all scripts parse\n== GDScript parse validation (/usr/local/bin/godot --check-only)\n-- checking main.gd\nGodot Engine v4.7.2.stable.official.ed1daf0bf - https://godotengine.org\n\n   OK: main.gd parses\n== VALIDATION PASS: all scripts parse\n",
+      "passed": true,
+      "ran_at": "2026-08-28T11:35:56.750746Z"
+    },
+    {
+      "id": "e1ae39b3-7536-4c1e-856f-47785a906009",
+      "gate_id": "56ec58b8-7ac7-4e48-84fc-69dc268ca778",
+      "attempt_id": "5e7832ba-ff8a-4c51-8dc5-bb06187929c9",
+      "exit_code": 0,
+      "output_digest": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "output_excerpt": "",
+      "passed": true,
+      "ran_at": "2026-08-28T11:44:42.016421Z"
+    },
+    {
+      "id": "fb08e799-a7c9-4a6b-97a0-a8994fdebcca",
+      "gate_id": "c8eb09b8-0940-4ffd-a221-684cf24348d3",
+      "attempt_id": "f7ba9565-9e02-48a9-a77c-dffc7a451598",
+      "exit_code": 0,
+      "output_digest": "be8ead5d281d096e8c8e7e14e63dee49429701035858efff81681d7d0ed09c45",
+      "output_excerpt": "== GDScript parse validation (/usr/local/bin/godot --check-only)\n-- checking main.gd\nGodot Engine v4.7.2.stable.official.ed1daf0bf - https://godotengine.org\n\n   OK: main.gd parses\n== VALIDATION PASS: all scripts parse\n",
+      "passed": true,
+      "ran_at": "2026-08-28T14:49:55.018887Z"
+    },
+    {
+      "id": "e7e8343a-8c87-4018-a9cd-a499c455deac",
+      "gate_id": "b567adfd-f51a-40da-a834-5e80cfe9edf8",
+      "attempt_id": "f7ba9565-9e02-48a9-a77c-dffc7a451598",
+      "exit_code": 0,
+      "output_digest": "1473d615be142fa1044f03199d5ffccf01e481487521574ee66096586f58471f",
+      "output_excerpt": "== host: /usr/local/bin/godot --headless --path /company/worktrees/work-f531188ba8e3-r1 -- --probe --host\n== client: /usr/local/bin/godot --headless --path /company/worktrees/work-f531188ba8e3-r1 -- --probe --client\n== host exit=0 client exit=0\n== PROBE VERIFIED: host PASS + client PASS\n== GDScript parse validation (/usr/local/bin/godot --check-only)\n-- checking main.gd\nGodot Engine v4.7.2.stable.official.ed1daf0bf - https://godotengine.org\n\n   OK: main.gd parses\n== VALIDATION PASS: all scripts parse\n",
+      "passed": true,
+      "ran_at": "2026-08-28T14:50:20.501903Z"
+    },
+    {
+      "id": "b0c71f31-30d5-48f8-b76e-cd287204ec7c",
+      "gate_id": "a73a5de7-2e27-4d1e-b18a-3208a0fe6ace",
+      "attempt_id": "f7ba9565-9e02-48a9-a77c-dffc7a451598",
+      "exit_code": 0,
+      "output_digest": "c0eb483aafa360aa029d863b2e6a5d233c82a15d1c1b69361d6a2cd1af7edc65",
+      "output_excerpt": "== host: /usr/local/bin/godot --headless --path /company/worktrees/work-f531188ba8e3-r1 -- --probe --negative --host\n== client: /usr/local/bin/godot --headless --path /company/worktrees/work-f531188ba8e3-r1 -- --probe --negative --client\n== host exit=0 client exit=0\n== PROBE VERIFIED: host PASS + client PASS\n== GDScript parse validation (/usr/local/bin/godot --check-only)\n-- checking main.gd\nGodot Engine v4.7.2.stable.official.ed1daf0bf - https://godotengine.org\n\n   OK: main.gd parses\n== VALIDATION PASS: all scripts parse\n",
+      "passed": true,
+      "ran_at": "2026-08-28T14:50:43.728268Z"
+    },
+    {
+      "id": "c6e04912-3b67-45ed-bda2-8af75ef81752",
+      "gate_id": "1e3ce293-a821-4962-b292-79dd8d8f6282",
+      "attempt_id": "f7ba9565-9e02-48a9-a77c-dffc7a451598",
+      "exit_code": 2,
+      "output_digest": "aee268fb4bfc44a2da246129b9b98f1f392f1664665667b9ef10f87d359cd5f0",
+      "output_excerpt": "unknown probe mode: --seat-recovery\nexit status 2\n",
+      "passed": false,
+      "ran_at": "2026-08-28T14:50:43.821688Z"
+    },
+    {
+      "id": "338fc33c-1db7-4438-96f1-d5488b3375d2",
+      "gate_id": "bff9f180-e6fd-4b0b-b161-e9a0e4306ce2",
+      "attempt_id": "f7ba9565-9e02-48a9-a77c-dffc7a451598",
+      "exit_code": 0,
+      "output_digest": "00d8115a1c50c8b6bfe8c3dfe6e8943b80ccf7c256e07256d8709b60a31908f5",
+      "output_excerpt": "== host: /usr/local/bin/godot --headless --path /company/worktrees/work-f531188ba8e3-r1 -- --probe --mechanics --host\n== client: /usr/local/bin/godot --headless --path /company/worktrees/work-f531188ba8e3-r1 -- --probe --mechanics --client\n== host exit=0 client exit=0\n== PROBE VERIFIED: host PASS + client PASS\n== host: /usr/local/bin/godot --headless --path /company/worktrees/work-f531188ba8e3-r1 -- --probe --recovery --host\n== client: /usr/local/bin/godot --headless --path /company/worktrees/work-f531188ba8e3-r1 -- --probe --recovery --client\n== host exit=0 client exit=0\n== PROBE VERIFIED: host PASS + client PASS\n== COMPOSITE VERIFIED: mechanics PASS + recovery PASS\n== GDScript parse validation (/usr/local/bin/godot --check-only)\n-- checking main.gd\nGodot Engine v4.7.2.stable.official.ed1daf0bf - https://godotengine.org\n\n   OK: main.gd parses\n== VALIDATION PASS: all scripts parse\n== GDScript parse validation (/usr/local/bin/godot --check-only)\n-- checking main.gd\nGodot Engine v4.7.2.stable.official.ed1daf0bf - https://godotengine.org\n\n   OK: main.gd parses\n== VALIDATION PASS: all scripts parse\n",
+      "passed": true,
+      "ran_at": "2026-08-28T14:51:22.828749Z"
+    },
+    {
+      "id": "245d9efd-5db8-4284-b6c3-a2c2e6d6144a",
+      "gate_id": "c8eb09b8-0940-4ffd-a221-684cf24348d3",
+      "attempt_id": "6c6ac916-971c-424a-a39b-c25b555360c2",
+      "exit_code": 0,
+      "output_digest": "be8ead5d281d096e8c8e7e14e63dee49429701035858efff81681d7d0ed09c45",
+      "output_excerpt": "== GDScript parse validation (/usr/local/bin/godot --check-only)\n-- checking main.gd\nGodot Engine v4.7.2.stable.official.ed1daf0bf - https://godotengine.org\n\n   OK: main.gd parses\n== VALIDATION PASS: all scripts parse\n",
+      "passed": true,
+      "ran_at": "2026-08-28T14:56:27.422148Z"
+    },
+    {
+      "id": "cda40e75-53b3-448f-92cc-a24e4cd0f230",
+      "gate_id": "b567adfd-f51a-40da-a834-5e80cfe9edf8",
+      "attempt_id": "6c6ac916-971c-424a-a39b-c25b555360c2",
+      "exit_code": 0,
+      "output_digest": "1473d615be142fa1044f03199d5ffccf01e481487521574ee66096586f58471f",
+      "output_excerpt": "== host: /usr/local/bin/godot --headless --path /company/worktrees/work-f531188ba8e3-r1 -- --probe --host\n== client: /usr/local/bin/godot --headless --path /company/worktrees/work-f531188ba8e3-r1 -- --probe --client\n== host exit=0 client exit=0\n== PROBE VERIFIED: host PASS + client PASS\n== GDScript parse validation (/usr/local/bin/godot --check-only)\n-- checking main.gd\nGodot Engine v4.7.2.stable.official.ed1daf0bf - https://godotengine.org\n\n   OK: main.gd parses\n== VALIDATION PASS: all scripts parse\n",
+      "passed": true,
+      "ran_at": "2026-08-28T14:56:53.358208Z"
+    },
+    {
+      "id": "6f394b15-b804-4a53-9c35-95a356a153fe",
+      "gate_id": "a73a5de7-2e27-4d1e-b18a-3208a0fe6ace",
+      "attempt_id": "6c6ac916-971c-424a-a39b-c25b555360c2",
+      "exit_code": 0,
+      "output_digest": "c0eb483aafa360aa029d863b2e6a5d233c82a15d1c1b69361d6a2cd1af7edc65",
+      "output_excerpt": "== host: /usr/local/bin/godot --headless --path /company/worktrees/work-f531188ba8e3-r1 -- --probe --negative --host\n== client: /usr/local/bin/godot --headless --path /company/worktrees/work-f531188ba8e3-r1 -- --probe --negative --client\n== host exit=0 client exit=0\n== PROBE VERIFIED: host PASS + client PASS\n== GDScript parse validation (/usr/local/bin/godot --check-only)\n-- checking main.gd\nGodot Engine v4.7.2.stable.official.ed1daf0bf - https://godotengine.org\n\n   OK: main.gd parses\n== VALIDATION PASS: all scripts parse\n",
+      "passed": true,
+      "ran_at": "2026-08-28T14:57:17.209019Z"
+    },
+    {
+      "id": "bf2491d8-9a8e-4672-a959-73bd784fcdc7",
+      "gate_id": "1e3ce293-a821-4962-b292-79dd8d8f6282",
+      "attempt_id": "6c6ac916-971c-424a-a39b-c25b555360c2",
+      "exit_code": 0,
+      "output_digest": "d754cb59977725bfa4edb78e1500e232895c6df9626f045b28508232204865b6",
+      "output_excerpt": "== host: /usr/local/bin/godot --headless --path /company/worktrees/work-f531188ba8e3-r1 -- --probe --recovery --host\n== client: /usr/local/bin/godot --headless --path /company/worktrees/work-f531188ba8e3-r1 -- --probe --recovery --client\n== host exit=0 client exit=0\n== PROBE VERIFIED: host PASS + client PASS\n== GDScript parse validation (/usr/local/bin/godot --check-only)\n-- checking main.gd\nGodot Engine v4.7.2.stable.official.ed1daf0bf - https://godotengine.org\n\n   OK: main.gd parses\n== VALIDATION PASS: all scripts parse\n",
+      "passed": true,
+      "ran_at": "2026-08-28T14:57:47.607322Z"
+    },
+    {
+      "id": "9e196789-0d1b-4781-852a-a518e64c8454",
+      "gate_id": "c8eb09b8-0940-4ffd-a221-684cf24348d3",
+      "attempt_id": "fad2aea8-10c9-4efe-b39d-6b149be5b972",
+      "exit_code": 0,
+      "output_digest": "be8ead5d281d096e8c8e7e14e63dee49429701035858efff81681d7d0ed09c45",
+      "output_excerpt": "== GDScript parse validation (/usr/local/bin/godot --check-only)\n-- checking main.gd\nGodot Engine v4.7.2.stable.official.ed1daf0bf - https://godotengine.org\n\n   OK: main.gd parses\n== VALIDATION PASS: all scripts parse\n",
+      "passed": true,
+      "ran_at": "2026-08-28T15:16:36.516394Z"
+    },
+    {
+      "id": "ea1fdc9e-a68e-4b69-ab9a-6e816eefac70",
+      "gate_id": "b567adfd-f51a-40da-a834-5e80cfe9edf8",
+      "attempt_id": "fad2aea8-10c9-4efe-b39d-6b149be5b972",
+      "exit_code": 0,
+      "output_digest": "1473d615be142fa1044f03199d5ffccf01e481487521574ee66096586f58471f",
+      "output_excerpt": "== host: /usr/local/bin/godot --headless --path /company/worktrees/work-f531188ba8e3-r1 -- --probe --host\n== client: /usr/local/bin/godot --headless --path /company/worktrees/work-f531188ba8e3-r1 -- --probe --client\n== host exit=0 client exit=0\n== PROBE VERIFIED: host PASS + client PASS\n== GDScript parse validation (/usr/local/bin/godot --check-only)\n-- checking main.gd\nGodot Engine v4.7.2.stable.official.ed1daf0bf - https://godotengine.org\n\n   OK: main.gd parses\n== VALIDATION PASS: all scripts parse\n",
+      "passed": true,
+      "ran_at": "2026-08-28T15:17:01.910926Z"
+    },
+    {
+      "id": "cefc1cfd-83cc-46ba-8306-fc3aa93336d5",
+      "gate_id": "a73a5de7-2e27-4d1e-b18a-3208a0fe6ace",
+      "attempt_id": "fad2aea8-10c9-4efe-b39d-6b149be5b972",
+      "exit_code": 0,
+      "output_digest": "c0eb483aafa360aa029d863b2e6a5d233c82a15d1c1b69361d6a2cd1af7edc65",
+      "output_excerpt": "== host: /usr/local/bin/godot --headless --path /company/worktrees/work-f531188ba8e3-r1 -- --probe --negative --host\n== client: /usr/local/bin/godot --headless --path /company/worktrees/work-f531188ba8e3-r1 -- --probe --negative --client\n== host exit=0 client exit=0\n== PROBE VERIFIED: host PASS + client PASS\n== GDScript parse validation (/usr/local/bin/godot --check-only)\n-- checking main.gd\nGodot Engine v4.7.2.stable.official.ed1daf0bf - https://godotengine.org\n\n   OK: main.gd parses\n== VALIDATION PASS: all scripts parse\n",
+      "passed": true,
+      "ran_at": "2026-08-28T15:17:25.082978Z"
+    },
+    {
+      "id": "651863a8-10af-476d-a328-a9dc7d899ceb",
+      "gate_id": "1e3ce293-a821-4962-b292-79dd8d8f6282",
+      "attempt_id": "fad2aea8-10c9-4efe-b39d-6b149be5b972",
+      "exit_code": 0,
+      "output_digest": "d754cb59977725bfa4edb78e1500e232895c6df9626f045b28508232204865b6",
+      "output_excerpt": "== host: /usr/local/bin/godot --headless --path /company/worktrees/work-f531188ba8e3-r1 -- --probe --recovery --host\n== client: /usr/local/bin/godot --headless --path /company/worktrees/work-f531188ba8e3-r1 -- --probe --recovery --client\n== host exit=0 client exit=0\n== PROBE VERIFIED: host PASS + client PASS\n== GDScript parse validation (/usr/local/bin/godot --check-only)\n-- checking main.gd\nGodot Engine v4.7.2.stable.official.ed1daf0bf - https://godotengine.org\n\n   OK: main.gd parses\n== VALIDATION PASS: all scripts parse\n",
+      "passed": true,
+      "ran_at": "2026-08-28T15:17:55.423492Z"
+    },
+    {
+      "id": "69d50966-8574-406c-a19a-c49dd3a55f5a",
+      "gate_id": "bff9f180-e6fd-4b0b-b161-e9a0e4306ce2",
+      "attempt_id": "fad2aea8-10c9-4efe-b39d-6b149be5b972",
+      "exit_code": 0,
+      "output_digest": "00d8115a1c50c8b6bfe8c3dfe6e8943b80ccf7c256e07256d8709b60a31908f5",
+      "output_excerpt": "== host: /usr/local/bin/godot --headless --path /company/worktrees/work-f531188ba8e3-r1 -- --probe --mechanics --host\n== client: /usr/local/bin/godot --headless --path /company/worktrees/work-f531188ba8e3-r1 -- --probe --mechanics --client\n== host exit=0 client exit=0\n== PROBE VERIFIED: host PASS + client PASS\n== host: /usr/local/bin/godot --headless --path /company/worktrees/work-f531188ba8e3-r1 -- --probe --recovery --host\n== client: /usr/local/bin/godot --headless --path /company/worktrees/work-f531188ba8e3-r1 -- --probe --recovery --client\n== host exit=0 client exit=0\n== PROBE VERIFIED: host PASS + client PASS\n== COMPOSITE VERIFIED: mechanics PASS + recovery PASS\n== GDScript parse validation (/usr/local/bin/godot --check-only)\n-- checking main.gd\nGodot Engine v4.7.2.stable.official.ed1daf0bf - https://godotengine.org\n\n   OK: main.gd parses\n== VALIDATION PASS: all scripts parse\n== GDScript parse validation (/usr/local/bin/godot --check-only)\n-- checking main.gd\nGodot Engine v4.7.2.stable.official.ed1daf0bf - https://godotengine.org\n\n   OK: main.gd parses\n== VALIDATION PASS: all scripts parse\n",
+      "passed": true,
+      "ran_at": "2026-08-28T15:18:34.840867Z"
+    },
+    {
+      "id": "902c2270-b533-4995-bffe-4ebaf63ca5e0",
+      "gate_id": "2b86c222-47fe-4769-b499-fad2e51d1f3b",
+      "attempt_id": "b8e3161f-302e-4e67-8b6d-28fcb43c0d79",
+      "exit_code": 0,
+      "output_digest": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "output_excerpt": "",
+      "passed": true,
+      "ran_at": "2026-08-28T15:27:24.820694Z"
+    }
+  ],
+  "handoffs": [
+    {
+      "id": "e6462318-e0b9-46b5-9f77-b178d7b781e0",
+      "work_id": "3589d1a0-c6ec-468a-8c99-8811d6025782",
+      "attempt_id": "cb458c31-9603-4f4d-b96b-db65991b4ba0",
+      "requested_by": "swiftarrival-playtest",
+      "category": "owner_judgement",
+      "requested_action": "Inspect the prepared outcome at file:///company/outputs/swift-arrival-independent-20260828T095848Z/REVIEW_TARGET.txt. Redirect the worker with concrete Work feedback if it misses the declared outcome; otherwise prepare and escalate only the exact irreducible owner judgement.",
+      "prepared_state": "ReviewTarget: file:///company/outputs/swift-arrival-independent-20260828T095848Z/REVIEW_TARGET.txt\nDeclared outcome: The independently accepted Swift Arrival slice will remain ready as one exact local founder play target. This closes the machine-doable work and leaves only the founder’s judgement of whether the compact loop feels coherent and genuinely playable.\n\nExact contract. Use only exact candidate 09fe09d30c65b811c0904508525a6ab8af02145c and the linked independent ACCEPT evidence at file:///company/outputs/swift-arrival-independent-20260828T095848Z. Do not change source, tests, assets, candidate commits, or evidence. Re-probe the prepared native host/client ReviewTarget described by REVIEW_TARGET.txt on display :1. If the target is no longer live, restore the exact host/client target using those recorded instructions, then prove it is visible, connected, and at the initial PICK UP THE CRATE objective. Link the strongest native target first with controls and reconnect details. Preserve these evidence limits: audio is unavailable under the dummy driver; host and client use local loopback; deterministic probes prove mechanics, not feel; founder taste remains unverified. Prepare the owner review around exactly one question: whether movement, interaction feedback, driving, and the delivery loop feel coherent and genuinely playable. No publishing, deployment, purchases, external effects, broad content, or promotion into the source Dogfood 4 company. Do not claim founder approval. If the target cannot be restored or live-probed, block with the exact observed condition rather than presenting it.\nreview-target-live-probe passed for this Attempt.",
+      "resume_condition": "The accountable lead either redirects attributable revision Work or admits the exact prepared outcome through the remaining Exec/owner judgement boundary.",
+      "state": "resolved",
+      "resolution": "Revision required before owner review. The lead inspected the saved native target and re-probed the runtime: the recorded host/client processes were absent and no visible Swift Arrival window remained on display :1. The prior screenshot and logs establish that the exact candidate had been connected at the initial pickup objective, but the declared ready-to-play outcome is no longer true. Restore and live-probe the exact host/client target without changing the accepted candidate or its evidence; preserve the stated audio, loopback, and unverified-feel limits.",
+      "assigned_to": "swiftarrival-gameproduct",
+      "escalated_from": null,
+      "escalated_at": null,
+      "owner_brief": null,
+      "briefed_by": null,
+      "briefed_at": null,
+      "brief_source_fingerprint": null,
+      "delivered_at": null,
+      "created_at": "2026-08-28T10:14:49.707773Z",
+      "resolved_at": "2026-08-28T10:15:36.046297Z"
+    },
+    {
+      "id": "7fec5844-c59f-4782-93ce-2fccaf0392cf",
+      "work_id": "3589d1a0-c6ec-468a-8c99-8811d6025782",
+      "attempt_id": "afc83be0-11e6-46a3-8f00-cd0bcb161a2c",
+      "requested_by": "swiftarrival-playtest",
+      "category": "owner_judgement",
+      "requested_action": "Inspect the prepared outcome at file:///company/outputs/swift-arrival-independent-20260828T095848Z/REVIEW_TARGET.txt. Redirect the worker with concrete Work feedback if it misses the declared outcome; otherwise prepare and escalate only the exact irreducible owner judgement.",
+      "prepared_state": "ReviewTarget: file:///company/outputs/swift-arrival-independent-20260828T095848Z/REVIEW_TARGET.txt\nDeclared outcome: The independently accepted Swift Arrival slice will remain ready as one exact local founder play target. This closes the machine-doable work and leaves only the founder’s judgement of whether the compact loop feels coherent and genuinely playable.\n\nExact contract. Use only exact candidate 09fe09d30c65b811c0904508525a6ab8af02145c and the linked independent ACCEPT evidence at file:///company/outputs/swift-arrival-independent-20260828T095848Z. Do not change source, tests, assets, candidate commits, or evidence. Re-probe the prepared native host/client ReviewTarget described by REVIEW_TARGET.txt on display :1. If the target is no longer live, restore the exact host/client target using those recorded instructions, then prove it is visible, connected, and at the initial PICK UP THE CRATE objective. Link the strongest native target first with controls and reconnect details. Preserve these evidence limits: audio is unavailable under the dummy driver; host and client use local loopback; deterministic probes prove mechanics, not feel; founder taste remains unverified. Prepare the owner review around exactly one question: whether movement, interaction feedback, driving, and the delivery loop feel coherent and genuinely playable. No publishing, deployment, purchases, external effects, broad content, or promotion into the source Dogfood 4 company. Do not claim founder approval. If the target cannot be restored or live-probed, block with the exact observed condition rather than presenting it.\nreview-target-live-probe passed for this Attempt.",
+      "resume_condition": "The accountable lead either redirects attributable revision Work or admits the exact prepared outcome through the remaining Exec/owner judgement boundary.",
+      "state": "resolved",
+      "resolution": "Redirected for attributable restoration: lead live inspection found recorded PIDs 26332 and 26435 absent, and no visible Swift Arrival X11 window on display :1; the native probe exited 1 with no output. Restore only candidate 09fe09d30c65b811c0904508525a6ab8af02145c using the recorded REVIEW_TARGET.txt instructions, then prove visible host/client windows, loopback connection, and the initial PICK UP THE CRATE objective. Preserve the audio, local-loopback, deterministic-mechanics, and unverified-founder-taste limits; do not change source, tests, assets, candidate, or prior evidence.",
+      "assigned_to": "swiftarrival-gameproduct",
+      "escalated_from": null,
+      "escalated_at": null,
+      "owner_brief": null,
+      "briefed_by": null,
+      "briefed_at": null,
+      "brief_source_fingerprint": null,
+      "delivered_at": null,
+      "created_at": "2026-08-28T10:17:52.336889Z",
+      "resolved_at": "2026-08-28T10:18:55.566970Z"
+    },
+    {
+      "id": "5a05e50a-0d86-432c-b381-2653d2319dd8",
+      "work_id": "3589d1a0-c6ec-468a-8c99-8811d6025782",
+      "attempt_id": null,
+      "requested_by": "swiftarrival-gameproduct",
+      "category": "owner_judgement",
+      "requested_action": "Play the prepared local Swift Arrival slice and judge whether its movement, driving, collision, interaction feedback, and delivery loop feel coherent and genuinely playable.",
+      "prepared_state": "Strongest native ReviewTarget: file:///company/outputs/swift-arrival-independent-20260828T095848Z/REVIEW_TARGET.txt. Exact accepted candidate: 09fe09d30c65b811c0904508525a6ab8af02145c. Independent ACCEPT evidence: file:///company/outputs/swift-arrival-independent-20260828T095848Z. The attributable reviewer twice restored and live-probed visible connected host/client windows at the initial PICK UP THE CRATE objective; the latest successful restoration is Attempt afc83be0-11e6-46a3-8f00-cd0bcb161a2c. Recorded controls and bounded restart/reconnect instructions are in REVIEW_TARGET.txt. Limits: live process continuity is ephemeral and was interrupted after successful probes; dummy-driver audio was unavailable; networking evidence is local loopback; deterministic probes establish mechanics, not feel; founder taste remains unverified. No source, test, asset, candidate, or evidence change is requested.",
+      "resume_condition": "The founder records an explicit accept-or-revise judgement on the prepared exact candidate, with concrete feel feedback if revision is required.",
+      "state": "withdrawn",
+      "resolution": "Founder review is withdrawn because newer owner-supplied blind evidence at /company/inputs/exp11-referee-r9 supersedes the prior acceptance: candidate 09fe09d30c65b811c0904508525a6ab8af02145c declares DELIVERY COMPLETE at ROUTE 0 / 40 m after the crate is carried on foot to the starting bay. This invalidates the prepared target and requires the already-chartered bounded Staff repair plus dependent independent verification before any new owner review. Abandon this obsolete founder-ready Work; do not restore, present, or claim acceptance of this candidate.",
+      "assigned_to": "exec",
+      "escalated_from": null,
+      "escalated_at": null,
+      "owner_brief": {
+        "kind": "outcome_review",
+        "headline": "Play the repaired Swift Arrival slice and decide whether it now feels genuinely playable",
+        "situation": "A fresh independent reviewer completed the compact pickup, drive, exit, unload, and delivery loop on the repaired candidate and recorded an ACCEPT verdict. Positive and negative multiplayer probes, movement and collision checks, mistake recovery, screenshots, input traces, and host/client logs are linked. The reviewer also twice restored and observed connected visible host/client windows at the opening pickup objective; continuous process liveness was later interrupted, so the saved target includes exact restart and reconnect instructions rather than a claim that it is still running.",
+        "impact": "The machine-checkable mechanics and an independent end-to-end playthrough support founder review. Only personal judgement of movement, driving, feedback, and overall feel remains; deterministic checks cannot establish that.",
+        "recommendation": "Play the prepared exact local target and accept it as the compact vertical slice if the full loop feels coherent. If it does not, record the specific moment and feel problem so the team can revise from concrete founder evidence.",
+        "no_action": "The accepted candidate and evidence remain preserved locally, but the company will not claim the slice meets founder taste or broaden the content without this judgement.",
+        "uncertainty": "Audio could not be evaluated under the dummy driver, multiplayer evidence is local loopback rather than remote-network play, and founder feel remains unverified.",
+        "deadline": null
+      },
+      "briefed_by": "swiftarrival-gameproduct",
+      "briefed_at": "2026-08-28T11:11:13.467172Z",
+      "brief_source_fingerprint": "04a7d3f531f0a2ef9ff50bfc8fd298e5a8734862a1e6e5be58973f7338922fa2",
+      "delivered_at": null,
+      "created_at": "2026-08-28T11:11:02.942202Z",
+      "resolved_at": "2026-08-28T11:12:02.516410Z"
+    },
+    {
+      "id": "24729243-362a-4ef7-bf47-d07e74b9a79d",
+      "work_id": "af5ef98a-1cff-45c9-b245-c7bd0aebc61a",
+      "attempt_id": null,
+      "requested_by": "swiftarrival-gameproduct",
+      "category": "owner_judgement",
+      "requested_action": "Play the exact repaired local Swift Arrival slice and decide whether the pickup, recoverable drop, truck journey, exit, unload, collision, feedback, and movement/driving response feel coherent and genuinely playable.",
+      "prepared_state": "Strongest native ReviewTarget: file:///company/outputs/swift-arrival-independent-journey-r1-20260828T1140Z/REVIEW_TARGET.txt. Exact candidate: 7e76d1e087cf4cde12aaf1fa6d5e9309f39bcddd. Exact-lineage evidence manifest: file:///company/outputs/swift-arrival-independent-journey-r1-20260828T1140Z/manifest.json. Independent report: file:///company/outputs/swift-arrival-independent-journey-r1-20260828T1140Z/REPORT.txt. Runtime start event and checked-out source both recorded the exact candidate with a clean tree; stale producer and abandoned old-base review evidence were explicitly excluded. Fresh native evidence directly shows the route-zero on-foot bypass rejected with corrective feedback after drop recovery and the clean restarted full truck journey completing at ROUTE 40 / 40 m after drop recovery. The ReviewTarget contains controls and exact host-first/client-second restart and reconnect instructions; no claim is made that processes remain live. Limits: audio unavailable under the dummy driver, host/client evidence is local loopback rather than remote networking, collision observation is bounded, deterministic probes support mechanics only, and founder taste remains unverified. The target is local and unpublished.",
+      "resume_condition": "The founder records an explicit accept-or-revise judgement on the exact repaired candidate, with the specific moment and feel problem if revision is required.",
+      "state": "pending",
+      "resolution": "All machine-doable verification is complete and inspected: exact candidate lineage is clean; the fresh native on-foot route is rejected at ROUTE 0 / 40 with corrective feedback; the clean restarted pickup/drop/recovery/drive/exit/unload route completes with host/client agreement; and the local ReviewTarget contains exact launch, restart, reconnect, controls, and evidence locators. Whether the movement, driving, collision, feedback, and loop feel genuinely playable is irreducible founder taste.",
+      "assigned_to": null,
+      "escalated_from": "exec",
+      "escalated_at": "2026-08-28T11:45:50.104410Z",
+      "owner_brief": {
+        "kind": "outcome_review",
+        "headline": "Play the repaired Swift Arrival slice and decide whether the compact delivery now feels genuinely playable",
+        "situation": "A fresh independent native review used the exact repaired candidate with a clean source lineage. It reproduced the former on-foot shortcut after a deliberate drop and recovery; the game rejected delivery at route zero and displayed corrective guidance. After a clean restart, the reviewer completed pickup, drop recovery, truck entry, driving to the route end, exit, and unloading, with host and client agreeing on completion. No material new blocker was observed in those bounded routes.",
+        "impact": "The repaired mechanics now enforce the truck journey and the independently observed compact loop reaches completion. Deterministic and native evidence can establish those behaviors, but only founder play can decide whether movement, driving, collision, interaction feedback, and the complete loop feel coherent enough for the intended vertical slice.",
+        "recommendation": "Play the prepared exact local target and accept it as the compact vertical slice if the full loop feels coherent. If it does not, record the specific moment and feel problem so the team can revise from concrete founder evidence.",
+        "no_action": "The repaired candidate and evidence remain preserved locally, but the company will not claim founder acceptance or broaden the content without this judgement.",
+        "uncertainty": "Audio was unavailable under the dummy driver; multiplayer evidence is local loopback rather than remote-network play; collision observation was bounded; and founder taste remains unverified.",
+        "deadline": null
+      },
+      "briefed_by": "exec",
+      "briefed_at": "2026-08-28T11:45:45.063106Z",
+      "brief_source_fingerprint": "809622cb3267bf5106b4c8b8ff1f26a56b1e7f73ab4459961127814ccf4ffc42",
+      "delivered_at": null,
+      "created_at": "2026-08-28T11:45:17.299854Z",
+      "resolved_at": null
+    },
+    {
+      "id": "39e8048b-ae1d-42ba-a216-5d2bb9e4f802",
+      "work_id": "731bd86c-6507-4ae1-a7bf-37b3b20980b7",
+      "attempt_id": null,
+      "requested_by": "swiftarrival-gameproduct",
+      "category": "owner_judgement",
+      "requested_action": "Play the exact final local Swift Arrival slice and decide whether the complete pickup, recoverable drop, truck journey, endpoint exit, unload, seat recovery, movement, collision, and interaction feedback feel coherent and genuinely playable.",
+      "prepared_state": "Strongest ReviewTarget: file:///company/outputs/swift-arrival-r15-final-independent-b8e3161f/REVIEW_TARGET.txt. Exact candidate: 41f4fa53a2cd05ab17aea473f3d1be28979b2dcf. Exact-lineage manifest: file:///company/outputs/swift-arrival-r15-final-independent-b8e3161f/run-manifest.json. Independent report: file:///company/outputs/swift-arrival-r15-final-independent-b8e3161f/REPORT.txt. Runtime start source_commit and clean checked-out HEAD both matched the exact candidate; all parent-commit native evidence was excluded. Three fresh native routes passed: deliberate drop/recovery followed by loaded drive to visible ROUTE 40 / 40 m, valid exit, unload, and authoritative delivery completion; clean-restart route-zero on-foot unload rejection with actionable feedback; clean-restart early exit at approximately 12 / 40 m followed by ordinary movement through cargo and natural driver-seat re-entry. Host/client state agreed and distinct peers showed no stale state. The target contains exact preflight, controls, host-first/client-second restart, reconnect, and bounded question. No claim is made that processes remain live. Retained observation: one endpoint-exit frame briefly kept the top re-entry objective while central feedback correctly instructed unloading; unload succeeded immediately. Limits: audio unverified under dummy driver, networking local loopback, rendering X11 llvmpipe, collision observation bounded, broad subjective feel and founder taste unverified, owner cockpit/gateway reported degraded during review though local review capabilities were live. Target is local and unpublished.",
+      "resume_condition": "The founder records an explicit accept-or-revise judgement on the exact final candidate, including whether the transient endpoint objective is distracting and the specific moment and feel problem if revision is required.",
+      "state": "pending",
+      "resolution": "All machine-doable work is complete and personally inspected: exact candidate lineage and ancestry match; fresh native exact-candidate routes prove loaded endpoint completion, route-zero rejection, and ordinary early-exit seat re-entry with host/client agreement; deterministic mechanics and recovery checks support the bounded observations; and the ReviewTarget contains exact preflight, controls, restart, and reconnect instructions. Whether the complete loop feels coherent, including the brief endpoint objective mismatch, is irreducible founder taste.",
+      "assigned_to": null,
+      "escalated_from": "exec",
+      "escalated_at": "2026-08-28T15:28:42.351245Z",
+      "owner_brief": {
+        "kind": "outcome_review",
+        "headline": "Play the final Swift Arrival slice and decide whether the compact loop now feels genuinely playable",
+        "situation": "A fresh independent reviewer used the exact final candidate with a clean source lineage and excluded all parent-candidate native evidence. Three clean native routes passed: deliberate drop and recovery followed by the loaded drive to the visible endpoint and delivery completion; route-zero on-foot unloading rejected with corrective guidance; and an early exit followed by ordinary movement through the cargo area and natural driver-seat re-entry. Host and client state agreed, and no material blocker was observed on the bounded routes.",
+        "impact": "The previously observed shortcut, visible-endpoint completion failure, and seat-recovery gap are now resolved in exact-candidate native evidence. Only founder judgement can establish whether movement, driving, collision, feedback, and the overall loop feel coherent enough for the compact vertical slice.",
+        "recommendation": "Play the prepared exact local target and accept it as the compact vertical slice if the loop feels coherent. Pay particular attention to the brief endpoint objective mismatch; if the slice needs revision, record the specific moment and feel problem.",
+        "no_action": "The final candidate and evidence remain preserved locally, but the company will not claim founder acceptance or broaden the content without this judgement.",
+        "uncertainty": "Audio is unverified under the dummy driver; networking is local loopback; rendering used X11 llvmpipe; collision observation is bounded; one endpoint-exit frame briefly retained a re-entry objective while central feedback correctly instructed unloading; founder taste remains unverified.",
+        "deadline": null
+      },
+      "briefed_by": "exec",
+      "briefed_at": "2026-08-28T15:28:36.440038Z",
+      "brief_source_fingerprint": "a8cae1de7317c54138700f67fd3dc5706eab8953cbaeb869ef23fda6f4c9f274",
+      "delivered_at": null,
+      "created_at": "2026-08-28T15:28:02.757447Z",
+      "resolved_at": null
+    }
+  ]
+}

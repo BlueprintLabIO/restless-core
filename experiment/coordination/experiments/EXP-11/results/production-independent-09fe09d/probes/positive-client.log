@@ -1,0 +1,24 @@
+Godot Engine v4.7.2.stable.official.ed1daf0bf - https://godotengine.org
+
+[10:03:21] ENet: client connecting to 127.0.0.1:24565 ...
+[10:03:21] ENet: CONNECTED to host as CLIENT peer 1651961655
+[10:03:21] ENet: peer_connected id=1 (transport-level connection evidence)
+[10:03:21] PROBE(client): joined host session; running scripted delivery
+[10:03:21] PROBE(client): requested crate pickup via hand interaction
+[10:03:21] FEEDBACK[ok]: Picked up the crate (E unload in zone · Q drop)
+[10:03:23] PROBE(client): requested driver position (walked cargo->cab through doorway)
+[10:03:23] FEEDBACK[info]: SEATED — W/S drive · E exits at the rear cargo threshold
+[10:03:23] PROBE(client): in driver seat, still holding crate
+[10:03:37] PROBE(client): truck reached route end z=40.0 (host-bounded)
+[10:03:37] PROBE(client): left driver seat, carrying crate out of the truck to unload
+[10:03:37] HOST corrected your position (exited at rear cargo threshold)
+[10:03:37] FEEDBACK[info]: EXITED ON FOOT — yellow destination is behind the truck · E unloads when prompted
+[10:03:38] HOST corrected your position (teleport (3.09m horizontal, 0.00m vertical))
+[10:03:41] PROBE(client): requested UNLOAD in the destination zone
+[10:03:41] FEEDBACK[ok]: Unloaded the crate in the destination zone
+[10:03:41] FEEDBACK[ok]: DELIVERY COMPLETED — crate rests in the destination zone
+[10:03:41] MISSION: DELIVERY COMPLETED (host-authoritative) — visible on this client (peer 1651961655)
+[10:03:41] PROBE RESULT: PASS — positive delivery loop completed and visible on the client
+[10:03:42] PROBE: exiting (exit code 0)
+[10:03:42] ENet: server disconnected
+[10:03:42] PROBE: exiting (exit code 0)

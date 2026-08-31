@@ -1,0 +1,10 @@
+[
+  {
+    "body": "Final referee judgement for frozen candidate 41f4fa53a2cd05ab17aea473f3d1be28979b2dcf: FAIL / not accepted under this bounded native gameplay protocol. I directly inspected the linked current-Attempt PNGs and records. Launch 1 validly shows immediate explicit rejection of the on-foot shortcut. Launch 2 directly shows Q-drop mistake and E recovery, loaded driving from route 0/40 to  at 40/40, then on-foot exit with the HUD regressing/persisting at ; after a second re-enter/move/exit cycle and destination-zone E attempt, the stale objective remains and no delivery completion appears. This is a reproducible post-route-40 blocker, not complete-journey success. Gaps: no source/log inspection, no internal cause established, and Runtime recorded prerequisite artifact refs as Attempt inputs although the player reports not inspecting their contents; the second launch's native visual evidence is current-launch and independently sufficient for the blocker. No production advice or founder acceptance is declared.",
+    "created_at": "2026-08-28T18:05:03.426746Z",
+    "from_actor": "gameplay-referee",
+    "id": 17,
+    "read_at": null,
+    "to_actor": "exec"
+  }
+]

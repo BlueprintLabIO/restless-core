@@ -1,12 +1,12 @@
 //! Host-side model credential isolation through OMP's imported auth broker
 //! and auth gateway.
 //!
-//! Restless does not implement another model proxy here. It supervises the
-//! open-source proxy shipped by the ACP runtime we already use, places only
-//! credentials for providers named by configured companies into its host-side
-//! vault, and gives company processes a short-lived signed relay capability.
-//! Provider keys, OMP's root bearer, and Infisical machine-identity
-//! credentials never cross into the Company Runtime.
+//! Restless supervises the open-source proxy shipped by the ACP runtime for
+//! mature pi-native traffic and exposes one narrow first-party Responses relay
+//! for the pinned Codex runtime. Both place credentials only on the host and
+//! give company processes a short-lived signed exact-model capability.
+//! Provider keys, OMP's root bearer, and Infisical machine-identity credentials
+//! never cross into the Company Runtime.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::pin::Pin;
@@ -38,6 +38,7 @@ const OMP_GATEWAY_HOST_URL: &str = "http://127.0.0.1:7796";
 #[cfg(test)]
 const RELAY_RUNTIME_URL: &str = "http://host.docker.internal:7790";
 const MODEL_CAPABILITY_ENV: &str = "RESTLESS_MODEL_CAPABILITY";
+pub(crate) const RESPONSES_TARIFF_VERSION: &str = "omp-18.0.10-gpt-5.6-2026-08-30";
 
 #[derive(Debug, Clone)]
 struct GatewayEndpoints {
@@ -457,6 +458,7 @@ pub async fn start(
         &required_models,
     )
     .await?;
+    let responses_routes = direct_responses_routes(&provider_credentials)?;
     let providers = provider_credentials
         .into_iter()
         .map(|(provider, credential)| (provider, credential.billing()))
@@ -475,6 +477,7 @@ pub async fn start(
             spend,
             upstream_token: gateway_token,
             upstream_url: endpoints.gateway_host_url,
+            responses_routes,
             http: reqwest::Client::builder()
                 .timeout(Duration::from_secs(15 * 60))
                 .build()
@@ -727,7 +730,45 @@ struct RelayState {
     spend: crate::spend::SpendLedger,
     upstream_token: String,
     upstream_url: String,
+    responses_routes: BTreeMap<String, DirectResponsesRoute>,
     http: reqwest::Client,
+}
+
+#[derive(Clone)]
+struct DirectResponsesRoute {
+    base_url: String,
+    api_key: String,
+}
+
+fn direct_responses_routes(
+    credentials: &BTreeMap<String, ProviderCredential>,
+) -> Result<BTreeMap<String, DirectResponsesRoute>> {
+    let mut routes = BTreeMap::new();
+    if let Some(ProviderCredential::ApiKey(api_key)) = credentials.get("litellm") {
+        let mut url = reqwest::Url::parse(
+            &std::env::var("GPT_BASE_URL").context("litellm Responses route needs GPT_BASE_URL")?,
+        )
+        .context("parse GPT_BASE_URL for the Responses relay")?;
+        if !matches!(url.scheme(), "http" | "https")
+            || !url.username().is_empty()
+            || url.password().is_some()
+            || url.query().is_some()
+            || url.fragment().is_some()
+        {
+            bail!("GPT_BASE_URL is not a credential-free HTTP(S) origin/path");
+        }
+        if url.path() == "/" || url.path().is_empty() {
+            url.set_path("/v1");
+        }
+        routes.insert(
+            "litellm".to_string(),
+            DirectResponsesRoute {
+                base_url: url.as_str().trim_end_matches('/').to_string(),
+                api_key: api_key.clone(),
+            },
+        );
+    }
+    Ok(routes)
 }
 
 async fn start_runtime_relay(
@@ -740,6 +781,7 @@ async fn start_runtime_relay(
     let app = Router::new()
         .route("/v1/models", get(relay_models))
         .route("/v1/pi/stream", post(relay_pi_stream))
+        .route("/v1/responses", post(relay_responses))
         .layer(DefaultBodyLimit::max(2 * 1024 * 1024))
         .with_state(state);
     Ok(tokio::spawn(async move {
@@ -922,6 +964,153 @@ async fn relay_pi_stream(
         .unwrap_or_else(|_| relay_error(StatusCode::BAD_GATEWAY, "could not relay model stream"))
 }
 
+/// Relay the documented OpenAI Responses wire used by the pinned first-party
+/// Codex app-server. The Runtime still receives only its signed, exact-model
+/// capability: the host-side OMP gateway retains the provider credential and
+/// the relay rewrites the unqualified Codex model id to the provider-qualified
+/// route only after verifying that capability.
+async fn relay_responses(
+    State(state): State<RelayState>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response<Body> {
+    let token = match bearer_capability(&headers) {
+        Ok(token) => token,
+        Err(error) => return relay_error(StatusCode::UNAUTHORIZED, &error),
+    };
+    let grant = match state.capabilities.verify_model(token) {
+        Ok(grant) => grant,
+        Err(error) => {
+            return relay_error(
+                StatusCode::UNAUTHORIZED,
+                &format!("invalid model capability: {error:#}"),
+            )
+        }
+    };
+    let (provider, model_id) = match split_model(&grant.model) {
+        Ok(parts) => parts,
+        Err(error) => return relay_error(StatusCode::UNAUTHORIZED, &format!("{error:#}")),
+    };
+    let mut request = match serde_json::from_slice::<serde_json::Value>(&body) {
+        Ok(request) => request,
+        Err(_) => return relay_error(StatusCode::BAD_REQUEST, "model request body is not JSON"),
+    };
+    let requested = match request.get("model").and_then(serde_json::Value::as_str) {
+        Some(model) if !model.is_empty() => model,
+        _ => return relay_error(StatusCode::BAD_REQUEST, "Responses request has no model"),
+    };
+    if requested != model_id && requested != grant.model {
+        return relay_error(
+            StatusCode::FORBIDDEN,
+            "model capability does not permit this exact model",
+        );
+    }
+    if request.get("stream").and_then(serde_json::Value::as_bool) != Some(true) {
+        return relay_error(
+            StatusCode::BAD_REQUEST,
+            "Runtime Responses requests must stream for terminal accounting",
+        );
+    }
+    // The host gateway catalogue names custom routes by provider-qualified id;
+    // Codex correctly uses the provider-local id on the OpenAI wire.
+    request["model"] = serde_json::Value::String(grant.model.clone());
+    if response_tariff_micro_usd(model_id, 0, 0, 0).is_none() {
+        return relay_error(
+            StatusCode::BAD_REQUEST,
+            "exact Responses tariff is not pinned for this model",
+        );
+    }
+    let config = match CompanyConfig::load(&state.root, &grant.company) {
+        Ok(config) => config,
+        Err(_) => {
+            return relay_error(
+                StatusCode::FORBIDDEN,
+                "model capability company is unavailable",
+            )
+        }
+    };
+    let billing = match grant.billing.as_str() {
+        "metered_api" => ModelBilling::MeteredApi,
+        "subscription" => ModelBilling::Subscription,
+        _ => {
+            return relay_error(
+                StatusCode::UNAUTHORIZED,
+                "model capability has an invalid billing policy",
+            )
+        }
+    };
+    if billing == ModelBilling::MeteredApi {
+        let budget = state.spend.budget_state(&config);
+        if !budget.is_available() {
+            return relay_error(
+                StatusCode::PAYMENT_REQUIRED,
+                &budget.owner_message(&config.name),
+            );
+        }
+    }
+    let Some(route) = state.responses_routes.get(provider) else {
+        return relay_error(
+            StatusCode::BAD_REQUEST,
+            "provider has no admitted first-party Responses contract",
+        );
+    };
+
+    let encoded = match serde_json::to_vec(&request) {
+        Ok(encoded) => encoded,
+        Err(_) => return relay_error(StatusCode::BAD_REQUEST, "could not encode model request"),
+    };
+    let mut upstream_request = state
+        .http
+        .post(format!("{}/responses", route.base_url))
+        .bearer_auth(&route.api_key)
+        .header(CONTENT_TYPE, "application/json")
+        .body(encoded);
+    if let Some(accept) = headers.get(ACCEPT) {
+        upstream_request = upstream_request.header(ACCEPT, accept);
+    }
+    let upstream = match upstream_request.send().await {
+        Ok(response) => response,
+        Err(error) => {
+            tracing::warn!(company = %grant.company, actor = %grant.actor, "Responses relay upstream transport: {error}");
+            return relay_error(StatusCode::BAD_GATEWAY, "host model gateway is unavailable");
+        }
+    };
+    if !upstream.status().is_success() {
+        let status = upstream.status();
+        tracing::warn!(
+            company = %grant.company,
+            actor = %grant.actor,
+            upstream_status = %status,
+            "host model gateway refused Runtime Responses request"
+        );
+        return relay_error(status, "host model gateway refused the model request");
+    }
+
+    let status = upstream.status();
+    let upstream_headers = upstream.headers().clone();
+    let stream = MeteredStream::new_responses(
+        upstream.bytes_stream(),
+        state.spend.meter(),
+        MeteredRequest {
+            company: grant.company,
+            actor: grant.actor,
+            session: grant.session,
+            model: grant.model,
+            billing,
+        },
+    );
+    let (stream, _drain) = detach_metered_stream(stream);
+    let mut response = Response::builder().status(status);
+    for name in [CONTENT_TYPE, CACHE_CONTROL] {
+        if let Some(value) = upstream_headers.get(&name) {
+            response = response.header(name, value);
+        }
+    }
+    response
+        .body(Body::from_stream(stream))
+        .unwrap_or_else(|_| relay_error(StatusCode::BAD_GATEWAY, "could not relay model stream"))
+}
+
 fn detach_metered_stream(
     mut upstream: MeteredStream,
 ) -> (
@@ -991,6 +1180,12 @@ struct MeteredRequest {
     billing: ModelBilling,
 }
 
+#[derive(Clone, Copy)]
+enum MeteringProtocol {
+    PiNative,
+    OpenAiResponses,
+}
+
 /// The relay forwards chunks unchanged but observes enough pi-native SSE to
 /// make the terminal charged usage a host-side record. A provider error is a
 /// valid terminal only when its canonical error message carries a provider
@@ -1002,6 +1197,7 @@ struct MeteredStream {
     inner: Pin<Box<dyn Stream<Item = std::result::Result<Bytes, reqwest::Error>> + Send>>,
     meter: crate::spend::TurnMeter,
     request: MeteredRequest,
+    protocol: MeteringProtocol,
     frame_buffer: Vec<u8>,
     settled: bool,
     failed: bool,
@@ -1016,6 +1212,22 @@ impl MeteredStream {
             inner: Box::pin(inner),
             meter,
             request,
+            protocol: MeteringProtocol::PiNative,
+            frame_buffer: Vec::new(),
+            settled: false,
+            failed: false,
+        }
+    }
+
+    fn new_responses<S>(inner: S, meter: crate::spend::TurnMeter, request: MeteredRequest) -> Self
+    where
+        S: Stream<Item = std::result::Result<Bytes, reqwest::Error>> + Send + 'static,
+    {
+        Self {
+            inner: Box::pin(inner),
+            meter,
+            request,
+            protocol: MeteringProtocol::OpenAiResponses,
             frame_buffer: Vec::new(),
             settled: false,
             failed: false,
@@ -1078,15 +1290,33 @@ impl MeteredStream {
             self.failed = true;
             return;
         };
-        match event.get("type").and_then(serde_json::Value::as_str) {
-            Some("done") => self.record_terminal_usage(event.pointer("/message/usage")),
-            Some("error") => {
-                // pi-native error events are terminal messages too. A provider
-                // refusal may legitimately cost $0, but accepting it requires
-                // the same exact usage envelope as a success.
-                self.record_terminal_usage(event.pointer("/error/usage"));
+        match self.protocol {
+            MeteringProtocol::PiNative => {
+                match event.get("type").and_then(serde_json::Value::as_str) {
+                    Some("done") => self.record_terminal_usage(event.pointer("/message/usage")),
+                    Some("error") => {
+                        // pi-native error events are terminal messages too. A provider
+                        // refusal may legitimately cost $0, but accepting it requires
+                        // the same exact usage envelope as a success.
+                        self.record_terminal_usage(event.pointer("/error/usage"));
+                    }
+                    _ => {}
+                }
             }
-            _ => {}
+            MeteringProtocol::OpenAiResponses => {
+                match event.get("type").and_then(serde_json::Value::as_str) {
+                    Some("response.completed") => {
+                        self.record_responses_terminal(event.pointer("/response/usage"));
+                    }
+                    Some("response.failed") | Some("response.incomplete") => {
+                        // A provider may have consumed tokens before a failed
+                        // response. Settle only when the terminal usage is
+                        // present; otherwise Drop poisons metered accounting.
+                        self.record_responses_terminal(event.pointer("/response/usage"));
+                    }
+                    _ => {}
+                }
+            }
         }
     }
 
@@ -1099,6 +1329,57 @@ impl MeteredStream {
             ModelBilling::MeteredApi => usage
                 .and_then(|usage| usage.pointer("/cost/total"))
                 .and_then(ceiling_micro_usd),
+            ModelBilling::Subscription => Some(0),
+        };
+        let Some(micro_usd) = micro_usd else {
+            self.failed = true;
+            return;
+        };
+        self.meter.record_exact(
+            &self.request.company,
+            &self.request.actor,
+            &self.request.session,
+            &self.request.model,
+            tokens,
+            micro_usd,
+        );
+        self.settled = true;
+    }
+
+    fn record_responses_terminal(&mut self, usage: Option<&serde_json::Value>) {
+        if self.settled || self.failed {
+            return;
+        }
+        let Some(usage) = usage else {
+            self.failed = true;
+            return;
+        };
+        let Some(input) = usage
+            .get("input_tokens")
+            .and_then(serde_json::Value::as_u64)
+        else {
+            self.failed = true;
+            return;
+        };
+        let Some(output) = usage
+            .get("output_tokens")
+            .and_then(serde_json::Value::as_u64)
+        else {
+            self.failed = true;
+            return;
+        };
+        let cached = usage
+            .pointer("/input_tokens_details/cached_tokens")
+            .and_then(serde_json::Value::as_u64)
+            .unwrap_or_default();
+        let tokens = usage
+            .get("total_tokens")
+            .and_then(serde_json::Value::as_u64)
+            .unwrap_or_else(|| input.saturating_add(output));
+        let micro_usd = match self.request.billing {
+            ModelBilling::MeteredApi => split_model(&self.request.model)
+                .ok()
+                .and_then(|(_, model)| response_tariff_micro_usd(model, input, output, cached)),
             ModelBilling::Subscription => Some(0),
         };
         let Some(micro_usd) = micro_usd else {
@@ -1241,6 +1522,34 @@ fn ceiling_micro_usd(value: &serde_json::Value) -> Option<u64> {
         let whole = digits / divisor;
         whole.checked_add(u64::from(digits % divisor != 0))
     }
+}
+
+/// Pinned tariff used only for the first-party Responses relay. Values are
+/// hundredths of a micro-USD per token and match the GPT-5.6 entries shipped
+/// in the pinned OMP 18.0.10 catalogue in the Company image. Integer math and
+/// upward rounding preserve the existing hard-spend invariant.
+fn response_tariff_micro_usd(
+    model: &str,
+    input_tokens: u64,
+    output_tokens: u64,
+    cached_input_tokens: u64,
+) -> Option<u64> {
+    let long_context = input_tokens > 272_000;
+    let (input_rate, output_rate, cached_rate): (u64, u64, u64) = match (model, long_context) {
+        ("gpt-5.6-sol", false) => (500, 3_000, 50),
+        ("gpt-5.6-sol", true) => (1_000, 4_500, 100),
+        ("gpt-5.6-terra", false) => (200, 1_200, 20),
+        ("gpt-5.6-terra", true) => (400, 1_800, 40),
+        ("gpt-5.6-luna", false) => (20, 120, 2),
+        ("gpt-5.6-luna", true) => (40, 180, 4),
+        _ => return None,
+    };
+    let uncached = input_tokens.checked_sub(cached_input_tokens)?;
+    let hundredth_micro_usd = uncached
+        .checked_mul(input_rate)?
+        .checked_add(cached_input_tokens.checked_mul(cached_rate)?)?
+        .checked_add(output_tokens.checked_mul(output_rate)?)?;
+    hundredth_micro_usd.checked_add(99).map(|value| value / 100)
 }
 
 pub fn client() -> Result<&'static ClientConfig> {
@@ -1596,6 +1905,8 @@ mod tests {
                 mission: "relay test".into(),
                 spend_ceiling_usd: crate::runtime::SpendCeiling::from_micro_usd(2),
                 model: "moonshot/kimi-k3".into(),
+                worker_runtime: crate::runtime::WorkerRuntime::Omp,
+                reasoning_effort: crate::acp::DEFAULT_REASONING_EFFORT.into(),
                 model_failover: Vec::new(),
                 credentials: BTreeMap::new(),
                 approved_parties: Vec::new(),
@@ -1620,6 +1931,7 @@ mod tests {
             spend: spend.clone(),
             upstream_token: "host-only-root-bearer".into(),
             upstream_url: OMP_GATEWAY_HOST_URL.into(),
+            responses_routes: BTreeMap::new(),
             http: reqwest::Client::new(),
         };
         (capabilities, spend, state)
@@ -1759,6 +2071,8 @@ mod tests {
             mission: String::new(),
             spend_ceiling_usd: crate::runtime::SpendCeiling::from_micro_usd(2),
             model: "litellm/gpt-5.6-sol".into(),
+            worker_runtime: crate::runtime::WorkerRuntime::Omp,
+            reasoning_effort: crate::acp::DEFAULT_REASONING_EFFORT.into(),
             model_failover: vec!["zai/glm-5.3-flash".into()],
             credentials: BTreeMap::new(),
             approved_parties: Vec::new(),
@@ -1780,6 +2094,8 @@ mod tests {
             mission: String::new(),
             spend_ceiling_usd: crate::runtime::SpendCeiling::from_micro_usd(2),
             model: model.into(),
+            worker_runtime: crate::runtime::WorkerRuntime::Omp,
+            reasoning_effort: crate::acp::DEFAULT_REASONING_EFFORT.into(),
             model_failover: failover,
             credentials: BTreeMap::new(),
             approved_parties: Vec::new(),
@@ -2242,6 +2558,72 @@ mod tests {
     }
 
     #[test]
+    fn responses_tariff_is_exact_cached_aware_and_conservative() {
+        assert_eq!(
+            response_tariff_micro_usd("gpt-5.6-sol", 1_000, 100, 100),
+            Some(7_550)
+        );
+        assert_eq!(
+            response_tariff_micro_usd("gpt-5.6-terra", 1, 0, 1),
+            Some(1),
+            "a positive sub-micro-dollar charge rounds upward"
+        );
+        assert_eq!(
+            response_tariff_micro_usd("gpt-5.6-sol", 272_001, 1, 0),
+            Some(2_720_055),
+            "the pinned long-context tier starts above 272K input tokens"
+        );
+        assert!(response_tariff_micro_usd("gpt-5.6-sol", 2, 0, 3).is_none());
+        assert!(response_tariff_micro_usd("unknown", 1, 1, 0).is_none());
+    }
+
+    #[test]
+    fn responses_terminal_records_pinned_cost_and_tokens_once() {
+        let root = test_root();
+        let (_issuer, ledger, _state) = test_relay_state(&root);
+        let event = serde_json::json!({
+            "type": "response.completed",
+            "response": {
+                "usage": {
+                    "input_tokens": 1_000,
+                    "output_tokens": 100,
+                    "total_tokens": 1_100,
+                    "input_tokens_details": { "cached_tokens": 100 }
+                }
+            }
+        });
+        {
+            let inner = futures_util::stream::empty::<std::result::Result<Bytes, reqwest::Error>>();
+            let mut stream = MeteredStream::new_responses(
+                inner,
+                ledger.meter(),
+                MeteredRequest {
+                    company: "acme_test".into(),
+                    actor: "codex-worker".into(),
+                    session: "responses-session".into(),
+                    model: "litellm/gpt-5.6-sol".into(),
+                    billing: ModelBilling::MeteredApi,
+                },
+            );
+            let frame = Bytes::from(format!("data: {event}\n\n"));
+            stream.observe(&frame);
+            stream.observe(&frame);
+        }
+        let spool =
+            std::fs::read_to_string(root.join("cells/acme_test/spend/spend.jsonl")).unwrap();
+        let records = spool
+            .lines()
+            .map(|line| serde_json::from_str::<serde_json::Value>(line).unwrap())
+            .collect::<Vec<_>>();
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0]["totalTokens"], 1_100);
+        assert_eq!(records[0]["costMicroUsd"], 7_550);
+
+        drop(ledger);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn relay_charges_a_glm_precision_terminal_without_poisoning() {
         let root = test_root();
         let (_issuer, ledger, _state) = test_relay_state(&root);
@@ -2325,6 +2707,8 @@ mod tests {
             mission: String::new(),
             spend_ceiling_usd: crate::runtime::SpendCeiling::from_micro_usd(10_000_000),
             model: "moonshot/kimi-k3".into(),
+            worker_runtime: crate::runtime::WorkerRuntime::Omp,
+            reasoning_effort: crate::acp::DEFAULT_REASONING_EFFORT.into(),
             model_failover: vec!["anthropic/claude-sonnet-4-5".into()],
             credentials: BTreeMap::new(),
             approved_parties: Vec::new(),
@@ -2395,6 +2779,8 @@ mod tests {
             mission: String::new(),
             spend_ceiling_usd: crate::runtime::SpendCeiling::from_micro_usd(10_000_000),
             model: "openai-codex/gpt-5.6-sol".into(),
+            worker_runtime: crate::runtime::WorkerRuntime::Omp,
+            reasoning_effort: crate::acp::DEFAULT_REASONING_EFFORT.into(),
             model_failover: vec!["anthropic/claude-sonnet-4-6".into()],
             credentials: BTreeMap::new(),
             approved_parties: Vec::new(),

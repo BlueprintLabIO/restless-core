@@ -1,0 +1,296 @@
+{
+	"company": {
+		"id": "restless_cloud_quality_enforcer_test",
+		"name": "Reader Test Company",
+		"mission": "Make consequential company work easy to understand and act on.",
+		"model": "controlled-reader-fixture"
+	},
+	"source_health": {
+		"orgintel": "available",
+		"authority": "available",
+		"runtime": "available",
+		"browser": "available"
+	},
+	"work_graph": {
+		"work": [
+			{
+				"id": "20000000-0000-4000-8000-000000000002",
+				"goal_id": null,
+				"owner_id": "web-product-lead",
+				"title": "Prepare the tutoring-centre landing page",
+				"outcome": "A reviewed landing page that explains the tutoring-centre offer and gives prospective customers one clear next step.\n\nPreserve the approved offer, audience and claims. Build the responsive page in the existing site. Keep the enquiry action keyboard accessible. Verify the page at desktop and narrow widths. Record the exact source revision and link the native review target. Do not publish or contact customers; those remain separate owner-authority decisions.",
+				"status": "completed",
+				"resolution": "The landing page is complete and passed desktop, narrow-screen and keyboard checks. It remains private until the owner makes a separate publishing decision.",
+				"priority": 2,
+				"expected_artifact": "A reviewable landing page and its browser-check report.",
+				"owner_review_required": true,
+				"repo": null,
+				"base_ref": null,
+				"integration_branch": null,
+				"worktree": null,
+				"revision": 1,
+				"attempt_limit": null,
+				"created_at": "2026-08-30T22:00:00Z",
+				"updated_at": "2026-08-31T00:40:00Z"
+			}
+		],
+		"edges": [],
+		"attempts": [],
+		"attempt_inputs": [],
+		"attempt_feedback": [],
+		"artifacts": [
+			{
+				"id": "reader-fixture-landing-page",
+				"kind": "review_target",
+				"uri": "https://example.invalid/tutoring-centre-page",
+				"note": "The private landing page the owner can inspect before any publishing decision.",
+				"created_by": "web-product-lead",
+				"work_id": "20000000-0000-4000-8000-000000000002",
+				"attempt_id": null,
+				"digest": "reader-fixture-digest",
+				"source_commit": null,
+				"runtime_generation": null,
+				"label": "Tutoring-centre landing page",
+				"state": "available",
+				"created_at": "2026-08-31T00:35:00Z",
+				"superseded_at": null
+			},
+			{
+				"id": "reader-fixture-browser-check-report",
+				"kind": "test_report",
+				"uri": "https://example.invalid/browser-check-report",
+				"note": "The recorded desktop, narrow-screen and keyboard checks supporting the completion statement.",
+				"created_by": "web-product-lead",
+				"work_id": "20000000-0000-4000-8000-000000000002",
+				"attempt_id": null,
+				"digest": "reader-fixture-browser-report-digest",
+				"source_commit": null,
+				"runtime_generation": null,
+				"label": "Browser check report",
+				"state": "available",
+				"created_at": "2026-08-31T00:36:00Z",
+				"superseded_at": null
+			},
+			{
+				"id": "reader-fixture-legacy-automatic-output",
+				"kind": "repository_tree",
+				"uri": "git:/company/repos/reader-fixture#0123456789abcdef",
+				"note": "Runtime-linked exact clean candidate; no model bookkeeping turn required.",
+				"created_by": "web-product-lead",
+				"work_id": "20000000-0000-4000-8000-000000000002",
+				"attempt_id": null,
+				"digest": "reader-fixture-tree-digest",
+				"source_commit": "0123456789abcdef",
+				"runtime_generation": null,
+				"label": "A reviewable landing page and its browser-check report.",
+				"state": "available",
+				"created_at": "2026-08-31T00:34:00Z",
+				"superseded_at": null
+			}
+		],
+		"gates": [],
+		"gate_runs": [],
+		"handoffs": []
+	},
+	"items": [
+		{
+			"id": "s28:approval:outreach",
+			"source": {
+				"plane": "authority",
+				"kind": "approval_required",
+				"reference": "reader-fixture-approval",
+				"party": "four tutoring centres"
+			},
+			"category": "approval",
+			"title": "Send four reviewed outreach emails",
+			"what_happened": "The lead checked all four recipients and email drafts. No message has been sent.",
+			"why_it_matters": "Sending starts the first real customer conversations and represents the company externally.",
+			"recommendation": "Approve this one campaign.",
+			"requested_action": "Approve or decline the four-email campaign.",
+			"if_no_action": "Nothing is sent. Research and other internal work can continue.",
+			"uncertainty": "The centres have not confirmed that they are currently looking for this service.",
+			"brief_status": "current",
+			"brief_author": {
+				"id": "site-validation-lead",
+				"display": "Site validation lead",
+				"role": "Customer validation"
+			},
+			"briefed_at": "2026-08-31T01:00:00Z",
+			"evidence": [
+				{
+					"label": "Four reviewed recipients and drafts",
+					"kind": "campaign",
+					"content": "Four named tutoring centres; four unsent drafts; lead review recorded."
+				}
+			],
+			"review_sources": [],
+			"actions": [
+				{
+					"id": "grant",
+					"label": "Approve this campaign",
+					"role": "decision",
+					"consequence": "Allows these four reviewed emails to be sent once.",
+					"next_state": "The lead sends the emails, records each delivery result and reports back."
+				},
+				{
+					"id": "decline",
+					"label": "Decline",
+					"role": "decision",
+					"consequence": "Closes this request without authorising the campaign.",
+					"next_state": "Nothing is sent. The four centres stay unapproved."
+				}
+			],
+			"can_continue": true,
+			"created_at": "2026-08-31T01:00:00Z"
+		},
+		{
+			"id": "s28:review:site",
+			"source": {
+				"plane": "orgintel",
+				"kind": "owner_handoff",
+				"reference": "reader-fixture-review"
+			},
+			"category": "review",
+			"title": "Review the new tutoring-centre landing page",
+			"what_happened": "The new page is complete and passed its browser checks.",
+			"why_it_matters": "Your acceptance completes this Work. Publishing remains a separate decision.",
+			"recommendation": "Open the page and accept it if the offer feels clear and trustworthy.",
+			"requested_action": "Review the page, then accept it or request specific changes.",
+			"if_no_action": "The page stays private and the Work remains open.",
+			"brief_status": "current",
+			"brief_author": {
+				"id": "web-product-lead",
+				"display": "Web product lead",
+				"role": "Web product"
+			},
+			"briefed_at": "2026-08-31T00:45:00Z",
+			"evidence": [
+				{
+					"label": "Browser review checks",
+					"kind": "gate",
+					"content": "Desktop, mobile and keyboard checks passed on the prepared page."
+				}
+			],
+			"review_sources": [],
+			"review_target": {
+				"company": "restless_cloud_quality_enforcer_test",
+				"generation": "reader-fixture",
+				"uri": "/company/outputs/site/index.html",
+				"status": "unavailable",
+				"kind": "runtime-web",
+				"label": "Tutoring-centre landing page",
+				"unavailable_reason": "The reader fixture does not attach a live Runtime target."
+			},
+			"responsible_actor": {
+				"id": "web-product-lead",
+				"display": "Web product lead",
+				"role": "Web product"
+			},
+			"actions": [
+				{
+					"id": "open-outcome",
+					"label": "Review the page",
+					"role": "inspect",
+					"consequence": "Opens the prepared page without accepting it.",
+					"next_state": "The page opens for inspection and the review stays pending."
+				},
+				{
+					"id": "accept-review",
+					"label": "Accept outcome",
+					"role": "decision",
+					"consequence": "Accepts this exact page and completes the Work.",
+					"next_state": "The reviewed Work completes. Publishing still requires separate approval."
+				},
+				{
+					"id": "request-revision",
+					"label": "Request changes",
+					"role": "decision",
+					"consequence": "Returns your exact feedback to the lead.",
+					"next_state": "The lead starts a new revision and the review remains open."
+				},
+				{
+					"id": "chat-lead",
+					"label": "Talk with lead",
+					"role": "conversation",
+					"consequence": "Opens a conversation about this page.",
+					"next_state": "The review stays open until you use an explicit review control."
+				}
+			],
+			"can_continue": false,
+			"created_at": "2026-08-31T00:45:00Z"
+		},
+		{
+			"id": "s28:human-step:identity",
+			"source": {
+				"plane": "orgintel",
+				"kind": "owner_handoff",
+				"reference": "reader-fixture-identity"
+			},
+			"category": "human_step",
+			"title": "Confirm the company identity with the email provider",
+			"what_happened": "The provider has prepared the company account, but only the account owner can finish its identity check.",
+			"why_it_matters": "Until the check is complete, the company cannot send email through this provider.",
+			"recommendation": "Open the prepared provider page and complete its identity check.",
+			"requested_action": "Finish the provider's identity check in your normal browser.",
+			"if_no_action": "The account stays restricted. Work that does not require provider email can continue.",
+			"uncertainty": "The provider may ask for an additional document after the first check.",
+			"brief_status": "current",
+			"brief_author": {
+				"id": "operations-lead",
+				"display": "Operations lead",
+				"role": "Operations"
+			},
+			"briefed_at": "2026-08-31T00:30:00Z",
+			"evidence": [
+				{
+					"label": "Provider account status",
+					"kind": "provider-observation",
+					"content": "Account created; identity check required; sending remains restricted."
+				}
+			],
+			"review_sources": [],
+			"responsible_actor": {
+				"id": "operations-lead",
+				"display": "Operations lead",
+				"role": "Operations"
+			},
+			"actions": [
+				{
+					"id": "open-external-human-step",
+					"label": "Open provider identity check",
+					"role": "human_step",
+					"consequence": "Opens the exact provider page in your normal browser. It does not complete the check by itself.",
+					"next_state": "Restless waits for the provider to confirm the identity check before resuming email setup.",
+					"href": "https://example.invalid/identity-check"
+				},
+				{
+					"id": "chat-lead",
+					"label": "Talk with lead",
+					"role": "conversation",
+					"consequence": "Opens a conversation about the identity check.",
+					"next_state": "The account stays restricted until the provider reports completion."
+				}
+			],
+			"can_continue": true,
+			"created_at": "2026-08-31T00:30:00Z"
+		}
+	],
+	"continuations": [
+		{
+			"id": "orgintel:handoff:reader-fixture-completed-approval",
+			"work_id": "10000000-0000-4000-8000-000000000001",
+			"title": "Send the first customer interview invitations",
+			"recorded_decision": "Approved the four reviewed invitations.",
+			"what_it_unlocked": "Started the next work: delivery tracking for the approved campaign. It is in progress.",
+			"current_state": "Delivery tracking is in progress. The latest run is active.",
+			"observed_outcome": "Two invitations were delivered. Two provider results are still pending.",
+			"responsible_actor": {
+				"id": "site-validation-lead",
+				"display": "Site validation lead",
+				"role": "Customer validation"
+			},
+			"observed_at": "2026-08-31T01:04:00Z"
+		}
+	],
+	"refreshed_at": "2026-08-31T01:05:00Z"
+}

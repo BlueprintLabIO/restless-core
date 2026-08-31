@@ -1,0 +1,35 @@
+Godot Engine v4.7.2.stable.official.ed1daf0bf - https://godotengine.org
+
+[14:54:15] ENet: server listening on 127.0.0.1:24565 — HOST is peer 1
+[14:54:17] ENet: peer_connected id=1960689383 (transport-level connection evidence)
+[14:54:17] HOST: sent authoritative world state to new peer 1960689383
+[14:54:17] HOST: RESOLVED grab by peer 1960689383 (crate now held)
+[14:54:18] HOST: RESOLVED drop by peer 1960689383 — crate at (-0.0, 0.35, -5.766187) (recoverable)
+[14:54:18] PROBE(host): crate observed dropped BEHIND the truck at route start (z=-5.77)
+[14:54:18] HOST: RESOLVED grab by peer 1960689383 (crate now held)
+[14:54:18] PROBE(host): dropped crate RECOVERED by peer 1960689383
+[14:54:20] HOST: peer 1960689383 occupies DRIVER position
+[14:54:20] HOST: received drive input from driver 1960689383
+[14:54:20] MISSION: loaded truck journey started by peer 1960689383
+[14:54:24] TRUCK: route position z=10.0 (bounded 0..40)
+[14:54:24] PROBE(host,rec): incomplete route exit observed at z=10.05; journey remains recoverable
+[14:54:24] HOST: peer 1960689383 left driver position at rear cargo threshold
+[14:54:25] HOST: corrected peer 1960689383 movement — teleport (3.19m horizontal, 0.00m vertical)
+[14:54:27] PROBE(host,rec): natural driver-seat RE-ENTRY accepted after early exit
+[14:54:27] HOST: peer 1960689383 occupies DRIVER position
+[14:54:30] TRUCK: route position z=20.0 (bounded 0..40)
+[14:54:33] TRUCK: route position z=30.0 (bounded 0..40)
+[14:54:37] MISSION: loaded truck reached exact route end; valid driver exit now required
+[14:54:37] TRUCK: route position z=40.0 (bounded 0..40)
+[14:54:37] MISSION: loaded journey advanced through valid route-end seat exit by peer 1960689383
+[14:54:37] HOST: peer 1960689383 left driver position at rear cargo threshold
+[14:54:38] HOST: corrected peer 1960689383 movement — teleport (3.14m horizontal, 0.00m vertical)
+[14:54:41] HOST: RESOLVED unload by peer 1960689383 — crate at world (0.0, 0.405, 34.73123)
+[14:54:41] MISSION: HOST completed delivery #1 (loaded drive + route-end exit + zone unload) — broadcasting
+[14:54:41] FEEDBACK[ok]: DELIVERY COMPLETED — loaded route and destination unload verified
+[14:54:41] PROBE(host): observed host-authoritative DELIVERY COMPLETED
+[14:54:41] PROBE RESULT: PASS — recovery path: dropped crate recovered; early exit and natural seat re-entry recovered; delivery completed
+[14:54:41] PROBE(host): received client signal 'positive_done'
+[14:54:42] PROBE: exiting (exit code 0)
+[14:54:42] ENet: server disconnected
+[14:54:42] PROBE: exiting (exit code 0)

@@ -1,0 +1,27 @@
+{
+  "accounted_usd": 4.568,
+  "ceiling_usd": 6.0,
+  "remaining_usd": 1.432,
+  "status": "available",
+  "note": null,
+  "by_actor": [
+    {
+      "actor": "gameplay-evaluator",
+      "role": null,
+      "model": "litellm/gpt-5.6-sol",
+      "spent_usd": 3.3362
+    },
+    {
+      "actor": "playability-referee",
+      "role": null,
+      "model": "litellm/gpt-5.6-sol",
+      "spent_usd": 0.74
+    },
+    {
+      "actor": "exec",
+      "role": null,
+      "model": "litellm/gpt-5.6-sol",
+      "spent_usd": 0.4918
+    }
+  ]
+}

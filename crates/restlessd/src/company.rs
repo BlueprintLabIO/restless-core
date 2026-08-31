@@ -513,6 +513,8 @@ async fn resources(
         }).or_else(|| Some("Configured model route; this read does not spend tokens to claim that generation works.".into())),
         metadata: Some(serde_json::json!({
             "fallbacks": config.model_failover,
+            "worker_runtime": config.worker_runtime,
+            "reasoning_effort": config.reasoning_effort,
         })),
     });
 

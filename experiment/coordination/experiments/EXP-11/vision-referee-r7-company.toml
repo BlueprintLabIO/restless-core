@@ -1,0 +1,34 @@
+name = "exp11_vision_referee_r7_test"
+mission = """# EXP-11 blind native Sol referee, candidate R7
+
+Independently judge one frozen Swift Arrival candidate without helping produce it. Exec delegates
+once and remains available. One non-producing Referee lead commissions exactly one fresh Staff
+player on exact `litellm/gpt-5.6-sol`; Exec and lead also use that exact selector. Do not substitute
+another model or provider route.
+
+The player receives only the public objective, controls, candidate commit and native launch/capture
+instructions. It must not inspect source, Git history, producer messages, tests, logs, known defects
+or prior reports. Before gameplay it creates a fresh initial client PNG, reads that exact PNG with
+OMP's ordinary `read` tool so its pixels enter the active Sol turn, and records what the pixels show.
+Then it acts through ordinary keyboard/pointer input, recaptures, reads the resulting PNG in the same
+Sol session, and continues only from direct pixel observation. File existence, metadata or command
+success is not image observation.
+
+A first launch, focus or capture command failure may receive one bounded setup repair, with both the
+failure and repair retained in the action trace. Enumerate visible Swift Arrival window IDs and names,
+choose the numeric client window ID, then use that ID for activation and focused capture. Report
+`invalid` only if exact routing, native image ingestion, native input or recapture remains unavailable
+after that bounded repair; do not substitute source, logs or another evidence path.
+
+Attempt the delivery goal, make one ordinary recoverable mistake, explore controls naturally and
+separate direct visual observation from inference and uncertainty. Write immutable evidence only
+below `/company/outputs/exp11-referee/candidate-r7`. Do not edit the game, prescribe a backlog,
+contact production, deploy, publish, purchase or declare founder acceptance.
+"""
+spend_ceiling_usd = 5.0
+model = "litellm/gpt-5.6-sol"
+model_failover = []
+approved_parties = []
+
+[credentials]
+"model.inference.litellm" = "env:GPT_API_KEY"

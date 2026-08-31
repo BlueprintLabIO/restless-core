@@ -164,9 +164,17 @@ enum OwnerIntentKind {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ts_rs::TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(rename_all = "camelCase")]
 struct OwnerIntentReceipt {
     kind: OwnerIntentKind,
     summary: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    outcome: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    next_step: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    owner_need: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -3881,6 +3889,9 @@ mod tests {
                 intent: Some(OwnerIntentReceipt {
                     kind: OwnerIntentKind::Conversation,
                     summary: "Launch-plan check".into(),
+                    outcome: Some("The launch plan is ready for review.".into()),
+                    next_step: Some("Exec checks the prepared plan.".into()),
+                    owner_need: None,
                 }),
                 context_path: Some("/demo_test/company".into()),
                 created_at: at,
@@ -3896,6 +3907,10 @@ mod tests {
             Uuid::nil().to_string()
         );
         assert_eq!(value["messages"][0]["intent"]["kind"], "conversation");
+        assert_eq!(
+            value["messages"][0]["intent"]["outcome"],
+            "The launch plan is ready for review."
+        );
     }
 
     fn cockpit_contract_fixture(degraded: bool) -> CockpitView {
@@ -4297,6 +4312,25 @@ mod tests {
             receipt.map(|receipt| receipt.kind),
             Some(OwnerIntentKind::Direction)
         ));
+
+        let at_a_glance = concat!(
+            "The four drafts are ready.",
+            "\n\n<!--restless-intent:{\"kind\":\"conversation\",",
+            "\"summary\":\"Campaign preparation result.\",",
+            "\"outcome\":\"Four reviewed drafts are ready.\",",
+            "\"nextStep\":\"The lead waits for the campaign decision.\",",
+            "\"ownerNeed\":\"Approve, change or decline the campaign.\"}-->"
+        );
+        let (_, receipt) = split_intent_receipt(at_a_glance);
+        let receipt = receipt.expect("optional reader fields should parse");
+        assert_eq!(
+            receipt.outcome.as_deref(),
+            Some("Four reviewed drafts are ready.")
+        );
+        assert_eq!(
+            receipt.owner_need.as_deref(),
+            Some("Approve, change or decline the campaign.")
+        );
 
         let malformed = "Reply\n\n<!--restless-intent:{\"kind\":\"whatever\",\"summary\":\"x\"}-->";
         assert_eq!(split_intent_receipt(malformed).0, "Reply");

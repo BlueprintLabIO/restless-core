@@ -1,0 +1,56 @@
+Work: d217b542-07a0-43d5-b274-6365bb4237ed
+Attempt: d01a07d7-7b64-4564-985d-c664faa337ca
+Scope: one native on-foot shortcut launch only
+Candidate path: /company/projects/swift-arrival-candidate
+
+PROTOCOL OBSERVATIONS
+
+1. Required executables were probed before launch:
+   /usr/local/bin/godot
+   /usr/bin/xdotool
+   /usr/bin/scrot
+
+2. Launch order used exactly:
+   DISPLAY=:1 godot --path /company/projects/swift-arrival-candidate -- --host
+   DISPLAY=:1 godot --path /company/projects/swift-arrival-candidate -- --client
+
+3. Visible Swift Arrival windows after both launches:
+   20971523 | Swift Arrival Dogfood 4 (DEBUG)
+   23068675 | Swift Arrival Dogfood 4 — CLIENT (peer 901747027)
+   Window 20971523 was the window present after the host launch and before the client launch. Window 23068675 was newly visible after the client launch and had CLIENT in its title.
+
+4. HOST handling:
+   xdotool windowminimize 20971523 returned successfully. A subsequent visible-window enumeration returned only 23068675. No setup repair was used.
+
+5. CLIENT handling:
+   Exact ID: 23068675
+   Exact title: Swift Arrival Dogfood 4 — CLIENT (peer 901747027)
+   Repeated geometry observation before inputs and captures:
+   X=2, Y=43, WIDTH=1278, HEIGHT=720, SCREEN=0
+   The client was never resized. Every numbered PNG was captured with scrot -a 2,43,1278,720 after raising/focusing ID 23068675 and querying its geometry. Every numbered PNG was then read through OMP's ordinary read tool before the next decision.
+
+6. Pixel evidence sequence:
+   001-initial-client.png: initial CLIENT state.
+   002 through 025: on-foot visual navigation to the crate using only W/A/S/D and mouse look.
+   026-after-pickup-attempt.png: first pixels after E near the crate; pixels visibly show the crate carried.
+   027 through 035: parcel-bearing on-foot travel from the pickup area toward the marked destination. No truck entry or loaded-truck travel was performed.
+   036-before-e-inside-zone.png and 037-before-e-inside-zone.png: parcel-bearing approaches at the yellow marked area.
+   E was pressed once after 037.
+   038-after-e-inside-zone.png: immediate post-E capture.
+   039-deeper-zone.png and 040-zone-center.png: later parcel-bearing positions through/across the yellow marked area.
+   041-turn-back-zone.png: later pixels visibly show the explicit objective text "TRUCK JOURNEY REQUIRED" and "Drive loaded truck 0 → 40 m, then exit at route end", with "CRATE CARRIED BY YOU" and "ROUTE 0 / 40 m" still visible.
+
+7. Key evidence timestamps (UTC, filesystem recorded):
+   001-initial-client.png | 2026-08-28 15:48:48.755471002 +0000
+   037-before-e-inside-zone.png | 2026-08-28 15:59:44.036086014 +0000
+   038-after-e-inside-zone.png | 2026-08-28 16:00:05.996321010 +0000
+   039-deeper-zone.png | 2026-08-28 16:00:25.944834005 +0000
+   040-zone-center.png | 2026-08-28 16:00:47.357100001 +0000
+   041-turn-back-zone.png | 2026-08-28 16:01:13.500100013 +0000
+
+8. Teardown:
+   Exact CLIENT and HOST windows were closed after evidence capture. A visible Swift Arrival search then returned no IDs (exit 1/no matches).
+
+PROTOCOL GAP
+
+The immediate post-E PNG 038 does not itself display explicit rejection text. The explicit "TRUCK JOURNEY REQUIRED" text is visible later in PNG 041, after additional ordinary movement through/across the marked area. Pixel 037 shows the parcel and yellow zone together, but the exact player collision point relative to the zone boundary is not visually unambiguous. Because the sole launch was already closed before this ambiguity was recognized, and this Work permits only one launch, no compliant direct inside-zone pre-E / immediate explicit post-E pair can now be added. No relaunch or complete-journey run was attempted.

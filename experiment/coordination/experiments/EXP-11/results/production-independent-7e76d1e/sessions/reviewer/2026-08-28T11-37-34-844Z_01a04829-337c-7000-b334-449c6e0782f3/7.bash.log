@@ -1,0 +1,236 @@
+{
+  "actor_id": "swiftarrival-playtest",
+  "body": {
+    "attempt_id": "5e7832ba-ff8a-4c51-8dc5-bb06187929c9",
+    "work_id": "af5ef98a-1cff-45c9-b245-c7bd0aebc61a",
+    "workspace": {
+      "dirty_entries": 0,
+      "source_commit": "7e76d1e087cf4cde12aaf1fa6d5e9309f39bcddd",
+      "status_digest": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "workdir": "/company/worktrees/work-af5ef98a1cff-r1"
+    }
+  },
+  "created_at": "2026-08-28T11:38:08.813321Z",
+  "id": 386,
+  "kind": "attempt_process_started"
+}
+{
+  "actor_id": "swiftarrival-playtest",
+  "body": {
+    "accounting": {
+      "automatically_attached": {
+        "actor": {
+          "id": "swiftarrival-playtest",
+          "role": "playability-reviewer"
+        },
+        "capability_probe_locations": [
+          "command -v restless git omp node pnpm",
+          "restless doctor -c swift_arrival_playability_r1_test",
+          "restless credential check (configured references only; not provider acceptance or authority)",
+          "test -d /company/worktrees/work-af5ef98a1cff-r1/.agents/skills /company/skills /opt/restless/skills"
+        ],
+        "skill_roots": [
+          "/opt/restless/skills",
+          "/company/skills",
+          "/company/worktrees/work-af5ef98a1cff-r1/.agents/skills"
+        ],
+        "system_context": {
+          "company_doctrine": "Restless shared operating rules in the actor system prompt",
+          "company_mission": "company mission and collision-avoidance spine in the actor system prompt"
+        },
+        "upstream_artifact_versions": [
+          {
+            "artifact_ref_id": "a24f9422-7247-49a2-9179-91206b342d8a",
+            "digest": null,
+            "kind": "output",
+            "label": "output",
+            "runtime_generation": null,
+            "source_commit": "2ebfd6932d7709bf03410c2b864731ef0394c05f",
+            "uri": "/company/outputs/swift-arrival-journey-r1/manifest.json"
+          },
+          {
+            "artifact_ref_id": "17a3a26f-ae03-4f7e-b0f6-1851cc6e217b",
+            "digest": null,
+            "kind": "output",
+            "label": "output",
+            "runtime_generation": null,
+            "source_commit": "7e76d1e087cf4cde12aaf1fa6d5e9309f39bcddd",
+            "uri": "/company/outputs/swift-arrival-journey-r1/manifest.json"
+          }
+        ],
+        "work": {
+          "attempt_id": "5e7832ba-ff8a-4c51-8dc5-bb06187929c9",
+          "attempt_no": 2,
+          "expected_artifact": "A linked fresh independent native playtest bundle whose manifest records Attempt start source_commit exactly 7e76d1e087cf4cde12aaf1fa6d5e9309f39bcddd; exact window-routing observations; timestamped traces; host/client logs; strongest screenshots; an explicit rejected on-foot-bypass result; a successful full truck-journey result; an independent accept-or-revise verdict; and only if accepted an exact prepared founder ReviewTarget. No artifact from the abandoned old-base Attempt may be reused.",
+          "input_fingerprint": "cee7113bfbfb2713be845d5f6c152d1efa90262c953d619065c04113afafbd73",
+          "outcome": "A fresh independent reviewer will establish whether the actual repaired candidate rejects the on-foot shortcut and supports the complete truck journey without introducing a new playability blocker. Only evidence whose recorded source version matches the repair will count.\n\nExact contract. Repo slug swift-arrival. Base_ref is exactly 7e76d1e087cf4cde12aaf1fa6d5e9309f39bcddd, the candidate produced by prerequisite repair Work 85ced0c3-ddde-46f3-9003-3cdc50f8ebd7 and descended from 09fe09d30c65b811c0904508525a6ab8af02145c. Before any launch, source inspection, producer-evidence inspection, or play input, inspect the Runtime Attempt start event and record its source_commit in the evidence manifest. Proceed only if that event reports source_commit exactly 7e76d1e087cf4cde12aaf1fa6d5e9309f39bcddd; otherwise stop with INVALID VERSION LINEAGE and no gameplay verdict. Do not count or reuse any evidence from abandoned old-base Work bf0531c6-d0a5-4529-b4d0-baf65d1b3397 or its Attempt. This is independent evidence Work: do not change source, tests, assets, scenarios, candidate commits, or producer evidence.\n\nPreserve the same blind native contract. With exact CLIENT window routing, first replay the superseding route from /company/inputs/exp11-referee-r9: pick up the crate, deliberately drop and recover it, remain on foot at route 0, carry it to the nearby yellow bay, and attempt unloading. Directly observe whether authoritative state rejects completion and whether feedback explains the unmet truck journey. Restart cleanly, then complete pickup, seat entry, driving to route 40, seat exit, and unloading, including one ordinary mistake and recovery. Confirm host/client agreement, blocked movement and collision behavior, and that no stale completion survives restart or invalid order. Record direct pixels, timestamped input trace, host/client logs, positive and negative outcomes, the exact start-event source_commit, and an accept-or-revise verdict separating observations from judgement. Deterministic producer probes are supporting evidence only and do not establish feel. If and only if both native routes behave correctly and no material playability blocker is observed, prepare one exact local founder ReviewTarget with controls, bounded feel question, restart/reconnect instructions, and explicit audio, loopback, and unverified-founder-taste limits. Do not publish, deploy, use external effects, broaden content, or claim founder acceptance.",
+          "revision": 1,
+          "work_id": "af5ef98a-1cff-45c9-b245-c7bd0aebc61a"
+        },
+        "work_feedback": [
+          {
+            "from_actor": "swiftarrival-gameproduct",
+            "message_id": 45
+          },
+          {
+            "from_actor": "daemon",
+            "message_id": 46
+          }
+        ],
+        "workspace": {
+          "declared_base_ref": "7e76d1e087cf4cde12aaf1fa6d5e9309f39bcddd",
+          "declared_worktree": null,
+          "effective_base_ref": "7e76d1e087cf4cde12aaf1fa6d5e9309f39bcddd",
+          "integration_branch": null,
+          "repository": "swift-arrival",
+          "runtime_workdir": "/company/worktrees/work-af5ef98a1cff-r1"
+        }
+      },
+      "retrieved_depth": {
+        "at_launch": [],
+        "available_on_demand": [
+          "the bound worktree and repository files",
+          "project AGENTS.md and .agents/skills under the bound worktree",
+          "Git history and working-tree status in the bound worktree",
+          "full artifact content at the attached URI"
+        ]
+      },
+      "unused_replay": {
+        "full_team_transcript": "not attached",
+        "lead_conversation": "not attached",
+        "unrelated_actor_messages": "not attached"
+      }
+    },
+    "attempt_id": "5e7832ba-ff8a-4c51-8dc5-bb06187929c9",
+    "work_id": "af5ef98a-1cff-45c9-b245-c7bd0aebc61a"
+  },
+  "created_at": "2026-08-28T11:38:08.810644Z",
+  "id": 385,
+  "kind": "attempt_context_bound"
+}
+{
+  "actor_id": "swiftarrival-playtest",
+  "body": {
+    "attempt_id": "452fa911-ffc9-4c3a-8180-0d56ed3ebe8a",
+    "semantic_result": "blocked",
+    "work_id": "af5ef98a-1cff-45c9-b245-c7bd0aebc61a",
+    "workspace": {
+      "end": {
+        "dirty_entries": 0,
+        "source_commit": "7e76d1e087cf4cde12aaf1fa6d5e9309f39bcddd",
+        "status_digest": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "workdir": "/company/worktrees/work-af5ef98a1cff-r1"
+      },
+      "start": {
+        "dirty_entries": 0,
+        "source_commit": "7e76d1e087cf4cde12aaf1fa6d5e9309f39bcddd",
+        "status_digest": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "workdir": "/company/worktrees/work-af5ef98a1cff-r1"
+      }
+    }
+  },
+  "created_at": "2026-08-28T11:38:08.504343Z",
+  "id": 384,
+  "kind": "attempt_process_ended"
+}
+{
+  "actor_id": "swiftarrival-playtest",
+  "body": {
+    "attempt_id": "452fa911-ffc9-4c3a-8180-0d56ed3ebe8a",
+    "work_id": "af5ef98a-1cff-45c9-b245-c7bd0aebc61a",
+    "workspace": {
+      "dirty_entries": 0,
+      "source_commit": "7e76d1e087cf4cde12aaf1fa6d5e9309f39bcddd",
+      "status_digest": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "workdir": "/company/worktrees/work-af5ef98a1cff-r1"
+    }
+  },
+  "created_at": "2026-08-28T11:37:33.588291Z",
+  "id": 377,
+  "kind": "attempt_process_started"
+}
+{
+  "actor_id": "swiftarrival-playtest",
+  "body": {
+    "accounting": {
+      "automatically_attached": {
+        "actor": {
+          "id": "swiftarrival-playtest",
+          "role": "playability-reviewer"
+        },
+        "capability_probe_locations": [
+          "command -v restless git omp node pnpm",
+          "restless doctor -c swift_arrival_playability_r1_test",
+          "restless credential check (configured references only; not provider acceptance or authority)",
+          "test -d /company/worktrees/work-af5ef98a1cff-r1/.agents/skills /company/skills /opt/restless/skills"
+        ],
+        "skill_roots": [
+          "/opt/restless/skills",
+          "/company/skills",
+          "/company/worktrees/work-af5ef98a1cff-r1/.agents/skills"
+        ],
+        "system_context": {
+          "company_doctrine": "Restless shared operating rules in the actor system prompt",
+          "company_mission": "company mission and collision-avoidance spine in the actor system prompt"
+        },
+        "upstream_artifact_versions": [
+          {
+            "artifact_ref_id": "a24f9422-7247-49a2-9179-91206b342d8a",
+            "digest": null,
+            "kind": "output",
+            "label": "output",
+            "runtime_generation": null,
+            "source_commit": "2ebfd6932d7709bf03410c2b864731ef0394c05f",
+            "uri": "/company/outputs/swift-arrival-journey-r1/manifest.json"
+          },
+          {
+            "artifact_ref_id": "17a3a26f-ae03-4f7e-b0f6-1851cc6e217b",
+            "digest": null,
+            "kind": "output",
+            "label": "output",
+            "runtime_generation": null,
+            "source_commit": "7e76d1e087cf4cde12aaf1fa6d5e9309f39bcddd",
+            "uri": "/company/outputs/swift-arrival-journey-r1/manifest.json"
+          }
+        ],
+        "work": {
+          "attempt_id": "452fa911-ffc9-4c3a-8180-0d56ed3ebe8a",
+          "attempt_no": 1,
+          "expected_artifact": "A linked fresh independent native playtest bundle whose manifest records Attempt start source_commit exactly 7e76d1e087cf4cde12aaf1fa6d5e9309f39bcddd; exact window-routing observations; timestamped traces; host/client logs; strongest screenshots; an explicit rejected on-foot-bypass result; a successful full truck-journey result; an independent accept-or-revise verdict; and only if accepted an exact prepared founder ReviewTarget. No artifact from the abandoned old-base Attempt may be reused.",
+          "input_fingerprint": "916201bdd6106627392d66ff9e72c5ad635ee0fd34b383857f8b68119e05f851",
+          "outcome": "A fresh independent reviewer will establish whether the actual repaired candidate rejects the on-foot shortcut and supports the complete truck journey without introducing a new playability blocker. Only evidence whose recorded source version matches the repair will count.\n\nExact contract. Repo slug swift-arrival. Base_ref is exactly 7e76d1e087cf4cde12aaf1fa6d5e9309f39bcddd, the candidate produced by prerequisite repair Work 85ced0c3-ddde-46f3-9003-3cdc50f8ebd7 and descended from 09fe09d30c65b811c0904508525a6ab8af02145c. Before any launch, source inspection, producer-evidence inspection, or play input, inspect the Runtime Attempt start event and record its source_commit in the evidence manifest. Proceed only if that event reports source_commit exactly 7e76d1e087cf4cde12aaf1fa6d5e9309f39bcddd; otherwise stop with INVALID VERSION LINEAGE and no gameplay verdict. Do not count or reuse any evidence from abandoned old-base Work bf0531c6-d0a5-4529-b4d0-baf65d1b3397 or its Attempt. This is independent evidence Work: do not change source, tests, assets, scenarios, candidate commits, or producer evidence.\n\nPreserve the same blind native contract. With exact CLIENT window routing, first replay the superseding route from /company/inputs/exp11-referee-r9: pick up the crate, deliberately drop and recover it, remain on foot at route 0, carry it to the nearby yellow bay, and attempt unloading. Directly observe whether authoritative state rejects completion and whether feedback explains the unmet truck journey. Restart cleanly, then complete pickup, seat entry, driving to route 40, seat exit, and unloading, including one ordinary mistake and recovery. Confirm host/client agreement, blocked movement and collision behavior, and that no stale completion survives restart or invalid order. Record direct pixels, timestamped input trace, host/client logs, positive and negative outcomes, the exact start-event source_commit, and an accept-or-revise verdict separating observations from judgement. Deterministic producer probes are supporting evidence only and do not establish feel. If and only if both native routes behave correctly and no material playability blocker is observed, prepare one exact local founder ReviewTarget with controls, bounded feel question, restart/reconnect instructions, and explicit audio, loopback, and unverified-founder-taste limits. Do not publish, deploy, use external effects, broaden content, or claim founder acceptance.",
+          "revision": 1,
+          "work_id": "af5ef98a-1cff-45c9-b245-c7bd0aebc61a"
+        },
+        "work_feedback": [],
+        "workspace": {
+          "declared_base_ref": "7e76d1e087cf4cde12aaf1fa6d5e9309f39bcddd",
+          "declared_worktree": null,
+          "effective_base_ref": "7e76d1e087cf4cde12aaf1fa6d5e9309f39bcddd",
+          "integration_branch": null,
+          "repository": "swift-arrival",
+          "runtime_workdir": "/company/worktrees/work-af5ef98a1cff-r1"
+        }
+      },
+      "retrieved_depth": {
+        "at_launch": [],
+        "available_on_demand": [
+          "the bound worktree and repository files",
+          "project AGENTS.md and .agents/skills under the bound worktree",
+          "Git history and working-tree status in the bound worktree",
+          "full artifact content at the attached URI"
+        ]
+      },
+      "unused_replay": {
+        "full_team_transcript": "not attached",
+        "lead_conversation": "not attached",
+        "unrelated_actor_messages": "not attached"
+      }
+    },
+    "attempt_id": "452fa911-ffc9-4c3a-8180-0d56ed3ebe8a",
+    "work_id": "af5ef98a-1cff-45c9-b245-c7bd0aebc61a"
+  },
+  "created_at": "2026-08-28T11:37:33.587535Z",
+  "id": 376,
+  "kind": "attempt_context_bound"
+}

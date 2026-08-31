@@ -5,7 +5,7 @@
 	import AttachmentList from './AttachmentList.svelte';
 	import Markdown from './Markdown.svelte';
 	import SemanticMark from './SemanticMark.svelte';
-	import type { MessageAttachment } from '$lib/model/view';
+	import type { MessageAttachment, MessageIntentReceipt } from '$lib/model/view';
 
 	let {
 		sender,
@@ -14,6 +14,7 @@
 		createdAt,
 		details = null,
 		attachments = [],
+		intent = null,
 		hrefFor,
 		copyable = true,
 		pending = false,
@@ -25,6 +26,7 @@
 		createdAt: Date | string;
 		details?: string | null;
 		attachments?: MessageAttachment[];
+		intent?: MessageIntentReceipt | null;
 		hrefFor?: (attachment: MessageAttachment) => string;
 		copyable?: boolean;
 		pending?: boolean;
@@ -78,6 +80,28 @@
 
 	<div class="message-body">
 		<Markdown {text} />
+		{#if sender === 'agent' && (intent?.outcome || intent?.nextStep || intent?.ownerNeed)}
+			<dl class="message-glance" aria-label="At a glance">
+				{#if intent.outcome}
+					<div>
+						<dt>Outcome</dt>
+						<dd>{intent.outcome}</dd>
+					</div>
+				{/if}
+				{#if intent.nextStep}
+					<div>
+						<dt>Next</dt>
+						<dd>{intent.nextStep}</dd>
+					</div>
+				{/if}
+				{#if intent.ownerNeed}
+					<div class="owner-need">
+						<dt>Needs you</dt>
+						<dd>{intent.ownerNeed}</dd>
+					</div>
+				{/if}
+			</dl>
+		{/if}
 		<AttachmentList {attachments} {hrefFor} />
 		{#if details && sender === 'agent'}
 			<details class="work-details">
@@ -246,6 +270,44 @@
 
 	.message-body :global(:is(strong, h1, h2, h3, h4, h5, h6)) {
 		color: var(--ink);
+	}
+
+	.message-glance {
+		display: grid;
+		gap: 0;
+		margin: 10px 0 2px;
+		border-block: 1px solid var(--border-strong);
+	}
+
+	.message-glance > div {
+		display: grid;
+		grid-template-columns: 62px minmax(0, 1fr);
+		gap: 8px;
+		padding: 7px 0;
+	}
+
+	.message-glance > div + div {
+		border-top: 1px solid var(--border);
+	}
+
+	.message-glance dt,
+	.message-glance dd {
+		margin: 0;
+		font-size: var(--t-body);
+		line-height: 1.42;
+	}
+
+	.message-glance dt {
+		font-weight: 600;
+		color: var(--text-tertiary);
+	}
+
+	.message-glance dd {
+		color: var(--ink);
+	}
+
+	.message-glance .owner-need dt {
+		color: var(--intent-authority);
 	}
 
 	.work-details {

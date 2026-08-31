@@ -1,0 +1,16 @@
+2026-08-28 initial capture
+Native commands:
+- DISPLAY=:1 xdotool windowactivate --sync 16777219
+- DISPLAY=:1 scrot -u /company/outputs/exp11-referee/candidate-r5/attempt-d6c60589-cb44-4117-9bbe-adebf2fc4e0b/initial-client.png
+OMP image ingestion:
+- tool: functions.read (ordinary read)
+- path: /company/outputs/exp11-referee/candidate-r5/attempt-d6c60589-cb44-4117-9bbe-adebf2fc4e0b/initial-client.png
+- intent: Ingest and directly observe the fresh initial client pixels before making gameplay claims
+Returned direct pixel observation:
+- Full native Godot game frame was visible.
+- Top status read: "IDLE (no --host/--client arg) — my peer id: 0 | peers connected: []".
+- Mission status showed IN PROGRESS (0), Crate: free, Driver: free, Truck z: 0.0.
+- Scene showed a low-poly truck on a road, a crate/ramp area behind it, green ground, boundary rails, and blue first-person arms.
+- On-screen text explicitly said the instance was idle and should be launched with --host or --client.
+Judgement from observation:
+- This selected window was not a valid client. No delivery gameplay claim was made from it. The idle instance will be replaced by a correctly flagged client before play.

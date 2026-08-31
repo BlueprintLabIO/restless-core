@@ -1,0 +1,40 @@
+{
+  "kind": "exp16-activation-amendment",
+  "amendment": 3,
+  "date": "2026-08-30",
+  "decision_authority": "owner-controller acting under the approved execute-all programme",
+  "scope": "Stage 0 public-journey baseline disposition only",
+  "candidate": {
+    "commit": "29f2fe75e9f891f7533faa0a93d8c127e73909c5",
+    "tree": "fb3092d7c422e941bb21d565efcbfddaabd40f51"
+  },
+  "evidence": {
+    "baseline_jsonl_sha256": "e67d7d8a4d5fd1e33b173a567ca938596b91f6a1f064f877355dfd164b0e40ca",
+    "s0_report_sha256": "b34e17755f8bcde50089a3c676f7207ecbbdcc361a0fea7fb55ec0c1ec526e9d",
+    "causal_classification_sha256": "b171d6db7c3fade15b94b6d80906de2db0cd5d26b03ccbb96c617c8ffa33d897",
+    "mechanics_gate_runs": [
+      "1754485e-f3ce-46ed-a21e-d7c0be37d22d",
+      "5c0e1b02-c831-4746-8a7e-40415b847a37"
+    ]
+  },
+  "observed_distribution": {
+    "final_source_blind_player": "failed to clear the obstruction and did not complete the workday",
+    "exp15_bounded_public_recovery": "cleared the obstruction through public actions",
+    "exp16_counted_public_recovery": "cleared the obstruction through public actions",
+    "causal_disposition": "unresolved run-level/public-control ambiguity; no product byte change and no proven evaluation-surface change"
+  },
+  "amended_stage_0_rule": {
+    "status": "valid-with-public-run-ambiguity",
+    "original_literal_failure_reproduction": "not met",
+    "decision": "allow Stage 1 to begin against the exact frozen candidate while preserving all divergent trajectories as the baseline distribution",
+    "reason": "the central embodied-NPC question remains discriminable; forcing a nonreproducible historical trajectory would redesign the baseline or encourage test-specific scripting",
+    "forbidden_inference": "mechanics success or two public recoveries do not establish player acceptance, complete workday playability, fun, or removal of the recorded failure"
+  },
+  "downstream_requirements": [
+    "retain the final player failure in false-assurance analysis",
+    "compare evaluator results with the full observed distribution rather than a single route readout",
+    "run fresh source-blind final validation on the exact terminal candidate",
+    "make no product repair at Stage 0 solely to force the missing trajectory",
+    "leave model, effort, seeds, held-out commitments, budgets, anti-cheat rules and stage gates otherwise unchanged"
+  ]
+}

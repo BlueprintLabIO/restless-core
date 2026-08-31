@@ -171,7 +171,14 @@ pub struct ReviewTargetRef {
 pub struct AttentionAction {
     pub id: String,
     pub label: String,
+    /// `decision`, `inspect`, `conversation`, or `human_step`. This is
+    /// presentation-safe source meaning, not another action lifecycle.
+    pub role: &'static str,
     pub consequence: String,
+    /// The next state the owner should expect after the source operation.
+    /// Keeping it beside the action prevents the cockpit from reverse-parsing
+    /// an authored brief to explain what a control will do.
+    pub next_state: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub href: Option<String>,
 }
@@ -335,13 +342,17 @@ pub async fn project(
                 AttentionAction {
                     id: "grant".into(),
                     label: "Grant first contact".into(),
+                    role: "decision",
                     consequence: "Allows real first-contact effects to this exact party.".into(),
+                    next_state: "This party becomes approved. The company may retry the exact first-contact effect.".into(),
                     href: None,
                 },
                 AttentionAction {
                     id: "decline".into(),
                     label: "Decline".into(),
+                    role: "decision",
                     consequence: "Leaves this party unapproved and closes this request.".into(),
+                    next_state: "Nothing is sent to this party. Other independent work may continue.".into(),
                     href: None,
                 },
             ],
@@ -645,20 +656,29 @@ pub async fn project(
                 AttentionAction {
                     id: "accept-review".into(),
                     label: "Accept outcome".into(),
+                    role: "decision",
                     consequence: "Accepts this exact outcome and completes the Work.".into(),
+                    next_state: "The reviewed Work completes and its dependants may proceed."
+                        .into(),
                     href: None,
                 },
                 AttentionAction {
                     id: "request-revision".into(),
                     label: "Request changes".into(),
+                    role: "decision",
                     consequence: "Sends exact feedback to the lead and starts a new Work revision."
+                        .into(),
+                    next_state: "The lead receives the feedback and the Work returns for revision."
                         .into(),
                     href: None,
                 },
                 AttentionAction {
                     id: "chat-lead".into(),
                     label: "Talk with lead".into(),
+                    role: "conversation",
                     consequence: "Opens a Work-scoped conversation without deciding the review."
+                        .into(),
+                    next_state: "The review stays open until you use an explicit review control."
                         .into(),
                     href: None,
                 },
@@ -678,8 +698,10 @@ pub async fn project(
             actions.push(AttentionAction {
                 id: "record-decision".into(),
                 label: "Record decision".into(),
+                role: "decision",
                 consequence:
                     "Returns the owner's exact answer to the blocked Work and releases it.".into(),
+                next_state: "The responsible lead receives your answer and the blocked Work resumes.".into(),
                 href: None,
             });
         }
@@ -687,8 +709,10 @@ pub async fn project(
             actions.push(AttentionAction {
                 id: "chat-lead".into(),
                 label: "Talk with lead".into(),
+                role: "conversation",
                 consequence: "Opens the source-linked conversation without resolving this handoff."
                     .into(),
+                next_state: "The handoff stays open until an explicit decision is recorded.".into(),
                 href: None,
             });
         }
@@ -709,11 +733,17 @@ pub async fn project(
                     } else {
                         "Open prepared browser".into()
                     },
+                    role: "inspect",
                     consequence: if judgement {
                         "Opens the real outcome without deciding or approving anything.".into()
                     } else {
                         "Opens the prepared company browser without deciding or approving anything."
                             .into()
+                    },
+                    next_state: if judgement {
+                        "The outcome opens for inspection; the decision stays pending.".into()
+                    } else {
+                        "The prepared computer opens; Restless observes the source condition separately.".into()
                     },
                     href: None,
                 },
@@ -749,11 +779,13 @@ pub async fn project(
                         AttentionAction {
                             id: "open-provider-approval".into(),
                             label: "Review and approve in Airwallex".into(),
+                            role: "human_step",
                             consequence: format!(
                                 "Opens Airwallex for this exact {} {} payment; Restless cannot approve it.",
                                 format_minor(payment.request.amount_minor),
                                 payment.request.currency
                             ),
+                            next_state: "Restless waits for Airwallex to report the provider decision, then reconciles the linked Work.".into(),
                             href: Some(href),
                         },
                     );
@@ -924,16 +956,14 @@ pub async fn project(
                     role: "work lead".into(),
                 })
             });
-            let work_state = format!("{} · {}", state_work.title, work_status(state_work.status));
+            let work_state = format!(
+                "{} is {}.",
+                state_work.title,
+                reader_work_status(state_work.status)
+            );
             let attempt_state = attempt
-                .map(|attempt| {
-                    format!(
-                        "attempt {} is {}",
-                        attempt.attempt_no,
-                        attempt_status(attempt.state)
-                    )
-                })
-                .unwrap_or_else(|| "no current Attempt".into());
+                .map(|attempt| format!("The latest run is {}.", attempt_status(attempt.state)))
+                .unwrap_or_else(|| "No run has started yet.".into());
             let provider_state = payment.map(|payment| {
                 format!(
                     "Airwallex reports {}{}",
@@ -947,20 +977,17 @@ pub async fn project(
             });
             let what_it_unlocked = if let Some(successor) = released_successor {
                 format!(
-                    "Released successor Work “{}”; it is {}.",
+                    "Started the next work: “{}”. It is {}.",
                     successor.title,
-                    work_status(successor.status)
+                    reader_work_status(successor.status)
                 )
             } else if item.status == restless_orgintel::WorkStatus::Completed {
-                format!(
-                    "Completed Work “{}”; no further action is scheduled.",
-                    item.title
-                )
+                format!("Finished “{}”. No further action is scheduled.", item.title)
             } else {
                 format!(
-                    "Returned Work “{}” to its accountable owner; it is {}.",
+                    "Returned “{}” to its accountable owner. It is {}.",
                     item.title,
-                    work_status(item.status)
+                    reader_work_status(item.status)
                 )
             };
             let title = payment.map_or_else(
@@ -1057,13 +1084,13 @@ fn select_review_artifact(
         .max_by_key(|artifact| artifact.created_at)
 }
 
-fn work_status(status: restless_orgintel::WorkStatus) -> &'static str {
+fn reader_work_status(status: restless_orgintel::WorkStatus) -> &'static str {
     match status {
-        restless_orgintel::WorkStatus::Proposed => "proposed",
-        restless_orgintel::WorkStatus::Active => "active",
-        restless_orgintel::WorkStatus::Blocked => "blocked",
-        restless_orgintel::WorkStatus::Completed => "completed",
-        restless_orgintel::WorkStatus::Abandoned => "abandoned",
+        restless_orgintel::WorkStatus::Proposed => "not started",
+        restless_orgintel::WorkStatus::Active => "in progress",
+        restless_orgintel::WorkStatus::Blocked => "waiting on a blocker",
+        restless_orgintel::WorkStatus::Completed => "complete",
+        restless_orgintel::WorkStatus::Abandoned => "stopped",
     }
 }
 
@@ -1167,7 +1194,9 @@ fn normal_browser_action(href: String) -> AttentionAction {
     AttentionAction {
         id: "open-external-human-step".into(),
         label,
+        role: "human_step",
         consequence: "Opens the exact external provider page in your normal browser. It does not share cookies with the company browser, decide anything, or complete this handoff.".into(),
+        next_state: "Restless waits for an authenticated provider observation before resuming the Work.".into(),
         href: Some(href),
     }
 }
@@ -1202,6 +1231,30 @@ fn external_source_verification(metadata: &serde_json::Value) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn decision_history_uses_owner_language_for_work_state() {
+        assert_eq!(
+            reader_work_status(restless_orgintel::WorkStatus::Proposed),
+            "not started"
+        );
+        assert_eq!(
+            reader_work_status(restless_orgintel::WorkStatus::Active),
+            "in progress"
+        );
+        assert_eq!(
+            reader_work_status(restless_orgintel::WorkStatus::Blocked),
+            "waiting on a blocker"
+        );
+        assert_eq!(
+            reader_work_status(restless_orgintel::WorkStatus::Completed),
+            "complete"
+        );
+        assert_eq!(
+            reader_work_status(restless_orgintel::WorkStatus::Abandoned),
+            "stopped"
+        );
+    }
 
     #[tokio::test]
     #[ignore = "requires a dedicated *_test Company Runtime and RESTLESS_TEST_DATABASE_URL"]
@@ -1487,7 +1540,14 @@ mod tests {
             action.href.as_deref(),
             Some("https://massive.com/business-stocks")
         );
+        assert_eq!(action.role, "human_step");
         assert!(action.consequence.contains("does not share cookies"));
+        assert!(action.next_state.contains("provider observation"));
+        let wire = serde_json::to_value(action).expect("serialize presentation-safe action");
+        assert_eq!(wire["role"], "human_step");
+        assert!(wire["next_state"]
+            .as_str()
+            .is_some_and(|text| !text.is_empty()));
     }
 
     #[test]

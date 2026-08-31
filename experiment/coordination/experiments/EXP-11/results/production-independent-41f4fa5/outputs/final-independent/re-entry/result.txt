@@ -1,0 +1,3 @@
+native X11 early-exit recovery: VERIFIED
+ordinary input: E pickup, W approach, E seat, W partial drive, E early exit, W through cargo, E natural re-entry
+authoritative result: host observed early exit and second DRIVER occupancy; client received truthful early-exit guidance and second SEATED feedback

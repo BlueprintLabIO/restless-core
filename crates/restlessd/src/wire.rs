@@ -183,6 +183,12 @@ pub(crate) struct OrgIntelInput {
     #[serde(default)]
     pub(crate) fire_at: Option<String>,
     #[serde(default)]
+    pub(crate) recurrence: Option<String>,
+    #[serde(default)]
+    pub(crate) local_time: Option<String>,
+    #[serde(default)]
+    pub(crate) timezone: Option<String>,
+    #[serde(default)]
     pub(crate) include_fired: bool,
 }
 
@@ -412,7 +418,16 @@ fn command_fields(command: &str) -> Option<&'static [&'static str]> {
         "message" => &["from", "to", "id", "body"],
         "events" => &["limit"],
         "schedule-list" => &["as_actor", "include_fired"],
-        "schedule-add" => &["as_actor", "fire_at", "reason", "id"],
+        "schedule-add" => &[
+            "as_actor",
+            "fire_at",
+            "recurrence",
+            "local_time",
+            "timezone",
+            "reason",
+            "id",
+        ],
+        "schedule-cancel" => &["id", "as_actor", "reason"],
         "approve" | "revoke" | "decline" => &["party"],
         "browser-request" => &["id"],
         "effect" => &[

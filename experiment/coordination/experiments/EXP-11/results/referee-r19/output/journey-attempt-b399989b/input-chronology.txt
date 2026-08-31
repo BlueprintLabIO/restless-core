@@ -1,0 +1,21 @@
+Current repaired launch peer: 1950424604. Public controls only: W/A/S/D, mouse look attempts, E, Q.
+
+Evidence-bearing chronology (all actions preceded by a raised/focused CLIENT capture that was read directly; intermediate positioning PNGs remain in this directory):
+1. repair-step00-initial-client.png: fresh CLIENT initial state.
+2. Positioned on truck bed near the visible crate using W/A/S/D only.
+3. repair-step34-close-centered-crate.png: crate visibly close and centered immediately before pickup.
+4. E (0.20-second press) -> repair-step35-crate-carried.png: visible `CRATE CARRIED BY YOU`.
+5. Q (0.20-second press) -> repair-step36-mistake-drop.png: deliberate ordinary mistake; HUD changed to `CRATE NOT CARRIED` and the crate remained recoverable directly ahead.
+6. E (0.20-second press) -> repair-step37-mistake-recovered.png: visible recovery to `CRATE CARRIED BY YOU`.
+7. W 1.5 seconds toward yellow driver seat; E 0.20 seconds.
+8. repair-step39-loaded-truck-start.png: visible `DRIVING · DELIVERY IN PROGRESS · CRATE CARRIED BY YOU · ROUTE 0 / 40 m`.
+9. W 6 seconds, then W 7 seconds, then W 0.6 seconds.
+10. repair-step42-route-end-confirmed.png: direct route-end state `DRIVING`, `CRATE CARRIED BY YOU`, `ROUTE 40 / 40 m`, and `OBJECTIVE: DRIVE TO ROUTE END`.
+11. E 0.20 seconds -> repair-step43-on-foot-after-exit.png: direct on-foot state at `ROUTE 40 / 40 m`, still carrying the crate. Walked S through the rear cargo threshold.
+12. The objective did not advance; it remained `COMPLETE THE LOADED TRUCK JOURNEY — Re-enter the yellow DRIVER seat through cargo · drive to 40 m · exit`.
+13. Re-entered successfully at the driver interaction range (repair-step68-matched-reenter.png visibly shows `DRIVING`, carried crate, route 40/40), drove W another 0.5 seconds (repair-step69-route-end-trigger.png), and exited with E (repair-step70-post-trigger-exit.png).
+14. The same loaded-journey objective persisted after this second complete re-entry/movement/exit cycle.
+15. Walked S out through rear cargo into the visible yellow destination structure: repair-step71-destination-zone-blocker.png shows on-foot, crate carried, route 40/40, truck within the yellow structure, but the stale loaded-journey objective.
+16. E 0.20 seconds attempted unload in that visible destination state -> repair-step72-unload-attempt-blocked.png. The state and objective remained unchanged; no delivery completion appeared.
+
+Mouse-look note: bounded native xdotool relative and absolute mouse motions did not visibly change view; no non-public gameplay control was substituted. W/A/S/D positioning was used instead.

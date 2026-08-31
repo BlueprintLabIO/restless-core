@@ -1,0 +1,63 @@
+name = "exp11_vision_referee_r14_test"
+mission = """# EXP-11 blind native Sol referee, repaired candidate R14
+
+Independently judge frozen Swift Arrival candidate
+`7e76d1e087cf4cde12aaf1fa6d5e9309f39bcddd` without helping produce it. Exec delegates once and
+remains available. One non-producing Referee lead commissions exactly one fresh Staff player on
+exact `litellm/gpt-5.6-sol`; Exec and lead also use that exact selector. Do not substitute another
+model or provider route.
+
+The player receives only this public objective: collect the parcel, make one ordinary recoverable
+mistake, drive the truck to the destination, leave the seat and deliver the parcel. Public controls
+are W/A/S/D movement or driving, mouse look, E interact and Q deliberate drop. The prepared native
+processes are launched with `DISPLAY=:1 godot --path /company/projects/swift-arrival-candidate -- --host`
+and `DISPLAY=:1 godot --path /company/projects/swift-arrival-candidate -- --client`. The player must
+not inspect source, Git history, producer messages, tests, logs, known defects or prior reports.
+
+For each fresh launch, start the host first, wait until its window is visible and record its numeric
+ID, then minimize that exact host window. Start the client and identify the newly visible numeric ID
+whose title says CLIENT. Keep the CLIENT at its native full viewport size; raise and focus it, record
+its final title and geometry, and capture only its unobstructed screen region. This routing setup is
+deterministic evaluator plumbing, not gameplay input. If minimizing the host fails, the one bounded
+setup repair may move that exact host window wholly off the visible screen before recapture. Never
+resize the CLIENT or treat the pixels of a covering window as the selected window's pixels.
+
+Run two independent fresh native launches in this order. First, naturally test whether carrying the
+parcel to the destination on foot without a loaded truck journey can complete delivery. Record the
+visible rejection or any bypass. For this first result to count, the parcel-bearing player must be
+visibly inside the destination zone when E is pressed and the resulting pixels must show either an
+explicit loaded-truck-journey rejection or a delivery bypass. Mere non-completion, an outside-zone
+rejection, or an optimistic filename is insufficient. Second, restart both native processes from a clean state and attempt
+the complete intended journey: collect the parcel, make one ordinary recoverable mistake, recover,
+load the truck, drive to the destination, leave the seat and unload. A pass requires direct visual
+evidence that the shortcut does not complete and that the complete journey does complete. Do not
+infer either result from logs, source, scripts or the other run.
+
+Before gameplay it creates a fresh initial client PNG, reads that exact PNG with OMP's ordinary
+`read` tool so its pixels enter the active Sol turn, and records what the pixels show. Then it acts
+through ordinary keyboard/pointer input, recaptures, reads the resulting PNG in the same Sol session,
+and continues only from direct pixel observation. File existence, metadata or command success is not
+image observation.
+
+Enumerate visible Swift Arrival numeric window IDs and map each ID to its title. Choose the numeric
+ID whose title says CLIENT. Before every input or capture, raise and focus that exact ID. Obtain that
+ID's geometry with `xdotool getwindowgeometry --shell`, then capture the corresponding screen region
+with `scrot -a X,Y,WIDTH,HEIGHT`; do not use `scrot -u` as client-routing proof. Read the exact PNG and
+continue only if its pixels visibly identify CLIENT. A first launch, focus or capture command failure
+may receive one bounded setup repair, with both failure and repair retained in the action trace.
+Report `invalid` only if exact routing, native image ingestion, native input or recapture remains
+unavailable after that repair; do not substitute source, logs or another evidence path.
+
+Attempt the goal naturally, separate direct visual observation from inference and uncertainty, and
+stop on completion or a reproducible blocker. Write immutable evidence only below
+`/company/outputs/exp11-referee/candidate-r14`. Prefer decision-relevant captures over a screenshot
+for every tiny movement, while never acting past an uncertain visual state. Do not edit the game, prescribe a backlog, contact
+production, deploy, publish, purchase or declare founder acceptance.
+"""
+spend_ceiling_usd = 16.0
+model = "litellm/gpt-5.6-sol"
+model_failover = []
+approved_parties = []
+
+[credentials]
+"model.inference.litellm" = "env:GPT_API_KEY"

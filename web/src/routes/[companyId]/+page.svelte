@@ -38,6 +38,10 @@
 	let focusItem = $state<AttentionItem | null>(null);
 	let desktopUrl = $state('');
 	let controller = $state<'observer' | 'owner'>('observer');
+	let autoClaimPending = $state(false);
+	let lastDesktopActivity = $state(0);
+	let lastLeaseRenewal = $state(0);
+	let activityRenewing = $state(false);
 	let conversationError = $state('');
 	let messageDraft = $state('');
 	let messageFiles = $state<File[]>([]);
@@ -143,17 +147,17 @@
 
 	onMount(() => {
 		void browserTabClientId(companyId).then((id) => (clientId = id));
-		const heartbeat = window.setInterval(() => {
-			if (controller === 'owner') {
-				void browserControl(companyId, 'heartbeat', clientId).catch((cause) => {
-					controller = 'observer';
-					desktopUrl = observedDesktopUrl();
-					error = cause instanceof Error ? cause.message : 'Browser control lease ended.';
-				});
+		const idleRelease = window.setInterval(() => {
+			if (
+				controller === 'owner' &&
+				lastDesktopActivity > 0 &&
+				Date.now() - lastDesktopActivity >= 60_000
+			) {
+				void returnControl(true);
 			}
-		}, 12_000);
+		}, 5_000);
 		return () => {
-			window.clearInterval(heartbeat);
+			window.clearInterval(idleRelease);
 		};
 	});
 
@@ -193,26 +197,24 @@
 		);
 	}
 
-	function attentionAction(category: string): string {
-		return (
-			{
-				approval: 'Approve',
-				review: 'Review',
-				decision: 'Decide',
-				blocker: 'Resolve',
-				opportunity: 'Consider',
-				contradiction: 'Review',
-				human_step: 'Continue'
-			}[category] ?? 'Open'
-		);
-	}
-
-	function workTitle(workId: string | undefined, fallback: string): string {
-		return graph?.work.find((work) => work.id === workId)?.title ?? fallback;
-	}
-
 	function partyOf(item: AttentionItem): string {
 		return item.source.party ?? '';
+	}
+
+	function actionFor(item: AttentionItem, id: string) {
+		return item.actions.find((action) => action.id === id);
+	}
+
+	function actionHeading(item: AttentionItem): string {
+		if (item.category === 'review') return 'Review, then choose';
+		if (item.category === 'human_step') return 'Complete this step';
+		if (item.category === 'approval') return 'Choose what happens';
+		return 'Your decision';
+	}
+
+	function holdLabel(label: string | undefined): string {
+		if (!label) return 'Hold to approve';
+		return `Hold to ${label.charAt(0).toLocaleLowerCase()}${label.slice(1)}`;
 	}
 
 	async function decide(item: AttentionItem, action: 'grant' | 'decline') {
@@ -266,6 +268,10 @@
 				controller = 'observer';
 				desktopUrl = observedDesktopUrl();
 			}
+			if (autoClaimPending) {
+				autoClaimPending = false;
+				await takeControl(true);
+			}
 		} catch (cause) {
 			error = cause instanceof Error ? cause.message : 'Browser control state is unavailable.';
 		}
@@ -285,6 +291,7 @@
 		}
 		try {
 			desktopUrl = await issueDesktopTicket(companyId, item.id, clientId);
+			autoClaimPending = true;
 		} catch (cause) {
 			error = cause instanceof Error ? cause.message : 'The live browser is unavailable.';
 		}
@@ -307,28 +314,51 @@
 		);
 	}
 
-	async function takeControl() {
+	async function takeControl(silent = false) {
 		if (!focusItem || !clientId) return;
 		error = '';
 		try {
 			await browserControl(companyId, 'take', clientId);
 			controller = 'owner';
 			desktopUrl = controlledDesktopUrl();
+			lastDesktopActivity = Date.now();
+			lastLeaseRenewal = Date.now();
 		} catch (cause) {
-			error = cause instanceof Error ? cause.message : 'Control is held elsewhere.';
+			if (!silent) error = cause instanceof Error ? cause.message : 'Control is held elsewhere.';
 		}
 	}
 
-	async function returnControl() {
+	async function returnControl(automatic = false) {
 		if (!focusItem || !clientId) return;
 		error = '';
 		try {
 			await browserControl(companyId, 'return', clientId);
 			controller = 'observer';
 			desktopUrl = observedDesktopUrl();
+			lastDesktopActivity = 0;
 		} catch (cause) {
-			error = cause instanceof Error ? cause.message : 'Control could not be returned.';
+			if (!automatic)
+				error = cause instanceof Error ? cause.message : 'Control could not be returned.';
 		}
+	}
+
+	function desktopActivity() {
+		const now = Date.now();
+		lastDesktopActivity = now;
+		if (controller !== 'owner') {
+			void takeControl();
+			return;
+		}
+		if (activityRenewing || now - lastLeaseRenewal < 8_000) return;
+		activityRenewing = true;
+		lastLeaseRenewal = now;
+		void browserControl(companyId, 'heartbeat', clientId)
+			.catch((cause) => {
+				controller = 'observer';
+				desktopUrl = observedDesktopUrl();
+				error = cause instanceof Error ? cause.message : 'Desktop control expired.';
+			})
+			.finally(() => (activityRenewing = false));
 	}
 
 	async function closePreparedComputer() {
@@ -475,14 +505,14 @@
 							class="btn small primary"
 							type="button"
 							title="Pauses company automation and gives this tab sole keyboard and pointer control."
-							onclick={takeControl}>Take control</button
+							onclick={() => takeControl()}>Take control</button
 						>
 					{:else}
 						<button
 							class="btn small"
 							type="button"
 							title="Returns input to the responsible actor. The source condition is checked separately."
-							onclick={returnControl}>Return control</button
+							onclick={() => returnControl()}>Return control</button
 						>
 					{/if}
 				{:else}
@@ -528,6 +558,7 @@
 							text={message.text}
 							createdAt={message.createdAt}
 							details={message.details}
+							intent={message.intent}
 							attachments={message.attachments}
 							hrefFor={attachmentHref}
 						/>
@@ -583,6 +614,7 @@
 					title="Live company browser"
 					offline={offlineDesktop}
 					onload={syncFocusedControl}
+					onactivity={desktopActivity}
 				/>
 			</div>
 		</div>
@@ -607,9 +639,10 @@
 								</span>
 								<time>{when(item.createdAt)}</time>
 							</span>
-							<strong class="attention-item-title">{workTitle(item.workId, item.title)}</strong>
-							<span class="attention-item-action" title={item.requestedAction}>
-								{attentionAction(item.category)} <span aria-hidden="true">→</span>
+							<strong class="attention-item-title">{item.title}</strong>
+							<span class="attention-item-action">
+								<span>Needs you:</span>
+								{item.requestedAction} <span aria-hidden="true">→</span>
 							</span>
 						</a>
 					{:else}
@@ -669,101 +702,149 @@
 						{#if item.deadline}<time>Decision needed by {item.deadline}</time>{/if}
 					</div>
 				</div>
-				<div class="folio-narrative">
-					<p>{item.whatHappened}</p>
-					<p>{item.whyItMatters}</p>
+				<div class="folio-facts" aria-label="Decision context">
+					<section class="folio-fact">
+						<h2>What changed</h2>
+						<p>{item.whatHappened}</p>
+					</section>
+					<section class="folio-fact important">
+						<h2>Why it matters</h2>
+						<p>{item.whyItMatters}</p>
+					</section>
 				</div>
 				{#if item.uncertainty}
 					<div class="folio-uncertainty">
-						<InfoTip text="Material uncertainty that could change the recommendation." />
+						<strong>What is still uncertain</strong>
 						<p>{item.uncertainty}</p>
+						<InfoTip text="This unknown could change the recommendation." />
 					</div>
 				{/if}
 			</header>
 
 			<section class="folio-recommendation" aria-label="Recommendation">
-				<h2>Recommendation</h2>
+				<h2>The company recommends</h2>
 				<Markdown text={item.recommendation} />
 			</section>
 
 			<section class="folio-move" aria-label="Your next move">
 				<div class="folio-move-copy">
-					<h2>Your next move</h2>
+					<h2>{actionHeading(item)}</h2>
 					<Markdown text={item.requestedAction} />
-					<p class="folio-wait"><span>If you wait:</span> {item.ifNoAction}</p>
 				</div>
-				<div class="nc-actions">
+				<div class="nc-actions" aria-label="Available actions">
 					{#each item.actions.filter((action) => action.href) as action (action.id)}
-						<a
-							class="btn small primary"
-							href={action.href}
-							target="_blank"
-							rel="noreferrer"
-							title={action.consequence}>{action.label} ↗</a
-						>
+						<div class="action-choice primary-choice">
+							<a class="btn small primary" href={action.href} target="_blank" rel="noreferrer"
+								>{action.label} ↗</a
+							>
+							{@render actionMeaning(action)}
+						</div>
 					{/each}
 					{#if item.category === 'approval'}
-						<form
-							onsubmit={(event) => {
-								event.preventDefault();
-								void decide(item, 'grant');
-							}}
-						>
-							<HoldApprove small label={acting ? 'Working…' : 'Hold to grant'} />
-						</form>
-						<button
-							class="btn small danger"
-							type="button"
-							onclick={() => decide(item, 'decline')}
-							disabled={acting}
-						>
-							Decline
-						</button>
+						{@const grantAction = actionFor(item, 'grant')}
+						{@const declineAction = actionFor(item, 'decline')}
+						{#if grantAction}
+							<div class="action-choice primary-choice">
+								<form
+									onsubmit={(event) => {
+										event.preventDefault();
+										void decide(item, 'grant');
+									}}
+								>
+									<HoldApprove small label={acting ? 'Working…' : holdLabel(grantAction.label)} />
+								</form>
+								{@render actionMeaning(grantAction)}
+							</div>
+						{/if}
+						{#if declineAction}
+							<div class="action-choice">
+								<button
+									class="btn small danger"
+									type="button"
+									onclick={() => decide(item, 'decline')}
+									disabled={acting}
+								>
+									{declineAction.label}
+								</button>
+								{@render actionMeaning(declineAction)}
+							</div>
+						{/if}
 					{/if}
 					{#if item.actions.some((action) => action.id === 'record-decision')}
-						<form
-							class="decision-response"
-							onsubmit={(event) => {
-								event.preventDefault();
-								void recordDecision(item);
-							}}
-						>
-							<input
-								bind:value={decisionDraft}
-								placeholder="Your decision…"
-								aria-label="Your decision"
-							/>
-							<button
-								class="btn small primary"
-								type="submit"
-								disabled={acting || !decisionDraft.trim()}
+						{@const recordAction = actionFor(item, 'record-decision')}
+						<div class="action-choice primary-choice">
+							<form
+								class="decision-response"
+								onsubmit={(event) => {
+									event.preventDefault();
+									void recordDecision(item);
+								}}
 							>
-								{acting ? 'Recording…' : 'Record decision'}
-							</button>
-						</form>
+								<label for="owner-decision">Write the decision in plain language</label>
+								<input
+									id="owner-decision"
+									bind:value={decisionDraft}
+									placeholder="For example: proceed with option A"
+									aria-label="Your decision"
+								/>
+								<button
+									class="btn small primary"
+									type="submit"
+									disabled={acting || !decisionDraft.trim()}
+								>
+									{acting ? 'Recording…' : 'Record this decision'}
+								</button>
+							</form>
+							{#if recordAction}{@render actionMeaning(recordAction)}{/if}
+						</div>
 					{/if}
 					{#if item.category === 'review'}
-						<button class="btn small primary" type="button" onclick={() => openReview(item)}>
-							Review outcome
-						</button>
-						{#if item.responsibleActor}
-							<button class="btn small" type="button" onclick={() => talkToLead(item)}>
-								Talk to {item.responsibleActor.display}
+						{@const openAction = actionFor(item, 'open-outcome')}
+						<div class="action-choice primary-choice">
+							<button class="btn small primary" type="button" onclick={() => openReview(item)}>
+								{openAction?.label ?? 'Review outcome'}
 							</button>
+							{#if openAction}{@render actionMeaning(openAction)}{/if}
+						</div>
+						<div class="review-choices" aria-label="Choices available after review">
+							<strong>After reviewing, choose one:</strong>
+							{#each item.actions.filter((action) => action.id === 'accept-review' || action.id === 'request-revision') as action (action.id)}
+								<div><span>{action.label}</span><small>{action.nextState}</small></div>
+							{/each}
+						</div>
+						{#if item.responsibleActor}
+							{@const chatAction = actionFor(item, 'chat-lead')}
+							<div class="action-choice quiet-choice">
+								<button class="btn small" type="button" onclick={() => talkToLead(item)}>
+									Talk to {item.responsibleActor.display}
+								</button>
+								{#if chatAction}{@render actionMeaning(chatAction)}{/if}
+							</div>
 						{/if}
 					{:else}
 						{#if item.actions.some((action) => action.id === 'open-outcome')}
-							<button class="btn small" type="button" onclick={() => openReview(item)}>
-								{item.actions.find((action) => action.id === 'open-outcome')?.label ??
-									'Open outcome'}
-							</button>
+							{@const openAction = actionFor(item, 'open-outcome')}
+							<div class="action-choice">
+								<button class="btn small" type="button" onclick={() => openReview(item)}>
+									{openAction?.label ?? 'Open outcome'}
+								</button>
+								{#if openAction}{@render actionMeaning(openAction)}{/if}
+							</div>
 						{/if}
 						{#if item.responsibleActor && item.actions.some((action) => action.id === 'chat-lead')}
-							<button class="btn small" type="button" onclick={() => talkToLead(item)}>
-								Talk to {item.responsibleActor.display}
-							</button>
+							{@const chatAction = actionFor(item, 'chat-lead')}
+							<div class="action-choice quiet-choice">
+								<button class="btn small" type="button" onclick={() => talkToLead(item)}>
+									Talk to {item.responsibleActor.display}
+								</button>
+								{#if chatAction}{@render actionMeaning(chatAction)}{/if}
+							</div>
 						{/if}
 					{/if}
+				</div>
+				<div class="folio-wait">
+					<strong>If you do nothing</strong>
+					<p>{item.ifNoAction}</p>
 				</div>
 			</section>
 
@@ -812,6 +893,13 @@
 				</div>
 			</details>
 		</article>
+	</div>
+{/snippet}
+
+{#snippet actionMeaning(action: AttentionItem['actions'][number])}
+	<div class="action-meaning">
+		<p>{action.consequence}</p>
+		<small><span aria-hidden="true">Then:</span> {action.nextState}</small>
 	</div>
 {/snippet}
 
@@ -1067,25 +1155,39 @@
 		letter-spacing: -0.03em;
 		text-wrap: balance;
 	}
-	.folio-narrative {
+	.folio-facts {
 		max-width: 700px;
 		margin-top: var(--space-5);
+		border-block: 1px solid var(--border);
 	}
-	.folio-narrative p {
+	.folio-fact {
+		display: grid;
+		grid-template-columns: 124px minmax(0, 1fr);
+		gap: var(--space-4);
+		padding: 13px 0;
+	}
+	.folio-fact + .folio-fact {
+		border-top: 1px solid var(--border);
+	}
+	.folio-fact h2 {
+		margin: 2px 0 0;
+		color: var(--text-tertiary);
+		font: 600 var(--t-body) var(--font-ui);
+	}
+	.folio-fact p {
 		margin: 0;
 		font-size: var(--t-head);
 		font-weight: 400;
 		line-height: 1.55;
 		color: var(--text-secondary);
 	}
-	.folio-narrative p + p {
-		margin-top: var(--space-3);
+	.folio-fact.important p {
 		color: var(--ink);
 	}
 	.folio-uncertainty {
 		max-width: 700px;
 		display: grid;
-		grid-template-columns: auto minmax(0, 1fr);
+		grid-template-columns: 154px minmax(0, 1fr) auto;
 		align-items: start;
 		gap: var(--space-2);
 		margin-top: var(--space-4);
@@ -1095,6 +1197,11 @@
 		font-size: var(--t-head);
 		line-height: 1.55;
 		color: var(--text-secondary);
+	}
+	.folio-uncertainty strong {
+		color: var(--ink);
+		font-size: var(--t-body);
+		line-height: 1.55;
 	}
 	.folio-uncertainty p {
 		margin: 0;
@@ -1159,12 +1266,17 @@
 	}
 	.folio-move {
 		display: grid;
-		grid-template-columns: minmax(0, 1fr) minmax(220px, 248px);
+		grid-template-areas:
+			'intro actions'
+			'wait actions';
+		grid-template-columns: minmax(220px, 0.72fr) minmax(320px, 1.28fr);
 		align-items: start;
-		padding: 22px clamp(26px, 4vw, 46px);
+		gap: var(--space-4) clamp(24px, 4vw, 44px);
+		padding: 24px clamp(26px, 4vw, 46px) 28px;
 		background: rgba(255, 255, 255, 0.48);
 	}
 	.folio-move-copy {
+		grid-area: intro;
 		min-width: 0;
 		max-width: 620px;
 	}
@@ -1172,30 +1284,106 @@
 		margin-top: var(--space-2);
 	}
 	.folio-wait {
-		margin: var(--space-3) 0 0;
+		grid-area: wait;
+		margin: 0;
+		padding-top: var(--space-3);
+		border-top: 1px solid var(--border);
 		font-size: var(--t-body);
 		font-weight: 400;
 		line-height: 1.5;
 		color: var(--text-secondary);
 	}
-	.folio-wait span {
+	.folio-wait strong {
+		display: block;
+		margin-bottom: 3px;
 		color: var(--ink);
+		font-weight: 600;
+	}
+	.folio-wait p {
+		margin: 0;
 	}
 	.owner-folio .nc-actions {
+		grid-area: actions;
 		width: 100%;
 		display: grid;
 		grid-template-columns: minmax(0, 1fr);
-		gap: 8px;
+		gap: 10px;
 		margin: 0;
 	}
-	.owner-folio .nc-actions > :is(button, form),
-	.owner-folio .nc-actions > form > button,
-	.owner-folio .nc-actions > form > :global(.hold-approve) {
+	.action-choice {
+		min-width: 0;
+		display: grid;
+		gap: 8px;
+		padding: 12px;
+		border: 1px solid var(--border-strong);
+		border-radius: var(--radius-control);
+		background: color-mix(in srgb, var(--surface) 88%, transparent);
+		box-shadow: var(--bevel);
+	}
+	.action-choice.primary-choice {
+		border-color: color-mix(in srgb, var(--folio-tone) 34%, var(--border-strong));
+		background: color-mix(in srgb, var(--folio-tone) 5%, var(--surface));
+	}
+	.action-choice.quiet-choice {
+		background: color-mix(in srgb, var(--surface-alt) 72%, transparent);
+	}
+	.action-choice > :is(button, a, form),
+	.action-choice > form > button,
+	.action-choice > form > :global(.hold-approve) {
 		width: 100%;
+	}
+	.action-meaning {
+		display: grid;
+		gap: 4px;
+	}
+	.action-meaning p,
+	.action-meaning small {
+		margin: 0;
+		font-size: var(--t-body);
+		font-weight: 400;
+		line-height: 1.42;
+		color: var(--text-secondary);
+	}
+	.action-meaning small {
+		color: var(--text-tertiary);
+	}
+	.action-meaning small span {
+		color: var(--ink);
+		font-weight: 600;
+	}
+	.review-choices {
+		display: grid;
+		gap: 7px;
+		padding: 10px 12px;
+		border-left: 2px solid var(--folio-tone);
+		background: var(--surface-alt);
+	}
+	.review-choices > strong {
+		font-size: var(--t-body);
+	}
+	.review-choices > div {
+		display: grid;
+		grid-template-columns: 116px minmax(0, 1fr);
+		gap: var(--space-2);
+	}
+	.review-choices span {
+		font-size: var(--t-body);
+		font-weight: 600;
+		color: var(--ink);
+	}
+	.review-choices small {
+		font-size: var(--t-body);
+		line-height: 1.4;
+		color: var(--text-secondary);
 	}
 	.decision-response {
 		display: grid;
 		gap: 7px;
+	}
+	.decision-response label {
+		font-size: var(--t-body);
+		font-weight: 600;
+		color: var(--ink);
 	}
 	.decision-response input {
 		width: 100%;
@@ -1490,7 +1678,19 @@
 	}
 	@container (max-width: 700px) {
 		.folio-move {
+			grid-template-areas:
+				'intro'
+				'actions'
+				'wait';
 			grid-template-columns: minmax(0, 1fr);
+		}
+		.folio-fact,
+		.folio-uncertainty {
+			grid-template-columns: minmax(0, 1fr);
+			gap: 5px;
+		}
+		.folio-uncertainty :global(.info-tip) {
+			display: none;
 		}
 	}
 	@media (max-width: 1040px) {

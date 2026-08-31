@@ -222,7 +222,6 @@
 				}
 			: null}
 		workContext={focusedAttention ? { onback: closeFocusedContext } : null}
-		attention={focusedAttention}
 	/>
 {/snippet}
 

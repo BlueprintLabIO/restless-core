@@ -1,6 +1,18 @@
-import type { AttentionItem, DecisionContinuation, MessageIntentReceipt } from './view';
-import type { MessageAttachment } from './view';
+import type { AttentionItem, DecisionContinuation } from './view';
 import type { WorkGraphSnapshot } from './generated/orgintel';
+import type {
+	AgentActivityState,
+	ConversationInterruptResponse,
+	ConversationSendResponse,
+	ConversationView
+} from './generated/conversation';
+
+export type {
+	AgentActivityPhase,
+	AgentActivityItem,
+	AgentActivityState,
+	AgentContextUsage
+} from './generated/conversation';
 
 export interface AttentionView {
 	company: { id: string; name: string; mission: string; model: string };
@@ -16,61 +28,7 @@ export interface AttentionView {
 	refreshedAt: string;
 }
 
-export interface ActorConversation {
-	actor: { id: string; display: string; role: string };
-	focus?: {
-		after_message_id: number;
-		started_at: string | null;
-	} | null;
-	messages: Array<{
-		id: number;
-		from_actor: string;
-		to_actor: string | null;
-		body: string;
-		attachments: MessageAttachment[];
-		details?: string | null;
-		intent?: MessageIntentReceipt | null;
-		context_path?: string | null;
-		created_at: string;
-	}>;
-}
-
-export type AgentActivityPhase =
-	'queued' | 'thinking' | 'acting' | 'responding' | 'complete' | 'failed';
-
-export interface AgentActivityItem {
-	id: string;
-	kind: string;
-	label: string;
-	detail: string;
-	status: string;
-	replyOffset: number;
-}
-
-export interface AgentContextUsage {
-	used: number;
-	size: number;
-	costUsd?: number | null;
-}
-
-export interface AgentActivityState {
-	streamId: string;
-	sequence: number;
-	company: string;
-	actorId: string;
-	triggerMessageId?: number | null;
-	workId?: string | null;
-	attemptId?: string | null;
-	phase: AgentActivityPhase;
-	reply: string;
-	generatedOutputTokens?: number | null;
-	contextUsage?: AgentContextUsage | null;
-	activity: AgentActivityItem[];
-	startedAt?: string | null;
-	updatedAt: string;
-	completedMessageId?: number | null;
-	error?: string | null;
-}
+export type ActorConversation = ConversationView;
 
 export interface MessageSendResult {
 	messageId: number;
@@ -81,6 +39,12 @@ export interface MessageSendResult {
 		afterMessageId: number;
 		startedAt: string | null;
 	} | null;
+}
+
+export interface MessageInterruptResult {
+	messageId: number;
+	cancelled: boolean;
+	interrupted: boolean;
 }
 
 type WireItem = {
@@ -135,7 +99,14 @@ type WireItem = {
 		content?: string;
 		unavailable_reason?: string;
 	};
-	actions: AttentionItem['actions'];
+	actions: Array<{
+		id: string;
+		label: string;
+		role: string;
+		consequence: string;
+		next_state: string;
+		href?: string;
+	}>;
 	can_continue: boolean;
 	created_at: string;
 };
@@ -222,7 +193,14 @@ export async function getAttention(company: string): Promise<AttentionView> {
 						unavailableReason: item.review_target.unavailable_reason
 					}
 				: undefined,
-			actions: item.actions,
+			actions: item.actions.map((action) => ({
+				id: action.id,
+				label: action.label,
+				role: action.role,
+				consequence: action.consequence,
+				nextState: action.next_state,
+				href: action.href
+			})),
 			canContinue: item.can_continue,
 			createdAt: item.created_at
 		})),
@@ -254,7 +232,7 @@ export async function getActorConversation(
 		{ credentials: 'same-origin', cache: 'no-store' }
 	);
 	if (!response.ok) throw await ownerError(response);
-	return response.json();
+	return (await response.json()) as ConversationView;
 }
 
 export type AgentActivityScope =
@@ -349,13 +327,7 @@ export async function sendActorMessage(
 		}
 	);
 	if (!response.ok) throw await ownerError(response);
-	const result = (await response.json()) as {
-		message_id: number;
-		interrupted?: boolean;
-		context_attached?: boolean;
-		context_omitted?: boolean;
-		focus?: { after_message_id: number; started_at: string | null } | null;
-	};
+	const result = (await response.json()) as ConversationSendResponse;
 	return {
 		messageId: result.message_id,
 		interrupted: result.interrupted ?? false,
@@ -367,6 +339,30 @@ export async function sendActorMessage(
 					startedAt: result.focus.started_at
 				}
 			: result.focus
+	};
+}
+
+/** Interrupt one still-unread ordinary conversation request without inserting
+ * a second owner message. The terminal client uses the same endpoint for its
+ * first Ctrl-C; browser surfaces can opt into the identical semantics. */
+export async function interruptActorMessage(
+	company: string,
+	actor: string,
+	messageId: number
+): Promise<MessageInterruptResult> {
+	const response = await fetch(
+		`/api/companies/${encodeURIComponent(company)}/actors/${encodeURIComponent(actor)}/conversation/${encodeURIComponent(messageId)}/interrupt`,
+		{
+			method: 'POST',
+			credentials: 'same-origin'
+		}
+	);
+	if (!response.ok) throw await ownerError(response);
+	const result = (await response.json()) as ConversationInterruptResponse;
+	return {
+		messageId: result.message_id,
+		cancelled: result.cancelled,
+		interrupted: result.interrupted
 	};
 }
 

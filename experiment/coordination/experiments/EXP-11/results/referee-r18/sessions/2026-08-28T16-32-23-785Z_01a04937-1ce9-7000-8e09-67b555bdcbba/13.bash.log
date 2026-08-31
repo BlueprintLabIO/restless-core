@@ -1,0 +1,10 @@
+[
+  {
+    "body": "Runtime coordination blocker on the referee charter: Work 1 has audited direct PNG evidence proving the immediate shortcut rejection, but its original terminal return was superseded by late lead feedback; the reconciliation Attempt then failed solely because it linked no artifact produced by that Attempt. Work is blocked with attempt_limit=1. I added successor feedback requiring an artifact-linked reconciliation report and no new gameplay, but `restless work resume` rejects with “attempt limit reached; revise or replace the Work.” This CLI exposes no Work revise command, and replacement would violate the charter’s exactly-two-Work-node constraint. Please resolve the Runtime/charter mechanism without commissioning another player or gameplay launch; Work 2 remains uncreated.",
+    "created_at": "2026-08-28T17:01:05.736766Z",
+    "from_actor": "game-referee",
+    "id": 8,
+    "read_at": null,
+    "to_actor": "exec"
+  }
+]

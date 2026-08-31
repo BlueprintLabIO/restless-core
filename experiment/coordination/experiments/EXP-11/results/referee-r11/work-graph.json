@@ -1,0 +1,66 @@
+{
+  "work": [
+    {
+      "id": "6bcb6e27-33de-4125-93f4-f0b8c6137166",
+      "goal_id": null,
+      "owner_id": "gameplay-referee",
+      "title": "Independently play and judge the frozen delivery journey",
+      "outcome": "The company will receive an independent visual judgement of whether the frozen game rejects the on-foot shortcut and supports the intended recoverable truck delivery. The evidence will let the accountable referee distinguish a pass, fail, or invalid run without relying on the game’s internals.\n\nThe workspace is persistent `/company` and the prepared frozen candidate is at `/company/projects/swift-arrival-candidate`, commit `7e76d1e087cf4cde12aaf1fa6d5e9309f39bcddd`; this is referee gameplay, so do not edit or inspect the repository and run repo-less rather than manufacture a worktree. Expected proof is immutable evidence only below the exact locator `/company/outputs/exp11-referee/candidate-r11`.\n\nYour only public objective is: collect the parcel, make one ordinary recoverable mistake, drive the truck to the destination, leave the seat and deliver the parcel. Public controls are W/A/S/D movement or driving, mouse look, E interact and Q deliberate drop. Do not inspect source, Git history, producer messages, tests, logs, known defects or prior reports.\n\nRun two independent fresh native launches in this order, using `DISPLAY=:1 godot --path /company/projects/swift-arrival-candidate -- --host` and `DISPLAY=:1 godot --path /company/projects/swift-arrival-candidate -- --client`. First, naturally test whether carrying the parcel to the destination on foot without a loaded truck journey can complete delivery. Record the visible rejection or any bypass. Second, restart both native processes from a clean state and attempt the complete intended journey: collect the parcel, make one ordinary recoverable mistake, recover, load the truck, drive to the destination, leave the seat and unload. A pass requires direct visual evidence that the shortcut does not complete and that the complete journey does complete. Do not infer either result from logs, source, scripts or the other run.\n\nBefore gameplay create a fresh initial client PNG, read that exact PNG with OMP's ordinary `read` tool so its pixels enter your active Sol turn, and record what the pixels show. Then act through ordinary keyboard/pointer input, recapture, read the resulting exact PNG in the same Sol session, and continue only from direct pixel observation. File existence, metadata or command success is not image observation.\n\nEnumerate visible Swift Arrival numeric window IDs and map each ID to its title. Choose the numeric ID whose title says CLIENT. Before every input or capture, raise and focus that exact ID. Obtain that ID's geometry with `xdotool getwindowgeometry --shell`, then capture the corresponding screen region with `scrot -a X,Y,WIDTH,HEIGHT`; do not use `scrot -u` as client-routing proof. Read each exact PNG and continue only if its pixels visibly identify CLIENT. A first launch, focus or capture command failure may receive one bounded setup repair, with both failure and repair retained in the action trace. Report `invalid` only if exact routing, native image ingestion, native input or recapture remains unavailable after that repair; do not substitute source, logs or another evidence path.\n\nAttempt the objective naturally, explicitly separate direct visual observations from inference and uncertainty, and stop on completion or a reproducible blocker. Preserve an action trace, window-ID/title mapping, geometry records, exact PNG sequence, clean-restart evidence, and a concise referee report under `/company/outputs/exp11-referee/candidate-r11`. Link the evidence as Work artifacts. Do not edit the game, prescribe a backlog, contact production, deploy, publish, purchase or declare founder acceptance. Materially challenge this contract if direct observation contradicts it or if a constraint prevents a valid judgement; otherwise complete the run without progress mail. The accountable lead will personally inspect the returned artifacts and retain final pass/fail/invalid judgement without producing or silently changing them.",
+      "status": "completed",
+      "resolution": "Completed both fresh blind native runs, directly observed shortcut non-completion and intended delivery completion, and linked checksummed read-only evidence at /company/outputs/exp11-referee/candidate-r11.",
+      "priority": 0,
+      "expected_artifact": "Immutable native gameplay evidence and concise referee report below /company/outputs/exp11-referee/candidate-r11",
+      "owner_review_required": false,
+      "repo": null,
+      "base_ref": null,
+      "integration_branch": null,
+      "worktree": null,
+      "revision": 1,
+      "attempt_limit": 1,
+      "created_at": "2026-08-28T11:54:03.259836Z",
+      "updated_at": "2026-08-28T12:04:11.498973Z"
+    }
+  ],
+  "edges": [],
+  "attempts": [
+    {
+      "id": "1473e3a4-170f-43c4-94a7-10e9ebdd3ac0",
+      "work_id": "6bcb6e27-33de-4125-93f4-f0b8c6137166",
+      "revision": 1,
+      "attempt_no": 1,
+      "actor_id": "gameplay-referee",
+      "session_id": "05dbc1f8-23ae-4630-bd1c-dd8b445dd29a",
+      "state": "produced",
+      "trigger": "dependency graph became ready",
+      "input_fingerprint": "56720e0c78eeea131d0fdff2d618abecf554d93abe59b227c0ddcea60ac46172",
+      "feedback_cursor": 0,
+      "model": "litellm/gpt-5.6-sol",
+      "started_at": "2026-08-28T11:54:03.506613Z",
+      "finished_at": "2026-08-28T12:04:11.498973Z",
+      "summary": "Completed both fresh blind native runs, directly observed shortcut non-completion and intended delivery completion, and linked checksummed read-only evidence at /company/outputs/exp11-referee/candidate-r11."
+    }
+  ],
+  "attempt_inputs": [],
+  "attempt_feedback": [],
+  "artifacts": [
+    {
+      "id": "8102aba9-c071-41a0-84fb-9e862edeb4fc",
+      "kind": "output",
+      "uri": "/company/outputs/exp11-referee/candidate-r11",
+      "note": "",
+      "created_by": "gameplay-referee",
+      "work_id": "6bcb6e27-33de-4125-93f4-f0b8c6137166",
+      "attempt_id": "1473e3a4-170f-43c4-94a7-10e9ebdd3ac0",
+      "digest": null,
+      "source_commit": null,
+      "runtime_generation": null,
+      "label": "output",
+      "state": "available",
+      "created_at": "2026-08-28T12:03:40.315908Z",
+      "superseded_at": null
+    }
+  ],
+  "gates": [],
+  "gate_runs": [],
+  "handoffs": []
+}

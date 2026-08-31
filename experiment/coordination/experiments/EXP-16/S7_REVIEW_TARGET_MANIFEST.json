@@ -1,0 +1,129 @@
+{
+  "schema": "restless.exp16.opaque-rendered-review-target.v2",
+  "status": "blocked_for_required_s7_hidden_journey_coverage",
+  "prepared_at": "2026-08-30T09:28:25Z",
+  "experiment": "EXP-16",
+  "work": {
+    "work_id": "ad4d81e2-722a-44aa-8238-d346f8514ba5",
+    "attempt_id": "350875bd-3883-4c57-add1-d9a8a839ab69",
+    "input_fingerprint": "66615ef2b4b57e800a3d8edc14e76cea396e2b5b466f2618d113e5696c3c267e"
+  },
+  "candidate": {
+    "commit": "7964d772d53f1b414d92129b207a5a3bb7bb3617",
+    "tree": "ce10b298455e206504c7338df2823133b7224f24",
+    "identity_observation": "git rev-parse HEAD and git rev-parse HEAD^{tree} in the Runtime-bound attempt worktree",
+    "identity_observed_match": true
+  },
+  "s7_required_coverage": {
+    "fresh_delivery_or_recovery_journeys": 2,
+    "fresh_robber_journeys": 1,
+    "fresh_vampire_journeys": 1,
+    "seed_custody": "all journey seeds remain controller-held and producer-hidden",
+    "required_target_property": "the exact candidate must receive controller-injected hidden journeys across all four classes and render them without product source changes",
+    "satisfied": false
+  },
+  "retained_access_seam_counter_evidence": {
+    "surface": "/company/outputs/exp16/S7_REVIEW_TARGET/native-session",
+    "scenario": "public canonical depot_to_destination ordered workday",
+    "preset": "baseline",
+    "presentation": "baseline",
+    "public_seed": 15001,
+    "features": [
+      "ordered_workday",
+      "secure_release",
+      "robber_encounter",
+      "police_inspection",
+      "destination_requirement"
+    ],
+    "observed": "The content-addressed exact-candidate pack launched one headless authoritative host and one rendered X11 client. The interface returned only an opaque handle; observe returned RUNNING; an exact-window PNG showed the public workday start; stop terminated both process groups.",
+    "interpretation": "This proves only that a repository-free, candidate-bound opaque rendered access seam can be prepared. It is public-seed counter-evidence and is not fresh-seed S7 coverage, NPC role integration, source-blind review acceptance or a player verdict."
+  },
+  "exact_candidate_capability_audit": {
+    "delivery": {
+      "controller_injectable_without_source_change": true,
+      "rendered_ordinary_world_execution": true,
+      "basis": "main.gd accepts scenario/world/policy coordinates for the delivery evaluator and instantiates DeliveryPolicy inside the ordinary host/client probe path.",
+      "s7_note": "No hidden values were requested, inferred, inspected or recorded during this audit. The retained target deliberately remains on public seed 15001 and does not claim a fresh delivery run."
+    },
+    "recovery": {
+      "controller_injectable_without_source_change": "mechanics-only",
+      "rendered_ordinary_world_execution": false,
+      "basis": "s3_recovery_conformance.gd can consume a controller-supplied cases file, but it extends SceneTree, synthesizes observation dictionaries and JSON receipts, and creates no rendered world, camera or player journey. The recovery matrix itself records that released placements are exercised in conformance while several native seams reuse fixed public fixture seed 15001.",
+      "s7_note": "The candidate therefore cannot turn arbitrary controller-hidden recovery placements into a source-blind rendered journey without a product/harness source change."
+    },
+    "robber": {
+      "controller_injectable_without_source_change": false,
+      "rendered_ordinary_world_execution": false,
+      "basis": "s4_robber_conformance.gd is a SceneTree headless fixture with a source-defined case table and synthetic frames. It accepts output, candidate coordinates and a gate port, but no injected journey/cases/seed input. main.gd has no RobberPolicy integration. The main game's public robber encounter flag is not execution of npc/robber_policy.gd.",
+      "s7_note": "A wrapper can select the existing public encounter or headless conformance fixture, but cannot create the required hidden-seed rendered robber policy journey from this exact tree."
+    },
+    "vampire": {
+      "controller_injectable_without_source_change": false,
+      "rendered_ordinary_world_execution": false,
+      "basis": "s5_vampire_conformance.gd is a SceneTree headless fixture with source-defined cases and synthetic frames. s5_vampire_network.tscn contains only a Node, no Node3D/camera/rendered world, and its network script uses a fixed synthetic adverse frame sequence. main.gd has no VampirePolicy integration or vampire journey argument.",
+      "s7_note": "No exact-candidate surface exists that can receive and render a controller-hidden vampire journey."
+    }
+  },
+  "negative_s7_blocker": {
+    "class": "exact_candidate_rendered_role_integration_absent",
+    "conclusion": "The exact candidate can support an opaque rendered access seam and injectable delivery execution, but it cannot receive controller-hidden rendered journeys across delivery/recovery, robber and vampire classes without source changes. Recovery hidden input is conformance-only; robber and vampire are fixed headless/synthetic fixtures and are not integrated into the rendered main world.",
+    "required_repair_if_protocol_allows": "A new attributable product candidate would need controller-input adapters plus ordinary-world rendered recovery, RobberPolicy and VampirePolicy integration. This Attempt is forbidden to make that product repair and therefore stops at the concrete blocker.",
+    "protocol_not_weakened": true
+  },
+  "rendering_and_access": {
+    "engine": "Godot 4.7.2.stable.official.ed1daf0bf",
+    "package_method": "git archive of the exact candidate tree into an isolated temporary directory followed by godot --headless --export-pack; exported compiled resources contain no browseable repository or Git history",
+    "execution_method": "godot --main-pack starts a headless authoritative host and a rendered client through the candidate's existing ENet and public interaction paths",
+    "capture_method": "the interface binds the sole visible window to the rendered-client PID and exports only that exact window, with a maximum of 12 PNGs per session",
+    "lifetime": "on demand from launch until stop; stop terminates process groups and deletes session logs, HOME state and handle state",
+    "source_blind_boundary": {
+      "permitted": [
+        "read this manifest",
+        "invoke the retained access seam using launch, observe, bounded act/export and stop",
+        "inspect only its rendered window and critic-exported frames"
+      ],
+      "prohibited": [
+        "repository, worktree, source or Git history",
+        "payload extraction or implementation internals",
+        "production Work, producer messages, prior review prose or Stage 0-6 evidence",
+        "hidden or held-out input values",
+        "session logs, state files or process command lines"
+      ],
+      "limitation": "This is a capability contract around an opaque handle, not a separate kernel user/container. Inspecting prohibited implementation or payload paths invalidates source blindness."
+    }
+  },
+  "review_surface_commands": {
+    "launch": "/company/outputs/exp16/S7_REVIEW_TARGET/native-session launch",
+    "observe": "/company/outputs/exp16/S7_REVIEW_TARGET/native-session observe --handle HANDLE",
+    "act": "/company/outputs/exp16/S7_REVIEW_TARGET/native-session act --handle HANDLE --control CONTROL",
+    "export": "/company/outputs/exp16/S7_REVIEW_TARGET/native-session export --handle HANDLE --output /company/outputs/exp16/S7_REVIEW_TARGET/FRAME.png",
+    "stop": "/company/outputs/exp16/S7_REVIEW_TARGET/native-session stop --handle HANDLE"
+  },
+  "content_digests_sha256": {
+    "opaque_runtime_pack": "d6a6c4d0707ddf8511dc091a6793db31337b539e70c751c4d65b60a2a4fb4c66",
+    "review_interface": "869f80e4b20ecbc3e254473248d058931ef8f12dadd2d5b372b1989e65098337",
+    "godot_executable": "3fcb80f4fe794e3859360eb641d8c41d8ffe2c2e54ba1981e55a76851d5ed1f4",
+    "project_godot": "bcd630f68188c625e564d5499170ca8d112a96ff2d347e24b13ed183e14f264e",
+    "scenario_depot_to_destination": "0f9a652d3c997a9329f9d30b7e97fd593a8b3765764cd5cfc11b01f95e9a09ba",
+    "npc_body": "e229804c911a8b2e98ced0265c4dba9f9eafd2764272d02f48a82296b0348b98",
+    "delivery_evaluator": "5ded5a769f54257a18955eb802b47ef6800eb869b91745a631df95dfafb189c0",
+    "recovery_evaluator": "442eab665bf1bce9c4a2aaeb97407ede9a801933aa53f6abc9fc574acb0fc8aa",
+    "robber_policy": "b2d44dc1a4ac8a31781a689557362b5075aee5dcef810e11fbdc94ec75264642",
+    "vampire_policy": "d01aeb45fccd4fa46f5180b257bb988e7d4439e3236ac87cb77e4d23dee59b66"
+  },
+  "cleanup": {
+    "raw_probe_frames_retained": 0,
+    "videos_retained": 0,
+    "temporary_logs_retained": 0,
+    "temporary_engine_caches_retained": 0,
+    "matching_game_or_review_processes_after_cleanup": 0
+  },
+  "claims_not_made": [
+    "S7 coverage complete",
+    "source-blind review accepted",
+    "fresh or held-out journey passed",
+    "robber or vampire rendered integration exists",
+    "playability, fun, fairness or human legibility",
+    "founder or human acceptance"
+  ]
+}

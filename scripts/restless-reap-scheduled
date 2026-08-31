@@ -1,0 +1,36 @@
+#!/usr/bin/env bash
+# Scheduled wrapper around `restless-reap --check`, driven by the LaunchAgent
+# in infra/launchd. It exists because the reaper only ever ran when someone
+# typed `restless-dev doctor` — so the one leak nobody was looking for was the
+# one nobody found. Load reached 19 on 12 cores before a human noticed the fans.
+#
+# --check, never --purge. The reaper is report-first on purpose: a silent
+# auto-cleaner hides the leak and agents never learn to tear down. This makes
+# the report *arrive*; acting on it stays a person's decision.
+set -euo pipefail
+
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+LOG_DIR="${RESTLESS_REAP_LOG_DIR:-${HOME}/.restless/logs}"
+LATEST="${LOG_DIR}/reap-latest.log"
+HISTORY="${LOG_DIR}/reap-history.log"
+HISTORY_MAX_LINES="${RESTLESS_REAP_HISTORY_LINES:-500}"
+
+mkdir -p "$LOG_DIR"
+
+# The full report is overwritten each run: the current state is what an
+# operator wants, and an ever-growing report file is itself disk debt.
+STAMP="$(date '+%Y-%m-%d %H:%M:%S')"
+STATUS=0
+"${SCRIPT_DIR}/restless-reap" --check >"$LATEST" 2>&1 || STATUS=$?
+
+# One line per run in the history, so a slow accumulation is visible as a
+# trend rather than only as today's snapshot.
+SUMMARY="$(grep -E '^[0-9]+ debt item|^clean\.$' "$LATEST" | tail -1)"
+printf '%s  exit=%s  %s\n' "$STAMP" "$STATUS" "${SUMMARY:-report incomplete}" >>"$HISTORY"
+
+# Trim in place, bounded — the history must not become the next leak.
+if [ "$(wc -l <"$HISTORY")" -gt "$HISTORY_MAX_LINES" ]; then
+  tail -n "$HISTORY_MAX_LINES" "$HISTORY" >"${HISTORY}.tmp" && mv "${HISTORY}.tmp" "$HISTORY"
+fi
+
+exit 0

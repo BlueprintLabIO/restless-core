@@ -14,10 +14,9 @@ and founder-approved experiment sprints. It replaces the former top-level `scrat
 | [`dream-office-demos/`](dream-office-demos/) | Quarantined visual experiments and comparison evidence |
 | Other root artifacts | Historical product, authority and outreach studies retained as evidence |
 
-The latest closed contract is
-[`exp-sprint-04-local-closure-and-sparse-convergence.md`](exp-sprints/exp-sprint-04-local-closure-and-sparse-convergence.md),
-with its main findings in
-[`coordination/experiments/EXP-04/t02-final-results.md`](coordination/experiments/EXP-04/t02-final-results.md).
+The experiment-sprint [index](exp-sprints/README.md) is the current contract ledger. Historical results
+remain immutable in their numbered execution directories; a later sprint may supersede a routing
+decision without rewriting the evidence that produced it.
 
 ## Operating agreement
 
@@ -37,9 +36,11 @@ with its main findings in
 The persistent Company Linux Runtime may still contain an ordinary `/company/scratch` directory for
 disposable company-local exploration. That runtime convention is distinct from this repository area.
 
-## Current sprint
+## Completed programme
 
-Experiment Sprint 06 is founder-approved and in preflight. It compares one GPT-5.6 Sol Codex producer
-with the current Restless Exec -> lead -> Staff organisation on the same public-site brief, frozen
-starting commit, effort, tool envelope and blind native-outcome rubric. No counted arm starts until
-the first-party model route and Restless organisational evidence both pass their validity gates.
+The [Harness → NPC → benchmark programme](HARNESS_NPC_BENCHMARK_PROGRAMME.md) completed its gated
+sequence. Sprint 26 passed the exact execution substrate. EXP-16 concluded negative at the boundary
+between deterministic mechanics and player-visible embodied evaluation. EXP-17 then found outcome
+parity but materially higher cost and latency for one supervised identical Codex worker across four
+sparse work shapes. The next experiment should isolate exact disjoint `RP-Q2` capacity rather than
+rerun bounded supervisory overhead.

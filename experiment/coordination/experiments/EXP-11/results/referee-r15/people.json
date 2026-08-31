@@ -1,0 +1,100 @@
+[
+  {
+    "actor_id": "daemon",
+    "kind": "system",
+    "role": "system-sender",
+    "display": "The daemon",
+    "model": null,
+    "team_id": null,
+    "retired_at": null,
+    "retired_by": null,
+    "retirement_reason": "",
+    "work_count": 0,
+    "completed_work_count": 0,
+    "recent_work": [],
+    "spent_usd": 0.0,
+    "session_running": false,
+    "model_cooldown": null
+  },
+  {
+    "actor_id": "owner",
+    "kind": "owner",
+    "role": "owner",
+    "display": "The Owner",
+    "model": null,
+    "team_id": null,
+    "retired_at": null,
+    "retired_by": null,
+    "retirement_reason": "",
+    "work_count": 0,
+    "completed_work_count": 0,
+    "recent_work": [],
+    "spent_usd": 0.0,
+    "session_running": false,
+    "model_cooldown": null
+  },
+  {
+    "actor_id": "exec",
+    "kind": "exec",
+    "role": "exec",
+    "display": "The Exec",
+    "model": "litellm/gpt-5.6-sol",
+    "team_id": null,
+    "retired_at": null,
+    "retired_by": null,
+    "retirement_reason": "",
+    "work_count": 0,
+    "completed_work_count": 0,
+    "recent_work": [],
+    "spent_usd": 0.3179,
+    "session_running": false,
+    "model_cooldown": null
+  },
+  {
+    "actor_id": "gameplay-referee",
+    "kind": "staff",
+    "role": "Non-producing Referee lead",
+    "display": "Mara Vale",
+    "model": "litellm/gpt-5.6-sol",
+    "team_id": "595003a0-3b24-45ce-8d76-c5c1672de640",
+    "retired_at": null,
+    "retired_by": null,
+    "retirement_reason": "",
+    "work_count": 0,
+    "completed_work_count": 0,
+    "recent_work": [],
+    "spent_usd": 0.8647,
+    "session_running": false,
+    "model_cooldown": null
+  },
+  {
+    "actor_id": "gameplay-player",
+    "kind": "staff",
+    "role": "Blind native gameplay evaluator",
+    "display": "Ivo Chen",
+    "model": "litellm/gpt-5.6-sol",
+    "team_id": "595003a0-3b24-45ce-8d76-c5c1672de640",
+    "retired_at": null,
+    "retired_by": null,
+    "retirement_reason": "",
+    "work_count": 2,
+    "completed_work_count": 2,
+    "recent_work": [
+      {
+        "id": "b18487b1-22e5-4017-8068-2de9de6159b0",
+        "title": "Test whether an on-foot parcel shortcut can complete delivery",
+        "status": "completed",
+        "revision": 1
+      },
+      {
+        "id": "82cdae7c-e0de-4ab4-9f20-54f236cae9e0",
+        "title": "Attempt the complete intended parcel journey",
+        "status": "completed",
+        "revision": 1
+      }
+    ],
+    "spent_usd": 5.9142,
+    "session_running": false,
+    "model_cooldown": null
+  }
+]

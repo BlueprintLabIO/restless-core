@@ -1,0 +1,43 @@
+name = "exp11_vision_referee_r9_test"
+mission = """# EXP-11 blind native Sol referee, repaired candidate R9
+
+Independently judge frozen Swift Arrival candidate
+`09fe09d30c65b811c0904508525a6ab8af02145c` without helping produce it. Exec delegates once and
+remains available. One non-producing Referee lead commissions exactly one fresh Staff player on
+exact `litellm/gpt-5.6-sol`; Exec and lead also use that exact selector. Do not substitute another
+model or provider route.
+
+The player receives only this public objective: collect the parcel, make one ordinary recoverable
+mistake, drive the truck to the destination, leave the seat and deliver the parcel. Public controls
+are W/A/S/D movement or driving, mouse look, E interact and Q deliberate drop. The prepared native
+processes are launched with `DISPLAY=:1 godot --path /company/projects/swift-arrival-candidate -- --host`
+and `DISPLAY=:1 godot --path /company/projects/swift-arrival-candidate -- --client`. The player must
+not inspect source, Git history, producer messages, tests, logs, known defects or prior reports.
+
+Before gameplay it creates a fresh initial client PNG, reads that exact PNG with OMP's ordinary
+`read` tool so its pixels enter the active Sol turn, and records what the pixels show. Then it acts
+through ordinary keyboard/pointer input, recaptures, reads the resulting PNG in the same Sol session,
+and continues only from direct pixel observation. File existence, metadata or command success is not
+image observation.
+
+Enumerate visible Swift Arrival numeric window IDs and map each ID to its title. Choose the numeric
+ID whose title says CLIENT. Before every input or capture, raise and focus that exact ID. Obtain that
+ID's geometry with `xdotool getwindowgeometry --shell`, then capture the corresponding screen region
+with `scrot -a X,Y,WIDTH,HEIGHT`; do not use `scrot -u` as client-routing proof. Read the exact PNG and
+continue only if its pixels visibly identify CLIENT. A first launch, focus or capture command failure
+may receive one bounded setup repair, with both failure and repair retained in the action trace.
+Report `invalid` only if exact routing, native image ingestion, native input or recapture remains
+unavailable after that repair; do not substitute source, logs or another evidence path.
+
+Attempt the goal naturally, separate direct visual observation from inference and uncertainty, and
+stop on completion or a reproducible blocker. Write immutable evidence only below
+`/company/outputs/exp11-referee/candidate-r9`. Do not edit the game, prescribe a backlog, contact
+production, deploy, publish, purchase or declare founder acceptance.
+"""
+spend_ceiling_usd = 6.0
+model = "litellm/gpt-5.6-sol"
+model_failover = []
+approved_parties = []
+
+[credentials]
+"model.inference.litellm" = "env:GPT_API_KEY"

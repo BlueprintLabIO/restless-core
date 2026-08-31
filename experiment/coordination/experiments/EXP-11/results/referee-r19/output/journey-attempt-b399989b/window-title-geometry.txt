@@ -1,0 +1,15 @@
+Work: d60a6996-9419-482b-9fe4-ff2f7db90021
+Attempt: b399989b-25a6-492d-af37-79e5977b6f8f
+Display: :1
+
+Initial launch (failed after gameplay had begun because the ordinary background command reached its 300-second tool deadline):
+- HOST ID 20971523, title "Swift Arrival Dogfood 4 (DEBUG)", geometry X=2 Y=43 WIDTH=1278 HEIGHT=720 SCREEN=0; minimized successfully.
+- CLIENT ID 23068675, title "Swift Arrival Dogfood 4 — CLIENT (peer 570374815)", geometry X=2 Y=43 WIDTH=1278 HEIGHT=720 SCREEN=0.
+- Both Godot processes were terminated by their background command deadlines. `pgrep -a godot` and the visible-window search then returned no entries.
+
+One bounded setup repair (current evidence launch):
+- Relaunched HOST and CLIENT with the same required commands but with the tool command deadline disabled.
+- Before CLIENT launch, the only visible Swift Arrival ID was 20971523. It mapped to title "Swift Arrival Dogfood 4 (DEBUG)" and geometry X=2 Y=43 WIDTH=1278 HEIGHT=720 SCREEN=0. It was minimized successfully.
+- After CLIENT launch, the only visible Swift Arrival ID was 23068675 (HOST remained minimized). It mapped to title "Swift Arrival Dogfood 4 — CLIENT (peer 1950424604)" and geometry X=2 Y=43 WIDTH=1278 HEIGHT=720 SCREEN=0.
+- CLIENT was never resized. Every retained current-launch capture used region 2,43,1278,720 after raising/focusing ID 23068675 and querying this unchanged geometry.
+- Direct PNG reads visibly identified CLIENT by the top banner "SWIFT ARRIVAL · CLIENT · peer 1950424604 · connected 1".

@@ -128,6 +128,14 @@ pub(super) async fn record_staff_outcome(
         .await;
     }
     let record = async {
+        org.bind_attempt_terminal_coordinates(
+            attempt_id,
+            end_observation.source_commit.as_deref(),
+            end_observation.source_tree.as_deref(),
+            end_observation.status_digest.as_deref(),
+            end_observation.dirty_entries,
+        )
+        .await?;
         if matches!(&outcome, Ok((Termination::OutcomeMet, _)))
             && end_observation.dirty_entries == 0
         {
@@ -342,17 +350,18 @@ async fn finish_claimed_attempt(
                         .unwrap_or_default()
                         .to_string();
                     if digest.len() == 64 {
+                        let owner_label = owner_artifact_label(&work.title);
                         org.link_work_artifact(restless_orgintel::NewArtifactRef {
                             kind: "file",
                             uri: &work.expected_artifact,
-                            note: "Runtime-linked exact declared file; no model bookkeeping turn required.",
+                            note: "The exact file produced by this work and observed in the company runtime.",
                             created_by: &work.owner_id,
                             work_id: Some(work_id),
                             attempt_id: Some(attempt_id),
                             digest: Some(&digest),
                             source_commit: None,
                             runtime_generation: None,
-                            label: &work.expected_artifact,
+                            label: &owner_label,
                         })
                         .await?;
                         artifacts = org.list_artifact_refs(Some(work_id)).await?;
@@ -379,18 +388,18 @@ async fn finish_claimed_attempt(
                     "git:/company/repos/{}#{commit}",
                     work.repo.as_deref().unwrap_or_default()
                 );
+                let owner_label = owner_artifact_label(&work.title);
                 org.link_work_artifact(restless_orgintel::NewArtifactRef {
                     kind: "repository_tree",
                     uri: &uri,
-                    note:
-                        "Runtime-linked exact clean candidate; no model bookkeeping turn required.",
+                    note: "The saved result produced by this work; Restless observed it with no uncommitted changes.",
                     created_by: &work.owner_id,
                     work_id: Some(work_id),
                     attempt_id: Some(attempt_id),
                     digest: Some(tree),
                     source_commit: Some(commit),
                     runtime_generation: None,
-                    label: &work.expected_artifact,
+                    label: &owner_label,
                 })
                 .await?;
                 artifacts = org.list_artifact_refs(Some(work_id)).await?;
@@ -579,11 +588,23 @@ pub(super) fn gate_cwd<'a>(declared: &'a str, attempt_workdir: &'a str) -> &'a s
     }
 }
 
+fn owner_artifact_label(work_title: &str) -> String {
+    format!("Output from: {work_title}")
+}
+
 #[cfg(test)]
 mod tests {
     use restless_orgintel::{NewWork, OrgIntel, WorkspaceSpec};
 
     use super::*;
+
+    #[test]
+    fn automatic_artifact_labels_name_the_work_not_its_execution_contract() {
+        let label = owner_artifact_label("Prepare the customer interview report");
+        assert_eq!(label, "Output from: Prepare the customer interview report");
+        assert!(!label.contains("commit"));
+        assert!(!label.contains("gate"));
+    }
 
     #[tokio::test]
     async fn terminal_work_fact_remains_owed_to_the_accountable_lead() {

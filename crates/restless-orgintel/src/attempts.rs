@@ -19,8 +19,12 @@ fn looks_like_exact_git_commit(value: &str) -> bool {
 fn resolve_attempt_base(
     declared: Option<&str>,
     prior_revision_commit: Option<&str>,
+    retained_blocked_commit: Option<&str>,
     upstream_commits: &[String],
 ) -> Option<String> {
+    if retained_blocked_commit.is_some_and(looks_like_exact_git_commit) {
+        return retained_blocked_commit.map(str::to_string);
+    }
     if prior_revision_commit.is_some_and(looks_like_exact_git_commit) {
         return prior_revision_commit.map(str::to_string);
     }
@@ -150,9 +154,30 @@ impl OrgIntel {
         } else {
             None
         };
+        // `resume_work` is an explicit coordinator judgement that the blocker
+        // was repaired. Continue from the newest clean committed candidate of
+        // the blocked Attempt, never from uncommitted bytes or the mutable
+        // worktree path itself.
+        let retained_blocked_commit = if work.repo.is_some() {
+            sqlx::query_scalar::<_, String>(
+                "SELECT terminal_source_commit FROM work_attempts \
+                 WHERE work_id=$1 AND revision=$2 AND state='blocked' \
+                   AND terminal_dirty_entries=0 \
+                   AND terminal_source_commit IS NOT NULL \
+                   AND terminal_source_tree IS NOT NULL \
+                 ORDER BY attempt_no DESC LIMIT 1",
+            )
+            .bind(work.id)
+            .bind(work.revision)
+            .fetch_optional(&mut *tx)
+            .await?
+        } else {
+            None
+        };
         let effective_base_ref = resolve_attempt_base(
             work.base_ref.as_deref(),
             prior_work_commit.as_deref(),
+            retained_blocked_commit.as_deref(),
             upstream_source_commits.as_slice(),
         );
         let mut fingerprint_source = inputs
@@ -287,7 +312,9 @@ impl OrgIntel {
         Ok(sqlx::query_as(
             "SELECT id, work_id, revision, attempt_no, actor_id, session_id, state, trigger, \
                     input_fingerprint, feedback_cursor, requested_source_ref, source_commit, \
-                    source_tree, gate_set_digest, environment_fingerprint, materialized_at, \
+                    source_tree, terminal_source_commit, terminal_source_tree, \
+                    terminal_status_digest, terminal_dirty_entries, terminal_observed_at, \
+                    gate_set_digest, environment_fingerprint, materialized_at, \
                     interrupt_requested_at, interrupt_requested_by, interrupt_reason, \
                     feedback_checkpoint_cursor, model, started_at, finished_at, summary \
              FROM work_attempts WHERE ($1::uuid IS NULL OR work_id = $1) \
@@ -1105,4 +1132,28 @@ async fn create_qualified_outcome_review(
     .execute(&mut **tx)
     .await?;
     Ok(id)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::resolve_attempt_base;
+
+    #[test]
+    fn clean_retained_candidate_precedes_the_original_base() {
+        let original = "1111111111111111111111111111111111111111";
+        let retained = "2222222222222222222222222222222222222222";
+        assert_eq!(
+            resolve_attempt_base(Some(original), None, Some(retained), &[]).as_deref(),
+            Some(retained)
+        );
+    }
+
+    #[test]
+    fn absent_retained_candidate_preserves_existing_resolution() {
+        let original = "1111111111111111111111111111111111111111";
+        assert_eq!(
+            resolve_attempt_base(Some(original), None, None, &[]).as_deref(),
+            Some(original)
+        );
+    }
 }

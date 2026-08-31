@@ -1,0 +1,485 @@
+#!/usr/bin/env bash
+# Resource debt reaper for the local development host.
+#
+# Every resource this project creates outside the repo — test-company configs,
+# Docker containers, volumes, build cache, daemon sockets — is created by a run
+# that may not survive to clean it up. Nothing bounded them, so they accumulated
+# to ~30 GiB and 79 orphaned test companies before anyone noticed.
+#
+# --check (the default) is read-only and reports debt; --purge removes it.
+# It is a report-first tool on purpose: a silent auto-cleaner hides the leak
+# instead of reporting it, and agents then never learn to tear down.
+#
+# Safety invariants, in order of importance:
+#   1. Only `_test` companies are ever removable. A company without the suffix
+#      is owner data and is never touched, running or not.
+#   2. Volumes are removed by exact name, never `docker volume prune` — an
+#      unused volume may still hold company data (CLAUDE.md, BUILD_STORAGE.md).
+#   3. A running container is reported, never force-removed. It may be live work
+#      from a concurrent agent session; stopping it is the operator's call.
+#   4. Inside a `_test` container, a process matching the known-leak list and
+#      older than the process floor IS purgeable: it is a supervised service
+#      nobody is attached to, and it burns cores until the container dies.
+#      Nothing outside that list is ever killed.
+#
+# Debt is not only disk. Sections 1-2 and 7-12 bound what accumulates on disk;
+# sections 3-6 bound what accumulates on the CPU. The second kind was invisible
+# here until one abandoned Godot demo held ~6 of 12 cores for 23 hours while
+# every disk check reported clean — a busy container is not a leaked one, and
+# nothing was measuring busy.
+set -euo pipefail
+
+# launchd starts a job with PATH=/usr/bin:/bin:/usr/sbin:/sbin and nothing else,
+# so `command -v docker` failed under the scheduler and every docker-backed
+# section reported "skipped". A scheduled check that cannot see the thing it
+# guards is worse than no scheduled check: it reports clean and is believed.
+for candidate in /opt/homebrew/bin /usr/local/bin /Applications/Docker.app/Contents/Resources/bin; do
+  [ -d "$candidate" ] && case ":$PATH:" in
+    *":$candidate:"*) ;;
+    *) PATH="$PATH:$candidate" ;;
+  esac
+done
+export PATH
+
+REAP_STALE_HOURS="${RESTLESS_REAP_STALE_HOURS:-24}"
+REAP_CACHE_BUDGET_GB="${RESTLESS_REAP_CACHE_BUDGET_GB:-8}"
+REAP_DISK_MIN_GIB="${RESTLESS_REAP_DISK_MIN_GIB:-30}"
+# A company doing real work is bursty; sustained load is the signal. This is a
+# single instantaneous sample, so it flags a suspect for the process check
+# below to explain rather than proving a runaway on its own.
+REAP_CPU_WARN_PCT="${RESTLESS_REAP_CPU_WARN_PCT:-150}"
+REAP_MEM_WARN_PCT="${RESTLESS_REAP_MEM_WARN_PCT:-80}"
+# Dev servers and render loops are legitimate for the minutes an agent is
+# driving them. Past this they are almost always abandoned.
+REAP_PROC_STALE_MINS="${RESTLESS_REAP_PROC_STALE_MINS:-90}"
+COMPANY_DIR="${RESTLESS_COMPANY_DIR:-${HOME}/.restless/companies}"
+SOCKET="${HOME}/.restless/restlessd.sock"
+
+# Long-running processes an agent starts inside a company computer and does not
+# own the teardown of. Extended-regex, matched against the full argv. Keep this
+# list to things that spin or hold ports forever with no attached client.
+REAP_LEAK_PATTERN="${RESTLESS_REAP_LEAK_PATTERN:-\.bin/(vite|astro)|(vite|astro|next|nuxt|remix|ng|webpack|rollup|parcel) (dev|serve|preview|start)|godot|http-server|jekyll serve|python[0-9.]* -m http\.server|npm run (dev|start|preview)}"
+# The mark of an attached agent. A container running one is live work.
+REAP_AGENT_PATTERN="${RESTLESS_REAP_AGENT_PATTERN:-/usr/local/bin/omp}"
+
+MODE="check"
+case "${1:-}" in
+  --purge) MODE="purge" ;;
+  --check|"") MODE="check" ;;
+  -h|--help) sed -n '2,/^set -euo pipefail$/p' "$0" | sed '$d; s|^#[[:space:]]\{0,1\}||'; exit 0 ;;
+  *) printf 'usage: restless-reap [--check|--purge]\n' >&2; exit 2 ;;
+esac
+
+DEBT=0
+note() { printf '  %s\n' "$1"; }
+debt() { DEBT=$((DEBT + $1)); }
+
+have_docker() { command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; }
+
+# RFC3339 (docker's `.State.StartedAt`) to epoch seconds, on BSD date (macOS,
+# the dev host) or GNU date (CI). Prints nothing if neither parses, and every
+# caller treats "no age" as "cannot judge" rather than as zero — a container
+# whose age is unknown must not be reported as fresh.
+epoch_of_rfc3339() {
+  local ts="${1:-}"
+  [ -n "$ts" ] || return 0
+  ts="${ts:0:19}"
+  date -j -u -f '%Y-%m-%dT%H:%M:%S' "$ts" +%s 2>/dev/null \
+    || date -u -d "${ts}Z" +%s 2>/dev/null \
+    || true
+}
+
+# Running `_test` containers only. Invariant 1: an unsuffixed company is owner
+# data and is never a candidate for any process-level action.
+running_test_containers() {
+  docker ps --format '{{.Names}}' 2>/dev/null | grep '_test$' || true
+}
+
+# Count attached agents in a container. Any failure prints 0 and the caller
+# treats 0 as "no evidence of an agent", never as proof of absence.
+agent_count() {
+  docker exec "$1" ps -eo args 2>/dev/null | grep -cE "$REAP_AGENT_PATTERN" || true
+}
+
+running_companies() {
+  docker ps --format '{{.Names}}' 2>/dev/null | sed -n 's/^restless-co-//p'
+}
+
+printf 'restless-reap (%s)\n\n' "$MODE"
+
+# --- 1. Orphaned test-company configs -------------------------------------
+printf 'test-company configs\n'
+# Orphanhood here means "no running container", which is unknowable without
+# docker: `running_companies` would return empty, every `_test` config would
+# be classified orphaned, and --purge would delete the config and volume of a
+# company that is merely unreachable. Absence of evidence is not evidence of
+# absence, and this is the one section whose purge is irreversible.
+CONFIGS_KNOWN=1
+if ! have_docker; then
+  note 'docker unavailable — cannot tell orphaned from running; skipped'
+  CONFIGS_KNOWN=0
+  ORPHANED=()
+elif [ ! -d "$COMPANY_DIR" ]; then
+  ORPHANED=()
+else
+  LIVE="$(running_companies || true)"
+  ORPHANED=()
+  for f in "$COMPANY_DIR"/*_test.toml; do
+    [ -e "$f" ] || continue
+    name="$(basename "$f" .toml)"
+    if printf '%s\n' "$LIVE" | grep -qx "$name"; then continue; fi
+    ORPHANED+=("$name")
+  done
+fi
+if [ "$CONFIGS_KNOWN" -eq 0 ]; then
+  :
+elif [ "${#ORPHANED[@]}" -eq 0 ]; then
+  note 'none orphaned'
+else
+  note "${#ORPHANED[@]} orphaned (no running container)"
+  debt "${#ORPHANED[@]}"
+  if [ "$MODE" = purge ]; then
+    for name in "${ORPHANED[@]}"; do
+      rm -f "${COMPANY_DIR}/${name}.toml" && note "  removed config ${name}"
+      docker volume rm "restless-vol-${name}" >/dev/null 2>&1 \
+        && note "  removed volume ${name}" || true
+      docker rm "restless-co-${name}" >/dev/null 2>&1 \
+        && note "  removed container ${name}" || true
+    done
+  fi
+fi
+
+# --- 2. Exited test containers --------------------------------------------
+printf '\nexited test containers\n'
+if have_docker; then
+  EXITED="$(docker ps -a --filter status=exited --format '{{.Names}}' 2>/dev/null | grep '_test$' || true)"
+  if [ -z "$EXITED" ]; then
+    note 'none'
+  else
+    count="$(printf '%s\n' "$EXITED" | wc -l | tr -d ' ')"
+    note "$count exited"
+    debt "$count"
+    if [ "$MODE" = purge ]; then
+      printf '%s\n' "$EXITED" | xargs -r docker rm >/dev/null 2>&1 \
+        && note "  removed $count"
+    fi
+  fi
+else
+  note 'docker unavailable — skipped'
+fi
+
+# --- 3. Long-running test containers (reported only) ----------------------
+# Age is computed, not word-matched. The previous check grepped RunningFor for
+# 'days|weeks|months', so a container at 24h reads "24 hours ago", matched
+# nothing, and was reported clean — the advertised 24h threshold was really 48h
+# and REAP_STALE_HOURS changed only the printed label, never the comparison.
+printf '\nlong-running test containers (>%sh)\n' "$REAP_STALE_HOURS"
+if have_docker; then
+  NOW="$(date -u +%s)"
+  STALE_FOUND=0
+  while IFS= read -r name; do
+    [ -n "$name" ] || continue
+    started="$(docker inspect -f '{{.State.StartedAt}}' "$name" 2>/dev/null || true)"
+    epoch="$(epoch_of_rfc3339 "$started")"
+    if [ -z "$epoch" ]; then
+      note "$name (start time unparseable — check by hand)"
+      STALE_FOUND=1
+      continue
+    fi
+    hours=$(( (NOW - epoch) / 3600 ))
+    if [ "$hours" -ge "$REAP_STALE_HOURS" ]; then
+      note "$(printf '%-46s up %sh' "$name" "$hours")"
+      STALE_FOUND=1
+    fi
+  done <<EOF
+$(running_test_containers)
+EOF
+  if [ "$STALE_FOUND" -eq 0 ]; then
+    note 'none'
+  else
+    note 'still running — stop it yourself if it is not live work'
+    debt 1
+  fi
+else
+  note 'docker unavailable — skipped'
+fi
+
+# --- 4. Containers burning CPU or memory (reported only) ------------------
+# One `docker stats` sample across all containers. Report-only by design: a
+# hot container may be a company legitimately building something, and the
+# process check below is what distinguishes work from spin.
+printf '\nrunaway containers (>%s%% cpu or >%s%% mem)\n' "$REAP_CPU_WARN_PCT" "$REAP_MEM_WARN_PCT"
+if have_docker; then
+  HOT="$(docker stats --no-stream --format '{{.Name}}\t{{.CPUPerc}}\t{{.MemPerc}}\t{{.MemUsage}}' 2>/dev/null \
+    | awk -F'\t' -v c="$REAP_CPU_WARN_PCT" -v m="$REAP_MEM_WARN_PCT" '
+        { cpu = $2; sub(/%$/, "", cpu); mem = $3; sub(/%$/, "", mem)
+          if (cpu + 0 >= c + 0 || mem + 0 >= m + 0)
+            printf "%-46s cpu=%-8s mem=%-7s %s\n", $1, $2, $3, $4 }' || true)"
+  if [ -z "$HOT" ]; then
+    note 'none'
+  else
+    printf '%s\n' "$HOT" | while IFS= read -r line; do note "$line"; done
+    debt 1
+  fi
+else
+  note 'docker unavailable — skipped'
+fi
+
+# --- 5. Agent-registered supervisor services ------------------------------
+# The durable leak, and the reason killing a leaked dev server never worked:
+# `restless.conf` ends with `[include] files=/company/services/supervisor/*.conf`,
+# so an agent registers its own program and supervisord owns it from then on.
+# Every observed one was written `autorestart=true`, so a TERM was answered
+# with an immediate restart. Worse, the conf lives on the company's named
+# volume, so the leak is durable — it survives container replacement and comes
+# back running on the next `up`.
+#
+# The include directory is the exact ownership boundary: platform services
+# (desktop, chromium, browser-broker) are declared in the main conf and are
+# never enumerated here, so they cannot be stopped by this section.
+printf '\nagent-registered supervisor services (>%smin, no agent attached)\n' "$REAP_PROC_STALE_MINS"
+if have_docker; then
+  SVC_TOTAL=0
+  for name in $(running_test_containers); do
+    SVCS="$(docker exec "$name" sh -c '
+      cd /company/services/supervisor 2>/dev/null || exit 0
+      now=$(date +%s)
+      for f in *.conf; do
+        [ -e "$f" ] || continue
+        prog=$(sed -n "s/^\[program:\(.*\)\]/\1/p" "$f" | head -1)
+        [ -n "$prog" ] || continue
+        printf "%s\t%s\t%s\n" "$prog" "$(( (now - $(stat -c %Y "$f")) / 60 ))" "$f"
+      done' 2>/dev/null || true)"
+    [ -n "$SVCS" ] || continue
+    count="$(printf '%s\n' "$SVCS" | wc -l | tr -d ' ')"
+    # An attached agent may legitimately be driving any of these, and nothing
+    # in the conf says which. Only a container with no agent at all is
+    # unambiguous, so that is the sole condition under which one is removed.
+    agents="$(agent_count "$name")"
+    note "$name — $count registered, $agents agent(s) attached"
+    SVC_TOTAL=$((SVC_TOTAL + count))
+    STALE_CONFS=""
+    while IFS="$(printf '\t')" read -r prog age conf; do
+      [ -n "$prog" ] || continue
+      if [ "$age" -ge "$REAP_PROC_STALE_MINS" ] && [ "$agents" -eq 0 ]; then
+        note "$(printf '  %-30s %sm  ORPHANED' "$prog" "$age")"
+        STALE_CONFS="$STALE_CONFS $prog:$conf"
+      else
+        note "$(printf '  %-30s %sm' "$prog" "$age")"
+      fi
+    done <<INNER
+$SVCS
+INNER
+    if [ "$MODE" = purge ] && [ -n "$STALE_CONFS" ]; then
+      for entry in $STALE_CONFS; do
+        prog="${entry%%:*}"; conf="${entry#*:}"
+        # Stop before removing the conf: dropping the file first leaves
+        # supervisord supervising a program it can no longer name.
+        docker exec "$name" supervisorctl -c /etc/supervisor/conf.d/restless.conf \
+          stop "$prog" >/dev/null 2>&1 || true
+        docker exec "$name" rm -f "/company/services/supervisor/$conf" >/dev/null 2>&1 || true
+        note "  stopped and deregistered $prog"
+      done
+      docker exec "$name" sh -c 'supervisorctl -c /etc/supervisor/conf.d/restless.conf reread >/dev/null 2>&1
+        supervisorctl -c /etc/supervisor/conf.d/restless.conf update >/dev/null 2>&1' || true
+    fi
+  done
+  if [ "$SVC_TOTAL" -eq 0 ]; then
+    note 'none'
+  else
+    debt "$SVC_TOTAL"
+  fi
+else
+  note 'docker unavailable — skipped'
+fi
+
+# --- 6. Unsupervised leaked processes inside test containers --------------
+# Whatever section 5 did not account for. It runs second on purpose: once the
+# stale programs are deregistered, anything still matching here is genuinely
+# unsupervised and a TERM will actually stick.
+#
+# On macOS a container's processes live in the Linux VM and never appear in
+# host `ps`, so the host-side scan in section 11 is blind to these by
+# construction. That blindness is what let ~6 cores burn unseen.
+printf '\nunsupervised leaked processes inside test containers (>%smin)\n' "$REAP_PROC_STALE_MINS"
+if have_docker; then
+  PROC_FLOOR=$(( REAP_PROC_STALE_MINS * 60 ))
+  LEAK_TOTAL=0
+  for name in $(running_test_containers); do
+    # Commands still registered with supervisord are section 5's business.
+    SUPERVISED="$(docker exec "$name" sh -c \
+      'cat /company/services/supervisor/*.conf 2>/dev/null | sed -n "s/^command=//p"' 2>/dev/null || true)"
+    HITS="$(docker exec "$name" ps -eo etimes,pid,args 2>/dev/null \
+      | awk -v floor="$PROC_FLOOR" -v pat="$REAP_LEAK_PATTERN" '
+          NR > 1 && $1 + 0 >= floor + 0 {
+            argv = $0; sub(/^[[:space:]]*[0-9]+[[:space:]]+[0-9]+[[:space:]]+/, "", argv)
+            if (argv ~ pat) printf "%s\t%s\t%s\n", $2, $1, argv
+          }' \
+      | while IFS="$(printf '\t')" read -r pid age argv; do
+          printf '%s\n' "$SUPERVISED" | grep -qxF "$argv" && continue
+          printf '%s\t%s\t%s\n' "$pid" "$age" "$(printf '%s' "$argv" | cut -c1-96)"
+        done || true)"
+    [ -n "$HITS" ] || continue
+    count="$(printf '%s\n' "$HITS" | wc -l | tr -d ' ')"
+    note "$name — $count leaked"
+    LEAK_TOTAL=$((LEAK_TOTAL + count))
+    printf '%s\n' "$HITS" | while IFS="$(printf '\t')" read -r pid age argv; do
+      note "$(printf '  pid %-7s %sm  %s' "$pid" "$((age / 60))" "$argv")"
+    done
+    if [ "$MODE" = purge ]; then
+      PIDS="$(printf '%s\n' "$HITS" | cut -f1 | tr '\n' ' ')"
+      # TERM, not KILL: a dev server flushes and releases its port on TERM,
+      # and a process that ignores TERM is a bigger signal than a tidy report.
+      docker exec "$name" kill -TERM $PIDS >/dev/null 2>&1 || true
+      note "  sent TERM to $count process(es)"
+    fi
+  done
+  if [ "$LEAK_TOTAL" -eq 0 ]; then
+    note 'none'
+  else
+    debt "$LEAK_TOTAL"
+    [ "$MODE" = check ] && note 'these hold cores and ports until the container dies'
+  fi
+else
+  note 'docker unavailable — skipped'
+fi
+
+# --- 7. Per-company worktree debt (reported only) -------------------------
+# Scratch git worktrees on the company volume. Reported, never removed: a
+# worktree can hold uncommitted agent work, and that judgement is the
+# operator's. Foundry reached 16 worktrees / 2.2 GiB — 65% of its volume.
+printf '\nscratch worktrees on company volumes\n'
+if have_docker; then
+  WT_FOUND=0
+  for name in $(running_test_containers); do
+    LINE="$(docker exec "$name" sh -c \
+      'n=$(ls -1 /company/worktrees 2>/dev/null | wc -l); [ "$n" -gt 0 ] || exit 0
+       printf "%s\t%s\n" "$n" "$(du -sh /company/worktrees 2>/dev/null | cut -f1)"' 2>/dev/null || true)"
+    [ -n "$LINE" ] || continue
+    note "$(printf '%-46s %s worktrees, %s' "$name" "$(printf '%s' "$LINE" | cut -f1)" "$(printf '%s' "$LINE" | cut -f2)")"
+    WT_FOUND=1
+  done
+  if [ "$WT_FOUND" -eq 0 ]; then
+    note 'none'
+  else
+    note 'remove the ones whose work has landed — they are not reclaimed for you'
+    debt 1
+  fi
+else
+  note 'docker unavailable — skipped'
+fi
+
+# --- 8. Idle test containers (reported only) ------------------------------
+# A running `_test` container with no attached agent is the highest-confidence
+# "safe to stop" signal available, but it is still the operator's call
+# (invariant 3) — an owner may be reading its desktop over VNC.
+printf '\nidle test containers (running, no agent attached)\n'
+if have_docker; then
+  IDLE=0
+  for name in $(running_test_containers); do
+    if [ "$(agent_count "$name")" -eq 0 ]; then
+      note "$name"
+      IDLE=$((IDLE + 1))
+    fi
+  done
+  if [ "$IDLE" -eq 0 ]; then
+    note 'none'
+  else
+    note "$IDLE idle — 'docker stop' them if no one is attached"
+    debt "$IDLE"
+  fi
+else
+  note 'docker unavailable — skipped'
+fi
+
+# --- 9. Docker build cache -------------------------------------------------
+printf '\ndocker build cache (budget %sGB)\n' "$REAP_CACHE_BUDGET_GB"
+if have_docker; then
+  CACHE_LINE="$(docker system df --format '{{.Type}}\t{{.Size}}\t{{.Reclaimable}}' 2>/dev/null \
+    | grep -i 'build cache' || true)"
+  note "${CACHE_LINE:-unknown}"
+  if [ "$MODE" = purge ]; then
+    docker builder prune --force --max-used-space "${REAP_CACHE_BUDGET_GB}GB" >/dev/null 2>&1 \
+      && note "  pruned to ${REAP_CACHE_BUDGET_GB}GB budget"
+  fi
+else
+  note 'docker unavailable — skipped'
+fi
+
+# --- 10. Stale daemon socket ------------------------------------------------
+printf '\nrestlessd socket\n'
+if [ -S "$SOCKET" ]; then
+  if nc -U -z "$SOCKET" >/dev/null 2>&1; then
+    note 'live'
+  else
+    note 'stale (exists, refuses connections)'
+    debt 1
+    [ "$MODE" = purge ] && rm -f "$SOCKET" && note '  removed'
+  fi
+else
+  note 'absent (daemon not running)'
+fi
+
+# --- 11. Leaked cargo/test processes on the host ----------------------------------------
+printf '\nleaked cargo/test processes on the host (>2h)\n'
+LEAKED="$(ps -eo pid,etime,command 2>/dev/null \
+  | grep -E 'cargo (test|build)|target/debug/deps/' \
+  | grep -v grep \
+  | awk '$2 ~ /-/ || $2 ~ /^[0-9]+:[0-9]+:[0-9]+$/ {print}' || true)"
+if [ -z "$LEAKED" ]; then
+  note 'none'
+else
+  printf '%s\n' "$LEAKED" | while IFS= read -r line; do note "${line:0:110}"; done
+  note 'these hold ports and block a safe cargo clean — kill before cleaning'
+  debt 1
+fi
+
+# --- 12. Spotlight exclusion markers --------------------------------------
+# `target/` reached 25 GiB and was being indexed in full; mds_stores sat at
+# ~2 GiB resident for days, contributing to the memory pressure that pushed the
+# host into swap. A `.metadata_never_index` marker excludes a tree without
+# sudo — but `cargo clean` deletes target/ and takes the marker with it, so the
+# exclusion silently lapses exactly when the tree is about to be rebuilt.
+# Checking it here makes the fix self-healing instead of a one-time act.
+printf '\nspotlight exclusion markers\n'
+SPOTLIGHT_DIRS="${RESTLESS_REAP_NOINDEX_DIRS:-${STACK_REPO_ROOT:-$(cd -- "$(dirname -- "$0")/.." && pwd)}/target}"
+MISSING_MARKERS=0
+for d in $SPOTLIGHT_DIRS; do
+  [ -d "$d" ] || continue
+  if [ -e "$d/.metadata_never_index" ]; then
+    note "$(printf '%-52s excluded' "$d")"
+  else
+    note "$(printf '%-52s INDEXED' "$d")"
+    MISSING_MARKERS=$((MISSING_MARKERS + 1))
+    if [ "$MODE" = purge ]; then
+      touch "$d/.metadata_never_index" && note '  marker restored'
+    fi
+  fi
+done
+if [ "$MISSING_MARKERS" -eq 0 ]; then
+  :
+else
+  [ "$MODE" = check ] && note 'run --purge to restore, or Spotlight will index the whole tree'
+  debt "$MISSING_MARKERS"
+fi
+
+# --- 13. Disk headroom ------------------------------------------------------
+printf '\ndisk headroom\n'
+AVAIL_GIB="$(df -g /System/Volumes/Data 2>/dev/null | awk 'END {print $4}')"
+if [ -n "$AVAIL_GIB" ] && [ "$AVAIL_GIB" -ge "$REAP_DISK_MIN_GIB" ]; then
+  note "${AVAIL_GIB} GiB free (>= ${REAP_DISK_MIN_GIB} GiB floor)"
+else
+  note "${AVAIL_GIB:-?} GiB free — BELOW the ${REAP_DISK_MIN_GIB} GiB build floor"
+  debt 1
+fi
+
+printf '\n'
+if [ "$DEBT" -eq 0 ]; then
+  printf 'clean.\n'
+  exit 0
+fi
+if [ "$MODE" = check ]; then
+  printf '%s debt item(s). Run: restless-reap --purge\n' "$DEBT"
+  exit 1
+fi
+printf 'purge complete.\n'

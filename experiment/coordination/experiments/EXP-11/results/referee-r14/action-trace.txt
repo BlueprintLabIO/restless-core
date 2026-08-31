@@ -1,0 +1,45 @@
+Swift Arrival candidate R14 — blind native action trace
+Work e73430f6-31ff-41a9-9208-772d8ac2df3d / Attempt aac89993-bf32-44e2-b753-789f29b70de2
+Model selector: litellm/gpt-5.6-sol
+
+Continuation and restart
+- Accepted the assigned fact that the preceding partial Launch 2 ended at the 45-minute Runtime capability expiry immediately after recovery input. I did not use that partial session for the verdict.
+- Probed installed xdotool, scrot, godot and restless: each executable was present.
+- Directly observed the running process table: no Godot host or client process remained. Therefore the preserved Launch 2 native state was unusable.
+- Used the permitted Launch-2-only replacement. I did not rerun Launch 1.
+- Started host with DISPLAY=:1 godot --path /company/projects/swift-arrival-candidate -- --host.
+- Visible host map: 20971523 => Swift Arrival Dogfood 4 (DEBUG). Minimized exact ID 20971523.
+- Started client with DISPLAY=:1 godot --path /company/projects/swift-arrival-candidate -- --client.
+- Visible client map: 23068675 => Swift Arrival Dogfood 4 — CLIENT (peer 2077281758).
+- Final client geometry: X=2, Y=43, WIDTH=1278, HEIGHT=720, SCREEN=0. Client was not resized.
+- First capture error: launch2/07-restart-initial.png used a stale hardcoded 0,0,1152,648 region rather than the just-observed geometry. I made no gameplay input from it. Single bounded setup repair: raised/focused ID 23068675 and recaptured exact 2,43,1278,720 as launch2/08-restart-initial-routing-repair.png. OMP read that exact repaired PNG before gameplay.
+- Every later input or capture was preceded by raising and focusing exact ID 23068675. Every later capture was preceded by xdotool getwindowgeometry --shell and used scrot -a 2,43,1278,720. OMP ordinary read ingested each decision-relevant PNG before the next decision.
+
+Launch 2 gameplay, direct visual checkpoints
+- 08: fresh CLIENT pixels, ON FOOT, delivery in progress, crate free, route 0/40 m.
+- 09–20: navigated naturally around the truck and visually acquired the yellow crate. Several captures were used to resolve uncertain orientation; no state was inferred from command success.
+- 21: after approach plus E, pixels showed DRIVING, delivery in progress, route 0/40 m, crate free.
+- Ordinary recoverable mistake: pressed E to exit before driving. 22 visibly showed ON FOOT, route 0/40 m, crate free in front.
+- Recovery: pressed E on the crate. 23 visibly showed CRATE CARRIED BY YOU, route 0/40 m.
+- Carried crate to the visible driver-seat prompt and pressed E. 25 visibly showed DRIVING, CRATE LOADED, route 0/40 m, objective DRIVE TO DESTINATION.
+- Drove forward. 26 visibly showed loaded driving at route 18/40 m. 27 visibly showed route 39/40 m. 28 visibly showed route 40/40 m and explicit E EXIT AT REAR CARGO THRESHOLD.
+- Pressed E. 29 visibly showed ON FOOT, CRATE CARRIED BY YOU, route 40/40 m.
+- Moved onto the visible yellow destination platform. 32 visibly showed OBJECTIVE: DESTINATION REACHED and explicit E UNLOAD CRATE NOW while the player and carried crate were inside the yellow zone.
+- Pressed E. 33 visibly showed DELIVERY DELIVERED, CRATE free, ROUTE 40/40 m, OBJECTIVE: DELIVERY COMPLETE, and Crate accepted in the yellow destination zone.
+
+Preserved Launch 1 shortcut evidence re-observed in this Sol turn
+- OMP ordinary read re-ingested launch1/30-centered-pre-e.png: CLIENT pixels visibly showed the on-foot parcel-bearing player centered in the yellow destination zone at route 0/40 m.
+- OMP ordinary read re-ingested launch1/31-shortcut-e-result.png: resulting CLIENT pixels visibly remained DELIVERY IN PROGRESS at route 0/40 m and explicitly showed OBJECTIVE: TRUCK JOURNEY REQUIRED / Drive loaded truck 0 -> 40 m, then exit at route end.
+- Direct result: shortcut rejected; no bypass observed.
+
+Observation boundaries and gaps
+- Direct observations are only the visible states listed above from exact ingested PNGs.
+- Input-to-result ordering is recorded by this trace; the images show resulting state, not the keystroke itself.
+- Launch 1 numeric window ID and geometry were not present in the preserved image set available to this continuation and its native processes were gone, so I did not reconstruct or verify that routing metadata. Launch 1 was not rerun.
+- I did not inspect source, Git history, producer messages, tests, logs, known defects, or prior reports.
+- I did not use the infrastructure-invalid partial Launch 2 for the verdict.
+- I did not assess fun, polish, performance, production readiness, deployment, or founder acceptance.
+
+TERMINAL_DECISION=completed
+OUTCOME_MET=true
+VERDICT=pass

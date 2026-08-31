@@ -1,0 +1,31 @@
+Godot Engine v4.7.2.stable.official.ed1daf0bf - https://godotengine.org
+
+[11:25:13] ENet: server listening on 127.0.0.1:24565 — HOST is peer 1
+[11:25:15] ENet: peer_connected id=645442053 (transport-level connection evidence)
+[11:25:15] HOST: sent authoritative world state to new peer 645442053
+[11:25:15] HOST: RESOLVED grab by peer 645442053 (crate now held)
+[11:25:16] HOST: RESOLVED drop by peer 645442053 — crate at (-0.0, 0.35, -5.81312) (recoverable)
+[11:25:16] PROBE(host): crate observed dropped BEHIND the truck at route start (z=-5.81)
+[11:25:16] HOST: RESOLVED grab by peer 645442053 (crate now held)
+[11:25:16] PROBE(host): dropped crate RECOVERED by peer 645442053
+[11:25:18] HOST: peer 645442053 occupies DRIVER position
+[11:25:18] HOST: received drive input from driver 645442053
+[11:25:18] MISSION: loaded truck journey started by peer 645442053
+[11:25:22] TRUCK: route position z=10.0 (bounded 0..40)
+[11:25:25] TRUCK: route position z=20.0 (bounded 0..40)
+[11:25:28] TRUCK: route position z=30.0 (bounded 0..40)
+[11:25:32] MISSION: loaded truck reached route end; valid driver exit now required
+[11:25:32] TRUCK: route position z=40.0 (bounded 0..40)
+[11:25:32] MISSION: loaded journey advanced through valid route-end seat exit by peer 645442053
+[11:25:32] HOST: peer 645442053 left driver position at rear cargo threshold
+[11:25:33] HOST: corrected peer 645442053 movement — teleport (3.18m horizontal, 0.00m vertical)
+[11:25:36] HOST: RESOLVED unload by peer 645442053 — crate at world (-0.0, 0.405, 34.73125)
+[11:25:36] MISSION: HOST completed delivery #1 (loaded drive + route-end exit + zone unload) — broadcasting
+[11:25:36] FEEDBACK[ok]: DELIVERY COMPLETED — loaded route and destination unload verified
+[11:25:36] PROBE(host): observed host-authoritative DELIVERY COMPLETED
+[11:25:36] PROBE RESULT: PASS — recovery path: drop behind truck at start recovered, delivery completed
+[11:25:36] PROBE(host): received client signal 'positive_done'
+[11:25:37] ENet: peer_disconnected id=645442053
+[11:25:37] PROBE: exiting (exit code 0)
+[11:25:37] ENet: server disconnected
+[11:25:37] PROBE: exiting (exit code 0)

@@ -249,7 +249,13 @@ pub fn assemble(snapshot: &ContextSnapshot) -> ContextPackage {
          with repeatable `--gate '{{\"name\":\"typecheck\",\"command\":[\"pnpm\",\"check\"]}}'`; \
          repeating an exit-code requirement only in outcome prose does not enforce it, and adding \
          a gate afterward races the scheduler. These gates run in every revision's current Attempt \
-         workspace and in the order declared. `restless work gate` remains for adding a \
+         workspace and in the order declared. A gate that opens a TCP listener must include \
+         `\"resources\":[\"port\"]` and consume `$RESTLESS_GATE_PORT` or the \
+         `{{RESTLESS_GATE_PORT}}` placeholder instead of a fixed port; a graphical gate similarly \
+         declares `\"resources\":[\"display\"]` and consumes the injected display. The resource \
+         belongs on the gate record even when the script internally chooses a default. Inspect the \
+         resulting Work graph before execution rather than calling a hard-coded number a lease. \
+         `restless work gate` remains for adding a \
          missing gate to already-existing blocked Work. If a declared gate itself is wrong, \
          preserve its historical runs and retire it with `restless work retire-gate --gate \
          <gate-id> --as <actor> --reason <evidence>`, declare the exact replacement, then resume \
@@ -297,10 +303,12 @@ pub fn assemble(snapshot: &ContextSnapshot) -> ContextPackage {
          explicit owner action.\n\
          Reply to the owner with `restless message --from exec '<your reply>'`. Follow the shared \
          conversation contract below, then end the message with exactly one machine-readable line:\n\
-         <!--restless-intent:{{\"kind\":\"conversation|work_feedback|direction|authority\",\"summary\":\"one short plain-language interpretation\"}}-->\n\
+         <!--restless-intent:{{\"kind\":\"conversation|work_feedback|direction|authority\",\"summary\":\"one short plain-language interpretation\",\"outcome\":\"optional concrete result\",\"nextStep\":\"optional next owner and action\",\"ownerNeed\":\"optional exact owner input\"}}-->\n\
          Choose one real kind, not the pipe-separated example. If direction changed the plan, update \
          `/company/org/exec/current-plan.md` before claiming that it did. Conversational agreement \
-         never substitutes for an explicit cockpit approval or owner-judgement action.\n\n\
+         never substitutes for an explicit cockpit approval or owner-judgement action. Omit each \
+         optional reader field when it is not genuinely present; do not manufacture status scaffolding \
+         for an ordinary conversation.\n\n\
          # Conversing with the owner [shared contract]\n{conversation_style}\n\
          ",
         operating_rules = snapshot.operating_rules.trim(),
@@ -582,6 +590,10 @@ mod tests {
         assert!(package
             .system_prompt
             .contains("Never substitute Exec approval when the remaining action explicitly requires owner authority"));
+        assert!(package
+            .system_prompt
+            .contains("Assume the reader has no technical context"));
+        assert!(package.system_prompt.contains("optional exact owner input"));
     }
 
     #[test]
@@ -637,6 +649,11 @@ mod tests {
         assert!(package
             .system_prompt
             .contains("adding a gate afterward races the scheduler"));
+        assert!(package.system_prompt.contains("\"resources\":[\"port\"]"));
+        assert!(package.system_prompt.contains("$RESTLESS_GATE_PORT"));
+        assert!(package
+            .system_prompt
+            .contains("calling a hard-coded number a lease"));
         assert!(package
             .user_prompt
             .contains("# Execution boundary [invariant]"));

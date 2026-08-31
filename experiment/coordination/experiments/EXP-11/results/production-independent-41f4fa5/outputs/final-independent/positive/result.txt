@@ -1,0 +1,4 @@
+native X11 input delivery: VERIFIED
+mistake: Q drop right after pickup; recovery: E re-grab (host resolved 2 grabs + 1 drop before delivery)
+controls exercised: E interact, Q drop, W/S walk/drive, native mousemove_relative look
+screenshots: game-side event captures (ev_*) and 5s interval frames (seq_*) in shots/

@@ -1,0 +1,89 @@
+{
+  "schema_version": "exp13.terminal-synthesis.v2",
+  "disposition": "model-or-policy-limited",
+  "scope": "Current thin visual-operator and clean-room controller contract across G1 and W1",
+  "model": {
+    "requested": "glm-5.3-flash",
+    "requested_route": "ZAI_BASE_URL",
+    "admission": "rate_limited",
+    "provider_code": 1310,
+    "fallback": "litellm/gpt-5.6-terra",
+    "fallback_vision_admitted": true
+  },
+  "arms": {
+    "G1-B0": {
+      "validity": "valid_gameplay_evidence",
+      "verdict": "revise",
+      "actions_upper_bound": 49,
+      "captures": 48,
+      "decisions": 56,
+      "wall_time_minutes_estimate": 18,
+      "failures": {"target_loss": 2, "focus_repairs": 1, "controller_restarts": 2, "invalid_interactions": 2},
+      "route_40_of_40": true,
+      "terminal_delivery_visible": false
+    },
+    "G1-B1": {
+      "validity": "valid_gameplay_evidence",
+      "verdict": "revise",
+      "actions": 34,
+      "captures": 36,
+      "decisions": 34,
+      "failures": {"target_loss": 1, "wrong_window": 1, "focus_repairs": 2, "controller_restarts": 1, "invalid_interactions": 6},
+      "destination_zone": true,
+      "terminal_delivery_visible": false
+    },
+    "G1-B2-original": {
+      "validity": "invalid_harness_interface_evidence",
+      "verdict": "blocked",
+      "actions": 0,
+      "captures": 0,
+      "decisions": 0
+    },
+    "G1-B2-rerun": {
+      "validity": "valid_gameplay_evidence",
+      "verdict": "revise",
+      "actions": 17,
+      "captures": 35,
+      "decisions": 17,
+      "wall_time_seconds": 182,
+      "failures": {"target_loss": 0, "wrong_window": 0, "focus_repairs": 0, "tool_failures": 0, "invalid_interactions": 0},
+      "destination_zone": true,
+      "terminal_delivery_visible": false
+    },
+    "W1-B1": {
+      "validity": "valid_rendered_journey_evidence",
+      "verdict": "pass",
+      "captures": 12,
+      "desktop_journey": true,
+      "narrow_mobile_research": true,
+      "exact_390px_viewport_proven": false,
+      "failures": {"initial_sandbox_launch": 1, "browser_process_exit": 1, "fresh_profile_recovery": 1}
+    },
+    "W1-B2": {
+      "validity": "blocked_harness_operator_evidence_only",
+      "verdict": "blocked",
+      "attach_attempts": 2,
+      "captures": 0,
+      "ambiguous_visible_windows": [10, 14],
+      "rendered_interaction_reached": false
+    }
+  },
+  "comparative_findings": {
+    "g1_b2_materially_beats_b1": true,
+    "supported_dimensions": ["native progress", "recovery/manual-rescue burden", "invalid-interaction burden"],
+    "unsupported_dimensions": ["per-arm provider cost", "accepted feedback quality", "visible terminal delivery"],
+    "cross_domain_generalisation": false
+  },
+  "spend": {
+    "company_accounted_usd": 15.644,
+    "company_ceiling_usd": 120.0,
+    "provider_reported_admission_request_usd": 0.029638,
+    "per_arm_provider_receipts": false
+  },
+  "human_profile": {"matched_trace": false, "matched_80_percent_profile": "unsupported"},
+  "not_run": ["D1", "B3", "Wave3 product repair loop", "actor interruption test"],
+  "stop_reason": "Repeated cross-target discovery failure after two G1-specific repairs",
+  "raw_evidence_retention": "purged_after_terminal_synthesis",
+  "repository_image_artifacts_retained": 0,
+  "next_prerequisite": "Deterministic clean-room-safe launch-to-target identity contract tested unchanged across G1 and W1"
+}

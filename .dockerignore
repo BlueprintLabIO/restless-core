@@ -28,3 +28,10 @@ web/*
 tools/*
 !tools/scenario/
 !tools/scenario/restless-scenario.mjs
+!tools/web-review/
+!tools/web-review/restless-web-review.mjs
+!tools/codex-runner/
+!tools/codex-runner/restless-codex-runner.mjs
+!tools/codex-runner/restless-codex-parity-preflight.mjs
+!tools/codex-runner/restless-codex-task-run.mjs
+!tools/codex-runner/restless-codex-longitudinal-run.mjs

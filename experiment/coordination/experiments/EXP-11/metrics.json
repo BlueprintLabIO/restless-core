@@ -1,0 +1,89 @@
+{
+  "schema_version": 1,
+  "experiment": "EXP-11",
+  "status": "complete",
+  "disposition": "product-judgement-failure",
+  "date": "2026-08-28",
+  "baseline": {
+    "commit": "84ff1745b29267708599e94036ec6f7a2a7e0457",
+    "tree": "25733ead6eb7c83221048d323838a5cadc2a235e"
+  },
+  "final_candidate": {
+    "commit": "41f4fa53a2cd05ab17aea473f3d1be28979b2dcf",
+    "files": {
+      "main.gd": "2bb5f472009754b05185bf5faee4512b7704e45fdba046dc36cbac4a34b1d3a0",
+      "main.gd.uid": "85f0a82ca47bc98af847267b87cdcde5a8245752bf63cf42179dc47f6d77f5ed",
+      "main.tscn": "ebc471afff5b3b8a8e20f3c3dfd455276fdb968084478c653d5ee9a7624a41d1",
+      "project.godot": "bcd630f68188c625e564d5499170ca8d112a96ff2d347e24b13ed183e14f264e"
+    },
+    "final_declared_gates": 5,
+    "final_declared_gates_passed": 5
+  },
+  "model_amendment": {
+    "requested": "zai/glm-5.3-flash",
+    "requested_route_result": "infrastructure-invalid",
+    "authorised_replacement": "litellm/gpt-5.6-sol",
+    "replacement_text_admitted": true,
+    "replacement_vision_admitted": true
+  },
+  "production_company": {
+    "id": "swift_arrival_playability_r1_test",
+    "work": 10,
+    "work_completed": 6,
+    "work_abandoned": 3,
+    "work_blocked": 1,
+    "attempts": 30,
+    "attempts_produced": 10,
+    "attempts_blocked": 10,
+    "attempts_failed": 7,
+    "attempts_superseded": 3,
+    "artifacts": 30,
+    "gates": 22,
+    "gate_runs": 36,
+    "handoffs": 5,
+    "accounted_usd": 48.606969,
+    "ceiling_usd": 50.0
+  },
+  "evaluation": {
+    "numbered_referee_arms": 20,
+    "numbered_referee_range": "R0-R19",
+    "terminal_arm": "R19",
+    "terminal_candidate": "41f4fa53a2cd05ab17aea473f3d1be28979b2dcf",
+    "terminal_shortcut_result": "pass-explicit-immediate-rejection",
+    "terminal_full_journey_result": "fail-reproducible-post-route-40-blocker",
+    "required_consecutive_fresh_completions": 2,
+    "achieved_consecutive_fresh_completions": 0,
+    "terminal_work": 2,
+    "terminal_attempts": 3,
+    "terminal_artifacts": 22,
+    "terminal_accounted_usd": 24.835997,
+    "terminal_ceiling_usd": 25.0
+  },
+  "spend": {
+    "all_exp11_companies_usd": 170.887523,
+    "production_usd": 48.606969,
+    "admission_referee_and_harness_usd": 122.280554,
+    "aggregate_frozen_ceiling_enforced": false,
+    "individual_company_ceilings_enforced": true,
+    "note": "Owner authorised evaluator replacement and continued completion pressure, but the sprint had no parent envelope across replacement companies."
+  },
+  "acceptance": {
+    "founder_review_executed": false,
+    "prepared_founder_recommendation": "revise",
+    "independent_usability_passed": false,
+    "deterministic_mechanics_passed": true,
+    "external_effects": 0,
+    "public_deployments": 0
+  },
+  "validity": {
+    "final_candidate_read_only": true,
+    "final_player_repo_less": true,
+    "final_player_source_withheld": true,
+    "final_player_logs_withheld": true,
+    "final_images_read_by_exact_model": true,
+    "final_client_pixels_verified": true,
+    "final_attempt_artifacts_linked": true,
+    "upstream_artifact_locators_auto_attached": 7,
+    "upstream_artifacts_reported_inspected": false
+  }
+}

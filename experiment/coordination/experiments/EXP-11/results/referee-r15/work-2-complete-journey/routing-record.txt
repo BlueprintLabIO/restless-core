@@ -1,0 +1,19 @@
+Work: 82cdae7c-e0de-4ab4-9f20-54f236cae9e0
+Attempt: caa6a086-8d51-4f94-80e0-7f188b1f7b1a
+Date: 2026-08-28 UTC
+
+Clean-state observation
+- `pgrep -a godot` returned no surviving Godot processes before launch.
+
+Launch and routing
+- Host launch command: DISPLAY=:1 godot --path /company/projects/swift-arrival-candidate -- --host
+- Visible Swift Arrival ID after host launch: 20971523 -> `Swift Arrival Dogfood 4 (DEBUG)`.
+- Exact host ID 20971523 was minimized successfully.
+- Client launch command: DISPLAY=:1 godot --path /company/projects/swift-arrival-candidate -- --client
+- Newly visible Swift Arrival ID: 23068675 -> `Swift Arrival Dogfood 4 — CLIENT (peer 1023955064)`.
+- Final client geometry, obtained with `xdotool getwindowgeometry --shell 23068675`: X=2, Y=43, WIDTH=1278, HEIGHT=720, SCREEN=0.
+- CLIENT was not resized. Before every input and capture, exact ID 23068675 was raised and focused.
+- Every PNG was captured from the geometry-matched region with `scrot -a 2,43,1278,720`; `scrot -u` was never used.
+- Exact initial native image: 00-initial-client.png. It was read via OMP ordinary `read` before gameplay and visibly showed the CLIENT HUD, on-foot state, route 0/40 m, and the parcel ahead.
+
+No setup failure or setup repair occurred. Host/client process IDs at cleanup were 1898/2002 respectively.

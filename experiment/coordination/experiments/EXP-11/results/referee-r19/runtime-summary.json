@@ -1,0 +1,91 @@
+{
+  "company": "exp11_vision_referee_r19_test",
+  "candidate": "41f4fa53a2cd05ab17aea473f3d1be28979b2dcf",
+  "model": "litellm/gpt-5.6-sol",
+  "started_at": "2026-08-28T17:04:04.750131Z",
+  "terminated_at": "2026-08-28T18:06:18.012712Z",
+  "company_spend_usd": 24.835997,
+  "company_ceiling_usd": 25.0,
+  "actors": [
+    {
+      "id": "exec",
+      "role": "exec",
+      "spent_usd": 1.9136,
+      "terminal": "fail-reproducible-post-route-40-blocker"
+    },
+    {
+      "id": "gameplay-referee",
+      "role": "non-producing referee lead",
+      "spent_usd": 1.7304,
+      "terminal": "fail-reproducible-post-route-40-blocker"
+    },
+    {
+      "id": "gameplay-player",
+      "role": "native gameplay evidence player",
+      "spent_usd": 21.1921,
+      "terminal": "two-produced-work-results"
+    }
+  ],
+  "work": [
+    {
+      "id": "2e0f780f-8f4f-4d45-9a46-f2dc06c05b73",
+      "title": "Test the on-foot parcel shortcut",
+      "status": "completed",
+      "attempt_limit_final": 2,
+      "resolution": "immediate explicit rejection",
+      "attempts": [
+        {
+          "id": "3e6217fe-2402-46ce-831d-3070fb3a77d2",
+          "attempt_no": 1,
+          "state": "blocked",
+          "reason": "evidence output root was not writable"
+        },
+        {
+          "id": "d6f3d5c5-d206-4046-82b3-3b0705e711e1",
+          "attempt_no": 2,
+          "state": "produced",
+          "critical_artifacts": 7,
+          "result": "shortcut rejected"
+        }
+      ]
+    },
+    {
+      "id": "d60a6996-9419-482b-9fe4-ff2f7db90021",
+      "title": "Complete the intended parcel journey",
+      "status": "completed",
+      "attempt_limit_final": 1,
+      "resolution": "reproducible post-route-40 blocker",
+      "attempts": [
+        {
+          "id": "b399989b-25a6-492d-af37-79e5977b6f8f",
+          "attempt_no": 1,
+          "state": "produced",
+          "started_at": "2026-08-28T17:28:22.976558Z",
+          "finished_at": "2026-08-28T18:04:22.006513Z",
+          "reported_turn_cost_usd": 16.188112,
+          "critical_artifacts": 15,
+          "result": "pickup, deliberate drop, recovery, loaded route end and two exits observed; delivery completion absent"
+        }
+      ]
+    }
+  ],
+  "edges": [
+    {
+      "from": "2e0f780f-8f4f-4d45-9a46-f2dc06c05b73",
+      "to": "d60a6996-9419-482b-9fe4-ff2f7db90021",
+      "kind": "requires",
+      "warning": "ordering edge automatically attached seven upstream artifact locators to the blind downstream Attempt"
+    }
+  ],
+  "terminal_attention_items": 0,
+  "external_effects": 0,
+  "runtime": {
+    "restless_home": "/tmp/restless-exp11",
+    "port_offset": 10000,
+    "candidate_read_only": true,
+    "evidence_root_writable_after_one_setup_repair": true,
+    "container_stopped_cleanly": true,
+    "container_removed_after_evidence_copy": true,
+    "named_volume_retained": true
+  }
+}

@@ -1,0 +1,37 @@
+name = "swift_arrival_npc_test"
+mission = """
+Execute active EXP-16 from `/company/EXP16_PROTOCOL.md`,
+`/company/reference/exp-sprint-16-embodied-npc-playtesting.md`, and the immutable
+`/company/FROZEN_BASELINE.json`.
+
+Exec delegates the complete outcome once to one non-producing Game Product lead and returns to
+availability. The lead remains a supervisor: it commissions one end-to-end Gameplay Staff
+worker using exact `litellm/gpt-5.6-sol`, judges only material evidence, repairs blockers and never
+edits, plays or links artifacts itself. A separate repo-less source-blind critic may use
+`litellm/gpt-5.6-terra` sparsely at semantic moments. Add a second producer only for an already stable,
+independently verifiable seam.
+
+Start from `/company/repos/swift-arrival` at the exact frozen commit/tree. Build one shared embodied
+agent stack used by a player-equivalent evaluator plus production driver, robber and vampire roles.
+Actions must pass through ordinary movement, vehicle, interaction, cargo, combat, physics and host
+authority. Hidden outcome reads, teleporting and direct mission/cargo mutation invalidate the run.
+Headless mechanics run continuously and cheaply; vision judges sparse decisive moments and never
+drives frame by frame.
+
+Run stages S0-S7 in order. First reproduce one frozen mechanics success and the known public-surface
+failure. Then implement the shared perception/blackboard/goal/action/receipt/stall body, golden-path
+driver, bounded recovery driver, robber and vampire roles. Run the frozen and held-out seeds, at most
+five genuine NPC-discovered repair loops, anti-cheat gates, and source-blind final review. Preserve
+compact JSONL/Markdown evidence under `/company/outputs/exp16`; delete raw frames, videos, engine
+caches and temporary traces after synthesis. Never claim fun or human acceptance from bot success.
+
+All work is local and private. Do not deploy, publish, purchase, contact anyone, mutate a non-test
+company or perform an external effect. Stop at USD 120 or any protocol stop condition.
+"""
+spend_ceiling_usd = "120"
+model = "litellm/gpt-5.6-terra"
+model_failover = ["litellm/gpt-5.6-sol"]
+approved_parties = []
+
+[credentials]
+"model.inference.litellm" = "env:GPT_API_KEY"

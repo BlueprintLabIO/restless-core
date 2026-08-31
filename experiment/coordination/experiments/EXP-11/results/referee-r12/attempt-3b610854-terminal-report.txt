@@ -1,0 +1,58 @@
+Blind native gameplay terminal report
+Work: bd5b4912-e2fa-404a-b7b4-c5f18a8bd644
+Attempt: 3b610854-ae84-4b3a-bdd7-f4b4f9bea4a2
+Candidate claim supplied by assignment: 7e76d1e087cf4cde12aaf1fa6d5e9309f39bcddd (not independently inspected)
+Proposed verdict: invalid
+
+Basis for invalid proposal
+Exact CLIENT routing remained unavailable after one bounded setup repair. In both fresh pre-input captures made from the numeric window ID whose xdotool title explicitly said CLIENT, the pixels showed “SWIFT ARRIVAL · HOST · peer 1 · connected 1”, not CLIENT. A third diagnostic capture after separating/resizing that same selected CLIENT-titled window also visibly showed HOST. Per assignment, I did not send gameplay input and did not substitute logs, source, scripts, tests, or prior evidence.
+
+Process-launch facts
+1. Initial Run 1 launch started the exact prepared commands:
+   DISPLAY=:1 godot --path /company/projects/swift-arrival-candidate -- --host
+   DISPLAY=:1 godot --path /company/projects/swift-arrival-candidate -- --client
+   They were initially started concurrently. Both produced visible Swift Arrival windows.
+2. After the first CLIENT-titled capture visibly rendered HOST, I used the one allowed bounded setup repair: stopped both processes, verified no matching process remained, then launched host first, waited three seconds, and launched client.
+3. The repaired launch again produced two visible Swift Arrival windows. After routing still failed, matching processes 1269 (host argv) and 1370 (client argv) were stopped.
+4. Run 2 was not launched. The contract says to continue only if exact PNG pixels visibly identify CLIENT and to report invalid if routing remains unavailable after the bounded repair. Proceeding to gameplay or a second run would have violated that constraint.
+
+Ordered action trace and direct observations
+01. Probed installed executables. Observed command paths: /usr/local/bin/godot, /usr/bin/xdotool, /usr/bin/scrot, /usr/local/bin/restless.
+02. Created unique evidence directory attempt-3b610854-run1.
+03. Started initial Run 1 host and client with the exact supplied commands.
+04. Enumerated visible windows: numeric IDs 23068675 and 18874371.
+05. Mapped titles: 23068675 = “Swift Arrival Dogfood 4 — CLIENT (peer 1938738907)”; 18874371 = “Swift Arrival Dogfood 4 (DEBUG)”. Selected 23068675 solely because its title said CLIENT.
+06. Raised/focused 23068675. Geometry observed: X=2, Y=43, WIDTH=1278, HEIGHT=720, SCREEN=0.
+07. Raised/focused 23068675 and captured exact region to r1-00-initial.png.
+08. Read that exact PNG with OMP read in this active turn. Direct pixel observation: red/orange Swift Arrival view; top line visibly read “SWIFT ARRIVAL · HOST · peer 1 · connected 1”; status visibly read “ON FOOT · DELIVERY IN PROGRESS · CRATE free · ROUTE 0 / 40 m”; objective visibly read “PICK UP THE CRATE”; a first-person scene and interaction instructions were visible. The pixels identified HOST, not CLIENT. No gameplay input had been sent.
+09. Diagnostic geometry check found both numeric windows at the same X/Y and size. This supported an overlapping-window routing possibility but did not prove which pixels scrot captured.
+10. Bounded repair: identified exact matching process IDs 1010 host and 1011 client; issued stop. The compound stop/wait command exited 1 because the subsequent wait could not complete for already-terminated PIDs. A following pgrep produced no matching process (exit 1/no output), directly verifying no match remained.
+11. Relaunched host first, waited three seconds, then launched client.
+12. Re-enumerated repaired Run 1 windows: IDs 18874371 and 23068675.
+13. Re-mapped titles: 18874371 = “Swift Arrival Dogfood 4 — CLIENT (peer 145444300)”; 23068675 = “Swift Arrival Dogfood 4 (DEBUG)”. Selected 18874371 solely because its title said CLIENT.
+14. Attempted windowactivate plus required raise/focus on 18874371. xdotool emitted “XGetWindowProperty[_NET_ACTIVE_WINDOW] failed (code=1)” but continued and returned geometry X=2, Y=43, WIDTH=1278, HEIGHT=720, SCREEN=0. The required raise/focus command itself remained callable.
+15. Raised/focused 18874371 and captured exact geometry to r1-01-initial-repair.png.
+16. Read that exact PNG in this active turn. Direct pixel observation: it again visibly read “SWIFT ARRIVAL · HOST · peer 1 · connected 1”, with the same on-foot, crate-free, route 0/40 m and pick-up-crate state. Pixels again identified HOST, not CLIENT. No gameplay input had been sent.
+17. As a final bounded routing diagnostic, observed display geometry 1280x800, resized selected CLIENT-titled ID 18874371 to 900x600, moved it, raised/focused it, and observed geometry X=101, Y=118, WIDTH=900, HEIGHT=600, SCREEN=0.
+18. Raised/focused exact ID 18874371 and captured exact new region to r1-02-initial-separated.png.
+19. Read that exact PNG in this active turn. Direct pixel observation: resized Swift Arrival view still visibly read “SWIFT ARRIVAL · HOST · peer 1 · connected 1”. Thus separating the selected CLIENT-titled window did not yield pixels identifying CLIENT.
+20. Identified repaired matching process IDs 1269 host and 1370 client and stopped them.
+
+Run 1 shortcut result
+Not tested. No input was issued because native screenshot pixels never visibly identified CLIENT after the bounded repair. Therefore there is no direct visual evidence of shortcut rejection or bypass.
+
+Run 2 complete journey result
+Not tested. Exact CLIENT routing was already unavailable after the allowed repair. Therefore there is no direct visual evidence of mistake, recovery, loading, driving, seat exit, unloading, or completion.
+
+Observation versus inference
+Observed: xdotool title mappings named a specific numeric window CLIENT; geometry came from that exact numeric ID; every capture was preceded by raise/focus of that ID; all three exact captured PNGs visibly labeled their rendered role HOST.
+Inference/uncertainty: overlapping windows may have contributed initially, but the separated selected window still rendered HOST. I cannot determine whether the cause is window-manager stacking, title/content role mismatch, or candidate behavior without prohibited evidence. I do not claim any cause.
+
+Explicit gaps and things not done
+- Did not play either gameplay path.
+- Did not establish shortcut rejection/bypass or full-journey completion.
+- Did not launch Run 2 because the mandatory routing precondition remained unmet after repair.
+- Did not inspect source, Git history, producer messages, tests, logs, known defects, prior reports, or prior evidence.
+- Did not use process output as gameplay evidence.
+- Did not edit the candidate, contact production, prescribe backlog work, deploy, publish, purchase, or declare founder acceptance.
+- Did not independently verify the supplied candidate commit identity because the candidate was explicitly non-worktree/read-only and source/Git inspection was prohibited.

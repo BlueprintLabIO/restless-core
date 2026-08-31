@@ -1,0 +1,30 @@
+{
+  "schema": "restless.exp17.rubrics.v1",
+  "frozen_at": "2026-08-30T06:32:00Z",
+  "common_scale": 100,
+  "practical_parity_points": 5,
+  "reviewer_disagreement_points": 15,
+  "tasks": {
+    "SC-1": {
+      "weights": {"correctness": 30, "consumer_fitness": 20, "robustness": 30, "evidence": 10, "maintainability": 10},
+      "native_gate": "visible plus sealed restart/reordering tests",
+      "serious_blockers": ["hidden native test failure", "duplicate terminal effect", "stale evidence overwrites newer evidence"]
+    },
+    "LC-2": {
+      "weights": {"correctness": 30, "consumer_fitness": 25, "robustness": 25, "evidence": 10, "maintainability": 10},
+      "native_gate": "visible plus sealed supersession/restart tests",
+      "serious_blockers": ["hidden native test failure", "stale Work publishes", "duplicate terminal receipt", "non-atomic persistence"]
+    },
+    "PI-1": {
+      "weights": {"correctness": 25, "consumer_fitness": 25, "robustness": 25, "evidence": 15, "clarity": 10},
+      "native_gate": "24 isolated schema/source checks plus sealed policy decisions",
+      "tail_floor": {"accepted_units": 23, "high_risk_units_required": 24},
+      "serious_blockers": ["fabricated evidence", "cross-account contamination", "missing brief", "unsafe policy action"]
+    },
+    "EL-2": {
+      "weights": {"correctness": 25, "consumer_fitness": 20, "continuity_and_robustness": 30, "evidence": 15, "clarity": 10},
+      "native_gate": "visible schema plus sealed reversal/duplicate/process-recovery/follow-up checks",
+      "serious_blockers": ["stale conclusion survives contradiction", "causal duplicate has second effect", "provenance is lost", "scheduled constraint is ignored", "useful work is lost after process replacement"]
+    }
+  }
+}

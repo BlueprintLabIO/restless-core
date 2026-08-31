@@ -1,0 +1,48 @@
+Swift Arrival candidate R13 — blinded native play trace
+Attempt: 8580189c-9ce5-49af-8e03-1be5f4af9364
+Evidence basis: direct reads of the named PNGs in this same Sol session. No source, Git history, tests, producer material, or candidate files were inspected.
+
+ROUTING SETUP — RUN 1 (walking shortcut)
+- Started host first. Visible Swift Arrival host numeric window ID: 20971523; title: "Swift Arrival Dogfood 4 (DEBUG)".
+- Started client second. Newly visible CLIENT numeric window ID: 23068675; title: "Swift Arrival Dogfood 4 — CLIENT (peer 1364265026)".
+- Final non-overlapping geometries before first capture: host X=1 Y=58 WIDTH=620 HEIGHT=700; client X=651 Y=58 WIDTH=620 HEIGHT=700.
+- Before every input/capture, wmctrl enumerated visible IDs/titles, CLIENT 23068675 was activated, and xdotool reported X=651 Y=58 WIDTH=620 HEIGHT=700. Every PNG used scrot -a 651,58,620,700.
+- 001-initial.png: fresh native CLIENT pixels; on-foot start, objective "COMPLETE THE LOADED TRUCK JOURNEY", crate free, route 0/40 m.
+- 002–018: ordinary W/A/S/D and mouse-look exploration to identify the rear cargo threshold, crate, and driver position from pixels. 015/023/026 show direct visible "too far from crate" rejections or an unintended seat interaction; 020/027 show recovery by exiting the seat. No hidden information was used.
+- 019-pickup.png initially showed an unintended seated state, not pickup; E was used to leave the seat.
+- 027-exit-back-away.png visibly established the rear cargo ramp and on-foot state.
+- 028–038: approached the physical crate from the rear/side by direct visual navigation.
+- 039-pickup-success.png: direct visible feedback "Picked up the crate"; HUD showed ON FOOT and CRATE CARRIED BY YOU.
+- 040–048: carried the parcel on foot away from the truck and toward the visible road/destination posts.
+- 049-drop-to-orient.png: Q deliberate drop to clear the obstructed view; direct visible feedback showed recoverable drop.
+- 050–051: mouse-look scan reacquired the road and yellow destination posts.
+- 052-recover-crate.png: E recovered the crate; direct visible feedback showed pickup.
+- 053–059: carried the crate toward/among the visible destination posts and repeatedly attempted E unload.
+- 056, 057, 058, 059: direct visible red feedback stated "REJECTED: unload outside the destination zone" while the HUD remained ON FOOT, DELIVERY IN PROGRESS, CRATE CARRIED BY YOU, ROUTE 0/40 m. The objective did not complete.
+- Important limitation: this run did not obtain a frame that both proves the crate drop point was inside the actual green/yellow destination-zone interior and shows a truck-journey-specific rejection. Later pixels in Run 2 revealed the usable zone interior was offset laterally from the posts; Run 1 cannot be retroactively inferred from Run 2.
+- Terminated both native processes. wmctrl then showed no Swift Arrival windows before the clean restart.
+
+ROUTING SETUP — RUN 2 (complete journey)
+- Started a fresh host first. Visible host numeric window ID: 20971523; title: "Swift Arrival Dogfood 4 (DEBUG)".
+- Started a fresh client second. Newly visible CLIENT numeric window ID: 23068675; title: "Swift Arrival Dogfood 4 — CLIENT (peer 1202680059)".
+- Final non-overlapping geometries before first capture: host X=1 Y=58 WIDTH=620 HEIGHT=700; client X=651 Y=58 WIDTH=620 HEIGHT=700.
+- Before every input/capture, wmctrl enumerated visible IDs/titles, CLIENT 23068675 was activated, and xdotool reported X=651 Y=58 WIDTH=620 HEIGHT=700. Every PNG used scrot -a 651,58,620,700.
+- 001-initial.png: fresh native CLIENT pixels; on-foot start, objective visible, crate free, route 0/40 m.
+- 002–016: W/A/S/D and mouse-look navigation around the rear threshold from pixels. 013 shows an unintended early seat entry; 014 shows recovery by E exit; 016 directly shows the physical crate centered at the rear threshold.
+- 017-pickup-crate.png: direct visible "Picked up the crate" feedback.
+- 018-deliberate-drop.png: required ordinary recoverable mistake via Q; direct visible "Dropped the crate — walk up and press E to pick it up again".
+- 019-recovered.png: E recovery; direct visible "Picked up the crate" feedback.
+- 020-carry-to-seat.png: carried recovered crate to visible driver position.
+- 021-loaded-seated.png: E entered driving state with crate; direct pixels showed DRIVING and crate carried, route 0/40 m.
+- 022-drive-10s.png: W drove the native truck along the road.
+- 023-exit-at-end.png: an ordinary early exit produced direct visible "EXITED EARLY" feedback; this was recovered rather than treated as completion.
+- 024-reenter-after-early.png: carried/re-entered the driver position.
+- 025-drive-more.png: continued W driving; direct visible green feedback "ROUTE-END REACHED — exit with E and unload the crate" and HUD route 40/40 m.
+- 026-exit-after-route.png: E exited; direct visible green feedback "ON FOOT AT ROUTE END — carry the crate into the zone and press E to unload"; route remained 40/40 m.
+- 027–036: backed out with crate and used direct pixels to locate the laterally offset destination-zone interior. Several E attempts visibly rejected as outside the zone; navigation continued from those pixels.
+- 037-unload-pad-interior.png: after shifting fully into the marked interior, E succeeded. Direct pixels showed "ON FOOT · DELIVERY DELIVERED · CRATE free · ROUTE 40/40 m", objective "DELIVERY COMPLETE", and green "DELIVERY COMPLETED" feedback.
+
+SETUP/PROTOCOL GAPS
+- No launch, focus, capture, image-ingestion, or native-input command failed; no bounded setup repair was needed.
+- After Run 1 was terminated, the Runtime automatically surfaced completed background-job output containing Godot process logs into the turn. This was unsolicited and was not used as gameplay evidence or to choose the Run 2 route; all recorded judgments above come from read PNG pixels. It nevertheless means the strict no-log exposure condition was not perfectly preserved for the whole session.
+- Run 1 reached the visible posts and got direct unload rejections, but did not visually establish that the crate drop point entered the actual destination-zone interior. Therefore the required shortcut rejection is not fully proven.

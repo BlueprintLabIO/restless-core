@@ -1,0 +1,12 @@
+review-target-live-probe: PASS
+observed_at: 2026-08-28T10:08:48Z
+candidate_head_check: PASS (09fe09d30c65b811c0904508525a6ab8af02145c)
+host_process_check: PASS (PID 26332 observed)
+client_process_check: PASS (PID 26435 observed)
+visible_x11_windows_check: PASS (window ids 20971523 and 23068675 observed)
+host_listening_check: PASS (127.0.0.1:24565)
+client_connected_check: PASS (peer 1373654529)
+host_authoritative_initial_state_sent: PASS
+client_initial_objective_visible: PASS (review-target/live-client-start.png)
+
+This gate proves that the exact native target was running and connected at the initial objective when probed. It does not prove ongoing liveness after that observation or founder judgement.

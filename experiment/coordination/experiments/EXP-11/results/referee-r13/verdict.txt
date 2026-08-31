@@ -1,0 +1,21 @@
+VERDICT: FAIL (required two-part visual acceptance is not fully proven)
+
+Direct visual result — shortcut run:
+- The parcel was picked up and carried on foot with HUD route 0/40 m.
+- The objective never completed.
+- Repeated E attempts near/among the visible destination posts showed red "REJECTED: unload outside the destination zone" feedback.
+- Gap: no Run 1 PNG proves the crate drop point was inside the actual destination-zone interior. The visible rejection therefore proves only an out-of-zone unload rejection, not the required rejection of an in-zone walking shortcut. Run 2 pixels cannot be used to infer Run 1 state.
+
+Direct visual result — complete journey:
+- PASS. Fresh Run 2 pixels show pickup, a deliberate Q drop, successful E recovery, carrying to the driver position, driving, a recoverable early exit, re-entry, route 40/40 m with "ROUTE-END REACHED", final seat exit, and successful unload.
+- Final proof: run2-complete/037-unload-pad-interior.png visibly shows "DELIVERY DELIVERED", "CRATE free", "ROUTE 40 / 40 m", "OBJECTIVE: DELIVERY COMPLETE", and green "DELIVERY COMPLETED" feedback.
+
+Overall judgment:
+- The candidate visibly supports completion of the full intended journey.
+- The Work's pass rule also requires direct visual proof that the on-foot shortcut does not complete. That proof is incomplete, so a PASS cannot be reported. This FAIL is an evidence-contract failure, not a claim that a shortcut bypass was observed.
+
+Unverified / gaps:
+- No in-zone Run 1 shortcut rejection was captured.
+- Runtime automatically surfaced background Godot logs after Run 1 termination despite the blind protocol. Those logs were excluded from the verdict; the judgments above rely only on PNG pixels. This remains a protocol exposure gap.
+- Audio was not evaluated.
+- No source, Git history, tests, producer messages, prior reports, or candidate files were inspected.

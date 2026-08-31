@@ -1,0 +1,15 @@
+Godot Engine v4.7.2.stable.official.ed1daf0bf - https://godotengine.org
+
+[10:04:57] ENet: server listening on 127.0.0.1:24565 — HOST is peer 1
+[10:04:59] ENet: peer_connected id=1165358708 (transport-level connection evidence)
+[10:04:59] HOST: sent authoritative world state to new peer 1165358708
+[10:04:59] HOST: RESOLVED grab by peer 1165358708 (crate now held)
+[10:05:00] HOST: REJECTED unload from 1165358708 (drop point outside destination zone at (-0.0, 0.0, -5.392501))
+[10:05:00] PROBE(host): received client signal 'negative_done'
+[10:05:00] PROBE RESULT: PASS — negative path: unload outside zone rejected, delivery NOT completed
+[10:05:01] ENet: peer_disconnected id=1165358708
+[10:05:01] HOST: holder 1165358708 left; crate placed at world (0.0, 0.405, -4.636188) (recoverable)
+[10:05:01] PROBE: exiting (exit code 0)
+[10:05:01] ENet: server disconnected
+[10:05:01] PROBE: exiting (exit code 0)
+[10:05:01] PROBE: exiting (exit code 0)

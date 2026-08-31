@@ -72,6 +72,32 @@ hard green requirement.
 - [`sprint-21.md`](./sprint-21.md) — draft with an EXP-09 activation gate: Dogfood 5 operates the
   research publication through real change, correction and no-op cycles with bounded standing
   authority and no per-cycle owner prompting.
+- [`sprint-22.md`](./sprint-22.md) — owner-rejected revision: added ground-truthed web review and a
+  mechanically complete Cloud candidate, but missed product-language fidelity, visual density and
+  Blog measure.
+- [`sprint-23.md`](./sprint-23.md) — implementation and independent critique complete; Bridge Light is
+  now the public site's source of truth, with product-native graphics, settled motion and
+  publication-grade Blog layouts awaiting owner review.
+- [`sprint-24.md`](./sprint-24.md) — draft: Dogfood 6 builds a complete motion-first Svelte interaction
+  foundry from a frozen Cult UI catalogue, applies a restrained subset to the Cloud site and makes
+  every Blog article genuinely standalone.
+- [`sprint-25.md`](./sprint-25.md) — active: separates the owner account plane, per-company cells and
+  host fleet so credentials, company state and container lifecycle no longer share one failure domain.
+- [`sprint-26.md`](./sprint-26.md) — complete: Attempt lineage, workspaces, native resources, gates,
+  feedback, supervisory wakes, promotion and review evidence passed the integrated unattended fixture.
+  Its spec prose is a 30 August 2026 reconstruction after the original draft was destroyed; the eight
+  ticket files are original and authoritative where they differ.
+- [`sprint-27.md`](./sprint-27.md) — planned: gives the account plane a supported network entry by
+  verified identity assertion, and publishes a pinnable, self-identifying release. Independent of
+  Sprint 26; gates every Restless Cloud sprint.
+- [`sprint-28.md`](./sprint-28.md) — draft: makes Attention, Work, artifacts and consequential agent
+  communication reader-friendly through source-backed semantics, accountable authorship, structural
+  validation and deterministic presentation without forcing ordinary conversation into one template.
+
+Sprint 26 is the completed first stage of the
+[Harness → NPC → benchmark programme](../../experiment/HARNESS_NPC_BENCHMARK_PROGRAMME.md). EXP-16 and
+EXP-17 also concluded; the final benchmark selects solo production at outcome parity for the four
+observed bounded work shapes while preserving lead accountability as a product-governance invariant.
 
 ## Restless Cloud delivery plans
 

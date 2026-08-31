@@ -105,6 +105,16 @@ or completion mail merely to trigger supervision. After the Runtime observes art
 final Work state, one recoverable Work-linked terminal fact wakes the accountable lead; direct Staff
 mail is for a genuinely new fact or contradiction that needs judgement before completion.
 
+EXP-17 makes the implementation constraint explicit: across four exact GPT-5.6 Sol pairs, a serial
+Exec/lead/worker/lead call chain matched solo outcome quality but cost 1.73x-3.30x and took
+1.77x-2.94x. Preserve the accountable lead, but treat one capable end-to-end worker as the default
+producing topology beneath it. Keep the lead's identity, charter, authority and context durable/hot;
+do not manufacture fresh high-effort model turns merely to restate an exact brief or acknowledge an
+already passing bounded artifact. Wake supervisory intelligence for material ambiguity, changed
+requirements, failed evidence, lineage conflict, unsafe effects, worker blockage or owner-facing
+judgement. Deterministic routing and gates may carry routine facts without pretending to replace the
+lead's decision rights.
+
 Leads coordinate directly through material facts, decisions, artifacts and sparse dependencies. One
 lead integrates any shared outcome. Cross-team priority, resource, charter and strategy conflicts go
 to Exec; ordinary status does not. If two leads require continuous shared state or joint completion

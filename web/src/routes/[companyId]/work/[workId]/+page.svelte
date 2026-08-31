@@ -6,11 +6,9 @@
 	import { attentionQuery, cockpitQuery, workActivityStream } from '$lib/model/queries.svelte';
 	import type { ArtifactRefRow, WorkGateRow, WorkRow } from '$lib/model/generated/orgintel';
 
-	/* `work.outcome` is the exact contract an actor executes, and on real
-	 * companies it runs to thousands of characters of imperative instructions in
-	 * a single paragraph. Rendering all of it first pushes the Attempt, the
-	 * evidence and the Work graph past the fold. Bound what opens; never alter
-	 * or summarise what is there. */
+	/* The authoring contract deliberately separates a human opening from the
+	 * exact actor contract with one blank line. Respect that declared boundary;
+	 * never infer a summary from arbitrary prose or rewrite either side. */
 	const OUTCOME_CLAMP_CHARS = 460;
 	let outcomeExpanded = $state(false);
 
@@ -56,7 +54,13 @@
 			.filter((artifact) => artifact.work_id === workId)
 			.toSorted((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at))
 	);
-	const outcomeIsLong = $derived((work?.outcome ?? '').length > OUTCOME_CLAMP_CHARS);
+	const outcomeParts = $derived(splitOutcome(work?.outcome ?? ''));
+	const readerSummary = $derived((work?.resolution || outcomeParts.opening).trim());
+	const readerSummaryLabel = $derived(
+		work?.resolution ? 'What happened' : 'What this Work delivers'
+	);
+	const executionContract = $derived(outcomeParts.contract || work?.outcome || '');
+	const outcomeIsLong = $derived(executionContract.length > OUTCOME_CLAMP_CHARS);
 	$effect(() => {
 		/* A different Work is a different contract: never carry one open state
 		 * onto the next page. */
@@ -125,6 +129,15 @@
 		);
 	}
 
+	function splitOutcome(value: string): { opening: string; contract: string } {
+		const boundary = value.indexOf('\n\n');
+		if (boundary < 0) return { opening: '', contract: value };
+		return {
+			opening: value.slice(0, boundary).trim(),
+			contract: value.slice(boundary + 2).trim()
+		};
+	}
+
 	function ownerName(actorId: string): string {
 		return (
 			cockpit?.people.find((person) => person.actor_id === actorId)?.display ??
@@ -150,6 +163,45 @@
 
 	function artifactState(artifact: ArtifactRefRow): string {
 		return artifact.state === 'available' ? 'Available' : artifact.state.replaceAll('_', ' ');
+	}
+
+	/* Older Runtime-created artifacts used the whole expected-output contract as
+	 * their label. The equality and source kind identify that exact mechanical
+	 * path; never shorten a genuinely authored artifact label. */
+	function isLegacyAutomaticArtifact(artifact: ArtifactRefRow): boolean {
+		return (
+			!!work &&
+			artifact.label === work.expected_artifact &&
+			artifact.created_by === work.owner_id &&
+			['file', 'repository_tree'].includes(artifact.kind)
+		);
+	}
+
+	function artifactLabel(artifact: ArtifactRefRow): string {
+		return isLegacyAutomaticArtifact(artifact)
+			? `Output from: ${work?.title ?? 'this work'}`
+			: artifact.label || artifact.kind;
+	}
+
+	function artifactNote(artifact: ArtifactRefRow): string {
+		if (!isLegacyAutomaticArtifact(artifact)) {
+			return artifact.note || 'Linked evidence for this Work';
+		}
+		return artifact.kind === 'file'
+			? 'The exact file produced by this work and observed in the company runtime.'
+			: 'The saved result produced by this work; Restless observed it with no uncommitted changes.';
+	}
+
+	function workStatusLabel(status: WorkRow['status']): string {
+		return (
+			{
+				proposed: 'Not started',
+				active: 'In progress',
+				blocked: 'Waiting on a blocker',
+				completed: 'Complete',
+				abandoned: 'Stopped'
+			}[status] ?? status
+		);
 	}
 
 	function canOpenOutsideCompany(uri: string): boolean {
@@ -193,7 +245,7 @@
 					<span aria-hidden="true">←</span> Work
 				</a>
 				<div class="work-breadcrumb">
-					<span>{goal?.title ?? 'Company goal'}</span><i aria-hidden="true">/</i><b>Work detail</b>
+					<span>{goal?.title ?? 'Company work'}</span><i aria-hidden="true">/</i><b>Details</b>
 				</div>
 				<h1>{work.title}</h1>
 			</div>
@@ -209,7 +261,7 @@
 				<span>
 					{unverifiedCompletion
 						? 'Completion recorded · evidence unavailable'
-						: `${work.status} · revision ${work.revision}`}
+						: workStatusLabel(work.status)}
 				</span>
 			</div>
 		</header>
@@ -268,7 +320,7 @@
 							<p>{latestAttempt?.summary}</p>
 							{#each recoveryArtifacts as artifact (artifact.id)}
 								<div class="recovery-artifact">
-									<strong>{artifact.label || artifact.kind}</strong>
+									<strong>{artifactLabel(artifact)}</strong>
 									<code>{artifact.uri}</code>
 								</div>
 							{/each}
@@ -281,84 +333,88 @@
 		<div class="work-detail-scroll">
 			<div class="work-detail-layout">
 				<main class="work-detail-main">
-					<section class="work-detail-section outcome-contract">
-						<span
-							class="detail-label"
-							title="The exact contract the accountable actor executes. Shown verbatim; Restless never rewrites it."
-						>
-							Outcome contract
-						</span>
-						<div class="outcome-body" class:clamped={outcomeIsLong && !outcomeExpanded}>
-							<Markdown text={work.outcome} />
-						</div>
-						{#if outcomeIsLong}
-							<button
-								type="button"
-								class="outcome-toggle"
-								onclick={() => (outcomeExpanded = !outcomeExpanded)}
-								aria-expanded={outcomeExpanded}
-							>
-								{outcomeExpanded ? 'Show less' : 'Read the full contract'}
-							</button>
-						{/if}
-					</section>
-
-					<section class="work-detail-section">
-						<div class="detail-section-head">
-							<span class="detail-label">Latest Attempt</span>
-							{#if latestAttempt}
-								<small>Attempt {latestAttempt.attempt_no} · revision {latestAttempt.revision}</small
-								>
-							{/if}
-						</div>
-						{#if latestAttempt}
-							<strong class="attempt-state state-{latestAttempt.state}"
-								>{latestAttempt.state.replaceAll('_', ' ')}</strong
-							>
-							<p>{latestAttempt.summary || 'This Attempt has not recorded a summary yet.'}</p>
-							<div class="attempt-meta">
-								<span>Started {displayDate(latestAttempt.started_at)}</span>
-								<span>{latestAttempt.model || 'Model not recorded'}</span>
-							</div>
-						{:else}
-							<p class="detail-empty">No Attempt has started yet.</p>
-						{/if}
-					</section>
-
-					{#if work.resolution}
-						<section class="work-detail-section">
-							<span class="detail-label">Current explanation</span>
-							<Markdown text={work.resolution} />
+					{#if readerSummary}
+						<section class="work-reader-summary" aria-label={readerSummaryLabel}>
+							<span class="detail-label">{readerSummaryLabel}</span>
+							<Markdown text={readerSummary} />
 						</section>
 					{/if}
+					<details class="work-technical-details">
+						<summary>Technical execution details</summary>
+						<div class="work-technical-body">
+							<section class="work-detail-section outcome-contract">
+								<span
+									class="detail-label"
+									title="The exact instructions the accountable actor executes. Shown verbatim; Restless never rewrites them."
+								>
+									Exact execution contract
+								</span>
+								<div class="outcome-body" class:clamped={outcomeIsLong && !outcomeExpanded}>
+									<Markdown text={executionContract} />
+								</div>
+								{#if outcomeIsLong}
+									<button
+										type="button"
+										class="outcome-toggle"
+										onclick={() => (outcomeExpanded = !outcomeExpanded)}
+										aria-expanded={outcomeExpanded}
+									>
+										{outcomeExpanded ? 'Show less' : 'Read the full contract'}
+									</button>
+								{/if}
+							</section>
 
-					<section class="contribution-trace">
-						<h2>{workIsLeadOwned ? 'Lead-owned outcome' : 'Attributable Staff contribution'}</h2>
-						{#if workIsLeadOwned}
-							<p>
-								{accountableLead?.display ?? ownerName(accountableLeadId ?? work.owner_id)} owns the integration
-								judgement for this outcome. Restless does not infer a Staff contribution from chat or
-								prose; any accepted, revised, or abandoned contribution has its own Work, Attempt, and
-								observed output in the linked record.
-							</p>
-						{:else}
-							<p>
-								{ownerName(work.owner_id)} owns this bounded Staff responsibility for
-								{accountableLead?.display ?? ownerName(accountableLeadId ?? work.owner_id)}. Its
-								actual Attempt and outputs appear below. A completed Attempt is evidence of this
-								contribution, not a claim that the lead accepted the whole outcome.
-							</p>
-						{/if}
-						{#if work.status === 'abandoned'}
-							<p class="contribution-status">
-								This Work was abandoned and is not presented as accepted output.
-							</p>
-						{:else if revisions.length}
-							<p class="contribution-status">
-								A source-observed revision route is shown in the Work graph below.
-							</p>
-						{/if}
-					</section>
+							<section class="work-detail-section">
+								<div class="detail-section-head">
+									<span class="detail-label">Latest run</span>
+									{#if latestAttempt}
+										<small
+											>Attempt {latestAttempt.attempt_no} · revision {latestAttempt.revision}</small
+										>
+									{/if}
+								</div>
+								{#if latestAttempt}
+									<strong class="attempt-state state-{latestAttempt.state}"
+										>{latestAttempt.state.replaceAll('_', ' ')}</strong
+									>
+									<p>{latestAttempt.summary || 'This run has not recorded a summary yet.'}</p>
+									<div class="attempt-meta">
+										<span>Started {displayDate(latestAttempt.started_at)}</span>
+										<span>{latestAttempt.model || 'Model not recorded'}</span>
+									</div>
+								{:else}
+									<p class="detail-empty">No run has started yet.</p>
+								{/if}
+							</section>
+
+							<section class="contribution-trace">
+								<h2>{workIsLeadOwned ? 'Accountability record' : 'Contribution record'}</h2>
+								{#if workIsLeadOwned}
+									<p>
+										{accountableLead?.display ?? ownerName(accountableLeadId ?? work.owner_id)} owns the
+										final judgement for this outcome. Accepted, revised or stopped contributions retain
+										their own execution and observed-output records.
+									</p>
+								{:else}
+									<p>
+										{ownerName(work.owner_id)} owns this bounded contribution for
+										{accountableLead?.display ?? ownerName(accountableLeadId ?? work.owner_id)}. Its
+										run and outputs are evidence of the contribution, not proof that the whole
+										outcome was accepted.
+									</p>
+								{/if}
+								{#if work.status === 'abandoned'}
+									<p class="contribution-status">
+										This Work was stopped and is not presented as accepted output.
+									</p>
+								{:else if revisions.length}
+									<p class="contribution-status">
+										A source-observed revision route is shown in the Work graph below.
+									</p>
+								{/if}
+							</section>
+						</div>
+					</details>
 				</main>
 
 				<div class="work-detail-rail">
@@ -383,7 +439,11 @@
 						<section>
 							<span class="detail-label">Evidence</span>
 							<strong>{artifacts.length} linked output{artifacts.length === 1 ? '' : 's'}</strong>
-							<small>{passedGates}/{gates.length} gates passed on the latest Attempt</small>
+							<small
+								>{gates.length
+									? `${passedGates}/${gates.length} automated checks passed`
+									: 'No automated checks recorded'}</small
+							>
 						</section>
 						<section>
 							<span class="detail-label">Updated</span>
@@ -401,11 +461,13 @@
 					<section class="work-evidence-section">
 						<header>
 							<div>
-								<span class="detail-label">Evidence and acceptance</span>
-								<h2>What supports this Work</h2>
+								<span class="detail-label">Evidence</span>
+								<h2>What supports this outcome</h2>
 							</div>
 							<span class="evidence-score"
-								>{artifacts.length} outputs · {passedGates}/{gates.length} gates</span
+								>{artifacts.length} linked output{artifacts.length === 1 ? '' : 's'} · {gates.length
+									? `${passedGates}/${gates.length} checks passed`
+									: 'no automated checks'}</span
 							>
 						</header>
 						{#if work.expected_artifact}
@@ -419,12 +481,17 @@
 									<div class="detail-artifact">
 										<MatrixGlyph rows={GLYPHS.work} size={7} />
 										<span>
-											<strong>{artifact.label || artifact.kind}</strong>
-											<small>{artifact.uri}</small>
+											<strong>{artifactLabel(artifact)}</strong>
+											<small>{artifactNote(artifact)}</small>
 										</span>
-										<em class:available={artifact.state === 'available'}
-											>{artifactState(artifact)}</em
-										>
+										<div class="artifact-actions">
+											<em class:available={artifact.state === 'available'}
+												>{artifactState(artifact)}</em
+											>
+											{#if canOpenOutsideCompany(artifact.uri)}
+												<a href={artifact.uri} target="_blank" rel="noreferrer">Open ↗</a>
+											{/if}
+										</div>
 									</div>
 								{:else}
 									<p class="detail-empty">No linked outputs are recorded.</p>
@@ -432,7 +499,7 @@
 							</div>
 
 							<div class="gate-list">
-								<span class="detail-sublabel">Acceptance gates</span>
+								<span class="detail-sublabel">Automated checks</span>
 								{#each gates as gate (gate.id)}
 									<div class:passed={gatePassed(gate)} class="detail-gate">
 										<MatrixGlyph rows={gatePassed(gate) ? GLYPHS.check : GLYPHS.ring} size={7} />
@@ -443,7 +510,7 @@
 										>
 									</div>
 								{:else}
-									<p class="detail-empty">No acceptance gates are recorded.</p>
+									<p class="detail-empty">No automated checks are recorded.</p>
 								{/each}
 							</div>
 						</div>

@@ -12,6 +12,7 @@ one Postgres schema per company. Not a ledger, not kernel truth.
 
 [dependencies]
 chrono = { version = "0.4", features = ["serde"] }
+chrono-tz = "0.10"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha2 = "0.10"

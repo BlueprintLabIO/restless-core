@@ -1,0 +1,64 @@
+{
+  "attempt_uuid": "aac89993-bf32-44e2-b753-789f29b70de2",
+  "work_id": "e73430f6-31ff-41a9-9208-772d8ac2df3d",
+  "candidate_ref": "7e76d1e087cf4cde12aaf1fa6d5e9309f39bcddd",
+  "model_selector": "litellm/gpt-5.6-sol",
+  "terminal_decision": "completed",
+  "outcome_met": true,
+  "verdict": "pass",
+  "basis": {
+    "launch1_shortcut": {
+      "result": "rejected",
+      "direct_observation": "launch1/30-centered-pre-e.png visibly shows the parcel-bearing on-foot player centered within the yellow destination zone at route 0/40 m. launch1/31-shortcut-e-result.png, captured after E, visibly retains DELIVERY IN PROGRESS and route 0/40 m and explicitly displays OBJECTIVE: TRUCK JOURNEY REQUIRED / Drive loaded truck 0 -> 40 m, then exit at route end.",
+      "evidence": [
+        "launch1/30-centered-pre-e.png",
+        "launch1/31-shortcut-e-result.png"
+      ],
+      "bypass_observed": false
+    },
+    "launch2_intended_journey": {
+      "result": "completed",
+      "direct_observation": "The fresh replacement Launch 2 visibly progressed through crate carried, deliberate early seat exit, recovered crate pickup, loaded driving, route 18/40 m, route 39/40 m, route 40/40 m, on-foot crate-carried destination state, explicit E UNLOAD CRATE NOW prompt in the destination zone, and DELIVERY DELIVERED / OBJECTIVE: DELIVERY COMPLETE / Crate accepted in the yellow destination zone.",
+      "ordinary_recoverable_mistake": "Exited the seat with E before driving; launch2/22-restart-mistake-early-exit.png visibly returned to ON FOOT, route 0/40 m, with the crate free in front. E then recovered the crate, visibly producing CRATE CARRIED BY YOU in launch2/23-recovered-crate-pickup.png.",
+      "evidence": [
+        "launch2/22-restart-mistake-early-exit.png",
+        "launch2/23-recovered-crate-pickup.png",
+        "launch2/25-loaded-driving.png",
+        "launch2/26-loaded-route-progress.png",
+        "launch2/27-route-end-driving.png",
+        "launch2/28-route-complete.png",
+        "launch2/29-exited-with-cargo.png",
+        "launch2/32-on-delivery-platform.png",
+        "launch2/33-delivery-complete.png"
+      ]
+    }
+  },
+  "routing": {
+    "preserved_launch2_state_usable": false,
+    "reason": "A direct process observation at continuation start showed no Godot host or client process, so no preserved native window existed to route to.",
+    "launch2_only_restart_performed": true,
+    "host_window_map": {"20971523": "Swift Arrival Dogfood 4 (DEBUG)"},
+    "client_window_map": {"23068675": "Swift Arrival Dogfood 4 — CLIENT (peer 2077281758)"},
+    "final_visible_window_map": {"23068675": "Swift Arrival Dogfood 4 — CLIENT (peer 2077281758)"},
+    "final_client_geometry": {"x": 2, "y": 43, "width": 1278, "height": 720, "screen": 0},
+    "client_resized": false,
+    "capture_method": "Before every capture, raised/focused exact numeric CLIENT ID 23068675, obtained geometry with xdotool getwindowgeometry --shell, then used scrot -a 2,43,1278,720. Exact PNGs were read through OMP ordinary read before further decisions.",
+    "bounded_setup_repair": "The first restart PNG launch2/07-restart-initial.png mistakenly used a stale hardcoded 0,0,1152,648 region despite the newly observed 2,43,1278,720 geometry. No gameplay input followed it. The single bounded repair immediately recaptured the exact region as launch2/08-restart-initial-routing-repair.png and ingested that PNG before gameplay."
+  },
+  "capability_interruption": {
+    "preceding_launch2": "The prior Launch 2 was interrupted by the assigned known 45-minute Runtime capability expiry immediately after recovery input and is treated as infrastructure-invalid, not as a gameplay result.",
+    "resumption": "This continuation began with refreshed capability. Because the prior processes were absent, Launch 2 alone was restarted host-first then client; Launch 1 was not rerun."
+  },
+  "observation_boundaries": {
+    "direct": "All gameplay judgements above come from PNG pixels ingested in this Sol turn, including the preserved Launch 1 decision images and fresh Launch 2 images.",
+    "inference": "The sequence relationship between each input and its immediately following capture comes from this action trace; pixels themselves show the resulting state, not the keystroke.",
+    "uncertainty": "Launch 1's prior numeric window ID and geometry were not available in this continuation's preserved image set and were not reconstructed. The direct Launch 1 pixels visibly identify CLIENT and satisfy the gameplay decision criterion, but this continuation did not re-observe that now-closed window routing metadata.",
+    "skipped_or_unverified": [
+      "No source, Git history, producer messages, tests, logs, known defects, or prior reports were inspected.",
+      "Launch 1 was not rerun, as explicitly required.",
+      "The infrastructure-invalid partial Launch 2 was not used for the verdict.",
+      "No fun, polish, performance, production readiness, deployment, or founder acceptance judgement was made.",
+      "Launch 1 numeric window ID and geometry are unverified in this continuation because its native processes were already gone."
+    ]
+  }
+}

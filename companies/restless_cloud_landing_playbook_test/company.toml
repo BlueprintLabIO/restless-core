@@ -1,0 +1,31 @@
+name = "restless_cloud_landing_playbook_test"
+mission = """# Restless Cloud — incumbent-beating public-site dogfood
+
+Prove that Restless can assemble and lead a genuinely strong landing-page team, explore multiple
+directions, and return a complete Restless Cloud public-site candidate that is visibly better than
+the accepted incumbent rather than merely coherent or mechanically valid.
+
+Use the shared landing-page-design and web-native-review skills and the repository-local
+restless-public-site skill. The exact incumbent at commit 29f4f6a68239a69fed8ccb429553a1da601b0f51 is
+the minimum quality floor and an approved asset/code mine. Preserve product truth and successful
+assets while finding a stronger composition, copy system and product demonstration. Current rendered
+Restless product states define identity; Neon calibrates maturity only; Cult UI supplies React
+mechanics only.
+
+The accountable lead must prove coverage of product truth, art direction, copy/IA, React motion
+engineering and independent comparative criticism. Explore at least three materially different live
+directions before choosing one. Build the complete wider site, including substantial Product, How it
+works and standalone Blog routes—not only a hero. Compare the final candidate and incumbent at the
+same desktop/mobile viewports. If it is not clearly better, keep working or retain the incumbent.
+
+Do not publish, push, deploy, contact anyone, change hosting, replace main, or perform another
+external effect. Return one exact isolated local ReviewTarget for owner accept/request-changes only
+after the candidate has earned a comparative `better` verdict.
+"""
+spend_ceiling_usd = 50.0
+model = "openai-codex/gpt-5.6-sol"
+model_failover = []
+
+[credentials]
+"model.inference.openai-codex" = "omp-oauth:openai-codex"
+

@@ -1,0 +1,21 @@
+INDEPENDENT PLAYABILITY REVIEW — exact candidate 7e76d1e087cf4cde12aaf1fa6d5e9309f39bcddd
+
+OBSERVATIONS
+1. Runtime event 386 (attempt_process_started, 2026-08-28T11:38:08.813321Z) recorded source_commit 7e76d1e087cf4cde12aaf1fa6d5e9309f39bcddd, dirty_entries 0. `git rev-parse HEAD` independently returned the same commit before launch.
+2. Stale artifact a24f9422… (commit 2ebfd693…) and all evidence from abandoned Work bf0531c6… were excluded. The only producer input treated as valid was artifact 17a3a26f… at the exact repaired commit.
+3. Native inputs were routed to the exact visible window found by `xdotool search --onlyvisible --name CLIENT`, activated with `windowactivate --sync`, and recorded as focused-client in each timestamped trace. The captured frames visibly identify `SWIFT ARRIVAL · CLIENT`, a connected peer, and authoritative HUD state. Host and client were separate Godot processes over 127.0.0.1:24565.
+4. On-foot bypass replay (native-bypass-recovery): E pickup, Q deliberate drop, E recovery, native mouse turns and WASD carried the crate to the yellow bay while the truck remained at ROUTE 0/40. At 11:41:26Z the host logged `REJECTED unload ... truck journey incomplete: stage=0 route=0.0`; the client showed `REJECTED: truck journey incomplete — drive the loaded truck to 40 m, then exit there`. No completion log occurred. The rejection pixels preserve ON FOOT, DELIVERY IN PROGRESS, CRATE CARRIED BY YOU, ROUTE 0/40.
+5. Cleanly restarted full journey (native-positive): E/Q/E proved drop recovery; W carried to cab; E seated; W drove the bounded route to 40; E exited at the rear cargo threshold; S and a real mouse motion positioned for E unload. Host logged loaded journey start, route 10/20/30/40, valid route-end exit, unload, and delivery #1. Client logged connected state, pickup/drop/recovery, seat, host-corrected exit, unload, and host-authoritative DELIVERY COMPLETED. Completion pixels show ON FOOT, DELIVERY DELIVERED, ROUTE 40/40.
+6. The clean positive restart began with DELIVERY IN PROGRESS, crate free, route 0/40, so the previous invalid-order rejection did not persist. The invalid-order route likewise never acquired a completion state.
+7. During the required native routes I observed coherent mouse-directed turning, free movement through the intended ramp/route, and no new blocked-movement or collision blocker. The supporting `--mechanics-recovery` probe exited 0 for host and client and reports solid truck/world collision and recovery, but that deterministic probe supports mechanics only and does not prove feel.
+8. Audio initialization failed and Godot used the dummy driver. Networking was local loopback, not a remote-network test.
+
+JUDGEMENT
+ACCEPT FOR FOUNDER REVIEW. The repaired candidate directly rejected the former route-zero on-foot shortcut with clear corrective feedback, then supported the complete loaded truck journey and ordinary drop/recovery without a material new playability blocker in these bounded routes. Host/client state agreed in both positive and negative outcomes.
+
+GAPS / LIMITS
+- Founder taste and the subjective quality of movement/driving remain unverified.
+- Audio was not evaluated because only the dummy driver was available.
+- Multiplayer observation was host/client local loopback, not adverse or remote networking.
+- Collision observation was bounded to these routes; the deterministic probe is supporting evidence, not a feel claim.
+- An initial exploratory bypass run omitted Q/E recovery; it is retained under native-bypass but was not used to satisfy the exact bypass-route verdict. The fresh native-bypass-recovery run is the counted evidence.

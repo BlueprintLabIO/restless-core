@@ -1,0 +1,10 @@
+RUN 1 — shortcut test
+Launches: exact mandated host and client commands with DISPLAY=:1.
+Visible Swift Arrival windows: 20971523 = "Swift Arrival Dogfood 4 (DEBUG)"; 23068675 = "Swift Arrival Dogfood 4 — CLIENT (peer 773829797)".
+Selected routed window: 23068675 because its title says CLIENT.
+Geometry before capture: X=2 Y=43 WIDTH=1278 HEIGHT=720 SCREEN=0.
+Every input and capture was preceded by windowraise and windowfocus --sync on 23068675. Every PNG used scrot -a 2,43,1278,720 and was read with OMP read.
+Direct visual sequence: 001 showed CLIENT, connected, on foot, delivery in progress, route 0/40 m, crate nearby. 002 showed crate carried. 003 showed player outside rear of truck. 005 showed truck to the right and destination poles ahead while crate remained carried. 006–008 showed approach to and threshold of the yellow destination marker on foot, while HUD remained ON FOOT, DELIVERY IN PROGRESS, CRATE CARRIED BY YOU, ROUTE 0/40 m. 009 after E still showed the same non-complete state. No completion was visible.
+Bounded setup/input repair: first relative mouse-look command failed because xdotool mousemove_relative does not accept --window. The retained failing command was followed once by the corrected command after exact-window focus; it exited 0. No result in this report relies on mouse-look.
+Clean restart evidence: pgrep identified only PIDs 1022 (host) and 1128 (client). Both were stopped. A subsequent pgrep -a godot returned no output (exit 1), proving no Godot process remained before run 2.
+Evidence basis restriction: judgement above uses only pixels in read PNGs. Process output delivered on termination was not used as gameplay evidence.

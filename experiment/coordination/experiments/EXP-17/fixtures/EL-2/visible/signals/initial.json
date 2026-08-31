@@ -1,0 +1,5 @@
+[
+  {"signal_id":"SIG-001","decision":"pricing-response","observed_at":"2026-08-01","source":"competitor public price sheet snapshot","claim":"Competitor list price is 18% above our comparable tier.","limits":"Discounts and realised price are unknown."},
+  {"signal_id":"SIG-002","decision":"health-vertical","observed_at":"2026-08-02","source":"simulated product telemetry extract","claim":"Five health customers increased weekly active use by 34% over eight weeks.","limits":"Sample is small and procurement intent is unknown."},
+  {"signal_id":"SIG-003","decision":"partner-channel","observed_at":"2026-08-03","source":"simulated partner interviews","claim":"Two of six partners asked for co-selling material.","limits":"No sourced pipeline or conversion data exists."}
+]

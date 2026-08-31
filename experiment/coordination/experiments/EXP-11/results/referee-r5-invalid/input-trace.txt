@@ -1,0 +1,2 @@
+Input trace (native window input only)
+1. Activated window 16777219 solely to focus the initial capture; no gameplay key was sent.

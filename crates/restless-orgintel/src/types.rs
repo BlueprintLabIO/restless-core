@@ -270,6 +270,11 @@ pub struct WorkAttemptRow {
     pub requested_source_ref: Option<String>,
     pub source_commit: Option<String>,
     pub source_tree: Option<String>,
+    pub terminal_source_commit: Option<String>,
+    pub terminal_source_tree: Option<String>,
+    pub terminal_status_digest: Option<String>,
+    pub terminal_dirty_entries: Option<i32>,
+    pub terminal_observed_at: Option<DateTime<Utc>>,
     pub gate_set_digest: String,
     pub environment_fingerprint: String,
     pub materialized_at: Option<DateTime<Utc>>,
@@ -583,7 +588,68 @@ pub(super) fn validate_owner_brief(brief: &OwnerBrief) -> Result<()> {
             "optional owner brief fields must be omitted rather than blank".into(),
         ));
     }
+
+    if brief.headline.contains(['\n', '\r']) {
+        return Err(OrgIntelError::InvalidWork(
+            "owner brief headline must be one readable line".into(),
+        ));
+    }
+
+    let roles = [
+        ("situation", brief.situation.trim()),
+        ("impact", brief.impact.trim()),
+        ("recommendation", brief.recommendation.trim()),
+        ("no-action consequence", brief.no_action.trim()),
+    ];
+    for (index, (left_name, left)) in roles.iter().enumerate() {
+        for (right_name, right) in roles.iter().skip(index + 1) {
+            if left == right {
+                return Err(OrgIntelError::InvalidWork(format!(
+                    "owner brief {left_name} and {right_name} repeat the same text; give each field one job"
+                )));
+            }
+        }
+    }
     Ok(())
+}
+
+#[cfg(test)]
+mod owner_brief_validation_tests {
+    use super::{validate_owner_brief, OwnerBrief, OwnerBriefKind};
+
+    fn brief() -> OwnerBrief {
+        OwnerBrief {
+            kind: OwnerBriefKind::Decision,
+            headline: "Send the four reviewed emails".into(),
+            situation: "The lead has checked the recipients and drafts.".into(),
+            impact: "Sending them starts the first customer conversations.".into(),
+            recommendation: "Approve this one campaign.".into(),
+            no_action: "Nothing is sent; unrelated work continues.".into(),
+            uncertainty: None,
+            deadline: None,
+        }
+    }
+
+    #[test]
+    fn accepts_distinct_plain_language_roles() {
+        validate_owner_brief(&brief()).expect("plain, distinct brief should pass");
+    }
+
+    #[test]
+    fn rejects_a_multiline_headline() {
+        let mut value = brief();
+        value.headline = "Send the emails\nafter review".into();
+        let error = validate_owner_brief(&value).expect_err("multiline headline should fail");
+        assert!(error.to_string().contains("one readable line"));
+    }
+
+    #[test]
+    fn rejects_exact_repetition_across_semantic_roles() {
+        let mut value = brief();
+        value.impact = value.situation.clone();
+        let error = validate_owner_brief(&value).expect_err("repeated roles should fail");
+        assert!(error.to_string().contains("give each field one job"));
+    }
 }
 
 pub(super) fn owner_handoff_source_fingerprint(
@@ -643,6 +709,10 @@ pub struct ScheduleRow {
     pub fire_at: DateTime<Utc>,
     pub fired_at: Option<DateTime<Utc>>,
     pub cancelled_at: Option<DateTime<Utc>>,
+    pub recurrence: Option<String>,
+    pub timezone: Option<String>,
+    pub local_time: Option<chrono::NaiveTime>,
+    pub last_fired_at: Option<DateTime<Utc>>,
     pub created_at: DateTime<Utc>,
 }
 

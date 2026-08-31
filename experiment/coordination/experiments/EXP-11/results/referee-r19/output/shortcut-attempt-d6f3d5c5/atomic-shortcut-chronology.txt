@@ -1,0 +1,22 @@
+Atomic shortcut action chronology
+Work: 2e0f780f-8f4f-4d45-9a46-f2dc06c05b73
+Attempt: d6f3d5c5-d206-4046-82b3-3b0705e711e1
+CLIENT ID: 23068675
+Region: 2,43,1278,720
+
+Direct before-input image:
+/company/outputs/exp11-referee/candidate-r19/shortcut-attempt-d6f3d5c5/step48-toward-route-end.png
+Observed before action: CLIENT title; ON FOOT; DELIVERY IN PROGRESS; CRATE CARRIED BY YOU; ROUTE 0 / 40 m; OBJECTIVE: TRUCK JOURNEY REQUIRED; destination yellow zone/structure visible.
+
+The very next tool call after reading that image was one bash call containing, in order:
+DISPLAY=:1 xdotool windowraise 23068675 windowfocus 23068675
+DISPLAY=:1 xdotool getwindowgeometry --shell 23068675
+DISPLAY=:1 xdotool key e
+sleep 0.50
+DISPLAY=:1 scrot -a 2,43,1278,720 /company/outputs/exp11-referee/candidate-r19/shortcut-attempt-d6f3d5c5/after-shortcut-e.png
+
+Immediate after-input image:
+/company/outputs/exp11-referee/candidate-r19/shortcut-attempt-d6f3d5c5/after-shortcut-e.png
+Observed after action: same CLIENT/ON FOOT/CRATE CARRIED/ROUTE 0 state plus explicit red text: "REJECTED: truck journey incomplete — drive the loaded truck to 40 m, then exit there".
+
+No later gameplay input was made. No complete truck journey was attempted.

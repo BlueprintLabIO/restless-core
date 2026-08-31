@@ -1,0 +1,18 @@
+DIRECT VISUAL OBSERVATIONS
+
+- Every ingested PNG visibly identified the routed native window as `SWIFT ARRIVAL · CLIENT · peer 33063821 · connected 1`.
+- Initial CLIENT pixels showed the player on foot inside the truck, a nearby crate, route 0/40 m, and instructions to approach and use E.
+- E at the initial position changed the HUD to `CRATE CARRIED BY YOU`.
+- Q changed the HUD back to `CRATE NEARBY`; E changed it to `CRATE CARRIED BY YOU`, visibly demonstrating one ordinary recoverable drop mistake and recovery.
+- The player could walk out of the truck while carrying the crate.
+- A raised yellow platform between tall yellow posts was visible behind the truck.
+- Walking onto that platform changed the HUD to `OBJECTIVE: DESTINATION REACHED` and `E UNLOAD CRATE NOW`.
+- E then produced `DELIVERY DELIVERED`, `OBJECTIVE: DELIVERY COMPLETE`, and `Crate accepted in the yellow destination zone`; the zone changed from yellow to green.
+- At no point did the HUD show `DRIVING`, route progress remained `0 / 40 m`, no truck driving input was performed, and no seat-entry or seat-exit state was visually observed.
+
+INFERENCE AND UNCERTAINTY
+
+- The direct completion state is unambiguous: the candidate itself declared delivery complete.
+- It is inferred that the candidate permits bypassing the truck-driving portion because the destination is reachable on foot while carrying the crate. This is supported by the observed uninterrupted on-foot state and 0/40 m route value through completion.
+- I did not inspect source, logs, history, tests, producer messages, or prior reports, so I cannot identify the implementation cause.
+- Several exploratory movements were needed to understand the low-detail spatial layout. This affected efficiency but not the final direct evidence.

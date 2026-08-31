@@ -1,0 +1,63 @@
+{
+  "schema": "restless-exp14-metrics/v1",
+  "status": "blocked",
+  "verdict": "mechanically_verified_final_candidate_without_two_fresh_final_journeys",
+  "company": "exp14_swift_arrival_tight_loop_test",
+  "candidate": {
+    "starting_declared_commit": "41f4fa53a2cd05ab17aea473f3d1be28979b2dcf",
+    "seed_commit": "fa8aa2f741a426276ad3f4a12fa24eb240ef2e39",
+    "first_repaired_commit": "d90a451b81ba0265715414b818384079935a3d34",
+    "final_commit": "bd32f71967e91a67b3a28156c8fb287e52a6d51d",
+    "final_tree": "a2f78572184363c0cedcf89c46412196296fd020",
+    "product_repairs": 2,
+    "post_candidate_evidence_driven_repairs": 1
+  },
+  "mechanical_gates": {
+    "total": 5,
+    "passed": 5,
+    "parse_load": true,
+    "positive_host_client_delivery": true,
+    "route_zero_rejection": true,
+    "drop_recovery": true,
+    "seat_reentry": true
+  },
+  "independent_evaluation": {
+    "predecessor_complete_journeys": 1,
+    "final_candidate_complete_journeys_required": 2,
+    "final_candidate_complete_journeys_observed": 0,
+    "predecessor_in_zone_negative_runs": 1,
+    "predecessor_negative_found_missing_feedback": true,
+    "final_candidate_negative_agent_claims": 1,
+    "final_candidate_negative_semantically_valid": 0,
+    "founder_taste_runs": 0
+  },
+  "runtime": {
+    "opaque_launch_handle": true,
+    "verbs": ["launch", "observe", "act", "export", "stop"],
+    "title_enumeration_required": false,
+    "target_loss_negative_probe": true,
+    "owned_process_cleanup_probe": true,
+    "host_omp_version": "18.0.10",
+    "company_omp_version": "18.0.10"
+  },
+  "provider": {
+    "requested_model": "glm-5.3-flash",
+    "admitted_route": "zhipu-coding-plan/glm-5.3-flash",
+    "terminal_kind": "quota",
+    "terminal_code": 1310,
+    "hidden_retries_after_repair": 0,
+    "shared_cooldown_recorded": true,
+    "gpt_fallback_terminal_kind": "seven_day_quota_exhausted"
+  },
+  "spend": {
+    "known_accounted_usd": 14.8798,
+    "ceiling_usd": 60.0
+  },
+  "evidence": {
+    "max_retained_pngs_per_player_run": 12,
+    "raw_pngs_before_terminal_cleanup": 62,
+    "raw_pngs_after_terminal_cleanup": 0,
+    "exp14_pngs_in_restless_repository": 0,
+    "final_candidate_source_files": 5
+  }
+}

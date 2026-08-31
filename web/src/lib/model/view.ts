@@ -66,7 +66,9 @@ export interface AttentionItem {
 	actions: Array<{
 		id: string;
 		label: string;
+		role: 'decision' | 'inspect' | 'conversation' | 'human_step' | string;
 		consequence: string;
+		nextState: string;
 		href?: string;
 	}>;
 	canContinue: boolean;
@@ -115,6 +117,9 @@ export interface MessageAttachment {
 export interface MessageIntentReceipt {
 	kind: 'conversation' | 'work_feedback' | 'direction' | 'authority';
 	summary: string;
+	outcome?: string | null;
+	nextStep?: string | null;
+	ownerNeed?: string | null;
 }
 
 export interface ThreadMessage {

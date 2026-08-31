@@ -24,6 +24,7 @@ mkdir -p \
 	/company/browser-profile \
 	/company/downloads \
 	/company/home/Desktop \
+	/company/home/.local/share/applications \
 	/company/run \
 	/company/services/supervisor
 
@@ -65,7 +66,7 @@ for place in Downloads Projects Outputs; do
 		chown -h company:company "$link"
 	fi
 done
-chown company:company /company/home /company/home/Desktop
+chown company:company /company/home /company/home/Desktop /company/home/.local /company/home/.local/share /company/home/.local/share/applications
 
 # Godot's export lookup is user-scoped even though the pinned engine/templates
 # belong to the immutable Runtime image. Link the versioned image templates

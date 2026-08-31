@@ -1,0 +1,41 @@
+Work gate harness revision evidence
+Generated: 2026-08-28
+
+Feedback addressed
+- The declared gate modes begin with `--`. The previous parser recognized only legacy modes, so a declared mode could fall through as a log pathname; GNU grep then interpreted that dash-prefixed pathname as an option.
+- `run-probe.sh` now recognizes `--journey-positive`, `--journey-bypass`, and `--mechanics-recovery` explicitly, rejects unknown `--*` modes, and uses `grep -q -- PATTERN FILE` for option-safe assertions.
+- `--mechanics-recovery` runs mechanics and recovery as two real sequential probes and combines their logs. It does not falsely pass by setting two flags when mechanics dispatch would mask recovery.
+- Gameplay candidate semantics and prior native evidence were unchanged.
+
+Candidate
+- Commit: 7e76d1e087cf4cde12aaf1fa6d5e9309f39bcddd
+- Gameplay parent: 2ebfd6932d7709bf03410c2b864731ef0394c05f
+- Base: 09fe09d30c65b811c0904508525a6ab8af02145c
+
+Exact final commands and observed outputs
+1. `sh validate-scripts.sh`
+   - `OK: main.gd parses`
+   - `VALIDATION PASS: all scripts parse`
+2. `sh run-probe.sh --journey-positive /tmp/journey-positive-host.log /tmp/journey-positive-client.log`
+   - `host exit=0 client exit=0`
+   - `PROBE VERIFIED: host PASS + client PASS`
+3. `sh run-probe.sh --journey-bypass /tmp/journey-bypass-host.log /tmp/journey-bypass-client.log`
+   - `host exit=0 client exit=0`
+   - `PROBE VERIFIED: host PASS + client PASS`
+4. `sh run-probe.sh --mechanics-recovery /tmp/journey-mechanics-host.log /tmp/journey-mechanics-client.log`
+   - mechanics: `host exit=0 client exit=0`, host/client PASS
+   - recovery: `host exit=0 client exit=0`, host/client PASS
+   - `COMPOSITE VERIFIED: mechanics PASS + recovery PASS`
+
+Preserved gate logs
+- work-gates/journey-positive-host.log
+- work-gates/journey-positive-client.log
+- work-gates/journey-bypass-host.log
+- work-gates/journey-bypass-client.log
+- work-gates/journey-mechanics-host.log (mechanics then recovery host logs)
+- work-gates/journey-mechanics-client.log (mechanics then recovery client logs)
+
+Remaining limits
+- These gates establish deterministic mechanics, not gameplay feel.
+- Native evidence was preserved rather than rerun because this revision changed only shell argument parsing and assertions, not game code or native-input scripts.
+- Audio remains unverified under the unavailable ALSA device/dummy-driver environment, and multiplayer evidence remains local loopback.

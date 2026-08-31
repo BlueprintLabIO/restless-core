@@ -14,6 +14,7 @@ mod authority;
 mod capability;
 mod capability_sourcing;
 mod cell;
+mod codex;
 mod company;
 mod connected_tool;
 mod context;
@@ -425,8 +426,24 @@ async fn main() -> Result<()> {
 
     // T6: the scheduler is what makes the company act without the owner
     // typing — time triggers (exec-set schedules + periodic tick) and
-    // OrgIntel LISTEN/NOTIFY events share one loop.
-    tokio::spawn(schedule::run(std::sync::Arc::clone(&daemon)));
+    // OrgIntel LISTEN/NOTIFY events share one loop. Product integration tests
+    // may drive the exact semantic loop themselves; a narrowly named escape
+    // hatch prevents the resident scheduler racing that controller. It is
+    // refused if any real company is configured.
+    let test_scheduler_disabled =
+        std::env::var("RESTLESS_TEST_DISABLE_SCHEDULER").is_ok_and(|value| value == "1");
+    if test_scheduler_disabled
+        && company_configs
+            .iter()
+            .any(|config| !config.name.ends_with("_test"))
+    {
+        anyhow::bail!("RESTLESS_TEST_DISABLE_SCHEDULER is allowed only on an all-test plane");
+    }
+    if test_scheduler_disabled {
+        tracing::warn!("automatic scheduler disabled for an isolated test plane");
+    } else {
+        tokio::spawn(schedule::run(std::sync::Arc::clone(&daemon)));
+    }
 
     // S05-T1/T5: the local-owner projection and browser transport are
     // a separate failure boundary. Losing the SPA must not stop schedules,
@@ -729,7 +746,8 @@ fn bind_runtime_actor(request: &mut Request, actor: &str) -> std::result::Result
         | "work-abandon"
         | "judgement"
         | "schedule-list"
-        | "schedule-add" => pin_actor(&mut request.common.as_actor, actor, "acting actor")?,
+        | "schedule-add"
+        | "schedule-cancel" => pin_actor(&mut request.common.as_actor, actor, "acting actor")?,
         "message" => pin_actor(&mut request.common.from, actor, "message sender")?,
         "inbox" => {
             pin_actor(&mut request.orgintel.actor, actor, "inbox actor")?;
@@ -1085,6 +1103,23 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
                             config.model = value.to_string();
                             Ok(())
                         }
+                        "worker_runtime" => match value.trim() {
+                            "omp" => {
+                                config.worker_runtime = runtime::WorkerRuntime::Omp;
+                                Ok(())
+                            }
+                            "codex" => {
+                                config.worker_runtime = runtime::WorkerRuntime::Codex;
+                                Ok(())
+                            }
+                            _ => Err(anyhow::anyhow!(
+                                "worker_runtime must be omp or codex"
+                            )),
+                        },
+                        "reasoning_effort" => {
+                            config.reasoning_effort = value.trim().to_string();
+                            Ok(())
+                        }
                         "model_failover" => {
                             config.model_failover = value
                                 .split(',')
@@ -1101,7 +1136,7 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
                             Ok(())
                         }
                         _ => Err(anyhow::anyhow!(
-                            "unknown company key {key:?}; use mission, model, model_failover, spend_ceiling_usd, or credentials.<binding>"
+                            "unknown company key {key:?}; use mission, model, model_failover, worker_runtime, reasoning_effort, spend_ceiling_usd, or credentials.<binding>"
                         )),
                     };
                     match result.and_then(|()| runtime::CompanyConfig::save(&daemon.root, &config))
@@ -2815,10 +2850,65 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
         },
         "schedule-add" => match (
             request.common.as_actor.as_deref(),
-            request.orgintel.fire_at.as_deref(),
             request.common.reason.as_deref(),
         ) {
-            (Some(actor), Some(fire_at), Some(reason)) => {
+            (Some(actor), Some(reason)) => {
+                let recurring = request.orgintel.recurrence.as_deref() == Some("weekdays");
+                if request.common.id.is_some() && recurring {
+                    return Response::err("recurring schedules wake actors directly and cannot block Work");
+                }
+                if recurring {
+                    if request.orgintel.fire_at.is_some() {
+                        return Response::err("use either schedule --at or --weekdays, not both");
+                    }
+                    let Some(local_time) = request.orgintel.local_time.as_deref() else {
+                        return Response::err("schedule --weekdays needs --at-local HH:MM");
+                    };
+                    let local_time = match chrono::NaiveTime::parse_from_str(local_time, "%H:%M") {
+                        Ok(value) => value,
+                        Err(error) => return Response::err(format!("schedule --at-local must be HH:MM: {error}")),
+                    };
+                    let Some(timezone) = request.orgintel.timezone.as_deref() else {
+                        return Response::err("schedule --weekdays needs an IANA --timezone");
+                    };
+                    let org = match daemon.orgintel.get(company).await {
+                        Ok(org) => org,
+                        Err(error) => return Response::err(format!("{error:#}")),
+                    };
+                    if actor != "exec" {
+                        let is_lead = match org.list_teams().await {
+                            Ok(teams) => teams.iter().any(|team| team.lead_actor_id == actor),
+                            Err(error) => return Response::err(format!("{error:#}")),
+                        };
+                        if !is_lead {
+                            return Response::err("a free-standing schedule must target Exec or an accountable team lead; Staff time dependencies belong to Work");
+                        }
+                    }
+                    return match org
+                        .add_weekday_schedule(actor, reason, local_time, timezone, chrono::Utc::now())
+                        .await
+                    {
+                        Ok((schedule_id, next_fire_at, created)) => Response::ok(serde_json::json!({
+                            "schedule_id": schedule_id,
+                            "actor_id": actor,
+                            "recurrence": "weekdays",
+                            "local_time": local_time.format("%H:%M").to_string(),
+                            "timezone": timezone,
+                            "next_fire_at": next_fire_at,
+                            "created": created,
+                        })),
+                        Err(error) => Response::err(format!("{error:#}")),
+                    };
+                }
+                if request.orgintel.recurrence.is_some()
+                    || request.orgintel.local_time.is_some()
+                    || request.orgintel.timezone.is_some()
+                {
+                    return Response::err("recurring schedule fields require --weekdays");
+                }
+                let Some(fire_at) = request.orgintel.fire_at.as_deref() else {
+                    return Response::err("schedule add needs --at, or --weekdays with --at-local and --timezone");
+                };
                 let fire_at = match chrono::DateTime::parse_from_rfc3339(fire_at) {
                     Ok(fire_at) => fire_at.with_timezone(&chrono::Utc),
                     Err(error) => {
@@ -2864,7 +2954,35 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
                     Err(error) => Response::err(format!("{error:#}")),
                 }
             }
-            _ => Response::err("schedule-add needs actor, RFC3339 fire time and reason"),
+            _ => Response::err("schedule-add needs actor and reason"),
+        },
+        "schedule-cancel" => match (
+            request.common.as_actor.as_deref(),
+            request.common.id.as_deref(),
+            request.common.reason.as_deref(),
+        ) {
+            (Some(actor), Some(schedule), Some(reason)) => {
+                let schedule = match uuid::Uuid::parse_str(schedule) {
+                    Ok(schedule) => schedule,
+                    Err(error) => return Response::err(format!("bad schedule id: {error}")),
+                };
+                match daemon.orgintel.get(company).await {
+                    Ok(org) => match org.cancel_schedule(schedule, actor, reason).await {
+                        Ok(true) => Response::ok(serde_json::json!({
+                            "schedule_id": schedule,
+                            "actor_id": actor,
+                            "cancelled": true,
+                            "reason": reason,
+                        })),
+                        Ok(false) => Response::err(
+                            "schedule is absent, already settled, or owned by a different actor",
+                        ),
+                        Err(error) => Response::err(format!("{error:#}")),
+                    },
+                    Err(error) => Response::err(format!("{error:#}")),
+                }
+            }
+            _ => Response::err("schedule-cancel needs schedule, actor and reason"),
         },
         "events" => match daemon.orgintel.get(company).await {
             Ok(org) => match org.list_events(request.common.limit.unwrap_or(50)).await {

@@ -1,0 +1,48 @@
+Godot Engine v4.7.2.stable.official.ed1daf0bf - https://godotengine.org
+
+[15:15:20] ENet: client connecting to 127.0.0.1:24565 ...
+[15:15:20] ENet: CONNECTED to host as CLIENT peer 2146792067
+[15:15:20] ENet: peer_connected id=1 (transport-level connection evidence)
+[15:15:25] PROBE RESULT: PASS — mechanics assertions passed on host; client observed completion phase
+[15:15:26] PROBE: exiting (exit code 0)
+[15:15:26] ENet: server disconnected
+[15:15:26] PROBE: exiting (exit code 0)
+Godot Engine v4.7.2.stable.official.ed1daf0bf - https://godotengine.org
+
+[15:15:29] ENet: client connecting to 127.0.0.1:24565 ...
+[15:15:29] ENet: CONNECTED to host as CLIENT peer 1758392169
+[15:15:29] ENet: peer_connected id=1 (transport-level connection evidence)
+[15:15:29] PROBE(client): joined host session; running scripted delivery
+[15:15:29] PROBE(client): requested crate pickup via hand interaction
+[15:15:29] FEEDBACK[ok]: Picked up the crate (E unload in zone · Q drop)
+[15:15:30] PROBE(client,rec): DROPPED the crate behind the truck at route start
+[15:15:30] FEEDBACK[ok]: Dropped the crate — walk up and press E to pick it up again
+[15:15:30] PROBE(client,rec): crate at rest behind truck at world z=-5.77
+[15:15:30] PROBE(client,rec): requested re-grab of the dropped crate
+[15:15:30] FEEDBACK[ok]: Picked up the crate (E unload in zone · Q drop)
+[15:15:30] PROBE(client,rec): crate RECOVERED from behind the truck; reboarding to deliver
+[15:15:32] PROBE(client): requested driver position (walked cargo->cab through doorway)
+[15:15:32] FEEDBACK[info]: SEATED — W/S drive · E exits at the rear cargo threshold
+[15:15:32] PROBE(client): in driver seat, still holding crate
+[15:15:36] PROBE(client,rec): deliberately requested INCOMPLETE EXIT at route 10.1
+[15:15:36] HOST corrected your position (exited at rear cargo threshold)
+[15:15:36] FEEDBACK[info]: EXITED EARLY — re-enter the DRIVER seat through the cargo doorway and continue to 40 m
+[15:15:36] PROBE(client,rec): early exit resolved at rear; walking naturally through cargo to cab
+[15:15:37] HOST corrected your position (teleport (3.14m horizontal, 0.00m vertical))
+[15:15:39] PROBE(client,rec): requested natural driver-seat RE-ENTRY after early exit
+[15:15:39] FEEDBACK[info]: SEATED — W/S drive · E exits at the rear cargo threshold
+[15:15:39] PROBE(client,rec): host accepted natural driver-seat RE-ENTRY; continuing journey
+[15:15:49] PROBE(client): host confirmed loaded truck at exact route end z=40.00
+[15:15:49] PROBE(client): left driver seat, carrying crate out of the truck to unload
+[15:15:49] HOST corrected your position (exited at rear cargo threshold)
+[15:15:49] FEEDBACK[info]: EXITED AT DESTINATION — unload the crate in the yellow zone
+[15:15:50] HOST corrected your position (teleport (3.04m horizontal, 0.00m vertical))
+[15:15:53] PROBE(client): requested UNLOAD in the destination zone
+[15:15:53] FEEDBACK[ok]: Unloaded the crate in the destination zone
+[15:15:53] FEEDBACK[ok]: DELIVERY COMPLETED — loaded route and destination unload verified
+[15:15:53] MISSION: DELIVERY COMPLETED (host-authoritative) — visible on this client (peer 1758392169)
+[15:15:53] PROBE RESULT: PASS — positive delivery loop completed and visible on the client
+[15:15:54] ENet: peer_disconnected id=1
+[15:15:54] ENet: server disconnected
+[15:15:54] PROBE RESULT: PASS (clean shutdown observed after local PASS)
+[15:15:54] PROBE: exiting (exit code 0)

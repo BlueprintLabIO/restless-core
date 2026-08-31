@@ -1,0 +1,24 @@
+Godot Engine v4.7.2.stable.official.ed1daf0bf - https://godotengine.org
+
+[10:03:19] ENet: server listening on 127.0.0.1:24565 — HOST is peer 1
+[10:03:21] ENet: peer_connected id=1651961655 (transport-level connection evidence)
+[10:03:21] HOST: sent authoritative world state to new peer 1651961655
+[10:03:21] HOST: RESOLVED grab by peer 1651961655 (crate now held)
+[10:03:23] HOST: peer 1651961655 occupies DRIVER position
+[10:03:23] HOST: received drive input from driver 1651961655
+[10:03:27] TRUCK: route position z=10.0 (bounded 0..40)
+[10:03:30] TRUCK: route position z=20.0 (bounded 0..40)
+[10:03:33] TRUCK: route position z=30.0 (bounded 0..40)
+[10:03:37] TRUCK: route position z=40.0 (bounded 0..40)
+[10:03:37] HOST: peer 1651961655 left driver position at rear cargo threshold
+[10:03:38] HOST: corrected peer 1651961655 movement — teleport (3.09m horizontal, 0.00m vertical)
+[10:03:41] HOST: RESOLVED unload by peer 1651961655 — crate at world (-0.0, 0.405, 34.91846)
+[10:03:41] MISSION: HOST completed delivery #1 (crate unloaded in destination zone) — broadcasting
+[10:03:41] FEEDBACK[ok]: DELIVERY COMPLETED — crate rests in the destination zone
+[10:03:41] PROBE(host): observed host-authoritative DELIVERY COMPLETED
+[10:03:41] PROBE(host): received client signal 'positive_done'
+[10:03:41] PROBE RESULT: PASS — positive path: full delivery loop observed host-authoritatively
+[10:03:42] ENet: peer_disconnected id=1651961655
+[10:03:42] PROBE: exiting (exit code 0)
+[10:03:42] ENet: server disconnected
+[10:03:42] PROBE: exiting (exit code 0)

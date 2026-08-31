@@ -1,0 +1,43 @@
+Swift Arrival journey-gate repair evidence
+Generated: 2026-08-28
+
+Candidate
+- Repo: /company/worktrees/work-85ced0c3ddde-r1
+- Commit: 2ebfd6932d7709bf03410c2b864731ef0394c05f
+- Base: 09fe09d30c65b811c0904508525a6ab8af02145c
+- `git merge-base --is-ancestor <base> HEAD` exited 0; final worktree was clean.
+
+Superseding blind-evidence diagnosis
+- Input: /company/inputs/exp11-referee-r9/action-trace.txt and observations.txt, with final pixel /company/inputs/exp11-referee-r9/031-crate-unloaded.png.
+- Observed input evidence says the client picked up and carried the crate on foot into the yellow destination, then received DELIVERY COMPLETE at ROUTE 0 / 40 m without driving, seat entry, or seat exit.
+- Source diagnosis: host `_request_unload` validated holder, zone, and resting geometry only; `_check_delivery` completed whenever a free ground crate was in the zone. Neither function required an authoritative truck journey. `_request_drop` also called `_check_delivery`, so a generic drop could complete.
+
+Repair
+- Added host-owned journey progression: LOAD_AND_DRIVE -> DRIVING -> ARRIVED_SEATED -> EXITED_AT_DESTINATION.
+- Progress starts only from actual truck motion while the seated driver authoritatively holds the crate, arrival is set only at the route end, and the valid arriving driver must exit there.
+- Journey stage is replicated to clients. Host unload and completion reject until EXITED_AT_DESTINATION. Generic Q drop no longer completes delivery.
+- Non-driver seat-exit requests are rejected. Replacement loaded drivers can reverse from the route end and return, avoiding a disconnect/driver-loss soft lock without granting completion.
+- HUD at the yellow zone now says TRUCK JOURNEY REQUIRED and identifies drive-to-40-m then exit, instead of DESTINATION REACHED or completion.
+- Added `playtest-bypass.sh`; changed `--negative` deterministic probe to carry on foot into the actual destination at route zero.
+
+Final deterministic observations
+- probes/parse.log: Godot 4.7.2 `--check-only` parsed main.gd.
+- probes/positive-{host,client}.log: host/client PASS; authoritative pickup, loaded drive, route-end arrival, valid exit, zone unload, completion.
+- probes/bypass-{host,client}.log: host/client PASS; on-foot unload inside destination rejected at stage=0 and route=0.0; holder retained; mission remained in progress.
+- probes/recovery-{host,client}.log: host/client PASS; deliberate drop behind truck was recovered before the full journey completed.
+- probes/mechanics-{host,client}.log: host/client PASS; view-relative strafe/forward basis, solid truck walls from both sides, and walking out of the truck remained observed.
+
+Fresh native X11 observations
+- native-positive/input-trace.tsv records focused CLIENT X11 E/Q/E recovery, W walk/drive, E exit, S movement, mouse motion, and E unload.
+- native-positive/host.log records loaded journey start, route 10/20/30/40, route-end arrival, valid seat exit, unload, and host completion.
+- native-positive/shots/ev_delivered.png was directly inspected: DELIVERY DELIVERED, ROUTE 40 / 40 m, DELIVERY COMPLETE, green completion feedback.
+- native-bypass/input-trace.tsv records focused CLIENT X11 pickup, captured mouse turns, W/A/D on-foot traversal, and E unload attempt; no seat or driving input.
+- native-bypass/host.log records rejection for `truck journey incomplete: stage=0 route=0.0` and no completion.
+- native-bypass/shots/ev_reject_journey.png was directly inspected: ON FOOT, DELIVERY IN PROGRESS, ROUTE 0 / 40 m, TRUCK JOURNEY REQUIRED, and red rejection feedback.
+
+Known limits / not verified
+- Deterministic probes establish mechanics and authoritative state transitions, not feel, fun, founder taste, latency under hostile networks, or broad concurrency.
+- Native runs used llvmpipe/OpenGL fallback and dummy audio because ALSA was unavailable; audio behavior was not verified.
+- The native positive and bypass traces exercised one joining client with one host. They did not test more than two peers or deliberate packet loss.
+- The replacement-driver route-end recovery branch was implemented for soft-lock prevention but was not separately exercised by a dedicated disconnect native trace; ordinary crate drop/re-grab recovery was exercised deterministically and natively.
+- No publishing, deployment, external effects, third-party assets, or source-company promotion was performed.

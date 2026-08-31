@@ -31,6 +31,10 @@
 	let controller = $state<'observer' | 'owner'>('observer');
 	let working = $state('');
 	let error = $state('');
+	let autoClaimPending = $state(false);
+	let lastDesktopActivity = $state(0);
+	let lastLeaseRenewal = $state(0);
+	let activityRenewing = $state(false);
 
 	const runtimeBrowser = $derived(view?.computer.runtime?.browser ?? null);
 	const canAttach = $derived(runtimeBrowser?.status === 'available');
@@ -55,17 +59,17 @@
 			clientId = id;
 			if (focus) void attachDesktop(false);
 		});
-		const heartbeat = window.setInterval(() => {
-			if (controller === 'owner') {
-				void browserControl(companyId, 'heartbeat', clientId).catch((cause) => {
-					controller = 'observer';
-					error = cause instanceof Error ? cause.message : 'The controller lease ended.';
-				});
-				void browserProjection.refresh();
+		const idleRelease = window.setInterval(() => {
+			if (
+				controller === 'owner' &&
+				lastDesktopActivity > 0 &&
+				Date.now() - lastDesktopActivity >= 60_000
+			) {
+				void returnControl(true);
 			}
-		}, 12_000);
+		}, 5_000);
 		return () => {
-			window.clearInterval(heartbeat);
+			window.clearInterval(idleRelease);
 		};
 	});
 
@@ -107,6 +111,7 @@
 		try {
 			desktopUrl = await issueDesktopTicket(companyId, 'runtime-rescue', clientId);
 			controller = 'observer';
+			autoClaimPending = true;
 			if (navigate) await morphTo(`/${companyId}/company/computer?focus=desktop`);
 			await browserProjection.refresh();
 		} catch (cause) {
@@ -117,7 +122,7 @@
 		}
 	}
 
-	async function takeControl() {
+	async function takeControl(silent = false) {
 		if (!clientId || working) return;
 		working = 'control';
 		error = '';
@@ -125,15 +130,17 @@
 			await browserControl(companyId, 'take', clientId);
 			controller = 'owner';
 			desktopUrl = controlledUrl();
+			lastDesktopActivity = Date.now();
+			lastLeaseRenewal = Date.now();
 			await browserProjection.refresh();
 		} catch (cause) {
-			error = cause instanceof Error ? cause.message : 'Control is held elsewhere.';
+			if (!silent) error = cause instanceof Error ? cause.message : 'Control is held elsewhere.';
 		} finally {
 			working = '';
 		}
 	}
 
-	async function returnControl() {
+	async function returnControl(automatic = false) {
 		if (!clientId || working) return;
 		working = 'return';
 		error = '';
@@ -141,9 +148,10 @@
 			await browserControl(companyId, 'return', clientId);
 			controller = 'observer';
 			desktopUrl = observedUrl();
+			lastDesktopActivity = 0;
 			await browserProjection.refresh();
 		} catch (cause) {
-			error = cause instanceof Error ? cause.message : 'Control could not be returned.';
+			if (!automatic) error = cause instanceof Error ? cause.message : 'Control could not be returned.';
 		} finally {
 			working = '';
 		}
@@ -152,6 +160,33 @@
 	async function closeFocus() {
 		if (controller === 'owner') await returnControl();
 		await morphTo(`/${companyId}/company/computer`);
+	}
+
+	async function desktopReady() {
+		await browserProjection.refresh();
+		if (!autoClaimPending) return;
+		autoClaimPending = false;
+		await takeControl(true);
+	}
+
+	function desktopActivity() {
+		const now = Date.now();
+		lastDesktopActivity = now;
+		if (controller !== 'owner') {
+			void takeControl();
+			return;
+		}
+		if (activityRenewing || now - lastLeaseRenewal < 8_000) return;
+		activityRenewing = true;
+		lastLeaseRenewal = now;
+		void browserControl(companyId, 'heartbeat', clientId)
+			.then(() => browserProjection.refresh())
+			.catch((cause) => {
+				controller = 'observer';
+				desktopUrl = observedUrl();
+				error = cause instanceof Error ? cause.message : 'Desktop control expired.';
+			})
+			.finally(() => (activityRenewing = false));
 	}
 
 	function when(value?: string): string {
@@ -189,15 +224,15 @@
 						type="button"
 						disabled={!!working}
 						title="Returns input to the company actor. It does not complete Work or an owner decision."
-						onclick={returnControl}>Return control</button
+					onclick={() => returnControl()}>Return control</button
 					>
 				{:else}
 					<button
 						class="btn small primary"
 						type="button"
 						disabled={!!working || !desktopUrl}
-						title="Pauses company automation and gives this browser tab sole keyboard and pointer control."
-						onclick={takeControl}>Take control</button
+						title="Claims input only if the computer is not held by another owner tab or company actor."
+						onclick={() => takeControl()}>Try control</button
 					>
 				{/if}
 				<button
@@ -212,7 +247,8 @@
 		<DesktopViewport
 			src={desktopUrl}
 			title="Live Company computer"
-			onload={() => void browserProjection.refresh()}
+			onload={() => void desktopReady()}
+			onactivity={desktopActivity}
 		/>
 	</div>
 {:else}
@@ -254,7 +290,7 @@
 					</button>
 					<p>
 						{canAttach
-							? 'Opens the persistent desktop in observe-only mode. Take control only when you need to act.'
+							? 'Opens with input when the computer is free. Control returns after one minute without desktop activity.'
 							: 'The desktop has not passed its live probe. Open Doctor for the smallest available repair.'}
 					</p>
 				</div>

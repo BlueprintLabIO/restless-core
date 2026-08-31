@@ -17,8 +17,16 @@ A wall of imperative instructions with no readable opening is the current failur
 that sells the work, invents significance the evidence does not support, or hides a constraint the
 executing actor needs.
 
-Give artifacts and gates names that say what they are, not what command produced them. An owner
-scanning the evidence should be able to tell what each one is without opening it.
+Give artifacts and gates short names that say what they are, not what command produced them or every
+condition they satisfy. Use a recognisable noun phrase for the label (for example, “Homepage review”
+or “Browser check report”) and put purpose or qualification in the separate note. Do not reuse the
+full expected-artifact contract as a label. An owner scanning the evidence should be able to tell
+what each one is without opening it.
+
+Assume the reader does not know the repository, toolchain or team shorthand. The opening must still
+make sense when read by itself. Use a concrete subject and active verb, one idea per sentence and
+familiar words. Expand an acronym the first time it matters. If the owner must translate a path,
+command, status token or agent role to learn what exists, the opening is not finished.
 
 This is presentation of the same truth, not a second version of it. Never write an owner-facing
 opening that claims more than the contract below it delivers.

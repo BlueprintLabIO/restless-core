@@ -1,0 +1,102 @@
+{
+  "work": [
+    {
+      "id": "fed16be1-81c4-4503-85ac-3c705339a187",
+      "goal_id": null,
+      "owner_id": "gameplay-evaluator",
+      "title": "Judge the frozen Swift Arrival journey through blind native play",
+      "outcome": "This will establish whether a player can complete the prescribed journey in the frozen candidate, using only what the native client visibly shows. The result will preserve direct visual evidence and a terminal verdict for independent review.\n\nUse only this public objective: collect the parcel, make one ordinary recoverable mistake, drive the truck to the destination, leave the seat and deliver the parcel. Public controls are W/A/S/D movement or driving, mouse look, E interact and Q deliberate drop.\n\nIndependently play the frozen candidate at repository /company/projects/swift-arrival-candidate, exact commit 09fe09d30c65b811c0904508525a6ab8af02145c. Do not edit the candidate. Do not inspect source, Git history, producer messages, tests, logs, known defects or prior reports. Launch the prepared native processes exactly as `DISPLAY=:1 godot --path /company/projects/swift-arrival-candidate -- --host` and `DISPLAY=:1 godot --path /company/projects/swift-arrival-candidate -- --client`.\n\nBefore gameplay, create a fresh initial client PNG, read that exact PNG with OMP's ordinary `read` tool so its pixels enter the active Sol turn, and record what the pixels visibly show. File existence, metadata or command success is not image observation.\n\nEnumerate visible Swift Arrival numeric window IDs and map every ID to its title. Choose the numeric ID whose title says CLIENT. Before every input or capture, raise and focus that exact ID. Obtain that ID's geometry with `xdotool getwindowgeometry --shell`, then capture the corresponding screen region with `scrot -a X,Y,WIDTH,HEIGHT`; do not use `scrot -u` as client-routing proof. Read the exact PNG after each capture and continue only if its pixels visibly identify CLIENT. Act only through ordinary keyboard/pointer input, recapture, read the resulting exact PNG in this same Sol session, and continue only from direct pixel observation.\n\nA first launch, focus or capture command failure may receive one bounded setup repair. Retain both the failure and repair in the action trace. Report `invalid` only if exact routing, native image ingestion, native input or recapture remains unavailable after that repair; do not substitute source, logs or another evidence path.\n\nAttempt the goal naturally, include the ordinary recoverable mistake, separate direct visual observation from inference and uncertainty, and stop only on completion or a reproducible blocker. Preserve immutable evidence only below /company/outputs/exp11-referee/candidate-r9: the fresh initial and recaptured client PNGs, numeric window-ID/title mapping, geometry and focus/capture/input action trace, direct visual observations, uncertainty, completion or blocker evidence, and terminal verdict. Do not contact production, prescribe a backlog, deploy, publish, purchase or declare founder acceptance.",
+      "status": "abandoned",
+      "resolution": "abandoned by playability-referee: The Runtime deterministically mapped the supplied repository slug to /company/repos/swift-arrival-candidate, which does not exist; the mission's prepared read-only candidate is at /company/projects/swift-arrival-candidate. Retire this unstarted production node and replace it without Runtime worktree setup, retaining the exact path and commit in the actor contract.",
+      "priority": 0,
+      "expected_artifact": "/company/outputs/exp11-referee/candidate-r9 — immutable initial and recaptured CLIENT PNGs, window routing and geometry mapping, focus/capture/input action trace, direct visual observations with uncertainty, and terminal verdict",
+      "owner_review_required": false,
+      "repo": "swift-arrival-candidate",
+      "base_ref": "09fe09d30c65b811c0904508525a6ab8af02145c",
+      "integration_branch": null,
+      "worktree": "swift-arrival-candidate",
+      "revision": 1,
+      "attempt_limit": null,
+      "created_at": "2026-08-28T10:56:04.412631Z",
+      "updated_at": "2026-08-28T10:56:31.450394Z"
+    },
+    {
+      "id": "fac4a5e3-30ad-478d-948d-4e1056d9861b",
+      "goal_id": null,
+      "owner_id": "gameplay-evaluator",
+      "title": "Judge the frozen Swift Arrival journey through blind native play",
+      "outcome": "This will establish whether a player can complete the prescribed journey in the frozen candidate, using only what the native client visibly shows. The result will preserve direct visual evidence and a terminal verdict for independent review.\n\nUse only this public objective: collect the parcel, make one ordinary recoverable mistake, drive the truck to the destination, leave the seat and deliver the parcel. Public controls are W/A/S/D movement or driving, mouse look, E interact and Q deliberate drop.\n\nIndependently play the prepared read-only candidate at repository /company/projects/swift-arrival-candidate, exact commit 09fe09d30c65b811c0904508525a6ab8af02145c. Do not edit the candidate. Do not inspect source, Git history, producer messages, tests, logs, known defects or prior reports. Launch the prepared native processes exactly as `DISPLAY=:1 godot --path /company/projects/swift-arrival-candidate -- --host` and `DISPLAY=:1 godot --path /company/projects/swift-arrival-candidate -- --client`.\n\nBefore gameplay, create a fresh initial client PNG, read that exact PNG with OMP's ordinary `read` tool so its pixels enter the active Sol turn, and record what the pixels visibly show. File existence, metadata or command success is not image observation.\n\nEnumerate visible Swift Arrival numeric window IDs and map every ID to its title. Choose the numeric ID whose title says CLIENT. Before every input or capture, raise and focus that exact ID. Obtain that ID's geometry with `xdotool getwindowgeometry --shell`, then capture the corresponding screen region with `scrot -a X,Y,WIDTH,HEIGHT`; do not use `scrot -u` as client-routing proof. Read the exact PNG after each capture and continue only if its pixels visibly identify CLIENT. Act only through ordinary keyboard/pointer input, recapture, read the resulting exact PNG in this same Sol session, and continue only from direct pixel observation.\n\nA first launch, focus or capture command failure may receive one bounded setup repair. Retain both the failure and repair in the action trace. Report `invalid` only if exact routing, native image ingestion, native input or recapture remains unavailable after that repair; do not substitute source, logs or another evidence path.\n\nAttempt the goal naturally, include the ordinary recoverable mistake, separate direct visual observation from inference and uncertainty, and stop only on completion or a reproducible blocker. Preserve immutable evidence only below /company/outputs/exp11-referee/candidate-r9: the fresh initial and recaptured client PNGs, numeric window-ID/title mapping, geometry and focus/capture/input action trace, direct visual observations, uncertainty, completion or blocker evidence, and terminal verdict. Do not contact production, prescribe a backlog, deploy, publish, purchase or declare founder acceptance.",
+      "status": "completed",
+      "resolution": "Blind native evaluation is complete, immutable evidence is linked, and the terminal verdict documents that the candidate bypasses required truck driving and seat exit.",
+      "priority": 0,
+      "expected_artifact": "/company/outputs/exp11-referee/candidate-r9 — immutable initial and recaptured CLIENT PNGs, window routing and geometry mapping, focus/capture/input action trace, direct visual observations with uncertainty, and terminal verdict",
+      "owner_review_required": false,
+      "repo": null,
+      "base_ref": null,
+      "integration_branch": null,
+      "worktree": null,
+      "revision": 1,
+      "attempt_limit": null,
+      "created_at": "2026-08-28T10:56:31.474214Z",
+      "updated_at": "2026-08-28T11:07:35.662112Z"
+    }
+  ],
+  "edges": [],
+  "attempts": [
+    {
+      "id": "1cfafaf3-871a-4477-9629-9465d10879e1",
+      "work_id": "fed16be1-81c4-4503-85ac-3c705339a187",
+      "revision": 1,
+      "attempt_no": 1,
+      "actor_id": "gameplay-evaluator",
+      "session_id": "b1801da8-5559-4d7d-aff9-406b2194ebd0",
+      "state": "failed",
+      "trigger": "dependency graph became ready",
+      "input_fingerprint": "fd63194055fddb0c62bef1ba425fc5076fffe50c56af0a06ad535b9b793c6ef9",
+      "feedback_cursor": 0,
+      "model": "litellm/gpt-5.6-sol",
+      "started_at": "2026-08-28T10:56:04.452612Z",
+      "finished_at": "2026-08-28T10:56:04.792242Z",
+      "summary": "runtime refused claimed Work: worktree setup failed: fatal: cannot change to '/company/repos/swift-arrival-candidate': No such file or directory\nexit status 128\n"
+    },
+    {
+      "id": "c5280c0a-ad6c-4d34-8b69-8572c03e1d0a",
+      "work_id": "fac4a5e3-30ad-478d-948d-4e1056d9861b",
+      "revision": 1,
+      "attempt_no": 1,
+      "actor_id": "gameplay-evaluator",
+      "session_id": "d966182c-1532-447e-a8c3-03a298e3678b",
+      "state": "produced",
+      "trigger": "dependency graph became ready",
+      "input_fingerprint": "56720e0c78eeea131d0fdff2d618abecf554d93abe59b227c0ddcea60ac46172",
+      "feedback_cursor": 0,
+      "model": "litellm/gpt-5.6-sol",
+      "started_at": "2026-08-28T10:56:31.716331Z",
+      "finished_at": "2026-08-28T11:07:35.662112Z",
+      "summary": "Blind native evaluation is complete, immutable evidence is linked, and the terminal verdict documents that the candidate bypasses required truck driving and seat exit."
+    }
+  ],
+  "attempt_inputs": [],
+  "attempt_feedback": [],
+  "artifacts": [
+    {
+      "id": "3cdc1539-ee0b-4479-abbc-c5cc2fd4907c",
+      "kind": "output",
+      "uri": "/company/outputs/exp11-referee/candidate-r9",
+      "note": "",
+      "created_by": "gameplay-evaluator",
+      "work_id": "fac4a5e3-30ad-478d-948d-4e1056d9861b",
+      "attempt_id": "c5280c0a-ad6c-4d34-8b69-8572c03e1d0a",
+      "digest": null,
+      "source_commit": null,
+      "runtime_generation": null,
+      "label": "output",
+      "state": "available",
+      "created_at": "2026-08-28T11:07:18.710837Z",
+      "superseded_at": null
+    }
+  ],
+  "gates": [],
+  "gate_runs": [],
+  "handoffs": []
+}

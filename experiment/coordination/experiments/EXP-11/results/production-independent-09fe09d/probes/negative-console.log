@@ -1,0 +1,4 @@
+== host: /usr/local/bin/godot --headless --path /company/worktrees/work-ebdd971f0732-r1 -- --probe --negative --host
+== client: /usr/local/bin/godot --headless --path /company/worktrees/work-ebdd971f0732-r1 -- --probe --negative --client
+== host exit=0 client exit=0
+== PROBE VERIFIED: host PASS + client PASS

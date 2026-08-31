@@ -1,0 +1,21 @@
+{
+  "source_experiment": "EXP-15",
+  "frozen_at": "2026-08-30T03:00:49Z",
+  "candidate_commit": "29f2fe75e9f891f7533faa0a93d8c127e73909c5",
+  "candidate_tree": "fb3092d7c422e941bb21d565efcbfddaabd40f51",
+  "preset": "baseline",
+  "scenario": "depot_to_destination",
+  "canonical_seed": 15001,
+  "baseline_status": "terminal-player-invalid",
+  "known_mechanical_success": "project start, five retained local ENet mechanics gates, four-peer obstacle recovery, and a bounded opaque route-15-to-17 roadwork proof passed on 29f2fe75",
+  "known_player_failure": "the final source-blind player saw a 15-to-13 roadwork recovery instruction, but public S actions produced route 15 then route 10 and public W produced route 6 while the obstruction remained",
+  "source_blind_player_completed_workday": false,
+  "material_loops": 37,
+  "restless_model_spend_usd": 173.7062,
+  "work_items": { "total": 81, "completed": 74, "abandoned": 7, "active": 0 },
+  "handoff_bundle_sha256": "afebb4811b610c0fdaa82b849c19382ade7ca76b0f8716d3df92481ec0bbe061",
+  "sprint_26_activation_receipt_sha256": "9f2e598922e42d53233ea3f43b0644cab51d89f3acec4d81a413b67ae467bf37",
+  "acceptance_carried_forward": false,
+  "raw_capture_files_carried_forward": 0,
+  "game_or_capture_processes_carried_forward": 0
+}

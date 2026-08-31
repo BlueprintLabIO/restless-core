@@ -1,0 +1,404 @@
+[
+  {
+    "id": 23,
+    "kind": "actor_wake_end",
+    "actor_id": "gameplay-referee",
+    "body": {
+      "reason": "The candidate does not pass the referee contract.\n\nDirect native pixels prove that the complete intended journey succeeds: the player recovered from a deliberate drop, completed the loaded truck route, exited, and delivered the parcel. The final frame visibly shows “DELIVERY COMPLETE,” route 40/40 m, and the parcel accepted in the destination zone.\n\nThe walking-shortcut requirement remains unproven. The first run produced visible rejections only while the game reported the parcel was outside the destination zone; it never captured an on-foot unload attempt from inside the actual zone. Therefore, the evidence cannot establish that the shortcut is rejected rather than merely attempted from the wrong location.\n\nThis is an evidence-bounded FAIL, not evidence that a shortcut bypass exists. The session also had an unsolicited background-log exposure after the first run; the player excluded it from the judgement, and I relied on the returned PNGs and trace rather than those logs. Audio and a valid in-zone shortcut attempt were not evaluated. No owner action is required.\n\n<!--restless-details:{\"markdown\":\"**Referee result:** FAIL\\n\\n- Intended loaded-truck journey: visually completed.\\n- On-foot shortcut rejection: not proven from inside the destination zone.\\n- Strongest completion frame: `run2-complete/037-unload-pad-interior.png`.\\n- Evidence reviewed: initial client pixels, shortcut rejection frame, final completion frame, player verdict, and ordered action-observation trace.\"}-->\n\n<!--restless-intent:{\"kind\":\"conversation\",\"summary\":\"Final referee judgement is FAIL because intended completion is proven but in-zone shortcut rejection is not.\"}-->",
+      "termination": "outcome_met"
+    },
+    "created_at": "2026-08-28T12:46:52.183627Z"
+  },
+  {
+    "id": 22,
+    "kind": "turn_usage",
+    "actor_id": "gameplay-referee",
+    "body": {
+      "model": "litellm/gpt-5.6-sol",
+      "tokens": 24166,
+      "billing": "metered_api",
+      "cost_usd": 0.22858559999999997,
+      "context_size": 1050000,
+      "cost_semantics": "acp_cumulative_minus_persisted_session_baseline_noncanonical",
+      "usage_semantics": "final_context_snapshot_and_per_wake_cost_delta",
+      "context_used_pct": 2,
+      "configured_effort": "medium",
+      "tokens_in_context": 24166,
+      "charged_cost_source": "host_model_relay",
+      "reported_turn_cost_usd": 0.22858559999999997,
+      "estimated_list_cost_usd": null,
+      "unpriced_provider_refusal": false
+    },
+    "created_at": "2026-08-28T12:46:52.178944Z"
+  },
+  {
+    "id": 21,
+    "kind": "model_session_ready",
+    "actor_id": "gameplay-referee",
+    "body": {
+      "model": "litellm/gpt-5.6-sol",
+      "resumed": true,
+      "launch_id": "3c41105338494d2c9530c8f6181a4c5c",
+      "session_id": "01a0484f-6d11-7000-8441-a1e0015dc380",
+      "reconstructed": false,
+      "configured_effort": "medium",
+      "tool_contract_digest": "4243f8bf24a83224d551796f4d515aa00c09eeaba9fcae96a5a9ccc1115e4fd3",
+      "reconstruction_reason": null,
+      "fresh_process_capability": true
+    },
+    "created_at": "2026-08-28T12:46:14.337209Z"
+  },
+  {
+    "id": 20,
+    "kind": "model_attempt",
+    "actor_id": "gameplay-referee",
+    "body": {
+      "model": "litellm/gpt-5.6-sol",
+      "attempt": 1,
+      "configured_effort": "medium"
+    },
+    "created_at": "2026-08-28T12:46:12.705748Z"
+  },
+  {
+    "id": 19,
+    "kind": "attempt_process_ended",
+    "actor_id": "gameplay-player",
+    "body": {
+      "work_id": "34b296dd-1927-4f8f-a60e-94a78c3f9086",
+      "workspace": {
+        "end": {
+          "workdir": "/company",
+          "dirty_entries": 0,
+          "source_commit": null,
+          "status_digest": null
+        },
+        "start": {
+          "workdir": "/company",
+          "dirty_entries": 0,
+          "source_commit": null,
+          "status_digest": null
+        }
+      },
+      "attempt_id": "8580189c-9ce5-49af-8e03-1be5f4af9364",
+      "semantic_result": "reported_outcome_met"
+    },
+    "created_at": "2026-08-28T12:46:11.205893Z"
+  },
+  {
+    "id": 18,
+    "kind": "turn_usage",
+    "actor_id": "gameplay-player",
+    "body": {
+      "model": "litellm/gpt-5.6-sol",
+      "tokens": 90199,
+      "billing": "metered_api",
+      "cost_usd": 20.06604639999999,
+      "context_size": 1050000,
+      "cost_semantics": "acp_cumulative_minus_persisted_session_baseline_noncanonical",
+      "usage_semantics": "final_context_snapshot_and_per_wake_cost_delta",
+      "context_used_pct": 8,
+      "configured_effort": "medium",
+      "tokens_in_context": 90199,
+      "charged_cost_source": "host_model_relay",
+      "reported_turn_cost_usd": 20.06604639999999,
+      "estimated_list_cost_usd": null,
+      "unpriced_provider_refusal": false
+    },
+    "created_at": "2026-08-28T12:46:11.133428Z"
+  },
+  {
+    "id": 17,
+    "kind": "actor_wake_end",
+    "actor_id": "gameplay-referee",
+    "body": {
+      "reason": "The independent evaluation is underway with one fresh blinded native player using the required model. The player is running the two required clean launches and preserving screenshots, routing details, and an ordered observation trace for referee review.\n\nNo verdict or evidence has returned yet, so shortcut rejection and full-journey completion remain unverified. No owner action is needed now; I will inspect the returned native evidence before issuing the final judgement.\n\n<!--restless-intent:{\"kind\":\"conversation\",\"summary\":\"Independent blinded gameplay evaluation is running; final verdict awaits native evidence review.\"}-->",
+      "termination": "outcome_met"
+    },
+    "created_at": "2026-08-28T12:20:44.315054Z"
+  },
+  {
+    "id": 16,
+    "kind": "turn_usage",
+    "actor_id": "gameplay-referee",
+    "body": {
+      "model": "litellm/gpt-5.6-sol",
+      "tokens": 18001,
+      "billing": "metered_api",
+      "cost_usd": 0.1923544,
+      "context_size": 1050000,
+      "cost_semantics": "acp_cumulative_minus_persisted_session_baseline_noncanonical",
+      "usage_semantics": "final_context_snapshot_and_per_wake_cost_delta",
+      "context_used_pct": 1,
+      "configured_effort": "medium",
+      "tokens_in_context": 18001,
+      "charged_cost_source": "host_model_relay",
+      "reported_turn_cost_usd": 0.1923544,
+      "estimated_list_cost_usd": null,
+      "unpriced_provider_refusal": false
+    },
+    "created_at": "2026-08-28T12:20:44.312259Z"
+  },
+  {
+    "id": 15,
+    "kind": "model_session_ready",
+    "actor_id": "gameplay-player",
+    "body": {
+      "model": "litellm/gpt-5.6-sol",
+      "resumed": false,
+      "launch_id": "fcd9c16614d34a5483d8c49db75baebe",
+      "session_id": "01a04850-9107-7000-865b-e00657080ed0",
+      "reconstructed": false,
+      "configured_effort": "medium",
+      "tool_contract_digest": "dd99f14d886c6238c420c356d5220f04ec8ea6b2d1508b4a65d9368e2e60e07c",
+      "reconstruction_reason": null,
+      "fresh_process_capability": true
+    },
+    "created_at": "2026-08-28T12:20:35.069853Z"
+  },
+  {
+    "id": 14,
+    "kind": "model_attempt",
+    "actor_id": "gameplay-player",
+    "body": {
+      "model": "litellm/gpt-5.6-sol",
+      "attempt": 1,
+      "configured_effort": "medium"
+    },
+    "created_at": "2026-08-28T12:20:33.370183Z"
+  },
+  {
+    "id": 13,
+    "kind": "attempt_process_started",
+    "actor_id": "gameplay-player",
+    "body": {
+      "work_id": "34b296dd-1927-4f8f-a60e-94a78c3f9086",
+      "workspace": {
+        "workdir": "/company",
+        "dirty_entries": 0,
+        "source_commit": null,
+        "status_digest": null
+      },
+      "attempt_id": "8580189c-9ce5-49af-8e03-1be5f4af9364"
+    },
+    "created_at": "2026-08-28T12:20:33.368290Z"
+  },
+  {
+    "id": 12,
+    "kind": "attempt_context_bound",
+    "actor_id": "gameplay-player",
+    "body": {
+      "work_id": "34b296dd-1927-4f8f-a60e-94a78c3f9086",
+      "accounting": {
+        "unused_replay": {
+          "lead_conversation": "not attached",
+          "full_team_transcript": "not attached",
+          "unrelated_actor_messages": "not attached"
+        },
+        "retrieved_depth": {
+          "at_launch": [],
+          "available_on_demand": [
+            "the bound worktree and repository files",
+            "project AGENTS.md and .agents/skills under the bound worktree",
+            "Git history and working-tree status in the bound worktree",
+            "full artifact content at the attached URI"
+          ]
+        },
+        "automatically_attached": {
+          "work": {
+            "outcome": "This will produce an independent visual verdict showing whether the game rejects the walking shortcut and whether its intended truck-delivery journey can be completed. The preserved screenshots and trace will let the referee audit that verdict without exposing production knowledge to the player.\n\nEvaluate the frozen Swift Arrival candidate at /company/projects/swift-arrival-candidate. Do not edit the game or any candidate file. Write immutable evidence only below /company/outputs/exp11-referee/candidate-r13; preserve that exact locator unchanged as the Work output.\n\nYou are a fresh blinded native player. You receive only this public gameplay objective: collect the parcel, make one ordinary recoverable mistake, drive the truck to the destination, leave the seat and deliver the parcel. Public controls are W/A/S/D movement or driving, mouse look, E interact and Q deliberate drop. Do not inspect source, Git history, producer messages, tests, logs, known defects, prior reports, or inferred solutions.\n\nLaunch the prepared native processes with:\nDISPLAY=:1 godot --path /company/projects/swift-arrival-candidate -- --host\nDISPLAY=:1 godot --path /company/projects/swift-arrival-candidate -- --client\n\nFor each fresh launch, start the host first, wait until its window is visible and record its numeric ID, then start the client and identify the newly visible numeric ID whose title says CLIENT. Before the first capture, use ordinary X11 window controls to resize and move both windows into non-overlapping screen regions. Record the final numeric IDs, titles, and geometries. Raise and focus the isolated CLIENT window and capture only its non-overlapping region. If the windows overlap again, re-separate those exact IDs before capture. Never treat pixels from a covering window as pixels from the selected window.\n\nRun two independent fresh native launches in this order. Run 1: naturally test whether carrying the parcel to the destination on foot without a loaded truck journey can complete delivery. Record the direct visible rejection or any bypass. Then terminate both native processes and restart from clean state. Run 2: attempt the complete intended journey—collect the parcel, make one ordinary recoverable mistake, recover, load the truck, drive to the destination, leave the seat, and unload. A pass requires direct visual evidence that the shortcut does not complete and that the complete journey does complete. Never infer either result from logs, source, scripts, or the other run.\n\nBefore gameplay, create a fresh initial client PNG, read that exact PNG with OMP's ordinary read tool so its pixels enter your active Sol turn, and record what the pixels show. Then act only through ordinary keyboard/pointer input, recapture, read the resulting exact PNG in the same Sol session, and continue only from direct pixel observation. File existence, metadata, or command success is not image observation.\n\nFor every input or capture: enumerate visible Swift Arrival numeric window IDs and map each ID to its title; choose the numeric ID whose title says CLIENT; raise and focus that exact ID; obtain its geometry with xdotool getwindowgeometry --shell; and capture the corresponding screen region with scrot -a X,Y,WIDTH,HEIGHT. Do not use scrot -u as client-routing proof. Read the exact PNG and proceed only if its pixels visibly identify CLIENT. Before the first capture of each launch, ensure and record non-overlapping host/client geometry as required above. A first launch, focus, or capture command failure may receive at most one bounded setup repair, with both failure and repair retained in the action trace. Report invalid only if exact routing, native image ingestion, native input, or recapture remains unavailable after that repair; do not substitute source, logs, scripts, or another evidence path.\n\nAttempt the goal naturally. Explicitly separate direct visual observation from inference and uncertainty. Stop only on completion or a reproducible blocker. Evidence below /company/outputs/exp11-referee/candidate-r13 must include fresh PNGs, an ordered action/observation trace with window IDs, titles, geometries, inputs, visible observations, and any setup failure/repair, plus a concise verdict report identifying pass, fail, or invalid and naming all gaps. Link the exact outputs to this Work and provide a durable terminal report.\n\nDo not prescribe a backlog, contact production, deploy, publish, purchase, or declare founder acceptance.",
+            "work_id": "34b296dd-1927-4f8f-a60e-94a78c3f9086",
+            "revision": 1,
+            "attempt_id": "8580189c-9ce5-49af-8e03-1be5f4af9364",
+            "attempt_no": 1,
+            "expected_artifact": "/company/outputs/exp11-referee/candidate-r13",
+            "input_fingerprint": "56720e0c78eeea131d0fdff2d618abecf554d93abe59b227c0ddcea60ac46172"
+          },
+          "actor": {
+            "id": "gameplay-player",
+            "role": "blind-native-player"
+          },
+          "workspace": {
+            "repository": null,
+            "runtime_workdir": "/company",
+            "declared_base_ref": null,
+            "declared_worktree": null,
+            "effective_base_ref": null,
+            "integration_branch": null
+          },
+          "skill_roots": [
+            "/opt/restless/skills",
+            "/company/skills",
+            "/company/.agents/skills"
+          ],
+          "work_feedback": [],
+          "system_context": {
+            "company_mission": "company mission and collision-avoidance spine in the actor system prompt",
+            "company_doctrine": "Restless shared operating rules in the actor system prompt"
+          },
+          "capability_probe_locations": [
+            "command -v restless git omp node pnpm",
+            "restless doctor -c exp11_vision_referee_r13_test",
+            "restless credential check (configured references only; not provider acceptance or authority)",
+            "test -d /company/.agents/skills /company/skills /opt/restless/skills"
+          ],
+          "upstream_artifact_versions": []
+        }
+      },
+      "attempt_id": "8580189c-9ce5-49af-8e03-1be5f4af9364"
+    },
+    "created_at": "2026-08-28T12:20:33.366306Z"
+  },
+  {
+    "id": 11,
+    "kind": "wake_end",
+    "actor_id": "exec",
+    "body": {
+      "model": "litellm/gpt-5.6-sol",
+      "reason": "The accountable referee lead is in flight and will commission and supervise the required Staff player; its durable terminal result will wake Exec.",
+      "failovers": [],
+      "tool_calls": 22,
+      "termination": "continue"
+    },
+    "created_at": "2026-08-28T12:19:56.505490Z"
+  },
+  {
+    "id": 10,
+    "kind": "turn_usage",
+    "actor_id": "exec",
+    "body": {
+      "model": "litellm/gpt-5.6-sol",
+      "tokens": 21297,
+      "billing": "metered_api",
+      "cost_usd": 0.2656176,
+      "context_size": 1050000,
+      "cost_semantics": "acp_cumulative_minus_persisted_session_baseline_noncanonical",
+      "context_used_pct": 2,
+      "configured_effort": "medium",
+      "charged_cost_source": "host_model_relay",
+      "reported_turn_cost_usd": 0.2656176,
+      "estimated_list_cost_usd": null,
+      "unpriced_provider_refusal": false
+    },
+    "created_at": "2026-08-28T12:19:56.503390Z"
+  },
+  {
+    "id": 9,
+    "kind": "team_roster_changed",
+    "actor_id": "gameplay-referee",
+    "body": {
+      "reason": "Assign the newly commissioned player to the referee team for the single independent candidate evaluation",
+      "override": false,
+      "to_team_id": "30ce1d8e-5331-4afe-8e4f-6ecff443bf6e",
+      "from_team_id": null,
+      "member_actor_id": "gameplay-player"
+    },
+    "created_at": "2026-08-28T12:19:38.952665Z"
+  },
+  {
+    "id": 8,
+    "kind": "actor_created",
+    "actor_id": "gameplay-referee",
+    "body": {
+      "role": "blind-native-player",
+      "model": "litellm/gpt-5.6-sol",
+      "reason": "Adds one fresh blinded native gameplay player to generate direct visual evidence while the existing referee lead remains non-producing",
+      "display": "Elias Trent",
+      "actor_id": "gameplay-player"
+    },
+    "created_at": "2026-08-28T12:19:38.938652Z"
+  },
+  {
+    "id": 7,
+    "kind": "model_session_ready",
+    "actor_id": "gameplay-referee",
+    "body": {
+      "model": "litellm/gpt-5.6-sol",
+      "resumed": false,
+      "launch_id": "9596ceb0f75341e1bc49e9d837d66541",
+      "session_id": "01a0484f-6d11-7000-8441-a1e0015dc380",
+      "reconstructed": false,
+      "configured_effort": "medium",
+      "tool_contract_digest": "4243f8bf24a83224d551796f4d515aa00c09eeaba9fcae96a5a9ccc1115e4fd3",
+      "reconstruction_reason": null,
+      "fresh_process_capability": true
+    },
+    "created_at": "2026-08-28T12:19:20.391010Z"
+  },
+  {
+    "id": 6,
+    "kind": "model_attempt",
+    "actor_id": "gameplay-referee",
+    "body": {
+      "model": "litellm/gpt-5.6-sol",
+      "attempt": 1,
+      "configured_effort": "medium"
+    },
+    "created_at": "2026-08-28T12:19:18.290576Z"
+  },
+  {
+    "id": 5,
+    "kind": "team_commissioned",
+    "actor_id": "exec",
+    "body": {
+      "name": "Native Gameplay Referee",
+      "brief": "Independently judge frozen interactive candidates through blinded native player evidence. The lead is a non-producing supervisor: build causal understanding, commission exactly the bounded Staff player capacity required by the charter, inspect returned pixels and traces, and deliver the final referee judgement without helping production.",
+      "team_id": "30ce1d8e-5331-4afe-8e4f-6ecff443bf6e",
+      "lead_actor_id": "gameplay-referee"
+    },
+    "created_at": "2026-08-28T12:18:47.646645Z"
+  },
+  {
+    "id": 4,
+    "kind": "actor_created",
+    "actor_id": "exec",
+    "body": {
+      "role": "referee-lead",
+      "model": "litellm/gpt-5.6-sol",
+      "reason": "No accountable referee lead exists; this durable specialist supplies independent native gameplay judgement while remaining non-producing.",
+      "display": "Mara Voss",
+      "actor_id": "gameplay-referee"
+    },
+    "created_at": "2026-08-28T12:18:43.260082Z"
+  },
+  {
+    "id": 3,
+    "kind": "model_session_ready",
+    "actor_id": "exec",
+    "body": {
+      "model": "litellm/gpt-5.6-sol",
+      "resumed": false,
+      "launch_id": "a1e181311d22434d80284d1ed5cdc2e4",
+      "session_id": "01a0484e-1f48-7000-a9bb-ba9895b9e4e9",
+      "reconstructed": false,
+      "configured_effort": "medium",
+      "tool_contract_digest": "58e108061e02519d863a9aefcb04e894b0fc905cfcc9182627a58aa5488a9e79",
+      "reconstruction_reason": null,
+      "fresh_process_capability": true
+    },
+    "created_at": "2026-08-28T12:17:56.423479Z"
+  },
+  {
+    "id": 2,
+    "kind": "model_attempt",
+    "actor_id": "exec",
+    "body": {
+      "model": "litellm/gpt-5.6-sol",
+      "attempt": 1,
+      "configured_effort": "medium"
+    },
+    "created_at": "2026-08-28T12:17:51.181869Z"
+  },
+  {
+    "id": 1,
+    "kind": "wake",
+    "actor_id": "exec",
+    "body": {
+      "reason": "owner-requested wake",
+      "context_digest": "8b0979b7fbbd59f7708bd7000877f97e2264a447a77670a59636536d854c183e",
+      "model_candidates": [
+        "litellm/gpt-5.6-sol"
+      ]
+    },
+    "created_at": "2026-08-28T12:17:51.179008Z"
+  }
+]

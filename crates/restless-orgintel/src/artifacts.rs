@@ -281,7 +281,9 @@ impl OrgIntel {
         let attempts = sqlx::query_as(
             "SELECT id, work_id, revision, attempt_no, actor_id, session_id, state, trigger, \
                     input_fingerprint, feedback_cursor, requested_source_ref, source_commit, \
-                    source_tree, gate_set_digest, environment_fingerprint, materialized_at, \
+                    source_tree, terminal_source_commit, terminal_source_tree, \
+                    terminal_status_digest, terminal_dirty_entries, terminal_observed_at, \
+                    gate_set_digest, environment_fingerprint, materialized_at, \
                     interrupt_requested_at, interrupt_requested_by, interrupt_reason, \
                     feedback_checkpoint_cursor, model, started_at, finished_at, summary \
              FROM work_attempts ORDER BY started_at, id",

@@ -44,3 +44,18 @@ a resolution.
 
 The brief is authored communication, not new operational truth. If its source changes, refresh the
 handoff and prepare it again. Never ask the browser or an untrusted artifact to write the meaning.
+
+Assume the reader has no technical context, little time and will not infer a missing connection. Give
+each field one job:
+
+- `headline`: the recommended decision or concrete outcome, using words the owner already knows;
+- `situation`: only the observed change that made this item appear now;
+- `impact`: the direct business consequence, without repeating the situation;
+- `recommendation`: one course, beginning with a plain action verb;
+- `no-action`: the literal state that remains if the owner waits; and
+- `uncertainty`: only an unknown that could change the recommendation.
+
+Use short direct sentences. Name the person, company or object before saying what happened to it.
+Expand an acronym on first use. Prefer “send the four emails” to “execute the outreach operation” and
+“the website stays unpublished” to “the release remains in a non-terminal state.” Do not make one
+field understandable only by reading another, and do not submit the same sentence under two labels.

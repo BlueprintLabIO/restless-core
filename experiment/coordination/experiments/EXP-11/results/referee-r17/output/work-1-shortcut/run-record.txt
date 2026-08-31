@@ -1,0 +1,83 @@
+Work: 68f0b602-c240-42c4-9a0d-6dc12deadbe9
+Attempt: b8888dfa-41e5-4dae-aead-e0f04dd4f57f
+Scope: fresh native on-foot shortcut launch only
+
+SETUP OBSERVATIONS
+- Required executables were live-probed: godot=/usr/local/bin/godot, xdotool=/usr/bin/xdotool, scrot=/usr/bin/scrot, wmctrl=/usr/bin/wmctrl.
+- Fresh host command: DISPLAY=:1 godot --path /company/projects/swift-arrival-candidate -- --host
+- Initial visible Swift Arrival window mapping: decimal 20971523 (0x01400003) -> "Swift Arrival Dogfood 4 (DEBUG)". This was the exact HOST process/window even though its title did not contain the word HOST.
+- HOST initial geometry: X=2, Y=43, WIDTH=1278, HEIGHT=720, SCREEN=0. Direct host image read: host-initial.png.
+- Exact HOST window 20971523 minimized successfully; no off-screen repair was used.
+- Fresh client command: DISPLAY=:1 godot --path /company/projects/swift-arrival-candidate -- --client
+- After client launch, wmctrl mapped 20971523 -> "Swift Arrival Dogfood 4 (DEBUG)" (minimized) and 23068675 (0x01600003) -> "Swift Arrival Dogfood 4 — CLIENT (peer 883309149)". xdotool --onlyvisible returned only 23068675 among Swift Arrival windows.
+- Exact CLIENT: 23068675. Title: "Swift Arrival Dogfood 4 — CLIENT (peer 883309149)". Native geometry remained X=2, Y=43, WIDTH=1278, HEIGHT=720, SCREEN=0. CLIENT was never resized.
+- No launch, focus, capture, or covering-window repair was needed.
+
+DIRECT CLIENT PNG READS
+Each listed PNG was captured only after raising/focusing CLIENT 23068675 and querying its geometry. Each exact PNG was then read through OMP's ordinary read tool and visibly identified the CLIENT title bar/pixels.
+- client-001-initial.png
+- client-002-forward.png
+- client-003-left-look.png
+- client-004-pointer-turn.png
+- client-005-cargo-approach.png
+- client-006-doorway-turn.png
+- client-007-cargo-aligned.png
+- client-008-crate-aim.png
+- client-009-crate-close.png
+- client-010-cargo-direction.png
+- client-011-through-doorway.png
+- client-012-turnaround.png
+- client-013-yellow-crate.png
+- client-014-crate-prompt.png
+- client-015-pickup-ready.png
+- client-016-pickup-range.png
+- client-017-crate-centered.png
+- client-018-after-pickup.png
+- client-019-exited-driver.png
+- client-020-actual-crate-close.png
+- client-021-crate-carried.png
+- client-022-carried-exit.png
+- client-023-backed-out.png
+- client-024-destination-turn.png
+- client-025-road-alignment.png
+- client-026-marker-search.png
+- client-027-route-walk.png
+- client-028-route-direction.png
+- client-029-route-scan.png
+- client-030-route-scan.png
+- client-031-corridor-aligned.png
+- client-032-wall-end.png
+- client-033-perimeter-turn.png
+- client-034-right-wall-turn.png
+- client-035-destination-approach.png
+- client-036-destination-zone.png
+- client-037-zone-check.png
+- client-038-unload-area.png
+- client-039-forward-unload-point.png
+- client-040-required-state-check.png
+- client-041-immediate-after-single-e.png
+
+GAMEPLAY OBSERVATIONS
+- All gameplay used only W/A/S/D, mouse look, and E.
+- I initially misidentified the yellow driver-seat structure as the parcel. The E shown action entered DRIVING (client-018-after-pickup.png). I immediately recovered using E to exit (client-019-exited-driver.png). This did not move or drive the truck and occurred before loading the actual crate.
+- I then approached the tan crate in the cargo area and used E. client-021-crate-carried.png directly showed "CRATE CARRIED BY YOU" and "ROUTE 0 / 40 m".
+- I carried the crate entirely on foot from the stationary truck to the yellow destination structure. No loaded-truck journey occurred.
+- After positioning and facing into the unload zone, client-040-required-state-check.png directly and simultaneously showed:
+  * "CRATE CARRIED BY YOU"
+  * "ROUTE 0 / 40 m"
+  * "OBJECTIVE: TRUCK JOURNEY REQUIRED"
+- That exact PNG is the preserved before-input state.
+- After raising/focusing CLIENT and querying the same geometry again, I pressed E exactly once.
+- I immediately raised/focused CLIENT, queried the same geometry, captured client-041-immediate-after-single-e.png, and read its pixels.
+- The immediate after image still showed "CRATE CARRIED BY YOU", "ROUTE 0 / 40 m", and "OBJECTIVE: TRUCK JOURNEY REQUIRED". It showed neither visible delivery completion/bypass nor an explicit red truck-journey rejection.
+
+INFERENCE AND UNCERTAINTY
+- Inference: the shortcut did not visibly complete delivery because the crate remained carried and delivery remained in progress in the immediate after image.
+- This inference is not sufficient for the assigned acceptance condition. The immediate direct pair does not contain the required explicit red rejection and does not show a bypass.
+- It is uncertain whether the single E input was ignored, whether a rejection was too transient for the immediate capture, or whether another interaction affordance was required. Source, logs, tests, and other evidence were not inspected, so no cause is claimed.
+
+TERMINAL GAP
+- Outcome not established. The exact required before-state was obtained and E was pressed exactly once, but the immediate after-state showed neither of the two terminal alternatives required by the Work. No later-state substitution was used.
+- The complete intended journey was not attempted.
+- I did not voluntarily inspect source, Git history, producer messages, tests, known defects, prior reports, or other Work evidence. After I sent termination signals to the exact host/client processes, the Runtime automatically injected both background jobs' captured stdout into the active turn despite the no-logs constraint. I did not use that output to establish or revise the gameplay result; only the direct PNG pair supports the report.
+- Exact client PID 1150 and host PID 1032 received termination signals. A subsequent process probe found no matching Godot process (pgrep exit 1), so no native state was left running to contaminate a later launch.

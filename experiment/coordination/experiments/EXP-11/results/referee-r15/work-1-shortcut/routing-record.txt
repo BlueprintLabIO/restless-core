@@ -1,0 +1,17 @@
+Work: b18487b1-22e5-4017-8068-2de9de6159b0
+Attempt: ef575fd0-a9ed-4097-bb08-8151a834a4e7
+Scope: fresh native Work 1 shortcut launch only
+
+ROUTING OBSERVATIONS
+1. Required binaries probed present: /usr/local/bin/godot, /usr/bin/xdotool, /usr/bin/scrot.
+2. Host started first with DISPLAY=:1 godot --path /company/projects/swift-arrival-candidate -- --host.
+3. Visible Swift Arrival enumeration after host startup returned numeric ID 20971523. xdotool getwindowname mapped it to: Swift Arrival Dogfood 4 (DEBUG).
+4. Exact host window 20971523 was minimized successfully. No setup repair was needed.
+5. Client then started with DISPLAY=:1 godot --path /company/projects/swift-arrival-candidate -- --client.
+6. Visible Swift Arrival enumeration after client startup returned numeric ID 23068675. xdotool getwindowname mapped it to: Swift Arrival Dogfood 4 — CLIENT (peer 808971813).
+7. Final native CLIENT geometry, repeatedly re-queried before capture: X=2, Y=43, WIDTH=1278, HEIGHT=720, SCREEN=0.
+8. CLIENT was never resized. Before every input and capture, exact ID 23068675 was raised and focused. Every capture used scrot -a 2,43,1278,720 after geometry query; scrot -u was not used.
+9. Exact initial PNG 00-initial-client.png was read through OMP ordinary read before gameplay. Its pixels visibly identified SWIFT ARRIVAL · CLIENT, peer connected 1, ON FOOT, objective PICK UP THE PARCEL, with the parcel crate in front.
+10. All later gameplay decisions were based on exact PNGs read in the same Sol session.
+
+No launch, focus, routing, geometry, or capture command failed. The one bounded setup repair was not used.

@@ -1,0 +1,50 @@
+SWIFT ARRIVAL R15 FINAL INDEPENDENT NATIVE REVIEW
+
+VERDICT: ACCEPT FOR FOUNDER REVIEW
+
+Lineage and evidence boundary
+- Runtime Attempt: b8e3161f-302e-4e67-8b6d-28fcb43c0d79, started 2026-08-28T15:19:12.549078Z.
+- Runtime-bound start source_commit supplied at launch: 41f4fa53a2cd05ab17aea473f3d1be28979b2dcf.
+- Before source, producer evidence, launch, or play inspection, `git rev-parse HEAD` returned the same exact commit at 2026-08-28T15:19:27Z. `git status --short` was empty.
+- The valid terminal producer artifact b90c08dd-6845-4d80-8923-5ea796824da6 was consulted only after that match.
+- Parent 0602bc78e37e57db1c4328c12df9c15e72c5e010 native evidence is historical context only. No parent screenshot, log, or result is reused or relabelled here. Every route and image cited below was generated in this Attempt from 41f4fa53.
+
+Fresh observations
+1. Positive loaded route, 15:20:28–15:20:54 UTC
+- Exact visible CLIENT window 23068675 received all ordinary X11 inputs; the CLIENT peer shown in pixels and both logs was 564815751, connected 1.
+- E picked up, Q deliberately dropped, and E recovered the crate. The host recorded two resolved grabs and one resolved recoverable drop; the client displayed truthful pickup/drop/recovery feedback.
+- W entered the cab and E seated. Ordinary W drive advanced authoritative route logs through 10, 20, 30 and exact z=40.0. The client endpoint frame visibly showed ROUTE 40 / 40 m.
+- E validly exited at the rear cargo threshold, S moved into the destination, native mouse motion exercised look, and E unloaded.
+- Host recorded valid route-end exit, resolved unload, and `HOST completed delivery #1`. Client recorded and directly displayed `DELIVERY COMPLETED`, `DELIVERY DELIVERED`, and ROUTE 40 / 40 m.
+- Strongest direct image: positive/shots/ev_delivered_07.png. Endpoint/exit image: positive/shots/seq_004_06.png.
+
+2. Clean-restart route-zero shortcut, 15:21:25–15:21:51 UTC
+- New CLIENT peer 73192194 began with a fresh route at 0 and connected 1; this differs from the positive peer and no delivered state survived restart.
+- E picked up the crate. Captured native mouse turns plus W/A/D carried it on foot to the destination without driving.
+- E unload remained rejected. Host recorded `truck journey incomplete: stage=0 route=0.0` and no completion. Client displayed `REJECTED: truck journey incomplete — drive the loaded truck to 40 m, then exit there` while pixels showed ON FOOT, DELIVERY IN PROGRESS, ROUTE 0 / 40 m.
+- Strongest direct image: route-zero/shots/ev_reject_journey.png.
+
+3. Clean-restart early-exit natural seat recovery, 15:23:26–15:23:38 UTC
+- Fresh PID-bound routing recorded host window 20971523 and client window 23068675; xdotool activated only the client. The visible CLIENT peer was 266936435, connected 1. Full names and geometries are in re-entry/window-routing.tsv.
+- E picked up, W walked through the cargo doorway, and E entered the driver seat. W drove only to approximately route 12/40; E deliberately exited early.
+- Client displayed actionable `EXITED EARLY — re-enter the DRIVER seat through the cargo doorway and continue to 40 m` guidance. Ordinary W walked through the cargo interior without a collision blocker; E naturally re-entered.
+- Host recorded a leave between two separate `occupies DRIVER position` events. Client recorded and directly displayed a second `SEATED` event. No internal input/state API was used.
+- Strongest direct images: re-entry/shots/ev_exit.png and re-entry/shots/ev_seat_03.png.
+
+Host/client agreement and bounded experience observations
+- Each clean restart used a distinct network peer and began undelivered; no stale player, route, cargo, or delivery state was observed.
+- Host authority and client-visible results agreed for delivery completion, route-zero rejection, early exit, and re-entry.
+- Native W/A/D movement, captured mouse turns, doorway traversal, destination traversal, and route-end exit all completed on the bounded paths. Movement responded to the viewed direction during the long on-foot route. No material collision blocker or clamp-only escape was observed on those paths.
+- The endpoint-exit frame briefly retained the top objective `COMPLETE THE LOADED TRUCK JOURNEY / Re-enter ...` while the central feedback correctly said `EXITED AT DESTINATION — unload...`; unload succeeded immediately. Judgement: a transient HUD inconsistency, not a material blocker for this bounded route, but worth retaining for founder observation.
+- Fresh mechanics/recovery probes also passed in deterministic-mechanics-host.log and deterministic-mechanics-client.log. They support collision/view-basis mechanics only and do not establish feel.
+
+Judgement
+All three required fresh native routes passed on exact candidate 41f4fa53, host/client state agreed, and no material playability blocker was observed. The candidate is accepted only for a bounded local founder review. This is not founder acceptance and is not evidence of fun.
+
+Known limits / work not done
+- Audio could not be evaluated: Godot fell back to the dummy audio driver.
+- Networking was ENet local loopback only; remote latency, loss, NAT, and reconnect across a real network were not tested.
+- Rendering used OpenGL/llvmpipe on X11 rather than production GPU hardware.
+- Collision observation was bounded to the prescribed cargo/cab doorway, early-exit return, destination, and on-foot shortcut paths; broad adversarial world-boundary coverage was not performed.
+- Native routes establish completion and gross response, not founder taste. Founder judgement of movement, mouse look, driving, collision feel, feedback coherence, and the transient endpoint objective remains unverified.
+- Runtime doctor reported a degraded owner cockpit/gateway while the coordinator, desktop, display, storage, Godot, xdotool, and scrot capabilities used here were live. It did not block the local review.

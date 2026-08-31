@@ -1,0 +1,122 @@
+{
+  "schema": "restless.exp17.activation.v1",
+  "status": "active-first-pairs-authorised",
+  "prepared_at": "2026-08-30T06:32:00Z",
+  "authority": {
+    "founder_direction": "action all three approved plans",
+    "programme_ceiling_usd": 300,
+    "external_effects_allowed": false
+  },
+  "producing_runtime": {
+    "model_requested": "litellm/gpt-5.6-sol",
+    "model_observed_required": "gpt-5.6-sol",
+    "reasoning_effort": "high",
+    "codex_version": "0.151.0",
+    "runner_sha256": "1c12128dd4d4fc51ad0e59a1d24bf6df96af68219ff45c9e4ac4d42eeb3662f1",
+    "solo_controller_sha256": "5249fb98a14f82ec191879051a40908ddc07f3bebc7efb059bfbd27862d1063f",
+    "longitudinal_controller_sha256": "39c1444c1b6112135d0aca1c9767065bd18bcb471b872bd79119c6640daf1677",
+    "r1_execution_controller_sha256": "9e56034e1b5a85aa5d5a3a270148477454332308a5f70c6f6c7334950c2d35de",
+    "codex_product_adapter_sha256": "4d0bbc6affebf0835469db6895557aadb3f591556058d963a930bdb8f4de6bd3",
+    "coordination_adapter_sha256": "fc3803548e69a67705548690af4731e1c47022b823c632418f24adc1bd206867",
+    "staff_completion_context_sha256": "00fdb34b044c8157d2cfc134ae057b06fe262645c8a2cf4bda63623d9b219edd",
+    "runtime_image_id": "sha256:36a80bda308854197aaf5c1b68dbfb51c24326bf8e8bd0d6bc986a3d766d7738",
+    "network_policy": "host-model-relay-only-v1; ambient Codex network features disabled; standard task clients fail closed",
+    "task_tools": ["shell", "apply_patch"],
+    "approval_policy": "never",
+    "sandbox_policy": "danger-full-access inside isolated Company fixture"
+  },
+  "first_pairs": [
+    {"cell": "S-C", "task_id": "SC-1", "order": ["C", "R1"], "opaque_labels": ["KITE-47", "MICA-22"], "per_arm_ceiling_usd": 3, "safety_envelope_seconds": 1200},
+    {"cell": "L-C", "task_id": "LC-2", "order": ["R1", "C"], "opaque_labels": ["RUNE-81", "VALE-36"], "per_arm_ceiling_usd": 12, "safety_envelope_seconds": 2400},
+    {"cell": "P-I", "task_id": "PI-1", "order": ["C", "R1"], "opaque_labels": ["CEDAR-59", "ION-14"], "per_arm_ceiling_usd": 8, "safety_envelope_seconds": 1800},
+    {"cell": "E-L", "task_id": "EL-2", "order": ["R1", "C"], "opaque_labels": ["NORTH-73", "ASH-28"], "per_arm_ceiling_usd": 12, "safety_envelope_seconds": 3600}
+  ],
+  "fixture_commitments": {
+    "SC-1": {"visible_sha256": "1c0801028171ee5d4cc5fc001d89a7289213f4efb42fb8c1dee9c08ce6c2e779", "hidden_sha256": "d9437619db18e90570da6fee4d33c559ed83fd1e2b505a354a96f02763b07045"},
+    "LC-2": {"visible_sha256": "c6902eed8afd8b1d4e30caa35bae2e238fab2ba95bb580ef5aa30fe8fbcae097", "hidden_sha256": "a09f235e670c097e5a159432058f7512a98b8487cb23b66e02314e28f46edd60"},
+    "PI-1": {"visible_sha256": "db49026edf8a17b6979bb985d8bec9aab3ab4c91bf9d90452f4259b1cc7590d0", "hidden_sha256": "180e1ca93901fe56e838eafd97f170569d56285143461e10fdedff7ca5b3779d"},
+    "EL-2": {"visible_sha256": "99f70a46105acdc1afea0583fcee631c081e340c26ce2d1df7cf91b1786ac3c5", "hidden_sha256": "19b6549474486dffc546675558db8c5c3772a1c410a9eb4cbc37330f08fd4a16"}
+  },
+  "rubric_sha256": "cf04d808db23e6a70d535217db42d638076798c6a0dd0d6ef126021236978e5f",
+  "blind_review_protocol_sha256": "fd0a3c236a4757e34e8c9f2c63ed646ad846389753e9f34682f83755b9779b25",
+  "gates": {
+    "p0_parity": {
+      "status": "passed",
+      "counted_image_id": "sha256:36a80bda308854197aaf5c1b68dbfb51c24326bf8e8bd0d6bc986a3d766d7738",
+      "neutral_artifact_sha256": "d7a51723d521aebe790c2a085aaca405eeab415aaab4d3bdfbbc1447e0acc2fc",
+      "neutral_thread_id": "01a0519f-9054-7100-bda7-6abf60c2c54e",
+      "durable_resume": true,
+      "duplicate_semantic_deliveries": 1,
+      "cancellation_terminal": "interrupted",
+      "long_process_reaped": true,
+      "supervised_attempt_state": "produced",
+      "supervised_review_target_sha256": "1da91231033e6d60d1737707624890e2a725edb5c84d076988fe67aa1297f14c",
+      "isolated_current_code_coordinator": true,
+      "lead_briefed": true,
+      "owner_ready": true,
+      "external_effects": 0,
+      "network_policy_observed": "host-model-relay-only-v1"
+    },
+    "r1_controller_rehearsal": {
+      "status": "passed-no-count",
+      "task_sha256": "2ea7ef491179b7f3ca61ee4906789c599a623c6affa1f78b234b9dd695e0ed54",
+      "review_target_sha256": "83c535f6af68520cc5d36b86bcd2e0e018bca9142471ddae1c443c8935add7ae",
+      "exec_delegations": 1,
+      "lead_commissions": 1,
+      "worker_terminal": "OutcomeMet",
+      "lead_terminal": "OutcomeMet",
+      "lead_changed_artifact": false,
+      "supervisor_wakes": 2,
+      "external_effects": 0,
+      "elapsed_seconds": 220.24,
+      "accounted_usd": 0.6258
+    },
+    "neutral_controller_rehearsals": {
+      "status": "passed-no-count",
+      "single_turn": {
+        "final_image_id": "sha256:36a80bda308854197aaf5c1b68dbfb51c24326bf8e8bd0d6bc986a3d766d7738",
+        "task_sha256": "72134d9b9786d442cb5a87f717e59e528d0c292e6fee027667b63184f4706245",
+        "result_sha256": "2945c499f90aa01ff62e03ce4505118ff39605d1b0a6b6a4901c322f7d455b0e",
+        "visible_gate": "passed",
+        "elapsed_seconds": 20.71,
+        "accounted_usd": 0.0941
+      },
+      "longitudinal": {
+        "task_sha256": "c3984cb45dcb9728f00f45c934ed6e3d79373a9c634567787ccbf7177338d458",
+        "result_sha256": "def6ab54579da7ad53b925d4310a945cc945b43a76524ba0f091a59c1c019e6d",
+        "ledger_sha256": "13ae19bc8575a43fd68b2d597b1ba57ade4f7a533babf98eb8fe50b269120d73",
+        "causal_duplicate_changed_artifact": false,
+        "process_replacements": 1,
+        "durable_resume": true,
+        "orphan_processes": 0,
+        "visible_gate": "passed",
+        "elapsed_seconds": 149.21,
+        "accounted_usd": 0.4995
+      }
+    },
+    "r1_longitudinal_rehearsal": {
+      "status": "passed-no-count",
+      "task_sha256": "c3984cb45dcb9728f00f45c934ed6e3d79373a9c634567787ccbf7177338d458",
+      "review_target_sha256": "def6ab54579da7ad53b925d4310a945cc945b43a76524ba0f091a59c1c019e6d",
+      "ledger_sha256": "13ae19bc8575a43fd68b2d597b1ba57ade4f7a533babf98eb8fe50b269120d73",
+      "exec_delegations": 1,
+      "lead_commissions": 1,
+      "supervisor_wakes": 3,
+      "worker_usage_snapshots": 10,
+      "process_replacements": 1,
+      "lead_changed_artifact": false,
+      "external_effects": 0,
+      "visible_gate": "passed",
+      "elapsed_seconds": 482.97,
+      "accounted_usd": 1.7432
+    },
+    "exp16_closed": true,
+    "exp16_disposition": "concluded-negative-at-s7",
+    "exp16_final_candidate": "7964d772d53f1b414d92129b207a5a3bb7bb3617",
+    "exp16_final_tree": "ce10b298455e206504c7338df2823133b7224f24",
+    "exp16_result_sha256": "b7eb55e73e9291b0d770e511b99c1ac28a33ebe12b784676feb37efdebc14c32",
+    "tasks_and_hidden_fixtures_frozen": true,
+    "producer_leak_audit": "passed: only visible fixture copied to each isolated candidate",
+    "counted_execution_authorised": true
+  }
+}

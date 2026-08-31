@@ -1,0 +1,44 @@
+SWIFT ARRIVAL INDEPENDENT PLAYABILITY REVIEW
+
+Candidate: 09fe09d30c65b811c0904508525a6ab8af02145c
+Baseline lineage required: 84ff1745b29267708599e94036ec6f7a2a7e0457
+Run started: 2026-08-28T09:58:54Z
+Native route completed: 2026-08-28T10:02:09Z
+Reviewer: swiftarrival-playtest
+Verdict: ACCEPT FOR FOUNDER REVIEW
+
+Method
+- Fresh Godot host and client on native X11 display :1.
+- Client was played through focused real windows using ordinary xdotool keyboard and mouse events; no internal state API, headless mode, autopilot, or producer playtest conclusion was used for the playability verdict.
+- Timestamped actions are in native/input-trace.tsv; native/host.log and native/client.log are the corresponding process observations.
+- Fresh deterministic positive, negative, and mechanics multiplayer probes were then run separately. They are mechanics/network evidence only, not evidence of feel.
+
+Strongest observed route evidence
+1. The opening client HUD stated PICK UP THE CRATE and E PICK UP.
+2. Q before carrying safely recovered/picked up the nearby crate. A subsequent Q drop produced explicit recoverable feedback; E picked it up again. Host logged one recoverable drop and a second resolved grab.
+3. W movement carried the crate through the real truck doorway to a clear E ENTER DRIVER SEAT prompt. Native relative mouse movement visibly changed look direction, and reversing the mouse delta restored the view.
+4. E seated the client; the HUD named W/S drive and E exit. Holding W advanced the host-bounded route from 0 to 40 m.
+5. At 40/40 m, E exited once at the rear cargo threshold. There was no immediate reseat. S moved down the rear ramp into the visibly yellow destination zone and surfaced E UNLOAD CRATE NOW.
+6. E unloaded. Client and host both displayed DELIVERY COMPLETE; host logged authoritative unload and completed delivery #1.
+7. On the host, a 2-second A input ended against the visible truck wall rather than passing through it. The separate mechanics probe quantified both inside and outside wall contacts.
+
+Probe outcomes
+- Positive: host exit 0, client exit 0; both PASS. Host resolved pickup, driver occupancy, bounded route 0..40, rear exit, unload, and authoritative delivery; client displayed completion.
+- Negative: host exit 0, client exit 0; both PASS. Host rejected unload outside destination zone; client received explicit rejection; delivery remained incomplete.
+- Mechanics: host exit 0, client exit 0; both PASS. View-relative right/forward dot products were 1.000; cargo walls blocked from inside and outside; rear exit reached ground.
+
+Review target
+The fresh native host/client target in review-target/ was live-probed and left running at the initial objective. See REVIEW_TARGET.txt and review-target-live-probe.txt.
+
+Founder judgement still requested
+Whether movement, interaction feedback, driving, and the delivery loop feel coherent and genuinely playable.
+
+Claims not made
+No claim of fun, founder approval, business acceptance, publication, deployment, or production readiness.
+
+Known gaps
+- Audio failed to open an ALSA device and Godot used its dummy audio driver, so sound was not assessed.
+- Host and client used one machine and loopback ENet, not adverse network conditions.
+- Deterministic probes prove programmed mechanics and authority paths, not feel.
+- This is one independent reviewer session; founder taste remains unverified.
+- No versioned scenario.json package exists in this candidate, so restless-scenario doctor/run was not applicable; the checked-in native playtest guidance and project executable were used directly.

@@ -246,6 +246,93 @@ async fn successor_attempt_consumes_prior_same_revision_output_without_relabelli
 }
 
 #[tokio::test]
+async fn repaired_blocked_work_resumes_from_its_clean_terminal_candidate() {
+    let Ok(url) = std::env::var("RESTLESS_TEST_DATABASE_URL") else {
+        eprintln!("RESTLESS_TEST_DATABASE_URL unset; skipping retained candidate scenario");
+        return;
+    };
+    let company = format!("retainedcandidate{}", uuid::Uuid::new_v4().simple());
+    let org = OrgIntel::ensure(&url, &company)
+        .await
+        .expect("ensure scratch company schema");
+    org.ensure_actor("exec", "exec", "exec", "The Exec")
+        .await
+        .unwrap();
+    create_actor(&org, "delivery-builder", "builder").await;
+
+    let original = "1111111111111111111111111111111111111111";
+    let candidate = "2222222222222222222222222222222222222222";
+    let candidate_tree = "3333333333333333333333333333333333333333";
+    let work = org
+        .add_work(NewWork {
+            owner_id: "delivery-builder",
+            title: "Retain useful work across a repaired gate blocker",
+            outcome: "resume validation from the exact committed candidate",
+            goal_id: None,
+            priority: 1,
+            expected_artifact: "candidate",
+            workspace: WorkspaceSpec {
+                repo: Some("product".into()),
+                base_ref: Some(original.into()),
+                integration_branch: None,
+                worktree: Some("delivery-candidate".into()),
+            },
+            attempt_limit: Some(1),
+        })
+        .await
+        .unwrap();
+    let first = org.claim_ready_work("produce").await.unwrap().unwrap();
+    assert_eq!(first.effective_base_ref.as_deref(), Some(original));
+    org.bind_attempt_terminal_coordinates(
+        first.attempt_id,
+        Some(candidate),
+        Some(candidate_tree),
+        Some("clean-status"),
+        0,
+    )
+    .await
+    .unwrap();
+    org.finish_work_attempt(
+        first.attempt_id,
+        WorkAttemptState::Blocked,
+        "candidate committed; gate mechanism needs repair",
+    )
+    .await
+    .unwrap();
+    org.resume_work(work, "exec", "the gate now has a leased Runtime port")
+        .await
+        .unwrap();
+
+    let successor = org.claim_ready_work("validate").await.unwrap().unwrap();
+    assert_eq!(successor.attempt_no, 2);
+    assert_eq!(successor.effective_base_ref.as_deref(), Some(candidate));
+    assert_eq!(
+        org.list_work_attempts(Some(work))
+            .await
+            .unwrap()
+            .into_iter()
+            .find(|attempt| attempt.id == successor.attempt_id)
+            .unwrap()
+            .requested_source_ref
+            .as_deref(),
+        Some(candidate)
+    );
+    assert_eq!(
+        org.list_work_attempts(Some(work))
+            .await
+            .unwrap()
+            .into_iter()
+            .find(|attempt| attempt.id == first.attempt_id)
+            .unwrap()
+            .terminal_source_commit
+            .as_deref(),
+        Some(candidate)
+    );
+
+    org.drop_schema().await.expect("drop scratch schema");
+}
+
+#[tokio::test]
 async fn same_repository_dependency_starts_from_the_exact_upstream_commit() {
     let Ok(url) = std::env::var("RESTLESS_TEST_DATABASE_URL") else {
         eprintln!("RESTLESS_TEST_DATABASE_URL unset; skipping dependency lineage scenario");

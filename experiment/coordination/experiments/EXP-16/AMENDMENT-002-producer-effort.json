@@ -1,0 +1,33 @@
+{
+  "schema_version": 1,
+  "experiment": "EXP-16",
+  "amendment": 2,
+  "activated_at": "2026-08-30T03:17:00Z",
+  "reason": "The first governed Sol Staff launch exposed that the current ACP Runtime pins all actor launches to its explicit medium reasoning effort and offers no per-actor effort control. The frozen manifest incorrectly declared high effort.",
+  "change": {
+    "kind": "align_frozen_effort_with_observed_runtime_capability",
+    "producer_model_before": "gpt-5.6-sol",
+    "producer_model_after": "gpt-5.6-sol",
+    "producer_effort_before": "high",
+    "producer_effort_after": "medium",
+    "tool_envelope_changed": false,
+    "lead_or_critic_effort_changed": false,
+    "product_source_changed": false,
+    "protocol_or_rubric_changed": false,
+    "seed_commitment_changed": false,
+    "budget_changed": false
+  },
+  "observed_runtime_evidence": {
+    "actor": "gameplay-engineer",
+    "model": "litellm/gpt-5.6-sol",
+    "configured_effort": "medium",
+    "session_id": "01a050a7-5e6f-7000-aa3b-730264c0bc20",
+    "launch_id": "f1eb90655de846ee855b7ab1186da50b",
+    "tool_contract_digest": "501bf64a5440778de15ed4cfdfed72ba09c01aba46d167c9130b07692f3eba52"
+  },
+  "validity": {
+    "terminal_counted_runs_before_amendment": 0,
+    "invalidated_run_ids": [],
+    "rule": "All EXP-16 producer results are medium-effort Sol results. No high-effort quality or parity claim is permitted. EXP-17 must treat first-party effort control as a P0 parity requirement."
+  }
+}

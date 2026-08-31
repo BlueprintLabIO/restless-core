@@ -1,0 +1,112 @@
+[
+  {
+    "actor_id": "daemon",
+    "kind": "system",
+    "role": "system-sender",
+    "display": "The daemon",
+    "model": null,
+    "team_id": null,
+    "retired_at": null,
+    "retired_by": null,
+    "retirement_reason": "",
+    "work_count": 0,
+    "completed_work_count": 0,
+    "recent_work": [],
+    "spent_usd": 0.0,
+    "session_running": false,
+    "model_cooldown": null
+  },
+  {
+    "actor_id": "owner",
+    "kind": "owner",
+    "role": "owner",
+    "display": "The Owner",
+    "model": null,
+    "team_id": null,
+    "retired_at": null,
+    "retired_by": null,
+    "retirement_reason": "",
+    "work_count": 0,
+    "completed_work_count": 0,
+    "recent_work": [],
+    "spent_usd": 0.0,
+    "session_running": false,
+    "model_cooldown": null
+  },
+  {
+    "actor_id": "exec",
+    "kind": "exec",
+    "role": "exec",
+    "display": "The Exec",
+    "model": "litellm/gpt-5.6-sol",
+    "team_id": null,
+    "retired_at": null,
+    "retired_by": null,
+    "retirement_reason": "",
+    "work_count": 0,
+    "completed_work_count": 0,
+    "recent_work": [],
+    "spent_usd": 0.7605,
+    "session_running": false,
+    "model_cooldown": null
+  },
+  {
+    "actor_id": "game-referee",
+    "kind": "staff",
+    "role": "non-producing referee lead",
+    "display": "Mara Vale",
+    "model": "litellm/gpt-5.6-sol",
+    "team_id": "fa62707f-c24d-45fd-a2ee-2b419e8f4e80",
+    "retired_at": null,
+    "retired_by": null,
+    "retirement_reason": "",
+    "work_count": 0,
+    "completed_work_count": 0,
+    "recent_work": [],
+    "spent_usd": 1.4631,
+    "session_running": false,
+    "model_cooldown": null
+  },
+  {
+    "actor_id": "game-player",
+    "kind": "staff",
+    "role": "blind native gameplay evaluator",
+    "display": "Ivo Renn",
+    "model": "litellm/gpt-5.6-sol",
+    "team_id": "fa62707f-c24d-45fd-a2ee-2b419e8f4e80",
+    "retired_at": null,
+    "retired_by": null,
+    "retirement_reason": "",
+    "work_count": 4,
+    "completed_work_count": 1,
+    "recent_work": [
+      {
+        "id": "bf541faf-fc06-4f27-8224-50e4f2e2de25",
+        "title": "Independently play and visually verify the frozen Swift Arrival candidate",
+        "status": "abandoned",
+        "revision": 1
+      },
+      {
+        "id": "cd9ce4e5-a633-497c-b48e-a95209a4ca30",
+        "title": "Independently play and visually verify the frozen Swift Arrival candidate",
+        "status": "abandoned",
+        "revision": 1
+      },
+      {
+        "id": "e16fdc14-c4d1-407c-a587-5094d1c9b9d8",
+        "title": "Finalize the independent Swift Arrival visual-evidence verdict",
+        "status": "abandoned",
+        "revision": 1
+      },
+      {
+        "id": "e73430f6-31ff-41a9-9208-772d8ac2df3d",
+        "title": "Complete the interrupted Swift Arrival truck journey and verdict",
+        "status": "completed",
+        "revision": 1
+      }
+    ],
+    "spent_usd": 9.1337,
+    "session_running": false,
+    "model_cooldown": null
+  }
+]

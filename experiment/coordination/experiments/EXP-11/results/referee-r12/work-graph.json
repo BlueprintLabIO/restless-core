@@ -1,0 +1,66 @@
+{
+  "work": [
+    {
+      "id": "bd5b4912-e2fa-404a-b7b4-c5f18a8bd644",
+      "goal_id": null,
+      "owner_id": "gameplay-player",
+      "title": "Blind native gameplay verdict evidence",
+      "outcome": "This will produce an independent visual record showing whether the frozen game rejects the on-foot shortcut and supports the full delivery journey. The record will let the referee make a pass, fail, or invalid judgement without relying on the game’s implementation or prior reports.\n\nWork only in workspace /company. Treat /company/projects/swift-arrival-candidate as a read-only prepared candidate identified as 7e76d1e087cf4cde12aaf1fa6d5e9309f39bcddd; it is not a Git worktree. Write all immutable evidence only below /company/outputs/exp11-referee/candidate-r12, using unique paths and never overwriting prior evidence. Do not edit the candidate. Do not inspect source, Git history, producer messages, tests, logs, known defects, or prior reports. Do not use source, scripts, logs, tests, or prior evidence to infer gameplay results.\n\nYour only public gameplay objective is: collect the parcel, make one ordinary recoverable mistake, drive the truck to the destination, leave the seat and deliver the parcel. Public controls are W/A/S/D movement or driving, mouse look, E interact and Q deliberate drop. Attempt naturally from direct visual observation; do not receive or seek any other gameplay hints.\n\nUse exactly two independent fresh native launches in this order. For each launch, start the prepared native processes with DISPLAY=:1 godot --path /company/projects/swift-arrival-candidate -- --host and DISPLAY=:1 godot --path /company/projects/swift-arrival-candidate -- --client. Run 1: naturally test whether carrying the parcel to the destination on foot, without a loaded-truck journey, can complete delivery; record the visible rejection or any visible bypass. Run 2: terminate and restart both native processes from a clean state, then attempt the complete intended journey: collect the parcel, make one ordinary recoverable mistake, recover, load the truck, drive to the destination, leave the seat, unload, and complete delivery. Stop on visible completion or a reproducible blocker.\n\nBefore gameplay, enumerate every visible Swift Arrival numeric window ID and map each ID to its title. Choose only the numeric ID whose title says CLIENT. Before every input and every capture, raise and focus that exact ID. Obtain that ID's geometry with xdotool getwindowgeometry --shell, and capture only the corresponding screen region with scrot -a X,Y,WIDTH,HEIGHT. Do not use scrot -u as routing proof. Before the first gameplay input, create a fresh initial CLIENT PNG, read that exact PNG with OMP's ordinary read tool so its pixels enter this same active Sol turn, and record what the pixels visibly show. After input, recapture to a new exact PNG, read that PNG with the ordinary read tool in the same Sol session, record the direct pixel observation, and continue only from what pixels show. File existence, metadata, or command success is not image observation. After the clean restart, repeat window enumeration, ID/title mapping, geometry, a fresh pre-input CLIENT capture, and same-session pixel read before continuing.\n\nContinue only when each exact PNG's pixels visibly identify CLIENT. A first launch, focus, or capture command failure may receive one bounded setup repair; retain both failure and repair in the ordered action trace. Report invalid only if exact routing, native image ingestion, native input, or recapture remains unavailable after that repair. Do not substitute another evidence path.\n\nReturn a durable terminal report and evidence index containing: process-launch facts; the ordered action trace; mapped numeric window IDs and titles for both launches; selected CLIENT ID and geometry; every exact PNG path paired with its same-session direct visual observation; Run 1's directly visible shortcut rejection or bypass; evidence that both processes were freshly restarted; Run 2's directly visible mistake, recovery, loading, driving, seat exit, unloading, and completion, or the reproducible blocker; a proposed pass, fail, or invalid verdict; and explicit gaps, uncertainty, inference separated from observation, and anything not done. A pass proposal requires direct visual evidence that Run 1 did not complete and Run 2 did complete. Do not contact production, prescribe backlog work, deploy, publish, purchase, or declare founder acceptance.",
+      "status": "completed",
+      "resolution": "Completed and linked an immutable terminal evidence record proposing invalid because exact CLIENT pixel routing remained unavailable after the allowed bounded repair.",
+      "priority": 0,
+      "expected_artifact": "/company/outputs/exp11-referee/candidate-r12",
+      "owner_review_required": false,
+      "repo": null,
+      "base_ref": null,
+      "integration_branch": null,
+      "worktree": null,
+      "revision": 1,
+      "attempt_limit": 1,
+      "created_at": "2026-08-28T12:10:44.911055Z",
+      "updated_at": "2026-08-28T12:14:23.201952Z"
+    }
+  ],
+  "edges": [],
+  "attempts": [
+    {
+      "id": "3b610854-ae84-4b3a-bdd7-f4b4f9bea4a2",
+      "work_id": "bd5b4912-e2fa-404a-b7b4-c5f18a8bd644",
+      "revision": 1,
+      "attempt_no": 1,
+      "actor_id": "gameplay-player",
+      "session_id": "5ed410de-7032-4279-b340-845c1cc4d565",
+      "state": "produced",
+      "trigger": "dependency graph became ready",
+      "input_fingerprint": "56720e0c78eeea131d0fdff2d618abecf554d93abe59b227c0ddcea60ac46172",
+      "feedback_cursor": 0,
+      "model": "litellm/gpt-5.6-sol",
+      "started_at": "2026-08-28T12:10:45.885321Z",
+      "finished_at": "2026-08-28T12:14:23.201952Z",
+      "summary": "Completed and linked an immutable terminal evidence record proposing invalid because exact CLIENT pixel routing remained unavailable after the allowed bounded repair."
+    }
+  ],
+  "attempt_inputs": [],
+  "attempt_feedback": [],
+  "artifacts": [
+    {
+      "id": "d9ac5563-b631-48c4-97fd-bd2310fdea79",
+      "kind": "output",
+      "uri": "/company/outputs/exp11-referee/candidate-r12",
+      "note": "",
+      "created_by": "gameplay-player",
+      "work_id": "bd5b4912-e2fa-404a-b7b4-c5f18a8bd644",
+      "attempt_id": "3b610854-ae84-4b3a-bdd7-f4b4f9bea4a2",
+      "digest": null,
+      "source_commit": null,
+      "runtime_generation": null,
+      "label": "output",
+      "state": "available",
+      "created_at": "2026-08-28T12:14:08.864272Z",
+      "superseded_at": null
+    }
+  ],
+  "gates": [],
+  "gate_runs": [],
+  "handoffs": []
+}

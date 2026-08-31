@@ -37,3 +37,33 @@ does not authorise live-company effects, production promotion or an expanded tas
   — complete; a standing lead closed two useful Staff-owned game cycles, suppressed an exact
   duplicate, recovered a killed worker, handled one direct scheduled review and stayed idle. Existing
   primitives won after three thin repairs; gate/workspace specification remains the main churn source.
+- [`exp-sprint-11-autonomous-playability-frontier.md`](exp-sprint-11-autonomous-playability-frontier.md)
+  — complete; the supervisor-led team made large autonomous repairs, but exact GPT-5.6 Sol (the
+  owner-authorised replacement for unavailable GLM-5.3 Flash) reproduced a final post-route-40
+  completion blocker. Deterministic mechanics passed, independent playability and the two-run rule did
+  not, so the result is `product-judgement-failure` and the candidate remains unpromoted.
+- [`exp-sprint-12-exec-installed-connected-tools.md`](exp-sprint-12-exec-installed-connected-tools.md)
+  — complete; the founder accepted the useful native 20-record test pipeline and disclosed ownership
+  representation, while technical repair and credential recovery still fail the autonomous-
+  installation treatment. Work-scoped attachment and fresh-session disable passed after repair;
+  Nango was not activated and remains outside Core.
+- [`exp-sprint-13-durable-visual-operator-frontier.md`](exp-sprint-13-durable-visual-operator-frontier.md)
+  — complete; the repaired four-command operator halved game decisions and eliminated observed
+  target/focus/invalid-interaction failures, but failed before website pixels because target identity
+  did not generalise. The repeated-harness stop fired before spreadsheet, temporal and product-repair
+  waves; the candidate was purged and the human profile remains unsupported.
+- [`exp-sprint-14-swift-arrival-tight-loop.md`](exp-sprint-14-swift-arrival-tight-loop.md) — blocked on
+  provider capacity after material progress; final candidate `bd32f719` passes 5/5 mechanical gates,
+  launch-to-opaque-target works, and a blind negative caused one useful feedback repair. The required
+  two fresh final-candidate completions remain 0/2 and no playability or fun claim is made.
+- [`exp-sprint-15-swift-arrival-vertical-slice-campaign.md`](exp-sprint-15-swift-arrival-vertical-slice-campaign.md)
+  — concluded negative after 37 material loops; mechanics passed but the final source-blind journey
+  failed roadwork recovery, leaving the exact frozen contradiction consumed by EXP-16.
+- [`exp-sprint-16-embodied-npc-playtesting.md`](exp-sprint-16-embodied-npc-playtesting.md) —
+  concluded negative at S7; deterministic mechanics and one real product repair survived, but the
+  exact tree could not render fresh recovery, robber and vampire journeys, so player equivalence and
+  10x were not established.
+- [`exp-sprint-17-worker-architecture-benchmark.md`](exp-sprint-17-worker-architecture-benchmark.md) —
+  concluded after four valid sparse pairs. Outcome quality was at practical parity in every cell while
+  Restless supervision cost 1.73x-3.30x and took 1.77x-2.94x; solo is the observed performance route.
+  Exact `RP-Q2` parallelism remains the separately frozen next question.

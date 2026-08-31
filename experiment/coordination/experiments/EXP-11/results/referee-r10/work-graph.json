@@ -1,0 +1,66 @@
+{
+  "work": [
+    {
+      "id": "bbae7832-8432-4e10-be85-f0553a0265d7",
+      "goal_id": null,
+      "owner_id": "gameplay-evaluator",
+      "title": "Blind native gameplay verdict for Swift Arrival",
+      "outcome": "This will produce an independent, owner-readable gameplay verdict backed by direct visual evidence. It matters because the frozen candidate must be judged through the actual player experience rather than through implementation details.\n\nPublic objective: collect the parcel, make one ordinary recoverable mistake, drive the truck to the destination, leave the seat and deliver the parcel. Public controls are W/A/S/D movement or driving, mouse look, E interact and Q deliberate drop.\n\nOwn the entire blind native gameplay evaluation end to end. Use exact model selector litellm/gpt-5.6-sol. Evaluate only the frozen candidate at /company/projects/swift-arrival-candidate, exact commit 09fe09d30c65b811c0904508525a6ab8af02145c, and preserve the candidate read-only. Do not inspect source, Git history, producer messages, tests, logs, known defects, prior reports, or candidate internals.\n\nLaunch the prepared native processes exactly as follows:\nDISPLAY=:1 godot --path /company/projects/swift-arrival-candidate -- --host\nDISPLAY=:1 godot --path /company/projects/swift-arrival-candidate -- --client\n\nBefore gameplay, create a fresh initial client PNG. Read that exact PNG with OMP's ordinary read tool so its pixels enter the active Sol turn, and record what those pixels show. Then act only through ordinary keyboard/pointer input, recapture, read each resulting exact PNG in this same Sol session, and continue only from direct pixel observation. File existence, metadata, and command success are not image observation.\n\nEnumerate all visible Swift Arrival numeric window IDs and map every ID to its title. Choose the numeric ID whose title says CLIENT. Before every input or capture, raise and focus that exact numeric ID. Obtain that ID's geometry with xdotool getwindowgeometry --shell, then capture the corresponding screen region with scrot -a X,Y,WIDTH,HEIGHT. Do not use scrot -u as client-routing proof. Read each exact PNG and continue only if its pixels visibly identify CLIENT.\n\nA first launch, focus, or capture command failure may receive one bounded setup repair. Retain both the failure and repair in the action trace. Report invalid only if exact routing, native image ingestion, native input, or recapture remains unavailable after that repair; do not substitute source, logs, or another evidence path.\n\nAttempt the public objective naturally, including one ordinary recoverable mistake, and stop on completion or a reproducible blocker. Separate direct visual observation from inference and uncertainty throughout. Write immutable evidence only below /company/outputs/exp11-referee/candidate-r10. Attach that exact directory as the output artifact and give a durable terminal report.\n\nThe evidence must include: fresh PNGs actually read in this active Staff turn; the complete numeric window-ID/title map; focused-ID geometry and scrot region trace before every input and capture; a timestamped or ordered action/observation trace retaining any first failure and bounded repair; and a terminal verdict grounded only in observed pixels. Name all gaps, skipped checks, assumptions, and anything unverified.\n\nDo not edit the game, prescribe a backlog, contact production, deploy, publish, purchase, or declare founder acceptance.",
+      "status": "completed",
+      "resolution": "Blind native gameplay evaluation completed with a pixel-grounded pass-with-usability-friction verdict, verified evidence, complete trace and gaps, and the exact output directory linked to the Attempt.",
+      "priority": 0,
+      "expected_artifact": "/company/outputs/exp11-referee/candidate-r10",
+      "owner_review_required": false,
+      "repo": null,
+      "base_ref": null,
+      "integration_branch": null,
+      "worktree": null,
+      "revision": 1,
+      "attempt_limit": 1,
+      "created_at": "2026-08-28T10:39:01.308169Z",
+      "updated_at": "2026-08-28T10:50:37.978010Z"
+    }
+  ],
+  "edges": [],
+  "attempts": [
+    {
+      "id": "9e3dc4bb-291c-46e6-876d-72d42cb6e974",
+      "work_id": "bbae7832-8432-4e10-be85-f0553a0265d7",
+      "revision": 1,
+      "attempt_no": 1,
+      "actor_id": "gameplay-evaluator",
+      "session_id": "c749c45b-f9b2-4293-a4b1-09bc1e973665",
+      "state": "produced",
+      "trigger": "dependency graph became ready",
+      "input_fingerprint": "56720e0c78eeea131d0fdff2d618abecf554d93abe59b227c0ddcea60ac46172",
+      "feedback_cursor": 0,
+      "model": "litellm/gpt-5.6-sol",
+      "started_at": "2026-08-28T10:39:02.030707Z",
+      "finished_at": "2026-08-28T10:50:37.978010Z",
+      "summary": "Blind native gameplay evaluation completed with a pixel-grounded pass-with-usability-friction verdict, verified evidence, complete trace and gaps, and the exact output directory linked to the Attempt."
+    }
+  ],
+  "attempt_inputs": [],
+  "attempt_feedback": [],
+  "artifacts": [
+    {
+      "id": "78e019bc-903f-4587-8b39-1c742936767f",
+      "kind": "output",
+      "uri": "/company/outputs/exp11-referee/candidate-r10",
+      "note": "",
+      "created_by": "gameplay-evaluator",
+      "work_id": "bbae7832-8432-4e10-be85-f0553a0265d7",
+      "attempt_id": "9e3dc4bb-291c-46e6-876d-72d42cb6e974",
+      "digest": null,
+      "source_commit": null,
+      "runtime_generation": null,
+      "label": "output",
+      "state": "available",
+      "created_at": "2026-08-28T10:50:19.599413Z",
+      "superseded_at": null
+    }
+  ],
+  "gates": [],
+  "gate_runs": [],
+  "handoffs": []
+}

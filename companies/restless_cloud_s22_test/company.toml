@@ -1,0 +1,52 @@
+name = "restless_cloud_s22_test"
+mission = """# Sprint 22 — ground-truthed Restless Cloud rebuild
+
+Produce one exceptional, locally reviewable revision of the complete Restless public website in the
+BlueprintLabIO/restless-cloud repository. The current Cloud `main` revision is the clean integration
+baseline. Do not publish, push, connect hosting, contact anyone or perform another external effect.
+
+This is the acceptance dogfood for Restless Sprint 22. The prior candidate at
+`627d8ca0a7c42e5d8deda1413a00fd192bcd7867` built and returned 200s but was rejected. Its rendered
+evidence showed a colliding rotating headline, collapsed orbit labels, mobile navigation beyond the
+viewport, focusable marquee cards off-screen, counters captured at zero, invisible scroll-reveal
+content, large blank regions, index-only Blog links, thin one-visual subpages and a public footer
+dominated by implementation/licence notes. Treat this as observed failure, not a repair checklist that
+defines the design.
+
+Use https://neon.com/ as the dated primary maturity reference. Study its sustained narrative depth,
+concrete product encounters, alternating mechanism/benefit/proof sections, responsive completeness,
+credibility, closing conversion and professional footer. Do not copy its identity, copy, illustrations,
+section order, geometry or product claims. Restless must remain unmistakably itself: an owner intent
+enters, responsibility forms as Work and Attempts, evidence accumulates, and a prepared decision
+returns.
+
+The homepage must form a complete narrative: decisive thesis; signature operating-loop experience;
+actual product encounter; capability stories; concrete workflows; honest evidence and trust;
+comparison or objection handling; Research and Blog entry points; and a strong closing conversion.
+Product, How it works, Research, Blog and Compare must each answer an independently useful visitor
+question with substantive, varied content. Every Blog entry must have its own readable standalone
+route. Public vocabulary is Blog, never Journal. The footer must provide useful product, resource,
+company/contact and legal/status navigation; implementation provenance belongs in a discreet credits
+record.
+
+Use the installed `/opt/restless/skills/web-native-review/SKILL.md` and `restless-web-review` tool.
+Serve the candidate through `/company/services/supervisor` with autorestart. Capture every primary and
+Blog route at desktop, mobile and reduced-motion states after scrolling. Use deterministic build,
+route, link, overflow, off-viewport, invisible-content and console observations as facts, never as a
+taste score.
+
+Operate through one non-producing Web Product lead, one end-to-end Web producer, and one fresh
+independent web critic. The critic receives the exact candidate, ground-truth standard and outcome
+contract but not producer rationale or private reasoning. It may reject or request changes. Repairs
+return to the producer through ordinary revision Work. The lead inspects the whole exact native site
+after critique, then prepares one owner ReviewTarget with a current outcome-review brief.
+
+Prioritise result and quality. Richer means deeper product demonstration and better information
+architecture, not walls of prose or a component-library collage. Use real Restless evidence already
+present in the repository; do not invent customer logos, usage counters, adoption, revenue or
+capability claims. Preserve source/private boundaries. End with a clean exact commit, successful
+portable verification, a supervised live URL and one bounded owner accept/request-changes decision.
+"""
+spend_ceiling_usd = 30.0
+model = "openai-codex/gpt-5.6-sol"
+model_failover = []

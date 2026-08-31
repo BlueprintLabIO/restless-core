@@ -1,0 +1,45 @@
+{
+  "experiment": "EXP-16",
+  "stage": "S6",
+  "audit_candidate": {
+    "commit": "7964d772d53f1b414d92129b207a5a3bb7bb3617",
+    "tree": "ce10b298455e206504c7338df2823133b7224f24"
+  },
+  "product_repair_loops": 1,
+  "finding_id": "S2-DEL-C1-PICKUP-RANGE",
+  "governed_regression": {
+    "gate_id": "720ced30-e1f7-451d-9a5a-63d398c200ec",
+    "resource": "one Runtime-leased port",
+    "timeout_seconds": 1800,
+    "modes_in_order": ["delivery", "heldout", "robber", "vampire"],
+    "candidate_result": "passed Runtime gate 720ced30-e1f7-451d-9a5a-63d398c200ec on the unchanged candidate",
+    "expected_compact_outputs_if_passed": [
+      "S2_REPAIR_VISIBLE/summary.json",
+      "S2_REPAIR_VISIBLE/runs.jsonl",
+      "S2_HELDOUT/summary.json",
+      "S2_HELDOUT/runs.jsonl",
+      "S3_HELDOUT/summary.json",
+      "S4_VISIBLE/robber-summary.json",
+      "S5_VAMPIRE/vampire-summary.json"
+    ]
+  },
+  "acceptance_predicate": {
+    "delivery_visible": "6/6 passed including DEL-C1 replay",
+    "delivery_held_out": ">=5/6 completed and all bounded",
+    "recovery_held_out": ">=6/8 completed and all bounded",
+    "robber": "ROB-01..06 pass unchanged conformance and native authority smoke",
+    "vampire": "VAM-01..06 pass unchanged conformance and ENet authority smoke",
+    "process_cleanup": "all spawned processes reaped and the leased port released"
+  },
+  "counter_evidence": [
+    "Role seeds were producer-visible in the activation manifest under amendment 005; S5 mechanics are not held-out generalisation or human judgement.",
+    "The Stage 7 critic stopped before scoring and no founder/human sample was run.",
+    "Mechanics success cannot establish player acceptance, playability, fun, fairness, human legibility, or a 10x result."
+  ],
+  "cleanup_before_gate": {
+    "raw_frames": 0,
+    "videos": 0,
+    "engine_caches": 0,
+    "matching_game_or_verifier_processes": 0
+  }
+}

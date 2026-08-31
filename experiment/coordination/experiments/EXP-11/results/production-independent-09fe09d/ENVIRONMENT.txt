@@ -1,0 +1,15 @@
+ENVIRONMENT AND CAPABILITY OBSERVATIONS
+
+Observed candidate HEAD: 09fe09d30c65b811c0904508525a6ab8af02145c
+Repository status after review: clean (git status --short produced no entries)
+OS: Linux 6.10.14-linuxkit aarch64
+Godot: 4.7.2.stable.official.ed1daf0bf
+Display: native X11 :1
+Godot renderer: OpenGL 4.5 llvmpipe after Vulkan fallback
+Observed executables: /usr/local/bin/godot, /usr/bin/xdotool, /usr/bin/scrot, /usr/local/bin/restless-scenario
+Native input: xdotool focused visible Godot client/host windows and sent ordinary key and relative mouse events
+Screenshots: scrot full visible X11 target plus game-side event/interval PNG captures
+Network: ENet host on 127.0.0.1:24565; client connected and received authoritative initial state
+Audio: ALSA device unavailable; Godot fell back to dummy audio driver (audio unverified)
+Runtime doctor: company coordinator/desktop/coordination available; owner gateway/cockpit HTTP endpoints unavailable, making overall doctor status degraded. Those unavailable web surfaces were not needed for native X11 review.
+Scenario package: no scenario.json found in candidate; direct checked-in project launch and probe scripts used.

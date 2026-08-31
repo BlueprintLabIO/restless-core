@@ -1,0 +1,26 @@
+Terminal native gameplay evidence report
+
+Scope
+Only the on-foot shortcut launch was run against frozen candidate directory /company/projects/swift-arrival-candidate. No source, Git history, logs, tests, producer messages, prior reports, or other Work evidence were inspected. The candidate was not modified. No truck journey was attempted.
+
+Method
+A fresh HOST was launched first and its exact launch-first window was minimized. A fresh CLIENT was then launched. CLIENT ID 23068675 was kept at native 1278x720 geometry at X=2,Y=43. Before every accepted gameplay input/capture, that ID was raised/focused and its geometry queried. Captures used scrot on only the exact CLIENT region, and every decision-relevant PNG was read directly with the ordinary read tool.
+
+Direct observations
+- Initial CLIENT pixels showed the Swift Arrival CLIENT title and public HUD.
+- The parcel was located inside the truck cargo body and collected using ordinary movement, mouse look, and E.
+- The parcel was carried on foot to the yellow destination zone without driving the loaded truck.
+- The preserved direct before-input PNG step48-toward-route-end.png simultaneously shows: CRATE CARRIED BY YOU; ROUTE 0 / 40 m; OBJECTIVE: TRUCK JOURNEY REQUIRED.
+- In the next single bash tool call, CLIENT was raised/focused, geometry queried, E pressed exactly once, 0.50 seconds elapsed, and the same region was captured.
+- The immediate after-input PNG after-shortcut-e.png explicitly shows red rejection text: "REJECTED: truck journey incomplete — drive the loaded truck to 40 m, then exit there". Delivery remains in progress and the crate remains carried.
+
+Result
+The controlled on-foot shortcut was explicitly rejected in the immediate atomic before/after pair. No delivery bypass was observed.
+
+Setup failures and repairs
+- Initial visible-window enumeration omitted DISPLAY and failed with "Can't open display". One bounded repair added DISPLAY=:1; enumeration then returned HOST ID 20971523. This occurred before CLIENT gameplay.
+- During navigation, a negative xdotool mouse-relative syntax error occurred after a backward movement and before capture. The resulting state was immediately captured without further gameplay input as step26-repair.png; the failed syntax and repaired capture are retained. It did not occur during the final atomic shortcut pair.
+
+Gaps and uncertainty
+- Window title for launch-first HOST was "Swift Arrival Dogfood 4 (DEBUG)" rather than containing the word HOST; HOST identity is based on deterministic launch order and the sole visible ID before CLIENT launch.
+- This Work proves only immediate shortcut rejection for this launch. It does not prove complete-journey success, overall playability, production readiness, or founder acceptance.

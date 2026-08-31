@@ -1,0 +1,30 @@
+Godot Engine v4.7.2.stable.official.ed1daf0bf - https://godotengine.org
+
+[11:25:15] ENet: client connecting to 127.0.0.1:24565 ...
+[11:25:15] ENet: CONNECTED to host as CLIENT peer 645442053
+[11:25:15] ENet: peer_connected id=1 (transport-level connection evidence)
+[11:25:15] PROBE(client): joined host session; running scripted delivery
+[11:25:15] PROBE(client): requested crate pickup via hand interaction
+[11:25:15] FEEDBACK[ok]: Picked up the crate (E unload in zone · Q drop)
+[11:25:16] PROBE(client,rec): DROPPED the crate behind the truck at route start
+[11:25:16] FEEDBACK[ok]: Dropped the crate — walk up and press E to pick it up again
+[11:25:16] PROBE(client,rec): crate at rest behind truck at world z=-5.81
+[11:25:16] PROBE(client,rec): requested re-grab of the dropped crate
+[11:25:16] FEEDBACK[ok]: Picked up the crate (E unload in zone · Q drop)
+[11:25:16] PROBE(client,rec): crate RECOVERED from behind the truck; reboarding to deliver
+[11:25:18] PROBE(client): requested driver position (walked cargo->cab through doorway)
+[11:25:18] FEEDBACK[info]: SEATED — W/S drive · E exits at the rear cargo threshold
+[11:25:18] PROBE(client): in driver seat, still holding crate
+[11:25:32] PROBE(client): host confirmed loaded truck at route end z=40.0
+[11:25:32] PROBE(client): left driver seat, carrying crate out of the truck to unload
+[11:25:32] HOST corrected your position (exited at rear cargo threshold)
+[11:25:32] FEEDBACK[info]: EXITED AT DESTINATION — unload the crate in the yellow zone
+[11:25:33] HOST corrected your position (teleport (3.18m horizontal, 0.00m vertical))
+[11:25:36] PROBE(client): requested UNLOAD in the destination zone
+[11:25:36] FEEDBACK[ok]: Unloaded the crate in the destination zone
+[11:25:36] FEEDBACK[ok]: DELIVERY COMPLETED — loaded route and destination unload verified
+[11:25:36] MISSION: DELIVERY COMPLETED (host-authoritative) — visible on this client (peer 645442053)
+[11:25:36] PROBE RESULT: PASS — positive delivery loop completed and visible on the client
+[11:25:37] PROBE: exiting (exit code 0)
+[11:25:37] ENet: server disconnected
+[11:25:37] PROBE: exiting (exit code 0)

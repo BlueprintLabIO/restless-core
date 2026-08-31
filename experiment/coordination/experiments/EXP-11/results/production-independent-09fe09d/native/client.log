@@ -1,0 +1,85 @@
+Godot Engine v4.7.2.stable.official.ed1daf0bf - https://godotengine.org
+WARNING: Your video card drivers seem not to support the required Vulkan version, switching to OpenGL 3.
+     at: DisplayServerX11 (platform/linuxbsd/x11/display_server_x11.cpp:7124)
+WARNING: Could not set V-Sync mode, as changing V-Sync mode is not supported by the graphics driver.
+     at: set_use_vsync (platform/linuxbsd/x11/gl_manager_x11.cpp:372)
+OpenGL API 4.5 (Core Profile) Mesa 22.3.6 - Compatibility - Using Device: Mesa/X.org - llvmpipe (LLVM 15.0.6, 128 bits)
+ALSA lib confmisc.c:855:(parse_card) cannot find card '0'
+ALSA lib conf.c:5180:(_snd_config_evaluate) function snd_func_card_inum returned error: No such file or directory
+ALSA lib confmisc.c:422:(snd_func_concat) error evaluating strings
+ALSA lib conf.c:5180:(_snd_config_evaluate) function snd_func_concat returned error: No such file or directory
+ALSA lib confmisc.c:1334:(snd_func_refer) error evaluating name
+ALSA lib conf.c:5180:(_snd_config_evaluate) function snd_func_refer returned error: No such file or directory
+ALSA lib conf.c:5703:(snd_config_expand) Evaluate error: No such file or directory
+ALSA lib pcm.c:2666:(snd_pcm_open_noupdate) Unknown PCM default
+ERROR: Condition "status < 0" is true. Returning: ERR_CANT_OPEN
+   at: init_output_device (drivers/alsa/audio_driver_alsa.cpp:97)
+WARNING: All audio drivers failed, falling back to the dummy driver.
+     at: initialize (servers/audio/audio_server.cpp:258)
+
+[09:59:14] ENet: client connecting to 127.0.0.1:24565 ...
+[09:59:14] ENet: CONNECTED to host as CLIENT peer 1593098264
+[09:59:14] ENet: peer_connected id=1 (transport-level connection evidence)
+[09:59:19] CAPTURE: saved /company/outputs/swift-arrival-independent-20260828T095848Z/native/shots/seq_000_01.png
+[09:59:24] CAPTURE: saved /company/outputs/swift-arrival-independent-20260828T095848Z/native/shots/seq_001_02.png
+[09:59:29] CAPTURE: saved /company/outputs/swift-arrival-independent-20260828T095848Z/native/shots/seq_002_03.png
+[09:59:34] CAPTURE: saved /company/outputs/swift-arrival-independent-20260828T095848Z/native/shots/seq_003_04.png
+[09:59:39] CAPTURE: saved /company/outputs/swift-arrival-independent-20260828T095848Z/native/shots/seq_004_05.png
+[09:59:41] FEEDBACK[ok]: Picked up the crate (E unload in zone · Q drop)
+[09:59:41] CAPTURE: saved /company/outputs/swift-arrival-independent-20260828T095848Z/native/shots/ev_grab.png
+[09:59:44] CAPTURE: saved /company/outputs/swift-arrival-independent-20260828T095848Z/native/shots/seq_005_06.png
+[09:59:49] CAPTURE: saved /company/outputs/swift-arrival-independent-20260828T095848Z/native/shots/seq_006_07.png
+[09:59:54] CAPTURE: saved /company/outputs/swift-arrival-independent-20260828T095848Z/native/shots/seq_007_08.png
+[09:59:56] FEEDBACK[ok]: Dropped the crate — walk up and press E to pick it up again
+[09:59:56] CAPTURE: saved /company/outputs/swift-arrival-independent-20260828T095848Z/native/shots/ev_drop.png
+[09:59:59] CAPTURE: saved /company/outputs/swift-arrival-independent-20260828T095848Z/native/shots/seq_008_09.png
+[10:00:05] CAPTURE: saved /company/outputs/swift-arrival-independent-20260828T095848Z/native/shots/seq_009_10.png
+[10:00:07] FEEDBACK[ok]: Picked up the crate (E unload in zone · Q drop)
+[10:00:07] CAPTURE: saved /company/outputs/swift-arrival-independent-20260828T095848Z/native/shots/ev_grab_11.png
+[10:00:10] CAPTURE: saved /company/outputs/swift-arrival-independent-20260828T095848Z/native/shots/seq_010_12.png
+[10:00:15] CAPTURE: saved /company/outputs/swift-arrival-independent-20260828T095848Z/native/shots/seq_011_13.png
+[10:00:20] CAPTURE: saved /company/outputs/swift-arrival-independent-20260828T095848Z/native/shots/seq_012_14.png
+[10:00:25] CAPTURE: saved /company/outputs/swift-arrival-independent-20260828T095848Z/native/shots/seq_013_15.png
+[10:00:30] CAPTURE: saved /company/outputs/swift-arrival-independent-20260828T095848Z/native/shots/seq_014_16.png
+[10:00:35] CAPTURE: saved /company/outputs/swift-arrival-independent-20260828T095848Z/native/shots/seq_015_17.png
+[10:00:40] CAPTURE: saved /company/outputs/swift-arrival-independent-20260828T095848Z/native/shots/seq_016_18.png
+[10:00:45] CAPTURE: saved /company/outputs/swift-arrival-independent-20260828T095848Z/native/shots/seq_017_19.png
+[10:00:50] CAPTURE: saved /company/outputs/swift-arrival-independent-20260828T095848Z/native/shots/seq_018_20.png
+[10:00:52] FEEDBACK[info]: SEATED — W/S drive · E exits at the rear cargo threshold
+[10:00:52] CAPTURE: saved /company/outputs/swift-arrival-independent-20260828T095848Z/native/shots/ev_seat.png
+[10:00:55] CAPTURE: saved /company/outputs/swift-arrival-independent-20260828T095848Z/native/shots/seq_019_21.png
+[10:01:00] CAPTURE: saved /company/outputs/swift-arrival-independent-20260828T095848Z/native/shots/seq_020_22.png
+[10:01:05] CAPTURE: saved /company/outputs/swift-arrival-independent-20260828T095848Z/native/shots/seq_021_23.png
+[10:01:10] CAPTURE: saved /company/outputs/swift-arrival-independent-20260828T095848Z/native/shots/seq_022_24.png
+[10:01:15] CAPTURE: saved /company/outputs/swift-arrival-independent-20260828T095848Z/native/shots/seq_023_25.png
+[10:01:20] CAPTURE: saved /company/outputs/swift-arrival-independent-20260828T095848Z/native/shots/seq_024_26.png
+[10:01:25] CAPTURE: saved /company/outputs/swift-arrival-independent-20260828T095848Z/native/shots/seq_025_27.png
+[10:01:30] CAPTURE: saved /company/outputs/swift-arrival-independent-20260828T095848Z/native/shots/seq_026_28.png
+[10:01:35] CAPTURE: saved /company/outputs/swift-arrival-independent-20260828T095848Z/native/shots/seq_027_29.png
+[10:01:40] CAPTURE: saved /company/outputs/swift-arrival-independent-20260828T095848Z/native/shots/seq_028_30.png
+[10:01:44] HOST corrected your position (exited at rear cargo threshold)
+[10:01:44] FEEDBACK[info]: EXITED ON FOOT — yellow destination is behind the truck · E unloads when prompted
+[10:01:44] CAPTURE: saved /company/outputs/swift-arrival-independent-20260828T095848Z/native/shots/ev_exit.png
+[10:01:45] CAPTURE: saved /company/outputs/swift-arrival-independent-20260828T095848Z/native/shots/seq_029_31.png
+[10:01:50] CAPTURE: saved /company/outputs/swift-arrival-independent-20260828T095848Z/native/shots/seq_030_32.png
+[10:01:55] CAPTURE: saved /company/outputs/swift-arrival-independent-20260828T095848Z/native/shots/seq_031_33.png
+[10:02:00] CAPTURE: saved /company/outputs/swift-arrival-independent-20260828T095848Z/native/shots/seq_032_34.png
+[10:02:05] CAPTURE: saved /company/outputs/swift-arrival-independent-20260828T095848Z/native/shots/seq_033_35.png
+[10:02:09] FEEDBACK[ok]: Unloaded the crate in the destination zone
+[10:02:09] FEEDBACK[ok]: DELIVERY COMPLETED — crate rests in the destination zone
+[10:02:09] MISSION: DELIVERY COMPLETED (host-authoritative) — visible on this client (peer 1593098264)
+[10:02:09] CAPTURE: saved /company/outputs/swift-arrival-independent-20260828T095848Z/native/shots/ev_unload.png
+[10:02:09] CAPTURE: saved /company/outputs/swift-arrival-independent-20260828T095848Z/native/shots/ev_delivered_36.png
+[10:02:10] CAPTURE: saved /company/outputs/swift-arrival-independent-20260828T095848Z/native/shots/seq_034_37.png
+[10:02:15] CAPTURE: saved /company/outputs/swift-arrival-independent-20260828T095848Z/native/shots/seq_035_38.png
+[10:02:20] CAPTURE: saved /company/outputs/swift-arrival-independent-20260828T095848Z/native/shots/seq_036_39.png
+[10:02:25] CAPTURE: saved /company/outputs/swift-arrival-independent-20260828T095848Z/native/shots/seq_037_40.png
+[10:02:30] CAPTURE: saved /company/outputs/swift-arrival-independent-20260828T095848Z/native/shots/seq_038_41.png
+[10:02:35] CAPTURE: saved /company/outputs/swift-arrival-independent-20260828T095848Z/native/shots/seq_039_42.png
+[10:02:40] CAPTURE: saved /company/outputs/swift-arrival-independent-20260828T095848Z/native/shots/seq_040_43.png
+[10:02:45] CAPTURE: saved /company/outputs/swift-arrival-independent-20260828T095848Z/native/shots/seq_041_44.png
+[10:02:50] CAPTURE: saved /company/outputs/swift-arrival-independent-20260828T095848Z/native/shots/seq_042_45.png
+[10:02:55] CAPTURE: saved /company/outputs/swift-arrival-independent-20260828T095848Z/native/shots/seq_043_46.png
+[10:03:00] CAPTURE: saved /company/outputs/swift-arrival-independent-20260828T095848Z/native/shots/seq_044_47.png
+[10:03:05] CAPTURE: saved /company/outputs/swift-arrival-independent-20260828T095848Z/native/shots/seq_045_48.png
+[10:03:10] CAPTURE: saved /company/outputs/swift-arrival-independent-20260828T095848Z/native/shots/seq_046_49.png

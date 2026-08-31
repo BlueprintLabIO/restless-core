@@ -1,0 +1,22 @@
+Work: 2e0f780f-8f4f-4d45-9a46-f2dc06c05b73
+Attempt: d6f3d5c5-d206-4046-82b3-3b0705e711e1
+Display: :1
+
+HOST launch chronology
+- Fresh process command: DISPLAY=:1 godot --path /company/projects/swift-arrival-candidate -- --host
+- First enumeration command omitted DISPLAY and failed: "Error: Can't open display: (null)". No gameplay input occurred.
+- Bounded repair: DISPLAY=:1 xdotool search --onlyvisible --name 'Swift Arrival'
+- Visible numeric ID after HOST launch: 20971523
+- Title: Swift Arrival Dogfood 4 (DEBUG)
+- This exact launch-first window was treated as HOST and minimized with xdotool windowminimize 20971523.
+
+CLIENT launch chronology
+- Fresh process command: DISPLAY=:1 godot --path /company/projects/swift-arrival-candidate -- --client
+- Visible numeric Swift Arrival ID after CLIENT launch: 23068675 (HOST remained minimized and therefore was not in the visible-only result).
+- Title: Swift Arrival Dogfood 4 — CLIENT (peer 1227329824)
+- Native geometry queried repeatedly before inputs/captures: X=2, Y=43, WIDTH=1278, HEIGHT=720, SCREEN=0.
+- CLIENT was never resized. Every accepted capture used scrot -a 2,43,1278,720 after raising/focusing ID 23068675 and querying geometry.
+
+Current-launch ID/title map
+- 20971523 => Swift Arrival Dogfood 4 (DEBUG) [launch-first HOST; minimized]
+- 23068675 => Swift Arrival Dogfood 4 — CLIENT (peer 1227329824) [CLIENT; visible, raised/focused]

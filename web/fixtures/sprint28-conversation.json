@@ -1,0 +1,71 @@
+{
+	"actor": {
+		"id": "exec",
+		"display": "The Exec",
+		"kind": "exec",
+		"role": "exec"
+	},
+	"focus": {
+		"after_message_id": 0,
+		"started_at": null
+	},
+	"messages": [
+		{
+			"id": 2801,
+			"from_actor": "owner",
+			"to_actor": "exec",
+			"body": "Morning. No update needed yet—I just want to think through the launch later today.",
+			"attachments": [],
+			"details": null,
+			"intent": null,
+			"context_path": null,
+			"created_at": "2026-08-31T00:10:00Z",
+			"read_at": "2026-08-31T00:10:05Z"
+		},
+		{
+			"id": 2802,
+			"from_actor": "exec",
+			"to_actor": null,
+			"body": "Morning. I can help you think through the launch when you're ready.",
+			"attachments": [],
+			"details": null,
+			"intent": {
+				"kind": "conversation",
+				"summary": "The owner wants to discuss the launch later; no action is needed now."
+			},
+			"context_path": null,
+			"created_at": "2026-08-31T00:10:06Z",
+			"read_at": null
+		},
+		{
+			"id": 2803,
+			"from_actor": "owner",
+			"to_actor": "exec",
+			"body": "Has the landing-page review finished, and do you need anything from me?",
+			"attachments": [],
+			"details": null,
+			"intent": null,
+			"context_path": null,
+			"created_at": "2026-08-31T00:20:00Z",
+			"read_at": "2026-08-31T00:20:05Z"
+		},
+		{
+			"id": 2804,
+			"from_actor": "exec",
+			"to_actor": null,
+			"body": "The landing page is ready for your review. It remains private.",
+			"attachments": [],
+			"details": null,
+			"intent": {
+				"kind": "work_feedback",
+				"summary": "The private landing page is ready for owner review.",
+				"outcome": "The private landing page passed its browser checks.",
+				"nextStep": "Mara will revise the page if you request changes.",
+				"ownerNeed": "Review the page, then accept it or request specific changes."
+			},
+			"context_path": null,
+			"created_at": "2026-08-31T00:20:06Z",
+			"read_at": null
+		}
+	]
+}

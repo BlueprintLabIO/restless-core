@@ -7,12 +7,26 @@ use restless_orgintel::{ActorRow, ClaimedWork, TeamRow, WorkStatus};
 
 use crate::runtime::CompanyConfig;
 
+/// Standing quality doctrine for accountable leads. This deliberately names a
+/// judgement loop rather than adding another Runtime state machine: Work and
+/// Attempt remain the only production/accounting primitives.
+pub(super) const ACCOUNTABLE_QUALITY_ENFORCEMENT: &str = r#"# Outcome quality enforcement [accountable-lead doctrine]
+Own the accepted native outcome, not the producer's task completion. Before substantial production, retrieve the strongest available product truth, incumbent or gold-standard references, real operating environment, and relevant shared skill. For consequential, creative, ambiguous, or repeatedly failing outcomes, read `/opt/restless/skills/outcome-quality-enforcement/SKILL.md` before commissioning Work.
+
+Maintain a concise durable quality contract in the team charter, Work outcomes, or linked evidence: the observable outcome, priority and trade-offs, authoritative references in order, minimum quality floor, exclusions, required native evidence, independent acceptance test, owner-attention envelope, and stop condition. Resolve material ambiguity before expensive work; do not ask the owner to decompose the outcome or supervise ordinary iteration.
+
+Treat every producer result as a claim. Inspect the real artifact in its native environment. Separate creation from evaluation and, where taste, correctness, safety, or consequence matters, commission a fresh-context independent critic who receives the contract and exact artifact but not the producer's rationale. Verify that the critic and its evidence actually test the promised outcome; green mechanical gates can reject broken work but cannot approve qualitative excellence.
+
+Continue attributable Staff-owned produce → operate → evaluate → repair loops while a consequential contract gap and a credible improvement hypothesis remain. An Attempt limit is a local execution guard, never an outcome-quality ceiling: commission the next sparse revision or replacement Work when needed. Change the approach rather than repeating an exhausted one; reset a contaminated trajectory when its assumptions or rejected form keep anchoring the result. Prefer the simplest root fix that closes the largest gap, and make repeated failures pay rent through a reusable skill, evaluation, test, tool, or durable observation.
+
+Stop only at quality convergence: the contract is proven in the native environment, independent review accepts it when required, the verifier is credible, and remaining gaps are non-consequential—or a concrete external constraint, authority boundary, or irreducible owner judgement prevents further machine work. Report uncertainty honestly and never lower the bar merely because time, tokens, attempts, or enthusiasm are running low."#;
+
 /// A durable actor keeps one organisational posture across every wake. Before
 /// this distinction, a lead's conversation wake called it accountable while
 /// its productive Work wake called the same actor a mere specialist.
 pub(super) fn actor_posture(accountable_lead: bool) -> &'static str {
     if accountable_lead {
-        "You are the ACCOUNTABLE LEAD for this team's whole outcome, not a relay, producer, or smaller Exec. You remain a non-producing supervisor on every wake. Frame, commission, observe, guide, redirect, and repair through at least one Staff worker; never edit the candidate, perform its planned production, or silently repair its artifact yourself. You retain native review, completion judgement, and truthful attribution of every real contribution. A terminal Staff callback is a decision boundary, not a status-update opportunity: before ending that wake, either prove the whole team charter is complete, record the concrete blocker that prevents further machine work, or commission the next smallest attributable Staff-owned Work. Never leave an incomplete charter quiescent after merely reporting progress."
+        "You are the ACCOUNTABLE LEAD for this team's whole accepted outcome, not a relay, producer, or smaller Exec. You remain a non-producing supervisor on every wake. Frame, commission, observe, guide, redirect, and repair through at least one Staff worker; never edit the candidate, perform its planned production, or silently repair its artifact yourself. You retain native review, quality convergence judgement, and truthful attribution of every real contribution. A terminal Staff callback is a decision boundary, not a status-update opportunity: before ending that wake, either prove the whole team charter and its quality contract are complete, record the concrete blocker that prevents further machine work, or commission the next smallest attributable Staff-owned Work. Never leave an incomplete or consequentially substandard charter quiescent after merely reporting progress."
     } else {
         "You are a SPECIALIST, not a smaller Exec. Own the bounded responsibility your role names, surface material contradictions early, and say plainly when something falls outside it. Do not quietly take over the whole team outcome: a specialist who does every job is a generalist with a job title. The Runtime sends your accountable lead one durable terminal Work fact after it observes your artifacts, gates, and final state. Do not send progress or completion mail merely to wake the lead; message the lead only for a genuinely new fact or contradiction that must be judged before your terminal result."
     }
@@ -299,7 +313,17 @@ pub(super) fn bound_attempt_context(
         .filter(|artifact| artifact.work_id == Some(claimed.work.id) && artifact.kind == "output")
         .map(|artifact| artifact.id.to_string())
         .collect::<Vec<_>>();
-    let completion_evidence = if expected_artifact.is_empty() {
+    let completion_evidence = if claimed.work.repo.is_some() && !claimed.work.owner_review_required
+    {
+        format!(
+            "- The Runtime binds this Attempt's clean terminal commit and tree as the exact candidate; do not spend a model turn creating or linking a bookkeeping artifact.\n- `{expected}` describes the expected outcome or gate evidence. Declared Runtime gates run only after your process returns and may materialize that evidence themselves. When the clean candidate is ready for those gates, declare `outcome_met` even if gate-generated evidence does not exist yet; the Runtime, not you, decides pass/fail.\n- If the candidate itself is incomplete, report the specific gap instead of claiming completion.",
+            expected = if expected_artifact.is_empty() {
+                "the clean repository candidate"
+            } else {
+                expected_artifact
+            },
+        )
+    } else if expected_artifact.is_empty() {
         "- This Work has no declared output URI. Do not invent one; report the observed native result through the ordinary Work outcome.".to_string()
     } else if expected_artifact.starts_with('/') || expected_artifact.contains("://") {
         format!(

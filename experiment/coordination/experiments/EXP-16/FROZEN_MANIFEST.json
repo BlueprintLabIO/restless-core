@@ -1,0 +1,129 @@
+{
+  "schema_version": 1,
+  "experiment": "EXP-16",
+  "status": "active",
+  "activated_at": "2026-08-30T03:05:00Z",
+  "authority": "Founder authorised execution of all three programme stages on 30 August 2026",
+  "activation_gates": {
+    "founder_authority": "pass",
+    "sprint_26_exact_substrate": "pass",
+    "exp_15_terminal_candidate": "pass",
+    "provider_routes": "pass",
+    "aggregate_spend_ceiling": "frozen",
+    "isolated_repository_seed": "pass"
+  },
+  "substrate": {
+    "activation_receipt_sha256": "9f2e598922e42d53233ea3f43b0644cab51d89f3acec4d81a413b67ae467bf37",
+    "runtime_source_digest": "36a9319a6285a44e67190702e381bd068af95af8aa8dfffc5bb57f038d75156a",
+    "company_image_id": "sha256:2787bb8b545dce13015919bec8334894ddeb47bc6bc97b2df8f8eabba3ef0574",
+    "runtime_reconciliation": "current",
+    "doctor_status": "live"
+  },
+  "product": {
+    "source_experiment": "EXP-15",
+    "candidate_commit": "29f2fe75e9f891f7533faa0a93d8c127e73909c5",
+    "candidate_tree": "fb3092d7c422e941bb21d565efcbfddaabd40f51",
+    "repository": "/company/repos/swift-arrival",
+    "branch": "main",
+    "handoff_bundle_sha256": "afebb4811b610c0fdaa82b849c19382ade7ca76b0f8716d3df92481ec0bbe061",
+    "working_tree": "clean",
+    "baseline_disposition": "mechanically-green-player-invalid",
+    "preset": "baseline",
+    "presentation": "baseline",
+    "scenario": "depot_to_destination",
+    "canonical_seed": 15001
+  },
+  "toolchain": {
+    "platform": "linux-aarch64",
+    "godot": "4.7.2.stable.official.ed1daf0bf",
+    "project_godot_sha256": "bcd630f68188c625e564d5499170ca8d112a96ff2d347e24b13ed183e14f264e",
+    "gate_set_sha256": "eaf61b2cd19b6afdce75ea47df1f4ff32a248e8eaf8b9e4e831d9ce47a1e416b"
+  },
+  "specifications": {
+    "baseline_sha256": "988f49e6528d908b5edbf8ef63d662beaa6071e3733ada75c122e97945e634b5",
+    "protocol_sha256": "d3b7aa8585c503efab56f9e1ac63daa4223c19dc67fb536d68b98192a3e600fc",
+    "npc_architecture_sha256": "e2b91ae03d87b7a0f237ac965afb48f876e92f7ddb05c3ebb35cd115661b0c78",
+    "scenario_spec_sha256": "7ff3380c259e002c922fda36413aac4b4e14cffa5529f41aef9e110047ff84aa",
+    "evidence_and_blind_rubric_sha256": "97e7690d4bf2fd5c1b5081434d4b531ad5a3e0965c026ba6b0a75b4bfb7ab361",
+    "company_config_sha256": "207dfa8b674ae87637c39079b808b43f1acc6e63a20d59a765702aaea56b8380"
+  },
+  "models": {
+    "producer": {
+      "route": "litellm/gpt-5.6-sol",
+      "provider_model": "gpt-5.6-sol",
+      "effort": "high",
+      "modalities": ["text", "tools"],
+      "preflight_response_id": "resp_03456625c11b47aa016a939b7c8be887d0b36e6b258dda2a16",
+      "preflight_status": "completed"
+    },
+    "critic": {
+      "route": "litellm/gpt-5.6-terra",
+      "provider_model": "gpt-5.6-terra",
+      "effort": "medium",
+      "modalities": ["text", "vision"],
+      "preflight_response_id": "resp_0f6fa3180462501f016a939ba3068487d0b4912e4dd2025496",
+      "preflight_status": "completed",
+      "preflight_observation": "Pixel-art male character sprites"
+    }
+  },
+  "budget_usd": {
+    "aggregate": 120,
+    "S0": 8,
+    "S1": 30,
+    "S2": 18,
+    "S3": 18,
+    "S4": 14,
+    "S5": 14,
+    "S6": 12,
+    "S7": 6
+  },
+  "seeds": {
+    "controller_vault_sha256": "98958f8ce1958d954540668c9f8b6c35a492f5823cb1867b113a8f72109c06f7",
+    "visible_and_role_commitment_sha256": "3eca604b58c85cfc409f55ecbea6842934c7c414a5743eec69a0dbc549c1d9b9",
+    "held_out_commitment_sha256": "175f2ff43920e465a53d4c5ebd23df910036735a246e055be11973adf17a004e",
+    "world_seed_derivation": "low_u32_be(sha256('exp16/world/' + scenario_id + '/' + scenario_seed))",
+    "policy_seed_derivation": "low_u32_be(sha256('exp16/policy/' + scenario_id + '/' + scenario_seed))",
+    "visible_delivery": {
+      "DEL-C1": 1928380145,
+      "DEL-C2": 3328854120,
+      "DEL-G1": 3231368285,
+      "DEL-G2": 1297734338,
+      "DEL-R1": 3495899810,
+      "DEL-R2": 4128439393
+    },
+    "visible_recovery": {
+      "REC-INT-V": 2977019990,
+      "REC-DOOR-V": 3926769626,
+      "REC-CARGO-V": 1017255019,
+      "REC-TURN-V": 2507807540,
+      "REC-VEH-V": 3604238347,
+      "REC-EXIT-V": 2281590004,
+      "REC-PICK-V": 61820216,
+      "REC-OSC-V": 3739744816
+    },
+    "production_roles": {
+      "ROB-01": 2155355829,
+      "ROB-02": 2654291182,
+      "ROB-03": 2310241693,
+      "ROB-04": 3969149318,
+      "ROB-05": 2480189572,
+      "ROB-06": 1617495158,
+      "VAM-01": 1819643862,
+      "VAM-02": 1500080070,
+      "VAM-03": 1934919935,
+      "VAM-04": 2276227412,
+      "VAM-05": 338002502,
+      "VAM-06": 3644002980
+    },
+    "held_out_values_exposed_to_producer": false
+  },
+  "evidence": {
+    "output_root": "/company/outputs/exp16",
+    "raw_capture_retention": "delete after compact synthesis",
+    "max_decisive_frames_per_review": 12,
+    "timeouts_are_success": false,
+    "unknown_metrics_become_zero": false,
+    "npc_completion_proves_fun": false
+  },
+  "invalidated_by": "Any change to substrate semantics, exact product tree, protocol/spec bytes, model/effort/tool envelope, seed commitments, gate set or blind rubric without an append-only amendment"
+}

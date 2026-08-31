@@ -9,7 +9,7 @@ export type OwnerAttachment = { uploadId: string, name: string, mediaType: strin
 
 export type OwnerIntentKind = "conversation" | "work_feedback" | "direction" | "authority";
 
-export type OwnerIntentReceipt = { kind: OwnerIntentKind, summary: string, };
+export type OwnerIntentReceipt = { kind: OwnerIntentKind, summary: string, outcome?: string | null, nextStep?: string | null, ownerNeed?: string | null, };
 
 export type ConversationActorView = { id: string, display: string, kind: string, role: string, };
 

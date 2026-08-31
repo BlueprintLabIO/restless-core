@@ -1,7 +1,7 @@
 # Restless company image — the persistent company computer (ARCHITECTURE.md §5).
 #
 # Build from the REPO ROOT (the CLI stage needs the workspace):
-#   docker build -f infra/company-image/Dockerfile -t restless-company-image:latest .
+#   docker build -f infra/company-image/Dockerfile -t restless-company-image:<version> .
 #
 # Salvaged from the legacy infra/sandbox-agent/Dockerfile package list, with the
 # two assumptions that made it a per-turn disposable sandbox stripped:
@@ -20,16 +20,6 @@ RUN cargo build --release -p restless
 FROM node:24-bookworm-slim
 
 ENV DEBIAN_FRONTEND=noninteractive
-ARG RESTLESS_CORE_VERSION=0.0.0
-ARG RESTLESS_SOURCE_REVISION=unknown
-ARG RESTLESS_API_CONTRACT_VERSION=1
-ARG RESTLESS_ASSERTION_CONTRACT_VERSION=1
-ARG RESTLESS_SCHEMA_VERSION=20
-ENV RESTLESS_CORE_VERSION=${RESTLESS_CORE_VERSION} \
-    RESTLESS_SOURCE_REVISION=${RESTLESS_SOURCE_REVISION} \
-    RESTLESS_API_CONTRACT_VERSION=${RESTLESS_API_CONTRACT_VERSION} \
-    RESTLESS_ASSERTION_CONTRACT_VERSION=${RESTLESS_ASSERTION_CONTRACT_VERSION} \
-    RESTLESS_SCHEMA_VERSION=${RESTLESS_SCHEMA_VERSION}
 
 RUN apt-get update \
     && apt-get install --yes --no-install-recommends \
@@ -47,17 +37,31 @@ RUN apt-get update \
         openbox \
 		pcmanfm \
         python3 \
-        ripgrep \
-        socat \
+		ripgrep \
+		scrot \
+		socat \
         supervisor \
 		tint2 \
         tigervnc-standalone-server \
         tini \
 		unzip \
 		wmctrl \
-        websockify \
+		websockify \
+		xdotool \
+		xterm \
 		x11-xserver-utils \
     && rm -rf /var/lib/apt/lists/*
+
+ARG RESTLESS_CORE_VERSION=0.0.0
+ARG RESTLESS_SOURCE_REVISION=unknown
+ARG RESTLESS_API_CONTRACT_VERSION=1
+ARG RESTLESS_ASSERTION_CONTRACT_VERSION=1
+ARG RESTLESS_SCHEMA_VERSION=21
+ENV RESTLESS_CORE_VERSION=${RESTLESS_CORE_VERSION} \
+    RESTLESS_SOURCE_REVISION=${RESTLESS_SOURCE_REVISION} \
+    RESTLESS_API_CONTRACT_VERSION=${RESTLESS_API_CONTRACT_VERSION} \
+    RESTLESS_ASSERTION_CONTRACT_VERSION=${RESTLESS_ASSERTION_CONTRACT_VERSION} \
+    RESTLESS_SCHEMA_VERSION=${RESTLESS_SCHEMA_VERSION}
 
 # The ACP agent binary: omp (Oh My Pi), which speaks ACP natively and reports
 # per-turn token and dollar usage on the session stream — the fact that moved
@@ -68,9 +72,19 @@ RUN apt-get update \
 # user can execute what root installed.
 ENV BUN_INSTALL=/usr/local/bun
 RUN npm install -g bun@1.3.14 \
-    && bun install -g @oh-my-pi/pi-coding-agent@17.4.2 \
+    && bun install -g @oh-my-pi/pi-coding-agent@18.0.10 \
     && ln -sf ${BUN_INSTALL}/bin/omp /usr/local/bin/omp \
     && chmod -R a+rX ${BUN_INSTALL} \
+    && npm cache clean --force
+
+# First-party Codex session runtime. Restless drives this through the documented
+# app-server protocol when a Codex actor backend is selected; OMP remains a
+# separately supported ACP backend. Pinning the CLI makes thread, event,
+# approval and usage semantics part of the company-image contract rather than
+# whatever npm happens to publish on rebuild day.
+ARG CODEX_CLI_VERSION=0.151.0
+RUN npm install -g "@openai/codex@${CODEX_CLI_VERSION}" \
+    && test "$(codex --version)" = "codex-cli ${CODEX_CLI_VERSION}" \
     && npm cache clean --force
 
 # S04-T2. pnpm, pinned, installed system-wide.
@@ -94,8 +108,9 @@ RUN corepack enable pnpm \
 
 # An ordinary open-source CLI, not a Restless provider adapter. Authority
 # injects RESEND_API_KEY only into the exact governed child process.
-RUN npm install -g resend-cli@2.12.0 \
+RUN npm install -g resend-cli@2.12.0 mcp-remote@0.8.1 \
     && resend --version \
+    && command -v mcp-remote \
     && npm cache clean --force
 
 # Playwright library for browser-driven acceptance (T11). Uses the Debian
@@ -120,11 +135,11 @@ RUN set -eux; \
         arm64) godot_platform=linux.arm64; godot_binary="Godot_v${GODOT_VERSION}-stable_linux.arm64"; godot_sha256=5dd0d86405cf7e8adf79fb6377b38ba682a2846cb378ffe5364f38c01ad29b9d ;; \
         *) echo "unsupported Godot image architecture: $TARGETARCH" >&2; exit 1 ;; \
     esac; \
-    curl --fail --location --silent --show-error "https://downloads.godotengine.org/?flavor=stable&platform=${godot_platform}&slug=${godot_platform}.zip&version=${GODOT_VERSION}" --output /tmp/godot.zip; \
+    curl --fail --location --silent --show-error --http1.1 --retry 5 --retry-all-errors --retry-delay 2 "https://downloads.godotengine.org/?flavor=stable&platform=${godot_platform}&slug=${godot_platform}.zip&version=${GODOT_VERSION}" --output /tmp/godot.zip; \
     echo "${godot_sha256}  /tmp/godot.zip" | sha256sum --check --status; \
     unzip -q /tmp/godot.zip -d /tmp/godot; \
     install -m 0755 "/tmp/godot/${godot_binary}" /usr/local/bin/godot; \
-    curl --fail --location --silent --show-error "https://downloads.godotengine.org/?flavor=stable&platform=templates&slug=export_templates.tpz&version=${GODOT_VERSION}" --output /tmp/godot-templates.tpz; \
+    curl --fail --location --silent --show-error --http1.1 --retry 5 --retry-all-errors --retry-delay 2 "https://downloads.godotengine.org/?flavor=stable&platform=templates&slug=export_templates.tpz&version=${GODOT_VERSION}" --output /tmp/godot-templates.tpz; \
     echo "f298490b8d44d934be425a5a65a51bf15f422428b229a06a6e11d9ffea248011  /tmp/godot-templates.tpz" | sha256sum --check --status; \
     mkdir -p "/opt/restless/godot/export_templates/${GODOT_VERSION}.stable"; \
     unzip -j -q /tmp/godot-templates.tpz \
@@ -144,23 +159,43 @@ COPY infra/company-image/wait-for-display.sh /usr/local/bin/wait-for-company-dis
 COPY infra/company-image/start-chromium.sh /usr/local/bin/start-company-chromium
 COPY infra/company-image/start-desktop-panel.sh /usr/local/bin/start-company-desktop-panel
 COPY infra/company-image/focus-chromium.sh /usr/local/bin/focus-company-chromium
+COPY infra/company-image/start-terminal.sh /usr/local/bin/start-company-terminal
+COPY infra/company-image/start-godot.sh /usr/local/bin/start-company-godot
+COPY infra/company-image/refresh-desktop-launchers.sh /usr/local/bin/refresh-company-desktop-launchers
 COPY infra/company-image/git-credential-restless /usr/local/bin/git-credential-restless
 COPY infra/company-image/skills /opt/restless/skills
 COPY infra/company-image/tint2rc /etc/restless/tint2rc
 COPY infra/company-image/company-browser.desktop /usr/share/applications/company-browser.desktop
+COPY infra/company-image/company-terminal.desktop /usr/share/applications/company-terminal.desktop
+COPY infra/company-image/company-godot.desktop /usr/share/applications/company-godot.desktop
 COPY infra/company-image/browser-broker.mjs /usr/local/lib/restless/browser-broker.mjs
 COPY infra/company-image/release-health.mjs /usr/local/lib/restless/release-health.mjs
 COPY tools/scenario/restless-scenario.mjs /usr/local/lib/restless/restless-scenario.mjs
+COPY tools/web-review/restless-web-review.mjs /usr/local/lib/restless/restless-web-review.mjs
+COPY tools/codex-runner/restless-codex-runner.mjs /usr/local/lib/restless/restless-codex-runner.mjs
+COPY tools/codex-runner/restless-codex-parity-preflight.mjs /usr/local/lib/restless/restless-codex-parity-preflight.mjs
+COPY tools/codex-runner/restless-codex-task-run.mjs /usr/local/lib/restless/restless-codex-task-run.mjs
+COPY tools/codex-runner/restless-codex-longitudinal-run.mjs /usr/local/lib/restless/restless-codex-longitudinal-run.mjs
 COPY infra/company-image/supervisord.conf /etc/supervisor/conf.d/restless.conf
 RUN chmod 0555 /usr/local/bin/company-init /usr/local/bin/wait-for-company-display \
         /usr/local/bin/start-company-chromium /usr/local/bin/start-company-desktop-panel \
-        /usr/local/bin/focus-company-chromium /usr/local/bin/git-credential-restless \
+        /usr/local/bin/focus-company-chromium /usr/local/bin/start-company-terminal \
+        /usr/local/bin/start-company-godot /usr/local/bin/refresh-company-desktop-launchers \
+        /usr/local/bin/git-credential-restless \
         /usr/local/lib/restless/restless-scenario.mjs \
+        /usr/local/lib/restless/restless-web-review.mjs \
+        /usr/local/lib/restless/restless-codex-runner.mjs \
+        /usr/local/lib/restless/restless-codex-parity-preflight.mjs \
+        /usr/local/lib/restless/restless-codex-task-run.mjs \
+        /usr/local/lib/restless/restless-codex-longitudinal-run.mjs \
     && chmod -R a=rX /opt/restless/skills \
     && chmod 0444 /usr/local/lib/restless/browser-broker.mjs \
         /usr/local/lib/restless/release-health.mjs /etc/supervisor/conf.d/restless.conf \
-        /etc/restless/tint2rc /usr/share/applications/company-browser.desktop
+        /etc/restless/tint2rc /usr/share/applications/company-browser.desktop \
+        /usr/share/applications/company-terminal.desktop /usr/share/applications/company-godot.desktop
 RUN ln -s /usr/local/lib/restless/restless-scenario.mjs /usr/local/bin/restless-scenario
+RUN ln -s /usr/local/lib/restless/restless-web-review.mjs /usr/local/bin/restless-web-review
+RUN ln -s /usr/local/lib/restless/restless-codex-runner.mjs /usr/local/bin/restless-codex-runner
 
 # The coordination CLI, and where it finds the daemon from inside the
 # container (TCP: unix sockets do not cross the Docker Desktop file share —

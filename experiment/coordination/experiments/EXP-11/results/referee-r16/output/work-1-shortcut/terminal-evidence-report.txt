@@ -1,0 +1,47 @@
+TERMINAL EVIDENCE REPORT
+Work d217b542-07a0-43d5-b274-6365bb4237ed · Attempt d01a07d7-7b64-4564-985d-c664faa337ca
+
+RESULT
+Evidence incomplete for the Work's exact acceptance condition. The run produced later direct pixels of an explicit loaded-truck-journey requirement, but it did not produce an unambiguous immediate before/after pair proving that E was pressed while visibly inside the destination zone. I therefore do not claim outcome_met.
+
+OBSERVATIONS (pixels read in this active turn)
+
+- 001-initial-client.png, recorded 2026-08-28 15:48:48.755471002 UTC: title bar visibly says "SWIFT ARRIVAL · CLIENT · peer 901747027 · connected 1". HUD visibly says "ON FOOT", "CRATE free", "ROUTE 0 / 40 m", "OBJECTIVE: PICK UP THE CRATE", and "Approach crate · E PICK UP".
+
+- 026-after-pickup-attempt.png: after an E input near the visually located crate, the rendered parcel occupies the foreground and subsequent HUD pixels identify it as carried.
+
+- 037-before-e-inside-zone.png, recorded 2026-08-28 15:59:44.036086014 UTC: the foreground visibly contains the parcel; HUD says "CRATE CARRIED BY YOU" and "ROUTE 0 / 40 m". Yellow destination poles and the translucent yellow marked area are visible adjacent to/around the viewpoint. The exact player collision point relative to the boundary is not unambiguous from these pixels.
+
+- 038-after-e-inside-zone.png, recorded 2026-08-28 16:00:05.996321010 UTC: this is the direct capture immediately after E. It still visibly says "OBJECTIVE: COMPLETE THE LOADED TRUCK JOURNEY" and does not display explicit rejection text.
+
+- 039-deeper-zone.png, recorded 2026-08-28 16:00:25.944834005 UTC, and 040-zone-center.png, recorded 2026-08-28 16:00:47.357100001 UTC: parcel remains visibly carried while the player moves through/across the yellow marked area; route remains 0 / 40 m.
+
+- 041-turn-back-zone.png, recorded 2026-08-28 16:01:13.500100013 UTC: title bar still visibly identifies CLIENT. HUD visibly says "ON FOOT · DELIVERY IN PROGRESS · CRATE CARRIED BY YOU · ROUTE 0 / 40 m". It explicitly says "OBJECTIVE: TRUCK JOURNEY REQUIRED" and "Drive loaded truck 0 → 40 m, then exit at route end" while the destination marker remains visible.
+
+WINDOW AND SETUP OBSERVATIONS
+
+- Full visible window map after both launches:
+  - 20971523: "Swift Arrival Dogfood 4 (DEBUG)"
+  - 23068675: "Swift Arrival Dogfood 4 — CLIENT (peer 901747027)"
+- 20971523 was present after host launch and before client launch; 23068675 was the newly visible CLIENT window.
+- HOST 20971523 minimized successfully. Visible-window enumeration afterward returned only CLIENT 23068675. No bounded repair was needed.
+- Exact CLIENT geometry repeatedly observed before inputs and captures: X=2, Y=43, WIDTH=1278, HEIGHT=720, SCREEN=0. CLIENT was not resized.
+- Each numbered PNG was captured only from that exact region after raising/focusing 23068675 and querying geometry, then read with OMP's ordinary read tool.
+
+INFERENCE
+
+- PNG 041 supports the inference that the candidate reached a state which explicitly requires the loaded-truck route and did not accept the on-foot shortcut as completed delivery: crate is still carried, route is still 0 / 40 m, and the rendered objective explicitly requires truck travel.
+- This inference is weaker than the Work's demanded proof because the explicit text was observed after additional movement rather than in the immediate post-E PNG.
+
+UNCERTAINTY / GAPS
+
+- PNG 037 does not make the exact player collision point inside the zone unambiguous.
+- PNG 038, the direct immediate post-E image, contains no explicit rejection text.
+- PNG 041 contains explicit journey-requirement text but is not the immediate post-E image.
+- The launch was closed before this proof gap was recognized. A second launch would violate this Work's one-launch scope, so I did not relaunch.
+- I did not enter or drive the truck, perform a loaded-truck journey, begin the complete intended journey, inspect source, Git history, tests, logs, producer material, or other Work evidence.
+- Complete-journey success remains entirely unverified and outside this Work.
+
+ARTIFACT DECISION
+
+The evidence directory and this report were preserved, but I did not link the directory as completion proof because the exact direct inside-zone before / explicit post-E requirement is not fully met.

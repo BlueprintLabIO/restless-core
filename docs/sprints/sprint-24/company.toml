@@ -1,0 +1,35 @@
+name = "restless_interaction_foundry_test"
+mission = """
+# Dogfood 6 — Restless interaction foundry
+
+Build a complete internal Svelte interaction registry from Cult UI's frozen public component
+catalogue at commit 3b855612fb524cb042cc91b65f0cd575057471cc, prioritising motion, shader,
+morphing and animated ideas. Port every in-scope public component idiomatically to Svelte 5, with
+live defining-behavior demos, exact provenance, accessibility and reduced-motion behavior,
+responsive evidence, bounded dependencies and rendering lifecycle notes. No React or Next runtime
+islands count as ports.
+
+Then revise the exact Restless Cloud site baseline
+a812052e3252d2c546562ffe6447e07809a6f5ee at canonical path `site/`. Use only a restrained subset of
+accepted ports. Replace the hero graphic with an abstract, product-native Liquid Metal
+interpretation; make every UI-like encounter either faithful to the actual Restless product or
+deliberately abstract; preserve Bridge Light as visual source of truth. Make every Blog route fully
+standalone, with no visitor obligation to open Markdown files, repository paths or private evidence.
+
+Operate through a non-producing design-engineering lead, accountable producers for locally complete
+families, one whole-site integrator and a fresh independent critic. Shared foundations, registry
+schema and design tokens require named ownership. The critic judges the exact live registry and
+complete site at desktop, mobile and reduced motion, not only builds or screenshots. Return one exact
+local ReviewTarget for founder accept/request-changes.
+
+Do not push, merge, publish, deploy, purchase or access paid Cult Pro source, contact upstream
+authors, invent claims, or make another external business effect. Preserve all licence notices and
+record exact blockers rather than hiding gaps. Prioritise result and quality over speed.
+"""
+spend_ceiling_usd = "100"
+model = "openai-codex/gpt-5.6-sol"
+model_failover = []
+approved_parties = []
+
+[credentials]
+"model.inference.openai-codex" = "omp-oauth:openai-codex"

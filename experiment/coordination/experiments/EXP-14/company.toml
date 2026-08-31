@@ -1,0 +1,43 @@
+name = "exp14_swift_arrival_tight_loop_test"
+mission = """
+Execute EXP-14 from `/company/EXP14_PROTOCOL.md` and
+`/company/reference/exp-sprint-14-swift-arrival-tight-loop.md`.
+
+Exec must delegate the whole outcome once to one accountable non-producing Game Product lead and
+return to availability. The lead supervises the native Runtime seam, gameplay repair, deterministic
+gates, independent source-blind playtests, bounded repair and terminal synthesis. The lead must not
+implement code, manipulate the game, play it, or repair evidence directly.
+
+Use exact `zhipu-coding-plan/glm-5.3-flash` for the remaining cognitive actors. This is the
+OpenAI-compatible coding route on the same host named by local `ZAI_BASE_URL`; it avoids treating the
+Anthropic path as a Chat Completions base. The earlier HTTP 200 from that wrong mixed path was only a
+business-error envelope, not successful model output. The native coding route reports provider code
+1310 and a 30 August reset. The frozen `litellm/gpt-5.6-terra` fallback is independently quota-bound.
+
+Start from the exact Git repository at `/company/repos/swift-arrival`, whose initial commit contains
+the EXP-11 candidate. One gameplay Staff producer owns the coherent product repair. A separate Runtime
+Staff producer is permitted only for the independently useful scratch `native-session` launch-to-handle
+tool. Independent player Work must be repo-less and may read only the frozen public objective, controls,
+read-only candidate and public Runtime tool. It must not read source, Git, logs, tests, producer
+messages, known defects, earlier player evidence or another player's context.
+
+The target product gate is two sequential fresh complete rendered journeys with explicit delivery,
+plus preserved shortcut rejection and recovery. Stop on a conclusive blocker; permit at most one
+evidence-driven product repair after the first candidate, then restart the two-run gate. Run native
+sessions sequentially. Do not add content or claim fun.
+
+Keep no more than 12 decisive PNGs per player run, write compact evidence below
+`/company/outputs/exp14`, and finish with `RESULTS.md`, `FRICTIONS.md` and `metrics.json`. Preserve
+negative evidence, record per-Work spend/time where observable, and stop before USD 60.
+
+No outreach, purchase, login, public deployment, live-company mutation, secret inspection, Core
+promotion or external effect is authorised.
+"""
+spend_ceiling_usd = "60"
+model = "zhipu-coding-plan/glm-5.3-flash"
+model_failover = []
+approved_parties = []
+
+[credentials]
+"model.inference.zhipu-coding-plan" = "env:ZAI_API_KEY"
+"model.inference.litellm" = "env:GPT_API_KEY"

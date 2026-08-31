@@ -1,0 +1,36 @@
+{
+  "work_id": "bd5b4912-e2fa-404a-b7b4-c5f18a8bd644",
+  "attempt_id": "3b610854-ae84-4b3a-bdd7-f4b4f9bea4a2",
+  "proposed_verdict": "invalid",
+  "reason": "Exact CLIENT routing remained unavailable after one bounded setup repair: every screenshot captured from the numeric window whose xdotool title said CLIENT visibly rendered a HOST role label.",
+  "evidence": [
+    {
+      "path": "/company/outputs/exp11-referee/candidate-r12/attempt-3b610854-run1/r1-00-initial.png",
+      "window_id": 23068675,
+      "mapped_title": "Swift Arrival Dogfood 4 — CLIENT (peer 1938738907)",
+      "geometry": {"x": 2, "y": 43, "width": 1278, "height": 720, "screen": 0},
+      "same_session_pixel_observation": "Top HUD visibly says SWIFT ARRIVAL · HOST · peer 1 · connected 1; on-foot, crate-free, route 0/40 m, pick-up-crate state visible. Pixels do not identify CLIENT."
+    },
+    {
+      "path": "/company/outputs/exp11-referee/candidate-r12/attempt-3b610854-run1/r1-01-initial-repair.png",
+      "window_id": 18874371,
+      "mapped_title": "Swift Arrival Dogfood 4 — CLIENT (peer 145444300)",
+      "geometry": {"x": 2, "y": 43, "width": 1278, "height": 720, "screen": 0},
+      "same_session_pixel_observation": "After clean process stop and sequential relaunch, top HUD again visibly says SWIFT ARRIVAL · HOST · peer 1 · connected 1; pixels do not identify CLIENT."
+    },
+    {
+      "path": "/company/outputs/exp11-referee/candidate-r12/attempt-3b610854-run1/r1-02-initial-separated.png",
+      "window_id": 18874371,
+      "mapped_title": "Swift Arrival Dogfood 4 — CLIENT (peer 145444300)",
+      "geometry": {"x": 101, "y": 118, "width": 900, "height": 600, "screen": 0},
+      "same_session_pixel_observation": "After separating/resizing the selected CLIENT-titled window, top HUD still visibly says SWIFT ARRIVAL · HOST · peer 1 · connected 1; pixels do not identify CLIENT."
+    },
+    {
+      "path": "/company/outputs/exp11-referee/candidate-r12/attempt-3b610854-terminal-report.txt",
+      "description": "Ordered action trace, process facts, direct observations, uncertainty, explicit gaps, and invalid proposal."
+    }
+  ],
+  "run_1_shortcut": "not tested due mandatory routing precondition failure",
+  "run_2_full_journey": "not launched due routing remaining unavailable after allowed bounded repair",
+  "gameplay_input_sent": false
+}

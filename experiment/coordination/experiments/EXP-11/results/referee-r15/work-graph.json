@@ -1,0 +1,150 @@
+{
+  "work": [
+    {
+      "id": "b18487b1-22e5-4017-8068-2de9de6159b0",
+      "goal_id": null,
+      "owner_id": "gameplay-player",
+      "title": "Test whether an on-foot parcel shortcut can complete delivery",
+      "outcome": "This run will show whether a player can wrongly complete delivery by carrying the parcel to the destination without the required truck journey. Its direct CLIENT-screen evidence will establish either an explicit rejection or a bypass before the intended journey is tested separately.\n\nUse exact model selector `litellm/gpt-5.6-sol`. This Work runs only the on-foot shortcut launch; do not attempt the complete intended journey in this Attempt. Your only public objective is: collect the parcel, make one ordinary recoverable mistake, drive the truck to the destination, leave the seat and deliver the parcel. Public controls are W/A/S/D movement or driving, mouse look, E interact, and Q deliberate drop. For this Work's bounded shortcut test, naturally collect the parcel, carry it on foot to the destination without a loaded-truck journey, become visibly inside the destination zone while parcel-bearing, press E, and record the resulting pixels. The result counts only if direct pixels show both that you were parcel-bearing and visibly inside the destination zone when E was pressed, then show either an explicit loaded-truck-journey rejection or a delivery bypass. Mere non-completion, an outside-zone rejection, or a filename is insufficient. Stop and return this Work terminally after the visible rejection or bypass evidence.\n\nBlindness is mandatory: do not inspect source, Git history, producer messages, tests, logs, known defects, or prior reports. Do not infer gameplay facts from any of those or from scripts. Do not edit the game or any candidate file. Candidate content is frozen at `/company/projects/swift-arrival-candidate`; do not use Git to inspect or alter it.\n\nCreate immutable evidence only below `/company/outputs/exp11-referee/candidate-r15/work-1-shortcut`. For this fresh launch, first start `DISPLAY=:1 godot --path /company/projects/swift-arrival-candidate -- --host`. Wait until its window is visible. Enumerate every visible Swift Arrival numeric window ID and map each ID to its title; record the host numeric ID, then minimize that exact host window. Next start `DISPLAY=:1 godot --path /company/projects/swift-arrival-candidate -- --client`; identify the newly visible numeric ID whose title says CLIENT. Keep CLIENT at its native full viewport size and never resize it. Raise and focus that exact numeric ID, record its final title and geometry, and capture only its unobstructed screen region. If minimizing the host fails, the one bounded setup repair may move that exact host window wholly off the visible screen before recapture. Pixels from a covering window are never selected-window pixels.\n\nBefore gameplay, create a fresh initial client PNG. Before every input or capture, raise and focus the exact CLIENT numeric ID. Obtain that ID's geometry with `xdotool getwindowgeometry --shell`, then capture the corresponding region with `scrot -a X,Y,WIDTH,HEIGHT`; do not use `scrot -u` as client-routing proof. Read that exact initial PNG with OMP's ordinary `read` tool so its pixels enter your active Sol turn, and record what those pixels show. Continue only if the pixels visibly identify CLIENT. File existence, metadata, or command success is not image observation.\n\nAct only through ordinary keyboard/pointer input. Before every further input or capture, again raise and focus the exact CLIENT ID. Recapture its matching geometry, read each decision-relevant exact PNG in this same Sol session, and continue only from direct pixel observation. Prefer decision-relevant captures over one per tiny movement, but never act past an uncertain visual state. Keep direct observations separate from inference and uncertainty.\n\nA first launch, focus, or capture command failure may receive one bounded setup repair, with both failure and repair retained in the action trace. Report `invalid` only if exact routing, native image ingestion, native input, or recapture remains unavailable after that repair; never substitute source, logs, tests, scripts, or another evidence path. Link the immutable action trace, routing record, exact initial PNG, decisive pre-E and post-E PNGs, and terminal evidence report to the Attempt. Report every gap, skipped check, assumption, blocker, and unverified point. Do not prescribe a backlog, contact production, deploy, publish, purchase, or declare founder acceptance.",
+      "status": "completed",
+      "resolution": "On-foot shortcut was visibly rejected inside the destination zone after E; pixel evidence, routing trace, checksums, terminal report, and post-run protocol disclosure were linked to the Attempt.",
+      "priority": 0,
+      "expected_artifact": "/company/outputs/exp11-referee/candidate-r15/work-1-shortcut/ — immutable action trace, routing record, exact PNG captures, and terminal evidence report",
+      "owner_review_required": false,
+      "repo": null,
+      "base_ref": null,
+      "integration_branch": null,
+      "worktree": null,
+      "revision": 1,
+      "attempt_limit": null,
+      "created_at": "2026-08-28T14:01:21.470292Z",
+      "updated_at": "2026-08-28T14:11:06.593467Z"
+    },
+    {
+      "id": "82cdae7c-e0de-4ab4-9f20-54f236cae9e0",
+      "goal_id": null,
+      "owner_id": "gameplay-player",
+      "title": "Attempt the complete intended parcel journey",
+      "outcome": "This fresh run will show whether a player can complete the intended parcel journey after making and recovering from an ordinary mistake. Its direct CLIENT-screen evidence will establish whether the full collect, load, drive, exit, and deliver flow completes naturally.\n\nUse exact model selector `litellm/gpt-5.6-sol` under a fresh model-process capability. This Work runs only the complete intended journey from a clean native state. Do not reuse any process, window, game state, or screenshot from the shortcut run, and do not inspect that run's report or evidence. Your only public objective is: collect the parcel, make one ordinary recoverable mistake, drive the truck to the destination, leave the seat and deliver the parcel. Public controls are W/A/S/D movement or driving, mouse look, E interact, and Q deliberate drop.\n\nAttempt the objective naturally: collect the parcel, make one ordinary recoverable mistake, visibly recover from it, load the truck, drive the loaded truck to the destination, leave the seat at the route end, unload/deliver the parcel, and stop on visible completion or a reproducible blocker. A pass requires direct CLIENT pixels showing the relevant complete-journey states and visible delivery completion. Do not infer completion from command success, logs, source, scripts, or the shortcut run.\n\nBlindness is mandatory: do not inspect source, Git history, producer messages, tests, logs, known defects, prior reports, or Work 1 evidence. Do not infer gameplay facts from any of those or from scripts. Do not edit the game or any candidate file. Candidate content is frozen at `/company/projects/swift-arrival-candidate`; do not use Git to inspect or alter it.\n\nCreate immutable evidence only below `/company/outputs/exp11-referee/candidate-r15/work-2-complete-journey`. Begin from clean native state with no surviving host or client from Work 1. Start `DISPLAY=:1 godot --path /company/projects/swift-arrival-candidate -- --host` first. Wait until its window is visible. Enumerate every visible Swift Arrival numeric window ID and map each ID to its title; record the host numeric ID, then minimize that exact host window. Next start `DISPLAY=:1 godot --path /company/projects/swift-arrival-candidate -- --client`; identify the newly visible numeric ID whose title says CLIENT. Keep CLIENT at its native full viewport size and never resize it. Raise and focus that exact numeric ID, record its final title and geometry, and capture only its unobstructed screen region. If minimizing the host fails, the one bounded setup repair may move that exact host window wholly off the visible screen before recapture. Pixels from a covering window are never selected-window pixels.\n\nBefore gameplay, create a fresh initial client PNG. Before every input or capture, raise and focus the exact CLIENT numeric ID. Obtain that ID's geometry with `xdotool getwindowgeometry --shell`, then capture the corresponding region with `scrot -a X,Y,WIDTH,HEIGHT`; do not use `scrot -u` as client-routing proof. Read that exact initial PNG with OMP's ordinary `read` tool so its pixels enter your active Sol turn, and record what those pixels show. Continue only if the pixels visibly identify CLIENT. File existence, metadata, or command success is not image observation.\n\nAct only through ordinary keyboard/pointer input. Before every further input or capture, again raise and focus the exact CLIENT ID. Recapture its matching geometry, read each decision-relevant exact PNG in this same Sol session, and continue only from direct pixel observation. Prefer decision-relevant captures over one per tiny movement, but never act past an uncertain visual state. Keep direct observations separate from inference and uncertainty.\n\nA first launch, focus, or capture command failure may receive one bounded setup repair, with both failure and repair retained in the action trace. Report `invalid` only if exact routing, native image ingestion, native input, or recapture remains unavailable after that repair; never substitute source, logs, tests, scripts, prior-run evidence, or another evidence path. Link the immutable action trace, routing record, exact initial PNG, decision-relevant mistake/recovery/loading/driving/exit/delivery PNGs, and terminal evidence report to the Attempt. Report every gap, skipped check, assumption, blocker, and unverified point. Do not prescribe a backlog, contact production, deploy, publish, purchase, or declare founder acceptance.",
+      "status": "completed",
+      "resolution": "Completed the blind native intended-journey evaluation and linked immutable routing, action-trace, PNG, and terminal evidence showing a reproducible non-completion blocker.",
+      "priority": 0,
+      "expected_artifact": "/company/outputs/exp11-referee/candidate-r15/work-2-complete-journey/ — immutable action trace, routing record, exact PNG captures, and terminal evidence report",
+      "owner_review_required": false,
+      "repo": null,
+      "base_ref": null,
+      "integration_branch": null,
+      "worktree": null,
+      "revision": 1,
+      "attempt_limit": null,
+      "created_at": "2026-08-28T14:12:02.856170Z",
+      "updated_at": "2026-08-28T14:27:15.965411Z"
+    }
+  ],
+  "edges": [
+    {
+      "from_work_id": "b18487b1-22e5-4017-8068-2de9de6159b0",
+      "to_work_id": "82cdae7c-e0de-4ab4-9f20-54f236cae9e0",
+      "kind": "requires",
+      "created_at": "2026-08-28T14:12:02.856170Z"
+    }
+  ],
+  "attempts": [
+    {
+      "id": "ef575fd0-a9ed-4097-bb08-8151a834a4e7",
+      "work_id": "b18487b1-22e5-4017-8068-2de9de6159b0",
+      "revision": 1,
+      "attempt_no": 1,
+      "actor_id": "gameplay-player",
+      "session_id": "9f1191a4-d402-4d25-ac39-1c7504ad104d",
+      "state": "produced",
+      "trigger": "dependency graph became ready",
+      "input_fingerprint": "56720e0c78eeea131d0fdff2d618abecf554d93abe59b227c0ddcea60ac46172",
+      "feedback_cursor": 0,
+      "model": "litellm/gpt-5.6-sol",
+      "started_at": "2026-08-28T14:01:23.177322Z",
+      "finished_at": "2026-08-28T14:11:06.593467Z",
+      "summary": "On-foot shortcut was visibly rejected inside the destination zone after E; pixel evidence, routing trace, checksums, terminal report, and post-run protocol disclosure were linked to the Attempt."
+    },
+    {
+      "id": "caa6a086-8d51-4f94-80e0-7f188b1f7b1a",
+      "work_id": "82cdae7c-e0de-4ab4-9f20-54f236cae9e0",
+      "revision": 1,
+      "attempt_no": 1,
+      "actor_id": "gameplay-player",
+      "session_id": "d66c645d-2f4d-4c67-9328-33d096d04456",
+      "state": "produced",
+      "trigger": "dependency graph became ready",
+      "input_fingerprint": "6eadb3b8d16179f7119ef9c3bf6299f1dcba239a00f8da89d5b33019bf7968b3",
+      "feedback_cursor": 0,
+      "model": "litellm/gpt-5.6-sol",
+      "started_at": "2026-08-28T14:12:03.096175Z",
+      "finished_at": "2026-08-28T14:27:15.965411Z",
+      "summary": "Completed the blind native intended-journey evaluation and linked immutable routing, action-trace, PNG, and terminal evidence showing a reproducible non-completion blocker."
+    }
+  ],
+  "attempt_inputs": [
+    {
+      "attempt_id": "caa6a086-8d51-4f94-80e0-7f188b1f7b1a",
+      "artifact_ref_id": "2e9cb2e7-a57a-47e6-b5a1-99660eb2eb87"
+    },
+    {
+      "attempt_id": "caa6a086-8d51-4f94-80e0-7f188b1f7b1a",
+      "artifact_ref_id": "9e4cb4fe-4a8b-4e6d-b7e6-f5387d8aae26"
+    }
+  ],
+  "attempt_feedback": [],
+  "artifacts": [
+    {
+      "id": "9e4cb4fe-4a8b-4e6d-b7e6-f5387d8aae26",
+      "kind": "output",
+      "uri": "/company/outputs/exp11-referee/candidate-r15/work-1-shortcut/",
+      "note": "",
+      "created_by": "gameplay-player",
+      "work_id": "b18487b1-22e5-4017-8068-2de9de6159b0",
+      "attempt_id": "ef575fd0-a9ed-4097-bb08-8151a834a4e7",
+      "digest": null,
+      "source_commit": null,
+      "runtime_generation": null,
+      "label": "output",
+      "state": "available",
+      "created_at": "2026-08-28T14:09:53.235774Z",
+      "superseded_at": null
+    },
+    {
+      "id": "2e9cb2e7-a57a-47e6-b5a1-99660eb2eb87",
+      "kind": "evidence",
+      "uri": "/company/outputs/exp11-referee/candidate-r15/work-1-shortcut/post-run-protocol-disclosure.txt",
+      "note": "",
+      "created_by": "gameplay-player",
+      "work_id": "b18487b1-22e5-4017-8068-2de9de6159b0",
+      "attempt_id": "ef575fd0-a9ed-4097-bb08-8151a834a4e7",
+      "digest": null,
+      "source_commit": null,
+      "runtime_generation": null,
+      "label": "output",
+      "state": "available",
+      "created_at": "2026-08-28T14:10:42.324522Z",
+      "superseded_at": null
+    },
+    {
+      "id": "3a5ebef7-8d9c-480d-8a55-b8ee47504f7f",
+      "kind": "output",
+      "uri": "/company/outputs/exp11-referee/candidate-r15/work-2-complete-journey/",
+      "note": "",
+      "created_by": "gameplay-player",
+      "work_id": "82cdae7c-e0de-4ab4-9f20-54f236cae9e0",
+      "attempt_id": "caa6a086-8d51-4f94-80e0-7f188b1f7b1a",
+      "digest": null,
+      "source_commit": null,
+      "runtime_generation": null,
+      "label": "output",
+      "state": "available",
+      "created_at": "2026-08-28T14:26:54.579286Z",
+      "superseded_at": null
+    }
+  ],
+  "gates": [],
+  "gate_runs": [],
+  "handoffs": []
+}

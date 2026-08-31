@@ -1,0 +1,14 @@
+Godot Engine v4.7.2.stable.official.ed1daf0bf - https://godotengine.org
+
+[15:14:31] ENet: client connecting to 127.0.0.1:24565 ...
+[15:14:31] ENet: CONNECTED to host as CLIENT peer 1907682478
+[15:14:31] ENet: peer_connected id=1 (transport-level connection evidence)
+[15:14:31] PROBE(client): joined host session; running scripted delivery
+[15:14:31] PROBE(client): requested crate pickup via hand interaction
+[15:14:31] FEEDBACK[ok]: Picked up the crate (E unload in zone · Q drop)
+[15:14:48] PROBE(client,neg): requested ON-FOOT UNLOAD inside destination at ROUTE 0 (no seat/drive/exit)
+[15:14:48] FEEDBACK[reject]: REJECTED: truck journey incomplete — drive the loaded truck to 40 m, then exit there
+[15:14:48] PROBE RESULT: PASS — on-foot destination bypass at route 0 REJECTED by host; delivery not completed
+[15:14:49] PROBE: exiting (exit code 0)
+[15:14:49] ENet: server disconnected
+[15:14:49] PROBE: exiting (exit code 0)

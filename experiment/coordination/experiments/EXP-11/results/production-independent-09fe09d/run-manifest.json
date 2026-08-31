@@ -1,0 +1,41 @@
+{
+  "schema": "swift-arrival-independent-playtest-v1",
+  "candidate_commit": "09fe09d30c65b811c0904508525a6ab8af02145c",
+  "baseline_commit": "84ff1745b29267708599e94036ec6f7a2a7e0457",
+  "reviewer_actor": "swiftarrival-playtest",
+  "attempt_uuid": "1555485d-6d03-4f25-8a7c-1c2dca2db173",
+  "native_session_started_utc": "2026-08-28T09:58:54Z",
+  "native_delivery_completed_utc": "2026-08-28T10:02:09Z",
+  "verdict": "ACCEPT FOR FOUNDER REVIEW",
+  "native_input_mode": "focused X11 windows with ordinary xdotool keyboard and relative mouse events",
+  "files": {
+    "summary": "SUMMARY.txt",
+    "environment": "ENVIRONMENT.txt",
+    "observations": "OBSERVATIONS.txt",
+    "verdict": "VERDICT.txt",
+    "input_trace": "native/input-trace.tsv",
+    "host_log": "native/host.log",
+    "client_log": "native/client.log",
+    "strongest_screenshots": "strongest-screenshots/",
+    "positive_probe": "probes/positive-console.log",
+    "negative_probe": "probes/negative-console.log",
+    "mechanics_probe": "probes/mechanics-console.log",
+    "review_target": "REVIEW_TARGET.txt",
+    "review_target_live_probe": "review-target-live-probe.txt",
+    "checksums": "CHECKSUMS.sha256"
+  },
+  "live_review_target": {
+    "display": ":1",
+    "host_pid_at_probe": 26332,
+    "client_pid_at_probe": 26435,
+    "client_start_screenshot": "review-target/live-client-start.png",
+    "status_at_2026-08-28T10:08:48Z": "live, visible, connected, initial objective"
+  },
+  "human_judgement_requested": "Whether movement, interaction feedback, driving, and the delivery loop feel coherent and genuinely playable.",
+  "known_gaps": [
+    "Audio unavailable; Godot dummy audio driver used.",
+    "Host and client were local loopback on one machine.",
+    "Mechanics probes do not prove feel.",
+    "Founder taste is unverified."
+  ]
+}

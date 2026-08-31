@@ -1,0 +1,6 @@
+Attempt UUID: d6c60589-cb44-4117-9bbe-adebf2fc4e0b
+Actor: gameplay-player
+Runtime-reported model selector: litellm/gpt-5.6-sol
+Runtime workstation model: litellm/gpt-5.6-sol
+Failover observed: none in the attached runtime routing context.
+Scope note: this records the exact selector supplied to this active session; no provider-side route introspection surface was exposed or queried.

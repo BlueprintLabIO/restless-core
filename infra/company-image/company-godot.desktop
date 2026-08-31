@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Godot
+Comment=Open the installed Godot editor and project manager
+Exec=/usr/local/bin/start-company-godot
+Icon=applications-games
+Terminal=false
+Categories=Development;Game;

@@ -1,0 +1,18 @@
+Window enumeration method: DISPLAY=:1 wmctrl -l
+
+0x01600003 / decimal 23068675 -> Swift Arrival Dogfood 4 (DEBUG)
+0x01000003 / decimal 16777219 -> Swift Arrival Dogfood 4 — CLIENT (peer 33063821)
+
+Selected exact CLIENT window ID: 16777219
+Geometry method before captures: DISPLAY=:1 xdotool getwindowgeometry --shell 16777219
+Observed geometry on every check:
+WINDOW=16777219
+X=2
+Y=43
+WIDTH=1278
+HEIGHT=720
+SCREEN=0
+
+Capture method: before each capture, `DISPLAY=:1 xdotool windowraise 16777219 windowfocus --sync 16777219`; then `DISPLAY=:1 scrot -a 2,43,1278,720 <exact PNG>`.
+No `scrot -u` was used. Every PNG was read with OMP's ordinary read tool before the next gameplay decision. Every read visibly showed the CLIENT header (`SWIFT ARRIVAL · CLIENT · peer 33063821 · connected 1`).
+No launch, focus, capture, native input, or recapture repair was needed.

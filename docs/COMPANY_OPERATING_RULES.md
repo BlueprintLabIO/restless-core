@@ -164,6 +164,9 @@ outcome must never be silently lost. Failing is fine; vanishing is not.
 Use a one-shot schedule only when time itself creates a real review or follow-up opportunity. The due
 fact wakes the accountable actor to judge current evidence; it never implies that production is
 necessary, successful or complete, and it should not be renewed merely to keep the company active.
+A weekday recurring schedule is the same kind of time fact for a genuine standing operating cadence.
+It wakes judgement, runs no command, coalesces missed days and must not manufacture work merely to
+satisfy the cadence.
 
 The Runtime records artifacts, gates and final Work state before sending the accountable lead one
 durable terminal Work fact. Staff does not send progress or completion mail merely to trigger

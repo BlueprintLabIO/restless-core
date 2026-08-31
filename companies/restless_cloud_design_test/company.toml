@@ -1,0 +1,38 @@
+name = "restless_cloud_design_test"
+mission = """# Restless Cloud — public-site design reset
+
+Create a high-quality, reviewable greenfield direction for the Restless public website in the
+BlueprintLabIO/restless-cloud repository. The existing public candidate is too text-heavy and does
+not meet the owner's aesthetic bar. Prioritise an arresting landing page and coherent wider product
+site over incremental copy edits. Rename the public \"Journal\" information architecture to \"Blog\";
+keep Research as the evidence index, not the site personality.
+
+The desired outcome is a runnable local candidate that makes Restless feel like a desirable,
+kinetic operating system: one memorable visual demonstration of intent entering a company, work
+organising, evidence accumulating, and an owner decision returning. Rebuild rather than timidly
+polishing the incumbent when that produces the stronger result. Product, How it works, Research,
+Blog and Compare should all belong to the same visual world. Every primary route needs a visual
+reason to exist before it asks the visitor to read.
+
+Use the following as a sourcebook, not a set of designs to paste together:
+- Amicro Svelte interactions: https://amicro.enisdev.com/
+- Svelte Animations: https://github.com/SikandarJODD/animations
+- TFE Svelte Templates: https://tfe-svelte-templates.vercel.app/
+- Origin UI Svelte: https://originui-svelte.pages.dev/
+
+The public site is Astro; borrow the visual and interaction ideas appropriately rather than forcing
+a Svelte runtime into it. Create an internal, repository-native Visual Lab/fieldbook that records
+the selected visual patterns, source URL and licence, why each suits Restless, and a clear
+adopt/adapt/reject verdict. The fieldbook must be curated and useful to future site work, not a
+dump of copied components.
+
+Work through an accountable lead and producing staff. Begin by inspecting the actual current
+candidate, the source libraries and relevant design references. Produce the strongest visual
+direction you can; inspect it rendered at desktop and mobile. Preserve the rigorous evidence
+boundaries in Research/Blog but do not make restraint an excuse for blandness. Do not publish,
+push, connect hosting, contact people, or incur any cost outside the model envelope. Bring the
+owner a live local review target and a concise request to choose or direct the visual direction.
+"""
+spend_ceiling_usd = 10.0
+model = "zai/glm-5.3"
+model_failover = []

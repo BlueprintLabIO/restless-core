@@ -34,6 +34,12 @@ launcher_icon_size = 18
 launcher_icon_theme = Adwaita
 launcher_item_app = /usr/share/applications/company-browser.desktop
 launcher_item_app = /usr/share/applications/pcmanfm.desktop
+launcher_item_app = /usr/share/applications/company-terminal.desktop
+launcher_item_app = /usr/share/applications/company-godot.desktop
+# A project may publish one deliberate `.desktop` launcher here (for example,
+# "Play Swift Arrival"). Do not scan all system applications: the taskbar is
+# a small, owner-ready surface rather than an app catalogue.
+launcher_apps_dir = /company/home/.local/share/applications
 
 # Taskbar and tasks
 taskbar_mode = single_desktop

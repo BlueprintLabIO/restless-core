@@ -10,6 +10,84 @@ fn exact_oid(value: &str) -> bool {
 }
 
 impl OrgIntel {
+    /// Freeze the Runtime's terminal workspace observation before the Attempt
+    /// changes state. A later explicit `resume` may use a clean committed
+    /// terminal candidate, but never a dirty or merely mutable worktree.
+    pub async fn bind_attempt_terminal_coordinates(
+        &self,
+        attempt_id: Uuid,
+        source_commit: Option<&str>,
+        source_tree: Option<&str>,
+        status_digest: Option<&str>,
+        dirty_entries: usize,
+    ) -> Result<()> {
+        if source_commit.is_some_and(|value| !exact_oid(value))
+            || source_tree.is_some_and(|value| !exact_oid(value))
+            || source_commit.is_some() != source_tree.is_some()
+        {
+            return Err(OrgIntelError::InvalidWork(
+                "terminal Attempt coordinates need paired full Git object ids".into(),
+            ));
+        }
+        let dirty_entries = i32::try_from(dirty_entries).map_err(|_| {
+            OrgIntelError::InvalidWork("terminal dirty-entry count exceeds i32".into())
+        })?;
+        let mut tx = self.pool.begin().await?;
+        let row = sqlx::query(
+            "SELECT state, terminal_source_commit, terminal_source_tree, \
+                    terminal_status_digest, terminal_dirty_entries, terminal_observed_at \
+             FROM work_attempts WHERE id=$1 FOR UPDATE",
+        )
+        .bind(attempt_id)
+        .fetch_one(&mut *tx)
+        .await?;
+        if row
+            .get::<Option<DateTime<Utc>>, _>("terminal_observed_at")
+            .is_some()
+        {
+            let matches = row
+                .get::<Option<String>, _>("terminal_source_commit")
+                .as_deref()
+                == source_commit
+                && row
+                    .get::<Option<String>, _>("terminal_source_tree")
+                    .as_deref()
+                    == source_tree
+                && row
+                    .get::<Option<String>, _>("terminal_status_digest")
+                    .as_deref()
+                    == status_digest
+                && row.get::<Option<i32>, _>("terminal_dirty_entries") == Some(dirty_entries);
+            if !matches {
+                return Err(OrgIntelError::InvalidWork(format!(
+                    "Attempt {attempt_id} terminal coordinates are already frozen"
+                )));
+            }
+            tx.commit().await?;
+            return Ok(());
+        }
+        let state: WorkAttemptState = row.get("state");
+        if state != WorkAttemptState::Running {
+            return Err(OrgIntelError::InvalidWork(format!(
+                "Attempt {attempt_id} is not running"
+            )));
+        }
+        sqlx::query(
+            "UPDATE work_attempts SET terminal_source_commit=$2, terminal_source_tree=$3, \
+                    terminal_status_digest=$4, terminal_dirty_entries=$5, \
+                    terminal_observed_at=now() WHERE id=$1",
+        )
+        .bind(attempt_id)
+        .bind(source_commit)
+        .bind(source_tree)
+        .bind(status_digest)
+        .bind(dirty_entries)
+        .execute(&mut *tx)
+        .await?;
+        tx.commit().await?;
+        Ok(())
+    }
+
     /// Bind the workspace the Runtime actually materialised. Set-once
     /// semantics make a branch movement or stale worktree a typed pre-model
     /// failure instead of a prompt ambiguity.

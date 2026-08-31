@@ -1,6 +1,13 @@
 # Sprint 26 — An exact substrate for unattended product work
 
-**Status:** Draft — awaiting founder alignment on tickets
+**Status:** Completed — integrated acceptance and deletion audit passed; see
+[`sprint-26/run-report.md`](sprint-26/run-report.md) and the exact
+[`activation-receipt.json`](sprint-26/activation-receipt.json). EXP-16's first real gate exposed one
+post-activation process-session defect; its bounded repair and requalification are recorded in
+[`amendment-001-gate-session-wait.md`](sprint-26/amendment-001-gate-session-wait.md). A later live
+validation exposed a gate-produced-evidence ordering contradiction; its bounded completion-contract
+repair is recorded in
+[`amendment-002-gate-produced-evidence.md`](sprint-26/amendment-002-gate-produced-evidence.md).
 
 **Date:** 30 August 2026
 
@@ -93,14 +100,14 @@ status system.
 
 | Status | Ticket | Slice | Outcome or friction served | Prior machinery made deletable |
 | --- | --- | --- | --- | --- |
-| [ ] | [S26-T1 · Bind Attempts to exact execution coordinates](sprint-26/t1-exact-attempt-coordinates.md) | OrgIntel + Runtime | Intended candidate in a brief, older commit on disk | Prose-parsed base refs; default-to-`main` launch; manual lineage repair |
-| [ ] | [S26-T2 · Materialise hermetic actor workspaces](sprint-26/t2-hermetic-workspaces.md) | Runtime | Engine caches dirtied the tree; mixed ownership blocked promotion | Repo-local caches; shared mutable worktrees; privileged ownership repair |
-| [ ] | [S26-T3 · Lease scarce runtime resources](sprint-26/t3-resource-leases.md) | Runtime + Authority | Two verifiers on one fixed port produced mixed evidence | Guessed ports; shared display assumptions; pid-file folklore |
-| [ ] | [S26-T4 · Execute declarative gates once](sprint-26/t4-gate-executor.md) | Runtime + Evaluation | Suites re-enacted from prose in three contexts | Prompt-authored gate sequences; unkeyed reruns; exit-code pass claims |
-| [ ] | [S26-T5 · Separate feedback from interruption](sprint-26/t5-feedback-checkpoints.md) | OrgIntel + Authority | One small change became five or six attempts | Automatic supersession on any new message |
-| [ ] | [S26-T6 · Coalesce supervisory wakes](sprint-26/t6-lead-wake-coalescing.md) | OrgIntel | Paid lead turns concluding "still active" | Unconditional per-event lead wake |
-| [ ] | [S26-T7 · Promote evidence transactionally](sprint-26/t7-transactional-promotion.md) | OrgIntel + Runtime + Authority | Actor turns spent on artifact bookkeeping | Model-mediated promotion; partial promotion; mutable review directories |
-| [ ] | [S26-T8 · Prove recovery and delete the escape hatches](sprint-26/t8-recovery-and-deletion.md) | Evaluation | Any one fix can pass while the system still churns | Known-instance repair scripts; operator process/filesystem archaeology |
+| [x] | [S26-T1 · Bind Attempts to exact execution coordinates](sprint-26/t1-exact-attempt-coordinates.md) | OrgIntel + Runtime | Intended candidate in a brief, older commit on disk | Prose-parsed base refs; default-to-`main` launch; manual lineage repair |
+| [x] | [S26-T2 · Materialise hermetic actor workspaces](sprint-26/t2-hermetic-workspaces.md) | Runtime | Engine caches dirtied the tree; mixed ownership blocked promotion | Repo-local caches; shared mutable worktrees; privileged ownership repair |
+| [x] | [S26-T3 · Lease scarce runtime resources](sprint-26/t3-resource-leases.md) | Runtime + Authority | Two verifiers on one fixed port produced mixed evidence | Guessed ports; shared display assumptions; pid-file folklore |
+| [x] | [S26-T4 · Execute declarative gates once](sprint-26/t4-gate-executor.md) | Runtime + Evaluation | Suites re-enacted from prose in three contexts | Prompt-authored gate sequences; unkeyed reruns; exit-code pass claims |
+| [x] | [S26-T5 · Separate feedback from interruption](sprint-26/t5-feedback-checkpoints.md) | OrgIntel + Authority | One small change became five or six attempts | Automatic supersession on any new message |
+| [x] | [S26-T6 · Coalesce supervisory wakes](sprint-26/t6-lead-wake-coalescing.md) | OrgIntel | Paid lead turns concluding "still active" | Unconditional per-event lead wake |
+| [x] | [S26-T7 · Promote evidence transactionally](sprint-26/t7-transactional-promotion.md) | OrgIntel + Runtime + Authority | Actor turns spent on artifact bookkeeping | Model-mediated promotion; partial promotion; mutable review directories |
+| [x] | [S26-T8 · Prove recovery and delete the escape hatches](sprint-26/t8-recovery-and-deletion.md) | Evaluation | Any one fix can pass while the system still churns | Known-instance repair scripts; operator process/filesystem archaeology |
 
 T8 is the closing ticket and runs only after T1–T7 land. Its deletion audit is part of the work, not
 optional cleanup.
@@ -110,3 +117,21 @@ optional cleanup.
 No new company capability, product surface or owner-facing feature is claimed by this sprint. It makes
 existing work exact. A test-count increase is not its progress measure; the measure is model turns,
 lead wakes, gate executions, manual interventions and retained junk in T8's fixture.
+
+## Handoff to EXP-16
+
+Sprint 26 does not hand off through a verbal “looks green.” T8 publishes a compact activation receipt
+containing:
+
+- exact Restless source commit/tree and Runtime image digest;
+- database migration and gate-set fingerprints;
+- clean, concurrent and restart fixture run identifiers;
+- model turns, lead wakes, gate executions and manual interventions;
+- resource/process/workspace reconciliation result;
+- retained-junk and raw-capture count;
+- deletion record and deliberately retained compatibility boundaries; and
+- known residual risks with an explicit disposition.
+
+EXP-16 copies that immutable receipt into its frozen manifest. Any later change to execution,
+workspace, gate, lease, feedback, wake or promotion semantics requires a new Sprint 26 substrate
+fingerprint and a focused requalification before affected NPC runs count.

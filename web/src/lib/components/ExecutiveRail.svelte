@@ -7,7 +7,6 @@
 	import { tick } from 'svelte';
 	import { SvelteDate } from 'svelte/reactivity';
 	import ArrowLeft from '@lucide/svelte/icons/arrow-left';
-	import AttentionRailCard from '$lib/components/AttentionRailCard.svelte';
 	import Composer from '$lib/primitives/Composer.svelte';
 	import ConversationHistoryTools from '$lib/primitives/ConversationHistoryTools.svelte';
 	import ConversationMessage from '$lib/primitives/ConversationMessage.svelte';
@@ -16,11 +15,7 @@
 	import MatrixGlyph, { GLYPHS } from '$lib/primitives/MatrixGlyph.svelte';
 	import SemanticMark from '$lib/primitives/SemanticMark.svelte';
 	import type { ActiveAgentTurn } from '$lib/model/queries.svelte';
-	import {
-		mergeAdjacentAgentMessages,
-		type AttentionItem,
-		type ThreadMessage
-	} from '$lib/model/view';
+	import { mergeAdjacentAgentMessages, type ThreadMessage } from '$lib/model/view';
 
 	let {
 		messages = [],
@@ -37,8 +32,7 @@
 		open = true,
 		onask = null,
 		review = null,
-		workContext = null,
-		attention = null
+		workContext = null
 	}: {
 		messages?: ThreadMessage[];
 		participantName?: string;
@@ -76,7 +70,6 @@
 			) => Promise<string | null>;
 		} | null;
 		workContext?: { onback: () => void } | null;
-		attention?: AttentionItem | null;
 	} = $props();
 
 	const canOperate = $derived(['owner', 'operator'].includes(membershipRole ?? ''));
@@ -138,8 +131,6 @@
 	let anchoredTurnId = $state<number | null>(null);
 	let transcriptTailHeight = $state(0);
 	let initiallyScrolledFor = $state('');
-	let railView = $state<'chat' | 'attention'>('chat');
-	let attentionId = $state('');
 	let newFocusPending = $state(false);
 	let pendingFocusAfterMessageId = $state(0);
 	let handledNewFocusRequest = 0;
@@ -204,15 +195,6 @@
 		if (includeContext) contextFlare += 1;
 	}
 
-	/* Opening a different review starts with its conversation. Switching the live
-	 * projection underneath the same review does not steal the owner's chosen tab. */
-	$effect(() => {
-		const nextAttentionId = attention?.id ?? '';
-		if (attentionId === nextAttentionId) return;
-		attentionId = nextAttentionId;
-		railView = 'chat';
-	});
-
 	async function anchorSubmittedMessage(messageId: number) {
 		await tick();
 		const scroller = scrollEl;
@@ -236,7 +218,7 @@
 	 * stream updates must not fight the owner's scroll position. */
 	$effect(() => {
 		const messageId = turn?.triggerMessageId ?? null;
-		if (!open || railView !== 'chat' || messageId === null || anchoredTurnId === messageId) return;
+		if (!open || messageId === null || anchoredTurnId === messageId) return;
 		const firstMessageId = messages[0]?.id;
 		if (firstMessageId) initiallyScrolledFor = `${companyId}:${participantName}:${firstMessageId}`;
 		anchoredTurnId = messageId;
@@ -247,7 +229,7 @@
 	 * behavior only; it deliberately does not run for every new message. */
 	$effect(() => {
 		const firstMessageId = messages[0]?.id;
-		if (!open || railView !== 'chat' || !firstMessageId || turn) return;
+		if (!open || !firstMessageId || turn) return;
 		const conversationKey = `${companyId}:${participantName}:${firstMessageId}`;
 		if (initiallyScrolledFor === conversationKey) return;
 		initiallyScrolledFor = conversationKey;
@@ -306,14 +288,12 @@
 	id="bridge-exrail"
 	class="bridge-exrail"
 	class:open
-	aria-label={railView === 'attention' && attention
-		? `Attention: ${attention.title}`
-		: `${participantName} conversation`}
+	aria-label={`${participantName} conversation`}
 	aria-hidden={!open}
 	inert={!open}
 >
 	<div class="exr-inner">
-		<header class="exr-head" class:contextual={!!attention}>
+		<header class="exr-head">
 			<div class="exr-head-primary">
 				{#if review || workContext}
 					<button
@@ -327,7 +307,7 @@
 					</button>
 				{/if}
 				<div class="exr-who">
-					<SemanticMark meaning={attention ? 'work' : 'executive'} />
+					<SemanticMark meaning={review || workContext ? 'work' : 'executive'} />
 					<span>
 						<strong class="exr-name">{participantName}</strong>
 					</span>
@@ -340,189 +320,151 @@
 					/>
 				{/if}
 			</div>
-			{#if attention}
+			{#if review}
 				<div class="review-controls">
-					<div
-						class="rail-view-switch"
-						class:attention-active={railView === 'attention'}
-						role="group"
-						aria-label="Right sidebar view"
-					>
-						<button
-							type="button"
-							class:active={railView === 'chat'}
-							aria-pressed={railView === 'chat'}
-							onclick={() => (railView = 'chat')}>Chat</button
-						>
-						<button
-							type="button"
-							class:active={railView === 'attention'}
-							aria-pressed={railView === 'attention'}
-							onclick={() => (railView = 'attention')}>Attention</button
-						>
-					</div>
-					{#if review}
-						<HoldApprove
-							small
-							label={deciding ? 'Recording…' : 'Hold to accept'}
-							title="Hold to accept outcome"
-							completeLabel="accepted ✓"
-							disabled={deciding || sending}
-							onapprove={() => void acceptReview()}
-						/>
-					{/if}
+					<HoldApprove
+						small
+						label={deciding ? 'Recording…' : 'Hold to accept'}
+						title="Hold to accept outcome"
+						completeLabel="accepted ✓"
+						disabled={deciding || sending}
+						onapprove={() => void acceptReview()}
+					/>
 				</div>
 			{/if}
 		</header>
 		{#if reviewError}<p class="review-error" role="alert">{reviewError}</p>{/if}
 
 		<div class="exr-panel">
-			{#if attention && railView === 'attention'}
-				<AttentionRailCard item={attention} />
-			{:else}
-				{#if !connected}
-					<div class="exr-lock">
-						<div class="exr-lock-card">
-							<span class="exr-lock-badge" aria-hidden="true"
-								><MatrixGlyph rows={GLYPHS.e} size={18} glow /></span
-							>
-							<h2 class="exr-lock-h">{participantRole} unavailable</h2>
-							<p class="exr-lock-p">
-								The company computer has not confirmed that {participantName} is reachable. Conversation
-								will open automatically when the live connection returns.
-							</p>
-							<p class="exr-lock-note">Connection is managed by the company computer.</p>
-						</div>
-					</div>
-				{/if}
-				<div class="exr-chat" inert={!connected}>
-					<div class="exr-msgs" bind:this={scrollEl}>
-						{#each visibleMessages as message, i (message.id)}
-							{#if focusDividerBefore(i)}
-								<div class="conversation-focus-boundary">
-									<span>New focus</span><i aria-hidden="true"></i><span
-										>Company memory retained</span
-									>
-								</div>
-							{/if}
-							{#if i === 0 || dayOf(message.createdAt) !== dayOf(visibleMessages[i - 1].createdAt)}
-								<div class="day-sep" aria-hidden="true">
-									<span>{dayLabel(message.createdAt)}</span>
-								</div>
-							{/if}
-							<ConversationMessage
-								domId={messageDomId(message.id)}
-								sender={message.from === 'you' ? 'owner' : message.from}
-								author={message.from === 'you' ? 'You' : message.author || participantName}
-								text={message.text}
-								createdAt={message.createdAt}
-								details={message.details}
-								attachments={message.attachments}
-								hrefFor={attachmentHref}
-							/>
-						{:else}
-							{#if focusActive}
-								<!-- The focus boundary below is the empty transcript state. -->
-							{:else if review || workContext}
-								<div class="exr-empty review-empty">
-									<div class="review-empty-card">
-										<span class="review-empty-mark">
-											<MatrixGlyph rows={GLYPHS.work} size={12} />
-										</span>
-										<div>
-											<strong>Talk to the lead</strong>
-											<p>Ask questions, discuss evidence, or share revision feedback.</p>
-										</div>
-									</div>
-								</div>
-							{:else}
-								<div class="exr-empty">
-									<p class="exr-empty-h">Ask anything.</p>
-									<p class="exr-empty-p">{capabilityHint}</p>
-								</div>
-							{/if}
-						{/each}
-						{#if focusActive && !hasMessagesAfterFocus}
-							<div
-								class="conversation-focus-boundary"
-								role={newFocusPending ? 'status' : undefined}
-							>
-								<span>New focus</span><i aria-hidden="true"></i><span>Company memory retained</span>
-							</div>
-							{#if !composer.trim() && !turn}
-								<p class="conversation-capability-hint">{capabilityHint}</p>
-							{/if}
-						{/if}
-						{#if turn}<ConversationTurnDock {participantName} {turn} />{/if}
-						{#if anchoredTurnId !== null}
-							<div
-								class="conversation-tail"
-								style:height={`${transcriptTailHeight}px`}
-								aria-hidden="true"
-							></div>
-						{/if}
-					</div>
-
-					<form class="exr-composer" onsubmit={submitAsk}>
-						<Composer
-							bind:value={composer}
-							bind:files={composerFiles}
-							actionLabel={turn ? 'Interrupt & send' : 'Send'}
-							disabled={!canOperate || sending || deciding || !onask}
-							minlength={1}
-							placeholder={review || workContext
-								? 'Message the lead…'
-								: 'Ask, redirect, or make a judgement…'}
-							ariaLabel={review || workContext
-								? `Message ${participantName}`
-								: `Ask ${participantName}`}
-							flareKey={contextFlare}
-							focusKey={composerFocusKey}
+			{#if !connected}
+				<div class="exr-lock">
+					<div class="exr-lock-card">
+						<span class="exr-lock-badge" aria-hidden="true"
+							><MatrixGlyph rows={GLYPHS.e} size={18} glow /></span
 						>
-							{#snippet controls()}
-								{#if !review && !workContext}
-									<div class="exec-context-line">
-										<button
-											type="button"
-											class="exec-context-chip"
-											class:off={!includeContext}
-											aria-pressed={includeContext}
-											title="Link this message to the current screen"
-											onclick={toggleContext}
-										>
-											<MatrixGlyph rows={GLYPHS.work} size={8} />
-											<span>{includeContext ? contextLabel : 'Link current screen'}</span>
-										</button>
-									</div>
-								{/if}
-							{/snippet}
-						</Composer>
-						{#if askError}
-							<p class="exr-error" role="alert">{askError}</p>
-						{/if}
-						{#if askNotice}
-							<p class="exr-notice" role="status">{askNotice}</p>
-						{/if}
-					</form>
+						<h2 class="exr-lock-h">{participantRole} unavailable</h2>
+						<p class="exr-lock-p">
+							The company computer has not confirmed that {participantName} is reachable. Conversation
+							will open automatically when the live connection returns.
+						</p>
+						<p class="exr-lock-note">Connection is managed by the company computer.</p>
+					</div>
 				</div>
 			{/if}
+			<div class="exr-chat" inert={!connected}>
+				<div class="exr-msgs" bind:this={scrollEl}>
+					{#each visibleMessages as message, i (message.id)}
+						{#if focusDividerBefore(i)}
+							<div class="conversation-focus-boundary">
+								<span>New focus</span><i aria-hidden="true"></i><span>Company memory retained</span>
+							</div>
+						{/if}
+						{#if i === 0 || dayOf(message.createdAt) !== dayOf(visibleMessages[i - 1].createdAt)}
+							<div class="day-sep" aria-hidden="true">
+								<span>{dayLabel(message.createdAt)}</span>
+							</div>
+						{/if}
+						<ConversationMessage
+							domId={messageDomId(message.id)}
+							sender={message.from === 'you' ? 'owner' : message.from}
+							author={message.from === 'you' ? 'You' : message.author || participantName}
+							text={message.text}
+							createdAt={message.createdAt}
+							details={message.details}
+							intent={message.intent}
+							attachments={message.attachments}
+							hrefFor={attachmentHref}
+						/>
+					{:else}
+						{#if focusActive}
+							<!-- The focus boundary below is the empty transcript state. -->
+						{:else if review || workContext}
+							<div class="exr-empty review-empty">
+								<div class="review-empty-card">
+									<span class="review-empty-mark">
+										<MatrixGlyph rows={GLYPHS.work} size={12} />
+									</span>
+									<div>
+										<strong>Talk to the lead</strong>
+										<p>Ask questions, discuss evidence, or share revision feedback.</p>
+									</div>
+								</div>
+							</div>
+						{:else}
+							<div class="exr-empty">
+								<p class="exr-empty-h">Ask anything.</p>
+								<p class="exr-empty-p">{capabilityHint}</p>
+							</div>
+						{/if}
+					{/each}
+					{#if focusActive && !hasMessagesAfterFocus}
+						<div class="conversation-focus-boundary" role={newFocusPending ? 'status' : undefined}>
+							<span>New focus</span><i aria-hidden="true"></i><span>Company memory retained</span>
+						</div>
+						{#if !composer.trim() && !turn}
+							<p class="conversation-capability-hint">{capabilityHint}</p>
+						{/if}
+					{/if}
+					{#if turn}<ConversationTurnDock {participantName} {turn} />{/if}
+					{#if anchoredTurnId !== null}
+						<div
+							class="conversation-tail"
+							style:height={`${transcriptTailHeight}px`}
+							aria-hidden="true"
+						></div>
+					{/if}
+				</div>
+
+				<form class="exr-composer" onsubmit={submitAsk}>
+					<Composer
+						bind:value={composer}
+						bind:files={composerFiles}
+						actionLabel={turn ? 'Interrupt & send' : 'Send'}
+						disabled={!canOperate || sending || deciding || !onask}
+						minlength={1}
+						placeholder={review || workContext
+							? 'Message the lead…'
+							: 'Ask, redirect, or make a judgement…'}
+						ariaLabel={review || workContext
+							? `Message ${participantName}`
+							: `Ask ${participantName}`}
+						flareKey={contextFlare}
+						focusKey={composerFocusKey}
+					>
+						{#snippet controls()}
+							{#if !review && !workContext}
+								<div class="exec-context-line">
+									<button
+										type="button"
+										class="exec-context-chip"
+										class:off={!includeContext}
+										aria-pressed={includeContext}
+										title="Link this message to the current screen"
+										onclick={toggleContext}
+									>
+										<MatrixGlyph rows={GLYPHS.work} size={8} />
+										<span>{includeContext ? contextLabel : 'Link current screen'}</span>
+									</button>
+								</div>
+							{/if}
+						{/snippet}
+					</Composer>
+					{#if askError}
+						<p class="exr-error" role="alert">{askError}</p>
+					{/if}
+					{#if askNotice}
+						<p class="exr-notice" role="status">{askNotice}</p>
+					{/if}
+				</form>
+			</div>
 		</div>
 	</div>
 </aside>
 
 <style>
-	/* One column that fills the rail. The explicit track is load-bearing:
-	 * cockpit.css sets `justify-content: space-between` on .exr-head, which in a
-	 * grid would size an implicit auto track to max-content and leave the header
-	 * visibly narrower than the transcript beneath it. */
-	.exr-head.contextual {
-		display: grid;
-		grid-template-columns: minmax(0, 1fr);
-		gap: 10px;
-	}
 	.exr-head-primary {
-		width: 100%;
 		min-width: 0;
+		flex: 1 1 auto;
 		display: flex;
 		align-items: center;
 		gap: 10px;
@@ -616,69 +558,9 @@
 		align-items: center;
 		gap: 8px;
 	}
-	.contextual .review-controls {
-		width: 100%;
-		justify-content: space-between;
-	}
 	.review-controls :global(.hold-approve) {
 		min-width: 122px;
 		white-space: nowrap;
-	}
-	.rail-view-switch {
-		position: relative;
-		isolation: isolate;
-		display: grid;
-		grid-template-columns: repeat(2, minmax(0, 1fr));
-		padding: 2px;
-		border: 1px solid var(--control-edge);
-		border-radius: var(--radius-control);
-		background: color-mix(in srgb, var(--surface-alt) 82%, white);
-		box-shadow: var(--control-depth-pressed);
-	}
-	.rail-view-switch::before {
-		content: '';
-		position: absolute;
-		z-index: 0;
-		top: 2px;
-		bottom: 2px;
-		left: 2px;
-		width: calc((100% - 4px) / 2);
-		border: 1px solid color-mix(in srgb, var(--intent-conversation) 16%, var(--control-edge));
-		border-radius: calc(var(--radius-control) - 2px);
-		background: var(--surface);
-		box-shadow: var(--control-depth);
-		transform: translateX(0);
-		transition: transform var(--motion-disclosure) var(--ease-spring);
-	}
-	.rail-view-switch.attention-active::before {
-		transform: translateX(100%);
-	}
-	.rail-view-switch button {
-		position: relative;
-		z-index: 1;
-		min-width: 68px;
-		padding: 4px 9px;
-		border: 0;
-		border-radius: calc(var(--radius-control) - 2px);
-		background: transparent;
-		color: var(--text-secondary);
-		font: 600 var(--t-label) var(--font-ui);
-		cursor: pointer;
-		transition:
-			color var(--motion-state) var(--ease-standard),
-			transform var(--motion-press) var(--ease-standard);
-	}
-	.rail-view-switch button.active {
-		background: transparent;
-		box-shadow: none;
-		color: var(--ink);
-	}
-	.rail-view-switch button:active {
-		transform: translateY(1px);
-	}
-	.rail-view-switch button:focus-visible {
-		outline: 3px solid color-mix(in srgb, var(--intent-conversation) 30%, transparent);
-		outline-offset: 2px;
 	}
 	.exr-name {
 		overflow: hidden;

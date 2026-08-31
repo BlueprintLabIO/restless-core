@@ -1,0 +1,60 @@
+{
+  "schema": "swift-arrival-independent-native-review/v1",
+  "work_id": "731bd86c-6507-4ae1-a7bf-37b3b20980b7",
+  "attempt_id": "b8e3161f-302e-4e67-8b6d-28fcb43c0d79",
+  "candidate": "41f4fa53a2cd05ab17aea473f3d1be28979b2dcf",
+  "runtime_start": {
+    "started_at": "2026-08-28T15:19:12.549078Z",
+    "source_commit": "41f4fa53a2cd05ab17aea473f3d1be28979b2dcf",
+    "method": "Runtime-bound Attempt start fact supplied at launch; restless work attempts confirmed Attempt UUID and started_at"
+  },
+  "checkout": {
+    "observed_at": "2026-08-28T15:19:27Z",
+    "head": "41f4fa53a2cd05ab17aea473f3d1be28979b2dcf",
+    "clean": true
+  },
+  "producer_artifact_consulted": "b90c08dd-6845-4d80-8923-5ea796824da6",
+  "excluded_as_exact_candidate_evidence": [
+    "all artifacts and native captures from parent 0602bc78e37e57db1c4328c12df9c15e72c5e010",
+    "/company/outputs/swift-arrival-r15-native-f7ba9565",
+    "/company/outputs/swift-arrival-r15-bypass-f7ba9565",
+    "/company/outputs/swift-arrival-r15-reentry-f7ba9565"
+  ],
+  "fresh_routes": [
+    {
+      "name": "positive-loaded-route",
+      "trace": "positive/input-trace.tsv",
+      "host_log": "positive/host.log",
+      "client_log": "positive/client.log",
+      "strongest_screenshot": "positive/shots/ev_delivered_07.png",
+      "endpoint_screenshot": "positive/shots/seq_004_06.png",
+      "result": "pass"
+    },
+    {
+      "name": "route-zero-shortcut",
+      "trace": "route-zero/input-trace.tsv",
+      "host_log": "route-zero/host.log",
+      "client_log": "route-zero/client.log",
+      "strongest_screenshot": "route-zero/shots/ev_reject_journey.png",
+      "result": "pass-rejected"
+    },
+    {
+      "name": "early-exit-natural-reentry",
+      "trace": "re-entry/input-trace.tsv",
+      "window_routing": "re-entry/window-routing.tsv",
+      "host_log": "re-entry/host.log",
+      "client_log": "re-entry/client.log",
+      "early_exit_screenshot": "re-entry/shots/ev_exit.png",
+      "strongest_screenshot": "re-entry/shots/ev_seat_03.png",
+      "result": "pass"
+    }
+  ],
+  "mechanics_support": {
+    "host_log": "deterministic-mechanics-host.log",
+    "client_log": "deterministic-mechanics-client.log",
+    "role": "supports mechanics only; does not establish feel"
+  },
+  "verdict": "ACCEPT FOR FOUNDER REVIEW",
+  "report": "REPORT.txt",
+  "review_target": "REVIEW_TARGET.txt"
+}

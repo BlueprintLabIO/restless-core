@@ -718,7 +718,7 @@ async fn company_schema_round_trip() {
             "delivery-build",
             None,
             "inspect the accepted build; no new evidence may mean no work",
-            Utc::now(),
+            Utc::now() - chrono::Duration::seconds(1),
         )
         .await
         .unwrap();
@@ -745,6 +745,61 @@ async fn company_schema_round_trip() {
         .unwrap()
         .iter()
         .any(|schedule| schedule.id == direct_schedule));
+
+    let recurring_after = Utc::now() - chrono::Duration::days(10);
+    let recurring_time = chrono::NaiveTime::from_hms_opt(9, 0, 0).unwrap();
+    let (recurring_schedule, first_fire, created) = org
+        .add_weekday_schedule(
+            "delivery-build",
+            "inspect the daily operating opportunity",
+            recurring_time,
+            "Australia/Sydney",
+            recurring_after,
+        )
+        .await
+        .unwrap();
+    assert!(created);
+    assert!(first_fire < Utc::now());
+    let (same_schedule, same_fire, created_again) = org
+        .add_weekday_schedule(
+            "delivery-build",
+            "inspect the daily operating opportunity",
+            recurring_time,
+            "Australia/Sydney",
+            recurring_after,
+        )
+        .await
+        .unwrap();
+    assert_eq!(same_schedule, recurring_schedule);
+    assert_eq!(same_fire, first_fire);
+    assert!(!created_again);
+    assert_eq!(org.claim_due_schedules().await.unwrap().len(), 1);
+    assert!(org.claim_due_schedules().await.unwrap().is_empty());
+    let recurring = org
+        .list_schedules(Some("delivery-build"), false)
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|schedule| schedule.id == recurring_schedule)
+        .expect("a recurring schedule remains live after firing");
+    assert_eq!(recurring.recurrence.as_deref(), Some("weekdays"));
+    assert_eq!(recurring.timezone.as_deref(), Some("Australia/Sydney"));
+    assert!(recurring.fire_at > Utc::now());
+    assert!(recurring.last_fired_at.is_some());
+    assert!(org
+        .cancel_schedule(
+            recurring_schedule,
+            "delivery-build",
+            "the operating cadence ended",
+        )
+        .await
+        .unwrap());
+    assert!(!org
+        .list_schedules(Some("delivery-build"), false)
+        .await
+        .unwrap()
+        .iter()
+        .any(|schedule| schedule.id == recurring_schedule));
 
     let message = org
         .send_message("exec", None, "status: alive")

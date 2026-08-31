@@ -1,0 +1,20 @@
+Work: 48146f5a-4dd2-4d55-8355-baffadb21b3d
+Attempt: df095e40-29d9-476c-bf54-aad829f08172
+Display: :1
+
+Visible Swift Arrival windows after fresh HOST then CLIENT launch:
+- 20971523 — Swift Arrival Dogfood 4 (DEBUG) — identified as the first-launched HOST window; windowminimize succeeded.
+- 23068675 — Swift Arrival Dogfood 4 — CLIENT (peer 1829282534) — newly visible CLIENT window.
+
+Post-minimize visible Swift Arrival numeric IDs:
+- 23068675
+
+CLIENT native geometry used for every evidence capture:
+WINDOW=23068675
+X=2
+Y=43
+WIDTH=1278
+HEIGHT=720
+SCREEN=0
+
+CLIENT was not resized. Captures used scrot region 2,43,1278,720 after raising/focusing window 23068675 and querying that geometry.

@@ -1,0 +1,14 @@
+{
+  "schema": "restless.exp17.sealed-arm-map.v1",
+  "reveal_after": "all blind outcome scores are frozen",
+  "mapping": {
+    "KITE-47": {"task_id": "SC-1", "arm": "C"},
+    "MICA-22": {"task_id": "SC-1", "arm": "R1"},
+    "RUNE-81": {"task_id": "LC-2", "arm": "R1"},
+    "VALE-36": {"task_id": "LC-2", "arm": "C"},
+    "CEDAR-59": {"task_id": "PI-1", "arm": "C"},
+    "ION-14": {"task_id": "PI-1", "arm": "R1"},
+    "NORTH-73": {"task_id": "EL-2", "arm": "R1"},
+    "ASH-28": {"task_id": "EL-2", "arm": "C"}
+  }
+}

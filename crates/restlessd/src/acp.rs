@@ -68,7 +68,7 @@ fn test_coordinator_override() -> Option<String> {
         .clone()
 }
 
-fn runtime_coordinator() -> Result<String> {
+pub(crate) fn runtime_coordinator() -> Result<String> {
     #[cfg(test)]
     if let Some(coordinator) = test_coordinator_override() {
         return Ok(coordinator);
@@ -349,7 +349,11 @@ impl AgentControls {
 /// context (§5.4), not ambient developer configuration.
 const RESTLESS_OMP_CONFIG: &str = include_str!("../omp-runtime.yml");
 
-async fn write_private_container_file(container: &str, path: &str, contents: &str) -> Result<()> {
+pub(crate) async fn write_private_container_file(
+    container: &str,
+    path: &str,
+    contents: &str,
+) -> Result<()> {
     let mut child = tokio::process::Command::new("docker")
         .args([
             "exec",
@@ -1468,7 +1472,7 @@ where
 /// agent can be told that it is reviewing a detached copy while its shell
 /// tools still start in `/company`, which silently reopens the source
 /// worktree mutation path Sprint 14 is closing.
-fn agent_exec_prefix(workdir: &str) -> Vec<String> {
+pub(crate) fn agent_exec_prefix(workdir: &str) -> Vec<String> {
     [
         "exec".to_string(),
         "-i".to_string(),
@@ -1485,7 +1489,7 @@ fn agent_exec_prefix(workdir: &str) -> Vec<String> {
 }
 
 /// Read and validate the Linux session id written by this turn's wrapper.
-async fn read_session_id(container: &str, marker: &str) -> Option<String> {
+pub(crate) async fn read_session_id(container: &str, marker: &str) -> Option<String> {
     let Ok(output) = tokio::process::Command::new("docker")
         .args(["exec", container, "cat", marker])
         .output()
@@ -1516,7 +1520,7 @@ async fn read_session_id(container: &str, marker: &str) -> Option<String> {
 /// company that genuinely needs a durable service will need a way to say so,
 /// and that is the tripwire for revisiting this — no company has wanted one
 /// yet (§16.1, observe before modelling).
-async fn reap_session(container: &str, session_id: &str) -> usize {
+pub(crate) async fn reap_session(container: &str, session_id: &str) -> usize {
     let Ok(output) = tokio::process::Command::new("docker")
         .args(["exec", container, "ps", "-eo", "pid=,sid="])
         .output()

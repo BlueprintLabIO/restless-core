@@ -1,0 +1,90 @@
+Swift Arrival candidate R10 blind native gameplay trace
+Work bbae7832-8432-4e10-be85-f0553a0265d7; Attempt 9e3dc4bb-291c-46e6-876d-72d42cb6e974
+Model selector supplied by Runtime: litellm/gpt-5.6-sol
+
+Evidence method
+- I did not inspect source, Git history, tests, logs, producer material, prior reports, or candidate internals.
+- Native tool probe observed executables: /usr/local/bin/godot, /usr/bin/xdotool, /usr/bin/scrot.
+- Host command launched exactly: DISPLAY=:1 godot --path /company/projects/swift-arrival-candidate -- --host
+- Client command launched exactly: DISPLAY=:1 godot --path /company/projects/swift-arrival-candidate -- --client
+- Visible Swift Arrival window map: 23068675 => "Swift Arrival Dogfood 4 (DEBUG)"; 18874371 => "Swift Arrival Dogfood 4 — CLIENT (peer 308084235)".
+- Routed every input and every capture to numeric CLIENT ID 18874371. Before each, I ran windowraise, windowfocus --sync, and getwindowgeometry --shell for that exact ID.
+- Every geometry observation was: WINDOW=18874371, X=2, Y=43, WIDTH=1278, HEIGHT=720, SCREEN=0. Every capture used scrot -a 2,43,1278,720 and an exact PNG path below; scrot -u was never used.
+- Each listed PNG was then read with OMP's ordinary read tool in this same active turn. The visible title in every read PNG identified SWIFT ARRIVAL · CLIENT.
+- No launch, focus, routing, capture, input, recapture, or image-ingestion command failed; no bounded setup repair was used.
+
+Ordered action / direct-pixel observation trace
+001 CAPTURE+READ 001-initial-client.png. Pixels: CLIENT, connected 1; ON FOOT; DELIVERY IN PROGRESS; CRATE free; ROUTE 0/40 m; objective PICK UP THE CRATE; yellow crate visible in the truck/cargo scene.
+002 INPUT W 1.0 s toward the visible crate.
+003 CAPTURE+READ 002-after-forward.png. Pixels: CLIENT; crate still visible left; objective unchanged.
+004 INPUT W+A 1.0 s to approach diagonally.
+005 CAPTURE+READ 003-near-crate.png. Pixels: CLIENT; view reached red cargo doorway; yellow crate partly visible.
+006 INPUT W 0.7 s into crate area.
+007 CAPTURE+READ 004-crate-area.png. Pixels: CLIENT; close red wall obscured most of crate.
+008 INPUT D 1.0 s to sidestep away from wall.
+009 CAPTURE+READ 005-after-sidestep.png. Pixels: CLIENT; wall remained dominant; yellow edge low left.
+010 INPUT relative mouse +350,0. No visible turn resulted on the next image (inference: pointer had not yet been captured).
+011 CAPTURE+READ 006-turned-view.png. Pixels: CLIENT; view essentially unchanged.
+012 INPUT mouse to client center, click 1, then relative mouse +350,0 to capture pointer and turn.
+013 CAPTURE+READ 007-mouse-captured-turn.png. Pixels: CLIENT; view visibly turned to blue exterior/wall.
+014 INPUT relative mouse -500,0 to turn left.
+015 CAPTURE+READ 008-left-turn.png. Pixels: CLIENT; yellow crate became visible near the bottom.
+016 INPUT relative mouse 0,+220 to look down.
+017 CAPTURE+READ 009-looking-down-crate.png. Pixels: CLIENT; floor and nearby yellow crate edge visible.
+018 INPUT relative mouse -140,0 and W 0.5 s to align/close.
+019 CAPTURE+READ 010-aligned-crate.png. Pixels: CLIENT; crate close at lower right; objective still PICK UP THE CRATE.
+020 INPUT E. This was intended as pickup.
+021 CAPTURE+READ 011-after-pickup.png. Pixels: CLIENT; state instead read DRIVING; CRATE free; ROUTE 0/40 m; objective DRIVE TO THE DESTINATION.
+022 INPUT Q as a deliberate ordinary recoverable mistake/drop attempt.
+023 CAPTURE+READ 012-after-drop-mistake.png. Pixels: CLIENT; no visible state change; still DRIVING, CRATE free, ROUTE 0/40 m.
+024 INPUT W+A 1.0 s as a brief wrong-steer driving mistake.
+025 CAPTURE+READ 013-wrong-steer.png. Pixels: CLIENT; route advanced to 3/40 m; road and destination markers remained visible.
+026 INPUT W+D 1.0 s to recover steering.
+027 CAPTURE+READ 014-steer-recovered.png. Pixels: CLIENT; route advanced to 7/40 m; truck remained on a navigable route.
+028 INPUT W 6.0 s to continue straight.
+029 CAPTURE+READ 015-route-progress.png. Pixels: CLIENT; route 25/40 m; objective continued DRIVE TO DESTINATION.
+030 INPUT W 5.0 s to route end.
+031 CAPTURE+READ 016-route-end.png. Pixels: CLIENT; ROUTE 40/40 m; objective EXIT AT REAR CARGO THRESHOLD; E EXIT TRUCK.
+032 INPUT E to exit.
+033 CAPTURE+READ 017-after-exit.png. Pixels: CLIENT; ON FOOT; ROUTE 40/40 m; objective PICK UP THE CRATE; yellow crate visible inside truck.
+034 INPUT relative mouse +170,0 and W 1.2 s to approach.
+035 CAPTURE+READ 018-crate-approach-delivery.png. Pixels: CLIENT; blue/red structure partly obscured crate.
+036 INPUT relative mouse +260,0 to turn toward cargo.
+037 CAPTURE+READ 019-facing-crate.png. Pixels: CLIENT; yellow crate edge visible left of center; objective PICK UP THE CRATE.
+038 INPUT relative mouse -100,0 and W 0.8 s to close.
+039 CAPTURE+READ 020-near-delivery-crate.png. Pixels: CLIENT; crate close but partly behind partition.
+040 INPUT D 0.7 s to sidestep around partition.
+041 CAPTURE+READ 021-crate-access.png. Pixels: CLIENT; yellow crate clearly visible at left.
+042 INPUT relative mouse -300,0 to aim at crate.
+043 CAPTURE+READ 022-crate-aim.png. Pixels: CLIENT; crate centered and near.
+044 INPUT E, intended pickup.
+045 CAPTURE+READ 023-crate-carried.png. Pixels: CLIENT; state did not show carried; still ON FOOT, CRATE free, objective PICK UP THE CRATE.
+046 INPUT W 0.5 s to close further.
+047 CAPTURE+READ 024-in-interaction-range.png. Pixels: CLIENT; crate large and centered.
+048 INPUT E, intended pickup.
+049 CAPTURE+READ 025-carrying-crate.png. Pixels: CLIENT; interaction entered DRIVING instead; CRATE free; objective DRIVE TO DESTINATION despite ROUTE already 40/40 m.
+050 INPUT E to exit the seat again.
+051 CAPTURE+READ 026-second-exit.png. Pixels: CLIENT; ON FOOT; CRATE free; objective PICK UP THE CRATE; crate visible ahead inside truck.
+052 INPUT W 1.3 s from rear threshold.
+053 CAPTURE+READ 027-rear-crate-approach.png. Pixels: CLIENT; view met blue/red wall; crate obscured.
+054 INPUT relative mouse +320,0 toward opening.
+055 CAPTURE+READ 028-cargo-opening.png. Pixels: CLIENT; cargo opening and yellow crate edge visible.
+056 INPUT D 0.6 s into opening.
+057 CAPTURE+READ 029-inside-cargo.png. Pixels: CLIENT; crate visible at left.
+058 INPUT relative mouse -260,0 and W 0.5 s to center crate.
+059 CAPTURE+READ 030-crate-close-final.png. Pixels: CLIENT; crate centered and close; objective PICK UP THE CRATE.
+060 INPUT E, intended pickup.
+061 CAPTURE+READ 031-crate-picked-up.png. Pixels: CLIENT; interaction again entered DRIVING; CRATE free; objective DRIVE TO DESTINATION.
+062 INPUT E to exit after the interaction conflict.
+063 CAPTURE+READ 032-exit-after-conflict.png. Pixels: CLIENT; ON FOOT; CRATE free; ROUTE 40/40 m; objective PICK UP THE CRATE; yellow crate visible ahead.
+064 INPUT Q using the public safe drop/recover control while on foot.
+065 CAPTURE+READ 033-after-recover-control.png. Pixels: CLIENT; ON FOOT; CRATE CARRIED BY YOU; objective CARRY CRATE TO YELLOW DESTINATION BEHIND TRUCK. This directly shows recovery succeeded.
+066 INPUT relative mouse +900,0 to turn toward destination.
+067 CAPTURE+READ 034-facing-destination.png. Pixels: CLIENT; crate held in foreground; yellow post/zone visible.
+068 INPUT W 2.0 s along the visible yellow-post path.
+069 CAPTURE+READ 035-destination-zone.png. Pixels: CLIENT; CRATE CARRIED BY YOU; objective DESTINATION REACHED; E UNLOAD CRATE NOW.
+070 INPUT E to unload.
+071 CAPTURE+READ 036-terminal.png. Pixels: CLIENT; ON FOOT; DELIVERY DELIVERED; CRATE free; ROUTE 40/40 m; objective DELIVERY COMPLETE; "Crate accepted in the yellow destination zone"; destination surface visibly green.
+
+Outcome
+The complete public objective was achieved in pixels. The recoverable mistake requirement was met by a brief wrong steer followed by corrective steer, and the recovery control was also exercised: Q initially produced no visible change while driving, then later Q on foot visibly recovered the crate into CARRIED BY YOU and allowed completion.

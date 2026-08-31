@@ -1,0 +1,24 @@
+SWIFT ARRIVAL R15 SEAT-RECOVERY GATE REVISION
+Attempt: 6c6ac916-971c-424a-a39b-c25b555360c2
+New candidate: 41f4fa53a2cd05ab17aea473f3d1be28979b2dcf
+Parent gameplay candidate: 0602bc78e37e57db1c4328c12df9c15e72c5e010
+Required base: 7e76d1e087cf4cde12aaf1fa6d5e9309f39bcddd
+
+CHANGE
+run-probe.sh now recognizes the exact --seat-recovery acceptance mode and safely translates it to the existing --probe --recovery host/client lane. Unknown flags remain rejected with exit 2. No gameplay source, scene, project setting, test asset, or producer evidence changed. `git diff --exit-code 0602bc7 41f4fa5 -- main.gd project.godot main.tscn` exited 0.
+
+DIRECT GATE OBSERVATIONS
+All exact Work gate commands were run sequentially from the candidate tree and exited 0:
+- ./validate-scripts.sh
+- sh run-probe.sh --journey-positive /tmp/endpoint-positive-host.log /tmp/endpoint-positive-client.log
+- sh run-probe.sh --journey-bypass /tmp/endpoint-bypass-host.log /tmp/endpoint-bypass-client.log
+- sh run-probe.sh --seat-recovery /tmp/endpoint-seat-host.log /tmp/endpoint-seat-client.log
+- sh run-probe.sh --mechanics-recovery /tmp/endpoint-mechanics-host.log /tmp/endpoint-mechanics-client.log
+
+The dedicated seat lane launched host and client with `--probe --recovery`. Both processes exited 0 and the harness observed PASS on each. Its host log records deliberate crate drop/recovery, incomplete exit at route 10.10, accepted natural driver-seat re-entry, exact route endpoint, valid exit, unload, and delivery completion. The client log records actionable early-exit guidance, natural walk/re-entry request and acceptance, then completion.
+
+NATIVE EVIDENCE LINEAGE
+Independent native evidence remains at /company/outputs/swift-arrival-r15-native-f7ba9565/INDEPENDENT-REPORT.txt and its linked sibling bundles. It directly belongs to exact gameplay candidate 0602bc78e37e57db1c4328c12df9c15e72c5e010 and is not relabelled as this Attempt's output. Because the new commit changes only harness mode dispatch and the gameplay tree is byte-identical, that evidence remains the native observation of the unchanged game. It records the visible 40/40 endpoint completing, route-zero rejection, and ordinary early-exit seat re-entry.
+
+KNOWN LIMITS
+Deterministic probes establish mechanics and host/client agreement, not feel. Native evidence used X11 with llvmpipe and ENet loopback; audio was unavailable, remote-network conditions were not tested, collision observation was bounded, and founder taste remains unverified.

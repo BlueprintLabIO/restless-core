@@ -1,0 +1,63 @@
+{
+  "schema": "restless.exp17.codex-parity.v1",
+  "recorded_at": "2026-08-30T07:44:00Z",
+  "disposition": "passed",
+  "counted_experiment_authority": false,
+  "activation_note": "P0 is satisfied. Counted EXP-17 remains gated on EXP-16 closure and the frozen task, rubric, order and budget manifest.",
+  "runtime": {
+    "company_image": "sha256:36a80bda308854197aaf5c1b68dbfb51c24326bf8e8bd0d6bc986a3d766d7738",
+    "codex_cli": "0.151.0",
+    "runner_protocol": 1,
+    "runner_sha256": "1c12128dd4d4fc51ad0e59a1d24bf6df96af68219ff45c9e4ac4d42eeb3662f1",
+    "neutral_controller_sha256": "9138b5d4b7f6b31771ae51e19ffca57b04911c963dddddd3f853cc3fd097bdd4",
+    "orgintel_schema": 21,
+    "responses_tariff": "omp-18.0.10-gpt-5.6-2026-08-30"
+  },
+  "producer": {
+    "model_requested": "litellm/gpt-5.6-sol",
+    "model_observed": "gpt-5.6-sol",
+    "provider_observed": "restless",
+    "reasoning_effort": "high",
+    "approval_policy": "never",
+    "sandbox_policy": "dangerFullAccess",
+    "network_policy": "host-model-relay-only-v1",
+    "disabled_ambient_features": ["multi_agent", "plugins", "remote_plugin", "plugin_sharing", "skill_search", "skill_mcp_dependency_install", "apps", "browser_use", "browser_use_external", "browser_use_full_cdp_access", "computer_use", "image_generation", "in_app_browser"],
+    "failover": false
+  },
+  "neutral_preflight": {
+    "result": "passed",
+    "artifact_sha256": "d7a51723d521aebe790c2a085aaca405eeab415aaab4d3bdfbbc1447e0acc2fc",
+    "cold_thread_id": "01a0519f-9054-7100-bda7-6abf60c2c54e",
+    "durable_resume": true,
+    "duplicate_semantic_deliveries": 1,
+    "cancellation_terminal": "interrupted",
+    "long_process_reaped": true,
+    "tool_events": 15,
+    "usage_events": 7
+  },
+  "restless_product_preflight": {
+    "result": "passed",
+    "work_id": "1faaef2f-67b6-49a4-9baf-a2e29a6b49ce",
+    "attempt_id": "a1e1507e-33b4-41f1-978a-b55bdfdd34fb",
+    "attempt_state": "produced",
+    "review_target_sha256": "1da91231033e6d60d1737707624890e2a725edb5c84d076988fe67aa1297f14c",
+    "handoff_id": "0d44c93b-f960-4590-bc34-1093a7a5a8bf",
+    "lead_runtime": "omp",
+    "lead_produced_artifact": false,
+    "owner_ready": true,
+    "external_effects": 0
+  },
+  "accounting": {
+    "isolated_plane_accounted_usd_after_all_preflight_attempts": 0.476,
+    "isolated_plane_ceiling_usd": 10.0,
+    "spend_status": "available"
+  },
+  "cleanup_audit": {
+    "review_target_deleted": true,
+    "neutral_workdir_deleted": true,
+    "neutral_codex_home_deleted": true,
+    "agent_session_markers_deleted": true,
+    "codex_processes_remaining": 0,
+    "long_tool_processes_remaining": 0
+  }
+}

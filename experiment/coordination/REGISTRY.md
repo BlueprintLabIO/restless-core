@@ -68,6 +68,48 @@ Historical v23 remains indexed in `EVIDENCE.md` and does not change a cell above
 |---|---|---|---|---|
 | **EXP-10** | Can one standing supervisor lead improve a real playable product across material and timed signals, recover local failure and remain quiet without repeated owner decomposition? | One Game Product lead, one Godot Staff worker, playtest signal plus exact duplicate, injected executable regression, killed productive process, direct one-shot review and quiet control | accepted | Keep existing concepts plus three thin repairs: direct actor Schedule delivery, observable-activity resume and gate retirement. Before unattended product mode, dogfood one authenticated inbound source and make candidate-local gate execution context the obvious default. |
 
+## EXP-11 autonomous playability frontier
+
+| ID | Question | Shape | Status | Next gate |
+|---|---|---|---|---|
+| **EXP-11** | Can a standing supervisor-led product team use independent native vision playtests to turn a technically verified prototype into a playable vertical slice without an owner-managed backlog? | One non-producing Game Product lead, one end-to-end gameplay Staff, exact GPT-5.6 Sol replacing unavailable GLM-5.3 Flash by owner amendment, fresh withheld-context native sessions | accepted | Negative frontier result: production improved the artifact, but strict R19 reproduced a post-route-40 completion blocker and no 2-run pass. Repair aggregate budgets, blind evidence flow, GUI process handles and duplicate terminal wakes before one bounded product repair. |
+
+## EXP-12 Exec-installed connected tools
+
+| ID | Question | Shape | Status | Next gate |
+|---|---|---|---|---|
+| **EXP-12** | Can Exec install and use a mature external capability from one plain-language owner request while the owner performs only unavoidable identity and consent? | Official Attio remote MCP; one sales-operations lead and one CRM Staff worker; bounded 20-record Aris Academy test amendment; cached reconnect, exact Work/Attempt attachment and disable probe | provisional-loss | Founder accepted the useful native outcome and disclosed ownership representation, but four product defects and manual credential recovery violate the no-developer-access treatment. Fix call-time stale-effect fencing and ambiguous provider-write reconciliation before one clean replication. Nango remains not activated. |
+
+## EXP-13 durable visual operator frontier
+
+| ID | Question | Shape | Status | Next gate |
+|---|---|---|---|---|
+| **EXP-13** | Do four durable visual-control primitives materially improve native work and generalise across applications? | Matched B0/B1/B2 Swift Arrival run, then B1/B2 frozen-site transfer; requested GLM-5.3 Flash with exact GPT-5.6 Terra fallback | provisional-loss | Repaired B2 halved game decisions and eliminated observed target/focus/invalid-interaction failures, but browser B2 failed before pixels because target identity did not generalise. Current operator purged. Reopen only with a deterministic clean-room-safe launch-to-target handle tested unchanged across game and browser, with per-arm receipts. |
+
+## EXP-14 tight game-development loop
+
+| ID | Question | Shape | Status | Next gate |
+|---|---|---|---|---|
+| **EXP-14** | Can exact launch identity, cheap continuous mechanics and sparse source-blind vision turn the EXP-11 blocker into a reliably playable slice? | One non-producing Game Product lead; native launch-to-handle Runtime seam; one bounded product repair; separate negative and positive player Work | blocked | Final candidate `bd32f719` passes 5/5 mechanical gates. One blind predecessor journey completed and one blind negative found a real feedback defect. Resume only correct in-zone final negative plus two fresh final journeys after provider reset; no additional repair without new player evidence. |
+
+## EXP-15 first vertical-slice campaign
+
+| ID | Question | Shape | Status | Next gate |
+|---|---|---|---|---|
+| **EXP-15** | Can a supervisor-led Restless studio turn the verified walking skeleton into the complete first Swift Arrival vertical slice through 30–60 evidence-led loops, with most fun findings resolved through tuning rather than core rewrites? | One non-producing Game Product lead; one end-to-end Gameplay Staff by default; validated tuning presets; cheap mechanics plus sparse Terra vision; exact depot-to-three-destination workday | concluded-negative | Freeze `29f2fe75` / tree `fb3092d7` after 37 material loops. Mechanics and bounded public proofs pass, but the final source-blind journey fails the roadwork recovery contract. Carry the exact player-invalid contradiction into EXP-16; do not claim vertical-slice acceptance or fun. |
+
+## EXP-16 embodied NPC playtesting and production behaviour
+
+| ID | Question | Shape | Status | Next gate |
+|---|---|---|---|---|
+| **EXP-16** | Can one reusable embodied-agent architecture make ordinary game feedback roughly an order of magnitude cheaper while becoming the basis for real driver, robber and vampire NPCs? | Player-equivalent evaluator plus host-authoritative production profiles sharing perception, belief, goal and ordinary action adapters; sparse GPT-5.6 judgement | concluded-negative | S0-S6 produced useful mechanics policies and one real delivery repair, but S7 proved the exact tree cannot render fresh recovery, robber and vampire journeys. Keep the shared body and deterministic mechanics; do not claim player equivalence or 10x. |
+
+## EXP-17 Codex solo versus Restless-supervised Codex
+
+| ID | Question | Shape | Status | Next gate |
+|---|---|---|---|---|
+| **EXP-17** | For which work shapes does a non-producing Restless supervisor earn its overhead over the same Codex worker operating solo, and when does selective parallel staffing add value? | C solo versus R1 Exec → non-producing lead → one identical first-party Codex worker across small/large coherent, independently parallel and longitudinal coding/non-coding work; RP-Q2 only on local closure; Hermes optional after parity | accepted | Four valid sparse pairs reached outcome parity; `R1` cost 1.73x-3.30x and took 1.77x-2.94x with no quality/recovery win, so `C` is the observed performance route. Next freeze and run exact disjoint `RP-Q2`; retain lead accountability but make routine supervision event-driven. |
+
 ## Wildcards
 
 | ID | Wildcard | Family | Dependency | Status | Next gate |

@@ -1,0 +1,6 @@
+== GDScript parse validation (/usr/local/bin/godot --check-only)
+-- checking main.gd
+Godot Engine v4.7.2.stable.official.ed1daf0bf - https://godotengine.org
+
+   OK: main.gd parses
+== VALIDATION PASS: all scripts parse

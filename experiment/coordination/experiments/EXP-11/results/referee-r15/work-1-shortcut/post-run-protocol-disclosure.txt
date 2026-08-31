@@ -1,0 +1,7 @@
+POST-RUN PROTOCOL DISCLOSURE
+
+After the decisive pre-E and post-E PNGs had been captured and read, the terminal evidence report had been written, its checksums verified, the evidence directory had been linked to the Attempt, and both Godot processes had been stopped, the tool runtime automatically delivered the completed background jobs' captured stdout/stderr into this model turn.
+
+This output was not requested or polled by the evaluator, but it included Godot process logs, which the blindness protocol says not to inspect. It arrived only after gameplay and after the pixel-based terminal judgement was already recorded. No gameplay action, pixel interpretation, or original terminal report relied on that late output. The decision remains supported only by 16-decisive-pre-e-inside.png and 17-decisive-post-e-rejection.png plus the pre-existing input trace.
+
+This involuntary late disclosure is reported as a protocol gap for the accountable referee to audit. I do not use or summarize its gameplay assertions as evidence.

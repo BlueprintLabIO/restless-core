@@ -1,0 +1,26 @@
+Independent native visual referee report
+Candidate identity supplied in assignment: 7e76d1e087cf4cde12aaf1fa6d5e9309f39bcddd
+Attempt: 1473e3a4-170f-43c4-94a7-10e9ebdd3ac0
+
+RECOMMENDED JUDGEMENT: PASS
+
+Direct observations
+1. Shortcut run: a fresh CLIENT visibly began at route 0/40 m. The parcel was collected and carried on foot from the truck to the yellow destination area. At the marker, the HUD remained ON FOOT, DELIVERY IN PROGRESS, CRATE CARRIED BY YOU, ROUTE 0/40 m. Pressing E did not produce completion; the next exact CLIENT PNG retained that non-complete state. No bypass was observed.
+2. Intended run: after a verified process-clean restart, a fresh CLIENT visibly began at route 0/40 m. The parcel was collected. Q made an ordinary visible drop mistake; E recovered it. The parcel was carried to the green driver seat, and E produced the visible IN DRIVER SEAT / CRATE LOADED state. W driving visibly changed route progress from 0 to 12 and then 40/40 m. E left the seat with the crate carried. At the rear destination threshold the HUD visibly offered E UNLOAD CRATE NOW. Pressing E produced DELIVERY DELIVERED / CRATE free / ROUTE 40/40 m and OBJECTIVE: DELIVERY COMPLETE.
+3. Every relied-on PNG visibly identifies CLIENT. Each was captured from the screen region for the exact numeric CLIENT window ID after raise/focus, then read through OMP in this same Sol session.
+
+Inference and uncertainty
+- The run-1 evidence demonstrates non-completion under the naturally attempted on-foot path and E unload attempt. It does not prove every theoretical shortcut is impossible.
+- Run-2 initial routing had one bounded failure: the first capture visibly showed HOST despite an immediately preceding title result that appeared to say CLIENT. I stopped, re-read both titles, rerouted to the then-confirmed CLIENT ID, recaptured, read pixels showing CLIENT, and only then began gameplay. The failed capture and repair are retained.
+- A mouse-look syntax error occurred in run 1 and was repaired once; no judgement depends on mouse-look.
+
+Evidence index
+- 00-setup.txt
+- run1-shortcut/action-trace.txt and PNGs 001–009
+- run2-intended/action-trace.txt and PNGs 001–014 (001 is retained routing failure; relied-on run begins at 002)
+- SHA256SUMS.txt
+
+Not done / gaps
+- I did not inspect or verify source, Git history, tests, logs, process output, known defects, producer messages, or prior reports.
+- I did not assess aesthetics, fun, performance, networking robustness beyond visible connected play, or exhaustive alternate exploits.
+- I do not declare founder acceptance; final acceptance remains with the accountable referee.

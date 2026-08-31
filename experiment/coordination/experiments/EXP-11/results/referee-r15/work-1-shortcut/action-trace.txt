@@ -1,0 +1,26 @@
+Work 1 shortcut native action trace
+Model selector in active workstation context: litellm/gpt-5.6-sol
+
+BLINDNESS / INPUT BOUNDARY
+- Did not inspect source, Git history, producer messages, tests, logs, known defects, or prior reports.
+- Did not edit candidate files.
+- Used only W/A/S/D and E for gameplay. Mouse look and Q were not needed.
+- Every input was preceded by raising and focusing exact CLIENT ID 23068675.
+
+SEQUENCE AND DIRECT PIXEL OBSERVATIONS
+00 initial: Read 00-initial-client.png. Direct pixels showed SWIFT ARRIVAL · CLIENT, connected 1, ON FOOT, objective PICK UP THE PARCEL, and a parcel crate ahead.
+01 approach: Held W 2s. Read 01-approach-crate.png; crate remained centered and close.
+02 pickup: Pressed E. Read 02-pickup-result.png; direct pixels showed CRATE CARRIED BY YOU and the carried crate occupied the lower center. Objective became COMPLETE THE LOADED TRUCK JOURNEY; route displayed 0 / 40 m.
+03 exit: Held W 4s. Read 03-outside-carrying.png; direct pixels showed parcel still carried, route 0 / 40 m, truck immediately ahead, and distant yellow route-end structure.
+04 ordinary mistake: Held W 8s against the truck obstruction. Read 04-route-progress.png; pixels showed no meaningful progress. This was the ordinary recoverable navigation mistake.
+05-09 recovery: Sidestepped, backed away, then moved left around the truck. Decision captures 05 through 09 showed the obstruction, the truck after backing, and then a visibly clear path left of it. Parcel remained visibly carried and route stayed 0 / 40 m.
+10 shortcut traversal: Held W 10s on foot past the truck. Read 10-route-end-approach.png; direct pixels showed the yellow destination structure nearby on the right, parcel carried, and route still 0 / 40 m.
+11-15 zone alignment: Used lateral/forward movement in small observed steps. Captures 11-15 showed the parcel-bearing player aligning with the yellow platform. No truck journey occurred; UI route remained 0 / 40 m.
+16 decisive pre-E: Stepped diagonally onto the yellow platform. Read 16-decisive-pre-e-inside.png. Direct pixels visibly showed the carried parcel in the foreground, yellow destination-zone floor surrounding/under the viewpoint between tall yellow gate posts, status CRATE CARRIED BY YOU, route 0 / 40 m, and explicit yellow objective TRUCK JOURNEY REQUIRED with green instruction Drive loaded truck 0 → 40 m, then exit at route end.
+17 decisive post-E: While remaining in that visible inside-zone, parcel-bearing state, pressed E once. Read 17-decisive-post-e-rejection.png. Direct pixels continued to show the player inside the yellow zone carrying the parcel, route 0 / 40 m, and the explicit TRUCK JOURNEY REQUIRED rejection/instruction. Delivery did not complete.
+
+STOP CONDITION
+Stopped immediately after the visible post-E rejection evidence. Did not attempt the intended complete journey in this Work.
+
+SETUP FAILURES / REPAIRS
+None. No bounded setup repair was consumed.

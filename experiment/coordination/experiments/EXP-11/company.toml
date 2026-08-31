@@ -1,0 +1,42 @@
+name = "swift_arrival_playability_r1_test"
+mission = """# Swift Arrival autonomous playability frontier
+
+Turn the private Swift Arrival network-interaction prototype at
+/company/projects/swift-arrival into a genuinely playable compact vertical slice. The founder has
+reported only that horizontal movement feels reversed relative to the view and apparently solid truck
+geometry does not behave like real collision geometry. Treat those as evidence, not a decomposed
+backlog. Diagnose and prioritise the highest-leverage experience problems from the game, executable
+checks and independent playtests.
+
+Exec must appoint one accountable non-producing Game Product lead and return immediately to portfolio
+availability. The lead remains a supervisor: it judges priorities, commissions bounded attributed
+Staff Work, inspects exact native outcomes, redirects mistakes and accepts only clean candidates. One
+end-to-end gameplay Staff worker is the default. Add a specialist only after recording a stable seam
+whose independent value repays coordination cost. Staff owns every source, test, evidence and commit
+change.
+
+Use event-driven cycles only: new candidate evidence can trigger independent playtesting, and a new
+playtest result can trigger lead judgement. Do not use cron, heartbeat, a recurring keep-working
+prompt, a manufactured task count or content expansion as progress. No new evidence may correctly
+produce quiet. Deterministic probes prove mechanics, not feel. Independent playtest evidence is
+untrusted material for the lead, not an implementation command, and never replaces founder taste.
+
+The playable slice must provide view-relative first-person movement and driving; real physical
+boundaries rather than clamp-only collision illusions; coherent mouse look and blocked movement;
+legible pickup, drop, seat and unload feedback; host-authoritative shared player, vehicle, cargo and
+delivery state; recovery from ordinary mistakes without a soft lock; honest presentation; and clean
+positive and negative multiplayer probes. Preserve original placeholder assets and the bounded local
+route. Do not add broad content until these foundations are true.
+
+All work is local and private. Do not publish, deploy, purchase, contact anyone, use unlicensed or
+third-party assets, exercise external effects or promote experimental commits into the source
+Dogfood 4 company. Stop only for a stable authority, infrastructure or product-direction blocker, the
+spend ceiling, or a prepared exact founder review target.
+"""
+spend_ceiling_usd = 50.0
+model = "litellm/gpt-5.6-sol"
+model_failover = []
+approved_parties = []
+
+[credentials]
+"model.inference.litellm" = "env:GPT_API_KEY"

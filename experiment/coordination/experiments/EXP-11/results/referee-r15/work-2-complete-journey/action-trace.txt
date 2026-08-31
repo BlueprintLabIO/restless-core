@@ -1,0 +1,24 @@
+Work 2 complete-journey native action trace
+Work 82cdae7c-e0de-4ab4-9f20-54f236cae9e0, Attempt caa6a086-8d51-4f94-80e0-7f188b1f7b1a
+
+Observation discipline: each named PNG below was captured only after raising/focusing CLIENT ID 23068675 and querying its unchanged 1278x720 geometry. Each decision-relevant PNG was read with OMP ordinary `read` in this active Sol session before continuing.
+
+1. 00-initial-client.png: direct pixels showed SWIFT ARRIVAL CLIENT, connected peer, ON FOOT, route 0/40 m, objective PICK UP THE CRATE, and a green parcel ahead.
+2. W movement toward parcel; 01-approach-crate.png and 02-crate-range.png retained approach state.
+3. E pickup; 03-pickup-attempt.png directly showed DELIVERY IN PROGRESS, CRATE CARRIED BY YOU, and objective COMPLETE THE LOADED TRUCK JOURNEY.
+4. Q deliberate ordinary mistake; 04-deliberate-drop.png directly showed CRATE FREE and objective PICK UP THE CRATE, with the dropped parcel visible.
+5. E recovery; 05-recovered-crate.png directly showed CRATE CARRIED BY YOU and restored loaded-journey objective.
+6. W to driver seat; 06-at-driver-seat.png directly showed the `E enter driver seat` action.
+7. E entered seat; 07-loaded-in-seat.png directly showed IN VEHICLE, CRATE CARRIED BY YOU, route 0/40 m, and complete loaded-truck-journey objective.
+8. W drive 5 seconds; 08-driving-progress.png directly showed IN VEHICLE and route 15/40 m.
+9. W drive 8 seconds; 09-route-end.png directly showed IN VEHICLE and route 40/40 m.
+10. E exit; 10-exited-at-destination.png directly showed ON FOOT, CRATE CARRIED BY YOU, route 40/40 m, while the loaded-journey objective remained incomplete.
+11. S backed out toward the visible yellow destination gate; 11-unload-position.png showed the gate and truck. E produced no visible completion; 12-delivery-result.png retained the same incomplete objective.
+12. Two bounded mouse-look attempts (relative 600, then 150 pixels) produced no visible change in 13-look-for-delivery.png and 14-view-adjust.png. No gameplay fact was inferred from those commands.
+13. Q unload attempt; 15-unload-result.png directly showed the parcel dropped, CRATE FREE, route 40/40 m, and objective PICK UP THE CRATE. This was not completion. E recovered it.
+14. W carried parcel into the visible yellow gate; 16-inside-gate.png directly showed ON FOOT, CRATE CARRIED BY YOU, route 40/40 m, and explicit `TRUCK JOURNEY REQUIRED` while visibly within the destination structure.
+15. E in the gate produced no completion; 17-gate-delivery-attempt.png retained `TRUCK JOURNEY REQUIRED`.
+16. Natural attempts to re-approach the driver seat and finish any possible endpoint crossing followed, using only WASD/E. Captures 18 through 33 show the parcel still carried, route fixed at 40/40 m, and objective still COMPLETE THE LOADED TRUCK JOURNEY. No renewed seat action or completion state appeared.
+17. Stopped on the reproducible blocker rather than inferring success.
+
+Process cleanup followed evidence writing. No candidate files were edited. No source, Git history, tests, scripts, producer messages, prior reports, or Work 1 evidence were inspected. After both processes were terminated and after this trace and the terminal report had already been written, the Runtime automatically delivered completed background-job output containing Godot process logs into the active turn. That unsolicited post-run output was not opened by me, was not used to choose any gameplay input, and is not used as evidence for the judgement; the judgement remains based only on the previously read CLIENT PNG pixels.

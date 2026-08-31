@@ -1,0 +1,54 @@
+{
+  "work_id": "85ced0c3-ddde-46f3-9003-3cdc50f8ebd7",
+  "attempt_id": "ec9e77bf-f378-41a0-9c7b-765b3a162407",
+  "candidate": {
+    "repo": "swift-arrival",
+    "commit": "7e76d1e087cf4cde12aaf1fa6d5e9309f39bcddd",
+    "gameplay_parent": "2ebfd6932d7709bf03410c2b864731ef0394c05f",
+    "base": "09fe09d30c65b811c0904508525a6ab8af02145c"
+  },
+  "diagnosis": {
+    "blind_input": "/company/inputs/exp11-referee-r9",
+    "summary": "/company/outputs/swift-arrival-journey-r1/summary.txt",
+    "gate_rerun": "/company/outputs/swift-arrival-journey-r1/gate-rerun.txt"
+  },
+  "exact_work_gates": {
+    "parse": "sh validate-scripts.sh",
+    "journey_positive": {
+      "command": "sh run-probe.sh --journey-positive /tmp/journey-positive-host.log /tmp/journey-positive-client.log",
+      "result": "exit 0; host PASS + client PASS",
+      "host_log": "work-gates/journey-positive-host.log",
+      "client_log": "work-gates/journey-positive-client.log"
+    },
+    "journey_bypass": {
+      "command": "sh run-probe.sh --journey-bypass /tmp/journey-bypass-host.log /tmp/journey-bypass-client.log",
+      "result": "exit 0; host PASS + client PASS",
+      "host_log": "work-gates/journey-bypass-host.log",
+      "client_log": "work-gates/journey-bypass-client.log"
+    },
+    "mechanics_recovery": {
+      "command": "sh run-probe.sh --mechanics-recovery /tmp/journey-mechanics-host.log /tmp/journey-mechanics-client.log",
+      "result": "exit 0; mechanics host/client PASS + recovery host/client PASS",
+      "host_log": "work-gates/journey-mechanics-host.log",
+      "client_log": "work-gates/journey-mechanics-client.log"
+    }
+  },
+  "native_positive": {
+    "result": "native-positive/result.txt",
+    "input_trace": "native-positive/input-trace.tsv",
+    "host_log": "native-positive/host.log",
+    "client_log": "native-positive/client.log",
+    "completion_pixels": "native-positive/shots/ev_delivered.png",
+    "shots": "native-positive/shots/"
+  },
+  "native_on_foot_bypass": {
+    "result": "native-bypass/result.txt",
+    "input_trace": "native-bypass/input-trace.tsv",
+    "host_log": "native-bypass/host.log",
+    "client_log": "native-bypass/client.log",
+    "rejection_pixels": "native-bypass/shots/ev_reject_journey.png",
+    "shots": "native-bypass/shots/"
+  },
+  "mechanical_result": "verified",
+  "human_judgement_still_required": "Gameplay feel and founder taste are not established by these probes or traces."
+}

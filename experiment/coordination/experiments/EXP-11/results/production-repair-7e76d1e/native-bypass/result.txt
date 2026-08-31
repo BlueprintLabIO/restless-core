@@ -1,0 +1,4 @@
+native X11 on-foot route-zero bypass: REJECTED
+controls exercised: E pickup/unload attempt, W/A/D walking, captured native mouse turns
+authoritative result: route=0.0, truck journey incomplete, delivery remained in progress
+screenshots: game-side event capture ev_reject_journey*.png plus interval frames in shots/

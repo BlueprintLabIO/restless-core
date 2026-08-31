@@ -17,6 +17,9 @@ use super::recovery::gate_cwd;
 
 static IN_FLIGHT: OnceLock<Mutex<HashMap<String, Weak<Mutex<()>>>>> = OnceLock::new();
 
+const GATE_SESSION_WRAPPER: &str =
+    "umask 077; marker=$1; shift; exec setsid --wait sh -c 'echo $$ > \"$1\"; shift; exec \"$@\"' restless-gate-inner \"$marker\" \"$@\"";
+
 #[derive(Default)]
 struct GateResources {
     leases: Vec<RuntimeResourceLeaseRow>,
@@ -273,7 +276,13 @@ async fn execute_gate_inner(
         container,
         "sh",
         "-lc",
-        "umask 077; marker=$1; shift; exec setsid sh -c 'echo $$ > \"$1\"; shift; exec \"$@\"' restless-gate-inner \"$marker\" \"$@\"",
+        // `docker exec` must remain attached to the new session. GNU `setsid`
+        // forks when its caller is already a process-group leader; without
+        // `--wait`, that parent reports exit 0 to Docker while the real gate is
+        // still running. Runtime would then record empty output and kill the
+        // healthy child session as a leak. The waiter preserves stdout/stderr,
+        // the terminal status and the timeout/reaper ownership boundary.
+        GATE_SESSION_WRAPPER,
         "restless-gate",
         &resources.marker,
     ]);
@@ -480,6 +489,14 @@ mod tests {
         WorkAttemptState, WorkspaceSpec,
     };
 
+    #[test]
+    fn gate_session_wrapper_waits_when_setsid_forks() {
+        assert!(
+            GATE_SESSION_WRAPPER.contains("exec setsid --wait sh -c"),
+            "Docker must stay attached when setsid forks for a process-group leader"
+        );
+    }
+
     async fn command(container: &str, script: &str) -> String {
         let output = tokio::process::Command::new("docker")
             .args([
@@ -638,6 +655,8 @@ mod tests {
             mission: "Sprint 26 integrated fixture".into(),
             spend_ceiling_usd: SpendCeiling::from_micro_usd(0),
             model: "litellm/gpt-5.6-terra".into(),
+            worker_runtime: crate::runtime::WorkerRuntime::Omp,
+            reasoning_effort: crate::acp::DEFAULT_REASONING_EFFORT.into(),
             model_failover: Vec::new(),
             credentials: std::collections::BTreeMap::new(),
             approved_parties: Vec::new(),
@@ -1135,6 +1154,54 @@ mod tests {
             exact.attempt_id,
             WorkAttemptState::Produced,
             "fixture passed",
+        )
+        .await
+        .unwrap();
+
+        // Regression for EXP-16: if GNU setsid forks because Docker's entry
+        // process is already a process-group leader, the non-waiting parent
+        // exits 0 immediately. The old wrapper then captured no terminal
+        // output and classified the still-running command as a leak.
+        let waited = add_gate(
+            &org,
+            "fixture-a",
+            "wait-for-forked-setsid-child",
+            95,
+            &[
+                "sh".into(),
+                "-lc".into(),
+                "printf 'gate-started\\n'; sleep 1; printf 'gate-finished\\n'".into(),
+            ],
+            10,
+            &[],
+        )
+        .await;
+        assert!(run_gates(
+            &org,
+            &container,
+            waited.work_id,
+            waited.attempt_id,
+            "/company",
+            &waited.tree,
+        )
+        .await
+        .unwrap());
+        let waited_run = org
+            .work_graph_snapshot()
+            .await
+            .unwrap()
+            .gate_runs
+            .into_iter()
+            .find(|run| run.attempt_id == waited.attempt_id)
+            .unwrap();
+        assert!(waited_run.duration_ms.unwrap_or_default() >= 900);
+        assert!(waited_run.output_excerpt.contains("gate-started"));
+        assert!(waited_run.output_excerpt.contains("gate-finished"));
+        assert_eq!(waited_run.leaked_processes, 0);
+        org.finish_work_attempt(
+            waited.attempt_id,
+            WorkAttemptState::Produced,
+            "waited for the complete gate session",
         )
         .await
         .unwrap();

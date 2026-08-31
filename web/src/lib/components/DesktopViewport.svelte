@@ -1,27 +1,66 @@
 <script lang="ts">
+	import { onDestroy } from 'svelte';
 	import type { Snippet } from 'svelte';
 
 	let {
 		src = '',
 		title = 'Company computer',
 		offline = null,
-		onload = null
+		onload = null,
+		onactivity = null
 	}: {
 		src?: string;
 		title?: string;
 		offline?: Snippet | null;
 		onload?: (() => void) | null;
+		/** A real pointer/key event observed inside the live desktop. */
+		onactivity?: (() => void) | null;
 	} = $props();
+
+	let frame = $state<HTMLIFrameElement>();
+	let detachInputObservers = () => {};
+
+	function recordActivity() {
+		onactivity?.();
+	}
+
+	function connected() {
+		detachInputObservers();
+		/* noVNC is served through the same local owner origin. Listen in capture
+		 * phase so activity is observed even when the client consumes the event.
+		 * If a future desktop transport becomes cross-origin, the outer pointer
+		 * handler still provides a conservative claim signal. */
+		const document = frame?.contentDocument;
+		if (document) {
+			const events: Array<keyof DocumentEventMap> = [
+				'pointerdown',
+				'pointermove',
+				'wheel',
+				'keydown',
+				'keyup'
+			];
+			for (const event of events) document.addEventListener(event, recordActivity, true);
+			detachInputObservers = () => {
+				for (const event of events) document.removeEventListener(event, recordActivity, true);
+			};
+		}
+		onload?.();
+	}
+
+	onDestroy(() => detachInputObservers());
 </script>
 
 <div class="desktop-viewport">
 	{#if src}
 		<iframe
+			bind:this={frame}
+			role="application"
 			{title}
 			{src}
 			allow="clipboard-read; clipboard-write"
 			referrerpolicy="same-origin"
-			onload={() => onload?.()}
+			onpointerdown={recordActivity}
+			onload={connected}
 		></iframe>
 	{:else if offline}
 		{@render offline()}

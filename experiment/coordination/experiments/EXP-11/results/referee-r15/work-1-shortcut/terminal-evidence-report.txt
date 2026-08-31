@@ -1,0 +1,32 @@
+TERMINAL EVIDENCE REPORT
+Work: b18487b1-22e5-4017-8068-2de9de6159b0
+Attempt: ef575fd0-a9ed-4097-bb08-8151a834a4e7
+Result: SHORTCUT REJECTED (direct native CLIENT pixels)
+
+Claim tested
+Whether carrying the parcel to the destination on foot, without a loaded-truck journey, can complete delivery.
+
+Direct observations
+- 02-pickup-result.png visibly shows CLIENT, CRATE CARRIED BY YOU, the carried crate, and route 0 / 40 m.
+- 16-decisive-pre-e-inside.png visibly shows the parcel-bearing player inside the yellow destination platform between its yellow posts. It also shows route 0 / 40 m and explicit TRUCK JOURNEY REQUIRED / Drive loaded truck 0 → 40 m, then exit at route end.
+- E was then pressed once without moving from that state.
+- 17-decisive-post-e-rejection.png visibly shows the resulting state: still inside the yellow destination zone, still CRATE CARRIED BY YOU, still route 0 / 40 m, and still explicit TRUCK JOURNEY REQUIRED. No delivery completion is visible.
+
+Judgement bounded to this run
+The attempted on-foot parcel shortcut did not bypass the required loaded-truck journey. The CLIENT explicitly rejected the shortcut by displaying TRUCK JOURNEY REQUIRED at the destination; pressing E there did not complete delivery.
+
+Supporting evidence
+- routing-record.txt: numeric host/client IDs, title mapping, native geometry, focus/capture route.
+- action-trace.txt: ordered inputs and pixel observations.
+- 00-initial-client.png: exact fresh initial client ingestion.
+- 16-decisive-pre-e-inside.png: decisive pre-E in-zone carrying state.
+- 17-decisive-post-e-rejection.png: decisive post-E rejection.
+- Intermediate PNGs 01-15 preserve observed navigation and recovery context.
+
+Gaps / skipped / unverified
+- This Work did not attempt the complete intended loaded-truck journey; that is explicitly reserved for sequential Work 2.
+- This run does not establish that the intended journey completes.
+- No source, logs, tests, scripts, Git history, prior reports, or producer information were inspected, so no internal cause is claimed.
+- No audio evidence or video was recorded; judgement is from read exact PNG pixels plus the retained input trace.
+- The ordinary recoverable mistake was a brief failed forward path into the truck obstruction, then backing/sidestepping around it; no parcel drop was attempted.
+- No founder/product acceptance is declared.

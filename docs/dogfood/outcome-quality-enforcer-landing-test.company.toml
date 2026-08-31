@@ -1,0 +1,10 @@
+name = "restless_cloud_quality_enforcer_test"
+mission = "Restless Cloud needs a world-class public website that makes the real product easy to understand and trust. The accountable lead owns the accepted outcome, uses the real product as the design source of truth, and works autonomously through Staff and independent evaluation until quality converges. Do not publish, push, deploy, contact anyone, replace main, or perform another external effect."
+spend_ceiling_usd = "60"
+model = "openai-codex/gpt-5.6-sol"
+model_failover = []
+reasoning_effort = "high"
+approved_parties = []
+
+[credentials]
+"model.inference.openai-codex" = "omp-oauth:openai-codex"

@@ -1,0 +1,42 @@
+{
+  "kind": "sprint-26-activation-amendment",
+  "amendment": 1,
+  "date": "2026-08-30",
+  "parent_receipt_sha256": "9f2e598922e42d53233ea3f43b0644cab51d89f3acec4d81a413b67ae467bf37",
+  "scope": "governed gate session wait and applied migration byte restoration",
+  "source": {
+    "base_head": "04afad8ca72932550cc4acb7c6a1da6a8631f64a",
+    "scoped_patch_sha256": "1123f94fa58245581c27ff0e7f93b550b10f43af7ffe30ecbdb713d43f8601f1",
+    "host_restlessd_sha256": "488e2ef5c7fd6559570045452652940b05ded30eef8c9a82d4afd0126baaf252",
+    "migration_20_sha384": "49d2c6ad0b508392250f1a5a0a7e16decd4128062f62e80a157908dfb9daed4b8593d25e9808a288772d59819e44a2bc"
+  },
+  "verification": {
+    "unit": {
+      "test": "staff::gates::tests::gate_session_wrapper_waits_when_setsid_forks",
+      "passed": 1,
+      "filtered": 229
+    },
+    "live_integrated": {
+      "test": "staff::gates::tests::live_integrated_gate_leasing_cache_failure_and_restart_cleanup",
+      "passed": 1,
+      "filtered": 229,
+      "duration_ms": 35380
+    },
+    "exp16": {
+      "work_id": "6b9c41f2-235e-4a04-8ec2-d33ddcad9783",
+      "attempt_id": "153c3779-8408-4ea2-8997-4f97cd614c4a",
+      "gate_id": "e68f14f8-aec8-4b38-bf5b-d095ac248cba",
+      "gate_run_id": "b6a8f2f8-8e21-42ab-afd5-bf57f4cefb24",
+      "leased_port": 41504,
+      "duration_ms": 8809,
+      "exit_code": 0,
+      "output_excerpt": "PASS mechanics",
+      "leaked_processes": 0
+    }
+  },
+  "unchanged": {
+    "company_container_image_id": "sha256:2787bb8b545dce13015919bec8334894ddeb47bc6bc97b2df8f8eabba3ef0574",
+    "exp16_product_commit": "29f2fe75e9f891f7533faa0a93d8c127e73909c5",
+    "exp16_product_tree": "fb3092d7c422e941bb21d565efcbfddaabd40f51"
+  }
+}

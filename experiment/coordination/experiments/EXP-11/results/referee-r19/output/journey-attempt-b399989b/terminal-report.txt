@@ -1,0 +1,35 @@
+TERMINAL NATIVE GAMEPLAY EVIDENCE REPORT
+Work d60a6996-9419-482b-9fe4-ff2f7db90021 · Attempt b399989b-25a6-492d-af37-79e5977b6f8f
+Frozen candidate identity supplied by assignment: 41f4fa53a2cd05ab17aea473f3d1be28979b2dcf
+Outcome: REPRODUCIBLE BLOCKER; complete intended journey did not reach delivery completion.
+
+Method
+- Ran only a fresh native HOST and corresponding CLIENT on DISPLAY=:1.
+- Used ordinary public keyboard/pointer controls only.
+- Before each input or capture, raised/focused exact CLIENT ID 23068675 and queried its unchanged native geometry. Each decision-relevant PNG was captured from only X=2,Y=43,WIDTH=1278,HEIGHT=720 and read directly in this Sol turn.
+- Did not inspect source, Git history, tests, logs, producer messages, prior reports, prerequisite evidence, or other Work evidence.
+
+Direct observations
+- Current-launch CLIENT was visibly identified as peer 1950424604.
+- `repair-step35-crate-carried.png` shows successful crate pickup.
+- `repair-step36-mistake-drop.png` shows the deliberate ordinary mistake: `CRATE NOT CARRIED`, with the dropped crate still directly recoverable.
+- `repair-step37-mistake-recovered.png` shows successful recovery: `CRATE CARRIED BY YOU`.
+- `repair-step39-loaded-truck-start.png` shows `DRIVING · DELIVERY IN PROGRESS · CRATE CARRIED BY YOU · ROUTE 0 / 40 m`.
+- `repair-step42-route-end-confirmed.png` shows explicit route end while driving: `ROUTE 40 / 40 m`.
+- `repair-step43-on-foot-after-exit.png` shows on-foot after pressing E to exit, still carrying the crate at `ROUTE 40 / 40 m`.
+- Instead of advancing to unload, the HUD displayed `OBJECTIVE: COMPLETE THE LOADED TRUCK JOURNEY` and `Re-enter the yellow DRIVER seat through cargo · drive to 40 m · exit`.
+- I followed that visible instruction again: `repair-step68-matched-reenter.png` shows re-entered driving at 40/40; `repair-step69-route-end-trigger.png` retains driving at 40/40 after additional W movement; `repair-step70-post-trigger-exit.png` shows the second on-foot exit. The loaded-journey objective still persisted.
+- `repair-step71-destination-zone-blocker.png` shows the player on foot, crate carried, route 40/40, directly behind the truck within the visible yellow destination structure, while the same loaded-journey objective remains.
+- An E unload attempt in that state produced `repair-step72-unload-attempt-blocked.png`; no visible state changed and no delivery completion appeared.
+
+Assessment within this bounded role
+The intended native journey is blocked after route completion. The run directly proves pickup, one recoverable Q-drop mistake and E recovery, loaded driving from route 0 to explicit route 40/40, leaving the seat, a repeated re-enter/move/exit cycle, and an unload attempt in the visible destination structure. It does not prove successful unload or delivery completion. The smallest retained blocker sequence is steps 68-72, supported by route-start/end evidence steps 39 and 42.
+
+Setup failure and bounded repair
+The first HOST/CLIENT background commands reached the tool's 300-second deadline and both processes were terminated. I retained that failure in the window record, confirmed no Godot process/window remained, and used the one allowed bounded setup repair: a fresh HOST then fresh CLIENT with the command deadline disabled. All claimed gameplay evidence is from repaired peer 1950424604, not the failed launch.
+
+Gaps and uncertainty
+- No delivery-complete visual exists because the HUD never advanced beyond the loaded-journey objective after two route-end exits and the destination E attempt.
+- The visible state establishes the blocker but not its internal cause; source/log inspection was prohibited and not performed.
+- Synthetic native mouse motion produced no visible look change, so positioning used W/A/S/D. This did not prevent the documented pickup, mistake/recovery, driving, route end, exits, destination positioning, or blocker reproduction.
+- This report does not declare founder acceptance or prescribe production work.

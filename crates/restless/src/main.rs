@@ -170,8 +170,7 @@ enum Command {
         #[command(subcommand)]
         command: TeamCommand,
     },
-    /// Durable one-shot time facts. A schedule creates an opportunity to inspect; it does not prove
-    /// that work is necessary or complete.
+    /// Durable time facts. Exact and weekday schedules create opportunities to inspect; they run no command.
     Schedule {
         #[command(subcommand)]
         command: ScheduleCommand,
@@ -459,21 +458,43 @@ enum ScheduleCommand {
         #[arg(long)]
         all: bool,
     },
-    /// Add one genuinely time-driven wake. Recurrence remains later judgement, not scheduler policy.
+    /// Add a genuinely time-driven wake: one exact instant, or one weekday local-time cadence.
     Add {
         #[arg(long, short = 'c', env = "RESTLESS_COMPANY")]
         company: Option<String>,
         /// The accountable actor to wake. Defaults to the current Runtime actor.
         #[arg(long = "as", env = "RESTLESS_ACTOR")]
         as_actor: Option<String>,
-        /// RFC3339 instant, for example 2026-08-28T09:30:00Z.
+        /// RFC3339 instant, for example 2026-08-28T09:30:00Z. Conflicts with --weekdays.
         #[arg(long)]
-        at: String,
+        at: Option<String>,
+        /// Wake on weekdays at --at-local in --timezone. This wakes judgement; it runs no command.
+        #[arg(long)]
+        weekdays: bool,
+        /// Local wall-clock time in HH:MM form, for example 09:00.
+        #[arg(long)]
+        at_local: Option<String>,
+        /// IANA timezone, for example Australia/Sydney.
+        #[arg(long)]
+        timezone: Option<String>,
         #[arg(long)]
         reason: String,
         /// Optional Work waiting on this exact time condition.
         #[arg(long)]
         work: Option<String>,
+    },
+    /// Stop one pending exact or recurring schedule. Fired history remains visible with --all.
+    Cancel {
+        #[arg(long, short = 'c', env = "RESTLESS_COMPANY")]
+        company: Option<String>,
+        /// Schedule UUID.
+        #[arg(long)]
+        schedule: String,
+        /// The accountable actor whose schedule is being stopped.
+        #[arg(long = "as", env = "RESTLESS_ACTOR")]
+        as_actor: String,
+        #[arg(long)]
+        reason: String,
     },
 }
 
@@ -802,7 +823,7 @@ enum CompanyCommand {
         company: Option<String>,
     },
     /// Set one deterministic configuration key: mission, model, model_failover
-    /// (a comma-separated ordered list),
+    /// (a comma-separated ordered list), worker_runtime, reasoning_effort,
     /// spend_ceiling_usd, or credentials.<binding>. Name is immutable.
     Set {
         #[arg(long, short = 'c', env = "RESTLESS_COMPANY")]
@@ -1848,13 +1869,27 @@ fn request_json(command: Command) -> Result<serde_json::Value> {
                 company,
                 as_actor,
                 at,
+                weekdays,
+                at_local,
+                timezone,
                 reason,
                 work,
             } => serde_json::json!({
                 "cmd": "schedule-add", "company": company,
                 "as_actor": as_actor.or_else(|| std::env::var("RESTLESS_ACTOR").ok())
                     .unwrap_or_else(|| "exec".to_string()),
-                "fire_at": at, "reason": reason, "id": work,
+                "fire_at": at, "recurrence": weekdays.then_some("weekdays"),
+                "local_time": at_local, "timezone": timezone,
+                "reason": reason, "id": work,
+            }),
+            ScheduleCommand::Cancel {
+                company,
+                schedule,
+                as_actor,
+                reason,
+            } => serde_json::json!({
+                "cmd": "schedule-cancel", "company": company, "id": schedule,
+                "as_actor": as_actor, "reason": reason,
             }),
         },
         Command::Events { company: c, limit } => {

@@ -1,0 +1,55 @@
+Godot Engine v4.7.2.stable.official.ed1daf0bf - https://godotengine.org
+
+[14:54:43] ENet: server listening on 127.0.0.1:24565 — HOST is peer 1
+[14:54:45] ENet: peer_connected id=952631785 (transport-level connection evidence)
+[14:54:45] HOST: sent authoritative world state to new peer 952631785
+[14:54:45] PROBE(host,mech): client joined; beginning movement-basis assertions
+[14:54:45] PROBE(host,mech): strafe test at yaw=0.9 — D must move along camera right (0.62161, 0.0, -0.783327)
+[14:54:46] PROBE(host,mech): strafe displacement=(1.392406, 0.0, -1.754654) (len 2.24), dot with camera right=1.000
+[14:54:47] PROBE(host,mech): forward displacement=(1.513038, 0.0, 1.651771) (len 2.24), dot with camera forward=1.000
+[14:54:48] PROBE(host,mech): pressed into cargo wall while turning for 0.8s (attempted ~2.24m); final |x|=0.828 (wall contact at 0.825)
+[14:54:50] PROBE(host,mech): pressed into cargo wall from outside for 0.8s; final x=1.573 (blocked at ~1.58)
+[14:54:50] PROBE(host,mech): walked out of the truck rear; now at (-0.0, 0.942391, -4.261691) (outside footprint z<-3.70, ground level y~0.87)
+[14:54:50] PROBE(host,mech): MECHANICS VERIFIED — view-relative basis + solid collision + exit on foot
+[14:54:50] PROBE(host): received client signal 'mechanics_done'
+[14:54:50] PROBE RESULT: PASS — mechanics assertions passed (basis, walls both sides, leave on foot)
+[14:54:51] ENet: peer_disconnected id=952631785
+[14:54:51] PROBE: exiting (exit code 0)
+[14:54:51] ENet: server disconnected
+[14:54:51] PROBE: exiting (exit code 0)
+[14:54:51] PROBE: exiting (exit code 0)
+Godot Engine v4.7.2.stable.official.ed1daf0bf - https://godotengine.org
+
+[14:54:52] ENet: server listening on 127.0.0.1:24565 — HOST is peer 1
+[14:54:54] ENet: peer_connected id=216249912 (transport-level connection evidence)
+[14:54:54] HOST: sent authoritative world state to new peer 216249912
+[14:54:54] HOST: RESOLVED grab by peer 216249912 (crate now held)
+[14:54:55] HOST: RESOLVED drop by peer 216249912 — crate at (-0.0, 0.35, -5.719787) (recoverable)
+[14:54:55] PROBE(host): crate observed dropped BEHIND the truck at route start (z=-5.72)
+[14:54:55] HOST: RESOLVED grab by peer 216249912 (crate now held)
+[14:54:55] PROBE(host): dropped crate RECOVERED by peer 216249912
+[14:54:58] HOST: peer 216249912 occupies DRIVER position
+[14:54:58] HOST: received drive input from driver 216249912
+[14:54:58] MISSION: loaded truck journey started by peer 216249912
+[14:55:01] TRUCK: route position z=10.0 (bounded 0..40)
+[14:55:01] PROBE(host,rec): incomplete route exit observed at z=10.05; journey remains recoverable
+[14:55:01] HOST: peer 216249912 left driver position at rear cargo threshold
+[14:55:02] HOST: corrected peer 216249912 movement — teleport (3.09m horizontal, 0.00m vertical)
+[14:55:04] PROBE(host,rec): natural driver-seat RE-ENTRY accepted after early exit
+[14:55:04] HOST: peer 216249912 occupies DRIVER position
+[14:55:08] TRUCK: route position z=20.0 (bounded 0..40)
+[14:55:11] TRUCK: route position z=30.0 (bounded 0..40)
+[14:55:14] MISSION: loaded truck reached exact route end; valid driver exit now required
+[14:55:14] TRUCK: route position z=40.0 (bounded 0..40)
+[14:55:14] MISSION: loaded journey advanced through valid route-end seat exit by peer 216249912
+[14:55:14] HOST: peer 216249912 left driver position at rear cargo threshold
+[14:55:15] HOST: corrected peer 216249912 movement — teleport (3.18m horizontal, 0.00m vertical)
+[14:55:19] HOST: RESOLVED unload by peer 216249912 — crate at world (-0.0, 0.405, 34.73131)
+[14:55:19] MISSION: HOST completed delivery #1 (loaded drive + route-end exit + zone unload) — broadcasting
+[14:55:19] FEEDBACK[ok]: DELIVERY COMPLETED — loaded route and destination unload verified
+[14:55:19] PROBE(host): observed host-authoritative DELIVERY COMPLETED
+[14:55:19] PROBE RESULT: PASS — recovery path: dropped crate recovered; early exit and natural seat re-entry recovered; delivery completed
+[14:55:19] PROBE(host): received client signal 'positive_done'
+[14:55:20] PROBE: exiting (exit code 0)
+[14:55:20] ENet: server disconnected
+[14:55:20] PROBE: exiting (exit code 0)

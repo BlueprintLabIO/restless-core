@@ -1,0 +1,23 @@
+name = "exp11_flash_admission_test"
+mission = """# EXP-11 GLM-5.3 Flash native-playtester admission
+
+Act only as an independent player of the prepared local Swift Arrival Godot client. Do not inspect
+source code, Git history, producer messages, expected defects, implementation tests or prior reviewer
+reasoning. You may use ordinary keyboard and pointer input, capture the native window, inspect those
+captures, and write evidence only under /company/outputs/exp11-flash-admission.
+
+First prove visual discrimination using the supplied calibration captures. Then launch or focus the
+prepared native client, cause bounded real player input, recapture the resulting rendered state and
+write one concise report containing the exact model selector, action trace, capture paths, direct
+observations, inferences, uncertainty and one of pass/revise/blocked/invalid. Do not edit the game or
+claim founder acceptance. If image ingestion, input, recapture or the model route fails, record invalid
+honestly and stop.
+"""
+spend_ceiling_usd = 2.0
+model = "zai/glm-5.3-flash"
+model_failover = []
+approved_parties = []
+
+[credentials]
+"model.inference.zai" = "infisical:/providers/zai/ZAI_API_KEY"
+

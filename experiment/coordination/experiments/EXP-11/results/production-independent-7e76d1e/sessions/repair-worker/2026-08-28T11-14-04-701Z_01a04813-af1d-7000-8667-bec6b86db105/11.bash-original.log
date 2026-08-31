@@ -1,0 +1,261 @@
+ M main.gd
+ M run-probe.sh
+?? playtest-bypass.sh
+ main.gd      | 86 ++++++++++++++++++++++++++++++++++++++++++------------------
+ run-probe.sh |  2 +-
+ 2 files changed, 62 insertions(+), 26 deletions(-)
+diff --git a/main.gd b/main.gd
+index a0741ca..5e392db 100644
+--- a/main.gd
++++ b/main.gd
+@@ -60,10 +60,11 @@ const REPORT_MAX_FALL := 0.75     # bounded falls only (largest step is 0.3 m)
+ const REPORT_STRIKES := 3
+ 
+ enum MissionState { IN_PROGRESS, DELIVERED }
++enum JourneyStage { LOAD_AND_DRIVE, DRIVING, ARRIVED_SEATED, EXITED_AT_DESTINATION }
+ 
+ var mode := ""                    # "", "host", "client"
+ var probe := false                # scripted autopilot probe mode
+-var negative := false             # negative path: unload outside zone, expect rejection
++var negative := false             # negative path: on-foot route-zero destination bypass
+ var mechanics := false            # mechanics assertions: view-relative basis + solid walls
+ var recovery := false             # recovery path: crate dropped behind truck at start
+ var shots_dir := ""
+@@ -78,6 +79,8 @@ var crate_on_truck := true
+ var crate_local_pos := CRATE_START_LOCAL  # truck-local while resting on the truck
+ var crate_world_pos := Vector3.ZERO       # world while resting on the ground
+ var seat_occupant := 0            # peer id, 0 = free
++var journey_stage: int = JourneyStage.LOAD_AND_DRIVE
++var journey_driver := 0           # peer that drove loaded cargo to the route end
+ var drive_dir := 0                # input gathered from occupant (host reads)
+ var probe_phase := ""             # host probe coordination (harness info, not gameplay)
+ 
+@@ -589,7 +592,7 @@ func _on_peer_connected(id: int) -> void:
+ 		peer_pos[id] = _spawn_pos_for(id)
+ 		peer_yaw[id] = PI  # facing the cab (+Z)
+ 		peer_seated[id] = false
+-		_sync_state.rpc_id(id, truck_z, mission_state, deliveries, crate_holder, crate_on_truck, crate_local_pos, crate_world_pos, seat_occupant, probe_phase)
++		_sync_state.rpc_id(id, truck_z, mission_state, deliveries, crate_holder, crate_on_truck, crate_local_pos, crate_world_pos, seat_occupant, journey_stage, probe_phase)
+ 		for pid in peer_pos.keys():
+ 			_sync_peer.rpc_id(id, pid, peer_pos[pid], peer_yaw.get(pid, 0.0), peer_seated.get(pid, false))
+ 		_log("HOST: sent authoritative world state to new peer %d" % id)
+@@ -636,7 +639,7 @@ func _network_tick() -> void:
+ 		if seat_occupant == my_peer_id:
+ 			_request_drive.rpc_id(1, _local_drive_input)
+ 	if multiplayer.is_server() and multiplayer.multiplayer_peer:
+-		_sync_state.rpc(truck_z, mission_state, deliveries, crate_holder, crate_on_truck, crate_local_pos, crate_world_pos, seat_occupant, probe_phase)
++		_sync_state.rpc(truck_z, mission_state, deliveries, crate_holder, crate_on_truck, crate_local_pos, crate_world_pos, seat_occupant, journey_stage, probe_phase)
+ 		for id in peer_pos.keys():
+ 			_sync_peer.rpc(id, peer_pos[id], peer_yaw.get(id, 0.0), peer_seated.get(id, false))
+ 
+@@ -660,7 +663,7 @@ func _sync_peer(id: int, pos: Vector3, yaw: float, seated: bool) -> void:
+ 		return  # the local simulation owns its own body between corrections
+ 
+ @rpc("authority", "call_local", "unreliable_ordered")
+-func _sync_state(t_z: float, ms: int, dels: int, holder: int, on_truck: bool, c_local: Vector3, c_world: Vector3, seat: int, phase: String) -> void:
++func _sync_state(t_z: float, ms: int, dels: int, holder: int, on_truck: bool, c_local: Vector3, c_world: Vector3, seat: int, journey: int, phase: String) -> void:
+ 	var was := mission_state
+ 	truck_z = t_z
+ 	deliveries = dels
+@@ -669,6 +672,7 @@ func _sync_state(t_z: float, ms: int, dels: int, holder: int, on_truck: bool, c_
+ 	crate_local_pos = c_local
+ 	crate_world_pos = c_world
+ 	seat_occupant = seat
++	journey_stage = journey
+ 	probe_phase = phase
+ 	if ms != mission_state:
+ 		mission_state = ms
+@@ -760,6 +764,11 @@ func _request_unload() -> void:
+ 		_log("HOST: REJECTED unload from %d (drop point outside destination zone at %s)" % [caller, drop])
+ 		_send_feedback(caller, "reject", "REJECTED: unload outside the destination zone — carry it to the marked zone", "ev_reject_unload")
+ 		return
++	if journey_stage != JourneyStage.EXITED_AT_DESTINATION:
++		_p["rejected_journey_bypass"] = true
++		_log("HOST: REJECTED unload from %d (truck journey incomplete: stage=%d route=%.1f)" % [caller, journey_stage, truck_z])
++		_send_feedback(caller, "reject", "REJECTED: truck journey incomplete — drive the loaded truck to 40 m, then exit there", "ev_reject_journey")
++		return
+ 	var rest := _crate_rest(drop.x, drop.z)
+ 	if rest["on_truck"]:
+ 		_p["rejected_unload"] = true
+@@ -829,6 +838,14 @@ func _request_seat(enter: bool) -> void:
+ 		_log("HOST: peer %d occupies DRIVER position" % caller)
+ 		_send_feedback(caller, "info", "SEATED — W/S drive · E exits at the rear cargo threshold", "ev_seat")
+ 	else:
++		if seat_occupant != caller:
++			_log("HOST: REJECTED seat exit by %d (driver is %d)" % [caller, seat_occupant])
++			_send_feedback(caller, "reject", "REJECTED: you are not in the driver seat", "ev_reject_seat")
++			return
++		if journey_stage == JourneyStage.ARRIVED_SEATED and journey_driver == caller \
++				and truck_z >= TRUCK_MAX_Z - 0.2:
++			journey_stage = JourneyStage.EXITED_AT_DESTINATION
++			_log("MISSION: loaded journey advanced through valid route-end seat exit by peer %d" % caller)
+ 		seat_occupant = 0
+ 		drive_dir = 0  # latched input must not outlive its driver
+ 		peer_seated[caller] = false
+@@ -836,7 +853,8 @@ func _request_seat(enter: bool) -> void:
+ 		peer_exit_grace_until[caller] = Time.get_ticks_msec() + 1000
+ 		_correct_pos.rpc_id(caller, truck.to_global(SEAT_EXIT_LOCAL), "exited at rear cargo threshold")
+ 		_log("HOST: peer %d left driver position at rear cargo threshold" % caller)
+-		_send_feedback(caller, "info", "EXITED ON FOOT — yellow destination is behind the truck · E unloads when prompted", "ev_exit")
++		var exit_msg := "EXITED AT DESTINATION — unload the crate in the yellow zone" if journey_stage == JourneyStage.EXITED_AT_DESTINATION else "EXITED EARLY — load the crate and drive to the 40 m route end before unloading"
++		_send_feedback(caller, "info", exit_msg, "ev_exit")
+ 
+ @rpc("any_peer", "call_local", "unreliable")
+ func _request_drive(dir: int) -> void:
+@@ -872,7 +890,16 @@ func _host_truck_physics(delta: float) -> void:
+ 			_log("TRUCK: BLOCKED by the crate on the road (truck z=%.1f, crate z=%.1f)" % [truck_z, crate_world_pos.z])
+ 	else:
+ 		_truck_block_logged = false
++		var before := truck_z
+ 		truck_z = proposed
++		if truck_z > before + 0.0001 and seat_occupant != 0 and crate_holder == seat_occupant:
++			if journey_stage == JourneyStage.LOAD_AND_DRIVE:
++				journey_stage = JourneyStage.DRIVING
++				journey_driver = seat_occupant
++				_log("MISSION: loaded truck journey started by peer %d" % journey_driver)
++			if journey_stage == JourneyStage.DRIVING and truck_z >= TRUCK_MAX_Z - 0.01:
++				journey_stage = JourneyStage.ARRIVED_SEATED
++				_log("MISSION: loaded truck reached route end; valid driver exit now required")
+ 		if truck_z >= _next_route_log - 0.01:
+ 			_log("TRUCK: route position z=%.1f (bounded %.0f..%.0f)" % [truck_z, TRUCK_MIN_Z, TRUCK_MAX_Z])
+ 			_next_route_log = _next_route_log + 10.0
+@@ -943,6 +970,9 @@ func _crate_rest(x: float, z: float) -> Dictionary:
+ func _check_delivery() -> void:
+ 	if mission_state == MissionState.DELIVERED:
+ 		return
++	if journey_stage != JourneyStage.EXITED_AT_DESTINATION:
++		_log("MISSION: delivery blocked — loaded truck journey and route-end exit incomplete (stage=%d route=%.1f)" % [journey_stage, truck_z])
++		return
+ 	if crate_holder == 0 and not crate_on_truck \
+ 			and crate_world_pos.x >= ZONE_MIN.x and crate_world_pos.x <= ZONE_MAX.x \
+ 			and crate_world_pos.y >= ZONE_MIN.y and crate_world_pos.y <= ZONE_MAX.y + 0.5 \
+@@ -950,11 +980,11 @@ func _check_delivery() -> void:
+ 		deliveries += 1
+ 		mission_state = MissionState.DELIVERED
+ 		_flash_crate(Color(0.2, 1.0, 0.3))
+-		_log("MISSION: HOST completed delivery #%d (crate unloaded in destination zone) — broadcasting" % deliveries)
+-		_send_feedback(0, "ok", "DELIVERY COMPLETED — crate rests in the destination zone", "ev_delivered")
++		_log("MISSION: HOST completed delivery #%d (loaded drive + route-end exit + zone unload) — broadcasting" % deliveries)
++		_send_feedback(0, "ok", "DELIVERY COMPLETED — loaded route and destination unload verified", "ev_delivered")
+ 	else:
+ 		_log("MISSION: crate NOT in destination zone — delivery not completed")
+-	_sync_state.rpc(truck_z, mission_state, deliveries, crate_holder, crate_on_truck, crate_local_pos, crate_world_pos, seat_occupant, probe_phase)
++	_sync_state.rpc(truck_z, mission_state, deliveries, crate_holder, crate_on_truck, crate_local_pos, crate_world_pos, seat_occupant, journey_stage, probe_phase)
+ 
+ # ---------------- local player + input ----------------
+ 
+@@ -1142,16 +1172,20 @@ func _update_hud() -> void:
+ 		var pos := my_body.global_position if my_body != null else Vector3.ZERO
+ 		var drop := pos + _fwd(my_yaw) * PLACE_FWD
+ 		var rest := _crate_rest(drop.x, drop.z)
+-		var can_unload: bool = drop.x >= ZONE_MIN.x and drop.x <= ZONE_MAX.x and drop.z >= ZONE_MIN.z and drop.z <= ZONE_MAX.z and bool(rest["valid"]) and not bool(rest["on_truck"])
++		var in_unload_zone: bool = drop.x >= ZONE_MIN.x and drop.x <= ZONE_MAX.x and drop.z >= ZONE_MIN.z and drop.z <= ZONE_MAX.z and bool(rest["valid"]) and not bool(rest["on_truck"])
++		var can_unload := in_unload_zone and journey_stage == JourneyStage.EXITED_AT_DESTINATION
+ 		if can_unload:
+ 			objective = "DESTINATION REACHED"
+ 			action = "E  UNLOAD CRATE NOW"
++		elif in_unload_zone and journey_stage != JourneyStage.EXITED_AT_DESTINATION:
++			objective = "TRUCK JOURNEY REQUIRED"
++			action = "Drive loaded truck 0 → 40 m, then exit at route end"
+ 		elif truck_z < TRUCK_MAX_Z - 0.2 and _hands_world_pos(my_peer_id).distance_to(truck.to_global(Vector3(0.6, 0.6, 2.6))) <= SEAT_REACH:
+ 			objective = "TAKE THE CRATE TO THE ROUTE END"
+ 			action = "E  ENTER DRIVER SEAT"
+ 		else:
+-			objective = "CARRY CRATE TO YELLOW DESTINATION BEHIND TRUCK"
+-			action = "Follow yellow posts · E unloads when prompted"
++			objective = "COMPLETE THE LOADED TRUCK JOURNEY"
++			action = "Carry crate to driver seat · drive to 40 m · exit · unload"
+ 	else:
+ 		objective = "PICK UP THE CRATE"
+ 		action = "Approach crate · E  PICK UP"
+@@ -1228,9 +1262,10 @@ func _probe_host(t: float) -> void:
+ 		_probe_host_mechanics(t)
+ 		return
+ 	if negative:
+-		if _p.has("sig_negative_done") and _p.has("rejected_unload") and deliveries == 0 \
+-				and mission_state == MissionState.IN_PROGRESS:
+-			_probe_pass("negative path: unload outside zone rejected, delivery NOT completed")
++		if _p.has("sig_negative_done") and _p.has("rejected_journey_bypass") and deliveries == 0 \
++				and mission_state == MissionState.IN_PROGRESS and truck_z < 0.1 \
++				and journey_stage == JourneyStage.LOAD_AND_DRIVE:
++			_probe_pass("negative path: on-foot carry into destination at route 0 rejected; delivery NOT completed")
+ 			await get_tree().create_timer(1.0).timeout
+ 			_finish(true)
+ 		return
+@@ -1290,29 +1325,31 @@ func _probe_client(t: float) -> void:
+ 			_auto_set([Vector3(0, 1.11, 0.3), Vector3(0, 1.11, 2.0), Vector3(-0.3, 1.11, 2.2)])
+ 		elif _p.has("grab_req") and el > 12.0:
+ 			_probe_fail("crate pickup was not resolved by host (crate_holder=%d, me=%d)" % [crate_holder, my_peer_id])
+-	# Phase 2 (negative): carry the crate out of the truck and try to unload outside the zone.
++	# Phase 2 (negative): carry the crate on foot from route 0 all the way into
++	# the destination zone, reproducing the blind bypass without touching the seat.
+ 	elif negative:
+ 		if not _p.has("neg_walk"):
+ 			_neg_start_rear_walk()
+ 			_p["neg_walk"] = true
+ 		if _auto_arrived() and not _p.has("neg_face"):
+ 			_p["neg_face"] = true
+-			_auto_set([], 0.0)
+-			my_yaw = 0.0  # face away from the truck, away from the zone
++			_auto_set([], PI)
++			my_yaw = PI  # place the attempted unload forward into the zone
+ 			_request_unload.rpc_id(1)
+-			_log("PROBE(client,neg): requested UNLOAD outside the destination zone (behind truck at route start)")
++			_log("PROBE(client,neg): requested ON-FOOT UNLOAD inside destination at ROUTE 0 (no seat/drive/exit)")
+ 			_p["neg_req_t"] = el
+ 		if _p.has("neg_req_t"):
+ 			if _p.has("saw_reject"):
+-				if crate_holder == my_peer_id and mission_state == MissionState.IN_PROGRESS and deliveries == 0:
+-					_probe_pass("negative path: unload outside zone REJECTED by host, delivery not completed")
++				if crate_holder == my_peer_id and mission_state == MissionState.IN_PROGRESS and deliveries == 0 \
++						and truck_z < 0.1 and journey_stage == JourneyStage.LOAD_AND_DRIVE:
++					_probe_pass("on-foot destination bypass at route 0 REJECTED by host; delivery not completed")
+ 					_probe_signal.rpc_id(1, "negative_done")
+ 					await get_tree().create_timer(1.0).timeout
+ 					_finish(true)
+ 				elif el - _p["neg_req_t"] > 4.0:
+-					_probe_fail("negative path: after rejection, crate state inconsistent (holder=%d mission=%d)" % [crate_holder, mission_state])
++					_probe_fail("negative bypass: authoritative state inconsistent after rejection (holder=%d mission=%d route=%.1f journey=%d)" % [crate_holder, mission_state, truck_z, journey_stage])
+ 			elif el - _p["neg_req_t"] > 4.0:
+-				_probe_fail("negative path: host rejection feedback never became visible on the requester")
++				_probe_fail("negative bypass: host rejection feedback never became visible on requester")
+ 	# Phase 2 (recovery): drop the crate behind the truck at route start, then recover it.
+ 	elif recovery and not _p.has("regrab_ok"):
+ 		if not _p.has("rec_walk"):
+@@ -1395,13 +1432,12 @@ func _probe_client(t: float) -> void:
+ 			_finish(true)
+ 		elif el - _p["released"] > 5.0:
+ 			_probe_fail("delivery did not complete on client after unload")
+-
+ func _dropped_seen_note() -> void:
+ 	_p["dropped_seen"] = true
+ 	_log("PROBE(client,rec): crate at rest behind truck at world z=%.2f" % crate_world_pos.z)
+ 
+ func _neg_start_rear_walk() -> void:
+-	_auto_set([Vector3(0, 1.11, -3.0), Vector3(0, 1.11, -4.8)], 0.0)
++	_auto_set([Vector3(0, 1.11, -3.0), Vector3(0, 1.11, -5.0), Vector3(4.0, 1.11, -5.0), Vector3(4.0, 1.11, 34.5), Vector3(0, 1.11, 34.5)], PI)
+ 
+ # ---- mechanics assertions (host process; real Input actions, real geometry) --
+ 
+@@ -1537,7 +1573,7 @@ func _probe_host_mechanics(t: float) -> void:
+ 			else:
+ 				_log("PROBE(host,mech): MECHANICS VERIFIED — view-relative basis + solid collision + exit on foot")
+ 				probe_phase = "mechanics_done"
+-				_sync_state.rpc(truck_z, mission_state, deliveries, crate_holder, crate_on_truck, crate_local_pos, crate_world_pos, seat_occupant, probe_phase)
++				_sync_state.rpc(truck_z, mission_state, deliveries, crate_holder, crate_on_truck, crate_local_pos, crate_world_pos, seat_occupant, journey_stage, probe_phase)
+ 			_p["mstage"] = 16
+ 			_p["mstage_t"] = t
+ 		16:
+diff --git a/run-probe.sh b/run-probe.sh
+index 2906899..7dbc88a 100755
+--- a/run-probe.sh
++++ b/run-probe.sh
+@@ -15,7 +15,7 @@
+ #
+ # Usage: run-probe.sh [--negative|--mechanics|--recovery] <host-log> <client-log> [shots-dir]
+ #   (default)  positive delivery loop end-to-end
+-#   --negative  unload outside the zone is rejected by the host; no delivery
++#   --negative  on-foot carry to destination at route 0 is rejected; no delivery
+ #   --mechanics view-relative movement basis + solid collision assertions
+ #   --recovery  crate dropped behind the truck at route start is recovered
+ # (shots only render with a display)

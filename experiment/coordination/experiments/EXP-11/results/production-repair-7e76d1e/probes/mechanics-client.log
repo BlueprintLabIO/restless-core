@@ -1,0 +1,9 @@
+Godot Engine v4.7.2.stable.official.ed1daf0bf - https://godotengine.org
+
+[11:25:40] ENet: client connecting to 127.0.0.1:24565 ...
+[11:25:40] ENet: CONNECTED to host as CLIENT peer 361068396
+[11:25:40] ENet: peer_connected id=1 (transport-level connection evidence)
+[11:25:45] PROBE RESULT: PASS — mechanics assertions passed on host; client observed completion phase
+[11:25:46] PROBE: exiting (exit code 0)
+[11:25:46] ENet: server disconnected
+[11:25:46] PROBE: exiting (exit code 0)

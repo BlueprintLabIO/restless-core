@@ -1,0 +1,26 @@
+OBSERVATIONS SEPARATED FROM INTERPRETATION
+
+OBSERVATIONS
+- 09:59:41 Q at the initial crate caused client feedback "Picked up the crate" and host RESOLVED grab.
+- 09:59:56 Q while carrying caused "Dropped the crate — walk up and press E to pick it up again"; host described the drop as recoverable.
+- 10:00:07 E caused a second host RESOLVED grab.
+- W moved the view forward through the rear cargo space and doorway. At the seat the HUD showed "E ENTER DRIVER SEAT".
+- A native +100px horizontal relative mouse event changed the rendered look to the right; -100px returned it toward the route.
+- E produced "SEATED — W/S drive · E exits at the rear cargo threshold".
+- W driving caused host route observations at 10, 20, 30 and 40 metres, bounded 0..40.
+- One E at 40/40 caused host "left driver position at rear cargo threshold" and client "EXITED ON FOOT". No reseat event followed.
+- S for 0.8 seconds reached a yellow-screen-bordered destination state with "E UNLOAD CRATE NOW".
+- E produced host RESOLVED unload and HOST completed delivery #1; both rendered windows displayed DELIVERY COMPLETE.
+- A for 2 seconds on the host moved into and stopped at the visible truck side wall; the camera did not cross the wall.
+- Positive probe: host/client exit 0 and PASS.
+- Negative probe: host rejected an unload outside the zone, client showed rejection, no delivery completion, host/client exit 0 and PASS.
+- Mechanics probe: camera-right and camera-forward dot products were 1.000; inside and outside truck wall contacts remained at reported wall bounds; host/client exit 0 and PASS.
+
+INTERPRETATION
+- Objective and interaction prompts were sufficient to complete the compact route without a soft lock.
+- The drop/re-grab sequence is a clear ordinary-mistake recovery path.
+- Mouse look and movement response appeared coherent in this session; the mechanics probe independently supports the coordinate-basis interpretation.
+- The rear-threshold exit plus destination prompt removes the accidental-reseat blocker observed in the prior candidate lineage.
+- Truck surfaces behaved as physical boundaries in the played contact and in deterministic inside/outside assertions.
+- Visuals remain deliberately placeholder-like, but the objective, state, interaction, and completion overlays are honest and legible.
+- These observations justify founder review, not a claim that the game is fun or approved.

@@ -1,7 +1,7 @@
 # Swift Arrival Dogfood 4 — Networked delivery walking skeleton
 
-**Status:** Technical loop and v0.3 continuous-product experiment verified; founder review pending
-**Version:** 0.3
+**Status:** EXP-15 vertical-slice campaign running from the verified v0.4 mechanics baseline
+**Version:** 0.5
 **Type:** Standard build dogfood / first product-feasibility run
 **Company:** `swift_arrival_test`
 **Operating phase:** Exploration → build
@@ -9,6 +9,88 @@
 
 Dogfood 4 is a persistent Swift Arrival charter. Later slices revise this document's version and add
 run-specific after-actions; they do not become Dogfood 5 merely because the game grows.
+
+## Proposed Version 0.6 amendment — embodied NPC development loop
+
+After the v0.5 campaign freezes an exact candidate and Sprint 26 proves the execution substrate,
+[EXP-16](../../../experiment/exp-sprints/exp-sprint-16-embodied-npc-playtesting.md) proposes one shared
+embodied-agent architecture for cheap delivery/recovery playtesting and real driver, robber and vampire
+behaviour. The evaluator must use ordinary player actions and physics; production roles may use
+host-authoritative perception but cannot directly mutate mission, cargo, delivery or combat outcomes.
+Its executable architecture, scenario and evidence contracts live beside the
+[EXP-16 controller record](../../../experiment/coordination/experiments/EXP-16/README.md).
+
+This is a draft experimental amendment, not execution authority or a promoted game version. Dogfood 4
+remains the charter and receives the keep/revise/purge decision after source-blind current-candidate
+review.
+
+## Version 0.5 amendment — tuning-first full vertical-slice campaign
+
+Version 0.5 expands the bounded mechanics skeleton into the first complete vertical slice already
+defined by the game concept: one depot, one walk-through truck, one obstacle route, three destinations,
+six cargo types with an incompatible pair, a robber encounter, a police inspection and one coherent
+15–20 minute workday. It does not expand into Steam, a campaign, progression or a large open world.
+
+The product decision is now explicit: ordinary fun and feel feedback searches validated data, named
+presets and fixed scenario seeds before changing stable multiplayer authority, physics ownership or
+mission-state code. The target is at least 80% of ordinary findings closing through tuning, content or
+presentation. A core refactor remains available when native evidence shows the tuning surface itself
+cannot express reliable intention, cooperation or the central physical toy.
+
+The controlled 30–60-loop campaign, objective gates, model envelope and terminal evidence are frozen
+in [EXP-15](../../../experiment/exp-sprints/exp-sprint-15-swift-arrival-vertical-slice-campaign.md).
+The founder is asked to judge fun only after independent players and current-candidate native evidence
+establish the objective slice. Until then, the honest label is `vertical-slice candidate`, not accepted
+game.
+
+## Version 0.4 amendment — native first-person review and local playtest lane
+
+Founder review exposed three defects that the earlier technical evidence did not catch: the playable
+camera was not first-person, keyboard input in the remote desktop was not a reliable player contract,
+and Company-computer control imposed needless repeated claim/return actions. Version 0.4 corrects
+those defects before any further product expansion.
+
+The review target is now an actual first-person client view: two local delivery gloves remain visible
+in the foreground, `WASD` moves and drives, and `E` interacts. Carrying the crate into the cab now
+keeps it held while entering the driver seat; leaving the seat, walking to the cargo rear, and
+interacting unloads it at the host-judged destination. This is a product correction, not a new
+feature claim.
+
+The cockpit claims keyboard/pointer control automatically when the Company computer is free. It never
+displaces an active actor or another live owner tab, renews only after observed desktop input, and
+returns control after 60 seconds without input. The owner can still explicitly return control.
+
+The Runtime now has a deliberately local, inspectable OS-input lane (`xdotool` plus `scrot`). Its
+`playtest.sh` launches rendered host/client windows, focuses the real client window, sends physical
+keyboard events, captures checkpoints, and requires host and client delivery evidence. It is a
+mechanical regression replay, not a substitute for visual or founder judgement. A model-led visual
+playtester is admitted only after a real model-gateway probe in an isolated `_test` company; it must
+be able to decline an unplayable target and preserve screenshots, trace, logs, and a concise verdict.
+
+### Version 0.4 acceptance additions
+
+9. The native review target presents a first-person player view with two visible arms/hands, and the
+documented `WASD`/`E` interaction path can complete the loop.
+10. The local OS-input replay proves its actions reached the rendered client and that the host and
+client both observed authoritative completion. A replayed success is mechanics evidence only.
+11. Company-computer control is frictionless when free, safe when held, and automatically expires
+after one minute of no actual desktop activity.
+
+### Version 0.4 verified evidence
+
+On 2026-08-28, the local Runtime at `/company/projects/swift-arrival` passed
+`DISPLAY=:1 ./playtest.sh evidence/v04-os-input-pass` from game commit `84ff174`. The retained
+`input-trace.tsv`, host/client logs, and five screenshots show a rendered client receiving OS-level
+input, host-resolved pickup and seat entry, bounded route completion, unload, and delivery
+completion. The test initially failed on a real product constraint—cargo carrying prevented driver
+seat entry—and the committed interaction correction `1f2cf6e` fixed it before the passing replay.
+
+The isolated `swift_arrival_flash_probe_test` reached its model-gateway turn with
+`zai/glm-5.3-flash`, but a fresh-runtime invocation was blocked before inference because the local
+OMP profile had no selected model. A follow-up with that local profile supplied then closed during ACP
+initialization; both attempts spent $0. This is recorded as Flash **unadmitted for this run**, not as
+a claimed visual-playtest capability. The local replay remains the canonical lane until a clean,
+separately budgeted Flash visual probe produces a real result.
 
 ## Version 0.3 amendment - continuous product development
 
@@ -210,3 +292,28 @@ The after-action answers what playable outcome exists, which criteria passed, wh
 - **stop** Swift Arrival work if the smallest loop does not earn another investment.
 
 Do not turn a successful first run into a claim that OrgIntel outperforms a strong single agent. Once the environment can be provisioned repeatably, a separately versioned follow-up should run matched `single_agent`, `minimal_team`, and `orgintel` modes from the same fresh source snapshot, tool access, budget, and acceptance contract.
+
+## Version 0.5 experimental result — autonomous playability frontier
+
+EXP-11 controlled an isolated v0.5 successor from baseline `84ff1745`. The production organisation
+retained the intended architecture: Exec delegated to one non-producing Game Product lead, the lead
+supervised one end-to-end gameplay worker, and independent native players remained outside production
+context. The exact GLM-5.3 Flash route was unavailable, so the founder authorised exact GPT-5.6 Sol
+through the local OpenAI-compatible route; the substitution is retained as an evaluator limitation.
+
+The team produced experimental candidate `41f4fa53a2cd05ab17aea473f3d1be28979b2dcf` with real
+player/truck/world collision, camera-relative control, recoverable parcel and seat paths, clearer
+interaction feedback, host-owned journey gating and five passing final deterministic gates. The
+candidate remained isolated and was not promoted.
+
+The frozen independent-playability contract failed. Strict R19 directly proved immediate route-zero
+shortcut rejection, then reached the visible route end through ordinary native play after a deliberate
+drop and recovery. The player exited, re-entered, moved and exited again, but could not obtain visible
+delivery completion from the destination. This is a reproducible experience blocker even though
+scripted mechanics pass. The required two consecutive fresh completions were not achieved and founder
+acceptance review was withheld.
+
+The experimental disposition is `product-judgement-failure`; the prepared product decision is
+`revise`. Full evidence and costs are in
+[`EXP-11`](../../../experiment/coordination/experiments/EXP-11/RESULTS.md). Any successor must remain a
+single bounded route-end exit/unload repair with one aggregate budget and strict fresh replication.

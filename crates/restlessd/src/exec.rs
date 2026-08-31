@@ -160,11 +160,19 @@ pub async fn wake(
         org.emit_event(
             "model_attempt",
             Some("exec"),
-            serde_json::json!({ "model": model, "configured_effort": acp::DEFAULT_REASONING_EFFORT, "attempt": index + 1 }),
+            serde_json::json!({ "model": model, "configured_effort": config.reasoning_effort, "attempt": index + 1 }),
         )
         .await?;
 
-        let auth = match agent_auth_for_model(model, capabilities, &config.name, "exec").await {
+        let auth = match agent_auth_for_model(
+            model,
+            &config.reasoning_effort,
+            capabilities,
+            &config.name,
+            "exec",
+        )
+        .await
+        {
             Ok(auth) => auth,
             Err(error) => {
                 let text = format!("{error:#}");
@@ -387,6 +395,7 @@ async fn blocked_wake(org: &OrgIntel, config: &CompanyConfig, reason: &str) -> R
 
 pub(crate) async fn agent_auth_for_model(
     model: &str,
+    effort: &str,
     capabilities: &crate::capability::CapabilityIssuer,
     company: &str,
     actor: &str,
@@ -401,7 +410,7 @@ pub(crate) async fn agent_auth_for_model(
     )?;
     Ok(acp::AgentAuth {
         model: model.to_string(),
-        effort: acp::DEFAULT_REASONING_EFFORT.to_string(),
+        effort: effort.to_string(),
         company: company.to_string(),
         session_id: session_id.clone(),
         coordination_token_env: "RESTLESS_SESSION_CAPABILITY".to_string(),

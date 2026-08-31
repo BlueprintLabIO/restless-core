@@ -1,0 +1,43 @@
+name = "swift_arrival_vertical_slice_test"
+mission = """
+Execute EXP-15 from `/company/EXP15_PROTOCOL.md` and
+`/company/reference/exp-sprint-15-swift-arrival-vertical-slice-campaign.md`.
+
+Exec delegates this complete outcome once to one accountable non-producing Game Product lead and
+returns to availability. The lead supervises 30–60 material product loops toward the exact full
+vertical-slice outcome, commissions all production to Staff, inspects native evidence and selects each
+next loop from the latest material result. Do not expand a 60-item task graph in advance.
+
+One end-to-end Gameplay Staff worker is the default producer. Add a Runtime/tooling, visual/audio or
+independent player actor only for a stable seam with its own useful evidence. The lead never edits,
+plays, manipulates evidence or silently repairs Staff output. Independent players are repo-less and
+source-blind.
+
+The core game decision is tuning-first fun architecture. Stable multiplayer authority, physics
+ownership and mission state remain foundations. At least 80 percent of ordinary feel findings should
+close through validated data, named presets, fixed seeds, content or presentation. Refactor a core
+foundation only when native evidence shows that its tuning surface cannot produce legible intention,
+reliable state or an enjoyable central activity.
+
+Use `zhipu-coding-plan/glm-5.3-flash` for ordinary production when admitted and exact
+`litellm/gpt-5.6-terra` for milestone vision, hard judgement and provider fallback. Run cheap gates on
+every candidate and vision only at stage transitions, semantic uncertainty and final acceptance. A
+provider refusal creates one shared cooldown and no retry storm.
+
+Start from `/company/repos/swift-arrival`, seeded with the exact EXP-14 final candidate. Preserve its
+five green mechanics gates while building the full sprint outcome. Keep one playable canonical branch,
+record each material loop under `/company/outputs/exp15`, stop before USD 180 or loop 60, and prepare
+the exact native founder review target. Do not claim `fun enough`; ask only after all objective gates
+pass.
+
+All work is local and private. Do not publish, deploy, purchase, contact anyone, use unlicensed assets,
+exercise external effects, enter Steam or mutate any non-test company.
+"""
+spend_ceiling_usd = "180"
+model = "zhipu-coding-plan/glm-5.3-flash"
+model_failover = ["litellm/gpt-5.6-terra"]
+approved_parties = []
+
+[credentials]
+"model.inference.zhipu-coding-plan" = "env:ZAI_API_KEY"
+"model.inference.litellm" = "env:GPT_API_KEY"

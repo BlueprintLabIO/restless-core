@@ -1,0 +1,30 @@
+Blind native gameplay report
+
+Validity verdict: INVALID
+
+Routing
+- Active Runtime reported exact selector litellm/gpt-5.6-sol; no failover was observed in the supplied routing context.
+
+Method and direct visual evidence
+- Created initial-client.png and invoked OMP ordinary read on that exact PNG before making gameplay claims.
+- Initial pixels showed an idle instance with explicit text "IDLE (no --host/--client arg)"; I replaced it with a correctly flagged client.
+- client-connected-01.png pixels showed CLIENT, peer connected [1], on foot, mission IN PROGRESS, crate free, driver free, truck z 0.0.
+- Subsequent captures were recaptured and read in this same session after ordinary xdotool keyboard/mouse input.
+- I directly observed and recovered from ordinary mistakes: walking toward an obstruction, a rejected too-far crate grab, and navigation errors.
+- I directly observed successful crate pickup (status "Crate: carried by YOU"), deliberate drop/re-pick attempts, successful seating ("Driver: YOU DRIVING"), and forward travel from truck z 0.0 through 12.4 to 40.0.
+- At z 40.0 the mission remained IN PROGRESS and crate status remained free. Pixels showed the crate had physically travelled with the truck near the cab, but repeated E interactions selected the overlapping driver-seat hotspot rather than picking up the crate.
+- Delivery and unload were not visually completed or claimed.
+
+Terminal invalidation
+- The next required native input command failed with X BadWindow for the previously active client window. The assignment says native input failure requires an invalid verdict and immediate stop. I did not relaunch or repeat observed gameplay.
+
+Gameplay judgement before invalidation
+- Demonstrated mechanisms: native connection, on-foot movement/mouse look, crate pickup/drop, seat entry/exit, and bounded-route driving.
+- Not demonstrated: carrying the transported crate into the marked destination zone and successful unload.
+- Product acceptance is not declared.
+
+Gaps and uncertainty
+- No completed-delivery pixel observation exists.
+- Destination-zone geometry and successful unload feedback were not directly established.
+- Provider-side route introspection was unavailable; routing evidence is the exact Runtime-reported selector.
+- Source, Git history, tests, logs, producer material, prior reports, and known defects were not inspected.

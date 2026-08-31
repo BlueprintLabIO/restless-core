@@ -1,0 +1,184 @@
+[
+  {
+    "actor_id": "daemon",
+    "kind": "system",
+    "role": "system-sender",
+    "display": "The daemon",
+    "model": null,
+    "team_id": null,
+    "retired_at": null,
+    "retired_by": null,
+    "retirement_reason": "",
+    "work_count": 0,
+    "completed_work_count": 0,
+    "recent_work": [],
+    "spent_usd": 0.0,
+    "session_running": false,
+    "model_cooldown": null
+  },
+  {
+    "actor_id": "owner",
+    "kind": "owner",
+    "role": "owner",
+    "display": "The Owner",
+    "model": null,
+    "team_id": null,
+    "retired_at": null,
+    "retired_by": null,
+    "retirement_reason": "",
+    "work_count": 0,
+    "completed_work_count": 0,
+    "recent_work": [],
+    "spent_usd": 0.0,
+    "session_running": false,
+    "model_cooldown": null
+  },
+  {
+    "actor_id": "exec",
+    "kind": "exec",
+    "role": "exec",
+    "display": "The Exec",
+    "model": "litellm/gpt-5.6-sol",
+    "team_id": null,
+    "retired_at": null,
+    "retired_by": null,
+    "retirement_reason": "",
+    "work_count": 0,
+    "completed_work_count": 0,
+    "recent_work": [],
+    "spent_usd": 3.382,
+    "session_running": false,
+    "model_cooldown": null
+  },
+  {
+    "actor_id": "swiftarrival-gameproduct",
+    "kind": "staff",
+    "role": "game-product-lead",
+    "display": "Game Product Lead",
+    "model": null,
+    "team_id": "0572eec1-334c-42d0-934e-f69fb5885afe",
+    "retired_at": null,
+    "retired_by": null,
+    "retirement_reason": "",
+    "work_count": 0,
+    "completed_work_count": 0,
+    "recent_work": [],
+    "spent_usd": 16.7224,
+    "session_running": false,
+    "model_cooldown": null
+  },
+  {
+    "actor_id": "swiftarrival-gameplay",
+    "kind": "staff",
+    "role": "gameplay-engineer",
+    "display": "Gameplay Engineer",
+    "model": "litellm/gpt-5.6-sol",
+    "team_id": "0572eec1-334c-42d0-934e-f69fb5885afe",
+    "retired_at": null,
+    "retired_by": null,
+    "retirement_reason": "",
+    "work_count": 4,
+    "completed_work_count": 4,
+    "recent_work": [
+      {
+        "id": "11554293-9030-457d-88c0-43397d341be4",
+        "title": "Make the playable core real: view-relative movement, solid collision, recoverable crate",
+        "status": "completed",
+        "revision": 1
+      },
+      {
+        "id": "841a9c7a-0c89-4a5e-9df2-5432e760bb78",
+        "title": "Repair the exit-to-unload route and make the delivery objective legible",
+        "status": "completed",
+        "revision": 1
+      },
+      {
+        "id": "85ced0c3-ddde-46f3-9003-3cdc50f8ebd7",
+        "title": "Require the truck journey before delivery can complete",
+        "status": "completed",
+        "revision": 1
+      },
+      {
+        "id": "f531188b-a8e3-450f-9e4b-e218f68c0c37",
+        "title": "Make the visible route endpoint complete reliably",
+        "status": "completed",
+        "revision": 1
+      }
+    ],
+    "spent_usd": 21.4282,
+    "session_running": false,
+    "model_cooldown": null
+  },
+  {
+    "actor_id": "swiftarrival-playtest",
+    "kind": "staff",
+    "role": "playability-reviewer",
+    "display": "Independent Playability Reviewer",
+    "model": "litellm/gpt-5.6-sol",
+    "team_id": "0572eec1-334c-42d0-934e-f69fb5885afe",
+    "retired_at": null,
+    "retired_by": null,
+    "retirement_reason": "",
+    "work_count": 5,
+    "completed_work_count": 1,
+    "recent_work": [
+      {
+        "id": "ebdd971f-0732-4330-8204-fad8e7d06757",
+        "title": "Prove the repaired delivery loop in a fresh independent playtest",
+        "status": "completed",
+        "revision": 1
+      },
+      {
+        "id": "3589d1a0-c6ec-468a-8c99-8811d6025782",
+        "title": "Keep the accepted slice ready for founder play",
+        "status": "abandoned",
+        "revision": 1
+      },
+      {
+        "id": "bf0531c6-d0a5-4529-b4d0-baf65d1b3397",
+        "title": "Blindly verify that delivery now requires the truck journey",
+        "status": "abandoned",
+        "revision": 1
+      },
+      {
+        "id": "af5ef98a-1cff-45c9-b245-c7bd0aebc61a",
+        "title": "Blindly verify the repaired truck-journey requirement from the exact candidate",
+        "status": "abandoned",
+        "revision": 1
+      },
+      {
+        "id": "731bd86c-6507-4ae1-a7bf-37b3b20980b7",
+        "title": "Blindly verify the final endpoint and recovery candidate",
+        "status": "blocked",
+        "revision": 1
+      }
+    ],
+    "spent_usd": 6.6988,
+    "session_running": false,
+    "model_cooldown": null
+  },
+  {
+    "actor_id": "swiftarrival-experience",
+    "kind": "staff",
+    "role": "playability-reviewer",
+    "display": "Playability Evidence Reviewer",
+    "model": "litellm/gpt-5.6-terra",
+    "team_id": "0572eec1-334c-42d0-934e-f69fb5885afe",
+    "retired_at": null,
+    "retired_by": null,
+    "retirement_reason": "",
+    "work_count": 1,
+    "completed_work_count": 1,
+    "recent_work": [
+      {
+        "id": "5fff51d1-1b74-4d30-a98d-be6c3fa005b1",
+        "title": "Independently play the candidate from pickup through delivery",
+        "status": "completed",
+        "revision": 1
+      }
+    ],
+    "spent_usd": 0.3755,
+    "session_running": false,
+    "model_cooldown": null
+  }
+]

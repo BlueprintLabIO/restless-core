@@ -1,0 +1,20 @@
+Godot Engine v4.7.2.stable.official.ed1daf0bf - https://godotengine.org
+
+[11:25:38] ENet: server listening on 127.0.0.1:24565 — HOST is peer 1
+[11:25:40] ENet: peer_connected id=361068396 (transport-level connection evidence)
+[11:25:40] HOST: sent authoritative world state to new peer 361068396
+[11:25:40] PROBE(host,mech): client joined; beginning movement-basis assertions
+[11:25:40] PROBE(host,mech): strafe test at yaw=0.9 — D must move along camera right (0.62161, 0.0, -0.783327)
+[11:25:41] PROBE(host,mech): strafe displacement=(1.392406, 0.0, -1.754654) (len 2.24), dot with camera right=1.000
+[11:25:42] PROBE(host,mech): forward displacement=(1.513038, 0.0, 1.651771) (len 2.24), dot with camera forward=1.000
+[11:25:43] PROBE(host,mech): pressed into cargo wall while turning for 0.8s (attempted ~2.24m); final |x|=0.828 (wall contact at 0.825)
+[11:25:44] PROBE(host,mech): pressed into cargo wall from outside for 0.8s; final x=1.573 (blocked at ~1.58)
+[11:25:45] PROBE(host,mech): walked out of the truck rear; now at (-0.0, 0.942391, -4.261691) (outside footprint z<-3.70, ground level y~0.87)
+[11:25:45] PROBE(host,mech): MECHANICS VERIFIED — view-relative basis + solid collision + exit on foot
+[11:25:45] PROBE(host): received client signal 'mechanics_done'
+[11:25:45] PROBE RESULT: PASS — mechanics assertions passed (basis, walls both sides, leave on foot)
+[11:25:46] ENet: peer_disconnected id=361068396
+[11:25:46] PROBE: exiting (exit code 0)
+[11:25:46] ENet: server disconnected
+[11:25:46] PROBE: exiting (exit code 0)
+[11:25:46] PROBE: exiting (exit code 0)

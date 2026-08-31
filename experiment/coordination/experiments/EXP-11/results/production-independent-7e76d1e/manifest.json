@@ -1,0 +1,55 @@
+{
+  "work_id": "af5ef98a-1cff-45c9-b245-c7bd0aebc61a",
+  "attempt_id": "5e7832ba-ff8a-4c51-8dc5-bb06187929c9",
+  "runtime_start_event": {
+    "event_id": 386,
+    "kind": "attempt_process_started",
+    "created_at": "2026-08-28T11:38:08.813321Z",
+    "source_commit": "7e76d1e087cf4cde12aaf1fa6d5e9309f39bcddd",
+    "workdir": "/company/worktrees/work-af5ef98a1cff-r1",
+    "dirty_entries": 0
+  },
+  "checked_out_source_commit": "7e76d1e087cf4cde12aaf1fa6d5e9309f39bcddd",
+  "lineage": "VALID",
+  "input_exclusions": [
+    {
+      "artifact_id": "a24f9422-7247-49a2-9179-91206b342d8a",
+      "source_commit": "2ebfd6932d7709bf03410c2b864731ef0394c05f",
+      "reason": "failed first repair Attempt; explicitly excluded from verdict"
+    },
+    {
+      "work_id": "bf0531c6-d0a5-4529-b4d0-baf65d1b3397",
+      "reason": "abandoned old-base independent Attempt; no evidence reused"
+    }
+  ],
+  "valid_producer_input": {
+    "artifact_id": "17a3a26f-ae03-4f7e-b0f6-1851cc6e217b",
+    "source_commit": "7e76d1e087cf4cde12aaf1fa6d5e9309f39bcddd"
+  },
+  "native_routes": {
+    "on_foot_bypass_with_drop_recovery": {
+      "result": "REJECTED AS REQUIRED",
+      "path": "native-bypass-recovery",
+      "trace": "native-bypass-recovery/input-trace.tsv",
+      "host_log": "native-bypass-recovery/host.log",
+      "client_log": "native-bypass-recovery/client.log",
+      "strongest_pixels": "native-bypass-recovery/shots/ev_reject_journey.png"
+    },
+    "full_truck_journey_with_drop_recovery": {
+      "result": "COMPLETED",
+      "path": "native-positive",
+      "trace": "native-positive/input-trace.tsv",
+      "host_log": "native-positive/host.log",
+      "client_log": "native-positive/client.log",
+      "strongest_pixels": "native-positive/shots/ev_delivered_07.png"
+    }
+  },
+  "supporting_probe": {
+    "command": "sh run-probe.sh --mechanics-recovery support-mechanics-host.log support-mechanics-client.log",
+    "result": "exit 0; mechanics and recovery host/client PASS",
+    "scope_limit": "supporting deterministic evidence only; does not establish feel"
+  },
+  "report": "REPORT.txt",
+  "review_target": "REVIEW_TARGET.txt",
+  "verdict": "ACCEPT FOR FOUNDER REVIEW"
+}

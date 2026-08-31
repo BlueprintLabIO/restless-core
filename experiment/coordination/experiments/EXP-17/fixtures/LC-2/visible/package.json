@@ -1,0 +1,8 @@
+{
+  "name": "exp17-lc2-inbound-work",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test test/visible.test.mjs"
+  }
+}

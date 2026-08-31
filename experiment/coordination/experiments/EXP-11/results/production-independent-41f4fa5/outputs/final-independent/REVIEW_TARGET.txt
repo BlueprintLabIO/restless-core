@@ -1,0 +1,47 @@
+SWIFT ARRIVAL — EXACT LOCAL FOUNDER REVIEW TARGET
+
+Candidate
+41f4fa53a2cd05ab17aea473f3d1be28979b2dcf
+Worktree
+/company/worktrees/work-731bd86c6507-r1
+Independent evidence
+/company/outputs/swift-arrival-r15-final-independent-b8e3161f/run-manifest.json
+
+Preflight
+1. Confirm `git -C /company/worktrees/work-731bd86c6507-r1 rev-parse HEAD` prints exactly the candidate above.
+2. Confirm DISPLAY :1 is reachable with `xdpyinfo -display :1`.
+3. Stop any prior copy from this exact worktree before restart: `pkill -f /company/worktrees/work-731bd86c6507-r1`.
+
+Host-first / client-second full restart
+Run these in two terminals in this order. Wait for the host window and `server listening` output before starting the client.
+
+HOST:
+HOME=/tmp/godot-home-founder DISPLAY=:1 /usr/local/bin/godot --path /company/worktrees/work-731bd86c6507-r1 --resolution 1280x720 --position 0,100 -- --host
+
+CLIENT:
+HOME=/tmp/godot-home-founder DISPLAY=:1 /usr/local/bin/godot --path /company/worktrees/work-731bd86c6507-r1 --resolution 1280x720 --position 1320,100 -- --client
+
+Client-only reconnect
+If the host remains open but the client closes or disconnects, stop only the old client and rerun the CLIENT command. The opening client HUD should show CLIENT, connected 1, DELIVERY IN PROGRESS, ROUTE 0 / 40 m, and PICK UP THE CRATE. If it does not, use the full host-first/client-second restart instead of judging stale state.
+
+Controls
+- Click the CLIENT window to capture the mouse.
+- WASD: view-relative movement on foot; W/S drive while seated.
+- Mouse: first-person look.
+- E: perform the green shown action (pickup, enter/exit seat, unload).
+- Q: safely drop the crate; walk close and E to recover it.
+- Esc: release the mouse.
+
+Bounded review route
+Pick up the crate; deliberately Q drop and E recover it; walk through cargo to the driver seat; E seat; drive to visible ROUTE 40 / 40 m; E exit; step into the destination and E unload. If useful, restart and try one early exit, then walk through cargo and E re-enter naturally.
+
+One founder question
+Does this exact compact loop now feel coherent and genuinely playable—especially whether view-relative walking/mouse look, truck driving, solid boundaries, mistake recovery, endpoint exit/unload, and the shown interaction feedback all agree with what you expect? If not, identify the specific moment and feel problem.
+
+Limits
+- Audio is unverified because this Runtime used Godot's dummy audio driver.
+- Multiplayer evidence is local ENet loopback only, not a remote-network test.
+- Rendering evidence is X11 OpenGL/llvmpipe, not production GPU coverage.
+- Collision review is bounded to the truck cargo/cab doorway, destination, early-exit return, and prescribed on-foot path; it is not broad world-boundary coverage.
+- A transient endpoint-exit screenshot retained the top re-entry objective while the central feedback correctly instructed unloading; it did not block completion. Observe whether this is distracting.
+- Deterministic probes establish mechanics, not feel. Founder taste and acceptance remain unverified until explicitly recorded.

@@ -271,6 +271,16 @@ impl<'de> Deserialize<'de> for SpendCeiling {
 
 /// One company's identity and configuration, as a file — not a table (sprint
 /// spec, kernel slice). Lives at `$RESTLESS_HOME/companies/<name>.toml`.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum WorkerRuntime {
+    /// Mature OMP/ACP transport retained as the compatible default.
+    #[default]
+    Omp,
+    /// First-party Codex app-server transport for productive Staff Attempts.
+    Codex,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CompanyConfig {
     /// Company name; also the container/volume suffix and schema name.
@@ -286,6 +296,14 @@ pub struct CompanyConfig {
     /// indirection this replaced (`company-general-v1` → a gateway route)
     /// was vestigial once agents named providers directly.
     pub model: String,
+    /// Cognitive transport for productive Staff Attempts. Exec and
+    /// non-producing lead conversations remain on the mature coordination
+    /// transport; this field changes the worker, not the organisation.
+    #[serde(default)]
+    pub worker_runtime: WorkerRuntime,
+    /// Exact provider-supported reasoning effort for every actor launch.
+    #[serde(default = "default_reasoning_effort")]
+    pub reasoning_effort: String,
     /// Ordered provider-qualified fallbacks for the singleton Exec. Empty is
     /// an explicit no-fallback policy; providers are never inferred from
     /// ambient credentials or broker history.
@@ -305,6 +323,17 @@ pub struct CompanyConfig {
 
 fn default_ceiling() -> SpendCeiling {
     SpendCeiling::from_micro_usd(10_000_000)
+}
+
+fn default_reasoning_effort() -> String {
+    crate::acp::DEFAULT_REASONING_EFFORT.to_string()
+}
+
+fn valid_reasoning_effort(value: &str) -> bool {
+    matches!(
+        value,
+        "none" | "low" | "medium" | "high" | "xhigh" | "max" | "ultra"
+    )
 }
 
 impl CompanyConfig {
@@ -332,6 +361,9 @@ impl CompanyConfig {
             );
         }
         config.model_candidates()?;
+        if !valid_reasoning_effort(&config.reasoning_effort) {
+            bail!("unsupported reasoning effort {:?}", config.reasoning_effort);
+        }
         Ok(config)
     }
 
@@ -346,6 +378,9 @@ impl CompanyConfig {
     pub fn save(root: &Path, config: &Self) -> Result<()> {
         validate_company_name(&config.name)?;
         config.model_candidates()?;
+        if !valid_reasoning_effort(&config.reasoning_effort) {
+            bail!("unsupported reasoning effort {:?}", config.reasoning_effort);
+        }
         let dir = root.join("companies");
         let path = dir.join(format!("{}.toml", config.name));
         let archived = root
@@ -2048,7 +2083,7 @@ mod tests {
         is_runtime_review_file_target, move_active_config_to_archive,
         move_archived_config_to_active, normalize_expired_browser_control, resolve_review_file,
         review_file_media_type, runtime_http_target, runtime_review_file_root,
-        runtime_review_text_path, CompanyConfig, SpendCeiling,
+        runtime_review_text_path, CompanyConfig, SpendCeiling, WorkerRuntime,
     };
 
     #[test]
@@ -2127,6 +2162,29 @@ model_failover = ["anthropic/claude-haiku-4-5", "zai/glm-5"]
     }
 
     #[test]
+    fn worker_transport_and_reasoning_are_explicit_with_compatible_defaults() {
+        let legacy: CompanyConfig = toml::from_str(
+            r#"name = "legacy_test"
+model = "moonshot/kimi-k3"
+"#,
+        )
+        .unwrap();
+        assert_eq!(legacy.worker_runtime, WorkerRuntime::Omp);
+        assert_eq!(legacy.reasoning_effort, "medium");
+
+        let codex: CompanyConfig = toml::from_str(
+            r#"name = "codex_test"
+model = "litellm/gpt-5.6-sol"
+worker_runtime = "codex"
+reasoning_effort = "high"
+"#,
+        )
+        .unwrap();
+        assert_eq!(codex.worker_runtime, WorkerRuntime::Codex);
+        assert_eq!(codex.reasoning_effort, "high");
+    }
+
+    #[test]
     fn review_targets_are_loopback_http_but_never_browser_control() {
         let target =
             runtime_http_target("http://127.0.0.1:4173/for-tutoring-centres?language=en").unwrap();
@@ -2183,6 +2241,8 @@ model_failover = ["anthropic/claude-haiku-4-5", "zai/glm-5"]
             mission: "Preserve me".into(),
             spend_ceiling_usd: SpendCeiling::from_micro_usd(5_000_000),
             model: "moonshot/kimi-k3".into(),
+            worker_runtime: crate::runtime::WorkerRuntime::Omp,
+            reasoning_effort: crate::acp::DEFAULT_REASONING_EFFORT.into(),
             model_failover: Vec::new(),
             credentials: std::collections::BTreeMap::new(),
             approved_parties: Vec::new(),

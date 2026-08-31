@@ -1,0 +1,6 @@
+UTC date: 2026-08-28
+Attempt: 1473e3a4-170f-43c4-94a7-10e9ebdd3ac0
+Model selector supplied by Runtime: litellm/gpt-5.6-sol
+Scope: blind native visual play only. No repository, source, logs, history, tests, producer messages, or prior reports inspected.
+Required native tools probed with command -v: godot=/usr/local/bin/godot, xdotool=/usr/bin/xdotool, scrot=/usr/bin/scrot, restless=/usr/local/bin/restless.
+Scenario-evidence skill was read. No scenario package was supplied, and inspecting the candidate package is prohibited by the blind-play contract, so the exact mandated direct launch/input/capture procedure is used instead.

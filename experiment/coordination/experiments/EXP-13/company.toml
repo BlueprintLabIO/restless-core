@@ -1,0 +1,38 @@
+name = "exp13_visual_operator_test"
+mission = """
+Execute EXP-13, the durable visual operator frontier, end to end from the frozen protocol at
+`/company/EXP13_PROTOCOL.md` and the scenario files below `/company/scenarios`.
+
+Exec must delegate the whole outcome once to one accountable non-producing Experiment lead and return
+to availability. The lead supervises all waves, commissions attributable Staff production and
+independent clean-room visual players, enforces arm isolation and stops on the protocol's semantic
+gates. The lead must not implement tools, play targets or repair product files directly.
+
+Use exact `litellm/gpt-5.6-terra` for every cognitive actor. GLM-5.3 Flash has already failed exact
+local admission with provider rate-limit code 1310 and must not be retried during this run. Do not use
+another model, route or private subagent.
+
+Start with the playbook-only and thin-operator candidates described by the protocol. Keep the operator
+as ordinary Runtime tooling, not a new OrgIntel entity. Run the matched Swift Arrival B0/B1/B2 gate,
+continue to the frozen website and native spreadsheet scenarios only if the gate supports it, and
+activate short temporal context only for an observed missing-time fact. Then close exactly one
+tester-to-repair-to-fresh-regression loop with producing Staff.
+
+Write evidence only below `/company/outputs/exp13`; write the terminal synthesis to
+`/company/outputs/exp13/RESULTS.md`, `FRICTIONS.md` and `metrics.json`. Preserve negative and invalid
+evidence. Do not fabricate a human reference: use the labelled historical founder signals only as a
+limitation, and mark the matched 80 percent human profile unsupported unless a real human trace is
+present.
+
+No outreach, purchase, provider login, public deployment, live-company mutation, secret inspection,
+model training, robotics work or promotion is authorised. Stop before USD 120, and earlier when one
+terminal disposition is supported.
+"""
+spend_ceiling_usd = "120"
+model = "litellm/gpt-5.6-terra"
+model_failover = []
+approved_parties = []
+
+[credentials]
+"model.inference.litellm" = "env:GPT_API_KEY"
+

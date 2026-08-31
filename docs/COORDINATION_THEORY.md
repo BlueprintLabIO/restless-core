@@ -113,6 +113,13 @@ model wake: ordinary successful partition completions may accumulate durably unt
 closes. Harm, blockage, changed policy, contradiction or another decision-relevant exception remains
 urgent.
 
+EXP-17 measures the premium against the identical first-party Codex worker. Four sparse pairs reached
+practical quality parity, while the explicit `R1` call chain added 77%-194% latency and 74%-230% spend
+without a recovery or continuity win. This does not remove the lead as an accountability boundary. It
+separates **role existence** from **model wake frequency**: one worker remains the producing topology;
+the lead stays durable and authorised, while fresh supervisory reasoning is reserved for material
+judgement rather than routine commissioning and acceptance narration.
+
 Availability is not correctness. In EXP-05, causal policy delivery let the lead supersede two stale
 Attempts and close 96/96 cases under the new policy, while terminal-only delivery left 16 stale cases
 and deadlocked. The causal lead still introduced a substantive unit-level judgement defect. The
@@ -182,6 +189,8 @@ even a very fast lead remains serial while a valuable queue can grow in parallel
 - Change the organisation as coupling, uncertainty and saturation change.
 - Treat local closure as a prerequisite for queue scaling, not proof that another worker will win.
 - Preserve actor identity through isolated resumable sessions and factual state; processes may be replaced.
+- Keep accountable supervision distinct, but do not equate a durable role with an LLM call at every
+  state transition.
 
 ## Contingent conclusions
 
@@ -194,6 +203,8 @@ These are current priors, not permanent truths:
 - current model assignments, team-size guidance, ACP, Work schemas, token speeds and provider limits;
 - current effort-tier behaviour, cache/usage visibility and provider concurrency envelope;
 - any fixed numerical routing threshold.
+- the current EXP-17 observation that a serial supervised call chain costs roughly 1.7x-3.3x on
+  bounded exact-Sol work; different models, longer horizons or authority-sensitive effects may move it.
 
 The exact Work graph is not the theory. The enduring requirement is a small factual substrate that can
 show who really accepted responsibility, what evidence returned and who judged the combined outcome.

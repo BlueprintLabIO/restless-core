@@ -1,0 +1,17 @@
+SWIFT ARRIVAL R15 FINAL RECOVERY INSPECTION
+Attempt: fad2aea8-10c9-4efe-b39d-6b149be5b972
+Candidate: 41f4fa53a2cd05ab17aea473f3d1be28979b2dcf
+Gameplay parent: 0602bc78e37e57db1c4328c12df9c15e72c5e010
+Required base: 7e76d1e087cf4cde12aaf1fa6d5e9309f39bcddd
+
+Direct observations:
+- Preserved worktree started clean at exact candidate 41f4fa53a2cd05ab17aea473f3d1be28979b2dcf.
+- Candidate descends from both gameplay parent and required base.
+- `git diff --exit-code 0602bc7 41f4fa5 -- main.gd project.godot main.tscn` exited 0: only deterministic harness dispatch differs from the native-reviewed gameplay candidate.
+- The preserved 6c6ac916 artifact checksums all verified successfully.
+- Every exact Work gate was freshly rerun from this candidate and exited 0: script validation, journey-positive, journey-bypass, seat-recovery, and mechanics-recovery.
+- Dedicated seat-recovery host/client logs record deliberate cargo drop/recovery, incomplete route exit, natural driver-seat re-entry accepted by the host, exact endpoint, valid exit, unload, and delivery completion.
+
+Independent native evidence remains attributable to exact unchanged gameplay candidate 0602bc78e37e57db1c4328c12df9c15e72c5e010 at /company/outputs/swift-arrival-r15-native-f7ba9565/INDEPENDENT-REPORT.txt and sibling bundles. It is not relabelled as this Attempt's output. It directly records fresh visible 40/40 completion, route-zero rejection, and ordinary early-exit seat re-entry. Candidate 41f4fa53 changes only safe test-harness dispatch.
+
+Limits: deterministic probes establish mechanics, not feel. Native evidence used X11/llvmpipe and ENet loopback; audio, remote-network behavior, broad collision coverage, and founder taste remain unverified.

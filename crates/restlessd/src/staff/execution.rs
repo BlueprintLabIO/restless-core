@@ -35,6 +35,8 @@ pub(super) struct StaffRun {
     pub(super) org: restless_orgintel::OrgIntel,
     pub(super) spend: SpendLedger,
     pub(super) spend_ceiling: crate::runtime::SpendCeiling,
+    pub(super) worker_runtime: crate::runtime::WorkerRuntime,
+    pub(super) reasoning_effort: String,
     pub(super) authority: crate::authority::AuthorityStore,
     pub(super) capabilities: crate::capability::CapabilityIssuer,
     pub(super) conversation: bool,
@@ -67,12 +69,13 @@ pub(super) async fn run_staff_with_failover(run: StaffRun) -> Result<StaffOutcom
             .emit_event(
                 "model_attempt",
                 Some(&run.actor),
-                serde_json::json!({ "model": model, "configured_effort": crate::acp::DEFAULT_REASONING_EFFORT, "attempt": index + 1 }),
+                serde_json::json!({ "model": model, "configured_effort": run.reasoning_effort, "attempt": index + 1 }),
             )
             .await?;
 
         let auth = match crate::exec::agent_auth_for_model(
             model,
+            &run.reasoning_effort,
             &run.capabilities,
             &run.company,
             &run.actor,
@@ -168,6 +171,7 @@ pub(super) async fn run_staff_with_failover(run: StaffRun) -> Result<StaffOutcom
             enforce_spend_budget: billing == crate::model_gateway::ModelBilling::MeteredApi,
             conversation: run.conversation,
             accountable_lead: run.accountable_lead,
+            worker_runtime: run.worker_runtime,
             mcp_servers: mcp_servers.clone(),
             observer: run.observer.clone(),
             cancellation: run.cancellation.clone(),
@@ -205,13 +209,26 @@ pub(super) async fn run_staff_with_failover(run: StaffRun) -> Result<StaffOutcom
             // the same oversized history. Drop only this responsibility's
             // locator; the addressed message, Work graph, files and evidence
             // stay durable and form the next wake's compact reconstruction.
-            acp::discard_session_locator(
-                &run.container,
-                &run.company,
-                &run.actor,
-                &run.responsibility,
-            )
-            .await?;
+            match run.worker_runtime {
+                crate::runtime::WorkerRuntime::Omp => {
+                    acp::discard_session_locator(
+                        &run.container,
+                        &run.company,
+                        &run.actor,
+                        &run.responsibility,
+                    )
+                    .await?;
+                }
+                crate::runtime::WorkerRuntime::Codex => {
+                    crate::codex::discard_session_locator(
+                        &run.container,
+                        &run.company,
+                        &run.actor,
+                        &run.responsibility,
+                    )
+                    .await?;
+                }
+            }
             let reason = match &outcome {
                 Ok((_, reason, _, _)) => reason.clone(),
                 Err(error) => format!("{error:#}"),
@@ -414,6 +431,7 @@ struct StaffBrief {
     /// brief rather than inventing a second runtime class.
     conversation: bool,
     accountable_lead: bool,
+    worker_runtime: crate::runtime::WorkerRuntime,
     mcp_servers: Vec<agent_client_protocol::schema::v1::McpServer>,
     observer: Option<acp::SessionObserver>,
     cancellation: CancellationToken,
@@ -485,6 +503,239 @@ pub(super) fn termination_prompt(accountable_lead: bool) -> &'static str {
     }
 }
 
+trait CognitiveSession: Sync {
+    fn readiness_observation(&self) -> serde_json::Value;
+    fn set_live_observer_enabled(&self, enabled: bool);
+    fn prompt_staff<'a>(
+        &'a self,
+        text: &'a str,
+        enforce_spend_budget: bool,
+        remaining_budget_usd: f64,
+        cancellation: &'a CancellationToken,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = acp::TurnEnd> + Send + 'a>>;
+}
+
+impl CognitiveSession for acp::AgentSession {
+    fn readiness_observation(&self) -> serde_json::Value {
+        acp::AgentSession::readiness_observation(self)
+    }
+
+    fn set_live_observer_enabled(&self, enabled: bool) {
+        acp::AgentSession::set_live_observer_enabled(self, enabled);
+    }
+
+    fn prompt_staff<'a>(
+        &'a self,
+        text: &'a str,
+        enforce_spend_budget: bool,
+        remaining_budget_usd: f64,
+        cancellation: &'a CancellationToken,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = acp::TurnEnd> + Send + 'a>> {
+        Box::pin(acp::AgentSession::prompt_live(
+            self,
+            text,
+            move |usage| {
+                staff_spend_limit_reached(enforce_spend_budget, remaining_budget_usd, usage)
+            },
+            cancellation,
+        ))
+    }
+}
+
+impl CognitiveSession for crate::codex::CodexSession {
+    fn readiness_observation(&self) -> serde_json::Value {
+        crate::codex::CodexSession::readiness_observation(self)
+    }
+
+    fn set_live_observer_enabled(&self, enabled: bool) {
+        crate::codex::CodexSession::set_live_observer_enabled(self, enabled);
+    }
+
+    fn prompt_staff<'a>(
+        &'a self,
+        text: &'a str,
+        enforce_spend_budget: bool,
+        remaining_budget_usd: f64,
+        cancellation: &'a CancellationToken,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = acp::TurnEnd> + Send + 'a>> {
+        Box::pin(crate::codex::CodexSession::prompt_live(
+            self,
+            text,
+            enforce_spend_budget,
+            remaining_budget_usd,
+            cancellation,
+        ))
+    }
+}
+
+#[derive(Clone)]
+struct StaffDrive {
+    event_actor: String,
+    org: restless_orgintel::OrgIntel,
+    turn_prompt: String,
+    attempt_id: Option<uuid::Uuid>,
+    remaining_budget_usd: f64,
+    enforce_spend_budget: bool,
+    conversation: bool,
+    termination_prompt: &'static str,
+    cancellation: CancellationToken,
+}
+
+impl StaffDrive {
+    async fn run(
+        self,
+        session: &dyn CognitiveSession,
+    ) -> Result<(Termination, String, Vec<acp::TurnUsage>, Option<u64>)> {
+        session.set_live_observer_enabled(true);
+        self.org
+            .emit_event(
+                "model_session_ready",
+                Some(&self.event_actor),
+                session.readiness_observation(),
+            )
+            .await?;
+        let mut next = self.turn_prompt;
+        let mut spent: Vec<acp::TurnUsage> = Vec::new();
+        loop {
+            session.set_live_observer_enabled(true);
+            let end = session
+                .prompt_staff(
+                    &next,
+                    self.enforce_spend_budget,
+                    self.remaining_budget_usd,
+                    &self.cancellation,
+                )
+                .await;
+            if let Some(usage) = end.usage() {
+                spent.push(usage);
+            }
+            if let Some(halt) = staff_halt(&end) {
+                match halt {
+                    StaffHalt::Resume(reason) => {
+                        return Ok((
+                            Termination::Blocked,
+                            resumable_staff_summary(&reason),
+                            spent,
+                            None,
+                        ));
+                    }
+                    StaffHalt::Blocked(blocked)
+                        if health::block_kind_from_message(&blocked)
+                            .is_some_and(health::is_provider_failover_kind) =>
+                    {
+                        return Ok((Termination::Blocked, blocked, spent, None));
+                    }
+                    StaffHalt::Blocked(blocked) => bail!("staff turn: {blocked}"),
+                }
+            }
+
+            if self.conversation {
+                let transcript = end.into_transcript();
+                let reply = transcript.last_message_text.trim().to_string();
+                if reply.is_empty() {
+                    return Ok((
+                        Termination::Blocked,
+                        "team lead produced no owner-facing reply".to_string(),
+                        spent,
+                        transcript.output_tokens,
+                    ));
+                }
+                if let Some(blocked) = health::classify_provider_error_content(&reply) {
+                    return Ok((
+                        Termination::Blocked,
+                        blocked.message(),
+                        spent,
+                        transcript.output_tokens,
+                    ));
+                }
+                return Ok((
+                    Termination::OutcomeMet,
+                    reply,
+                    spent,
+                    transcript.output_tokens,
+                ));
+            }
+
+            if let Some(attempt_id) = self.attempt_id {
+                let feedback = self.org.checkpoint_attempt_feedback(attempt_id).await?;
+                if !feedback.is_empty() {
+                    next = format!(
+                        "# Work feedback delivered at a safe checkpoint\n{}\n\nApply this feedback to the same Attempt. Preserve useful work already completed, then continue until the outcome is done or genuinely blocked.",
+                        feedback
+                            .iter()
+                            .map(|message| format!(
+                                "- message {} from {}: {}",
+                                message.id, message.from_actor, message.body
+                            ))
+                            .collect::<Vec<_>>()
+                            .join("\n")
+                    );
+                    continue;
+                }
+            }
+
+            session.set_live_observer_enabled(false);
+            let end = session
+                .prompt_staff(
+                    self.termination_prompt,
+                    false,
+                    self.remaining_budget_usd,
+                    &self.cancellation,
+                )
+                .await;
+            if let Some(usage) = end.usage() {
+                spent.push(usage);
+            }
+            if let Some(halt) = staff_halt(&end) {
+                match halt {
+                    StaffHalt::Resume(reason) => {
+                        return Ok((
+                            Termination::Blocked,
+                            resumable_staff_summary(&reason),
+                            spent,
+                            None,
+                        ));
+                    }
+                    StaffHalt::Blocked(blocked)
+                        if health::block_kind_from_message(&blocked)
+                            .is_some_and(health::is_provider_failover_kind) =>
+                    {
+                        return Ok((Termination::Blocked, blocked, spent, None));
+                    }
+                    StaffHalt::Blocked(blocked) => bail!("staff termination ask: {blocked}"),
+                }
+            }
+            let said = end.into_transcript().text;
+            match exec::parse_termination(&said) {
+                Some(decision) if matches!(decision.termination, Termination::Continue) => {
+                    next = "Continue the task. If it is done or you are stuck, stop writing."
+                        .to_string();
+                }
+                Some(decision) => return Ok((decision.termination, decision.reason, spent, None)),
+                None => {
+                    if let Some(blocked) = health::classify_provider_error_content(&said) {
+                        tracing::warn!(
+                            kind = blocked.kind.as_str(),
+                            "staff blocked by the provider, not by its own output"
+                        );
+                        return Ok((Termination::Blocked, blocked.message(), spent, None));
+                    }
+                    tracing::warn!(
+                        said = %said.chars().take(600).collect::<String>(),
+                        "staff termination unparseable"
+                    );
+                    return Ok((
+                        Termination::Blocked,
+                        "staff produced no parseable termination decision".to_string(),
+                        spent,
+                        None,
+                    ));
+                }
+            }
+        }
+    }
+}
+
 async fn run_staff(
     brief: StaffBrief,
 ) -> Result<(Termination, String, Vec<acp::TurnUsage>, Option<u64>)> {
@@ -506,21 +757,18 @@ async fn run_staff(
         enforce_spend_budget,
         conversation,
         accountable_lead,
+        worker_runtime,
         mcp_servers,
         observer,
         cancellation,
     } = brief;
-    let event_actor = actor.clone();
-    let (container, auth, workdir, actor) =
-        (container.as_str(), &auth, workdir.as_str(), actor.as_str());
     let assignment = if conversation {
         "woken for a bounded coordination conversation"
     } else {
         "assigned one claimed Work Attempt"
     };
     let posture = actor_posture(accountable_lead);
-    let termination_prompt = termination_prompt(accountable_lead);
-    let workspace = workspace_instruction(workdir, conversation);
+    let workspace = workspace_instruction(&workdir, conversation);
     let system_prompt = format!(
         "# Company operating rules [authoritative — applies to every actor]\n{}\n\n\
          You are {name}, the {role} of {company}, {assignment}. Your stable OrgIntel actor id is `{actor}`.\n\
@@ -530,219 +778,64 @@ async fn run_staff(
          # Trusted assignment context [OrgIntel decision]\n{task}\n\n\
          Work until the task is done or you are stuck. {ending}",
         crate::context::COMPANY_OPERATING_RULES.trim(),
-        posture = posture,
-        workspace = workspace,
         ending = if conversation {
             "After using any tools you need, end with the complete owner-facing reply and its required intent marker. Do not narrate private reasoning in that reply."
         } else {
             "The session ends when you stop writing; you will then be asked for a decision envelope."
         },
     );
-    const CONTINUE_PROMPT: &str =
-        "Continue the task. If it is done or you are stuck, stop writing.";
-    let controls = acp::AgentControls::company_actor(system_prompt)?.with_mcp_servers(mcp_servers);
-    let controls = if conversation {
-        controls.for_team_coordination()
-    } else {
-        controls
+    let drive = StaffDrive {
+        event_actor: actor.clone(),
+        org,
+        turn_prompt,
+        attempt_id,
+        remaining_budget_usd,
+        enforce_spend_budget,
+        conversation,
+        termination_prompt: termination_prompt(accountable_lead),
+        cancellation,
     };
-    acp::with_agent(
-        container,
-        auth,
-        workdir,
-        actor,
-        &responsibility,
-        controls,
-        observer,
-        move |session| {
-            Box::pin(async move {
-                org.emit_event(
-                    "model_session_ready",
-                    Some(&event_actor),
-                    session.readiness_observation(),
-                )
-                .await?;
-                let mut next = turn_prompt;
-                // Each prompt yields another cumulative session snapshot. Keep the
-                // observations for failure telemetry, then charge only the final
-                // snapshot once when this provider attempt ends.
-                let mut spent: Vec<acp::TurnUsage> = Vec::new();
-                loop {
-                    // A continuation returns to real Work after the private
-                    // decision envelope below, so restore owner activity for
-                    // each actual task prompt.
-                    session.set_live_observer_enabled(true);
-                    let end = session
-                        .prompt_live(
-                            &next,
-                            move |usage| {
-                                staff_spend_limit_reached(
-                                    enforce_spend_budget,
-                                    remaining_budget_usd,
-                                    usage,
-                                )
-                            },
-                            &cancellation,
-                        )
-                        .await;
-                    // The work text is observability; the envelope is the record.
-                    // The usage is neither — it is the fuse's input, so it is the
-                    // one part of the transcript that must not be dropped, and it
-                    // is dropped LAST: a staff member that wedged or failed still
-                    // spent the company's money, and billing only the clean path
-                    // is how spend goes quietly missing. Staff spend is real spend
-                    // (two per company, T9).
-                    if let Some(usage) = end.usage() {
-                        spent.push(usage);
-                    }
-                    // Staff report to the Exec, not to the owner, so they have no
-                    // Verdict of their own to act on — the whole run is abandoned
-                    // and the Exec reads the reason on its next wake. But the
-                    // reason must still be the specific one.
-                    if let Some(halt) = staff_halt(&end) {
-                        match halt {
-                            StaffHalt::Resume(reason) => {
-                                return Ok((
-                                    Termination::Blocked,
-                                    resumable_staff_summary(&reason),
-                                    spent,
-                                    None,
-                                ));
-                            }
-                            StaffHalt::Blocked(blocked)
-                                if health::block_kind_from_message(&blocked)
-                                    .is_some_and(health::is_provider_failover_kind) =>
-                            {
-                                return Ok((Termination::Blocked, blocked, spent, None));
-                            }
-                            StaffHalt::Blocked(blocked) => bail!("staff turn: {blocked}"),
-                        }
-                    }
-
-                    if conversation {
-                        let transcript = end.into_transcript();
-                        // ACP may emit conversational bridge text around tools.
-                        // Only its final assistant block is the owner's durable
-                        // reply; the earlier blocks are ephemeral activity.
-                        let reply = transcript.last_message_text.trim().to_string();
-                        if reply.is_empty() {
-                            return Ok((
-                                Termination::Blocked,
-                                "team lead produced no owner-facing reply".to_string(),
-                                spent,
-                                transcript.output_tokens,
-                            ));
-                        }
-                        if let Some(blocked) = health::classify_provider_error_content(&reply) {
-                            return Ok((
-                                Termination::Blocked,
-                                blocked.message(),
-                                spent,
-                                transcript.output_tokens,
-                            ));
-                        }
-                        return Ok((
-                            Termination::OutcomeMet,
-                            reply,
-                            spent,
-                            transcript.output_tokens,
-                        ));
-                    }
-
-                    if let Some(attempt_id) = attempt_id {
-                        let feedback = org.checkpoint_attempt_feedback(attempt_id).await?;
-                        if !feedback.is_empty() {
-                            next = format!(
-                                "# Work feedback delivered at a safe checkpoint\n{}\n\nApply this feedback to the same Attempt. Preserve useful work already completed, then continue until the outcome is done or genuinely blocked.",
-                                feedback
-                                    .iter()
-                                    .map(|message| format!(
-                                        "- message {} from {}: {}",
-                                        message.id, message.from_actor, message.body
-                                    ))
-                                    .collect::<Vec<_>>()
-                                    .join("\n")
-                            );
-                            continue;
-                        }
-                    }
-
-                    // The Work termination envelope is deterministic internal
-                    // coordination. It shares the ACP session but is never a
-                    // line the owner should see streaming in People or Work.
-                    session.set_live_observer_enabled(false);
-                    let end = session
-                        .prompt_live(termination_prompt, |_| false, &cancellation)
-                        .await;
-                    if let Some(usage) = end.usage() {
-                        spent.push(usage);
-                    }
-                    if let Some(halt) = staff_halt(&end) {
-                        match halt {
-                            StaffHalt::Resume(reason) => {
-                                return Ok((
-                                    Termination::Blocked,
-                                    resumable_staff_summary(&reason),
-                                    spent,
-                                    None,
-                                ));
-                            }
-                            StaffHalt::Blocked(blocked)
-                                if health::block_kind_from_message(&blocked)
-                                    .is_some_and(health::is_provider_failover_kind) =>
-                            {
-                                return Ok((Termination::Blocked, blocked, spent, None));
-                            }
-                            StaffHalt::Blocked(blocked) => {
-                                bail!("staff termination ask: {blocked}");
-                            }
-                        }
-                    }
-                    let said = end.into_transcript().text;
-                    match exec::parse_termination(&said) {
-                        Some(decision) if matches!(decision.termination, Termination::Continue) => {
-                            next = CONTINUE_PROMPT.to_string();
-                        }
-                        Some(decision) => {
-                            return Ok((decision.termination, decision.reason, spent, None))
-                        }
-                        None => {
-                            // Before blaming the model, check whether it spoke at
-                            // all. omp streams an upstream error body through as
-                            // message CONTENT, so a provider refusal arrives as
-                            // assistant text: the turn "succeeds", tokens are
-                            // consumed, and nothing in the transport looks wrong.
-                            //
-                            // This is F1 in its third costume. It was fixed for the
-                            // Exec path in sprint 02 and the identical gap sat here
-                            // untouched until a critic ran on a second provider
-                            // hit `429 [1113] Insufficient balance` and was reported
-                            // as "staff produced no parseable termination decision"
-                            // — which blames the specialist for the wallet.
-                            if let Some(blocked) = health::classify_provider_error_content(&said) {
-                                tracing::warn!(
-                                    kind = blocked.kind.as_str(),
-                                    "staff blocked by the provider, not by its own output"
-                                );
-                                return Ok((Termination::Blocked, blocked.message(), spent, None));
-                            }
-                            tracing::warn!(
-                                said = %said.chars().take(600).collect::<String>(),
-                                "staff termination unparseable"
-                            );
-                            return Ok((
-                                Termination::Blocked,
-                                "staff produced no parseable termination decision".to_string(),
-                                spent,
-                                None,
-                            ));
-                        }
-                    }
-                }
-            })
-        },
-    )
-    .await
+    match worker_runtime {
+        crate::runtime::WorkerRuntime::Omp => {
+            let controls =
+                acp::AgentControls::company_actor(system_prompt)?.with_mcp_servers(mcp_servers);
+            let controls = if conversation {
+                controls.for_team_coordination()
+            } else {
+                controls
+            };
+            acp::with_agent(
+                &container,
+                &auth,
+                &workdir,
+                &actor,
+                &responsibility,
+                controls,
+                observer,
+                move |session| Box::pin(drive.run(session)),
+            )
+            .await
+        }
+        crate::runtime::WorkerRuntime::Codex => {
+            if conversation {
+                bail!("Codex worker runtime is restricted to productive Staff Attempts");
+            }
+            if !mcp_servers.is_empty() {
+                bail!("Codex worker runtime cannot yet preserve connected-tool parity");
+            }
+            crate::codex::with_agent(
+                &container,
+                &auth,
+                &workdir,
+                &actor,
+                &responsibility,
+                &system_prompt,
+                observer,
+                move |session| Box::pin(drive.run(session)),
+            )
+            .await
+        }
+    }
 }
 
 #[cfg(test)]
@@ -756,6 +849,7 @@ mod live_product_tests {
         InitialWorkGate, NewWork, WorkAttemptState, WorkStatus, WorkspaceSpec,
         REVIEW_TARGET_ARTIFACT_KIND, REVIEW_TARGET_LIVE_PROBE_GATE,
     };
+    use sha2::Digest;
 
     #[test]
     fn resumable_staff_halts_never_become_provider_failures() {
@@ -789,7 +883,8 @@ mod live_product_tests {
         let capabilities = crate::capability::CapabilityIssuer::open(root).unwrap();
         AgentAuth {
             model: model.to_string(),
-            effort: crate::acp::DEFAULT_REASONING_EFFORT.into(),
+            effort: std::env::var("RESTLESS_S17_PRODUCT_TEST_EFFORT")
+                .unwrap_or_else(|_| crate::acp::DEFAULT_REASONING_EFFORT.into()),
             company: company.to_string(),
             session_id: launch_id.clone(),
             coordination_token_env: "RESTLESS_SESSION_CAPABILITY".into(),
@@ -807,7 +902,13 @@ mod live_product_tests {
                     billing.as_str(),
                 )
                 .unwrap(),
-            gateway_url: "http://host.docker.internal:7790".into(),
+            gateway_url: std::env::var("RESTLESS_S17_PRODUCT_GATEWAY_URL").unwrap_or_else(|_| {
+                format!(
+                    "http://host.docker.internal:{}",
+                    crate::port_with_offset(7790)
+                        .expect("RESTLESS_PORT_OFFSET must produce a valid model-gateway port")
+                )
+            }),
             billing,
         }
     }
@@ -831,6 +932,20 @@ mod live_product_tests {
             .to_string()
     }
 
+    async fn container_file_text(container: &str, path: &str) -> String {
+        let output = tokio::process::Command::new("docker")
+            .args(["exec", container, "cat", path])
+            .output()
+            .await
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "read {path}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        String::from_utf8(output.stdout).unwrap()
+    }
+
     /// Opt-in full product probe. A real Staff model produces one native,
     /// unsent response package; a separate real lead model may inspect but not
     /// alter it, then admits the exact outcome to Exec. The test starts an
@@ -845,6 +960,14 @@ mod live_product_tests {
         assert!(runtime_company.ends_with("_test"));
         let model = std::env::var("RESTLESS_S17_PRODUCT_TEST_MODEL")
             .unwrap_or_else(|_| "zai/glm-5.3".to_string());
+        let worker_runtime = match std::env::var("RESTLESS_S17_PRODUCT_TEST_WORKER_RUNTIME")
+            .unwrap_or_else(|_| "omp".to_string())
+            .as_str()
+        {
+            "omp" => crate::runtime::WorkerRuntime::Omp,
+            "codex" => crate::runtime::WorkerRuntime::Codex,
+            value => panic!("unsupported RESTLESS_S17_PRODUCT_TEST_WORKER_RUNTIME {value}"),
+        };
         let database_url = std::env::var("RESTLESS_TEST_DATABASE_URL")
             .unwrap_or_else(|_| "postgresql:///restless".to_string());
         let source_message_id = std::env::var("RESTLESS_S17_SOURCE_MESSAGE_ID")
@@ -864,6 +987,51 @@ mod live_product_tests {
         ));
 
         let suffix = uuid::Uuid::new_v4().simple().to_string();
+        let neutral_preflight = if std::env::var("RESTLESS_S17_RUN_NEUTRAL_PREFLIGHT")
+            .is_ok_and(|value| value == "1")
+        {
+            let auth = live_auth(&root, &runtime_company, "neutral-codex", &model);
+            let codex_home = format!("/company/home/.restless/codex-parity/{}", &suffix[..12]);
+            let workdir = format!("/company/run/codex-parity/{}", &suffix[..12]);
+            let output = tokio::process::Command::new("docker")
+                .env(&auth.gateway_token_env, &auth.gateway_token)
+                .args([
+                    "exec",
+                    "-u",
+                    "company",
+                    "-e",
+                    auth.gateway_token_env.as_str(),
+                    "-e",
+                    &format!("CODEX_HOME={codex_home}"),
+                    "-e",
+                    &format!("RESTLESS_CODEX_PREFLIGHT_WORKDIR={workdir}"),
+                    "-e",
+                    &format!("RESTLESS_CODEX_PREFLIGHT_MODEL={model}"),
+                    "-e",
+                    &format!("RESTLESS_CODEX_PREFLIGHT_EFFORT={}", auth.effort),
+                    "-e",
+                    &format!("RESTLESS_CODEX_PREFLIGHT_BASE_URL={}", auth.gateway_url),
+                    &container,
+                    "node",
+                    "/usr/local/lib/restless/restless-codex-parity-preflight.mjs",
+                ])
+                .output()
+                .await
+                .unwrap();
+            assert!(
+                output.status.success(),
+                "neutral Codex parity preflight failed with status {}; stdout={}; stderr={}",
+                output.status,
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            );
+            Some(
+                serde_json::from_slice::<serde_json::Value>(&output.stdout)
+                    .expect("neutral Codex preflight emits one JSON result"),
+            )
+        } else {
+            None
+        };
         // The host relay verifies that the capability names a configured
         // company and an allowed model. Use the dedicated throwaway Runtime
         // identity itself; the isolated current-code coordinator prevents the
@@ -1074,6 +1242,7 @@ mod live_product_tests {
             enforce_spend_budget: true,
             conversation: false,
             accountable_lead: false,
+            worker_runtime,
             mcp_servers: Vec::new(),
             observer: None,
             cancellation: CancellationToken::new(),
@@ -1149,6 +1318,7 @@ mod live_product_tests {
             enforce_spend_budget: true,
             conversation: true,
             accountable_lead: true,
+            worker_runtime: crate::runtime::WorkerRuntime::Omp,
             mcp_servers: Vec::new(),
             observer: None,
             cancellation: CancellationToken::new(),
@@ -1202,6 +1372,7 @@ mod live_product_tests {
                 "company": company,
                 "runtime_company": runtime_company,
                 "model": model,
+                "worker_runtime": worker_runtime,
                 "work_id": work_id,
                 "attempt_id": attempt_id,
                 "attempt_state": attempt.state,
@@ -1214,6 +1385,7 @@ mod live_product_tests {
                 "lead_briefed": true,
                 "owner_ready": true,
                 "external_effects": 0,
+                "neutral_preflight": neutral_preflight,
                 "preserved_for_provider_evidence": preserve_state,
             })
         );
@@ -1251,5 +1423,732 @@ mod live_product_tests {
         }
         crate::acp::set_test_coordinator_override(None);
         coordination_task.abort();
+    }
+
+    /// Opt-in neutral EXP-17 solo task. This supplies only a scoped exact-model
+    /// capability to the byte-identical runner/controller in the Company image;
+    /// task bytes and artifacts remain in the caller-provisioned isolated path.
+    #[tokio::test]
+    #[ignore = "requires RESTLESS_S17_SOLO_RUNTIME_COMPANY and a live model gateway"]
+    async fn live_neutral_codex_executes_one_frozen_solo_task() {
+        dotenvy::dotenv().ok();
+        let root = crate::runtime::state_root();
+        let company = std::env::var("RESTLESS_S17_SOLO_RUNTIME_COMPANY")
+            .expect("set RESTLESS_S17_SOLO_RUNTIME_COMPANY");
+        assert!(company.ends_with("_test"));
+        let model = std::env::var("RESTLESS_S17_SOLO_MODEL")
+            .unwrap_or_else(|_| "litellm/gpt-5.6-sol".to_string());
+        let workdir =
+            std::env::var("RESTLESS_S17_SOLO_WORKDIR").expect("set RESTLESS_S17_SOLO_WORKDIR");
+        let task_file =
+            std::env::var("RESTLESS_S17_SOLO_TASK_FILE").expect("set RESTLESS_S17_SOLO_TASK_FILE");
+        let controller = std::env::var("RESTLESS_S17_SOLO_CONTROLLER")
+            .unwrap_or_else(|_| "restless-codex-task-run.mjs".to_string());
+        assert!(matches!(
+            controller.as_str(),
+            "restless-codex-task-run.mjs" | "restless-codex-longitudinal-run.mjs"
+        ));
+        assert!(workdir.starts_with("/company/benchmarks/"));
+        assert!(task_file.starts_with(&format!("{workdir}/")));
+        let suffix = uuid::Uuid::new_v4().simple().to_string();
+        let codex_home = std::env::var("RESTLESS_S17_SOLO_CODEX_HOME")
+            .unwrap_or_else(|_| format!("/company/home/.restless/exp17-solo/{}", &suffix[..12]));
+        assert!(codex_home.starts_with("/company/home/.restless/exp17-solo/"));
+        let request_id = std::env::var("RESTLESS_S17_SOLO_REQUEST_ID")
+            .unwrap_or_else(|_| format!("solo-{}", &suffix[..12]));
+        let auth = live_auth(&root, &company, "neutral-codex", &model);
+        let container = crate::runtime::container_name(&company);
+        assert!(matches!(
+            crate::runtime::status(&company).await.unwrap(),
+            crate::runtime::ContainerStatus::Running
+        ));
+
+        let mut command = tokio::process::Command::new("docker");
+        command
+            .env(&auth.gateway_token_env, &auth.gateway_token)
+            .args([
+                "exec",
+                "-u",
+                "company",
+                "-e",
+                auth.gateway_token_env.as_str(),
+                "-e",
+                &format!("CODEX_HOME={codex_home}"),
+                "-e",
+                &format!("RESTLESS_CODEX_TASK_WORKDIR={workdir}"),
+                "-e",
+                &format!("RESTLESS_CODEX_TASK_FILE={task_file}"),
+                "-e",
+                &format!("RESTLESS_CODEX_TASK_MODEL={model}"),
+                "-e",
+                &format!("RESTLESS_CODEX_TASK_EFFORT={}", auth.effort),
+                "-e",
+                &format!("RESTLESS_CODEX_TASK_BASE_URL={}", auth.gateway_url),
+                "-e",
+                &format!("RESTLESS_CODEX_TASK_REQUEST_ID={request_id}"),
+            ]);
+        if let Ok(thread_id) = std::env::var("RESTLESS_S17_SOLO_THREAD_ID") {
+            command.args(["-e", &format!("RESTLESS_CODEX_TASK_THREAD_ID={thread_id}")]);
+        }
+        if std::env::var("RESTLESS_S17_SOLO_PRESERVE_SESSION").is_ok_and(|value| value == "1") {
+            command.args(["-e", "RESTLESS_CODEX_TASK_PRESERVE_SESSION=1"]);
+        }
+        if controller == "restless-codex-longitudinal-run.mjs" {
+            let material = std::env::var("RESTLESS_S17_SOLO_MATERIAL_EVENT_FILE")
+                .expect("set longitudinal material event file");
+            let scheduled = std::env::var("RESTLESS_S17_SOLO_SCHEDULED_EVENT_FILE")
+                .expect("set longitudinal scheduled event file");
+            assert!(material.starts_with(&format!("{workdir}/")));
+            assert!(scheduled.starts_with(&format!("{workdir}/")));
+            command.args([
+                "-e",
+                &format!("RESTLESS_CODEX_MATERIAL_EVENT_FILE={material}"),
+                "-e",
+                &format!("RESTLESS_CODEX_SCHEDULED_EVENT_FILE={scheduled}"),
+            ]);
+        }
+        let controller_path = format!("/usr/local/lib/restless/{controller}");
+        let output = command
+            .args([&container, "node", &controller_path])
+            .output()
+            .await
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "neutral solo task failed with status {}; stdout={}; stderr={}",
+            output.status,
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let result: serde_json::Value =
+            serde_json::from_slice(&output.stdout).expect("solo controller emits one JSON result");
+        assert_eq!(result["terminal_status"], "completed");
+        assert_eq!(result["model_requested"], model);
+        assert_eq!(result["reasoning_effort"], auth.effort);
+        println!("{result}");
+    }
+
+    /// Opt-in counted EXP-17 R1 controller. One Codex Staff actor owns the
+    /// frozen fixture end to end. A distinct OMP lead commissions the Work,
+    /// inspects the immutable candidate, settles the native gate and prepares
+    /// its owner brief without producing artifact bytes.
+    #[tokio::test]
+    #[ignore = "requires RESTLESS_S17_BENCH_RUNTIME_COMPANY and live model gateways"]
+    async fn live_supervised_codex_executes_one_frozen_benchmark_task() {
+        dotenvy::dotenv().ok();
+        let root = crate::runtime::state_root();
+        let company = std::env::var("RESTLESS_S17_BENCH_RUNTIME_COMPANY")
+            .expect("set RESTLESS_S17_BENCH_RUNTIME_COMPANY");
+        assert!(company.ends_with("_test"));
+        let model = std::env::var("RESTLESS_S17_BENCH_MODEL")
+            .unwrap_or_else(|_| "litellm/gpt-5.6-sol".to_string());
+        let workdir = std::env::var("RESTLESS_S17_BENCH_WORKDIR").expect("set benchmark workdir");
+        let task_file =
+            std::env::var("RESTLESS_S17_BENCH_TASK_FILE").expect("set benchmark task file");
+        let output_path =
+            std::env::var("RESTLESS_S17_BENCH_OUTPUT_PATH").expect("set benchmark output path");
+        let gate_shell =
+            std::env::var("RESTLESS_S17_BENCH_VISIBLE_GATE").expect("set benchmark visible gate");
+        assert!(workdir.starts_with("/company/benchmarks/"));
+        assert!(task_file.starts_with(&format!("{workdir}/")));
+        assert!(output_path.starts_with(&format!("{workdir}/")));
+        let container = crate::runtime::container_name(&company);
+        let output = tokio::process::Command::new("docker")
+            .args(["exec", &container, "cat", &task_file])
+            .output()
+            .await
+            .unwrap();
+        assert!(output.status.success(), "read frozen task from Runtime");
+        let task = String::from_utf8(output.stdout).unwrap();
+        assert!(!task.trim().is_empty());
+        let task_digest = sha2::Sha256::digest(task.as_bytes());
+        let task_digest = format!("{task_digest:x}");
+        let database_url = std::env::var("RESTLESS_TEST_DATABASE_URL")
+            .unwrap_or_else(|_| "postgresql:///restless".to_string());
+        assert!(matches!(
+            crate::runtime::status(&company).await.unwrap(),
+            crate::runtime::ContainerStatus::Running
+        ));
+
+        let authority = crate::authority::AuthorityStore::connect(&database_url)
+            .await
+            .unwrap();
+        let probe_daemon = std::sync::Arc::new(crate::Daemon {
+            root: root.clone(),
+            capabilities: crate::capability::CapabilityIssuer::open(&root).unwrap(),
+            spend: crate::spend::SpendLedger::open(&root).unwrap(),
+            authority,
+            orgintel: crate::OrgIntelRegistry {
+                database_url: database_url.clone(),
+                root: root.clone(),
+                handles: std::sync::Mutex::new(std::collections::HashMap::new()),
+            },
+            staff: crate::staff::StaffRegistry::default(),
+            activities: crate::activity::AgentActivityStreams::default(),
+            in_flight: std::sync::Arc::new(std::sync::Mutex::new(
+                crate::schedule::WakeClaims::default(),
+            )),
+        });
+        let listener = tokio::net::TcpListener::bind("0.0.0.0:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let listener_daemon = std::sync::Arc::clone(&probe_daemon);
+        let coordination_task = tokio::spawn(async move {
+            loop {
+                let (stream, _) = listener.accept().await.unwrap();
+                let daemon = std::sync::Arc::clone(&listener_daemon);
+                tokio::spawn(async move {
+                    crate::serve(stream, &daemon, crate::ConnectionOrigin::RuntimeTcp)
+                        .await
+                        .unwrap();
+                });
+            }
+        });
+        crate::acp::set_test_coordinator_override(Some(format!("host.docker.internal:{port}")));
+
+        let org = probe_daemon.orgintel.get(&company).await.unwrap();
+        org.ensure_actor("owner", "owner", "owner", "The Owner")
+            .await
+            .unwrap();
+        org.ensure_actor("exec", "exec", "exec", "The Exec")
+            .await
+            .unwrap();
+        org.ensure_actor_with_model(
+            "experiment-direction",
+            "staff",
+            "lead",
+            "Morgan Lee",
+            Some(&model),
+        )
+        .await
+        .unwrap();
+        org.ensure_actor_with_model(
+            "experiment-maker",
+            "staff",
+            "producer",
+            "Sam Rivera",
+            Some(&model),
+        )
+        .await
+        .unwrap();
+        let team = org
+            .create_team(
+                "Benchmark outcome",
+                "Own the frozen consumer outcome and supervise one end-to-end producer",
+                "experiment-direction",
+                "exec",
+            )
+            .await
+            .unwrap();
+        org.set_actor_team(
+            "experiment-maker",
+            Some(team),
+            "experiment-direction",
+            "One producer owns the coherent artifact; lead remains supervisory",
+        )
+        .await
+        .unwrap();
+
+        let delegation_body = format!(
+            "EXP-17 frozen delegation {task_digest}: supervise one Codex worker owning the complete fixture at {workdir}; remain non-producing, preserve exact task bytes and candidate lineage, permit no external effect, and return only the immutable reviewed outcome."
+        );
+        let exec_result = run_staff(StaffBrief {
+            container: container.clone(),
+            auth: live_auth(&root, &company, "exec", &model),
+            workdir: "/company".into(),
+            company: company.clone(),
+            actor: "exec".into(),
+            responsibility: format!("benchmark-delegation:{task_digest}"),
+            attempt_id: None,
+            org: org.clone(),
+            name: "The Exec".into(),
+            task: format!(
+                "The owner supplied frozen task {task_digest}. Delegate it to experiment-direction and immediately return to availability. Do not inspect or edit the fixture, create Work, supervise Staff, or produce any artifact. Send exactly one internal message with this exact body using the native coordination CLI:\n\n{delegation_body}\n\nThen report that delegation is complete with the required conversation intent."
+            ),
+            turn_prompt: "Delegate the exact frozen outcome once now, do no production, and return.".into(),
+            role: "company executive delegator".into(),
+            spine: "Exec routes complete outcomes to accountable leads and stays available for parallel departments.".into(),
+            remaining_budget_usd: 12.0,
+            enforce_spend_budget: true,
+            conversation: true,
+            accountable_lead: false,
+            worker_runtime: crate::runtime::WorkerRuntime::Omp,
+            mcp_servers: Vec::new(),
+            observer: None,
+            cancellation: CancellationToken::new(),
+        })
+        .await
+        .unwrap();
+        assert_eq!(exec_result.0, Termination::OutcomeMet);
+        let delegated = org
+            .inbox(Some("experiment-direction"))
+            .await
+            .unwrap()
+            .into_iter()
+            .filter(|message| message.from_actor == "exec" && message.body == delegation_body)
+            .count();
+        assert_eq!(
+            delegated, 1,
+            "Exec did not delegate the frozen outcome exactly once"
+        );
+
+        let commission_body = format!(
+            "EXP-17 frozen commission {task_digest}: own the complete fixture at {workdir} end to end, preserve its public contract and source isolation, run the visible native gate, produce {output_path} as the exact ReviewTarget, and perform no external effect."
+        );
+        let lead_commission_result = run_staff(StaffBrief {
+            container: container.clone(),
+            auth: live_auth(&root, &company, "experiment-direction", &model),
+            workdir: "/company".into(),
+            company: company.clone(),
+            actor: "experiment-direction".into(),
+            responsibility: format!("team:{team}"),
+            attempt_id: None,
+            org: org.clone(),
+            name: "Morgan Lee".into(),
+            task: format!(
+                "Read the one exact Exec delegation for task {task_digest}. Frame it without decomposing the coherent artifact, then commission exactly one producer by sending this exact internal message to experiment-maker:\n\n{commission_body}\n\nDo not inspect or edit the fixture, create artifact bytes, or perform the Work yourself. Return a concise supervisory status with the required conversation intent."
+            ),
+            turn_prompt: "Commission the one end-to-end producer now and remain the non-producing supervisor.".into(),
+            role: "accountable benchmark lead".into(),
+            spine: "The lead preserves mission, scope and evidence while one Staff actor produces.".into(),
+            remaining_budget_usd: 12.0,
+            enforce_spend_budget: true,
+            conversation: true,
+            accountable_lead: true,
+            worker_runtime: crate::runtime::WorkerRuntime::Omp,
+            mcp_servers: Vec::new(),
+            observer: None,
+            cancellation: CancellationToken::new(),
+        })
+        .await
+        .unwrap();
+        assert_eq!(lead_commission_result.0, Termination::OutcomeMet);
+        let commissioned = org
+            .inbox(Some("experiment-maker"))
+            .await
+            .unwrap()
+            .into_iter()
+            .filter(|message| {
+                message.from_actor == "experiment-direction" && message.body == commission_body
+            })
+            .count();
+        assert_eq!(
+            commissioned, 1,
+            "lead did not commission exactly one end-to-end producer"
+        );
+
+        let gate_command = vec!["sh".to_string(), "-lc".to_string(), gate_shell];
+        let gates = [InitialWorkGate {
+            name: REVIEW_TARGET_LIVE_PROBE_GATE,
+            command: &gate_command,
+            stage: "cumulative",
+            timeout_seconds: 900,
+            resources: &[],
+        }];
+        let outcome = format!(
+            "Execute the exact frozen owner task below in {workdir}. The fixture is the complete scope. Preserve its API and produce {output_path} as the ReviewTarget. Do not inspect any sibling benchmark, hidden fixture, organisational transcript or path outside the fixture; do not use network access or perform external effects.\n\nTask sha256: {task_digest}\n\n{task}"
+        );
+        let work_id = org
+            .add_review_required_work_with_edges_and_gates(
+                NewWork {
+                    owner_id: "experiment-maker",
+                    title: "Produce one frozen benchmark outcome",
+                    outcome: &outcome,
+                    goal_id: None,
+                    priority: 100,
+                    expected_artifact: &output_path,
+                    workspace: WorkspaceSpec::default(),
+                    attempt_limit: Some(1),
+                },
+                &[],
+                &[],
+                &gates,
+            )
+            .await
+            .unwrap();
+        let claimed = org
+            .claim_ready_work("EXP-17 frozen R1 arm")
+            .await
+            .unwrap()
+            .expect("benchmark Work should be ready");
+        assert_eq!(claimed.work.id, work_id);
+        let attempt_id = claimed.attempt_id;
+        let (bound_task, _) =
+            bound_attempt_context(&claimed, "benchmark producer", &workdir, &company, false);
+        let start_observation = observe_workspace(&container, &workdir).await;
+        let mut worker_result = run_staff(StaffBrief {
+            container: container.clone(),
+            auth: live_auth(&root, &company, "experiment-maker", &model),
+            workdir: workdir.clone(),
+            company: company.clone(),
+            actor: "experiment-maker".into(),
+            responsibility: format!("work:{work_id}"),
+            attempt_id: Some(attempt_id),
+            org: org.clone(),
+            name: "Sam Rivera".into(),
+            task: bound_task.clone(),
+            turn_prompt: format!(
+                "Own the frozen task end to end. Run its visible gate, write {output_path}, then link that exact file as the native ReviewTarget before stopping."
+            ),
+            role: "end-to-end benchmark producer".into(),
+            spine: "Produce only the bounded frozen consumer outcome; evidence and source isolation are mandatory.".into(),
+            remaining_budget_usd: 12.0,
+            enforce_spend_budget: true,
+            conversation: false,
+            accountable_lead: false,
+            worker_runtime: crate::runtime::WorkerRuntime::Codex,
+            mcp_servers: Vec::new(),
+            observer: None,
+            cancellation: CancellationToken::new(),
+        })
+        .await
+        .unwrap();
+        let mut worker_usage_snapshots = worker_result.2.len();
+        let mut lead_usage_snapshots = lead_commission_result.2.len();
+        let mut supervisor_wakes = 2usize;
+        let mut process_replacements = 0usize;
+
+        if std::env::var("RESTLESS_S17_BENCH_LONGITUDINAL").is_ok_and(|value| value == "1") {
+            let material_path = std::env::var("RESTLESS_S17_BENCH_MATERIAL_EVENT_FILE")
+                .expect("set R1 longitudinal material event file");
+            let scheduled_path = std::env::var("RESTLESS_S17_BENCH_SCHEDULED_EVENT_FILE")
+                .expect("set R1 longitudinal scheduled event file");
+            assert!(material_path.starts_with(&format!("{workdir}/")));
+            assert!(scheduled_path.starts_with(&format!("{workdir}/")));
+            let material = container_file_text(&container, &material_path).await;
+            let scheduled = container_file_text(&container, &scheduled_path).await;
+
+            let checkpoint_lead = run_staff(StaffBrief {
+                container: container.clone(),
+                auth: live_auth(&root, &company, "experiment-direction", &model),
+                workdir: workdir.clone(),
+                company: company.clone(),
+                actor: "experiment-direction".into(),
+                responsibility: format!("team:{team}"),
+                attempt_id: None,
+                org: org.clone(),
+                name: "Morgan Lee".into(),
+                task: format!(
+                    "Supervise running Work {work_id} against the frozen owner contract. Inspect the current candidate under {workdir} read-only. Do not edit or create artifact bytes. Send one concise Work-linked message to experiment-maker stating either the exact material gap or that the current checkpoint remains aligned. Then return a concise supervisory status and the required conversation intent."
+                ),
+                turn_prompt: "Inspect the live checkpoint and give bounded Staff guidance now. Remain non-producing.".into(),
+                role: "accountable benchmark lead".into(),
+                spine: "Protect mission continuity and evidence without producing artifact bytes.".into(),
+                remaining_budget_usd: 12.0,
+                enforce_spend_budget: true,
+                conversation: true,
+                accountable_lead: true,
+                worker_runtime: crate::runtime::WorkerRuntime::Omp,
+                mcp_servers: Vec::new(),
+                observer: None,
+                cancellation: CancellationToken::new(),
+            })
+            .await
+            .unwrap();
+            assert_eq!(checkpoint_lead.0, Termination::OutcomeMet);
+            lead_usage_snapshots += checkpoint_lead.2.len();
+            supervisor_wakes += 1;
+
+            let changed = run_staff(StaffBrief {
+                container: container.clone(),
+                auth: live_auth(&root, &company, "experiment-maker", &model),
+                workdir: workdir.clone(),
+                company: company.clone(),
+                actor: "experiment-maker".into(),
+                responsibility: format!("work:{work_id}"),
+                attempt_id: Some(attempt_id),
+                org: org.clone(),
+                name: "Sam Rivera".into(),
+                task: bound_task.clone(),
+                turn_prompt: format!(
+                    "A material causal event arrived. Read exact Work feedback, then apply this signal to the same terminal artifact and validate it:\n\n{material}"
+                ),
+                role: "end-to-end benchmark producer".into(),
+                spine: "Maintain the one source-backed consumer artifact across causal events.".into(),
+                remaining_budget_usd: 12.0,
+                enforce_spend_budget: true,
+                conversation: false,
+                accountable_lead: false,
+                worker_runtime: crate::runtime::WorkerRuntime::Codex,
+                mcp_servers: Vec::new(),
+                observer: None,
+                cancellation: CancellationToken::new(),
+            })
+            .await
+            .unwrap();
+            worker_usage_snapshots += changed.2.len();
+
+            let before_duplicate =
+                container_file_digest(&container, &format!("{workdir}/DECISION_LEDGER.json")).await;
+            let duplicate = run_staff(StaffBrief {
+                container: container.clone(),
+                auth: live_auth(&root, &company, "experiment-maker", &model),
+                workdir: workdir.clone(),
+                company: company.clone(),
+                actor: "experiment-maker".into(),
+                responsibility: format!("work:{work_id}"),
+                attempt_id: Some(attempt_id),
+                org: org.clone(),
+                name: "Sam Rivera".into(),
+                task: bound_task.clone(),
+                turn_prompt: format!(
+                    "This is a distinct transport delivery of the exact same causal signal. Apply the frozen duplicate contract and validate; do not create a second semantic effect:\n\n{material}"
+                ),
+                role: "end-to-end benchmark producer".into(),
+                spine: "Maintain the one source-backed consumer artifact across causal events.".into(),
+                remaining_budget_usd: 12.0,
+                enforce_spend_budget: true,
+                conversation: false,
+                accountable_lead: false,
+                worker_runtime: crate::runtime::WorkerRuntime::Codex,
+                mcp_servers: Vec::new(),
+                observer: None,
+                cancellation: CancellationToken::new(),
+            })
+            .await
+            .unwrap();
+            worker_usage_snapshots += duplicate.2.len();
+            assert_eq!(
+                before_duplicate,
+                container_file_digest(&container, &format!("{workdir}/DECISION_LEDGER.json")).await,
+                "causal duplicate changed R1 terminal artifact bytes"
+            );
+
+            let cancellation = CancellationToken::new();
+            let checkpoint_path = format!("{workdir}/PROCESS_CHECKPOINT.json");
+            let marker_path = format!("{workdir}/.exp17-long-r1.pid");
+            let interrupted_future = run_staff(StaffBrief {
+                container: container.clone(),
+                auth: live_auth(&root, &company, "experiment-maker", &model),
+                workdir: workdir.clone(),
+                company: company.clone(),
+                actor: "experiment-maker".into(),
+                responsibility: format!("work:{work_id}"),
+                attempt_id: Some(attempt_id),
+                org: org.clone(),
+                name: "Sam Rivera".into(),
+                task: bound_task.clone(),
+                turn_prompt: format!(
+                    "Re-read and validate the current ledger. Write {checkpoint_path} with its current sha256 and boolean ready_for_replacement true. Then run exactly this foreground command and wait: sh -lc 'printf \"%s\\n\" \"$$\" > .exp17-long-r1.pid; exec sleep 600'. Do no other work afterward."
+                ),
+                role: "end-to-end benchmark producer".into(),
+                spine: "Maintain the one source-backed consumer artifact across process replacement.".into(),
+                remaining_budget_usd: 12.0,
+                enforce_spend_budget: true,
+                conversation: false,
+                accountable_lead: false,
+                worker_runtime: crate::runtime::WorkerRuntime::Codex,
+                mcp_servers: Vec::new(),
+                observer: None,
+                cancellation: cancellation.clone(),
+            });
+            tokio::pin!(interrupted_future);
+            let monitor = async {
+                loop {
+                    let observed = tokio::process::Command::new("docker")
+                        .args([
+                            "exec",
+                            &container,
+                            "sh",
+                            "-lc",
+                            &format!("test -s {checkpoint_path} && test -s {marker_path}"),
+                        ])
+                        .output()
+                        .await
+                        .unwrap();
+                    if observed.status.success() {
+                        cancellation.cancel();
+                        return;
+                    }
+                    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+                }
+            };
+            tokio::pin!(monitor);
+            let interrupted = tokio::select! {
+                result = &mut interrupted_future => panic!("R1 productive turn ended before frozen kill checkpoint: {result:?}"),
+                () = &mut monitor => interrupted_future.await.unwrap(),
+            };
+            assert_eq!(interrupted.0, Termination::Blocked);
+            worker_usage_snapshots += interrupted.2.len();
+            process_replacements = 1;
+            let killed_pid = container_file_text(&container, &marker_path)
+                .await
+                .trim()
+                .parse::<u32>()
+                .expect("R1 long-process marker contains a pid");
+            let mut reaped = false;
+            for _ in 0..100 {
+                let observed = tokio::process::Command::new("docker")
+                    .args([
+                        "exec",
+                        &container,
+                        "sh",
+                        "-lc",
+                        &format!("test ! -d /proc/{killed_pid}"),
+                    ])
+                    .status()
+                    .await
+                    .unwrap();
+                if observed.success() {
+                    reaped = true;
+                    break;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+            }
+            assert!(reaped, "R1 productive command survived exact cancellation");
+
+            let final_result = run_staff(StaffBrief {
+                container: container.clone(),
+                auth: live_auth(&root, &company, "experiment-maker", &model),
+                workdir: workdir.clone(),
+                company: company.clone(),
+                actor: "experiment-maker".into(),
+                responsibility: format!("work:{work_id}"),
+                attempt_id: Some(attempt_id),
+                org: org.clone(),
+                name: "Sam Rivera".into(),
+                task: bound_task.clone(),
+                turn_prompt: format!(
+                    "Resume after the exact productive-process replacement. Recover from the durable thread and task-local checkpoint, apply this scheduled causal signal to the same ledger and RESULT.md, run the visible evaluator, and preserve the existing ReviewTarget link:\n\n{scheduled}"
+                ),
+                role: "end-to-end benchmark producer".into(),
+                spine: "Maintain the one source-backed consumer artifact across causal events.".into(),
+                remaining_budget_usd: 12.0,
+                enforce_spend_budget: true,
+                conversation: false,
+                accountable_lead: false,
+                worker_runtime: crate::runtime::WorkerRuntime::Codex,
+                mcp_servers: Vec::new(),
+                observer: None,
+                cancellation: CancellationToken::new(),
+            })
+            .await
+            .unwrap();
+            worker_usage_snapshots += final_result.2.len();
+            worker_result = final_result;
+        }
+        record_staff_outcome(
+            &org,
+            StaffAttemptContext {
+                container: &container,
+                actor: "experiment-maker",
+                name: "Sam Rivera",
+                work_id,
+                attempt_id,
+                workdir: &workdir,
+                start_observation,
+            },
+            Ok((worker_result.0, worker_result.1.clone())),
+        )
+        .await;
+        let attempt = org
+            .list_work_attempts(Some(work_id))
+            .await
+            .unwrap()
+            .into_iter()
+            .find(|attempt| attempt.id == attempt_id)
+            .unwrap();
+        assert_eq!(attempt.state, WorkAttemptState::Produced);
+        let handoff = org
+            .list_owner_handoffs()
+            .await
+            .unwrap()
+            .into_iter()
+            .find(|handoff| handoff.work_id == work_id)
+            .expect("produced candidate requires supervisory judgement");
+        let before_lead = container_file_digest(&container, &output_path).await;
+        let lead_task = format!(
+            "Inspect Work {work_id}, handoff {}, the exact candidate under {workdir}, and ReviewTarget {output_path} with read-only tools. Run the declared visible gate. Do not edit, create or rewrite artifact bytes. Resolve with concrete feedback on failure. On pass, prepare the native current owner brief and escalate the exact handoff to Exec. End with the required Restless conversation intent.",
+            handoff.id
+        );
+        let lead_result = run_staff(StaffBrief {
+            container: container.clone(),
+            auth: live_auth(&root, &company, "experiment-direction", &model),
+            workdir: workdir.clone(),
+            company: company.clone(),
+            actor: "experiment-direction".into(),
+            responsibility: format!("team:{team}"),
+            attempt_id: None,
+            org: org.clone(),
+            name: "Morgan Lee".into(),
+            task: lead_task,
+            turn_prompt: "Settle the pending frozen-candidate judgement now. Remain a non-producing supervisor.".into(),
+            role: "accountable benchmark lead".into(),
+            spine: "Protect the consumer contract, source isolation and candidate lineage without producing.".into(),
+            remaining_budget_usd: 12.0,
+            enforce_spend_budget: true,
+            conversation: true,
+            accountable_lead: true,
+            worker_runtime: crate::runtime::WorkerRuntime::Omp,
+            mcp_servers: Vec::new(),
+            observer: None,
+            cancellation: CancellationToken::new(),
+        })
+        .await
+        .unwrap();
+        lead_usage_snapshots += lead_result.2.len();
+        let after_lead = container_file_digest(&container, &output_path).await;
+        assert_eq!(before_lead, after_lead, "lead changed producer artifact");
+        let reviewed = org
+            .list_owner_handoffs()
+            .await
+            .unwrap()
+            .into_iter()
+            .find(|candidate| candidate.id == handoff.id)
+            .unwrap();
+        assert_eq!(reviewed.assigned_to.as_deref(), Some("exec"));
+        assert!(reviewed.owner_brief_is_current(1));
+        assert!(org
+            .list_artifact_refs(Some(work_id))
+            .await
+            .unwrap()
+            .iter()
+            .all(|artifact| artifact.created_by != "experiment-direction"));
+
+        println!(
+            "{}",
+            serde_json::json!({
+                "schema": "restless.exp17.r1-run.v1",
+                "company": company,
+                "model": model,
+                "reasoning_effort": "high",
+                "task_sha256": task_digest,
+                "work_id": work_id,
+                "attempt_id": attempt_id,
+                "attempt_state": attempt.state,
+                "worker_terminal": format!("{:?}", worker_result.0),
+                "lead_terminal": format!("{:?}", lead_result.0),
+                "worker_usage_snapshots": worker_usage_snapshots,
+                "exec_usage_snapshots": exec_result.2.len(),
+                "exec_delegations": 1,
+                "lead_usage_snapshots": lead_usage_snapshots,
+                "lead_commissions": 1,
+                "review_target": output_path,
+                "review_target_sha256": after_lead,
+                "lead_changed_artifact": false,
+                "supervisor_wakes": supervisor_wakes,
+                "process_replacements": process_replacements,
+                "external_effects": 0
+            })
+        );
+
+        if std::env::var("RESTLESS_S17_BENCH_LONGITUDINAL").is_ok_and(|value| value == "1") {
+            let marker_path = format!("{workdir}/.exp17-long-r1.pid");
+            let cleanup = tokio::process::Command::new("docker")
+                .args(["exec", &container, "rm", "-f", &marker_path])
+                .output()
+                .await
+                .unwrap();
+            assert!(
+                cleanup.status.success(),
+                "remove longitudinal process marker: {}",
+                String::from_utf8_lossy(&cleanup.stderr)
+            );
+        }
+
+        crate::acp::set_test_coordinator_override(None);
+        coordination_task.abort();
+        if !std::env::var("RESTLESS_S17_BENCH_PRESERVE_SCHEMA").is_ok_and(|value| value == "1") {
+            org.drop_schema().await.unwrap();
+        }
     }
 }

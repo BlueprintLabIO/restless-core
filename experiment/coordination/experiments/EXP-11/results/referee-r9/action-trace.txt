@@ -1,0 +1,36 @@
+Blind native action trace. Before every input: raised and focused exact CLIENT window 16777219. Before every capture: raised/focused 16777219, checked geometry (2,43 1278x720), raised/focused again, captured that region, then read the exact PNG.
+
+000 initial capture/read: CLIENT visible. HUD: ON FOOT; DELIVERY IN PROGRESS; CRATE NEARBY; ROUTE 0/40 m. Objective: approach crate; E picks up.
+001 W 1.5s; capture/read. No visible movement.
+002 W 2s; capture/read. No visible movement.
+003 click viewport center, W 2s; capture/read. No visible movement; inferred collision/close placement.
+004 E; capture/read. Direct HUD: CRATE CARRIED BY YOU; objective carry crate to yellow destination behind truck.
+005 Q; capture/read. Direct HUD: CRATE NEARBY; objective mistake occurred as deliberate safe drop.
+006 E; capture/read. Direct HUD: CRATE CARRIED BY YOU; mistake recovered.
+007 mouse relative +500x; capture/read. Looked right to interior wall.
+008 mouse relative +500x; capture/read. Rear ramp/opening visible.
+009 W 2s; capture/read. Exited truck ramp while carrying crate.
+010 mouse relative +400x; capture/read. Searched visually for destination.
+011 mouse relative +400x; capture/read. Truck at right; no destination prompt.
+012 W 3s; capture/read. Walked along boundary away from truck.
+013 W 3s; capture/read. Continued; no prompt.
+014 mouse relative +1000x; capture/read. Turned back; truck and distant yellow posts became directly visible.
+015 mouse relative -230x; capture/read. Aligned crosshair toward yellow posts.
+016 W 5s; capture/read. Carried crate closer to yellow bay.
+017 W 4s; capture/read. Yellow bay much closer.
+018 W 2s; capture/read. At bay edge, no unload prompt.
+019 mouse relative +140x, W 2s; capture/read. Entered vicinity; no prompt.
+020 W 1.5s; capture/read. Stepped near bay; no prompt.
+021 A 1.5s; capture/read. Lateral search; outside left.
+022 D 2.5s; capture/read. Crossed outside right.
+023 A 1s; capture/read. Adjusted toward bay.
+024 E; capture/read. No visible state change; not at prompted trigger.
+025 W 4s; capture/read. Traversed past bay laterally; no prompt.
+026 mouse relative +1000x; capture/read. Reassessed: raised yellow platform and posts visibly identified.
+027 mouse relative +260x, W 3s; capture/read. Moved while orienting; truck ahead and bay at right.
+028 mouse relative +320x, W 2s; capture/read. Overshot toward boundary.
+029 mouse relative +1000x; capture/read. Turned back; raised yellow platform directly visible.
+030 mouse relative +140x, W 2s; capture/read. Direct HUD changed to `OBJECTIVE: DESTINATION REACHED` and `E UNLOAD CRATE NOW`.
+031 E; capture/read. Direct HUD changed to `DELIVERY DELIVERED`, `CRATE free`, `OBJECTIVE: DELIVERY COMPLETE`, `Crate accepted in the yellow destination zone`; yellow zone changed green.
+
+Stopped on the game's explicit completion state, as assigned.

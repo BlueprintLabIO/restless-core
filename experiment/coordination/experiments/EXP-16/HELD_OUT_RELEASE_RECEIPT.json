@@ -1,0 +1,23 @@
+{
+  "schema": "restless.exp16.held-out-release-receipt.v1",
+  "released_at": "2026-08-30T06:30:00Z",
+  "released_after": {
+    "stage": "S3-visible-policy-freeze",
+    "candidate_commit": "9251888f7af0582dbf9f998dde12740c58d4e1e8",
+    "candidate_tree": "b1d43f143484c5f77b6776fb2917cf3dc7a8db75",
+    "policy_version": "s3-visible-recovery-v1"
+  },
+  "scope": [
+    "delivery_held_out",
+    "recovery_held_out"
+  ],
+  "withheld": [
+    "robber",
+    "vampire"
+  ],
+  "release_sha256": "117d9874812c6c1256ff607a37e3d6277908820c10011c4da2c670718c0bf237",
+  "runtime_path": "/company/EXP16_HELD_OUT_RELEASE.json",
+  "runtime_mode": "0444",
+  "controller_message_id": 59,
+  "seed_values_retained_in_repository": false
+}

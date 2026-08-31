@@ -1,0 +1,100 @@
+[
+  {
+    "actor_id": "daemon",
+    "kind": "system",
+    "role": "system-sender",
+    "display": "The daemon",
+    "model": null,
+    "team_id": null,
+    "retired_at": null,
+    "retired_by": null,
+    "retirement_reason": "",
+    "work_count": 0,
+    "completed_work_count": 0,
+    "recent_work": [],
+    "spent_usd": 0.0,
+    "session_running": false,
+    "model_cooldown": null
+  },
+  {
+    "actor_id": "owner",
+    "kind": "owner",
+    "role": "owner",
+    "display": "The Owner",
+    "model": null,
+    "team_id": null,
+    "retired_at": null,
+    "retired_by": null,
+    "retirement_reason": "",
+    "work_count": 0,
+    "completed_work_count": 0,
+    "recent_work": [],
+    "spent_usd": 0.0,
+    "session_running": false,
+    "model_cooldown": null
+  },
+  {
+    "actor_id": "exec",
+    "kind": "exec",
+    "role": "exec",
+    "display": "The Exec",
+    "model": "litellm/gpt-5.6-sol",
+    "team_id": null,
+    "retired_at": null,
+    "retired_by": null,
+    "retirement_reason": "",
+    "work_count": 0,
+    "completed_work_count": 0,
+    "recent_work": [],
+    "spent_usd": 0.4918,
+    "session_running": false,
+    "model_cooldown": null
+  },
+  {
+    "actor_id": "playability-referee",
+    "kind": "staff",
+    "role": "non-producing Referee lead",
+    "display": "Mara Voss",
+    "model": "litellm/gpt-5.6-sol",
+    "team_id": "d7487dba-f6af-4031-b5c0-115af0d1a25a",
+    "retired_at": null,
+    "retired_by": null,
+    "retirement_reason": "",
+    "work_count": 0,
+    "completed_work_count": 0,
+    "recent_work": [],
+    "spent_usd": 0.74,
+    "session_running": false,
+    "model_cooldown": null
+  },
+  {
+    "actor_id": "gameplay-evaluator",
+    "kind": "staff",
+    "role": "blind native gameplay evaluator",
+    "display": "Ilan Rook",
+    "model": "litellm/gpt-5.6-sol",
+    "team_id": "d7487dba-f6af-4031-b5c0-115af0d1a25a",
+    "retired_at": null,
+    "retired_by": null,
+    "retirement_reason": "",
+    "work_count": 2,
+    "completed_work_count": 1,
+    "recent_work": [
+      {
+        "id": "fed16be1-81c4-4503-85ac-3c705339a187",
+        "title": "Judge the frozen Swift Arrival journey through blind native play",
+        "status": "abandoned",
+        "revision": 1
+      },
+      {
+        "id": "fac4a5e3-30ad-478d-948d-4e1056d9861b",
+        "title": "Judge the frozen Swift Arrival journey through blind native play",
+        "status": "completed",
+        "revision": 1
+      }
+    ],
+    "spent_usd": 3.3362,
+    "session_running": false,
+    "model_cooldown": null
+  }
+]

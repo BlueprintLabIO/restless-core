@@ -1,0 +1,35 @@
+BLIND NATIVE GAMEPLAY VERDICT — PASS WITH USABILITY FRICTION
+
+Candidate under evaluation
+Frozen Swift Arrival candidate identified by assignment as commit 09fe09d30c65b811c0904508525a6ab8af02145c. I did not inspect Git or candidate internals, so I did not independently verify that commit identity; I evaluated only the prepared path provided by the assignment.
+
+Directly observed result
+The exact routed CLIENT PNG 036-terminal.png visibly states:
+- ON FOOT
+- DELIVERY DELIVERED
+- CRATE free
+- ROUTE 40 / 40 m
+- OBJECTIVE: DELIVERY COMPLETE
+- Crate accepted in the yellow destination zone
+
+The same native session visibly progressed through on-foot crate approach, driving to 40/40 m, leaving the seat, obtaining CRATE CARRIED BY YOU through the public Q safe recover control, reaching the destination, and unloading with E. A brief wrong-steer input was corrected without loss of progress. The public objective was therefore completed through native keyboard/mouse input and direct pixel observation.
+
+Material gameplay observation
+E interactions near the crate repeatedly selected the truck driver's seat rather than picking up the visibly centered nearby crate (see 025 and 031). This caused confusing objective regressions to DRIVE TO THE DESTINATION even after ROUTE 40/40 m. The public Q safe recover control ultimately changed the visible state from CRATE free to CRATE CARRIED BY YOU and made completion possible. This is a significant usability/friction observation, not a terminal blocker in this run.
+
+Verdict basis
+PASS means the assigned objective was naturally completable in the prepared native multiplayer process, including a recoverable mistake, and completion was directly confirmed by CLIENT pixels. It does not mean founder acceptance, production readiness, absence of defects, fun, accessibility quality, network resilience, or broad platform compatibility.
+
+Gaps, skipped checks, assumptions, and unverified items
+- I did not inspect source, Git history, tests, logs, producer messages, known defects, prior reports, or candidate internals, as required.
+- I did not independently verify the candidate commit hash because doing so would require Git inspection forbidden by the blind protocol; I assumed the prepared path matched the frozen assignment.
+- I evaluated one native run, one client, one host, one route, and one successful completion. I did not test replay, restart, disconnect/reconnect, multiple clients, performance, audio, settings, alternate routes, long-duration stability, keyboard layouts, controllers, or accessibility modes.
+- I did not verify semantic implementation details behind the status text. The verdict is grounded only in rendered pixels and the native inputs I issued.
+- Q while driving produced no visible change. Its later on-foot use visibly recovered the crate. I did not determine whether this behavior was intended.
+- The first relative mouse move before clicking the window produced no visible turn; after an ordinary center click, relative mouse look worked. There was no command failure and no setup-repair allowance was consumed.
+- No claim is made that every possible ordinary mistake is recoverable; only the observed steering correction and the observed Q crate recovery were exercised.
+
+Evidence inventory
+- action-trace.txt: complete ordered routing, geometry, input, capture, and observation trace.
+- 001-initial-client.png through 036-terminal.png: exact fresh CLIENT captures read in the active Sol session.
+- sha256sums.txt: checksums for PNG evidence and text reports.
