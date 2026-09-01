@@ -2017,6 +2017,21 @@ async fn revise_company_charter(
             )
         }
     };
+    if matches!(&state.entry, EntryMode::Network(_)) {
+        if let Err(error) = state
+            .runtime_bridges
+            .write_file(&company, "/company/mission.md", config.mission.as_bytes())
+            .await
+        {
+            return api_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "charter_projection",
+                format!(
+                    "the charter was saved but its hosted Runtime projection failed: {error:#}"
+                ),
+            );
+        }
+    }
     Json(CharterRevisionResponse {
         company: company_projection::project(&state.daemon, &config, false).await,
         revision,
