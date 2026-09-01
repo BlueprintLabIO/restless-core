@@ -81,6 +81,15 @@ cat <<JSON
     "identity_assertion": $assertion_contract,
     "schema": $schema
   },
+  "identity_handoff": {
+    "algorithm": "Ed25519",
+    "jws_alg": "EdDSA",
+    "jws_typ": "JWT",
+    "audience": "restless-core-account-plane",
+    "jwks_path": "/.well-known/jwks.json",
+    "exchange": "GET /entry?assertion=<compact-jws> -> 303 /",
+    "replay": "atomic durable PostgreSQL jti consumption before host-only session"
+  },
   "health": {
     "path": "/health",
     "reports": ["core_version", "source_revision", "api_contract_version", "assertion_contract_version", "schema_version"]

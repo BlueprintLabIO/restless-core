@@ -162,6 +162,22 @@ impl AuthorityStore {
         .execute(&pool)
         .await
         .context("create model cooldowns")?;
+        sqlx::query(
+            "CREATE TABLE IF NOT EXISTS restless_authority.entry_assertions (\
+               jti UUID PRIMARY KEY, \
+               issuer TEXT NOT NULL, \
+               owner_id UUID NOT NULL, \
+               plane_id UUID NOT NULL, \
+               company_id UUID NOT NULL, \
+               cell_id UUID NOT NULL, \
+               membership_id TEXT NOT NULL, \
+               expires_at TIMESTAMPTZ NOT NULL, \
+               consumed_at TIMESTAMPTZ NOT NULL DEFAULT now()\
+             )",
+        )
+        .execute(&pool)
+        .await
+        .context("create durable entry assertion replay store")?;
         crate::legal::ensure_schema(&pool).await?;
         crate::finance::ensure_schema(&pool).await?;
         crate::airwallex::ensure_schema(&pool).await?;

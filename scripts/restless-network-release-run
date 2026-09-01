@@ -8,7 +8,7 @@ set -euo pipefail
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$root"
 
-for command in cargo curl docker git jq npm; do
+for command in cargo curl docker git jq npm uuidgen; do
   command -v "$command" >/dev/null || { echo "missing required command: $command" >&2; exit 1; }
 done
 if [[ -n "$(git status --porcelain)" ]]; then
@@ -19,7 +19,10 @@ fi
 revision="$(git rev-parse HEAD)"
 version="$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)"
 run_id="${RESTLESS_NETWORK_TEST_RUN_ID:-$$}"
-company="core27_network_${run_id}_test"
+owner_id="$(uuidgen | tr '[:upper:]' '[:lower:]')"
+plane_id="$(uuidgen | tr '[:upper:]' '[:lower:]')"
+company="$(uuidgen | tr '[:upper:]' '[:lower:]')"
+cell_id="$(uuidgen | tr '[:upper:]' '[:lower:]')"
 registry_port="${RESTLESS_NETWORK_TEST_REGISTRY_PORT:-15000}"
 postgres_port="${RESTLESS_NETWORK_TEST_POSTGRES_PORT:-15432}"
 plane_port="${RESTLESS_NETWORK_TEST_PLANE_PORT:-17888}"
@@ -79,7 +82,7 @@ docker build -f infra/company-image/Dockerfile \
   --build-arg RESTLESS_SOURCE_REVISION="$revision" \
   --build-arg RESTLESS_API_CONTRACT_VERSION=1 \
   --build-arg RESTLESS_ASSERTION_CONTRACT_VERSION=1 \
-  --build-arg RESTLESS_SCHEMA_VERSION=21 \
+  --build-arg RESTLESS_SCHEMA_VERSION=22 \
   -t "$runtime_tag" .
 docker push "$plane_tag" >/dev/null
 docker push "$runtime_tag" >/dev/null
@@ -91,12 +94,16 @@ export RESTLESS_HOME="$home"
 export RESTLESS_PORT_OFFSET="$port_offset"
 export RESTLESS_OWNER_ADDR="0.0.0.0:${plane_port}"
 export RESTLESS_ENTRY_MODE=network
-export RESTLESS_ENTRY_ISSUER=core27-test-issuer
-export RESTLESS_ENTRY_AUDIENCE=core27-test-plane
-export RESTLESS_ENTRY_PLANE=core27-test-plane
+export RESTLESS_ENTRY_ISSUER="http://localhost:${plane_port}"
+export RESTLESS_ENTRY_OWNER_ID="$owner_id"
+export RESTLESS_ENTRY_PLANE_ID="$plane_id"
 export RESTLESS_ENTRY_HOST=localhost
-export RESTLESS_ENTRY_KEYS=v1:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
-export RESTLESS_ENTRY_ACTIVE_KID=v1
+export RESTLESS_ENTRY_ALLOW_INSECURE_HTTP=1
+export RESTLESS_ENTRY_TEST_SIGNING_KEY_ID=fleet-core27-test
+export RESTLESS_ENTRY_TEST_SIGNING_KEY_B64=BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc=
+export RESTLESS_ENTRY_TEST_COMPANY_ID="$company"
+export RESTLESS_ENTRY_TEST_CELL_ID="$cell_id"
+export RESTLESS_ENTRY_JWKS_JSON="$(target/release/restlessd test-entry-jwks)"
 export RESTLESS_COMPANY_IMAGE="$runtime_ref"
 target/release/restlessd >"$scratch/plane.log" 2>&1 &
 daemon_pid="$!"
@@ -109,10 +116,9 @@ jq -e --arg revision "$revision" '.release.source_revision == $revision' "$scrat
 
 target/release/restlessd mint-entry-assertion >"$scratch/assertion.txt"
 chmod 0600 "$scratch/assertion.txt"
-jq -n --arg assertion "$(tail -1 "$scratch/assertion.txt")" '{assertion:$assertion}' >"$scratch/entry.json"
-curl -fsS -c "$scratch/cookies.txt" -H 'Content-Type: application/json' \
-  -H "Origin: http://localhost:${plane_port}" \
-  --data-binary "@$scratch/entry.json" "http://localhost:${plane_port}/entry" >/dev/null
+curl -fsS -c "$scratch/cookies.txt" --get \
+  --data-urlencode "assertion=$(tail -1 "$scratch/assertion.txt")" \
+  "http://localhost:${plane_port}/entry" >/dev/null
 session_token="$(awk '$6 == "restless_session" { print $7; exit }' "$scratch/cookies.txt")"
 [[ -n "$session_token" ]] || { echo "entry exchange did not establish a browser session" >&2; exit 1; }
 # Production sessions are Secure. curl correctly refuses to replay that cookie

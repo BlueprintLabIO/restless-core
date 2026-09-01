@@ -11,21 +11,26 @@ a supported network entry point with a real account and session boundary.
 **Work:** Add one additional entry mode. The plane runs in **local mode** (today's behaviour, the
 default, unchanged) or **network mode**, in which access is decided by verifying a signed assertion.
 
-Network mode requires explicit configuration naming issuer, audience and verification key. Absent
-complete configuration the plane refuses to start in network mode, naming the missing field — it never
-silently downgrades to trusting the network. `ensure_loopback` becomes conditional on entry mode; the
-forwarding-header refusal stays in force for local mode.
+Network mode requires explicit Fleet issuer, owner UUID, plane UUID and public host configuration.
+It fetches the issuer's same-origin HTTPS JWKS (or accepts the exact fetched JSON as deployment
+configuration) and admits only Fleet's V1 `EdDSA`/Ed25519 claims shape. Absent complete configuration
+the plane refuses to start in network mode — it never silently downgrades to trusting the network.
+`ensure_loopback` becomes conditional on entry mode; the forwarding-header refusal stays in force for
+local mode.
 
-A verified assertion is consumed once and exchanged for the plane's own revocable session. Per ADR
+A verified UUID `jti` is atomically consumed in durable plane PostgreSQL and exchanged for the plane's
+own host-only revocable session. The browser contract is `GET /entry?assertion=…`, then `303 /`. Per ADR
 0001's standing invariant and ADR 0007, both modes resolve to the same stable owner principal and run
 the same application and Authority operations. Authentication proves who may assume the principal; it
 grants no Authority capability and does not become a second authorisation system.
 
 The Sprint 05 owner bearer token is not reintroduced in any form, including as a development shortcut.
 
-**Evidence:** A plane started in network mode with a valid assertion serves the cockpit, and the audit
+**Evidence:** A plane started in network mode with a real Fleet-shaped assertion serves the cockpit,
+and the audit
 attribution records the same stable owner principal that local mode produces — compared against a
-local-mode run, not asserted. A plane started in network mode with an incomplete configuration fails
+local-mode run, not asserted. Two concurrent exchanges have exactly one database winner, and a replay
+after closing and reopening the database store is refused. A plane started in network mode with an incomplete configuration fails
 at startup naming the missing field. A plane started with no network configuration binds loopback and
 behaves exactly as before, with its existing tests unchanged and passing.
 

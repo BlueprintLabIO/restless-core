@@ -828,7 +828,7 @@ mod tests {
         assert!(lead.contains("at least one Staff worker"));
         assert!(lead.contains("truthful attribution"));
         assert!(lead.contains("terminal Staff callback is a decision boundary"));
-        assert!(lead.contains("Never leave an incomplete charter quiescent"));
+        assert!(lead.contains("Never leave an incomplete or consequentially substandard charter"));
         assert!(!lead.contains("You are a SPECIALIST"));
 
         let specialist = actor_posture(false);

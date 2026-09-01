@@ -7,12 +7,13 @@ with unusual force: a check that happens to pass is not evidence. Verification t
 for every malformed input looks identical, from the outside, to verification that returns "invalid"
 because a library call silently failed. Both make the tests green.
 
-**Work:** An adversarial suite covering, each as a distinct case with its own refusal reason: expired;
-not-yet-valid; wrong audience; unknown issuer; unknown key version; unsupported contract version;
-wrong plane route; tampered signature; a valid assertion replayed after consumption; and an assertion
-scoped to another company (T2's case, exercised here as an attack rather than a unit).
+**Work:** An adversarial suite covering, each as a distinct case with its own refusal reason: malformed
+wire shape or wrong algorithm; expired/overlong lifetime; future issue time; wrong audience; unknown
+issuer; unknown key version; unsupported contract version; wrong owner route; wrong plane route;
+invalid membership role; tampered signature; a valid assertion replayed after durable consumption;
+and an assertion scoped to another company (T2's case, exercised here as an attack rather than a unit).
 
-Ten inputs, ten distinct recorded refusals. A single catch-all rejection fails this ticket even when
+Every enumerated refusal has a distinct recorded code. A single catch-all rejection fails this ticket even when
 every input is refused, because it cannot distinguish a working verifier from a broken one.
 
 Per Core's testing convention this is a security boundary and earns adversarial tests. It is not a

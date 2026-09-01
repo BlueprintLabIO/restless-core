@@ -38,11 +38,11 @@ default.
 
 ### What the plane verifies
 
-An assertion is refused unless all hold: known issuer and key version; audience matching this exact
-plane; unexpired and not-before satisfied; a supported assertion contract version; a route naming this
-owner and plane; and an unused single-use identity. The assertion carries stable user identity, owner
-and plane identity, company and cell scope, active membership role, mapped company actor, issue and
-expiry times, audience, key version and correlation identity.
+An assertion is refused unless all hold: `EdDSA`/Ed25519 signature under a `kid` published in Fleet's
+same-origin JWKS; exact Core account-plane audience; short expiry and a non-future issue time; a
+supported assertion contract version; a route naming this owner and plane; a valid company/cell
+membership; and an unused single-use identity. The wire claims are Fleet's published V1 schema. Core
+does not retain a private shared assertion secret or a parallel hosted claims shape.
 
 ### What the plane refuses to treat as proof
 
@@ -62,9 +62,12 @@ cause.
 
 ### Consumed once
 
-An assertion is consumed at entry, after which the plane establishes its own revocable session. A
-replayed assertion must not create a second session. Removal of membership ends new entry promptly;
-existing sessions end by ordinary session revocation, not by hoping the assertion expires.
+The browser exchanges the compact assertion at `GET /entry?assertion=…`. The plane verifies it, then
+atomically inserts its UUID `jti` into durable plane PostgreSQL before establishing its own revocable,
+host-only session. Success returns `303 /`, removing the assertion from subsequent navigation. Two
+racing exchanges, a replay after process restart, or a later replay cannot create a second session.
+Removal of membership ends new entry promptly; existing sessions end by ordinary session revocation,
+not by hoping the assertion expires.
 
 ### The deleted token does not return
 
@@ -75,10 +78,10 @@ that ADR 0001 removed is not reintroduced as a fallback, a development shortcut 
 
 | Risk | Disposition | Reason |
 |---|---|---|
-| A stolen assertion is replayed to gain entry | **Guarded** | Single-use identity, short expiry and audience binding. Promote to invariant only if a real replay bypasses these. |
+| A stolen assertion is replayed to gain entry | **Invariant** | PostgreSQL primary-key consumption gives racing requests one winner and survives process restart; short expiry and audience binding narrow exposure. |
 | An assertion issued for one company is used to read another on the same plane | **Invariant** | Scope is re-derived from the verified assertion per request. This is the boundary multiplayer rests on; it may not be weakened for convenience. |
 | Cloud's issuer key is compromised | **Accepted for V1** | Key version is carried in the assertion and rotation is supported. A compromised issuer can mint entry to that owner's plane; it still cannot mint an Authority capability or reach another owner's plane. |
-| Network mode is enabled on a plane whose deployment did not intend it | **Guarded** | Network mode requires explicit configuration naming issuer, audience and key; absent that configuration the plane stays loopback-only and refuses to start in network mode. |
+| Network mode is enabled on a plane whose deployment did not intend it | **Guarded** | Network mode requires explicit issuer, owner, plane and host configuration plus a valid same-origin HTTPS JWKS; incomplete configuration refuses startup. |
 | Local and network entry drift into two authority implementations | **Invariant** | Carried forward unchanged from ADR 0001. |
 | An operator tunnels a loopback plane instead of enabling network mode | **Accepted** | Technically indistinguishable at the socket, as ADR 0001 recorded. Unsupported; the port must not be published. Enabling network mode is the supported path and is not harder. |
 | Assertion verification expands into a general permission system | **Accepted** | Roles stay the three Cloud membership roles. Organisational role and Authority capability remain separately owned by OrgIntel and Authority. |

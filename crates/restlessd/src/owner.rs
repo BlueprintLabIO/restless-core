@@ -708,7 +708,7 @@ impl OwnerConfig {
         self.entry.network().is_some()
     }
 
-    pub(crate) fn from_env() -> Result<Self> {
+    pub(crate) async fn from_env() -> Result<Self> {
         let default_address = format!("127.0.0.1:{}", crate::port_with_offset(7788)?);
         let address = std::env::var("RESTLESS_OWNER_ADDR")
             .unwrap_or(default_address)
@@ -721,7 +721,7 @@ impl OwnerConfig {
             .unwrap_or(default_review_address)
             .parse::<SocketAddr>()
             .context("parse RESTLESS_REVIEW_ADDR")?;
-        let entry = EntryMode::from_env()?;
+        let entry = EntryMode::from_env().await?;
         // ADR 0007: the loopback bail is conditional on entry mode, never
         // removed. In local mode the network *is* the boundary, so binding
         // beyond loopback would publish an unauthenticated API.
@@ -849,7 +849,7 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
         // is running without holding a session, and the answer carries release
         // identity only — never company, owner or configuration detail.
         .route("/health", get(release_health))
-        .route("/entry", post(consume_entry_assertion))
+        .route("/entry", get(consume_entry_assertion))
         .route("/entry/logout", post(end_entry_session))
         .route("/desktop/{company}", get(open_desktop))
         .route("/desktop/{company}/observe", get(open_observed_desktop))
@@ -1074,12 +1074,11 @@ struct EntryRequest {
 
 /// The door. Consumes one single-use assertion and exchanges it for a session.
 ///
-/// This is a POST because the assertion is a credential: a query string would
-/// put it in browser history, referrers and every access log between here and
-/// the client. Restless Cloud redirects with an auto-submitting form.
+/// Fleet redirects to this exact route. On success the assertion is removed
+/// immediately with a same-origin 303 and replaced by a host-only cookie.
 async fn consume_entry_assertion(
     State(state): State<OwnerState>,
-    Json(request): Json<EntryRequest>,
+    Query(request): Query<EntryRequest>,
 ) -> Response<Body> {
     let Some(network) = state.entry.network().cloned() else {
         return api_error(
@@ -1089,13 +1088,31 @@ async fn consume_entry_assertion(
         );
     };
 
-    let identity = match network.verify(&request.assertion) {
-        Ok(identity) => identity,
+    let verified = match network.verify(&request.assertion) {
+        Ok(assertion) => assertion,
         Err(refusal) => {
             tracing::warn!(reason = refusal.code(), "refused entry assertion");
             return api_error(StatusCode::UNAUTHORIZED, refusal.code(), refusal.message());
         }
     };
+
+    match crate::entry::consume_once(state.daemon.authority.pool(), &verified).await {
+        Ok(true) => {}
+        Ok(false) => {
+            let refusal = crate::entry::Refusal::Replayed;
+            tracing::warn!(reason = refusal.code(), "refused entry assertion");
+            return api_error(StatusCode::UNAUTHORIZED, refusal.code(), refusal.message());
+        }
+        Err(error) => {
+            tracing::error!(error = %error, "entry replay store unavailable");
+            return api_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "entry_store_unavailable",
+                "the plane could not durably consume this assertion",
+            );
+        }
+    }
+    let identity = verified.identity;
 
     tracing::info!(
         user = %identity.user,
@@ -1111,7 +1128,8 @@ async fn consume_entry_assertion(
         "{SESSION_COOKIE}={token}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age={}",
         network.session_ttl().as_secs()
     );
-    let mut response = Json(serde_json::json!({ "entered": true })).into_response();
+    let mut response = Redirect::to("/").into_response();
+    *response.status_mut() = StatusCode::SEE_OTHER;
     if let Ok(value) = HeaderValue::from_str(&cookie) {
         response.headers_mut().insert(SET_COOKIE, value);
     }

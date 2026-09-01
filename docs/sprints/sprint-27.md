@@ -106,6 +106,19 @@ evidence not yet observed · `[ ]` not started.
 
 ## Evidence
 
+### Cloud contract alignment — 1 September 2026
+
+The original S27 verifier below proved the network boundary but used a Core-local HS256 fixture. It
+is historical evidence, not the hosted contract. The current implementation consumes Fleet's exact
+V1 Ed25519/JWKS claims, binds owner/plane/company/cell UUIDs, scopes every Cloud membership to one
+company, durably and atomically consumes `jti` in PostgreSQL, and implements Fleet's
+`GET /entry?assertion=…` → host-only cookie → `303 /` browser exchange. The focused suite passes nine
+wire/security cases; the real-PostgreSQL concurrency test proves one of two racing requests wins and
+that replay remains refused after reconnect. The full daemon suite passes 223 tests with no failures.
+
+The older commands and outputs below remain verbatim so they do not masquerade as newly observed
+hosted evidence. The updated clean-release harness now mints Ed25519 and exercises the redirect form.
+
 `crates/restlessd/src/entry.rs` is the new entry module; `owner.rs` dispatches on the mode.
 
 **Observed, with the command and its output:**

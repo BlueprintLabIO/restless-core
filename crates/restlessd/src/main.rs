@@ -339,6 +339,10 @@ async fn main() -> Result<()> {
         println!("{}", entry::mint_from_env()?);
         return Ok(());
     }
+    if std::env::args().nth(1).as_deref() == Some("test-entry-jwks") {
+        println!("{}", entry::test_jwks_from_env()?);
+        return Ok(());
+    }
 
     let root = runtime::state_root();
     std::fs::create_dir_all(root.join("companies"))
@@ -348,7 +352,7 @@ async fn main() -> Result<()> {
     // entry that verifies a signed assertion. Resolve and validate the entry
     // configuration before starting provider or scheduler work, so a plane
     // that cannot describe how it verifies fails here rather than serving.
-    let owner_config = owner::OwnerConfig::from_env()?;
+    let owner_config = owner::OwnerConfig::from_env().await?;
     runtime::validate_company_image_config(owner_config.is_network())?;
 
     // Open authoritative charged-use accounting before the model relay. The
