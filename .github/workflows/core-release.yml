@@ -235,8 +235,39 @@ jobs:
             ${{ matrix.service }}.trusted-root.json
           retention-days: 90
 
-  publish-manifest:
+  verify-published:
     needs: publish-images
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        service:
+          - account-plane
+          - company-runtime
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: core-release-image-${{ matrix.service }}
+          path: release-image
+      - uses: sigstore/cosign-installer@v4.1.2
+      - name: Verify the portable release evidence
+        run: |
+          record="release-image/${{ matrix.service }}.json"
+          jq -e '
+            ([.manifests[] | select(.platform.os == "linux") | .platform.architecture] | sort) == ["amd64", "arm64"] and
+            ([.manifests[] | select(.platform.os == "unknown" and .annotations["vnd.docker.reference.type"] == "attestation-manifest")] | length) >= 2
+          ' "release-image/${{ matrix.service }}.manifest.json"
+          scan_sha256="$(sha256sum "release-image/${{ matrix.service }}.grype.json" | awk '{print $1}')"
+          jq -e --arg scan_sha256 "$scan_sha256" '.vulnerability_scan_sha256 == $scan_sha256' "$record"
+          cosign verify-blob \
+            --bundle "release-image/${{ matrix.service }}.signature.bundle.json" \
+            --trusted-root "release-image/${{ matrix.service }}.trusted-root.json" \
+            --certificate-identity "https://github.com/${GITHUB_REPOSITORY}/.github/workflows/core-release.yml@${GITHUB_REF}" \
+            --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
+            "$record"
+
+  publish-manifest:
+    needs: verify-published
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
