@@ -8,7 +8,7 @@ import { createConnection, createServer } from 'node:net';
 import test from 'node:test';
 
 import {
-  buildRegistration, createCommandHandler, handleCommand, parseConfiguration,
+  buildRegistration, createCommandHandler, handleCommand, parseConfiguration, persistCapability,
 } from './runtime-agent.mjs';
 
 const UUIDS = [1, 2, 3, 4].map((value) => `00000000-0000-4000-8000-${String(value).padStart(12, '0')}`);
@@ -27,6 +27,7 @@ function environment(capabilityFile) {
     RESTLESS_RUNTIME_VOLUME_NAME: 'cell-volume-1',
     RESTLESS_SOURCE_REVISION: 'b'.repeat(40),
     RESTLESS_RUNTIME_BRIDGE_CAPABILITY_FILE: capabilityFile,
+    RESTLESS_RUNTIME_BRIDGE_CAPABILITY_STATE_FILE: `${capabilityFile}.current`,
   };
 }
 
@@ -39,9 +40,42 @@ test('registration carries exact immutable identity and only implemented feature
   assert.equal(registration.runtime_generation, 2);
   assert.equal(registration.desired_revision, 3);
   assert.deepEqual(registration.supported_features, [
-    'registration.v1', 'activity.v1', 'desktop.v1', 'files.v1', 'process.v1', 'streams.v1',
+    'registration.v1', 'capability-rotation.v1', 'activity.v1', 'desktop.v1', 'files.v1',
+    'process.v1', 'streams.v1',
   ]);
   assert.equal(registration.capability, 'r1.payload.signature');
+});
+
+test('renewed capability is atomically persisted and preferred on reconnect', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'restless-runtime-capability-'));
+  const bootstrap = join(root, 'bootstrap.cap');
+  const current = join(root, 'run', 'runtime-bridge-capability');
+  await writeFile(bootstrap, 'r1.bootstrap.signature\n', { mode: 0o600 });
+  const env = environment(bootstrap);
+  env.RESTLESS_RUNTIME_BRIDGE_CAPABILITY_STATE_FILE = current;
+  const config = parseConfiguration(env);
+  const handle = createCommandHandler(config);
+  const operationId = '00000000-0000-4000-8000-000000000098';
+  const response = await handle(JSON.stringify({
+    type: 'capability.rotate',
+    protocol_version: 1,
+    operation_id: operationId,
+    runtime_id: 'runtime-1',
+    runtime_generation: 2,
+    capability: 'r1.renewed.signature',
+    valid_for_seconds: 86400,
+  }));
+  assert.deepEqual(response, {
+    type: 'capability.rotated',
+    operation_id: operationId,
+    runtime_id: 'runtime-1',
+    runtime_generation: 2,
+    valid_for_seconds: 86400,
+  });
+  assert.equal(await readFile(current, 'utf8'), 'r1.renewed.signature\n');
+  assert.equal((await buildRegistration(config)).capability, 'r1.renewed.signature');
+  await persistCapability(current, 'r1.newest.signature');
+  assert.equal((await buildRegistration(config)).capability, 'r1.newest.signature');
 });
 
 test('activity probe is exact, bounded and tied to the active Runtime generation', async () => {

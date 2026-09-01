@@ -15,6 +15,7 @@ import { pathToFileURL } from 'node:url';
 export const PROTOCOL_VERSION = 1;
 export const REGISTRATION_FEATURES = Object.freeze([
   'registration.v1',
+  'capability-rotation.v1',
   'activity.v1',
   'desktop.v1',
   'files.v1',
@@ -92,16 +93,55 @@ export function parseConfiguration(environment = process.env) {
     volumeName: identity(environment, 'RESTLESS_RUNTIME_VOLUME_NAME'),
     sourceRevision,
     capabilityFile: required(environment, 'RESTLESS_RUNTIME_BRIDGE_CAPABILITY_FILE'),
+    capabilityStateFile: required(
+      environment,
+      'RESTLESS_RUNTIME_BRIDGE_CAPABILITY_STATE_FILE',
+    ),
   });
 }
 
-export async function buildRegistration(config) {
-  const capabilityBytes = await readFile(config.capabilityFile);
-  if (capabilityBytes.length > 16 * 1024) throw new Error('Runtime Bridge capability file is too large');
-  const capability = capabilityBytes.toString('utf8').trim();
+function boundedCapability(bytes) {
+  if (bytes.length > 16 * 1024) throw new Error('Runtime Bridge capability file is too large');
+  const capability = bytes.toString('utf8').trim();
   if (!capability || capability.includes('\n') || capability.includes('\r')) {
     throw new Error('Runtime Bridge capability file must contain one bounded token');
   }
+  return capability;
+}
+
+export async function persistCapability(path, capability) {
+  const bytes = Buffer.from(capability, 'utf8');
+  boundedCapability(bytes);
+  const parent = dirname(path);
+  await mkdir(parent, { recursive: true, mode: 0o700 });
+  const metadata = await lstat(parent);
+  if (metadata.isSymbolicLink() || !metadata.isDirectory()) {
+    throw new Error('Runtime Bridge capability state parent must be a real directory');
+  }
+  const temporary = join(parent, `.runtime-bridge-capability-${randomUUID()}.tmp`);
+  let handle;
+  try {
+    handle = await open(temporary, 'wx', 0o600);
+    await handle.writeFile(`${capability}\n`, { encoding: 'utf8' });
+    await handle.sync();
+    await handle.close();
+    handle = undefined;
+    await rename(temporary, path);
+  } finally {
+    if (handle) await handle.close().catch(() => {});
+    await rm(temporary, { force: true }).catch(() => {});
+  }
+}
+
+export async function buildRegistration(config) {
+  let capabilityBytes;
+  try {
+    capabilityBytes = await readFile(config.capabilityStateFile);
+  } catch (error) {
+    if (error?.code !== 'ENOENT') throw error;
+    capabilityBytes = await readFile(config.capabilityFile);
+  }
+  const capability = boundedCapability(capabilityBytes);
   let persistentVolumeReady = true;
   try {
     await access('/company/.seeded', fsConstants.R_OK);
@@ -444,6 +484,8 @@ export function createCommandHandler(config, options = {}) {
   const now = options.now ?? (() => new Date());
   const sendEvent = options.sendEvent ?? (() => {});
   const connectTcp = options.connectTcp ?? ((port, host) => createConnection({ port, host }));
+  const saveCapability = options.persistCapability
+    ?? ((capability) => persistCapability(config.capabilityStateFile, capability));
   const replay = new Map();
   const streams = new Map();
   const streamEvent = (type, operationId, fields = {}) => sendEvent({
@@ -495,7 +537,25 @@ export function createCommandHandler(config, options = {}) {
       return previous.response;
     }
     let response;
-    if (command.type === 'activity.observe') {
+    if (command.type === 'capability.rotate') {
+      assertExactKeys(command, [
+        'type', 'protocol_version', 'operation_id', 'runtime_id', 'runtime_generation',
+        'capability', 'valid_for_seconds',
+      ]);
+      if (!Number.isSafeInteger(command.valid_for_seconds)
+          || command.valid_for_seconds < 3600 || command.valid_for_seconds > 86400) {
+        throw new Error('Runtime Bridge capability lifetime is invalid');
+      }
+      boundedCapability(Buffer.from(command.capability ?? '', 'utf8'));
+      await saveCapability(command.capability);
+      response = {
+        type: 'capability.rotated',
+        operation_id: command.operation_id,
+        runtime_id: config.runtimeId,
+        runtime_generation: config.runtimeGeneration,
+        valid_for_seconds: command.valid_for_seconds,
+      };
+    } else if (command.type === 'activity.observe') {
       assertExactKeys(command, [
         'type', 'protocol_version', 'operation_id', 'runtime_id', 'runtime_generation',
       ]);

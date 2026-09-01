@@ -20,7 +20,7 @@ use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _, DuplexStream};
 use tokio::sync::{mpsc, oneshot};
 use uuid::Uuid;
 
-use crate::capability::CapabilityIssuer;
+use crate::capability::{CapabilityIssuer, HostedRuntimeScope};
 
 pub(crate) const PROTOCOL_VERSION: u32 = 1;
 const REGISTER_TIMEOUT: Duration = Duration::from_secs(5);
@@ -29,7 +29,10 @@ const MAX_RESPONSE_BYTES: usize = 8 * 1024 * 1024;
 const MAX_FILE_BYTES: usize = 5 * 1024 * 1024;
 const STREAM_BUFFER_BYTES: usize = 256 * 1024;
 const STREAM_CHUNK_BYTES: usize = 48 * 1024;
+const CAPABILITY_VALID_FOR_SECONDS: u64 = 24 * 60 * 60;
+const CAPABILITY_RENEW_INTERVAL: Duration = Duration::from_secs(12 * 60 * 60);
 const REQUIRED_FEATURES: &[&str] = &[
+    "capability-rotation.v1",
     "activity.v1",
     "desktop.v1",
     "files.v1",
@@ -38,6 +41,7 @@ const REQUIRED_FEATURES: &[&str] = &[
 ];
 const KNOWN_FEATURES: &[&str] = &[
     "registration.v1",
+    "capability-rotation.v1",
     "activity.v1",
     "desktop.v1",
     "files.v1",
@@ -237,6 +241,27 @@ impl Registry {
             .await
             .context("acknowledge Runtime Bridge registration")?;
 
+        if observation
+            .supported_features
+            .iter()
+            .any(|feature| feature == "capability-rotation.v1")
+        {
+            let registry = self.clone();
+            let active = self.active_for_company(&observation.company)?;
+            tokio::spawn(async move {
+                if let Err(error) = registry.renew_capabilities(active.clone(), issuer).await {
+                    tracing::warn!(
+                        company = %active.observation.company,
+                        runtime_id = %active.observation.runtime_id,
+                        runtime_generation = active.observation.runtime_generation,
+                        %error,
+                        "hosted Runtime capability renewal failed; closing the bridge before expiry"
+                    );
+                    registry.remove_current_connection(&active);
+                }
+            });
+        }
+
         let (mut sink, mut source) = socket.split();
         loop {
             tokio::select! {
@@ -264,6 +289,7 @@ impl Registry {
                             if !matches!(response.kind.as_str(),
                                 "activity.result" | "desktop.result" | "file.result" | "file.chunk" | "file.written"
                                 | "file.removed" | "process.result"
+                                | "capability.rotated"
                                 | "stream.opened" | "stream.data" | "stream.end"
                                 | "stream.error" | "error") {
                                 bail!("Runtime Bridge response kind is not implemented");
@@ -359,6 +385,67 @@ impl Registry {
             .get(company)
             .cloned()
             .context("Runtime Bridge is not connected")
+    }
+
+    fn remove_current_connection(&self, active: &ActiveConnection) {
+        let mut entries = self.entries.lock().expect("Runtime Bridge registry");
+        if entries
+            .get(&active.observation.company)
+            .is_some_and(|current| current.connection_id == active.connection_id)
+        {
+            if let Some(current) = entries.remove(&active.observation.company) {
+                current
+                    .pending
+                    .lock()
+                    .expect("Runtime Bridge pending responses")
+                    .clear();
+            }
+        }
+    }
+
+    async fn renew_capabilities(
+        &self,
+        active: ActiveConnection,
+        issuer: CapabilityIssuer,
+    ) -> Result<()> {
+        loop {
+            let observation = &active.observation;
+            let capability = issuer.issue_hosted_runtime_bridge(
+                &observation.company,
+                HostedRuntimeScope {
+                    owner_id: observation.owner_id,
+                    plane_id: observation.plane_id,
+                    company_id: observation.company_id,
+                    cell_id: observation.cell_id,
+                    runtime_id: observation.runtime_id.clone(),
+                    runtime_generation: observation.runtime_generation,
+                    runtime_image: observation.runtime_image.clone(),
+                    volume_name: observation.volume_name.clone(),
+                    source_revision: observation.source_revision.clone(),
+                },
+            )?;
+            let response = self
+                .request(
+                    &active,
+                    "capability-rotation.v1",
+                    "capability.rotate",
+                    serde_json::json!({
+                        "capability": capability,
+                        "valid_for_seconds": CAPABILITY_VALID_FOR_SECONDS,
+                    }),
+                )
+                .await?;
+            if response.kind != "capability.rotated"
+                || response
+                    .body
+                    .get("valid_for_seconds")
+                    .and_then(serde_json::Value::as_u64)
+                    != Some(CAPABILITY_VALID_FOR_SECONDS)
+            {
+                bail!("Runtime Bridge returned an invalid capability-renewal receipt");
+            }
+            tokio::time::sleep(CAPABILITY_RENEW_INTERVAL).await;
+        }
     }
 
     async fn request(
@@ -1150,7 +1237,7 @@ mod tests {
             registration_company(&observation.company_id)
         );
         assert_eq!(observation.runtime_generation, 7);
-        assert_eq!(observation.supported_features.len(), 6);
+        assert_eq!(observation.supported_features.len(), 7);
         assert!(observation.has_complete_v1());
     }
 
@@ -1199,10 +1286,12 @@ mod tests {
         let (_root, issuer, scope, mut registration) = fixture();
         registration.supported_features = vec![
             "registration.v1".into(),
+            "capability-rotation.v1".into(),
             "activity.v1".into(),
             "streams.v1".into(),
         ];
         let registry = Registry::default();
+        let test_issuer = issuer.clone();
         let app = Router::new()
             .route("/bridge", get(bridge))
             .with_state(TestState {
@@ -1233,6 +1322,33 @@ mod tests {
             registry.observe(&company).unwrap().runtime_id,
             "restless-cell-runtime-1"
         );
+
+        let rotation = client.next().await.unwrap().unwrap().into_text().unwrap();
+        let rotation: serde_json::Value = serde_json::from_str(&rotation).unwrap();
+        assert_eq!(rotation["type"], "capability.rotate");
+        assert_eq!(rotation["valid_for_seconds"], 86_400);
+        let renewed = rotation["capability"].as_str().unwrap();
+        assert_ne!(renewed, registration.capability);
+        let renewed_scope = test_issuer.verify_hosted_runtime_bridge(renewed).unwrap();
+        assert_eq!(renewed_scope.company_id, registration.company_id);
+        assert_eq!(
+            renewed_scope.runtime_generation,
+            registration.runtime_generation
+        );
+        client
+            .send(ClientMessage::Text(
+                serde_json::json!({
+                    "type": "capability.rotated",
+                    "operation_id": rotation["operation_id"],
+                    "runtime_id": registration.runtime_id,
+                    "runtime_generation": registration.runtime_generation,
+                    "valid_for_seconds": 86_400,
+                })
+                .to_string()
+                .into(),
+            ))
+            .await
+            .unwrap();
 
         let probe_registry = registry.clone();
         let cell_id = registration.cell_id;
