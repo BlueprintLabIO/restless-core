@@ -170,6 +170,7 @@ COPY infra/company-image/company-terminal.desktop /usr/share/applications/compan
 COPY infra/company-image/company-godot.desktop /usr/share/applications/company-godot.desktop
 COPY infra/company-image/browser-broker.mjs /usr/local/lib/restless/browser-broker.mjs
 COPY infra/company-image/release-health.mjs /usr/local/lib/restless/release-health.mjs
+COPY infra/company-image/runtime-agent.mjs /usr/local/lib/restless/runtime-agent.mjs
 COPY tools/scenario/restless-scenario.mjs /usr/local/lib/restless/restless-scenario.mjs
 COPY tools/web-review/restless-web-review.mjs /usr/local/lib/restless/restless-web-review.mjs
 COPY tools/codex-runner/restless-codex-runner.mjs /usr/local/lib/restless/restless-codex-runner.mjs
@@ -190,7 +191,8 @@ RUN chmod 0555 /usr/local/bin/company-init /usr/local/bin/wait-for-company-displ
         /usr/local/lib/restless/restless-codex-longitudinal-run.mjs \
     && chmod -R a=rX /opt/restless/skills \
     && chmod 0444 /usr/local/lib/restless/browser-broker.mjs \
-        /usr/local/lib/restless/release-health.mjs /etc/supervisor/conf.d/restless.conf \
+        /usr/local/lib/restless/release-health.mjs /usr/local/lib/restless/runtime-agent.mjs \
+        /etc/supervisor/conf.d/restless.conf \
         /etc/restless/tint2rc /usr/share/applications/company-browser.desktop \
         /usr/share/applications/company-terminal.desktop /usr/share/applications/company-godot.desktop
 RUN ln -s /usr/local/lib/restless/restless-scenario.mjs /usr/local/bin/restless-scenario

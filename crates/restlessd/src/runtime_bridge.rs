@@ -28,6 +28,14 @@ const REQUIRED_FEATURES: &[&str] = &[
     "process.v1",
     "streams.v1",
 ];
+const KNOWN_FEATURES: &[&str] = &[
+    "registration.v1",
+    "activity.v1",
+    "desktop.v1",
+    "files.v1",
+    "process.v1",
+    "streams.v1",
+];
 
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct PlaneScope {
@@ -35,7 +43,7 @@ pub(crate) struct PlaneScope {
     pub(crate) plane_id: Uuid,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 struct Registration {
     protocol_version: u32,
@@ -216,6 +224,16 @@ impl Registry {
     }
 }
 
+impl Observation {
+    pub(crate) fn has_complete_v1(&self) -> bool {
+        REQUIRED_FEATURES.iter().all(|required| {
+            self.supported_features
+                .iter()
+                .any(|value| value == required)
+        })
+    }
+}
+
 fn authenticate_registration(
     registration: Registration,
     issuer: &CapabilityIssuer,
@@ -254,11 +272,12 @@ fn authenticate_registration(
         .map(String::as_str)
         .collect::<HashSet<_>>();
     if features.len() != registration.supported_features.len()
-        || REQUIRED_FEATURES
+        || !features.contains("registration.v1")
+        || features
             .iter()
-            .any(|required| !features.contains(required))
+            .any(|feature| !KNOWN_FEATURES.contains(feature))
     {
-        bail!("Runtime Bridge does not advertise the complete hosted V1 feature set");
+        bail!("Runtime Bridge feature set is duplicate, unknown or lacks registration.v1");
     }
     let grant = issuer
         .verify_coordination(&registration.capability)
@@ -315,7 +334,35 @@ fn immutable_image(value: &str) -> bool {
 mod tests {
     use super::{authenticate_registration, PlaneScope, Registration, Registry, REQUIRED_FEATURES};
     use crate::capability::CapabilityIssuer;
+    use axum::{
+        extract::{ws::WebSocketUpgrade, State},
+        response::IntoResponse,
+        routing::get,
+        Router,
+    };
+    use futures_util::{SinkExt as _, StreamExt as _};
+    use tokio_tungstenite::tungstenite::Message as ClientMessage;
     use uuid::Uuid;
+
+    #[derive(Clone)]
+    struct TestState {
+        registry: Registry,
+        issuer: CapabilityIssuer,
+        scope: PlaneScope,
+    }
+
+    async fn bridge(
+        State(state): State<TestState>,
+        upgrade: WebSocketUpgrade,
+    ) -> impl IntoResponse {
+        upgrade.on_upgrade(move |socket| async move {
+            state
+                .registry
+                .accept(socket, state.issuer, state.scope)
+                .await
+                .unwrap();
+        })
+    }
 
     fn fixture() -> (
         tempfile::TempDir,
@@ -343,9 +390,9 @@ mod tests {
             volume_name: "restless-cell-volume-1".into(),
             persistent_volume_ready: true,
             source_revision: "b".repeat(40),
-            supported_features: REQUIRED_FEATURES
-                .iter()
-                .map(|value| value.to_string())
+            supported_features: std::iter::once("registration.v1")
+                .chain(REQUIRED_FEATURES.iter().copied())
+                .map(str::to_string)
                 .collect(),
             capability: issuer.issue_runtime_bridge("hosted_test").unwrap(),
         };
@@ -358,7 +405,8 @@ mod tests {
         let observation = authenticate_registration(registration, &issuer, scope).unwrap();
         assert_eq!(observation.company, "hosted_test");
         assert_eq!(observation.runtime_generation, 7);
-        assert_eq!(observation.supported_features.len(), 5);
+        assert_eq!(observation.supported_features.len(), 6);
+        assert!(observation.has_complete_v1());
     }
 
     #[test]
@@ -372,8 +420,15 @@ mod tests {
         assert!(authenticate_registration(registration, &issuer, scope).is_err());
 
         let (_root, issuer, scope, mut registration) = fixture();
-        registration.supported_features.pop();
+        registration
+            .supported_features
+            .push("host-control.v1".into());
         assert!(authenticate_registration(registration, &issuer, scope).is_err());
+
+        let (_root, issuer, scope, mut registration) = fixture();
+        registration.supported_features = vec!["registration.v1".into()];
+        let observation = authenticate_registration(registration, &issuer, scope).unwrap();
+        assert!(!observation.has_complete_v1());
     }
 
     #[test]
@@ -386,5 +441,50 @@ mod tests {
     #[test]
     fn registry_starts_empty() {
         assert!(Registry::default().observe("hosted_test").is_none());
+    }
+
+    #[tokio::test]
+    async fn outbound_websocket_registration_is_observed_and_disconnect_is_removed() {
+        let (_root, issuer, scope, registration) = fixture();
+        let registry = Registry::default();
+        let app = Router::new()
+            .route("/bridge", get(bridge))
+            .with_state(TestState {
+                registry: registry.clone(),
+                issuer,
+                scope,
+            });
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+
+        let (mut client, _) = tokio_tungstenite::connect_async(format!("ws://{address}/bridge"))
+            .await
+            .unwrap();
+        client
+            .send(ClientMessage::Text(
+                serde_json::to_string(&registration).unwrap().into(),
+            ))
+            .await
+            .unwrap();
+        let accepted = client.next().await.unwrap().unwrap();
+        let accepted = accepted.into_text().unwrap();
+        let accepted: serde_json::Value = serde_json::from_str(&accepted).unwrap();
+        assert_eq!(accepted["status"], "registered");
+        assert_eq!(accepted["runtime_generation"], 7);
+        assert_eq!(
+            registry.observe("hosted_test").unwrap().runtime_id,
+            "restless-cell-runtime-1"
+        );
+
+        client.close(None).await.unwrap();
+        for _ in 0..20 {
+            if registry.observe("hosted_test").is_none() {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+        assert!(registry.observe("hosted_test").is_none());
+        server.abort();
     }
 }

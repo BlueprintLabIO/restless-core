@@ -1345,7 +1345,10 @@ async fn observe_cell_readiness(
         Some(_) => "failed",
         None => "pending",
     };
-    let runtime_bridge = if bridge.is_some() { "ready" } else { "pending" };
+    let runtime_bridge = match bridge.as_ref() {
+        Some(bridge) if bridge.has_complete_v1() => "ready",
+        Some(_) | None => "pending",
+    };
     let checks = vec![
         CellReadinessCheck {
             kind: "runtime",
