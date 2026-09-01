@@ -1030,12 +1030,17 @@ mod tests {
             .stdout(Stdio::piped())
             .spawn()
             .expect("start credential helper");
-        child
+        let write = child
             .stdin
             .as_mut()
             .expect("helper stdin")
-            .write_all(b"protocol=https\nhost=example.test\n\n")
-            .expect("write credential request");
+            .write_all(b"protocol=https\nhost=example.test\n\n");
+        // The helper deliberately needs no request fields. A fast child may
+        // therefore close stdin before the parent finishes the representative
+        // Git request; that race is equivalent to accepting and ignoring it.
+        if let Err(error) = write {
+            assert_eq!(error.kind(), std::io::ErrorKind::BrokenPipe);
+        }
         let output = child.wait_with_output().expect("credential helper output");
         assert!(output.status.success());
         assert_eq!(
