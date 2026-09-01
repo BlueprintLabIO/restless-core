@@ -795,7 +795,21 @@ impl PlaneReadinessConfig {
 }
 
 fn required_env(name: &str) -> Result<String> {
-    let value = std::env::var(name).unwrap_or_default();
+    let file_name = format!("{name}_FILE");
+    let direct = std::env::var(name).ok();
+    let file = std::env::var(&file_name).ok();
+    if direct.is_some() && file.is_some() {
+        anyhow::bail!("set only one of {name} and {file_name}");
+    }
+    let value = match (direct, file) {
+        (Some(value), None) => value,
+        (None, Some(path)) => {
+            std::fs::read_to_string(&path).with_context(|| format!("read {file_name} {path}"))?
+        }
+        (None, None) => String::new(),
+        (Some(_), Some(_)) => unreachable!(),
+    };
+    let value = value.trim_end_matches(['\r', '\n']).to_string();
     if value.trim().is_empty() {
         anyhow::bail!("network account plane requires {name}");
     }

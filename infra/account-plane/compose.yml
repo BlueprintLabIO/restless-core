@@ -1,0 +1,111 @@
+services:
+  plane-database:
+    image: postgres:16.10-alpine@sha256:029660641a0cfc575b14f336ba448fb8a75fd595d42e1fa316b9fb4378742297
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: restless
+      POSTGRES_USER: restless
+      POSTGRES_PASSWORD_FILE: /run/secrets/plane_database_password
+    secrets:
+      - plane_database_password
+    volumes:
+      - plane-database:/var/lib/postgresql/data
+    networks:
+      - plane-db
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U restless -d restless"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 10s
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - DAC_OVERRIDE
+      - FOWNER
+      - SETGID
+      - SETUID
+
+  account-plane:
+    image: ${RESTLESS_ACCOUNT_PLANE_IMAGE:?set immutable Core account-plane image digest}
+    restart: unless-stopped
+    depends_on:
+      plane-database:
+        condition: service_healthy
+    environment:
+      HOME: /state/authority-home
+      RESTLESS_HOME: /state
+      RESTLESS_DATABASE_URL_FILE: /run/secrets/plane_database_url
+      RESTLESS_OWNER_ADDR: 0.0.0.0:7788
+      RESTLESS_ENTRY_MODE: network
+      RESTLESS_ENTRY_ISSUER: ${RESTLESS_ENTRY_ISSUER:?set Fleet HTTPS issuer}
+      RESTLESS_ENTRY_JWKS_URL: ${RESTLESS_ENTRY_JWKS_URL:?set same-origin Fleet JWKS URL}
+      RESTLESS_ENTRY_OWNER_ID: ${RESTLESS_ENTRY_OWNER_ID:?set owner UUID}
+      RESTLESS_ENTRY_PLANE_ID: ${RESTLESS_ENTRY_PLANE_ID:?set plane UUID}
+      RESTLESS_ENTRY_HOST: ${RESTLESS_ENTRY_HOST:?set exact plane hostname}
+      RESTLESS_PLANE_READINESS_TOKEN_FILE: /run/secrets/plane_readiness_token
+      RESTLESS_ACCOUNT_PLANE_IMAGE: ${RESTLESS_ACCOUNT_PLANE_IMAGE}
+      RESTLESS_COMPANY_IMAGE: ${RESTLESS_COMPANY_IMAGE:?set immutable Core Runtime image digest}
+      RESTLESS_DESIRED_REVISION: ${RESTLESS_DESIRED_REVISION:?set Fleet desired revision}
+      RESTLESS_RELEASE_MANIFEST_DIGEST: ${RESTLESS_RELEASE_MANIFEST_DIGEST:?set signed Core manifest digest}
+      INFISICAL_API_URL: ${INFISICAL_API_URL:?set Infisical API URL}
+      INFISICAL_PROJECT_ID: ${INFISICAL_PROJECT_ID:?set account-plane Infisical project}
+      INFISICAL_ENVIRONMENT: ${INFISICAL_ENVIRONMENT:-prod}
+      INFISICAL_UNIVERSAL_AUTH_CLIENT_ID: ${INFISICAL_UNIVERSAL_AUTH_CLIENT_ID:?set account-plane machine identity}
+      INFISICAL_UNIVERSAL_AUTH_CLIENT_SECRET_FILE: /run/secrets/infisical_client_secret
+    secrets:
+      - plane_database_url
+      - plane_readiness_token
+      - infisical_client_secret
+    volumes:
+      - plane-state:/state
+    networks:
+      - plane-db
+      - plane-egress
+      - public-proxy
+    expose:
+      - "7788"
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=${RESTLESS_PUBLIC_PROXY_NETWORK:-coolify}
+      - traefik.http.routers.restless-plane-${RESTLESS_ENTRY_PLANE_ID}.rule=Host(`${RESTLESS_ENTRY_HOST}`)
+      - traefik.http.routers.restless-plane-${RESTLESS_ENTRY_PLANE_ID}.entrypoints=https
+      - traefik.http.routers.restless-plane-${RESTLESS_ENTRY_PLANE_ID}.tls=true
+      - traefik.http.routers.restless-plane-${RESTLESS_ENTRY_PLANE_ID}.tls.certresolver=letsencrypt
+      - traefik.http.services.restless-plane-${RESTLESS_ENTRY_PLANE_ID}.loadbalancer.server.port=7788
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://127.0.0.1:7788/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 6
+      start_period: 30s
+    stop_grace_period: 30s
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+
+volumes:
+  plane-database:
+  plane-state:
+
+networks:
+  plane-db:
+    internal: true
+  plane-egress:
+  public-proxy:
+    external: true
+    name: ${RESTLESS_PUBLIC_PROXY_NETWORK:-coolify}
+
+secrets:
+  plane_database_password:
+    environment: RESTLESS_PLANE_DATABASE_PASSWORD
+  plane_database_url:
+    environment: RESTLESS_PLANE_DATABASE_URL
+  plane_readiness_token:
+    environment: RESTLESS_PLANE_READINESS_TOKEN
+  infisical_client_secret:
+    environment: INFISICAL_UNIVERSAL_AUTH_CLIENT_SECRET

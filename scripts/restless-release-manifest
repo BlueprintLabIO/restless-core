@@ -48,8 +48,16 @@ runtime_digest=null
 if $with_images; then
   read_digest() {
     local image="$1"
+    local configured="$2"
     local digest
-    digest="$(docker image inspect "$image" --format '{{index .RepoDigests 0}}' 2>/dev/null || true)"
+    digest="${!configured:-}"
+    if [[ -n "$digest" && ! "$digest" =~ @sha256:[0-9a-f]{64}$ ]]; then
+      echo "$configured must be an immutable registry @sha256 digest" >&2
+      exit 1
+    fi
+    if [[ -z "$digest" ]]; then
+      digest="$(docker image inspect "$image" --format '{{index .RepoDigests 0}}' 2>/dev/null || true)"
+    fi
     if [[ -z "$digest" ]]; then
       # Not pushed, so no repository digest exists yet. The local content ID is
       # exact for a local probe but is NOT a pinnable registry digest, and is
@@ -63,9 +71,11 @@ if $with_images; then
     fi
     printf '"%s"' "$digest"
   }
-  plane_digest="$(read_digest "restless-account-plane:$core_version")"
-  runtime_digest="$(read_digest "restless-company-image:$core_version")"
+  plane_digest="$(read_digest "restless-account-plane:$core_version" RESTLESS_ACCOUNT_PLANE_IMAGE_DIGEST)"
+  runtime_digest="$(read_digest "restless-company-image:$core_version" RESTLESS_COMPANY_IMAGE_DIGEST)"
 fi
+
+compose_sha256="$(openssl dgst -sha256 infra/account-plane/compose.yml | awk '{print $NF}')"
 
 cat <<JSON
 {
@@ -89,6 +99,27 @@ cat <<JSON
     "jwks_path": "/.well-known/jwks.json",
     "exchange": "GET /entry?assertion=<compact-jws> -> 303 /",
     "replay": "atomic durable PostgreSQL jti consumption before host-only session"
+  },
+  "deployment": {
+    "account_plane_compose": "infra/account-plane/compose.yml",
+    "account_plane_compose_sha256": "$compose_sha256",
+    "host_control": "none"
+  },
+  "compatibility": {
+    "plane_release": "$core_version",
+    "cell_release_min": "$core_version",
+    "cell_release_max": "$core_version",
+    "migration_strategy": "forward-compatible additive migrations; restore reconciles before effects resume"
+  },
+  "contracts_artifact": {
+    "health": "GET /health",
+    "plane_readiness": "POST /internal/v1/planes/{plane_id}/readiness",
+    "entry": "GET /entry?assertion=<compact-jws>"
+  },
+  "support": {
+    "status": "candidate",
+    "release_notes": "docs/sprints/sprint-27.md",
+    "upgrade": "pin this exact manifest and both image digests; verify Compose SHA and readiness identity before promotion"
   },
   "health": {
     "path": "/health",

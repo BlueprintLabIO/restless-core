@@ -73,6 +73,24 @@ struct OrgIntelConfig {
 
 impl OrgIntelConfig {
     fn load_or_seed(root: &Path) -> Result<Self> {
+        if let Ok(path) = std::env::var("RESTLESS_DATABASE_URL_FILE") {
+            if path.trim().is_empty() {
+                anyhow::bail!("RESTLESS_DATABASE_URL_FILE is set but empty");
+            }
+            let database_url = std::fs::read_to_string(&path)
+                .with_context(|| format!("read RESTLESS_DATABASE_URL_FILE {path}"))?;
+            let database_url = database_url.trim().to_string();
+            if database_url.is_empty() {
+                anyhow::bail!("RESTLESS_DATABASE_URL_FILE contains an empty value");
+            }
+            return Ok(Self { database_url });
+        }
+        if let Ok(database_url) = std::env::var("RESTLESS_DATABASE_URL") {
+            if database_url.trim().is_empty() {
+                anyhow::bail!("RESTLESS_DATABASE_URL is set but empty");
+            }
+            return Ok(Self { database_url });
+        }
         let path = root.join("orgintel.toml");
         if path.exists() {
             let raw = std::fs::read_to_string(&path)

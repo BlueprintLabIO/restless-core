@@ -66,6 +66,14 @@ COPY --from=build /src/target/release/restlessd /usr/local/bin/restlessd
 COPY web/build /opt/restless/cockpit
 ENV RESTLESS_COCKPIT_DIR=/opt/restless/cockpit
 
+# Hosted planes receive no Docker socket or host-control capability. Run the
+# credential-holding process as the base image's unprivileged user; declaring
+# /state here gives a fresh named volume the ownership needed for durable plane
+# state without a privileged init container.
+RUN mkdir -p /state/authority-home \
+    && chown -R node:node /state /opt/restless/cockpit
+USER node
+
 # The plane serves the owner cockpit and the CLI endpoint. In network mode it
 # verifies an identity assertion; in local mode it refuses a non-loopback bind.
 # The mode is configuration, never a default: a plane with incomplete network
