@@ -11,9 +11,11 @@ use std::time::Duration;
 
 use anyhow::{bail, Context as _, Result};
 use axum::extract::ws::{Message, WebSocket};
+use base64::Engine as _;
 use chrono::{DateTime, Utc};
 use futures_util::{SinkExt as _, StreamExt as _};
 use serde::{Deserialize, Serialize};
+use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _, DuplexStream};
 use tokio::sync::{mpsc, oneshot};
 use uuid::Uuid;
 
@@ -24,6 +26,8 @@ const REGISTER_TIMEOUT: Duration = Duration::from_secs(5);
 const MAX_REGISTER_BYTES: usize = 64 * 1024;
 const MAX_RESPONSE_BYTES: usize = 1024 * 1024;
 const PROBE_TIMEOUT: Duration = Duration::from_secs(1);
+const STREAM_BUFFER_BYTES: usize = 256 * 1024;
+const STREAM_CHUNK_BYTES: usize = 48 * 1024;
 const REQUIRED_FEATURES: &[&str] = &[
     "activity.v1",
     "desktop.v1",
@@ -106,6 +110,13 @@ struct ActiveConnection {
     observation: Observation,
     outbound: mpsc::Sender<String>,
     pending: Arc<Mutex<HashMap<Uuid, oneshot::Sender<AgentResponse>>>>,
+    streams: Arc<Mutex<HashMap<Uuid, mpsc::Sender<StreamEvent>>>>,
+}
+
+enum StreamEvent {
+    Data(Vec<u8>),
+    End,
+    Error(String),
 }
 
 #[derive(Debug, Deserialize)]
@@ -136,6 +147,21 @@ impl Drop for ConnectionGuard {
             .get(&self.company)
             .is_some_and(|active| active.connection_id == self.connection_id)
         {
+            if let Some(active) = entries.get(&self.company) {
+                active
+                    .pending
+                    .lock()
+                    .expect("Runtime Bridge pending responses")
+                    .clear();
+                for (_, sender) in active
+                    .streams
+                    .lock()
+                    .expect("Runtime Bridge streams")
+                    .drain()
+                {
+                    let _ = sender.try_send(StreamEvent::Error("runtime_disconnected".into()));
+                }
+            }
             entries.remove(&self.company);
         }
     }
@@ -165,6 +191,7 @@ impl Registry {
         let connection_id = Uuid::new_v4();
         let (outbound, mut outbound_rx) = mpsc::channel::<String>(32);
         let pending = Arc::new(Mutex::new(HashMap::new()));
+        let streams = Arc::new(Mutex::new(HashMap::new()));
 
         {
             let mut entries = self.entries.lock().expect("Runtime Bridge registry");
@@ -185,6 +212,7 @@ impl Registry {
                     observation: observation.clone(),
                     outbound,
                     pending: Arc::clone(&pending),
+                    streams: Arc::clone(&streams),
                 },
             );
         }
@@ -232,11 +260,50 @@ impl Registry {
                             }
                             let response: AgentResponse = serde_json::from_str(&raw)
                                 .context("decode Runtime Bridge response")?;
-                            if !matches!(
-                                response.kind.as_str(),
-                                "activity.result" | "file.result" | "process.result" | "error"
-                            ) {
+                            if !matches!(response.kind.as_str(),
+                                "activity.result" | "desktop.result" | "file.result" | "process.result"
+                                | "stream.opened" | "stream.data" | "stream.end"
+                                | "stream.error" | "error") {
                                 bail!("Runtime Bridge response kind is not implemented");
+                            }
+                            let pending_stream_open = response.kind == "stream.error"
+                                && pending
+                                    .lock()
+                                    .expect("Runtime Bridge pending responses")
+                                    .contains_key(&response.operation_id);
+                            if matches!(response.kind.as_str(), "stream.data" | "stream.end")
+                                || (response.kind == "stream.error" && !pending_stream_open)
+                            {
+                                let sender = streams
+                                    .lock()
+                                    .expect("Runtime Bridge streams")
+                                    .get(&response.operation_id)
+                                    .cloned()
+                                    .context("Runtime Bridge stream frame has no active stream")?;
+                                let event = match response.kind.as_str() {
+                                    "stream.data" => {
+                                        let encoded = response.body.get("bytes_base64")
+                                            .and_then(serde_json::Value::as_str)
+                                            .context("Runtime Bridge stream data lacks bytes")?;
+                                        let bytes = base64::engine::general_purpose::STANDARD
+                                            .decode(encoded)
+                                            .context("Runtime Bridge stream data is not base64")?;
+                                        if bytes.is_empty() || bytes.len() > STREAM_CHUNK_BYTES {
+                                            bail!("Runtime Bridge stream data has an invalid bound");
+                                        }
+                                        StreamEvent::Data(bytes)
+                                    }
+                                    "stream.end" => StreamEvent::End,
+                                    _ => StreamEvent::Error(
+                                        response.body.get("code")
+                                            .and_then(serde_json::Value::as_str)
+                                            .unwrap_or("runtime_stream_error")
+                                            .to_string(),
+                                    ),
+                                };
+                                sender.send(event).await
+                                    .context("deliver Runtime Bridge stream frame")?;
+                                continue;
                             }
                             let sender = pending
                                 .lock()
@@ -291,6 +358,18 @@ impl Registry {
         kind: &str,
         fields: serde_json::Value,
     ) -> Result<AgentResponse> {
+        self.request_with_id(active, Uuid::new_v4(), feature, kind, fields)
+            .await
+    }
+
+    async fn request_with_id(
+        &self,
+        active: &ActiveConnection,
+        operation_id: Uuid,
+        feature: &str,
+        kind: &str,
+        fields: serde_json::Value,
+    ) -> Result<AgentResponse> {
         if !active
             .observation
             .supported_features
@@ -299,11 +378,9 @@ impl Registry {
         {
             bail!("Runtime Bridge does not implement the requested feature");
         }
-        let Some(fields) = fields.as_object() else {
+        let Some(mut command) = fields.as_object().cloned() else {
             bail!("Runtime Bridge command fields must be an object");
         };
-        let operation_id = Uuid::new_v4();
-        let mut command = fields.clone();
         command.insert("type".into(), serde_json::json!(kind));
         command.insert(
             "protocol_version".into(),
@@ -347,7 +424,7 @@ impl Registry {
                 .lock()
                 .expect("Runtime Bridge pending responses")
                 .remove(&operation_id);
-            bail!("Runtime Bridge disconnected before activity probe");
+            bail!("Runtime Bridge disconnected before command dispatch");
         }
         let response = match tokio::time::timeout(PROBE_TIMEOUT, receiver).await {
             Ok(Ok(response)) => response,
@@ -357,7 +434,7 @@ impl Registry {
                     .lock()
                     .expect("Runtime Bridge pending responses")
                     .remove(&operation_id);
-                bail!("Runtime Bridge activity probe timed out");
+                bail!("Runtime Bridge command timed out");
             }
         };
         if response.runtime_id != active.observation.runtime_id
@@ -366,6 +443,181 @@ impl Registry {
             bail!("Runtime Bridge response does not match the active Runtime");
         }
         Ok(response)
+    }
+
+    pub(crate) async fn open_tcp_stream(&self, company: &str, port: u16) -> Result<DuplexStream> {
+        if port == 0 {
+            bail!("Runtime Bridge TCP port is invalid");
+        }
+        let active = self
+            .entries
+            .lock()
+            .expect("Runtime Bridge registry")
+            .get(company)
+            .cloned()
+            .context("Runtime Bridge is not connected")?;
+        if !active
+            .observation
+            .supported_features
+            .iter()
+            .any(|feature| feature == "streams.v1")
+        {
+            bail!("Runtime Bridge does not implement streams.v1");
+        }
+        let operation_id = Uuid::new_v4();
+        let (events_tx, mut events_rx) = mpsc::channel::<StreamEvent>(32);
+        active
+            .streams
+            .lock()
+            .expect("Runtime Bridge streams")
+            .insert(operation_id, events_tx);
+        let opened = self
+            .request_with_id(
+                &active,
+                operation_id,
+                "streams.v1",
+                "stream.open",
+                serde_json::json!({"host":"127.0.0.1","port":port}),
+            )
+            .await;
+        let opened = match opened {
+            Ok(opened) if opened.kind == "stream.opened" => opened,
+            Ok(_) => {
+                active
+                    .streams
+                    .lock()
+                    .expect("Runtime Bridge streams")
+                    .remove(&operation_id);
+                bail!("Runtime Bridge returned the wrong stream-open response");
+            }
+            Err(error) => {
+                active
+                    .streams
+                    .lock()
+                    .expect("Runtime Bridge streams")
+                    .remove(&operation_id);
+                return Err(error);
+            }
+        };
+        if opened.body.get("host").and_then(serde_json::Value::as_str) != Some("127.0.0.1")
+            || opened.body.get("port").and_then(serde_json::Value::as_u64) != Some(u64::from(port))
+        {
+            active
+                .streams
+                .lock()
+                .expect("Runtime Bridge streams")
+                .remove(&operation_id);
+            bail!("Runtime Bridge stream-open response changed its target");
+        }
+
+        let (application, bridge) = tokio::io::duplex(STREAM_BUFFER_BYTES);
+        let (mut bridge_read, mut bridge_write) = tokio::io::split(bridge);
+        let outbound = active.outbound.clone();
+        let streams = Arc::clone(&active.streams);
+        let runtime_id = active.observation.runtime_id.clone();
+        let runtime_generation = active.observation.runtime_generation;
+        tokio::spawn(async move {
+            let mut buffer = vec![0_u8; STREAM_CHUNK_BYTES];
+            loop {
+                tokio::select! {
+                    event = events_rx.recv() => match event {
+                        Some(StreamEvent::Data(bytes)) => {
+                            if bridge_write.write_all(&bytes).await.is_err() { break; }
+                        }
+                        Some(StreamEvent::End) | None => {
+                            let _ = bridge_write.shutdown().await;
+                            break;
+                        }
+                        Some(StreamEvent::Error(code)) => {
+                            tracing::debug!(%code, "hosted Runtime stream ended with an agent error");
+                            break;
+                        }
+                    },
+                    read = bridge_read.read(&mut buffer) => match read {
+                        Ok(0) | Err(_) => break,
+                        Ok(size) => {
+                            let frame = serde_json::json!({
+                                "type":"stream.data",
+                                "protocol_version":PROTOCOL_VERSION,
+                                "operation_id":operation_id,
+                                "runtime_id":runtime_id,
+                                "runtime_generation":runtime_generation,
+                                "bytes_base64":base64::engine::general_purpose::STANDARD.encode(&buffer[..size]),
+                            });
+                            if outbound.send(frame.to_string()).await.is_err() { break; }
+                        }
+                    }
+                }
+            }
+            streams
+                .lock()
+                .expect("Runtime Bridge streams")
+                .remove(&operation_id);
+            let close = serde_json::json!({
+                "type":"stream.close",
+                "protocol_version":PROTOCOL_VERSION,
+                "operation_id":operation_id,
+                "runtime_id":runtime_id,
+                "runtime_generation":runtime_generation,
+            });
+            let _ = outbound.send(close.to_string()).await;
+        });
+        Ok(application)
+    }
+
+    pub(crate) async fn desktop_asset(&self, company: &str, asset: &str) -> Result<Vec<u8>> {
+        if asset.is_empty() || asset.contains("..") || asset.contains('\0') {
+            bail!("invalid desktop asset path");
+        }
+        let active = self
+            .entries
+            .lock()
+            .expect("Runtime Bridge registry")
+            .get(company)
+            .cloned()
+            .context("Runtime Bridge is not connected")?;
+        let url = format!("http://127.0.0.1:6080/{asset}");
+        let response = self
+            .request(
+                &active,
+                "process.v1",
+                "process.run",
+                serde_json::json!({
+                    "program":"/usr/bin/curl",
+                    "args":["--fail","--silent","--show-error","--max-time","5",url],
+                    "cwd":"/company",
+                    "environment":{},
+                    "timeout_ms":6000,
+                    "max_output_bytes":1048576
+                }),
+            )
+            .await?;
+        if response.kind != "process.result"
+            || response
+                .body
+                .get("exit_code")
+                .and_then(serde_json::Value::as_i64)
+                != Some(0)
+            || response
+                .body
+                .get("timed_out")
+                .and_then(serde_json::Value::as_bool)
+                != Some(false)
+        {
+            bail!("hosted desktop asset process failed");
+        }
+        let encoded = response
+            .body
+            .get("stdout_base64")
+            .and_then(serde_json::Value::as_str)
+            .context("hosted desktop asset response lacks bytes")?;
+        let bytes = base64::engine::general_purpose::STANDARD
+            .decode(encoded)
+            .context("hosted desktop asset response is not base64")?;
+        if bytes.len() > 1024 * 1024 {
+            bail!("hosted desktop asset exceeds its response bound");
+        }
+        Ok(bytes)
     }
 
     pub(crate) async fn probe_readiness(&self, cell_id: Uuid) -> Result<()> {
@@ -422,6 +674,33 @@ impl Registry {
                     })
             {
                 bail!("Runtime Bridge file probe is invalid");
+            }
+        }
+
+        if active
+            .observation
+            .supported_features
+            .iter()
+            .any(|feature| feature == "desktop.v1")
+        {
+            let desktop = self
+                .request(
+                    &active,
+                    "desktop.v1",
+                    "desktop.probe",
+                    serde_json::json!({}),
+                )
+                .await?;
+            if desktop.kind != "desktop.result"
+                || desktop
+                    .body
+                    .get("status")
+                    .and_then(serde_json::Value::as_str)
+                    != Some("available")
+                || desktop.body.get("host").and_then(serde_json::Value::as_str) != Some("127.0.0.1")
+                || desktop.body.get("port").and_then(serde_json::Value::as_u64) != Some(6080)
+            {
+                bail!("Runtime Bridge desktop probe is invalid");
             }
         }
 
@@ -581,7 +860,9 @@ mod tests {
         routing::get,
         Router,
     };
+    use base64::Engine as _;
     use futures_util::{SinkExt as _, StreamExt as _};
+    use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
     use tokio_tungstenite::tungstenite::Message as ClientMessage;
     use uuid::Uuid;
 
@@ -687,7 +968,11 @@ mod tests {
     #[tokio::test]
     async fn outbound_websocket_registration_is_observed_and_disconnect_is_removed() {
         let (_root, issuer, scope, mut registration) = fixture();
-        registration.supported_features = vec!["registration.v1".into(), "activity.v1".into()];
+        registration.supported_features = vec![
+            "registration.v1".into(),
+            "activity.v1".into(),
+            "streams.v1".into(),
+        ];
         let registry = Registry::default();
         let app = Router::new()
             .route("/bridge", get(bridge))
@@ -741,6 +1026,59 @@ mod tests {
             .await
             .unwrap();
         probe.await.unwrap().unwrap();
+
+        let stream_registry = registry.clone();
+        let stream_open =
+            tokio::spawn(async move { stream_registry.open_tcp_stream("hosted_test", 6080).await });
+        let command = client.next().await.unwrap().unwrap().into_text().unwrap();
+        let command: serde_json::Value = serde_json::from_str(&command).unwrap();
+        assert_eq!(command["type"], "stream.open");
+        assert_eq!(command["host"], "127.0.0.1");
+        assert_eq!(command["port"], 6080);
+        client
+            .send(ClientMessage::Text(
+                serde_json::json!({
+                    "type": "stream.opened",
+                    "operation_id": command["operation_id"],
+                    "runtime_id": registration.runtime_id,
+                    "runtime_generation": registration.runtime_generation,
+                    "host": "127.0.0.1",
+                    "port": 6080,
+                })
+                .to_string()
+                .into(),
+            ))
+            .await
+            .unwrap();
+        let mut stream = stream_open.await.unwrap().unwrap();
+        stream.write_all(b"browser bytes").await.unwrap();
+        let outbound = client.next().await.unwrap().unwrap().into_text().unwrap();
+        let outbound: serde_json::Value = serde_json::from_str(&outbound).unwrap();
+        assert_eq!(outbound["type"], "stream.data");
+        assert_eq!(
+            base64::engine::general_purpose::STANDARD
+                .decode(outbound["bytes_base64"].as_str().unwrap())
+                .unwrap(),
+            b"browser bytes"
+        );
+        client
+            .send(ClientMessage::Text(
+                serde_json::json!({
+                    "type": "stream.data",
+                    "operation_id": command["operation_id"],
+                    "runtime_id": registration.runtime_id,
+                    "runtime_generation": registration.runtime_generation,
+                    "bytes_base64": base64::engine::general_purpose::STANDARD.encode(b"desktop bytes"),
+                })
+                .to_string()
+                .into(),
+            ))
+            .await
+            .unwrap();
+        let mut received = [0_u8; 13];
+        stream.read_exact(&mut received).await.unwrap();
+        assert_eq!(&received, b"desktop bytes");
+        drop(stream);
 
         client.close(None).await.unwrap();
         for _ in 0..20 {

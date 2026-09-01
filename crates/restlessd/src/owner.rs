@@ -36,6 +36,7 @@ use futures_util::{SinkExt as _, StreamExt as _};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest as _, Sha256};
 use subtle::ConstantTimeEq as _;
+use tokio::io::{AsyncRead, AsyncWrite};
 use tokio_tungstenite::{client_async, tungstenite};
 use tower_http::services::{ServeDir, ServeFile};
 use uuid::Uuid;
@@ -3822,7 +3823,12 @@ async fn desktop_asset(
             "desktop attachment is absent or expired",
         );
     }
-    match runtime::desktop_asset(&company, &asset).await {
+    let bytes = if matches!(&state.entry, EntryMode::Network(_)) {
+        state.runtime_bridges.desktop_asset(&company, &asset).await
+    } else {
+        runtime::desktop_asset(&company, &asset).await
+    };
+    match bytes {
         Ok(bytes) => {
             let mut response = Response::builder()
                 .status(StatusCode::OK)
@@ -3875,17 +3881,33 @@ async fn desktop_websocket(
             "desktop attachment is absent or expired",
         );
     }
+    let hosted_bridges =
+        matches!(&state.entry, EntryMode::Network(_)).then(|| state.runtime_bridges.clone());
     upgrade
         .on_upgrade(move |socket| async move {
-            if let Err(error) = proxy_websocket(socket, &company).await {
+            if let Err(error) = proxy_websocket(socket, &company, hosted_bridges).await {
                 tracing::warn!(company, "desktop websocket ended: {error:#}");
             }
         })
         .into_response()
 }
 
-async fn proxy_websocket(browser: WebSocket, company: &str) -> Result<()> {
-    let stream = runtime::desktop_stream(company).await?;
+async fn proxy_websocket(
+    browser: WebSocket,
+    company: &str,
+    hosted_bridges: Option<runtime_bridge::Registry>,
+) -> Result<()> {
+    if let Some(registry) = hosted_bridges {
+        let stream = registry.open_tcp_stream(company, 6080).await?;
+        return proxy_websocket_stream(browser, stream).await;
+    }
+    proxy_websocket_stream(browser, runtime::desktop_stream(company).await?).await
+}
+
+async fn proxy_websocket_stream<S>(browser: WebSocket, stream: S) -> Result<()>
+where
+    S: AsyncRead + AsyncWrite + Unpin,
+{
     let request = "ws://127.0.0.1:6080/websockify";
     let (runtime, _) = client_async(request, stream).await?;
     let (mut browser_tx, mut browser_rx) = browser.split();

@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { mkdir, mkdtemp, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { createConnection, createServer } from 'node:net';
 import test from 'node:test';
 
 import {
@@ -36,7 +37,7 @@ test('registration carries exact immutable identity and only implemented feature
   assert.equal(registration.runtime_generation, 2);
   assert.equal(registration.desired_revision, 3);
   assert.deepEqual(registration.supported_features, [
-    'registration.v1', 'activity.v1', 'files.v1', 'process.v1',
+    'registration.v1', 'activity.v1', 'desktop.v1', 'files.v1', 'process.v1', 'streams.v1',
   ]);
   assert.equal(registration.capability, 'r1.payload.signature');
 });
@@ -109,6 +110,58 @@ test('process execution has no shell, is bounded, and replays idempotently', asy
   await assert.rejects(() => handle(JSON.stringify({
     ...JSON.parse(command), program: '/usr/bin/false',
   })), /replay changed shape/);
+});
+
+test('TCP streams are loopback-only, bounded and full duplex', async (context) => {
+  const server = createServer((socket) => socket.on('data', (bytes) => socket.write(bytes)));
+  await new Promise((resolvePromise) => server.listen(0, '127.0.0.1', resolvePromise));
+  context.after(() => server.close());
+  const address = server.address();
+  const config = parseConfiguration(environment('/run/secrets/bridge.cap'));
+  const events = [];
+  const handle = createCommandHandler(config, { sendEvent: (event) => events.push(event) });
+  const operationId = '00000000-0000-4000-8000-000000000301';
+  const common = {
+    protocol_version: 1, operation_id: operationId,
+    runtime_id: 'runtime-1', runtime_generation: 2,
+  };
+  const opened = await handle(JSON.stringify({
+    type: 'stream.open', ...common, host: '127.0.0.1', port: address.port,
+  }));
+  assert.equal(opened.type, 'stream.opened');
+  await handle(JSON.stringify({
+    type: 'stream.data', ...common, bytes_base64: Buffer.from('hello').toString('base64'),
+  }));
+  await new Promise((resolvePromise) => setTimeout(resolvePromise, 10));
+  assert.equal(Buffer.from(events[0].bytes_base64, 'base64').toString(), 'hello');
+  await handle(JSON.stringify({ type: 'stream.close', ...common }));
+  await assert.rejects(() => handle(JSON.stringify({
+    type: 'stream.open', ...common,
+    operation_id: '00000000-0000-4000-8000-000000000302',
+    host: '0.0.0.0', port: address.port,
+  })), /loopback/);
+});
+
+test('desktop readiness proves the private web transport accepts TCP', async (context) => {
+  const server = createServer();
+  await new Promise((resolvePromise) => server.listen(0, '127.0.0.1', resolvePromise));
+  context.after(() => server.close());
+  const address = server.address();
+  const config = parseConfiguration(environment('/run/secrets/bridge.cap'));
+  const handle = createCommandHandler(config, {
+    connectTcp: () => createConnection({ port: address.port, host: '127.0.0.1' }),
+  });
+  const response = await handle(JSON.stringify({
+    type: 'desktop.probe', protocol_version: 1,
+    operation_id: '00000000-0000-4000-8000-000000000401',
+    runtime_id: 'runtime-1', runtime_generation: 2,
+  }));
+  assert.deepEqual(response, {
+    type: 'desktop.result',
+    operation_id: '00000000-0000-4000-8000-000000000401',
+    runtime_id: 'runtime-1', runtime_generation: 2,
+    status: 'available', host: '127.0.0.1', port: 6080,
+  });
 });
 
 test('configuration refuses mutable images, plaintext remote transport and ambiguous URLs', () => {

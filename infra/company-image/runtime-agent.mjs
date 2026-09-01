@@ -4,6 +4,7 @@ import { constants as fsConstants } from 'node:fs';
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { access, readFile, realpath } from 'node:fs/promises';
+import { createConnection } from 'node:net';
 import { isAbsolute, relative, resolve, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
@@ -11,13 +12,16 @@ export const PROTOCOL_VERSION = 1;
 export const REGISTRATION_FEATURES = Object.freeze([
   'registration.v1',
   'activity.v1',
+  'desktop.v1',
   'files.v1',
   'process.v1',
+  'streams.v1',
 ]);
 const MAX_COMMAND_BYTES = 1024 * 1024;
 const MAX_FILE_BYTES = 1024 * 1024;
 const MAX_PROCESS_OUTPUT_BYTES = 1024 * 1024;
 const MAX_REPLAY_ENTRIES = 128;
+const STREAM_CHUNK_BYTES = 48 * 1024;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 const LOWER_GIT_REVISION = /^[0-9a-f]{40}$/;
 const IMMUTABLE_IMAGE = /^[^\s@]+@sha256:[0-9a-f]{64}$/;
@@ -301,7 +305,18 @@ async function runCompanyProcess(command, config, companyRoot) {
 export function createCommandHandler(config, options = {}) {
   const companyRoot = options.companyRoot ?? '/company';
   const now = options.now ?? (() => new Date());
+  const sendEvent = options.sendEvent ?? (() => {});
+  const connectTcp = options.connectTcp ?? ((port, host) => createConnection({ port, host }));
   const replay = new Map();
+  const streams = new Map();
+  const streamEvent = (type, operationId, fields = {}) => sendEvent({
+    type,
+    protocol_version: PROTOCOL_VERSION,
+    operation_id: operationId,
+    runtime_id: config.runtimeId,
+    runtime_generation: config.runtimeGeneration,
+    ...fields,
+  });
   return async function handle(raw) {
     if (typeof raw !== 'string' || Buffer.byteLength(raw) > MAX_COMMAND_BYTES) {
       throw new Error('Runtime Agent command must be one bounded text frame');
@@ -309,6 +324,34 @@ export function createCommandHandler(config, options = {}) {
     const digest = createHash('sha256').update(raw).digest('hex');
     const command = JSON.parse(raw);
     validateCommon(command, config);
+    if (command.type === 'stream.data') {
+      assertExactKeys(command, [
+        'type', 'protocol_version', 'operation_id', 'runtime_id', 'runtime_generation',
+        'bytes_base64',
+      ]);
+      const stream = streams.get(command.operation_id);
+      if (!stream || typeof command.bytes_base64 !== 'string'
+          || !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(command.bytes_base64)) {
+        throw new Error('Runtime Agent stream data is invalid');
+      }
+      const bytes = Buffer.from(command.bytes_base64, 'base64');
+      if (bytes.length < 1 || bytes.length > STREAM_CHUNK_BYTES
+          || bytes.toString('base64') !== command.bytes_base64) {
+        throw new Error('Runtime Agent stream data exceeds its bound');
+      }
+      stream.write(bytes);
+      return null;
+    }
+    if (command.type === 'stream.close') {
+      assertExactKeys(command, [
+        'type', 'protocol_version', 'operation_id', 'runtime_id', 'runtime_generation',
+      ]);
+      const stream = streams.get(command.operation_id);
+      if (!stream) throw new Error('Runtime Agent stream is not active');
+      streams.delete(command.operation_id);
+      stream.end();
+      return null;
+    }
     const previous = replay.get(command.operation_id);
     if (previous) {
       if (previous.digest !== digest) throw new Error('Runtime Agent operation replay changed shape');
@@ -331,6 +374,76 @@ export function createCommandHandler(config, options = {}) {
       response = await readCompanyFile(command, config, companyRoot);
     } else if (command.type === 'process.run') {
       response = await runCompanyProcess(command, config, companyRoot);
+    } else if (command.type === 'desktop.probe') {
+      assertExactKeys(command, [
+        'type', 'protocol_version', 'operation_id', 'runtime_id', 'runtime_generation',
+      ]);
+      const stream = connectTcp(6080, '127.0.0.1');
+      await new Promise((resolvePromise, reject) => {
+        const opened = () => { clean(); stream.destroy(); resolvePromise(); };
+        const failed = () => { clean(); reject(new Error('Runtime Agent desktop is unavailable')); };
+        const clean = () => {
+          stream.removeListener('connect', opened);
+          stream.removeListener('error', failed);
+        };
+        stream.once('connect', opened);
+        stream.once('error', failed);
+      });
+      response = {
+        type: 'desktop.result',
+        operation_id: command.operation_id,
+        runtime_id: config.runtimeId,
+        runtime_generation: config.runtimeGeneration,
+        status: 'available',
+        host: '127.0.0.1',
+        port: 6080,
+      };
+    } else if (command.type === 'stream.open') {
+      assertExactKeys(command, [
+        'type', 'protocol_version', 'operation_id', 'runtime_id', 'runtime_generation',
+        'host', 'port',
+      ]);
+      if (command.host !== '127.0.0.1' || !Number.isSafeInteger(command.port)
+          || command.port < 1 || command.port > 65535) {
+        throw new Error('Runtime Agent stream target must be bounded loopback TCP');
+      }
+      const stream = connectTcp(command.port, command.host);
+      await new Promise((resolvePromise, reject) => {
+        const opened = () => { clean(); resolvePromise(); };
+        const failed = () => { clean(); reject(new Error('Runtime Agent TCP stream failed to open')); };
+        const clean = () => {
+          stream.removeListener('connect', opened);
+          stream.removeListener('error', failed);
+        };
+        stream.once('connect', opened);
+        stream.once('error', failed);
+      });
+      stream.pause();
+      streams.set(command.operation_id, stream);
+      stream.on('data', (bytes) => {
+        for (let offset = 0; offset < bytes.length; offset += STREAM_CHUNK_BYTES) {
+          streamEvent('stream.data', command.operation_id, {
+            bytes_base64: bytes.subarray(offset, offset + STREAM_CHUNK_BYTES).toString('base64'),
+          });
+        }
+      });
+      stream.once('end', () => {
+        streams.delete(command.operation_id);
+        streamEvent('stream.end', command.operation_id);
+      });
+      stream.once('error', () => {
+        streams.delete(command.operation_id);
+        streamEvent('stream.error', command.operation_id, { code: 'runtime_tcp_error' });
+      });
+      setImmediate(() => stream.resume());
+      response = {
+        type: 'stream.opened',
+        operation_id: command.operation_id,
+        runtime_id: config.runtimeId,
+        runtime_generation: config.runtimeGeneration,
+        host: command.host,
+        port: command.port,
+      };
     } else {
       throw new Error('Runtime Agent command type is not implemented');
     }
@@ -364,7 +477,8 @@ function serveCommands(socket, config, signal) {
     const message = async (event) => {
       try {
         validateBoundedCommand(event.data);
-        socket.send(JSON.stringify(await handle(event.data)));
+        const response = await handle(event.data);
+        if (response) socket.send(JSON.stringify(response));
       } catch {
         socket.close(1008, 'invalid command');
       }
