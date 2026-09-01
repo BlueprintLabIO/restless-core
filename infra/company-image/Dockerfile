@@ -11,13 +11,13 @@
 
 # The coordination CLI (T10): the agents' channel to layer 2, built from this
 # workspace so the binary in the image always matches the source in the tree.
-FROM rust:1-bookworm AS cli
+FROM rust:1-trixie AS cli
 WORKDIR /src
 COPY Cargo.toml Cargo.lock ./
 COPY crates ./crates
 RUN cargo build --release -p restless
 
-FROM node:24-bookworm-slim
+FROM node:24-trixie-slim
 
 ENV DEBIAN_FRONTEND=noninteractive
 
@@ -71,8 +71,8 @@ ENV RESTLESS_CORE_VERSION=${RESTLESS_CORE_VERSION} \
 # cannot parse it. BUN_INSTALL is a system path so the unprivileged `company`
 # user can execute what root installed.
 ENV BUN_INSTALL=/usr/local/bun
-RUN npm install -g bun@1.3.14 \
-    && bun install -g @oh-my-pi/pi-coding-agent@18.0.10 \
+RUN npm install -g bun@1.4.0 \
+    && bun install -g @oh-my-pi/pi-coding-agent@18.0.11 \
     && ln -sf ${BUN_INSTALL}/bin/omp /usr/local/bin/omp \
     && chmod -R a+rX ${BUN_INSTALL} \
     && npm cache clean --force
@@ -82,7 +82,7 @@ RUN npm install -g bun@1.3.14 \
 # separately supported ACP backend. Pinning the CLI makes thread, event,
 # approval and usage semantics part of the company-image contract rather than
 # whatever npm happens to publish on rebuild day.
-ARG CODEX_CLI_VERSION=0.151.0
+ARG CODEX_CLI_VERSION=0.152.0
 RUN npm install -g "@openai/codex@${CODEX_CLI_VERSION}" \
     && test "$(codex --version)" = "codex-cli ${CODEX_CLI_VERSION}" \
     && npm cache clean --force
@@ -103,7 +103,7 @@ RUN npm install -g "@openai/codex@${CODEX_CLI_VERSION}" \
 #    at runtime leaves the company user still on whatever it had.
 ENV COREPACK_ENABLE_DOWNLOAD_PROMPT=0
 RUN corepack enable pnpm \
-    && corepack prepare pnpm@10.18.0 --activate \
+    && corepack prepare pnpm@10.34.5 --activate \
     && pnpm --version
 
 # An ordinary open-source CLI, not a Restless provider adapter. Authority

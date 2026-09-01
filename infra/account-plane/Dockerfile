@@ -13,7 +13,7 @@
 # computer with a desktop, browser and toolchain; this one runs a single
 # credential-holding service and should stay as small as its job.
 
-FROM rust:1-bookworm AS build
+FROM rust:1-trixie AS build
 WORKDIR /src
 COPY Cargo.toml Cargo.lock ./
 COPY crates ./crates
@@ -29,7 +29,7 @@ ARG SOURCE_REVISION=""
 ENV RESTLESS_SOURCE_REVISION=${SOURCE_REVISION}
 RUN cargo build --release -p restlessd
 
-FROM node:24-bookworm-slim
+FROM node:24-trixie-slim
 ENV DEBIAN_FRONTEND=noninteractive
 
 # ca-certificates for provider TLS; curl so the image can probe its own health
@@ -46,10 +46,10 @@ RUN apt-get update \
 # a configured company has a model route. Keep that host-side dependency here,
 # not in the credential-free Runtime. Its profile lives below the plane's
 # persistent state mount so OAuth and broker identity survive plane restarts.
-ARG OMP_VERSION=18.0.10
+ARG OMP_VERSION=18.0.11
 ENV BUN_INSTALL=/usr/local/bun \
     HOME=/state/authority-home
-RUN npm install -g bun@1.3.14 \
+RUN npm install -g bun@1.4.0 \
     && bun install -g "@oh-my-pi/pi-coding-agent@${OMP_VERSION}" \
     && ln -sf ${BUN_INSTALL}/bin/omp /usr/local/bin/omp \
     && chmod -R a+rX ${BUN_INSTALL} \
