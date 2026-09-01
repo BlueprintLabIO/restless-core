@@ -50,10 +50,11 @@ ARG OMP_VERSION=18.0.11
 ENV BUN_INSTALL=/usr/local/bun \
     HOME=/state/authority-home
 RUN npm install -g bun@1.4.0 \
-    && bun install -g "@oh-my-pi/pi-coding-agent@${OMP_VERSION}" \
+    && bun install -g --omit=optional "@oh-my-pi/pi-coding-agent@${OMP_VERSION}" \
     && ln -sf ${BUN_INSTALL}/bin/omp /usr/local/bin/omp \
     && chmod -R a+rX ${BUN_INSTALL} \
     && npm cache clean --force \
+    && rm -rf /usr/local/lib/node_modules/npm /usr/local/bin/npm /usr/local/bin/npx \
     && omp --version
 
 COPY --from=build /src/target/release/restlessd /usr/local/bin/restlessd

@@ -1,0 +1,26 @@
+# Release scans retain every unignored finding in their immutable evidence.
+# These narrow exceptions cover vulnerable packages bundled by the released
+# npm CLI itself. The fixed transitive versions exist, but no npm release yet
+# consumes them; forcing incompatible dependency majors would corrupt the
+# company development toolchain. Re-review or delete these rules by 2026-10-01.
+ignore:
+  - vulnerability: GHSA-rgw5-rvv9-x895
+    package:
+      name: brace-expansion
+      type: npm
+    reason: "Temporary npm CLI transitive exception; expires 2026-10-01"
+  - vulnerability: GHSA-mh99-v99m-4gvg
+    package:
+      name: brace-expansion
+      type: npm
+    reason: "Temporary npm CLI transitive exception; expires 2026-10-01"
+  - vulnerability: GHSA-r292-9mhp-454m
+    package:
+      name: tar
+      type: npm
+    reason: "Temporary npm CLI transitive exception; expires 2026-10-01"
+  - vulnerability: GHSA-mwp4-54f8-5fhr
+    package:
+      name: ip-address
+      type: npm
+    reason: "Temporary npm CLI transitive exception; expires 2026-10-01"

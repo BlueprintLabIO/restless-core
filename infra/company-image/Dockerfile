@@ -72,7 +72,7 @@ ENV RESTLESS_CORE_VERSION=${RESTLESS_CORE_VERSION} \
 # user can execute what root installed.
 ENV BUN_INSTALL=/usr/local/bun
 RUN npm install -g bun@1.4.0 \
-    && bun install -g @oh-my-pi/pi-coding-agent@18.0.11 \
+    && bun install -g --omit=optional @oh-my-pi/pi-coding-agent@18.0.11 \
     && ln -sf ${BUN_INSTALL}/bin/omp /usr/local/bin/omp \
     && chmod -R a+rX ${BUN_INSTALL} \
     && npm cache clean --force
