@@ -46,19 +46,14 @@ RUN apt-get update \
 # a configured company has a model route. Keep that host-side dependency here,
 # not in the credential-free Runtime. Its profile lives below the plane's
 # persistent state mount so OAuth and broker identity survive plane restarts.
-ARG OMP_VERSION=18.0.11
-ARG TARGETARCH
 ENV BUN_INSTALL=/usr/local/bun \
     HOME=/state/authority-home
+COPY infra/account-plane/omp /opt/restless/omp
 RUN npm install -g bun@1.4.0 \
-    && case "${TARGETARCH}" in \
-         amd64) OMP_NATIVE="@oh-my-pi/pi-natives-linux-x64@${OMP_VERSION}" ;; \
-         arm64) OMP_NATIVE="@oh-my-pi/pi-natives-linux-arm64@${OMP_VERSION}" ;; \
-         *) echo "unsupported OMP architecture: ${TARGETARCH}" >&2; exit 1 ;; \
-       esac \
-    && bun install -g --omit=optional "@oh-my-pi/pi-coding-agent@${OMP_VERSION}" "${OMP_NATIVE}" \
-    && ln -sf ${BUN_INSTALL}/bin/omp /usr/local/bin/omp \
-    && chmod -R a+rX ${BUN_INSTALL} \
+    && cd /opt/restless/omp \
+    && bun install --frozen-lockfile --production --omit=optional \
+    && ln -sf /opt/restless/omp/node_modules/.bin/omp /usr/local/bin/omp \
+    && chmod -R a+rX /opt/restless/omp \
     && npm cache clean --force \
     && rm -rf /usr/local/lib/node_modules/npm /usr/local/bin/npm /usr/local/bin/npx \
     && omp --version
