@@ -981,6 +981,10 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
         )
         .route("/internal/v1/runtime-bridge", get(open_runtime_bridge))
         .route(
+            "/internal/v1/companies/bootstrap",
+            post(bootstrap_hosted_company),
+        )
+        .route(
             "/internal/v1/runtime-bridge/bootstrap",
             post(issue_runtime_bridge_bootstrap),
         )
@@ -1036,6 +1040,7 @@ async fn enforce_owner_boundary(
     if (request.uri().path().starts_with("/internal/v1/planes/")
         && request.uri().path().ends_with("/readiness"))
         || request.uri().path() == "/internal/v1/runtime-bridge"
+        || request.uri().path() == "/internal/v1/companies/bootstrap"
         || request.uri().path() == "/internal/v1/runtime-bridge/bootstrap"
         || (request.uri().path().starts_with("/v1/cells/")
             && request.uri().path().ends_with("/ready"))
@@ -1252,6 +1257,137 @@ struct RuntimeBridgeBootstrapRequest {
     runtime_image: String,
     volume_name: String,
     source_revision: String,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct HostedCompanyBootstrapRequest {
+    contract_version: u32,
+    owner_id: Uuid,
+    plane_id: Uuid,
+    company_id: Uuid,
+    cell_id: Uuid,
+    model: String,
+    reasoning_effort: String,
+}
+
+async fn bootstrap_hosted_company(
+    State(state): State<OwnerState>,
+    headers: HeaderMap,
+    Json(request): Json<HostedCompanyBootstrapRequest>,
+) -> Response<Body> {
+    let Some(plane) = &state.plane_readiness else {
+        return api_error(
+            StatusCode::NOT_FOUND,
+            "company_bootstrap_unavailable",
+            "company bootstrap is available only in configured network mode",
+        );
+    };
+    if headers.contains_key(ORIGIN)
+        || headers.contains_key(COOKIE)
+        || !readiness_token_matches(&headers, &plane.runtime_bootstrap_token)
+    {
+        return api_error(
+            StatusCode::UNAUTHORIZED,
+            "company_bootstrap_unauthorized",
+            "the dedicated Runtime bootstrap credential is required",
+        );
+    }
+    if request.contract_version != 1
+        || request.owner_id != plane.owner_id
+        || request.plane_id != plane.plane_id
+        || request.company_id.is_nil()
+        || request.cell_id.is_nil()
+        || request.model.is_empty()
+        || request.model.len() > 160
+        || !matches!(
+            request.reasoning_effort.as_str(),
+            "none" | "low" | "medium" | "high" | "xhigh" | "max" | "ultra"
+        )
+    {
+        return api_error(
+            StatusCode::CONFLICT,
+            "company_bootstrap_identity_mismatch",
+            "the bootstrap request does not name an exact company on this plane",
+        );
+    }
+    let company = request.company_id.hyphenated().to_string();
+    match runtime::CompanyConfig::load(&state.daemon.root, &company) {
+        Ok(existing)
+            if existing.model == request.model
+                && existing.reasoning_effort == request.reasoning_effort => {}
+        Ok(_) => {
+            return api_error(
+                StatusCode::CONFLICT,
+                "company_bootstrap_configuration_mismatch",
+                "the company already exists with a different immutable bootstrap configuration",
+            );
+        }
+        Err(_) => {
+            let config = runtime::CompanyConfig {
+                name: company.clone(),
+                mission: String::new(),
+                spend_ceiling_usd: runtime::SpendCeiling::from_micro_usd(10_000_000),
+                model: request.model.clone(),
+                worker_runtime: Default::default(),
+                reasoning_effort: request.reasoning_effort.clone(),
+                model_failover: Vec::new(),
+                credentials: Default::default(),
+                approved_parties: Vec::new(),
+            };
+            if runtime::CompanyConfig::save(&state.daemon.root, &config).is_err() {
+                return api_error(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "company_bootstrap_config_failed",
+                    "the account plane could not persist the company configuration",
+                );
+            }
+        }
+    }
+    if state
+        .daemon
+        .authority
+        .initialise_company(&company, &[])
+        .await
+        .is_err()
+    {
+        return api_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "company_bootstrap_authority_failed",
+            "the account plane could not initialise company Authority",
+        );
+    }
+    let org = match state.daemon.orgintel.get(&company).await {
+        Ok(org) => org,
+        Err(_) => {
+            return api_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "company_bootstrap_org_failed",
+                "the account plane could not initialise company organisation state",
+            );
+        }
+    };
+    if crate::ensure_standing_actors(&org, Some(&request.model))
+        .await
+        .is_err()
+    {
+        return api_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "company_bootstrap_actors_failed",
+            "the account plane could not initialise standing actors",
+        );
+    }
+    Json(serde_json::json!({
+        "contract_version": 1,
+        "owner_id": request.owner_id,
+        "plane_id": request.plane_id,
+        "company_id": request.company_id,
+        "cell_id": request.cell_id,
+        "model": request.model,
+        "reasoning_effort": request.reasoning_effort,
+        "status": "ready",
+    }))
+    .into_response()
 }
 
 async fn issue_runtime_bridge_bootstrap(

@@ -211,7 +211,7 @@ impl OrgIntelRegistry {
 /// first conversation or wake. Keeping that lifecycle fact here prevents a
 /// freshly created company from presenting an empty People surface or making
 /// its first staff creation depend on an unrelated `tell` command.
-async fn ensure_standing_actors(org: &OrgIntel, model: Option<&str>) -> Result<()> {
+pub(crate) async fn ensure_standing_actors(org: &OrgIntel, model: Option<&str>) -> Result<()> {
     org.ensure_actor("owner", "owner", "owner", "The Owner")
         .await
         .context("ensure standing Owner")?;
