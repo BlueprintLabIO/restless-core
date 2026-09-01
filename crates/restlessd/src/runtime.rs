@@ -514,17 +514,20 @@ fn move_archived_config_to_active(root: &Path, company: &str) -> Result<()> {
 }
 
 pub(crate) fn validate_company_name(name: &str) -> Result<()> {
-    if name.is_empty()
-        || name.len() > 63
-        || !name.bytes().enumerate().all(|(index, byte)| {
+    let legacy_name = !name.is_empty()
+        && name.len() <= 63
+        && name.bytes().enumerate().all(|(index, byte)| {
             if index == 0 {
                 byte.is_ascii_lowercase()
             } else {
                 byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'_'
             }
-        })
-    {
-        bail!("invalid company name {name:?}: use lowercase letters, digits or underscores, starting with a letter");
+        });
+    let hosted_company_id = Uuid::parse_str(name).is_ok_and(|company_id| {
+        !company_id.is_nil() && company_id.hyphenated().to_string() == name
+    });
+    if !legacy_name && !hosted_company_id {
+        bail!("invalid company name {name:?}: use a canonical lowercase non-nil UUID for hosted companies, or lowercase letters, digits or underscores starting with a letter for a local company");
     }
     Ok(())
 }
@@ -2006,9 +2009,27 @@ pub fn state_root() -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::{
-        is_immutable_image_digest, resolve_company_image, resolve_resource_bound, COMPANY_IMAGE,
-        DEFAULT_CPUS, DEFAULT_MEMORY, DEFAULT_PIDS_LIMIT,
+        is_immutable_image_digest, resolve_company_image, resolve_resource_bound,
+        validate_company_name, COMPANY_IMAGE, DEFAULT_CPUS, DEFAULT_MEMORY, DEFAULT_PIDS_LIMIT,
     };
+
+    #[test]
+    fn hosted_company_identity_is_the_canonical_fleet_uuid() {
+        assert!(validate_company_name("0f887366-9dfa-4d20-94f1-1fd2052e7161").is_ok());
+        assert!(validate_company_name("local_company_2").is_ok());
+        for invalid in [
+            "00000000-0000-0000-0000-000000000000",
+            "0F887366-9DFA-4D20-94F1-1FD2052E7161",
+            "0f8873669dfa4d2094f11fd2052e7161",
+            "hosted-company",
+            "2legacy",
+        ] {
+            assert!(
+                validate_company_name(invalid).is_err(),
+                "accepted non-canonical hosted company identity {invalid:?}"
+            );
+        }
+    }
 
     #[test]
     fn hosted_runtime_reference_accepts_only_an_exact_oci_digest() {
