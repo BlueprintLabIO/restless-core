@@ -1447,13 +1447,13 @@ mod tests {
         remove.await.unwrap().unwrap();
 
         client.close(None).await.unwrap();
-        for _ in 0..20 {
-            if registry.observe(&company).is_none() {
-                break;
+        tokio::time::timeout(std::time::Duration::from_secs(1), async {
+            while registry.observe(&company).is_some() {
+                tokio::time::sleep(std::time::Duration::from_millis(5)).await;
             }
-            tokio::task::yield_now().await;
-        }
-        assert!(registry.observe(&company).is_none());
+        })
+        .await
+        .expect("closed Runtime Bridge registration was removed");
         server.abort();
     }
 }
