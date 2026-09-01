@@ -1353,7 +1353,7 @@ async fn observe_cell_readiness(
     }) {
         state
             .runtime_bridges
-            .probe_activity(request.cell_id)
+            .probe_readiness(request.cell_id)
             .await
             .is_ok()
     } else {

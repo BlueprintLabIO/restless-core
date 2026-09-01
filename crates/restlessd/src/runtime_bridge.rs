@@ -115,10 +115,8 @@ struct AgentResponse {
     operation_id: Uuid,
     runtime_id: String,
     runtime_generation: u64,
-    #[serde(default)]
-    active_processes: Option<Vec<serde_json::Value>>,
-    #[serde(default)]
-    observed_at: Option<DateTime<Utc>>,
+    #[serde(flatten)]
+    body: HashMap<String, serde_json::Value>,
 }
 
 struct ConnectionGuard {
@@ -234,7 +232,10 @@ impl Registry {
                             }
                             let response: AgentResponse = serde_json::from_str(&raw)
                                 .context("decode Runtime Bridge response")?;
-                            if !matches!(response.kind.as_str(), "activity.result" | "error") {
+                            if !matches!(
+                                response.kind.as_str(),
+                                "activity.result" | "file.result" | "process.result" | "error"
+                            ) {
                                 bail!("Runtime Bridge response kind is not implemented");
                             }
                             let sender = pending
@@ -273,24 +274,58 @@ impl Registry {
             .map(|active| active.observation.clone())
     }
 
-    pub(crate) async fn probe_activity(&self, cell_id: Uuid) -> Result<()> {
-        let active = self
-            .entries
+    fn active_for_cell(&self, cell_id: Uuid) -> Result<ActiveConnection> {
+        self.entries
             .lock()
             .expect("Runtime Bridge registry")
             .values()
             .find(|active| active.observation.cell_id == cell_id)
             .cloned()
-            .context("Runtime Bridge is not connected")?;
+            .context("Runtime Bridge is not connected")
+    }
+
+    async fn request(
+        &self,
+        active: &ActiveConnection,
+        feature: &str,
+        kind: &str,
+        fields: serde_json::Value,
+    ) -> Result<AgentResponse> {
         if !active
             .observation
             .supported_features
             .iter()
-            .any(|feature| feature == "activity.v1")
+            .any(|candidate| candidate == feature)
         {
-            bail!("Runtime Bridge does not implement activity.v1");
+            bail!("Runtime Bridge does not implement the requested feature");
         }
+        let Some(fields) = fields.as_object() else {
+            bail!("Runtime Bridge command fields must be an object");
+        };
         let operation_id = Uuid::new_v4();
+        let mut command = fields.clone();
+        command.insert("type".into(), serde_json::json!(kind));
+        command.insert(
+            "protocol_version".into(),
+            serde_json::json!(PROTOCOL_VERSION),
+        );
+        command.insert("operation_id".into(), serde_json::json!(operation_id));
+        command.insert(
+            "runtime_id".into(),
+            serde_json::json!(active.observation.runtime_id),
+        );
+        command.insert(
+            "runtime_generation".into(),
+            serde_json::json!(active.observation.runtime_generation),
+        );
+        let active = self
+            .entries
+            .lock()
+            .expect("Runtime Bridge registry")
+            .get(&active.observation.company)
+            .filter(|current| current.connection_id == active.connection_id)
+            .cloned()
+            .context("Runtime Bridge connection changed before command dispatch")?;
         let (sender, receiver) = oneshot::channel();
         if active
             .pending
@@ -301,14 +336,12 @@ impl Registry {
         {
             bail!("Runtime Bridge operation identity collision");
         }
-        let command = serde_json::json!({
-            "type": "activity.observe",
-            "protocol_version": PROTOCOL_VERSION,
-            "operation_id": operation_id,
-            "runtime_id": active.observation.runtime_id,
-            "runtime_generation": active.observation.runtime_generation,
-        });
-        if active.outbound.send(command.to_string()).await.is_err() {
+        if active
+            .outbound
+            .send(serde_json::Value::Object(command).to_string())
+            .await
+            .is_err()
+        {
             active
                 .pending
                 .lock()
@@ -327,16 +360,106 @@ impl Registry {
                 bail!("Runtime Bridge activity probe timed out");
             }
         };
-        if response.kind != "activity.result"
-            || response.runtime_id != active.observation.runtime_id
+        if response.runtime_id != active.observation.runtime_id
             || response.runtime_generation != active.observation.runtime_generation
-            || response.active_processes.is_none()
-            || response.observed_at.is_none_or(|observed_at| {
-                let age = Utc::now().signed_duration_since(observed_at);
-                age.num_seconds() < -5 || age.num_seconds() > 5
-            })
         {
-            bail!("Runtime Bridge activity response does not match the active Runtime");
+            bail!("Runtime Bridge response does not match the active Runtime");
+        }
+        Ok(response)
+    }
+
+    pub(crate) async fn probe_readiness(&self, cell_id: Uuid) -> Result<()> {
+        let active = self.active_for_cell(cell_id)?;
+        let activity = self
+            .request(
+                &active,
+                "activity.v1",
+                "activity.observe",
+                serde_json::json!({}),
+            )
+            .await?;
+        let observed_at = activity
+            .body
+            .get("observed_at")
+            .and_then(serde_json::Value::as_str)
+            .and_then(|value| value.parse::<DateTime<Utc>>().ok())
+            .context("Runtime Bridge activity response lacks observed_at")?;
+        let age = Utc::now().signed_duration_since(observed_at);
+        if activity.kind != "activity.result"
+            || !activity
+                .body
+                .get("active_processes")
+                .is_some_and(serde_json::Value::is_array)
+            || age.num_seconds() < -5
+            || age.num_seconds() > 5
+        {
+            bail!("Runtime Bridge activity response is invalid or stale");
+        }
+
+        if active
+            .observation
+            .supported_features
+            .iter()
+            .any(|feature| feature == "files.v1")
+        {
+            let file = self
+                .request(
+                    &active,
+                    "files.v1",
+                    "file.read",
+                    serde_json::json!({"path":"/company/mission.md","max_bytes":4096}),
+                )
+                .await?;
+            if file.kind != "file.result"
+                || file.body.get("path").and_then(serde_json::Value::as_str)
+                    != Some("/company/mission.md")
+                || !file
+                    .body
+                    .get("sha256")
+                    .and_then(serde_json::Value::as_str)
+                    .is_some_and(|digest| {
+                        digest.len() == 64 && digest.bytes().all(|byte| byte.is_ascii_hexdigit())
+                    })
+            {
+                bail!("Runtime Bridge file probe is invalid");
+            }
+        }
+
+        if active
+            .observation
+            .supported_features
+            .iter()
+            .any(|feature| feature == "process.v1")
+        {
+            let process = self
+                .request(
+                    &active,
+                    "process.v1",
+                    "process.run",
+                    serde_json::json!({
+                        "program":"/usr/bin/true",
+                        "args":[],
+                        "cwd":"/company",
+                        "environment":{},
+                        "timeout_ms":1000,
+                        "max_output_bytes":1024
+                    }),
+                )
+                .await?;
+            if process.kind != "process.result"
+                || process
+                    .body
+                    .get("exit_code")
+                    .and_then(serde_json::Value::as_i64)
+                    != Some(0)
+                || process
+                    .body
+                    .get("timed_out")
+                    .and_then(serde_json::Value::as_bool)
+                    != Some(false)
+            {
+                bail!("Runtime Bridge process probe is invalid");
+            }
         }
         Ok(())
     }
@@ -563,7 +686,8 @@ mod tests {
 
     #[tokio::test]
     async fn outbound_websocket_registration_is_observed_and_disconnect_is_removed() {
-        let (_root, issuer, scope, registration) = fixture();
+        let (_root, issuer, scope, mut registration) = fixture();
+        registration.supported_features = vec!["registration.v1".into(), "activity.v1".into()];
         let registry = Registry::default();
         let app = Router::new()
             .route("/bridge", get(bridge))
@@ -597,7 +721,7 @@ mod tests {
 
         let probe_registry = registry.clone();
         let cell_id = registration.cell_id;
-        let probe = tokio::spawn(async move { probe_registry.probe_activity(cell_id).await });
+        let probe = tokio::spawn(async move { probe_registry.probe_readiness(cell_id).await });
         let command = client.next().await.unwrap().unwrap().into_text().unwrap();
         let command: serde_json::Value = serde_json::from_str(&command).unwrap();
         assert_eq!(command["type"], "activity.observe");

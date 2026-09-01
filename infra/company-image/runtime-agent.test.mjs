@@ -1,10 +1,12 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 
-import { buildRegistration, handleCommand, parseConfiguration } from './runtime-agent.mjs';
+import {
+  buildRegistration, createCommandHandler, handleCommand, parseConfiguration,
+} from './runtime-agent.mjs';
 
 const UUIDS = [1, 2, 3, 4].map((value) => `00000000-0000-4000-8000-${String(value).padStart(12, '0')}`);
 function environment(capabilityFile) {
@@ -33,14 +35,16 @@ test('registration carries exact immutable identity and only implemented feature
   assert.equal(registration.protocol_version, 1);
   assert.equal(registration.runtime_generation, 2);
   assert.equal(registration.desired_revision, 3);
-  assert.deepEqual(registration.supported_features, ['registration.v1', 'activity.v1']);
+  assert.deepEqual(registration.supported_features, [
+    'registration.v1', 'activity.v1', 'files.v1', 'process.v1',
+  ]);
   assert.equal(registration.capability, 'r1.payload.signature');
 });
 
-test('activity probe is exact, bounded and tied to the active Runtime generation', () => {
+test('activity probe is exact, bounded and tied to the active Runtime generation', async () => {
   const config = parseConfiguration(environment('/run/secrets/bridge.cap'));
   const operationId = '00000000-0000-4000-8000-000000000099';
-  const response = handleCommand(JSON.stringify({
+  const response = await handleCommand(JSON.stringify({
     type: 'activity.observe',
     protocol_version: 1,
     operation_id: operationId,
@@ -55,13 +59,56 @@ test('activity probe is exact, bounded and tied to the active Runtime generation
     active_processes: [],
     observed_at: '2026-09-01T00:00:00.000Z',
   });
-  assert.throws(() => handleCommand(JSON.stringify({
+  await assert.rejects(() => handleCommand(JSON.stringify({
     type: 'activity.observe',
     protocol_version: 1,
     operation_id: operationId,
     runtime_id: 'runtime-1',
     runtime_generation: 1,
   }), config));
+});
+
+test('file reads stay beneath the company volume and return bounded evidence', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'restless-runtime-files-'));
+  await writeFile(join(root, 'mission.md'), 'Ship useful work.\n');
+  await symlink('/etc/passwd', join(root, 'escape'));
+  const config = parseConfiguration(environment('/run/secrets/bridge.cap'));
+  const handle = createCommandHandler(config, { companyRoot: root });
+  const base = {
+    type: 'file.read', protocol_version: 1,
+    operation_id: '00000000-0000-4000-8000-000000000101',
+    runtime_id: 'runtime-1', runtime_generation: 2,
+    path: '/company/mission.md', max_bytes: 4096,
+  };
+  const response = await handle(JSON.stringify(base));
+  assert.equal(response.type, 'file.result');
+  assert.equal(Buffer.from(response.bytes_base64, 'base64').toString(), 'Ship useful work.\n');
+  assert.match(response.sha256, /^[0-9a-f]{64}$/);
+  await assert.rejects(() => handle(JSON.stringify({
+    ...base, operation_id: '00000000-0000-4000-8000-000000000102', path: '/company/escape',
+  })), /escapes/);
+});
+
+test('process execution has no shell, is bounded, and replays idempotently', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'restless-runtime-process-'));
+  await mkdir(join(root, 'work'));
+  const config = parseConfiguration(environment('/run/secrets/bridge.cap'));
+  const handle = createCommandHandler(config, { companyRoot: root });
+  const command = JSON.stringify({
+    type: 'process.run', protocol_version: 1,
+    operation_id: '00000000-0000-4000-8000-000000000201',
+    runtime_id: 'runtime-1', runtime_generation: 2,
+    program: '/usr/bin/true', args: [], cwd: '/company/work', environment: {},
+    timeout_ms: 1000, max_output_bytes: 1024,
+  });
+  const first = await handle(command);
+  const replay = await handle(command);
+  assert.deepEqual(first, replay);
+  assert.equal(first.exit_code, 0);
+  assert.equal(first.timed_out, false);
+  await assert.rejects(() => handle(JSON.stringify({
+    ...JSON.parse(command), program: '/usr/bin/false',
+  })), /replay changed shape/);
 });
 
 test('configuration refuses mutable images, plaintext remote transport and ambiguous URLs', () => {

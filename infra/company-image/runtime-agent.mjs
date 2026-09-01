@@ -1,11 +1,23 @@
 #!/usr/bin/env node
 
 import { constants as fsConstants } from 'node:fs';
-import { access, readFile } from 'node:fs/promises';
+import { spawn } from 'node:child_process';
+import { createHash } from 'node:crypto';
+import { access, readFile, realpath } from 'node:fs/promises';
+import { isAbsolute, relative, resolve, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 export const PROTOCOL_VERSION = 1;
-export const REGISTRATION_FEATURES = Object.freeze(['registration.v1', 'activity.v1']);
+export const REGISTRATION_FEATURES = Object.freeze([
+  'registration.v1',
+  'activity.v1',
+  'files.v1',
+  'process.v1',
+]);
+const MAX_COMMAND_BYTES = 1024 * 1024;
+const MAX_FILE_BYTES = 1024 * 1024;
+const MAX_PROCESS_OUTPUT_BYTES = 1024 * 1024;
+const MAX_REPLAY_ENTRIES = 128;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 const LOWER_GIT_REVISION = /^[0-9a-f]{40}$/;
 const IMMUTABLE_IMAGE = /^[^\s@]+@sha256:[0-9a-f]{64}$/;
@@ -161,32 +173,186 @@ function waitForRegistration(socket, registration, signal) {
   });
 }
 
-export function handleCommand(raw, config, observedAt = new Date()) {
-  if (typeof raw !== 'string' || Buffer.byteLength(raw) > 1024 * 1024) {
-    throw new Error('Runtime Agent command must be one bounded text frame');
+function assertExactKeys(value, expected) {
+  const keys = Object.keys(value).sort();
+  if (JSON.stringify(keys) !== JSON.stringify([...expected].sort())) {
+    throw new Error('Runtime Agent command shape is invalid');
   }
-  const command = JSON.parse(raw);
-  const keys = Object.keys(command).sort();
-  const expected = ['operation_id', 'protocol_version', 'runtime_generation', 'runtime_id', 'type'];
-  if (JSON.stringify(keys) !== JSON.stringify(expected)
-      || command.type !== 'activity.observe'
+}
+
+function validateCommon(command, config) {
+  if (!command || typeof command !== 'object' || Array.isArray(command)
       || command.protocol_version !== PROTOCOL_VERSION
       || !UUID.test(command.operation_id)
       || command.runtime_id !== config.runtimeId
       || command.runtime_generation !== config.runtimeGeneration) {
-    throw new Error('Runtime Agent command identity or shape is invalid');
+    throw new Error('Runtime Agent command identity is invalid');
   }
+}
+
+async function confinedPath(companyRoot, requested, mustExist = true) {
+  if (typeof requested !== 'string' || requested.length > 4096
+      || (requested !== '/company' && !requested.startsWith('/company/'))) {
+    throw new Error('Runtime Agent path must be beneath /company');
+  }
+  const root = await realpath(companyRoot);
+  const suffix = requested === '/company' ? '.' : `.${requested.slice('/company'.length)}`;
+  const candidate = resolve(root, suffix);
+  const resolved = mustExist ? await realpath(candidate) : candidate;
+  const escape = relative(root, resolved);
+  if (escape === '..' || escape.startsWith(`..${sep}`) || isAbsolute(escape)) {
+    throw new Error('Runtime Agent path escapes the company volume');
+  }
+  return resolved;
+}
+
+async function readCompanyFile(command, config, companyRoot) {
+  assertExactKeys(command, [
+    'type', 'protocol_version', 'operation_id', 'runtime_id', 'runtime_generation',
+    'path', 'max_bytes',
+  ]);
+  if (!Number.isSafeInteger(command.max_bytes) || command.max_bytes < 1
+      || command.max_bytes > MAX_FILE_BYTES) {
+    throw new Error('Runtime Agent file bound is invalid');
+  }
+  const path = await confinedPath(companyRoot, command.path);
+  const bytes = await readFile(path);
+  if (bytes.length > command.max_bytes) throw new Error('Runtime Agent file exceeds requested bound');
   return {
-    type: 'activity.result',
+    type: 'file.result',
     operation_id: command.operation_id,
     runtime_id: config.runtimeId,
     runtime_generation: config.runtimeGeneration,
-    active_processes: [],
-    observed_at: observedAt.toISOString(),
+    path: command.path,
+    bytes_base64: bytes.toString('base64'),
+    sha256: createHash('sha256').update(bytes).digest('hex'),
   };
 }
 
+async function runCompanyProcess(command, config, companyRoot) {
+  assertExactKeys(command, [
+    'type', 'protocol_version', 'operation_id', 'runtime_id', 'runtime_generation',
+    'program', 'args', 'cwd', 'environment', 'timeout_ms', 'max_output_bytes',
+  ]);
+  if (typeof command.program !== 'string' || !isAbsolute(command.program)
+      || !Array.isArray(command.args) || command.args.length > 128
+      || command.args.some((value) => typeof value !== 'string' || value.length > 4096)
+      || !command.environment || typeof command.environment !== 'object'
+      || Array.isArray(command.environment) || Object.keys(command.environment).length > 128
+      || Object.entries(command.environment).some(([key, value]) => !/^[A-Za-z_][A-Za-z0-9_]*$/.test(key)
+        || typeof value !== 'string' || value.length > 16 * 1024)
+      || !Number.isSafeInteger(command.timeout_ms) || command.timeout_ms < 1
+      || command.timeout_ms > 300_000
+      || !Number.isSafeInteger(command.max_output_bytes) || command.max_output_bytes < 1
+      || command.max_output_bytes > MAX_PROCESS_OUTPUT_BYTES) {
+    throw new Error('Runtime Agent process bounds are invalid');
+  }
+  const cwd = await confinedPath(companyRoot, command.cwd);
+  return new Promise((resolvePromise, reject) => {
+    let timer;
+    const child = spawn(command.program, command.args, {
+      cwd,
+      env: { ...process.env, ...command.environment },
+      shell: false,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    const stdout = [];
+    const stderr = [];
+    let outputBytes = 0;
+    let timedOut = false;
+    let settled = false;
+    const finish = (error, code = null, signal = null) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      if (error) return reject(error);
+      resolvePromise({
+        type: 'process.result',
+        operation_id: command.operation_id,
+        runtime_id: config.runtimeId,
+        runtime_generation: config.runtimeGeneration,
+        exit_code: code,
+        signal,
+        timed_out: timedOut,
+        stdout_base64: Buffer.concat(stdout).toString('base64'),
+        stderr_base64: Buffer.concat(stderr).toString('base64'),
+      });
+    };
+    const consume = (target) => (chunk) => {
+      outputBytes += chunk.length;
+      if (outputBytes > command.max_output_bytes) {
+        child.kill('SIGKILL');
+        finish(new Error('Runtime Agent process output exceeds requested bound'));
+      } else {
+        target.push(chunk);
+      }
+    };
+    child.stdout.on('data', consume(stdout));
+    child.stderr.on('data', consume(stderr));
+    child.once('error', (error) => finish(error));
+    child.once('close', (code, signal) => finish(null, code, signal));
+    timer = setTimeout(() => {
+      timedOut = true;
+      child.kill('SIGKILL');
+    }, command.timeout_ms);
+  });
+}
+
+export function createCommandHandler(config, options = {}) {
+  const companyRoot = options.companyRoot ?? '/company';
+  const now = options.now ?? (() => new Date());
+  const replay = new Map();
+  return async function handle(raw) {
+    if (typeof raw !== 'string' || Buffer.byteLength(raw) > MAX_COMMAND_BYTES) {
+      throw new Error('Runtime Agent command must be one bounded text frame');
+    }
+    const digest = createHash('sha256').update(raw).digest('hex');
+    const command = JSON.parse(raw);
+    validateCommon(command, config);
+    const previous = replay.get(command.operation_id);
+    if (previous) {
+      if (previous.digest !== digest) throw new Error('Runtime Agent operation replay changed shape');
+      return previous.response;
+    }
+    let response;
+    if (command.type === 'activity.observe') {
+      assertExactKeys(command, [
+        'type', 'protocol_version', 'operation_id', 'runtime_id', 'runtime_generation',
+      ]);
+      response = {
+        type: 'activity.result',
+        operation_id: command.operation_id,
+        runtime_id: config.runtimeId,
+        runtime_generation: config.runtimeGeneration,
+        active_processes: [],
+        observed_at: now().toISOString(),
+      };
+    } else if (command.type === 'file.read') {
+      response = await readCompanyFile(command, config, companyRoot);
+    } else if (command.type === 'process.run') {
+      response = await runCompanyProcess(command, config, companyRoot);
+    } else {
+      throw new Error('Runtime Agent command type is not implemented');
+    }
+    replay.set(command.operation_id, { digest, response });
+    if (replay.size > MAX_REPLAY_ENTRIES) replay.delete(replay.keys().next().value);
+    return response;
+  };
+}
+
+export async function handleCommand(raw, config, observedAt = new Date(), options = {}) {
+  return createCommandHandler(config, { ...options, now: () => observedAt })(raw);
+}
+
+/* legacy function boundary retained for the exported test surface */
+function validateBoundedCommand(raw) {
+  if (typeof raw !== 'string' || Buffer.byteLength(raw) > MAX_COMMAND_BYTES) {
+    throw new Error('Runtime Agent command must be one bounded text frame');
+  }
+}
+
 function serveCommands(socket, config, signal) {
+  const handle = createCommandHandler(config);
   return new Promise((resolve) => {
     const clean = () => {
       socket.removeEventListener('message', message);
@@ -195,9 +361,10 @@ function serveCommands(socket, config, signal) {
     };
     const finish = () => { clean(); resolve(); };
     const aborted = () => socket.close(1000, 'shutdown');
-    const message = (event) => {
+    const message = async (event) => {
       try {
-        socket.send(JSON.stringify(handleCommand(event.data, config)));
+        validateBoundedCommand(event.data);
+        socket.send(JSON.stringify(await handle(event.data)));
       } catch {
         socket.close(1008, 'invalid command');
       }
