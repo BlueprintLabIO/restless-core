@@ -2,10 +2,14 @@
 
 import { constants as fsConstants } from 'node:fs';
 import { spawn } from 'node:child_process';
-import { createHash } from 'node:crypto';
-import { access, readFile, realpath } from 'node:fs/promises';
+import { createHash, randomUUID } from 'node:crypto';
+import {
+  access, lstat, mkdir, open, readFile, realpath, rename, rm, writeFile,
+} from 'node:fs/promises';
 import { createConnection } from 'node:net';
-import { isAbsolute, relative, resolve, sep } from 'node:path';
+import {
+  basename, dirname, isAbsolute, join, relative, resolve, sep,
+} from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 export const PROTOCOL_VERSION = 1;
@@ -17,8 +21,8 @@ export const REGISTRATION_FEATURES = Object.freeze([
   'process.v1',
   'streams.v1',
 ]);
-const MAX_COMMAND_BYTES = 1024 * 1024;
-const MAX_FILE_BYTES = 1024 * 1024;
+const MAX_COMMAND_BYTES = 8 * 1024 * 1024;
+const MAX_FILE_BYTES = 5 * 1024 * 1024;
 const MAX_PROCESS_OUTPUT_BYTES = 1024 * 1024;
 const MAX_REPLAY_ENTRIES = 128;
 const STREAM_CHUNK_BYTES = 48 * 1024;
@@ -210,6 +214,58 @@ async function confinedPath(companyRoot, requested, mustExist = true) {
   return resolved;
 }
 
+async function writableCompanyPath(companyRoot, requested) {
+  if (typeof requested !== 'string' || requested.length > 4096
+      || (requested !== '/company' && !requested.startsWith('/company/'))) {
+    throw new Error('Runtime Agent path must be beneath /company');
+  }
+  const root = await realpath(companyRoot);
+  const parts = requested.slice('/company/'.length).split('/');
+  if (requested === '/company' || parts.some((part) => !part || part === '.' || part === '..')) {
+    throw new Error('Runtime Agent write path is invalid');
+  }
+  let parent = root;
+  for (const part of parts.slice(0, -1)) {
+    const next = join(parent, part);
+    try {
+      const metadata = await lstat(next);
+      if (metadata.isSymbolicLink() || !metadata.isDirectory()) {
+        throw new Error('Runtime Agent write parent is not a real directory');
+      }
+    } catch (error) {
+      if (error?.code !== 'ENOENT') throw error;
+      await mkdir(next, { mode: 0o700 });
+    }
+    parent = await realpath(next);
+    const escape = relative(root, parent);
+    if (escape === '..' || escape.startsWith(`..${sep}`) || isAbsolute(escape)) {
+      throw new Error('Runtime Agent write path escapes the company volume');
+    }
+  }
+  const target = join(parent, parts.at(-1));
+  try {
+    const metadata = await lstat(target);
+    if (metadata.isSymbolicLink() || !metadata.isFile()) {
+      throw new Error('Runtime Agent write target is not a regular file');
+    }
+  } catch (error) {
+    if (error?.code !== 'ENOENT') throw error;
+  }
+  return target;
+}
+
+function boundedBase64(value, maximum) {
+  if (typeof value !== 'string'
+      || !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(value)) {
+    throw new Error('Runtime Agent bytes are not canonical base64');
+  }
+  const bytes = Buffer.from(value, 'base64');
+  if (bytes.length > maximum || bytes.toString('base64') !== value) {
+    throw new Error('Runtime Agent bytes exceed their bound');
+  }
+  return bytes;
+}
+
 async function readCompanyFile(command, config, companyRoot) {
   assertExactKeys(command, [
     'type', 'protocol_version', 'operation_id', 'runtime_id', 'runtime_generation',
@@ -230,6 +286,87 @@ async function readCompanyFile(command, config, companyRoot) {
     path: command.path,
     bytes_base64: bytes.toString('base64'),
     sha256: createHash('sha256').update(bytes).digest('hex'),
+  };
+}
+
+async function readCompanyFileChunk(command, config, companyRoot) {
+  assertExactKeys(command, [
+    'type', 'protocol_version', 'operation_id', 'runtime_id', 'runtime_generation',
+    'path', 'offset', 'max_bytes',
+  ]);
+  if (!Number.isSafeInteger(command.offset) || command.offset < 0
+      || !Number.isSafeInteger(command.max_bytes) || command.max_bytes < 1
+      || command.max_bytes > 1024 * 1024) {
+    throw new Error('Runtime Agent file chunk bound is invalid');
+  }
+  const path = await confinedPath(companyRoot, command.path);
+  const handle = await open(path, 'r');
+  try {
+    const metadata = await handle.stat();
+    if (!metadata.isFile() || command.offset > metadata.size) {
+      throw new Error('Runtime Agent file chunk offset is invalid');
+    }
+    const bytes = Buffer.alloc(Math.min(command.max_bytes, metadata.size - command.offset));
+    const { bytesRead } = await handle.read(bytes, 0, bytes.length, command.offset);
+    const chunk = bytes.subarray(0, bytesRead);
+    return {
+      type: 'file.chunk',
+      operation_id: command.operation_id,
+      runtime_id: config.runtimeId,
+      runtime_generation: config.runtimeGeneration,
+      path: command.path,
+      offset: command.offset,
+      size_bytes: metadata.size,
+      eof: command.offset + bytesRead === metadata.size,
+      bytes_base64: chunk.toString('base64'),
+      sha256: createHash('sha256').update(chunk).digest('hex'),
+    };
+  } finally {
+    await handle.close();
+  }
+}
+
+async function writeCompanyFile(command, config, companyRoot) {
+  assertExactKeys(command, [
+    'type', 'protocol_version', 'operation_id', 'runtime_id', 'runtime_generation',
+    'path', 'bytes_base64',
+  ]);
+  const bytes = boundedBase64(command.bytes_base64, MAX_FILE_BYTES);
+  const path = await writableCompanyPath(companyRoot, command.path);
+  const temporary = join(dirname(path), `.${basename(path)}.${randomUUID()}.tmp`);
+  try {
+    await writeFile(temporary, bytes, { flag: 'wx', mode: 0o600 });
+    await rename(temporary, path);
+  } finally {
+    await rm(temporary, { force: true }).catch(() => {});
+  }
+  return {
+    type: 'file.written',
+    operation_id: command.operation_id,
+    runtime_id: config.runtimeId,
+    runtime_generation: config.runtimeGeneration,
+    path: command.path,
+    size_bytes: bytes.length,
+    sha256: createHash('sha256').update(bytes).digest('hex'),
+  };
+}
+
+async function removeCompanyFile(command, config, companyRoot) {
+  assertExactKeys(command, [
+    'type', 'protocol_version', 'operation_id', 'runtime_id', 'runtime_generation', 'path',
+  ]);
+  const path = await confinedPath(companyRoot, command.path);
+  const metadata = await lstat(path);
+  if (metadata.isSymbolicLink() || !metadata.isFile()) {
+    throw new Error('Runtime Agent removal target is not a regular file');
+  }
+  await rm(path);
+  return {
+    type: 'file.removed',
+    operation_id: command.operation_id,
+    runtime_id: config.runtimeId,
+    runtime_generation: config.runtimeGeneration,
+    path: command.path,
   };
 }
 
@@ -372,6 +509,12 @@ export function createCommandHandler(config, options = {}) {
       };
     } else if (command.type === 'file.read') {
       response = await readCompanyFile(command, config, companyRoot);
+    } else if (command.type === 'file.read_chunk') {
+      response = await readCompanyFileChunk(command, config, companyRoot);
+    } else if (command.type === 'file.write') {
+      response = await writeCompanyFile(command, config, companyRoot);
+    } else if (command.type === 'file.remove') {
+      response = await removeCompanyFile(command, config, companyRoot);
     } else if (command.type === 'process.run') {
       response = await runCompanyProcess(command, config, companyRoot);
     } else if (command.type === 'desktop.probe') {

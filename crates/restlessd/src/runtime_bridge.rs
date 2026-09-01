@@ -15,6 +15,7 @@ use base64::Engine as _;
 use chrono::{DateTime, Utc};
 use futures_util::{SinkExt as _, StreamExt as _};
 use serde::{Deserialize, Serialize};
+use sha2::{Digest as _, Sha256};
 use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _, DuplexStream};
 use tokio::sync::{mpsc, oneshot};
 use uuid::Uuid;
@@ -24,8 +25,8 @@ use crate::capability::CapabilityIssuer;
 pub(crate) const PROTOCOL_VERSION: u32 = 1;
 const REGISTER_TIMEOUT: Duration = Duration::from_secs(5);
 const MAX_REGISTER_BYTES: usize = 64 * 1024;
-const MAX_RESPONSE_BYTES: usize = 1024 * 1024;
-const PROBE_TIMEOUT: Duration = Duration::from_secs(1);
+const MAX_RESPONSE_BYTES: usize = 8 * 1024 * 1024;
+const MAX_FILE_BYTES: usize = 5 * 1024 * 1024;
 const STREAM_BUFFER_BYTES: usize = 256 * 1024;
 const STREAM_CHUNK_BYTES: usize = 48 * 1024;
 const REQUIRED_FEATURES: &[&str] = &[
@@ -261,7 +262,8 @@ impl Registry {
                             let response: AgentResponse = serde_json::from_str(&raw)
                                 .context("decode Runtime Bridge response")?;
                             if !matches!(response.kind.as_str(),
-                                "activity.result" | "desktop.result" | "file.result" | "process.result"
+                                "activity.result" | "desktop.result" | "file.result" | "file.chunk" | "file.written"
+                                | "file.removed" | "process.result"
                                 | "stream.opened" | "stream.data" | "stream.end"
                                 | "stream.error" | "error") {
                                 bail!("Runtime Bridge response kind is not implemented");
@@ -323,8 +325,7 @@ impl Registry {
         Ok(())
     }
 
-    #[cfg(test)]
-    fn observe(&self, company: &str) -> Option<Observation> {
+    pub(crate) fn observe(&self, company: &str) -> Option<Observation> {
         self.entries
             .lock()
             .expect("Runtime Bridge registry")
@@ -347,6 +348,15 @@ impl Registry {
             .expect("Runtime Bridge registry")
             .values()
             .find(|active| active.observation.cell_id == cell_id)
+            .cloned()
+            .context("Runtime Bridge is not connected")
+    }
+
+    fn active_for_company(&self, company: &str) -> Result<ActiveConnection> {
+        self.entries
+            .lock()
+            .expect("Runtime Bridge registry")
+            .get(company)
             .cloned()
             .context("Runtime Bridge is not connected")
     }
@@ -426,7 +436,7 @@ impl Registry {
                 .remove(&operation_id);
             bail!("Runtime Bridge disconnected before command dispatch");
         }
-        let response = match tokio::time::timeout(PROBE_TIMEOUT, receiver).await {
+        let response = match tokio::time::timeout(Duration::from_secs(10), receiver).await {
             Ok(Ok(response)) => response,
             _ => {
                 active
@@ -449,13 +459,7 @@ impl Registry {
         if port == 0 {
             bail!("Runtime Bridge TCP port is invalid");
         }
-        let active = self
-            .entries
-            .lock()
-            .expect("Runtime Bridge registry")
-            .get(company)
-            .cloned()
-            .context("Runtime Bridge is not connected")?;
+        let active = self.active_for_company(company)?;
         if !active
             .observation
             .supported_features
@@ -569,13 +573,7 @@ impl Registry {
         if asset.is_empty() || asset.contains("..") || asset.contains('\0') {
             bail!("invalid desktop asset path");
         }
-        let active = self
-            .entries
-            .lock()
-            .expect("Runtime Bridge registry")
-            .get(company)
-            .cloned()
-            .context("Runtime Bridge is not connected")?;
+        let active = self.active_for_company(company)?;
         let url = format!("http://127.0.0.1:6080/{asset}");
         let response = self
             .request(
@@ -618,6 +616,200 @@ impl Registry {
             bail!("hosted desktop asset exceeds its response bound");
         }
         Ok(bytes)
+    }
+
+    pub(crate) async fn read_file(
+        &self,
+        company: &str,
+        path: &str,
+        max_bytes: usize,
+    ) -> Result<Vec<u8>> {
+        if max_bytes == 0 || max_bytes > MAX_FILE_BYTES {
+            bail!("hosted Runtime file read has an invalid bound");
+        }
+        let active = self.active_for_company(company)?;
+        let response = self
+            .request(
+                &active,
+                "files.v1",
+                "file.read",
+                serde_json::json!({"path":path,"max_bytes":max_bytes}),
+            )
+            .await?;
+        if response.kind != "file.result"
+            || response
+                .body
+                .get("path")
+                .and_then(serde_json::Value::as_str)
+                != Some(path)
+        {
+            bail!("hosted Runtime file response changed its target");
+        }
+        let encoded = response
+            .body
+            .get("bytes_base64")
+            .and_then(serde_json::Value::as_str)
+            .context("hosted Runtime file response lacks bytes")?;
+        let bytes = base64::engine::general_purpose::STANDARD
+            .decode(encoded)
+            .context("hosted Runtime file response is not base64")?;
+        if bytes.len() > max_bytes {
+            bail!("hosted Runtime file response exceeds its bound");
+        }
+        let observed = response
+            .body
+            .get("sha256")
+            .and_then(serde_json::Value::as_str)
+            .context("hosted Runtime file response lacks a digest")?;
+        let actual = format!("{:x}", Sha256::digest(&bytes));
+        if observed != actual {
+            bail!("hosted Runtime file response digest does not match its bytes");
+        }
+        Ok(bytes)
+    }
+
+    pub(crate) async fn read_file_large(
+        &self,
+        company: &str,
+        path: &str,
+        max_total_bytes: usize,
+    ) -> Result<Vec<u8>> {
+        if max_total_bytes == 0 || max_total_bytes > 32 * 1024 * 1024 {
+            bail!("hosted Runtime large-file read has an invalid bound");
+        }
+        let active = self.active_for_company(company)?;
+        let mut output = Vec::new();
+        let mut expected_size = None;
+        loop {
+            let offset = output.len();
+            let response = self
+                .request(
+                    &active,
+                    "files.v1",
+                    "file.read_chunk",
+                    serde_json::json!({"path":path,"offset":offset,"max_bytes":786432}),
+                )
+                .await?;
+            if response.kind != "file.chunk"
+                || response
+                    .body
+                    .get("path")
+                    .and_then(serde_json::Value::as_str)
+                    != Some(path)
+                || response
+                    .body
+                    .get("offset")
+                    .and_then(serde_json::Value::as_u64)
+                    != Some(offset as u64)
+            {
+                bail!("hosted Runtime file chunk changed its target or offset");
+            }
+            let size = response
+                .body
+                .get("size_bytes")
+                .and_then(serde_json::Value::as_u64)
+                .context("hosted Runtime file chunk lacks total size")?
+                as usize;
+            if size > max_total_bytes || expected_size.is_some_and(|expected| expected != size) {
+                bail!("hosted Runtime file changed size or exceeds its bound");
+            }
+            expected_size = Some(size);
+            let encoded = response
+                .body
+                .get("bytes_base64")
+                .and_then(serde_json::Value::as_str)
+                .context("hosted Runtime file chunk lacks bytes")?;
+            let bytes = base64::engine::general_purpose::STANDARD
+                .decode(encoded)
+                .context("hosted Runtime file chunk is not base64")?;
+            if bytes.len() > 786_432 || offset + bytes.len() > size {
+                bail!("hosted Runtime file chunk exceeds its declared bound");
+            }
+            let digest = response
+                .body
+                .get("sha256")
+                .and_then(serde_json::Value::as_str)
+                .context("hosted Runtime file chunk lacks a digest")?;
+            if digest != format!("{:x}", Sha256::digest(&bytes)) {
+                bail!("hosted Runtime file chunk digest does not match its bytes");
+            }
+            let eof = response
+                .body
+                .get("eof")
+                .and_then(serde_json::Value::as_bool)
+                .context("hosted Runtime file chunk lacks EOF state")?;
+            output.extend_from_slice(&bytes);
+            if eof {
+                if output.len() != size {
+                    bail!("hosted Runtime file ended at the wrong size");
+                }
+                return Ok(output);
+            }
+            if bytes.is_empty() {
+                bail!("hosted Runtime file chunk made no progress");
+            }
+        }
+    }
+
+    pub(crate) async fn write_file(&self, company: &str, path: &str, bytes: &[u8]) -> Result<()> {
+        if bytes.len() > MAX_FILE_BYTES {
+            bail!("hosted Runtime file write exceeds its bound");
+        }
+        let active = self.active_for_company(company)?;
+        let digest = format!("{:x}", Sha256::digest(bytes));
+        let response = self
+            .request(
+                &active,
+                "files.v1",
+                "file.write",
+                serde_json::json!({
+                    "path":path,
+                    "bytes_base64":base64::engine::general_purpose::STANDARD.encode(bytes)
+                }),
+            )
+            .await?;
+        if response.kind != "file.written"
+            || response
+                .body
+                .get("path")
+                .and_then(serde_json::Value::as_str)
+                != Some(path)
+            || response
+                .body
+                .get("size_bytes")
+                .and_then(serde_json::Value::as_u64)
+                != Some(bytes.len() as u64)
+            || response
+                .body
+                .get("sha256")
+                .and_then(serde_json::Value::as_str)
+                != Some(digest.as_str())
+        {
+            bail!("hosted Runtime file write receipt is invalid");
+        }
+        Ok(())
+    }
+
+    pub(crate) async fn remove_file(&self, company: &str, path: &str) -> Result<()> {
+        let active = self.active_for_company(company)?;
+        let response = self
+            .request(
+                &active,
+                "files.v1",
+                "file.remove",
+                serde_json::json!({"path":path}),
+            )
+            .await?;
+        if response.kind != "file.removed"
+            || response
+                .body
+                .get("path")
+                .and_then(serde_json::Value::as_str)
+                != Some(path)
+        {
+            bail!("hosted Runtime file removal receipt is invalid");
+        }
+        Ok(())
     }
 
     pub(crate) async fn probe_readiness(&self, cell_id: Uuid) -> Result<()> {
@@ -862,6 +1054,7 @@ mod tests {
     };
     use base64::Engine as _;
     use futures_util::{SinkExt as _, StreamExt as _};
+    use sha2::{Digest as _, Sha256};
     use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
     use tokio_tungstenite::tungstenite::Message as ClientMessage;
     use uuid::Uuid;
@@ -1079,6 +1272,135 @@ mod tests {
         stream.read_exact(&mut received).await.unwrap();
         assert_eq!(&received, b"desktop bytes");
         drop(stream);
+        let close = client.next().await.unwrap().unwrap().into_text().unwrap();
+        let close: serde_json::Value = serde_json::from_str(&close).unwrap();
+        assert_eq!(close["type"], "stream.close");
+
+        registry
+            .entries
+            .lock()
+            .unwrap()
+            .get_mut("hosted_test")
+            .unwrap()
+            .observation
+            .supported_features
+            .push("files.v1".into());
+        let write_registry = registry.clone();
+        let write = tokio::spawn(async move {
+            write_registry
+                .write_file("hosted_test", "/company/inbox/item", b"owner bytes")
+                .await
+        });
+        let command = client.next().await.unwrap().unwrap().into_text().unwrap();
+        let command: serde_json::Value = serde_json::from_str(&command).unwrap();
+        assert_eq!(command["type"], "file.write");
+        assert_eq!(
+            base64::engine::general_purpose::STANDARD
+                .decode(command["bytes_base64"].as_str().unwrap())
+                .unwrap(),
+            b"owner bytes"
+        );
+        let digest = format!("{:x}", Sha256::digest(b"owner bytes"));
+        client
+            .send(ClientMessage::Text(
+                serde_json::json!({
+                    "type":"file.written",
+                    "operation_id":command["operation_id"],
+                    "runtime_id":registration.runtime_id,
+                    "runtime_generation":registration.runtime_generation,
+                    "path":"/company/inbox/item",
+                    "size_bytes":11,
+                    "sha256":digest,
+                })
+                .to_string()
+                .into(),
+            ))
+            .await
+            .unwrap();
+        write.await.unwrap().unwrap();
+
+        let read_registry = registry.clone();
+        let read = tokio::spawn(async move {
+            read_registry
+                .read_file("hosted_test", "/company/inbox/item", 64)
+                .await
+        });
+        let command = client.next().await.unwrap().unwrap().into_text().unwrap();
+        let command: serde_json::Value = serde_json::from_str(&command).unwrap();
+        assert_eq!(command["type"], "file.read");
+        client
+            .send(ClientMessage::Text(
+                serde_json::json!({
+                    "type":"file.result",
+                    "operation_id":command["operation_id"],
+                    "runtime_id":registration.runtime_id,
+                    "runtime_generation":registration.runtime_generation,
+                    "path":"/company/inbox/item",
+                    "bytes_base64":base64::engine::general_purpose::STANDARD.encode(b"owner bytes"),
+                    "sha256":digest,
+                })
+                .to_string()
+                .into(),
+            ))
+            .await
+            .unwrap();
+        assert_eq!(read.await.unwrap().unwrap(), b"owner bytes");
+
+        let large_registry = registry.clone();
+        let large = tokio::spawn(async move {
+            large_registry
+                .read_file_large("hosted_test", "/company/inbox/item", 1024)
+                .await
+        });
+        let command = client.next().await.unwrap().unwrap().into_text().unwrap();
+        let command: serde_json::Value = serde_json::from_str(&command).unwrap();
+        assert_eq!(command["type"], "file.read_chunk");
+        assert_eq!(command["offset"], 0);
+        client
+            .send(ClientMessage::Text(
+                serde_json::json!({
+                    "type":"file.chunk",
+                    "operation_id":command["operation_id"],
+                    "runtime_id":registration.runtime_id,
+                    "runtime_generation":registration.runtime_generation,
+                    "path":"/company/inbox/item",
+                    "offset":0,
+                    "size_bytes":11,
+                    "eof":true,
+                    "bytes_base64":base64::engine::general_purpose::STANDARD.encode(b"owner bytes"),
+                    "sha256":digest,
+                })
+                .to_string()
+                .into(),
+            ))
+            .await
+            .unwrap();
+        assert_eq!(large.await.unwrap().unwrap(), b"owner bytes");
+
+        let remove_registry = registry.clone();
+        let remove = tokio::spawn(async move {
+            remove_registry
+                .remove_file("hosted_test", "/company/inbox/item")
+                .await
+        });
+        let command = client.next().await.unwrap().unwrap().into_text().unwrap();
+        let command: serde_json::Value = serde_json::from_str(&command).unwrap();
+        assert_eq!(command["type"], "file.remove");
+        client
+            .send(ClientMessage::Text(
+                serde_json::json!({
+                    "type":"file.removed",
+                    "operation_id":command["operation_id"],
+                    "runtime_id":registration.runtime_id,
+                    "runtime_generation":registration.runtime_generation,
+                    "path":"/company/inbox/item",
+                })
+                .to_string()
+                .into(),
+            ))
+            .await
+            .unwrap();
+        remove.await.unwrap().unwrap();
 
         client.close(None).await.unwrap();
         for _ in 0..20 {

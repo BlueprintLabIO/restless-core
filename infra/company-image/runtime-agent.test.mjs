@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, symlink, writeFile } from 'node:fs/promises';
+import {
+  mkdir, mkdtemp, readFile, symlink, writeFile,
+} from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createConnection, createServer } from 'node:net';
@@ -85,9 +87,53 @@ test('file reads stay beneath the company volume and return bounded evidence', a
   assert.equal(response.type, 'file.result');
   assert.equal(Buffer.from(response.bytes_base64, 'base64').toString(), 'Ship useful work.\n');
   assert.match(response.sha256, /^[0-9a-f]{64}$/);
+  const chunk = await handle(JSON.stringify({
+    type: 'file.read_chunk', protocol_version: 1,
+    operation_id: '00000000-0000-4000-8000-000000000103',
+    runtime_id: 'runtime-1', runtime_generation: 2,
+    path: '/company/mission.md', offset: 5, max_bytes: 4,
+  }));
+  assert.equal(Buffer.from(chunk.bytes_base64, 'base64').toString(), 'usef');
+  assert.equal(chunk.offset, 5);
+  assert.equal(chunk.size_bytes, 18);
+  assert.equal(chunk.eof, false);
   await assert.rejects(() => handle(JSON.stringify({
     ...base, operation_id: '00000000-0000-4000-8000-000000000102', path: '/company/escape',
   })), /escapes/);
+});
+
+test('file writes are atomic, confined and exactly replayable', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'restless-runtime-writes-'));
+  await symlink('/tmp', join(root, 'escape'));
+  const config = parseConfiguration(environment('/run/secrets/bridge.cap'));
+  const handle = createCommandHandler(config, { companyRoot: root });
+  const common = {
+    protocol_version: 1,
+    operation_id: '00000000-0000-4000-8000-000000000151',
+    runtime_id: 'runtime-1', runtime_generation: 2,
+  };
+  const command = JSON.stringify({
+    type: 'file.write', ...common,
+    path: '/company/inbox/item/content',
+    bytes_base64: Buffer.from('owner attachment').toString('base64'),
+  });
+  const written = await handle(command);
+  assert.equal(written.type, 'file.written');
+  assert.equal(written.size_bytes, 16);
+  assert.equal(await readFile(join(root, 'inbox/item/content'), 'utf8'), 'owner attachment');
+  assert.deepEqual(await handle(command), written);
+  await assert.rejects(() => handle(JSON.stringify({
+    type: 'file.write', ...common,
+    operation_id: '00000000-0000-4000-8000-000000000152',
+    path: '/company/escape/stolen', bytes_base64: '',
+  })), /real directory/);
+  const removed = await handle(JSON.stringify({
+    type: 'file.remove', ...common,
+    operation_id: '00000000-0000-4000-8000-000000000153',
+    path: '/company/inbox/item/content',
+  }));
+  assert.equal(removed.type, 'file.removed');
+  await assert.rejects(() => readFile(join(root, 'inbox/item/content')), /ENOENT/);
 });
 
 test('process execution has no shell, is bounded, and replays idempotently', async () => {

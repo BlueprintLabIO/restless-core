@@ -1107,6 +1107,20 @@ pub async fn runtime_http_request(
     path_and_query: &str,
     headers: &HeaderMap,
 ) -> Result<Response<Incoming>> {
+    let stream = private_tcp_stream(company, port).await?;
+    runtime_http_request_on(stream, port, method, path_and_query, headers).await
+}
+
+pub(crate) async fn runtime_http_request_on<S>(
+    stream: S,
+    port: u16,
+    method: Method,
+    path_and_query: &str,
+    headers: &HeaderMap,
+) -> Result<Response<Incoming>>
+where
+    S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
+{
     if !matches!(method, Method::GET | Method::HEAD) {
         bail!("runtime review transport is read-only");
     }
@@ -1116,7 +1130,6 @@ pub async fn runtime_http_request(
     if uri.scheme().is_some() || uri.authority().is_some() {
         bail!("runtime request must use an origin-relative path");
     }
-    let stream = private_tcp_stream(company, port).await?;
     let (mut sender, connection) = http1::handshake(TokioIo::new(stream))
         .await
         .context("open runtime HTTP connection")?;
@@ -1515,7 +1528,7 @@ pub async fn read_browser_control(company: &str) -> Result<Option<serde_json::Va
 /// unclaimed rescue state). The browser broker independently uses the same
 /// expiry to reopen CDP; keeping the health projection stale at `owner` while
 /// automation had resumed was precisely the split-brain this lease prevents.
-fn normalize_expired_browser_control(mut state: serde_json::Value) -> serde_json::Value {
+pub(crate) fn normalize_expired_browser_control(mut state: serde_json::Value) -> serde_json::Value {
     if state["controller"] != "owner" {
         return state;
     }

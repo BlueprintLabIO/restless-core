@@ -1774,28 +1774,24 @@ async fn company_catalog(State(state): State<OwnerState>) -> impl IntoResponse {
             Ok(config) => config,
             Err(error) => return api_error(StatusCode::NOT_FOUND, "company", format!("{error:#}")),
         };
-        catalog.push(company_catalog_entry(config, "active").await);
+        catalog.push(company_catalog_entry(&state, config, "active").await);
     }
     for company in archived {
         let config = match runtime::CompanyConfig::load_archived(&state.daemon.root, &company) {
             Ok(config) => config,
             Err(error) => return api_error(StatusCode::NOT_FOUND, "company", format!("{error:#}")),
         };
-        catalog.push(company_catalog_entry(config, "archived").await);
+        catalog.push(company_catalog_entry(&state, config, "archived").await);
     }
     Json(catalog).into_response()
 }
 
 async fn company_catalog_entry(
+    state: &OwnerState,
     config: runtime::CompanyConfig,
     lifecycle_status: &'static str,
 ) -> CompanyCatalogEntry {
-    let runtime_status = match runtime::status(&config.name).await {
-        Ok(runtime::ContainerStatus::Running) => "running",
-        Ok(runtime::ContainerStatus::Stopped) => "stopped",
-        Ok(runtime::ContainerStatus::Absent) => "absent",
-        Err(_) => "unavailable",
-    };
+    let runtime_status = runtime_status(state, &config.name).await;
     let name = config.name.clone();
     CompanyCatalogEntry {
         id: config.name.clone(),
@@ -1807,6 +1803,32 @@ async fn company_catalog_entry(
         lifecycle_status,
         unstartable_reason: crate::model_gateway::unstartable_reason(&name),
     }
+}
+
+async fn runtime_status(state: &OwnerState, company: &str) -> &'static str {
+    if matches!(&state.entry, EntryMode::Network(_)) {
+        return if state.runtime_bridges.observe(company).is_some() {
+            "running"
+        } else {
+            "unavailable"
+        };
+    }
+    match runtime::status(company).await {
+        Ok(runtime::ContainerStatus::Running) => "running",
+        Ok(runtime::ContainerStatus::Stopped) => "stopped",
+        Ok(runtime::ContainerStatus::Absent) => "absent",
+        Err(_) => "unavailable",
+    }
+}
+
+async fn runtime_generation(state: &OwnerState, company: &str) -> Option<String> {
+    if matches!(&state.entry, EntryMode::Network(_)) {
+        return state
+            .runtime_bridges
+            .observe(company)
+            .map(|observation| observation.runtime_id);
+    }
+    runtime::generation(company).await.ok().flatten()
 }
 
 async fn archive_company(
@@ -2297,12 +2319,7 @@ async fn cockpit_view(
         },
     };
 
-    let runtime_status = match runtime::status(&company).await {
-        Ok(runtime::ContainerStatus::Running) => "running",
-        Ok(runtime::ContainerStatus::Stopped) => "stopped",
-        Ok(runtime::ContainerStatus::Absent) => "absent",
-        Err(_) => "unavailable",
-    };
+    let runtime_status = runtime_status(&state, &company).await;
     source_health.insert("runtime".into(), runtime_status.into());
 
     let remaining_usd = budget
@@ -2791,19 +2808,18 @@ async fn send_actor_message(
         let sidecar = match serde_json::to_vec(&metadata) {
             Ok(sidecar) => sidecar,
             Err(error) => {
-                rollback_attachments(&company, &stored).await;
+                rollback_attachments(&state, &company, &stored).await;
                 return api_error(StatusCode::BAD_REQUEST, "attachment", error.to_string());
             }
         };
-        match runtime::store_owner_attachment(&company, upload_id, &attachment.bytes, &sidecar)
-            .await
+        match store_owner_attachment(&state, &company, upload_id, &attachment.bytes, &sidecar).await
         {
             Ok(path) => {
                 debug_assert_eq!(path, metadata.path);
                 stored.push(metadata);
             }
             Err(error) => {
-                rollback_attachments(&company, &stored).await;
+                rollback_attachments(&state, &company, &stored).await;
                 return api_error(
                     StatusCode::SERVICE_UNAVAILABLE,
                     "attachment",
@@ -2861,7 +2877,7 @@ async fn send_actor_message(
             .into_response()
         }
         Err(error) => {
-            rollback_attachments(&company, &stored).await;
+            rollback_attachments(&state, &company, &stored).await;
             api_error(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "orgintel",
@@ -3186,18 +3202,88 @@ fn split_context_marker(body: &str) -> (&str, Option<String>) {
     }
 }
 
-async fn rollback_attachments(company: &str, attachments: &[OwnerAttachment]) {
+async fn store_owner_attachment(
+    state: &OwnerState,
+    company: &str,
+    attachment_id: Uuid,
+    bytes: &[u8],
+    metadata: &[u8],
+) -> Result<String> {
+    if !matches!(&state.entry, EntryMode::Network(_)) {
+        return runtime::store_owner_attachment(company, attachment_id, bytes, metadata).await;
+    }
+    let directory = format!("/company/inbox/owner-attachments/{attachment_id}");
+    let content = format!("{directory}/content");
+    let sidecar = format!("{directory}/metadata.json");
+    state
+        .runtime_bridges
+        .write_file(company, &content, bytes)
+        .await?;
+    if let Err(error) = state
+        .runtime_bridges
+        .write_file(company, &sidecar, metadata)
+        .await
+    {
+        let _ = state.runtime_bridges.remove_file(company, &content).await;
+        return Err(error);
+    }
+    Ok(content)
+}
+
+async fn remove_owner_attachment(
+    state: &OwnerState,
+    company: &str,
+    attachment_id: Uuid,
+) -> Result<()> {
+    if !matches!(&state.entry, EntryMode::Network(_)) {
+        return runtime::remove_owner_attachment(company, attachment_id).await;
+    }
+    let directory = format!("/company/inbox/owner-attachments/{attachment_id}");
+    let content = state
+        .runtime_bridges
+        .remove_file(company, &format!("{directory}/content"))
+        .await;
+    let sidecar = state
+        .runtime_bridges
+        .remove_file(company, &format!("{directory}/metadata.json"))
+        .await;
+    content.and(sidecar)
+}
+
+async fn rollback_attachments(state: &OwnerState, company: &str, attachments: &[OwnerAttachment]) {
     for attachment in attachments {
-        if let Err(error) = runtime::remove_owner_attachment(company, attachment.upload_id).await {
+        if let Err(error) = remove_owner_attachment(state, company, attachment.upload_id).await {
             tracing::warn!(%error, %company, attachment = %attachment.upload_id, "failed to roll back owner attachment");
         }
     }
 }
 
 async fn download_attachment(
+    State(state): State<OwnerState>,
     AxumPath((company, attachment)): AxumPath<(String, Uuid)>,
 ) -> Response<Body> {
-    let (bytes, metadata) = match runtime::read_owner_attachment(&company, attachment).await {
+    let read = if matches!(&state.entry, EntryMode::Network(_)) {
+        let directory = format!("/company/inbox/owner-attachments/{attachment}");
+        match state
+            .runtime_bridges
+            .read_file(
+                &company,
+                &format!("{directory}/content"),
+                MAX_ATTACHMENT_BYTES,
+            )
+            .await
+        {
+            Ok(bytes) => state
+                .runtime_bridges
+                .read_file(&company, &format!("{directory}/metadata.json"), 64 * 1024)
+                .await
+                .map(|metadata| (bytes, metadata)),
+            Err(error) => Err(error),
+        }
+    } else {
+        runtime::read_owner_attachment(&company, attachment).await
+    };
+    let (bytes, metadata) = match read {
         Ok(value) => value,
         Err(error) => {
             return api_error(StatusCode::NOT_FOUND, "attachment", format!("{error:#}"));
@@ -3328,7 +3414,7 @@ async fn issue_review_ticket(
             "this item has no prepared outcome the cockpit can open",
         );
     };
-    let current = runtime::generation(&company).await.ok().flatten();
+    let current = runtime_generation(&state, &company).await;
     if current.as_deref() != Some(reference.generation.as_str()) {
         return api_error(
             StatusCode::CONFLICT,
@@ -3349,7 +3435,20 @@ async fn issue_review_ticket(
         };
         // Observe the exact file before claiming the outcome opens. The cockpit
         // must never frame a target it has not seen.
-        if let Err(error) = runtime::probe_runtime_review_file(&company, &reference.uri).await {
+        let probe = if matches!(&state.entry, EntryMode::Network(_)) {
+            state
+                .runtime_bridges
+                .read_file_large(
+                    &company,
+                    &reference.uri,
+                    runtime::MAX_REVIEW_FILE_BYTES as usize,
+                )
+                .await
+                .map(|_| ())
+        } else {
+            runtime::probe_runtime_review_file(&company, &reference.uri).await
+        };
+        if let Err(error) = probe {
             return api_error(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "review",
@@ -3369,7 +3468,33 @@ async fn issue_review_ticket(
                 )
             }
         };
-        if let Err(error) = runtime::probe_runtime_http(&company, &reference.uri).await {
+        let probe = if matches!(&state.entry, EntryMode::Network(_)) {
+            match state
+                .runtime_bridges
+                .open_tcp_stream(&company, target.port)
+                .await
+            {
+                Ok(stream) => runtime::runtime_http_request_on(
+                    stream,
+                    target.port,
+                    Method::HEAD,
+                    &target.path_and_query,
+                    &HeaderMap::new(),
+                )
+                .await
+                .and_then(|response| {
+                    if response.status().is_success() || response.status().is_redirection() {
+                        Ok(())
+                    } else {
+                        anyhow::bail!("runtime review target returned {}", response.status())
+                    }
+                }),
+                Err(error) => Err(error),
+            }
+        } else {
+            runtime::probe_runtime_http(&company, &reference.uri).await
+        };
+        if let Err(error) = probe {
             return api_error(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "review",
@@ -3455,7 +3580,7 @@ async fn review_proxy(
             "review ticket is absent or expired",
         );
     };
-    let current = runtime::generation(&session.company).await.ok().flatten();
+    let current = runtime_generation(&state, &session.company).await;
     if current.as_deref() != Some(session.generation.as_str()) {
         return api_error(
             StatusCode::CONFLICT,
@@ -3469,9 +3594,22 @@ async fn review_proxy(
         .unwrap_or("/");
     let upstream = match &session.source {
         ReviewSource::Service { port } => {
-            match runtime::runtime_http_request(&session.company, *port, method, path, &headers)
-                .await
-            {
+            let request = if matches!(&state.entry, EntryMode::Network(_)) {
+                match state
+                    .runtime_bridges
+                    .open_tcp_stream(&session.company, *port)
+                    .await
+                {
+                    Ok(stream) => {
+                        runtime::runtime_http_request_on(stream, *port, method, path, &headers)
+                            .await
+                    }
+                    Err(error) => Err(error),
+                }
+            } else {
+                runtime::runtime_http_request(&session.company, *port, method, path, &headers).await
+            };
+            match request {
                 Ok(response) => response,
                 Err(error) => {
                     return api_error(
@@ -3491,7 +3629,25 @@ async fn review_proxy(
                     return api_error(StatusCode::NOT_FOUND, "review", format!("{error:#}"))
                 }
             };
-            match runtime::read_runtime_review_file(&session.company, &resolved).await {
+            let read = if matches!(&state.entry, EntryMode::Network(_)) {
+                let path = resolved.to_string_lossy();
+                state
+                    .runtime_bridges
+                    .read_file_large(
+                        &session.company,
+                        &path,
+                        runtime::MAX_REVIEW_FILE_BYTES as usize,
+                    )
+                    .await
+                    .and_then(|bytes| {
+                        let media_type = runtime::review_file_media_type(&resolved)
+                            .context("review file is not a displayable format")?;
+                        Ok((media_type, bytes))
+                    })
+            } else {
+                runtime::read_runtime_review_file(&session.company, &resolved).await
+            };
+            match read {
                 Ok((media_type, bytes)) => {
                     let body = if method == Method::HEAD {
                         Body::empty()
@@ -3619,9 +3775,9 @@ async fn issue_ticket(
             "client_id must be a UUID",
         );
     }
-    let current = match runtime::generation(&company).await {
-        Ok(Some(generation)) => generation,
-        _ => {
+    let current = match runtime_generation(&state, &company).await {
+        Some(generation) => generation,
+        None => {
             return api_error(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "runtime",
@@ -3712,7 +3868,7 @@ async fn open_desktop(
             "attach ticket is expired or belongs to another company",
         );
     }
-    let current = runtime::generation(&company).await.ok().flatten();
+    let current = runtime_generation(&state, &company).await;
     if current.as_deref() != Some(ticket.generation.as_str()) {
         return api_error(
             StatusCode::CONFLICT,
@@ -3792,7 +3948,7 @@ async fn open_controlled_desktop(
         );
     };
     let requested = query.client_id.as_deref().unwrap_or(&attach.client_id);
-    let control = runtime::read_browser_control(&company).await.ok().flatten();
+    let control = read_browser_control(&state, &company).await.ok().flatten();
     let allowed = control.as_ref().is_some_and(|value| {
         value["controller"] == "owner"
             && value["client_id"].as_str() == Some(requested)
@@ -3946,7 +4102,73 @@ where
     Ok(())
 }
 
-async fn browser_status(AxumPath(company): AxumPath<String>) -> impl IntoResponse {
+async fn read_browser_control(
+    state: &OwnerState,
+    company: &str,
+) -> Result<Option<serde_json::Value>> {
+    if !matches!(&state.entry, EntryMode::Network(_)) {
+        return runtime::read_browser_control(company).await;
+    }
+    let bytes = match state
+        .runtime_bridges
+        .read_file(company, "/company/run/browser-control.json", 64 * 1024)
+        .await
+    {
+        Ok(bytes) => bytes,
+        Err(_) => return Ok(None),
+    };
+    let value = serde_json::from_slice(&bytes).context("parse hosted browser controller state")?;
+    Ok(Some(runtime::normalize_expired_browser_control(value)))
+}
+
+async fn write_browser_control(
+    state: &OwnerState,
+    company: &str,
+    value: &serde_json::Value,
+) -> Result<()> {
+    if !matches!(&state.entry, EntryMode::Network(_)) {
+        return runtime::write_browser_control(company, value).await;
+    }
+    state
+        .runtime_bridges
+        .write_file(
+            company,
+            "/company/run/browser-control.json",
+            &serde_json::to_vec(value)?,
+        )
+        .await
+}
+
+async fn browser_status(
+    State(state): State<OwnerState>,
+    AxumPath(company): AxumPath<String>,
+) -> impl IntoResponse {
+    if matches!(&state.entry, EntryMode::Network(_)) {
+        let Some(observation) = state.runtime_bridges.observe(&company) else {
+            return api_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "runtime",
+                "hosted Runtime Bridge is not connected",
+            );
+        };
+        let available = observation
+            .supported_features
+            .iter()
+            .any(|feature| feature == "desktop.v1");
+        return Json(serde_json::json!({
+            "generation": observation.runtime_id,
+            "browser": {
+                "status": if available { "available" } else { "degraded" },
+                "desktop": if available { "running" } else { "unknown" },
+                "chromium": if available { "running" } else { "unknown" },
+                "automation": if available { "available" } else { "unknown" },
+                "web_transport": if available { "running" } else { "unknown" },
+                "controller": "observed",
+            },
+            "control": read_browser_control(&state, &company).await.ok().flatten(),
+        }))
+        .into_response();
+    }
     match runtime::doctor(&company).await {
         Ok(report) => Json(serde_json::json!({
             "generation": runtime::generation(&company).await.ok().flatten(),
@@ -3982,7 +4204,7 @@ async fn take_control(
             "attachment belongs to another browser tab",
         );
     }
-    let prior = runtime::read_browser_control(&company).await.ok().flatten();
+    let prior = read_browser_control(&state, &company).await.ok().flatten();
     if let Some(prior) = prior.as_ref() {
         if prior["controller"] == "owner"
             && prior["client_id"].as_str() != Some(input.client_id.as_str())
@@ -4010,7 +4232,7 @@ async fn take_control(
         "last_activity_at": Utc::now(),
         "expires_at": Utc::now() + ChronoDuration::seconds(CONTROL_TTL_SECONDS),
     });
-    match runtime::write_browser_control(&company, &state_value).await {
+    match write_browser_control(&state, &company, &state_value).await {
         Ok(()) => Json(state_value).into_response(),
         Err(error) => api_error(
             StatusCode::SERVICE_UNAVAILABLE,
@@ -4021,10 +4243,11 @@ async fn take_control(
 }
 
 async fn record_activity(
+    State(state): State<OwnerState>,
     AxumPath(company): AxumPath<String>,
     Json(input): Json<ControlRequest>,
 ) -> impl IntoResponse {
-    let Some(mut current) = runtime::read_browser_control(&company).await.ok().flatten() else {
+    let Some(mut current) = read_browser_control(&state, &company).await.ok().flatten() else {
         return api_error(
             StatusCode::CONFLICT,
             "controller",
@@ -4041,7 +4264,7 @@ async fn record_activity(
     current["last_activity_at"] = serde_json::json!(Utc::now());
     current["expires_at"] =
         serde_json::json!(Utc::now() + ChronoDuration::seconds(CONTROL_TTL_SECONDS));
-    match runtime::write_browser_control(&company, &current).await {
+    match write_browser_control(&state, &company, &current).await {
         Ok(()) => Json(current).into_response(),
         Err(error) => api_error(
             StatusCode::SERVICE_UNAVAILABLE,
@@ -4056,7 +4279,7 @@ async fn return_control(
     AxumPath(company): AxumPath<String>,
     Json(input): Json<ControlRequest>,
 ) -> impl IntoResponse {
-    let Some(current) = runtime::read_browser_control(&company).await.ok().flatten() else {
+    let Some(current) = read_browser_control(&state, &company).await.ok().flatten() else {
         return api_error(
             StatusCode::CONFLICT,
             "controller",
@@ -4080,7 +4303,7 @@ async fn return_control(
         }),
         None => serde_json::json!({ "controller": "unclaimed", "returned_at": Utc::now() }),
     };
-    if let Err(error) = runtime::write_browser_control(&company, &next).await {
+    if let Err(error) = write_browser_control(&state, &company, &next).await {
         return api_error(
             StatusCode::SERVICE_UNAVAILABLE,
             "runtime",
