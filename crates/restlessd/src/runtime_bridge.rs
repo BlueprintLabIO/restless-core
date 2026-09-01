@@ -992,10 +992,20 @@ fn authenticate_registration(
         bail!("Runtime Bridge feature set is duplicate, unknown or lacks registration.v1");
     }
     let grant = issuer
-        .verify_coordination(&registration.capability)
+        .verify_hosted_runtime_bridge(&registration.capability)
         .context("verify Runtime Bridge capability")?;
-    if grant.company != registration.company || grant.actor != "exec" {
-        bail!("Runtime Bridge capability does not match the registered company");
+    if registration.company != registration.company_id.hyphenated().to_string()
+        || grant.owner_id != registration.owner_id
+        || grant.plane_id != registration.plane_id
+        || grant.company_id != registration.company_id
+        || grant.cell_id != registration.cell_id
+        || grant.runtime_id != registration.runtime_id
+        || grant.runtime_generation != registration.runtime_generation
+        || grant.runtime_image != registration.runtime_image
+        || grant.volume_name != registration.volume_name
+        || grant.source_revision != registration.source_revision
+    {
+        bail!("Runtime Bridge capability does not match the exact registered Runtime");
     }
 
     let mut supported_features = registration.supported_features;
@@ -1045,7 +1055,7 @@ fn immutable_image(value: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::{authenticate_registration, PlaneScope, Registration, Registry, REQUIRED_FEATURES};
-    use crate::capability::CapabilityIssuer;
+    use crate::capability::{CapabilityIssuer, HostedRuntimeScope};
     use axum::{
         extract::{ws::WebSocketUpgrade, State},
         response::IntoResponse,
@@ -1091,13 +1101,14 @@ mod tests {
             owner_id: Uuid::new_v4(),
             plane_id: Uuid::new_v4(),
         };
-        let registration = Registration {
+        let company_id = Uuid::new_v4();
+        let mut registration = Registration {
             protocol_version: 1,
             owner_id: scope.owner_id,
             plane_id: scope.plane_id,
-            company_id: Uuid::new_v4(),
+            company_id,
             cell_id: Uuid::new_v4(),
-            company: "hosted_test".into(),
+            company: company_id.hyphenated().to_string(),
             runtime_id: "restless-cell-runtime-1".into(),
             runtime_generation: 7,
             desired_revision: 3,
@@ -1109,8 +1120,24 @@ mod tests {
                 .chain(REQUIRED_FEATURES.iter().copied())
                 .map(str::to_string)
                 .collect(),
-            capability: issuer.issue_runtime_bridge("hosted_test").unwrap(),
+            capability: String::new(),
         };
+        registration.capability = issuer
+            .issue_hosted_runtime_bridge(
+                &registration.company,
+                HostedRuntimeScope {
+                    owner_id: registration.owner_id,
+                    plane_id: registration.plane_id,
+                    company_id: registration.company_id,
+                    cell_id: registration.cell_id,
+                    runtime_id: registration.runtime_id.clone(),
+                    runtime_generation: registration.runtime_generation,
+                    runtime_image: registration.runtime_image.clone(),
+                    volume_name: registration.volume_name.clone(),
+                    source_revision: registration.source_revision.clone(),
+                },
+            )
+            .unwrap();
         (root, issuer, scope, registration)
     }
 
@@ -1118,10 +1145,17 @@ mod tests {
     fn registration_is_bound_to_plane_company_release_and_full_protocol() {
         let (_root, issuer, scope, registration) = fixture();
         let observation = authenticate_registration(registration, &issuer, scope).unwrap();
-        assert_eq!(observation.company, "hosted_test");
+        assert_eq!(
+            observation.company,
+            registration_company(&observation.company_id)
+        );
         assert_eq!(observation.runtime_generation, 7);
         assert_eq!(observation.supported_features.len(), 6);
         assert!(observation.has_complete_v1());
+    }
+
+    fn registration_company(company_id: &Uuid) -> String {
+        company_id.hyphenated().to_string()
     }
 
     #[test]
@@ -1149,13 +1183,15 @@ mod tests {
     #[test]
     fn a_runtime_capability_cannot_register_another_company() {
         let (_root, issuer, scope, mut registration) = fixture();
-        registration.company = "foreign_test".into();
+        registration.company = Uuid::new_v4().hyphenated().to_string();
         assert!(authenticate_registration(registration, &issuer, scope).is_err());
     }
 
     #[test]
     fn registry_starts_empty() {
-        assert!(Registry::default().observe("hosted_test").is_none());
+        assert!(Registry::default()
+            .observe("0f887366-9dfa-4d20-94f1-1fd2052e7161")
+            .is_none());
     }
 
     #[tokio::test]
@@ -1192,8 +1228,9 @@ mod tests {
         let accepted: serde_json::Value = serde_json::from_str(&accepted).unwrap();
         assert_eq!(accepted["status"], "registered");
         assert_eq!(accepted["runtime_generation"], 7);
+        let company = registration.company.clone();
         assert_eq!(
-            registry.observe("hosted_test").unwrap().runtime_id,
+            registry.observe(&company).unwrap().runtime_id,
             "restless-cell-runtime-1"
         );
 
@@ -1221,8 +1258,11 @@ mod tests {
         probe.await.unwrap().unwrap();
 
         let stream_registry = registry.clone();
+        let stream_company = company.clone();
         let stream_open =
-            tokio::spawn(async move { stream_registry.open_tcp_stream("hosted_test", 6080).await });
+            tokio::spawn(
+                async move { stream_registry.open_tcp_stream(&stream_company, 6080).await },
+            );
         let command = client.next().await.unwrap().unwrap().into_text().unwrap();
         let command: serde_json::Value = serde_json::from_str(&command).unwrap();
         assert_eq!(command["type"], "stream.open");
@@ -1280,15 +1320,16 @@ mod tests {
             .entries
             .lock()
             .unwrap()
-            .get_mut("hosted_test")
+            .get_mut(&company)
             .unwrap()
             .observation
             .supported_features
             .push("files.v1".into());
         let write_registry = registry.clone();
+        let write_company = company.clone();
         let write = tokio::spawn(async move {
             write_registry
-                .write_file("hosted_test", "/company/inbox/item", b"owner bytes")
+                .write_file(&write_company, "/company/inbox/item", b"owner bytes")
                 .await
         });
         let command = client.next().await.unwrap().unwrap().into_text().unwrap();
@@ -1320,9 +1361,10 @@ mod tests {
         write.await.unwrap().unwrap();
 
         let read_registry = registry.clone();
+        let read_company = company.clone();
         let read = tokio::spawn(async move {
             read_registry
-                .read_file("hosted_test", "/company/inbox/item", 64)
+                .read_file(&read_company, "/company/inbox/item", 64)
                 .await
         });
         let command = client.next().await.unwrap().unwrap().into_text().unwrap();
@@ -1347,9 +1389,10 @@ mod tests {
         assert_eq!(read.await.unwrap().unwrap(), b"owner bytes");
 
         let large_registry = registry.clone();
+        let large_company = company.clone();
         let large = tokio::spawn(async move {
             large_registry
-                .read_file_large("hosted_test", "/company/inbox/item", 1024)
+                .read_file_large(&large_company, "/company/inbox/item", 1024)
                 .await
         });
         let command = client.next().await.unwrap().unwrap().into_text().unwrap();
@@ -1378,9 +1421,10 @@ mod tests {
         assert_eq!(large.await.unwrap().unwrap(), b"owner bytes");
 
         let remove_registry = registry.clone();
+        let remove_company = company.clone();
         let remove = tokio::spawn(async move {
             remove_registry
-                .remove_file("hosted_test", "/company/inbox/item")
+                .remove_file(&remove_company, "/company/inbox/item")
                 .await
         });
         let command = client.next().await.unwrap().unwrap().into_text().unwrap();
@@ -1404,12 +1448,12 @@ mod tests {
 
         client.close(None).await.unwrap();
         for _ in 0..20 {
-            if registry.observe("hosted_test").is_none() {
+            if registry.observe(&company).is_none() {
                 break;
             }
             tokio::task::yield_now().await;
         }
-        assert!(registry.observe("hosted_test").is_none());
+        assert!(registry.observe(&company).is_none());
         server.abort();
     }
 }

@@ -56,8 +56,24 @@ struct Claims {
     model: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     billing: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    hosted_runtime: Option<HostedRuntimeScope>,
     session: String,
     expires_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct HostedRuntimeScope {
+    pub(crate) owner_id: Uuid,
+    pub(crate) plane_id: Uuid,
+    pub(crate) company_id: Uuid,
+    pub(crate) cell_id: Uuid,
+    pub(crate) runtime_id: String,
+    pub(crate) runtime_generation: u64,
+    pub(crate) runtime_image: String,
+    pub(crate) volume_name: String,
+    pub(crate) source_revision: String,
 }
 
 /// Identity derived from a TCP coordination capability, never from a request
@@ -133,6 +149,26 @@ impl CapabilityIssuer {
             provider: None,
             model: None,
             billing: None,
+            hosted_runtime: None,
+            session: format!("bridge-{}", Uuid::new_v4().simple()),
+            expires_at: Utc::now() + RUNTIME_BRIDGE_TTL,
+        })
+    }
+
+    pub(crate) fn issue_hosted_runtime_bridge(
+        &self,
+        company: &str,
+        hosted_runtime: HostedRuntimeScope,
+    ) -> Result<String> {
+        self.issue(Claims {
+            version: 1,
+            kind: CapabilityKind::RuntimeBridge,
+            company: company.to_string(),
+            actor: None,
+            provider: None,
+            model: None,
+            billing: None,
+            hosted_runtime: Some(hosted_runtime),
             session: format!("bridge-{}", Uuid::new_v4().simple()),
             expires_at: Utc::now() + RUNTIME_BRIDGE_TTL,
         })
@@ -153,6 +189,7 @@ impl CapabilityIssuer {
             provider: None,
             model: None,
             billing: None,
+            hosted_runtime: None,
             session: session.to_string(),
             expires_at: Utc::now() + SESSION_TTL,
         })
@@ -177,6 +214,7 @@ impl CapabilityIssuer {
             provider: Some(provider.to_string()),
             model: Some(model.to_string()),
             billing: Some(billing.to_string()),
+            hosted_runtime: None,
             session: session.to_string(),
             expires_at: Utc::now() + SESSION_TTL,
         })
@@ -196,6 +234,16 @@ impl CapabilityIssuer {
             actor,
             session: claims.session,
         })
+    }
+
+    pub(crate) fn verify_hosted_runtime_bridge(&self, token: &str) -> Result<HostedRuntimeScope> {
+        let claims = self.verify(token)?;
+        if claims.kind != CapabilityKind::RuntimeBridge {
+            bail!("a non-bridge capability cannot register a hosted Runtime");
+        }
+        claims
+            .hosted_runtime
+            .context("Runtime Bridge capability lacks hosted Runtime scope")
     }
 
     pub(crate) fn verify_model(&self, token: &str) -> Result<ModelGrant> {
@@ -311,12 +359,19 @@ fn validate_claims(claims: &Claims) -> Result<()> {
             {
                 bail!("runtime bridge capability carries a foreign scope");
             }
+            if let Some(scope) = &claims.hosted_runtime {
+                validate_hosted_runtime_scope(scope)?;
+                if claims.company != scope.company_id.hyphenated().to_string() {
+                    bail!("hosted Runtime capability company is not its canonical company UUID");
+                }
+            }
         }
         CapabilityKind::ActorSession => {
             if claims.actor.is_none()
                 || claims.provider.is_some()
                 || claims.model.is_some()
                 || claims.billing.is_some()
+                || claims.hosted_runtime.is_some()
             {
                 bail!("actor session capability has an invalid scope");
             }
@@ -326,10 +381,45 @@ fn validate_claims(claims: &Claims) -> Result<()> {
                 || claims.provider.is_none()
                 || claims.model.is_none()
                 || claims.billing.is_none()
+                || claims.hosted_runtime.is_some()
             {
                 bail!("model capability has an incomplete scope");
             }
         }
+    }
+    Ok(())
+}
+
+fn validate_hosted_runtime_scope(scope: &HostedRuntimeScope) -> Result<()> {
+    if scope.owner_id.is_nil()
+        || scope.plane_id.is_nil()
+        || scope.company_id.is_nil()
+        || scope.cell_id.is_nil()
+        || scope.runtime_generation == 0
+    {
+        bail!("hosted Runtime capability identities must be non-zero");
+    }
+    validate_identifier("runtime_id", &scope.runtime_id)?;
+    validate_identifier("volume_name", &scope.volume_name)?;
+    let Some((repository, digest)) = scope.runtime_image.rsplit_once("@sha256:") else {
+        bail!("hosted Runtime capability image is mutable");
+    };
+    if repository.is_empty()
+        || repository.contains(char::is_whitespace)
+        || digest.len() != 64
+        || !digest
+            .bytes()
+            .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase())
+    {
+        bail!("hosted Runtime capability image is invalid");
+    }
+    if scope.source_revision.len() != 40
+        || !scope
+            .source_revision
+            .bytes()
+            .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase())
+    {
+        bail!("hosted Runtime capability source revision is invalid");
     }
     Ok(())
 }
@@ -443,6 +533,7 @@ mod tests {
                 provider: Some("moonshot".into()),
                 model: Some("moonshot/kimi-k3".into()),
                 billing: Some("metered_api".into()),
+                hosted_runtime: None,
                 session: "expired_1".into(),
                 expires_at: Utc::now() - Duration::seconds(1),
             })

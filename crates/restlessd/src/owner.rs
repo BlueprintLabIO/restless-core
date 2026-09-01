@@ -92,6 +92,7 @@ pub(crate) struct OwnerConfig {
 struct PlaneReadinessConfig {
     token: String,
     cell_token: String,
+    runtime_bootstrap_token: String,
     owner_id: Uuid,
     plane_id: Uuid,
     hostname: String,
@@ -780,6 +781,18 @@ impl PlaneReadinessConfig {
         ) {
             anyhow::bail!("plane and cell readiness tokens must be distinct");
         }
+        let runtime_bootstrap_token = required_env("RESTLESS_RUNTIME_BOOTSTRAP_TOKEN")?;
+        if runtime_bootstrap_token.len() < 32 {
+            anyhow::bail!("RESTLESS_RUNTIME_BOOTSTRAP_TOKEN must contain at least 32 characters");
+        }
+        if [&token, &cell_token].iter().any(|other| {
+            bool::from(
+                Sha256::digest(other.as_bytes())
+                    .ct_eq(&Sha256::digest(runtime_bootstrap_token.as_bytes())),
+            )
+        }) {
+            anyhow::bail!("Runtime bootstrap and readiness tokens must all be distinct");
+        }
         let account_plane_image = required_env("RESTLESS_ACCOUNT_PLANE_IMAGE")?;
         if !immutable_image_reference(&account_plane_image) {
             anyhow::bail!("RESTLESS_ACCOUNT_PLANE_IMAGE must be an immutable OCI @sha256 digest");
@@ -797,6 +810,7 @@ impl PlaneReadinessConfig {
         Ok(Self {
             token,
             cell_token,
+            runtime_bootstrap_token,
             owner_id: network.owner_id(),
             plane_id: network.plane_id(),
             hostname: network.host().into(),
@@ -966,6 +980,10 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
             post(observe_plane_readiness),
         )
         .route("/internal/v1/runtime-bridge", get(open_runtime_bridge))
+        .route(
+            "/internal/v1/runtime-bridge/bootstrap",
+            post(issue_runtime_bridge_bootstrap),
+        )
         .route("/v1/cells/{cell_id}/ready", post(observe_cell_readiness))
         .route("/entry", get(consume_entry_assertion))
         .route("/entry/logout", post(end_entry_session))
@@ -1018,6 +1036,7 @@ async fn enforce_owner_boundary(
     if (request.uri().path().starts_with("/internal/v1/planes/")
         && request.uri().path().ends_with("/readiness"))
         || request.uri().path() == "/internal/v1/runtime-bridge"
+        || request.uri().path() == "/internal/v1/runtime-bridge/bootstrap"
         || (request.uri().path().starts_with("/v1/cells/")
             && request.uri().path().ends_with("/ready"))
     {
@@ -1218,6 +1237,109 @@ async fn open_runtime_bridge(
             }
         })
         .into_response()
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RuntimeBridgeBootstrapRequest {
+    contract_version: u32,
+    owner_id: Uuid,
+    plane_id: Uuid,
+    company_id: Uuid,
+    cell_id: Uuid,
+    runtime_id: String,
+    runtime_generation: u64,
+    runtime_image: String,
+    volume_name: String,
+    source_revision: String,
+}
+
+async fn issue_runtime_bridge_bootstrap(
+    State(state): State<OwnerState>,
+    headers: HeaderMap,
+    Json(request): Json<RuntimeBridgeBootstrapRequest>,
+) -> Response<Body> {
+    let Some(config) = &state.plane_readiness else {
+        return api_error(
+            StatusCode::NOT_FOUND,
+            "runtime_bootstrap_unavailable",
+            "Runtime bootstrap is available only in configured network mode",
+        );
+    };
+    if headers.contains_key(ORIGIN)
+        || headers.contains_key(COOKIE)
+        || !readiness_token_matches(&headers, &config.runtime_bootstrap_token)
+    {
+        return api_error(
+            StatusCode::UNAUTHORIZED,
+            "runtime_bootstrap_unauthorized",
+            "the dedicated Runtime bootstrap credential is required",
+        );
+    }
+    let company = request.company_id.hyphenated().to_string();
+    let bounded_identity = |value: &str| {
+        !value.is_empty()
+            && value.len() <= 160
+            && value.bytes().all(|byte| {
+                byte.is_ascii_lowercase()
+                    || byte.is_ascii_uppercase()
+                    || byte.is_ascii_digit()
+                    || matches!(byte, b'-' | b'_' | b'.')
+            })
+    };
+    if request.contract_version != 1
+        || request.owner_id != config.owner_id
+        || request.plane_id != config.plane_id
+        || request.company_id.is_nil()
+        || request.cell_id.is_nil()
+        || request.runtime_generation == 0
+        || !bounded_identity(&request.runtime_id)
+        || !bounded_identity(&request.volume_name)
+        || !immutable_image_reference(&request.runtime_image)
+        || request.source_revision.len() != 40
+        || !request
+            .source_revision
+            .bytes()
+            .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase())
+        || runtime::CompanyConfig::load(&state.daemon.root, &company).is_err()
+    {
+        return api_error(
+            StatusCode::CONFLICT,
+            "runtime_bootstrap_identity_mismatch",
+            "the bootstrap request does not name an exact company Runtime on this plane",
+        );
+    }
+    let scope = crate::capability::HostedRuntimeScope {
+        owner_id: request.owner_id,
+        plane_id: request.plane_id,
+        company_id: request.company_id,
+        cell_id: request.cell_id,
+        runtime_id: request.runtime_id,
+        runtime_generation: request.runtime_generation,
+        runtime_image: request.runtime_image,
+        volume_name: request.volume_name,
+        source_revision: request.source_revision,
+    };
+    match state
+        .daemon
+        .capabilities
+        .issue_hosted_runtime_bridge(&company, scope)
+    {
+        Ok(capability) => Json(serde_json::json!({
+            "contract_version": 1,
+            "company_id": request.company_id,
+            "cell_id": request.cell_id,
+            "runtime_generation": request.runtime_generation,
+            "capability": capability,
+            "valid_for_seconds": 86_400,
+        }))
+        .into_response(),
+        Err(_) => api_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "runtime_bootstrap_failed",
+            "the account plane could not issue the scoped Runtime bootstrap grant",
+        ),
+    }
 }
 
 #[derive(Deserialize)]
