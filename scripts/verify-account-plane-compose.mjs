@@ -28,10 +28,42 @@ const env = {
   INFISICAL_UNIVERSAL_AUTH_CLIENT_ID: 'client-test',
   INFISICAL_UNIVERSAL_AUTH_CLIENT_SECRET: 'infisical-test-secret',
 };
+const template = readFileSync(composePath, 'utf8');
+const expectedMarkers = [
+  'ACCOUNT_PLANE_IMAGE',
+  'COMPANY_RUNTIME_IMAGE',
+  'CORE_RELEASE_MANIFEST_DIGEST',
+  'DESIRED_REVISION',
+  'FLEET_ENTRY_ISSUER',
+  'FLEET_ENTRY_JWKS_URL',
+  'HOSTNAME',
+  'OWNER_ID',
+  'PLANE_ID',
+];
+const actualMarkers = [...new Set([...template.matchAll(/\{\{([A-Z0-9_]+)\}\}/g)].map((match) => match[1]))].sort();
+if (actualMarkers.join(',') !== expectedMarkers.sort().join(',')) {
+  throw new Error(`account-plane template marker contract drifted: ${actualMarkers.join(',')}`);
+}
+if (template.includes('{{RUNTIME_BOOTSTRAP_TOKEN}}')) {
+  throw new Error('runtime bootstrap secret must never be embedded as a provisioning marker');
+}
+const renderedTemplate = template
+  .replaceAll('{{ACCOUNT_PLANE_IMAGE}}', env.RESTLESS_ACCOUNT_PLANE_IMAGE)
+  .replaceAll('{{COMPANY_RUNTIME_IMAGE}}', env.RESTLESS_COMPANY_IMAGE)
+  .replaceAll('{{CORE_RELEASE_MANIFEST_DIGEST}}', env.RESTLESS_RELEASE_MANIFEST_DIGEST)
+  .replaceAll('{{FLEET_ENTRY_ISSUER}}', env.RESTLESS_ENTRY_ISSUER)
+  .replaceAll('{{FLEET_ENTRY_JWKS_URL}}', env.RESTLESS_ENTRY_JWKS_URL)
+  .replaceAll('{{OWNER_ID}}', env.RESTLESS_ENTRY_OWNER_ID)
+  .replaceAll('{{PLANE_ID}}', env.RESTLESS_ENTRY_PLANE_ID)
+  .replaceAll('{{HOSTNAME}}', env.RESTLESS_ENTRY_HOST)
+  .replaceAll('{{DESIRED_REVISION}}', env.RESTLESS_DESIRED_REVISION);
+if (/\{\{[A-Z0-9_]+\}\}/.test(renderedTemplate)) {
+  throw new Error('account-plane template contains an unverified provisioning marker');
+}
 const rendered = spawnSync(
   'docker',
-  ['compose', '-f', composePath, 'config', '--format', 'json'],
-  { cwd: root, env, encoding: 'utf8' },
+  ['compose', '-f', '-', 'config', '--format', 'json'],
+  { cwd: root, env, input: renderedTemplate, encoding: 'utf8' },
 );
 if (rendered.status !== 0) {
   process.stderr.write(rendered.stderr);
@@ -57,6 +89,9 @@ if (model.networks?.['plane-db']?.internal !== true || model.networks?.['public-
 }
 if (!/@sha256:[0-9a-f]{64}$/.test(plane.image ?? '') || !/@sha256:[0-9a-f]{64}$/.test(database.image ?? '')) {
   problems.push('both deployed images must be immutable digests');
+}
+if (plane.read_only !== true || !(plane.tmpfs ?? []).some((mount) => String(mount.target ?? mount).startsWith('/tmp'))) {
+  problems.push('account-plane root filesystem must be read-only with bounded temporary storage');
 }
 for (const [name, service] of Object.entries(services)) {
   if (service.privileged || service.ports?.length) problems.push(`${name} may not be privileged or publish a host port`);

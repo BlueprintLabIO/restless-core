@@ -30,8 +30,9 @@ services:
       - SETUID
 
   account-plane:
-    image: ${RESTLESS_ACCOUNT_PLANE_IMAGE:?set immutable Core account-plane image digest}
+    image: {{ACCOUNT_PLANE_IMAGE}}
     restart: unless-stopped
+    read_only: true
     depends_on:
       plane-database:
         condition: service_healthy
@@ -41,18 +42,18 @@ services:
       RESTLESS_DATABASE_URL_FILE: /run/secrets/plane_database_url
       RESTLESS_OWNER_ADDR: 0.0.0.0:7788
       RESTLESS_ENTRY_MODE: network
-      RESTLESS_ENTRY_ISSUER: ${RESTLESS_ENTRY_ISSUER:?set Fleet HTTPS issuer}
-      RESTLESS_ENTRY_JWKS_URL: ${RESTLESS_ENTRY_JWKS_URL:?set same-origin Fleet JWKS URL}
-      RESTLESS_ENTRY_OWNER_ID: ${RESTLESS_ENTRY_OWNER_ID:?set owner UUID}
-      RESTLESS_ENTRY_PLANE_ID: ${RESTLESS_ENTRY_PLANE_ID:?set plane UUID}
-      RESTLESS_ENTRY_HOST: ${RESTLESS_ENTRY_HOST:?set exact plane hostname}
+      RESTLESS_ENTRY_ISSUER: {{FLEET_ENTRY_ISSUER}}
+      RESTLESS_ENTRY_JWKS_URL: {{FLEET_ENTRY_JWKS_URL}}
+      RESTLESS_ENTRY_OWNER_ID: {{OWNER_ID}}
+      RESTLESS_ENTRY_PLANE_ID: {{PLANE_ID}}
+      RESTLESS_ENTRY_HOST: {{HOSTNAME}}
       RESTLESS_PLANE_READINESS_TOKEN_FILE: /run/secrets/plane_readiness_token
       RESTLESS_CELL_READINESS_TOKEN_FILE: /run/secrets/cell_readiness_token
       RESTLESS_RUNTIME_BOOTSTRAP_TOKEN_FILE: /run/secrets/runtime_bootstrap_token
-      RESTLESS_ACCOUNT_PLANE_IMAGE: ${RESTLESS_ACCOUNT_PLANE_IMAGE}
-      RESTLESS_COMPANY_IMAGE: ${RESTLESS_COMPANY_IMAGE:?set immutable Core Runtime image digest}
-      RESTLESS_DESIRED_REVISION: ${RESTLESS_DESIRED_REVISION:?set Fleet desired revision}
-      RESTLESS_RELEASE_MANIFEST_DIGEST: ${RESTLESS_RELEASE_MANIFEST_DIGEST:?set signed Core manifest digest}
+      RESTLESS_ACCOUNT_PLANE_IMAGE: {{ACCOUNT_PLANE_IMAGE}}
+      RESTLESS_COMPANY_IMAGE: {{COMPANY_RUNTIME_IMAGE}}
+      RESTLESS_DESIRED_REVISION: "{{DESIRED_REVISION}}"
+      RESTLESS_RELEASE_MANIFEST_DIGEST: {{CORE_RELEASE_MANIFEST_DIGEST}}
       INFISICAL_API_URL: ${INFISICAL_API_URL:?set Infisical API URL}
       INFISICAL_PROJECT_ID: ${INFISICAL_PROJECT_ID:?set account-plane Infisical project}
       INFISICAL_ENVIRONMENT: ${INFISICAL_ENVIRONMENT:-prod}
@@ -66,6 +67,8 @@ services:
       - infisical_client_secret
     volumes:
       - plane-state:/state
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=64m
     networks:
       - plane-db
       - plane-egress
@@ -75,11 +78,11 @@ services:
     labels:
       - traefik.enable=true
       - traefik.docker.network=${RESTLESS_PUBLIC_PROXY_NETWORK:-coolify}
-      - traefik.http.routers.restless-plane-${RESTLESS_ENTRY_PLANE_ID}.rule=Host(`${RESTLESS_ENTRY_HOST}`)
-      - traefik.http.routers.restless-plane-${RESTLESS_ENTRY_PLANE_ID}.entrypoints=https
-      - traefik.http.routers.restless-plane-${RESTLESS_ENTRY_PLANE_ID}.tls=true
-      - traefik.http.routers.restless-plane-${RESTLESS_ENTRY_PLANE_ID}.tls.certresolver=letsencrypt
-      - traefik.http.services.restless-plane-${RESTLESS_ENTRY_PLANE_ID}.loadbalancer.server.port=7788
+      - traefik.http.routers.restless-plane-{{PLANE_ID}}.rule=Host(`{{HOSTNAME}}`)
+      - traefik.http.routers.restless-plane-{{PLANE_ID}}.entrypoints=https
+      - traefik.http.routers.restless-plane-{{PLANE_ID}}.tls=true
+      - traefik.http.routers.restless-plane-{{PLANE_ID}}.tls.certresolver=letsencrypt
+      - traefik.http.services.restless-plane-{{PLANE_ID}}.loadbalancer.server.port=7788
     healthcheck:
       test: ["CMD", "curl", "--fail", "--silent", "http://127.0.0.1:7788/health"]
       interval: 10s
