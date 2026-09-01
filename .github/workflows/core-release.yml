@@ -134,6 +134,7 @@ jobs:
           - service: company-runtime
             image: restless-company-runtime
     steps:
+      - uses: actions/checkout@v7
       - uses: actions/download-artifact@v8
         with:
           pattern: core-digests-${{ matrix.service }}-*
