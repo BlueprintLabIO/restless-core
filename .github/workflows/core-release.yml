@@ -1,6 +1,8 @@
 name: Immutable Core release
 
 on:
+  push:
+    branches: [cloud-release-contract]
   workflow_dispatch:
 
 permissions:
