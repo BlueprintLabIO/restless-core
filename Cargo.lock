@@ -2560,6 +2560,7 @@ dependencies = [
  "serde_json",
  "sha2",
  "sqlx",
+ "subtle",
  "tokio",
  "tokio-tungstenite 0.26.2",
  "tokio-util",

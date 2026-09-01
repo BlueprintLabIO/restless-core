@@ -8,7 +8,7 @@ set -euo pipefail
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$root"
 
-for command in cargo curl docker git jq npm uuidgen; do
+for command in cargo curl docker git jq npm openssl uuidgen; do
   command -v "$command" >/dev/null || { echo "missing required command: $command" >&2; exit 1; }
 done
 if [[ -n "$(git status --porcelain)" ]]; then
@@ -89,6 +89,7 @@ docker push "$runtime_tag" >/dev/null
 plane_ref="$(docker image inspect "$plane_tag" --format '{{range .RepoDigests}}{{println .}}{{end}}' | awk -v p="127.0.0.1:${registry_port}/restless/account-plane@" 'index($0,p)==1 {print; exit}')"
 runtime_ref="$(docker image inspect "$runtime_tag" --format '{{range .RepoDigests}}{{println .}}{{end}}' | awk -v p="127.0.0.1:${registry_port}/restless/company-runtime@" 'index($0,p)==1 {print; exit}')"
 [[ -n "$plane_ref" && -n "$runtime_ref" ]] || { echo "pushed image digest did not resolve" >&2; exit 1; }
+manifest_digest="sha256:$(printf '%s\n%s\n%s\n' "$revision" "$plane_ref" "$runtime_ref" | openssl dgst -sha256 | awk '{print $NF}')"
 
 export RESTLESS_HOME="$home"
 export RESTLESS_PORT_OFFSET="$port_offset"
@@ -104,6 +105,10 @@ export RESTLESS_ENTRY_TEST_SIGNING_KEY_B64=BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHB
 export RESTLESS_ENTRY_TEST_COMPANY_ID="$company"
 export RESTLESS_ENTRY_TEST_CELL_ID="$cell_id"
 export RESTLESS_ENTRY_JWKS_JSON="$(target/release/restlessd test-entry-jwks)"
+export RESTLESS_PLANE_READINESS_TOKEN=core27-plane-readiness-test-token-0001
+export RESTLESS_ACCOUNT_PLANE_IMAGE="$plane_ref"
+export RESTLESS_DESIRED_REVISION=1
+export RESTLESS_RELEASE_MANIFEST_DIGEST="$manifest_digest"
 export RESTLESS_COMPANY_IMAGE="$runtime_ref"
 target/release/restlessd >"$scratch/plane.log" 2>&1 &
 daemon_pid="$!"

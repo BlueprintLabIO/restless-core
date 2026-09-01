@@ -190,6 +190,14 @@ impl NetworkEntry {
         self.session_ttl
     }
 
+    pub(crate) fn owner_id(&self) -> Uuid {
+        self.owner_id
+    }
+
+    pub(crate) fn plane_id(&self) -> Uuid {
+        self.plane_id
+    }
+
     pub(crate) fn verify(&self, token: &str) -> Result<VerifiedAssertion, Refusal> {
         self.verify_at(token, Utc::now().timestamp(), SignaturePolicy::Enforce)
     }

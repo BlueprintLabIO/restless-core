@@ -295,6 +295,20 @@ pub(crate) async fn probe_reference(reference: &str) -> Probe {
     }
 }
 
+/// Prove that the hosted account plane can authenticate to its credential
+/// custodian without reading or returning any company secret.
+pub(crate) async fn probe_custody() -> Result<()> {
+    let settings = InfisicalSettings::from_env()?;
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_millis(1_500))
+        .build()
+        .context("build credential custody probe")?;
+    infisical_login(&client, &settings)
+        .await
+        .map(|_| ())
+        .context("authenticate credential custody")
+}
+
 /// Return the provider named by a host-broker OAuth reference. Other valid
 /// credential backends return `None`; malformed references remain errors.
 pub(crate) fn omp_oauth_provider(reference: &str) -> Result<Option<&str>> {

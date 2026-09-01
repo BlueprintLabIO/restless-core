@@ -21,7 +21,8 @@ use axum::extract::{
     DefaultBodyLimit, Multipart, OriginalUri, Path as AxumPath, Query, Request, State,
 };
 use axum::http::header::{
-    CACHE_CONTROL, CONTENT_DISPOSITION, CONTENT_TYPE, COOKIE, HOST, ORIGIN, SET_COOKIE,
+    AUTHORIZATION, CACHE_CONTROL, CONTENT_DISPOSITION, CONTENT_TYPE, COOKIE, HOST, ORIGIN,
+    SET_COOKIE,
 };
 use axum::http::uri::Authority;
 use axum::http::{HeaderMap, HeaderValue, Method, Response, StatusCode};
@@ -33,6 +34,8 @@ use axum::{Json, Router};
 use chrono::{Duration as ChronoDuration, Utc};
 use futures_util::{SinkExt as _, StreamExt as _};
 use serde::{Deserialize, Serialize};
+use sha2::{Digest as _, Sha256};
+use subtle::ConstantTimeEq as _;
 use tokio_tungstenite::{client_async, tungstenite};
 use tower_http::services::{ServeDir, ServeFile};
 use uuid::Uuid;
@@ -71,6 +74,7 @@ struct OwnerState {
     review_public_url: String,
     entry: EntryMode,
     sessions: Arc<SessionStore>,
+    plane_readiness: Option<PlaneReadinessConfig>,
 }
 
 #[derive(Clone)]
@@ -79,6 +83,18 @@ pub(crate) struct OwnerConfig {
     review_address: SocketAddr,
     review_public_url: String,
     entry: EntryMode,
+    plane_readiness: Option<PlaneReadinessConfig>,
+}
+
+#[derive(Clone)]
+struct PlaneReadinessConfig {
+    token: String,
+    owner_id: Uuid,
+    plane_id: Uuid,
+    hostname: String,
+    account_plane_image: String,
+    desired_revision: i64,
+    release_manifest_digest: String,
 }
 
 #[derive(Clone)]
@@ -722,6 +738,10 @@ impl OwnerConfig {
             .parse::<SocketAddr>()
             .context("parse RESTLESS_REVIEW_ADDR")?;
         let entry = EntryMode::from_env().await?;
+        let plane_readiness = match entry.network() {
+            Some(network) => Some(PlaneReadinessConfig::from_env(network)?),
+            None => None,
+        };
         // ADR 0007: the loopback bail is conditional on entry mode, never
         // removed. In local mode the network *is* the boundary, so binding
         // beyond loopback would publish an unauthenticated API.
@@ -737,8 +757,70 @@ impl OwnerConfig {
             review_address,
             review_public_url,
             entry,
+            plane_readiness,
         })
     }
+}
+
+impl PlaneReadinessConfig {
+    fn from_env(network: &crate::entry::NetworkEntry) -> Result<Self> {
+        let token = required_env("RESTLESS_PLANE_READINESS_TOKEN")?;
+        if token.len() < 32 {
+            anyhow::bail!("RESTLESS_PLANE_READINESS_TOKEN must contain at least 32 characters");
+        }
+        let account_plane_image = required_env("RESTLESS_ACCOUNT_PLANE_IMAGE")?;
+        if !immutable_image_reference(&account_plane_image) {
+            anyhow::bail!("RESTLESS_ACCOUNT_PLANE_IMAGE must be an immutable OCI @sha256 digest");
+        }
+        let desired_revision = required_env("RESTLESS_DESIRED_REVISION")?
+            .parse::<i64>()
+            .context("RESTLESS_DESIRED_REVISION must be a positive integer")?;
+        if desired_revision < 1 {
+            anyhow::bail!("RESTLESS_DESIRED_REVISION must be at least 1");
+        }
+        let release_manifest_digest = required_env("RESTLESS_RELEASE_MANIFEST_DIGEST")?;
+        if !sha256_digest(&release_manifest_digest) {
+            anyhow::bail!("RESTLESS_RELEASE_MANIFEST_DIGEST must be sha256:<64 lowercase hex>");
+        }
+        Ok(Self {
+            token,
+            owner_id: network.owner_id(),
+            plane_id: network.plane_id(),
+            hostname: network.host().into(),
+            account_plane_image,
+            desired_revision,
+            release_manifest_digest,
+        })
+    }
+}
+
+fn required_env(name: &str) -> Result<String> {
+    let value = std::env::var(name).unwrap_or_default();
+    if value.trim().is_empty() {
+        anyhow::bail!("network account plane requires {name}");
+    }
+    Ok(value)
+}
+
+fn sha256_digest(value: &str) -> bool {
+    value.strip_prefix("sha256:").is_some_and(|digest| {
+        digest.len() == 64
+            && digest
+                .bytes()
+                .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase())
+    })
+}
+
+fn immutable_image_reference(value: &str) -> bool {
+    let Some((repository, digest)) = value.split_once("@sha256:") else {
+        return false;
+    };
+    !repository.is_empty()
+        && !repository.contains(char::is_whitespace)
+        && digest.len() == 64
+        && digest
+            .bytes()
+            .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase())
 }
 
 fn ensure_loopback(address: SocketAddr, variable: &str) -> Result<()> {
@@ -754,6 +836,7 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
         review_address,
         review_public_url,
         entry,
+        plane_readiness,
     } = config;
     let state = OwnerState {
         daemon,
@@ -764,6 +847,7 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
         review_public_url,
         entry,
         sessions: Arc::new(SessionStore::default()),
+        plane_readiness,
     };
 
     let api = Router::new()
@@ -849,6 +933,10 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
         // is running without holding a session, and the answer carries release
         // identity only — never company, owner or configuration detail.
         .route("/health", get(release_health))
+        .route(
+            "/internal/v1/planes/{plane_id}/readiness",
+            post(observe_plane_readiness),
+        )
         .route("/entry", get(consume_entry_assertion))
         .route("/entry/logout", post(end_entry_session))
         .route("/desktop/{company}", get(open_desktop))
@@ -895,6 +983,13 @@ async fn enforce_owner_boundary(
     request: Request,
     next: Next,
 ) -> Response<Body> {
+    // Machine readiness has its own dedicated bearer boundary and request
+    // identity contract. It is deliberately not a browser-origin/session path.
+    if request.uri().path().starts_with("/internal/v1/planes/")
+        && request.uri().path().ends_with("/readiness")
+    {
+        return next.run(request).await;
+    }
     match state.entry.clone() {
         EntryMode::Local => {
             if let Some(reason) =
@@ -1050,6 +1145,169 @@ async fn release_health() -> Response<Body> {
         "release": crate::release::ReleaseIdentity::current(),
     }))
     .into_response()
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PlaneReadinessRequest {
+    contract_version: u32,
+    owner_id: Uuid,
+    plane_id: Uuid,
+    hostname: String,
+    account_plane_image: String,
+    desired_revision: i64,
+}
+
+#[derive(Serialize)]
+struct PlaneReadinessCheck {
+    kind: &'static str,
+    status: &'static str,
+}
+
+#[derive(Serialize)]
+struct PlaneReadinessObservation {
+    contract_version: u32,
+    owner_id: Uuid,
+    plane_id: Uuid,
+    hostname: String,
+    account_plane_image: String,
+    desired_revision: i64,
+    core_release: &'static str,
+    release_manifest_digest: String,
+    status: &'static str,
+    ready: bool,
+    checks: Vec<PlaneReadinessCheck>,
+    observed_at: chrono::DateTime<Utc>,
+    valid_until: chrono::DateTime<Utc>,
+}
+
+async fn observe_plane_readiness(
+    State(state): State<OwnerState>,
+    AxumPath(path_plane_id): AxumPath<Uuid>,
+    headers: HeaderMap,
+    Json(request): Json<PlaneReadinessRequest>,
+) -> Response<Body> {
+    let Some(config) = &state.plane_readiness else {
+        return api_error(
+            StatusCode::NOT_FOUND,
+            "plane_readiness_unavailable",
+            "plane readiness is available only in configured network mode",
+        );
+    };
+    if !readiness_token_matches(&headers, &config.token) {
+        return api_error(
+            StatusCode::UNAUTHORIZED,
+            "plane_readiness_unauthorized",
+            "the dedicated plane readiness credential is required",
+        );
+    }
+    if request.contract_version != 1
+        || path_plane_id != config.plane_id
+        || request.owner_id != config.owner_id
+        || request.plane_id != config.plane_id
+        || request.hostname != config.hostname
+        || request.account_plane_image != config.account_plane_image
+        || request.desired_revision != config.desired_revision
+    {
+        return api_error(
+            StatusCode::CONFLICT,
+            "plane_readiness_identity_mismatch",
+            "the readiness request does not name this exact deployed plane revision",
+        );
+    }
+
+    let pool = state.daemon.authority.pool();
+    let plane_database = sqlx::query_scalar::<_, i32>("SELECT 1").fetch_one(pool);
+    let authority = sqlx::query_scalar::<_, bool>(
+        "SELECT to_regclass('restless_authority.records') IS NOT NULL",
+    )
+    .fetch_one(pool);
+    let credential_custody = crate::credential::probe_custody();
+    let (plane_database, authority, credential_custody) =
+        tokio::join!(plane_database, authority, credential_custody);
+
+    let checks = vec![
+        PlaneReadinessCheck {
+            kind: "authority",
+            status: if authority.is_ok_and(|present| present) {
+                "ready"
+            } else {
+                "failed"
+            },
+        },
+        PlaneReadinessCheck {
+            kind: "credential_custody",
+            status: if credential_custody.is_ok() {
+                "ready"
+            } else {
+                "failed"
+            },
+        },
+        PlaneReadinessCheck {
+            kind: "company_directory",
+            status: if crate::configured_companies(&state.daemon.root).is_ok() {
+                "ready"
+            } else {
+                "failed"
+            },
+        },
+        PlaneReadinessCheck {
+            kind: "identity_handoff",
+            status: if state.entry.network().is_some() {
+                "ready"
+            } else {
+                "failed"
+            },
+        },
+        // serve() refuses to install routes unless the built cockpit exists.
+        PlaneReadinessCheck {
+            kind: "cockpit",
+            status: "ready",
+        },
+        PlaneReadinessCheck {
+            kind: "plane_database",
+            status: if plane_database.is_ok() {
+                "ready"
+            } else {
+                "failed"
+            },
+        },
+    ];
+    let ready = checks.iter().all(|check| check.status == "ready");
+    let observed_at = Utc::now();
+    let observation = PlaneReadinessObservation {
+        contract_version: 1,
+        owner_id: config.owner_id,
+        plane_id: config.plane_id,
+        hostname: config.hostname.clone(),
+        account_plane_image: config.account_plane_image.clone(),
+        desired_revision: config.desired_revision,
+        core_release: crate::release::CORE_VERSION,
+        release_manifest_digest: config.release_manifest_digest.clone(),
+        status: if ready { "ready" } else { "degraded" },
+        ready,
+        checks,
+        observed_at,
+        valid_until: observed_at + ChronoDuration::seconds(20),
+    };
+    let mut response = Json(observation).into_response();
+    response
+        .headers_mut()
+        .insert(CACHE_CONTROL, HeaderValue::from_static("no-store"));
+    response
+}
+
+fn readiness_token_matches(headers: &HeaderMap, expected: &str) -> bool {
+    let Some(candidate) = headers
+        .get(AUTHORIZATION)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.strip_prefix("Bearer "))
+    else {
+        return false;
+    };
+    let candidate = Sha256::digest(candidate.as_bytes());
+    let expected = Sha256::digest(expected.as_bytes());
+    bool::from(candidate.ct_eq(&expected))
 }
 
 /// Ordinary session revocation. ADR 0007 requires that a removed membership
@@ -3669,6 +3927,7 @@ mod tests {
                 review_address,
                 review_public_url: format!("http://{{ticket}}.localhost:{}", review_address.port()),
                 entry: EntryMode::Local,
+                plane_readiness: None,
             },
         )
         .await
@@ -3679,6 +3938,73 @@ mod tests {
         let mut headers = HeaderMap::new();
         headers.insert(HOST, HeaderValue::from_str(host).unwrap());
         headers
+    }
+
+    #[test]
+    fn plane_readiness_uses_an_exact_dedicated_bearer() {
+        let expected = "plane-readiness-token-at-least-32-characters";
+        let mut headers = HeaderMap::new();
+        assert!(!readiness_token_matches(&headers, expected));
+        headers.insert(
+            AUTHORIZATION,
+            HeaderValue::from_static("Bearer another-readiness-token-at-least-32-characters"),
+        );
+        assert!(!readiness_token_matches(&headers, expected));
+        headers.insert(
+            AUTHORIZATION,
+            HeaderValue::from_static("Bearer plane-readiness-token-at-least-32-characters"),
+        );
+        assert!(readiness_token_matches(&headers, expected));
+    }
+
+    #[test]
+    fn plane_readiness_release_identity_accepts_only_immutable_digests() {
+        assert!(immutable_image_reference(&format!(
+            "registry.example.test/core@sha256:{}",
+            "a".repeat(64)
+        )));
+        assert!(!immutable_image_reference(
+            "registry.example.test/core:latest"
+        ));
+        assert!(sha256_digest(&format!("sha256:{}", "b".repeat(64))));
+        assert!(!sha256_digest(&format!("sha256:{}", "B".repeat(64))));
+    }
+
+    #[test]
+    fn plane_readiness_observation_has_exactly_the_six_fleet_checks() {
+        let observed_at = Utc::now();
+        let observation = PlaneReadinessObservation {
+            contract_version: 1,
+            owner_id: Uuid::nil(),
+            plane_id: Uuid::nil(),
+            hostname: "owner.example.test".into(),
+            account_plane_image: format!("registry/core@sha256:{}", "a".repeat(64)),
+            desired_revision: 1,
+            core_release: crate::release::CORE_VERSION,
+            release_manifest_digest: format!("sha256:{}", "b".repeat(64)),
+            status: "ready",
+            ready: true,
+            checks: [
+                "authority",
+                "credential_custody",
+                "company_directory",
+                "identity_handoff",
+                "cockpit",
+                "plane_database",
+            ]
+            .into_iter()
+            .map(|kind| PlaneReadinessCheck {
+                kind,
+                status: "ready",
+            })
+            .collect(),
+            observed_at,
+            valid_until: observed_at + ChronoDuration::seconds(20),
+        };
+        let value = serde_json::to_value(observation).expect("readiness serializes");
+        assert_eq!(value["checks"].as_array().unwrap().len(), 6);
+        assert_eq!(value["ready"], true);
+        assert_eq!(value["contract_version"], 1);
     }
 
     fn identity(scope: crate::entry::CompanyScope) -> crate::entry::VerifiedIdentity {
