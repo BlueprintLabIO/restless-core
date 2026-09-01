@@ -5,7 +5,7 @@ import { access, readFile } from 'node:fs/promises';
 import { pathToFileURL } from 'node:url';
 
 export const PROTOCOL_VERSION = 1;
-export const REGISTRATION_FEATURES = Object.freeze(['registration.v1']);
+export const REGISTRATION_FEATURES = Object.freeze(['registration.v1', 'activity.v1']);
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 const LOWER_GIT_REVISION = /^[0-9a-f]{40}$/;
 const IMMUTABLE_IMAGE = /^[^\s@]+@sha256:[0-9a-f]{64}$/;
@@ -161,14 +161,48 @@ function waitForRegistration(socket, registration, signal) {
   });
 }
 
-function waitForClose(socket, signal) {
+export function handleCommand(raw, config, observedAt = new Date()) {
+  if (typeof raw !== 'string' || Buffer.byteLength(raw) > 1024 * 1024) {
+    throw new Error('Runtime Agent command must be one bounded text frame');
+  }
+  const command = JSON.parse(raw);
+  const keys = Object.keys(command).sort();
+  const expected = ['operation_id', 'protocol_version', 'runtime_generation', 'runtime_id', 'type'];
+  if (JSON.stringify(keys) !== JSON.stringify(expected)
+      || command.type !== 'activity.observe'
+      || command.protocol_version !== PROTOCOL_VERSION
+      || !UUID.test(command.operation_id)
+      || command.runtime_id !== config.runtimeId
+      || command.runtime_generation !== config.runtimeGeneration) {
+    throw new Error('Runtime Agent command identity or shape is invalid');
+  }
+  return {
+    type: 'activity.result',
+    operation_id: command.operation_id,
+    runtime_id: config.runtimeId,
+    runtime_generation: config.runtimeGeneration,
+    active_processes: [],
+    observed_at: observedAt.toISOString(),
+  };
+}
+
+function serveCommands(socket, config, signal) {
   return new Promise((resolve) => {
-    const finish = () => {
+    const clean = () => {
+      socket.removeEventListener('message', message);
       socket.removeEventListener('close', finish);
       signal.removeEventListener('abort', aborted);
-      resolve();
     };
+    const finish = () => { clean(); resolve(); };
     const aborted = () => socket.close(1000, 'shutdown');
+    const message = (event) => {
+      try {
+        socket.send(JSON.stringify(handleCommand(event.data, config)));
+      } catch {
+        socket.close(1008, 'invalid command');
+      }
+    };
+    socket.addEventListener('message', message);
     socket.addEventListener('close', finish, { once: true });
     signal.addEventListener('abort', aborted, { once: true });
   });
@@ -180,7 +214,7 @@ export async function connectOnce(config, signal, WebSocketImpl = WebSocket) {
   await waitForOpen(socket, signal);
   await waitForRegistration(socket, registration, signal);
   process.stderr.write('Runtime Agent registered with its account plane\n');
-  await waitForClose(socket, signal);
+  await serveCommands(socket, config, signal);
 }
 
 export async function run(environment = process.env, WebSocketImpl = WebSocket) {

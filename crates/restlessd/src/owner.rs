@@ -1345,8 +1345,22 @@ async fn observe_cell_readiness(
         Some(_) => "failed",
         None => "pending",
     };
+    let activity_observed = if bridge.as_ref().is_some_and(|bridge| {
+        bridge
+            .supported_features
+            .iter()
+            .any(|feature| feature == "activity.v1")
+    }) {
+        state
+            .runtime_bridges
+            .probe_activity(request.cell_id)
+            .await
+            .is_ok()
+    } else {
+        false
+    };
     let runtime_bridge = match bridge.as_ref() {
-        Some(bridge) if bridge.has_complete_v1() => "ready",
+        Some(bridge) if bridge.has_complete_v1() && activity_observed => "ready",
         Some(_) | None => "pending",
     };
     let checks = vec![

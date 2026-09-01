@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 
-import { buildRegistration, parseConfiguration } from './runtime-agent.mjs';
+import { buildRegistration, handleCommand, parseConfiguration } from './runtime-agent.mjs';
 
 const UUIDS = [1, 2, 3, 4].map((value) => `00000000-0000-4000-8000-${String(value).padStart(12, '0')}`);
 function environment(capabilityFile) {
@@ -33,8 +33,35 @@ test('registration carries exact immutable identity and only implemented feature
   assert.equal(registration.protocol_version, 1);
   assert.equal(registration.runtime_generation, 2);
   assert.equal(registration.desired_revision, 3);
-  assert.deepEqual(registration.supported_features, ['registration.v1']);
+  assert.deepEqual(registration.supported_features, ['registration.v1', 'activity.v1']);
   assert.equal(registration.capability, 'r1.payload.signature');
+});
+
+test('activity probe is exact, bounded and tied to the active Runtime generation', () => {
+  const config = parseConfiguration(environment('/run/secrets/bridge.cap'));
+  const operationId = '00000000-0000-4000-8000-000000000099';
+  const response = handleCommand(JSON.stringify({
+    type: 'activity.observe',
+    protocol_version: 1,
+    operation_id: operationId,
+    runtime_id: 'runtime-1',
+    runtime_generation: 2,
+  }), config, new Date('2026-09-01T00:00:00.000Z'));
+  assert.deepEqual(response, {
+    type: 'activity.result',
+    operation_id: operationId,
+    runtime_id: 'runtime-1',
+    runtime_generation: 2,
+    active_processes: [],
+    observed_at: '2026-09-01T00:00:00.000Z',
+  });
+  assert.throws(() => handleCommand(JSON.stringify({
+    type: 'activity.observe',
+    protocol_version: 1,
+    operation_id: operationId,
+    runtime_id: 'runtime-1',
+    runtime_generation: 1,
+  }), config));
 });
 
 test('configuration refuses mutable images, plaintext remote transport and ambiguous URLs', () => {

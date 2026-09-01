@@ -12,8 +12,9 @@ use std::time::Duration;
 use anyhow::{bail, Context as _, Result};
 use axum::extract::ws::{Message, WebSocket};
 use chrono::{DateTime, Utc};
-use futures_util::StreamExt as _;
+use futures_util::{SinkExt as _, StreamExt as _};
 use serde::{Deserialize, Serialize};
+use tokio::sync::{mpsc, oneshot};
 use uuid::Uuid;
 
 use crate::capability::CapabilityIssuer;
@@ -21,6 +22,8 @@ use crate::capability::CapabilityIssuer;
 pub(crate) const PROTOCOL_VERSION: u32 = 1;
 const REGISTER_TIMEOUT: Duration = Duration::from_secs(5);
 const MAX_REGISTER_BYTES: usize = 64 * 1024;
+const MAX_RESPONSE_BYTES: usize = 1024 * 1024;
+const PROBE_TIMEOUT: Duration = Duration::from_secs(1);
 const REQUIRED_FEATURES: &[&str] = &[
     "activity.v1",
     "desktop.v1",
@@ -101,6 +104,21 @@ pub(crate) struct Registry {
 struct ActiveConnection {
     connection_id: Uuid,
     observation: Observation,
+    outbound: mpsc::Sender<String>,
+    pending: Arc<Mutex<HashMap<Uuid, oneshot::Sender<AgentResponse>>>>,
+}
+
+#[derive(Debug, Deserialize)]
+struct AgentResponse {
+    #[serde(rename = "type")]
+    kind: String,
+    operation_id: Uuid,
+    runtime_id: String,
+    runtime_generation: u64,
+    #[serde(default)]
+    active_processes: Option<Vec<serde_json::Value>>,
+    #[serde(default)]
+    observed_at: Option<DateTime<Utc>>,
 }
 
 struct ConnectionGuard {
@@ -147,6 +165,8 @@ impl Registry {
             serde_json::from_str(&raw).context("decode Runtime Bridge registration")?;
         let observation = authenticate_registration(registration, &issuer, scope)?;
         let connection_id = Uuid::new_v4();
+        let (outbound, mut outbound_rx) = mpsc::channel::<String>(32);
+        let pending = Arc::new(Mutex::new(HashMap::new()));
 
         {
             let mut entries = self.entries.lock().expect("Runtime Bridge registry");
@@ -165,6 +185,8 @@ impl Registry {
                 ActiveConnection {
                     connection_id,
                     observation: observation.clone(),
+                    outbound,
+                    pending: Arc::clone(&pending),
                 },
             );
         }
@@ -188,16 +210,44 @@ impl Registry {
             .await
             .context("acknowledge Runtime Bridge registration")?;
 
-        while let Some(message) = socket.next().await {
-            match message.context("read Runtime Bridge frame")? {
-                Message::Ping(payload) => socket
-                    .send(Message::Pong(payload))
-                    .await
-                    .context("answer Runtime Bridge ping")?,
-                Message::Pong(_) => {}
-                Message::Close(_) => break,
-                Message::Text(_) | Message::Binary(_) => {
-                    bail!("Runtime Bridge sent an unsupported post-registration frame")
+        let (mut sink, mut source) = socket.split();
+        loop {
+            tokio::select! {
+                outbound = outbound_rx.recv() => {
+                    let Some(outbound) = outbound else { break };
+                    sink.send(Message::Text(outbound.into()))
+                        .await
+                        .context("send Runtime Bridge command")?;
+                }
+                incoming = source.next() => {
+                    let Some(incoming) = incoming else { break };
+                    match incoming.context("read Runtime Bridge frame")? {
+                        Message::Ping(payload) => sink
+                            .send(Message::Pong(payload))
+                            .await
+                            .context("answer Runtime Bridge ping")?,
+                        Message::Pong(_) => {}
+                        Message::Close(_) => break,
+                        Message::Text(raw) => {
+                            if raw.len() > MAX_RESPONSE_BYTES {
+                                bail!("Runtime Bridge response exceeds the bounded frame size");
+                            }
+                            let response: AgentResponse = serde_json::from_str(&raw)
+                                .context("decode Runtime Bridge response")?;
+                            if !matches!(response.kind.as_str(), "activity.result" | "error") {
+                                bail!("Runtime Bridge response kind is not implemented");
+                            }
+                            let sender = pending
+                                .lock()
+                                .expect("Runtime Bridge pending responses")
+                                .remove(&response.operation_id)
+                                .context("Runtime Bridge response has no pending operation")?;
+                            let _ = sender.send(response);
+                        }
+                        Message::Binary(_) => {
+                            bail!("Runtime Bridge sent an unsupported binary frame")
+                        }
+                    }
                 }
             }
         }
@@ -221,6 +271,74 @@ impl Registry {
             .values()
             .find(|active| active.observation.cell_id == cell_id)
             .map(|active| active.observation.clone())
+    }
+
+    pub(crate) async fn probe_activity(&self, cell_id: Uuid) -> Result<()> {
+        let active = self
+            .entries
+            .lock()
+            .expect("Runtime Bridge registry")
+            .values()
+            .find(|active| active.observation.cell_id == cell_id)
+            .cloned()
+            .context("Runtime Bridge is not connected")?;
+        if !active
+            .observation
+            .supported_features
+            .iter()
+            .any(|feature| feature == "activity.v1")
+        {
+            bail!("Runtime Bridge does not implement activity.v1");
+        }
+        let operation_id = Uuid::new_v4();
+        let (sender, receiver) = oneshot::channel();
+        if active
+            .pending
+            .lock()
+            .expect("Runtime Bridge pending responses")
+            .insert(operation_id, sender)
+            .is_some()
+        {
+            bail!("Runtime Bridge operation identity collision");
+        }
+        let command = serde_json::json!({
+            "type": "activity.observe",
+            "protocol_version": PROTOCOL_VERSION,
+            "operation_id": operation_id,
+            "runtime_id": active.observation.runtime_id,
+            "runtime_generation": active.observation.runtime_generation,
+        });
+        if active.outbound.send(command.to_string()).await.is_err() {
+            active
+                .pending
+                .lock()
+                .expect("Runtime Bridge pending responses")
+                .remove(&operation_id);
+            bail!("Runtime Bridge disconnected before activity probe");
+        }
+        let response = match tokio::time::timeout(PROBE_TIMEOUT, receiver).await {
+            Ok(Ok(response)) => response,
+            _ => {
+                active
+                    .pending
+                    .lock()
+                    .expect("Runtime Bridge pending responses")
+                    .remove(&operation_id);
+                bail!("Runtime Bridge activity probe timed out");
+            }
+        };
+        if response.kind != "activity.result"
+            || response.runtime_id != active.observation.runtime_id
+            || response.runtime_generation != active.observation.runtime_generation
+            || response.active_processes.is_none()
+            || response.observed_at.is_none_or(|observed_at| {
+                let age = Utc::now().signed_duration_since(observed_at);
+                age.num_seconds() < -5 || age.num_seconds() > 5
+            })
+        {
+            bail!("Runtime Bridge activity response does not match the active Runtime");
+        }
+        Ok(())
     }
 }
 
@@ -476,6 +594,29 @@ mod tests {
             registry.observe("hosted_test").unwrap().runtime_id,
             "restless-cell-runtime-1"
         );
+
+        let probe_registry = registry.clone();
+        let cell_id = registration.cell_id;
+        let probe = tokio::spawn(async move { probe_registry.probe_activity(cell_id).await });
+        let command = client.next().await.unwrap().unwrap().into_text().unwrap();
+        let command: serde_json::Value = serde_json::from_str(&command).unwrap();
+        assert_eq!(command["type"], "activity.observe");
+        client
+            .send(ClientMessage::Text(
+                serde_json::json!({
+                    "type": "activity.result",
+                    "operation_id": command["operation_id"],
+                    "runtime_id": registration.runtime_id,
+                    "runtime_generation": registration.runtime_generation,
+                    "active_processes": [],
+                    "observed_at": chrono::Utc::now(),
+                })
+                .to_string()
+                .into(),
+            ))
+            .await
+            .unwrap();
+        probe.await.unwrap().unwrap();
 
         client.close(None).await.unwrap();
         for _ in 0..20 {
