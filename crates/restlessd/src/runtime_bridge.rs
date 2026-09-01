@@ -93,6 +93,11 @@ pub(crate) struct Observation {
     pub(crate) connected_at: DateTime<Utc>,
 }
 
+pub(crate) struct ActivityObservation {
+    pub(crate) protected_process: bool,
+    pub(crate) observed_at: DateTime<Utc>,
+}
+
 #[derive(Debug, Serialize)]
 struct Accepted {
     protocol_version: u32,
@@ -899,7 +904,7 @@ impl Registry {
         Ok(())
     }
 
-    pub(crate) async fn probe_readiness(&self, cell_id: Uuid) -> Result<()> {
+    pub(crate) async fn observe_activity(&self, cell_id: Uuid) -> Result<ActivityObservation> {
         let active = self.active_for_cell(cell_id)?;
         let activity = self
             .request(
@@ -916,16 +921,33 @@ impl Registry {
             .and_then(|value| value.parse::<DateTime<Utc>>().ok())
             .context("Runtime Bridge activity response lacks observed_at")?;
         let age = Utc::now().signed_duration_since(observed_at);
+        let active_processes = activity
+            .body
+            .get("active_processes")
+            .and_then(serde_json::Value::as_array)
+            .context("Runtime Bridge activity response lacks active_processes")?;
         if activity.kind != "activity.result"
-            || !activity
-                .body
-                .get("active_processes")
-                .is_some_and(serde_json::Value::is_array)
+            || active_processes.len() > 128
+            || active_processes.iter().any(|value| {
+                value
+                    .as_str()
+                    .and_then(|value| Uuid::parse_str(value).ok())
+                    .is_none()
+            })
             || age.num_seconds() < -5
             || age.num_seconds() > 5
         {
             bail!("Runtime Bridge activity response is invalid or stale");
         }
+        Ok(ActivityObservation {
+            protected_process: !active_processes.is_empty(),
+            observed_at,
+        })
+    }
+
+    pub(crate) async fn probe_readiness(&self, cell_id: Uuid) -> Result<()> {
+        let active = self.active_for_cell(cell_id)?;
+        self.observe_activity(cell_id).await?;
 
         if active
             .observation
@@ -1081,7 +1103,7 @@ fn authenticate_registration(
     let grant = issuer
         .verify_hosted_runtime_bridge(&registration.capability)
         .context("verify Runtime Bridge capability")?;
-    if registration.company != registration.company_id.hyphenated().to_string()
+    if registration.company != crate::runtime::hosted_company_slug(registration.company_id)
         || grant.owner_id != registration.owner_id
         || grant.plane_id != registration.plane_id
         || grant.company_id != registration.company_id
@@ -1195,7 +1217,7 @@ mod tests {
             plane_id: scope.plane_id,
             company_id,
             cell_id: Uuid::new_v4(),
-            company: company_id.hyphenated().to_string(),
+            company: crate::runtime::hosted_company_slug(company_id),
             runtime_id: "restless-cell-runtime-1".into(),
             runtime_generation: 7,
             desired_revision: 3,
@@ -1242,7 +1264,7 @@ mod tests {
     }
 
     fn registration_company(company_id: &Uuid) -> String {
-        company_id.hyphenated().to_string()
+        crate::runtime::hosted_company_slug(*company_id)
     }
 
     #[test]
@@ -1270,7 +1292,7 @@ mod tests {
     #[test]
     fn a_runtime_capability_cannot_register_another_company() {
         let (_root, issuer, scope, mut registration) = fixture();
-        registration.company = Uuid::new_v4().hyphenated().to_string();
+        registration.company = crate::runtime::hosted_company_slug(Uuid::new_v4());
         assert!(authenticate_registration(registration, &issuer, scope).is_err());
     }
 

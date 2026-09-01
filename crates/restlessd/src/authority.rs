@@ -524,6 +524,24 @@ impl AuthorityStore {
         if !crate::runtime::is_test_company(company) {
             anyhow::bail!("refusing to delete Authority records for non-test company {company}");
         }
+        self.delete_company_records(company).await
+    }
+
+    /// Hosted deletion is reachable only through the dedicated authenticated
+    /// machine endpoint after Fleet has proved the Runtime and volume absent.
+    /// Restrict the storage identity to Core's UUID-derived hosted slug so this
+    /// cannot become a convenience delete for local companies.
+    pub async fn delete_hosted_company(&self, company: &str) -> Result<()> {
+        if company.len() != 33
+            || !company.starts_with('c')
+            || !company[1..].bytes().all(|byte| byte.is_ascii_hexdigit())
+        {
+            anyhow::bail!("refusing to delete Authority records for non-hosted company {company}");
+        }
+        self.delete_company_records(company).await
+    }
+
+    async fn delete_company_records(&self, company: &str) -> Result<()> {
         let mut tx = self.pool.begin().await?;
         sqlx::query("DELETE FROM restless_authority.payment_intents WHERE company = $1")
             .bind(company)

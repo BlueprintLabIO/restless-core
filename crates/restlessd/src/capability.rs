@@ -361,8 +361,8 @@ fn validate_claims(claims: &Claims) -> Result<()> {
             }
             if let Some(scope) = &claims.hosted_runtime {
                 validate_hosted_runtime_scope(scope)?;
-                if claims.company != scope.company_id.hyphenated().to_string() {
-                    bail!("hosted Runtime capability company is not its canonical company UUID");
+                if claims.company != crate::runtime::hosted_company_slug(scope.company_id) {
+                    bail!("hosted Runtime capability company is not its canonical storage slug");
                 }
             }
         }

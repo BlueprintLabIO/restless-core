@@ -23,6 +23,8 @@ const env = {
   RESTLESS_PLANE_DATABASE_URL: 'postgres://restless:database-test-password@plane-database/restless',
   RESTLESS_PLANE_READINESS_TOKEN: 'plane-readiness-test-token-at-least-32-characters',
   RESTLESS_CELL_READINESS_TOKEN: 'cell-readiness-test-token-distinct-and-over-32-characters',
+  RESTLESS_ACTIVITY_TOKEN: 'activity-test-token-distinct-and-over-32-characters',
+  RESTLESS_DELETION_TOKEN: 'deletion-test-token-distinct-and-over-32-characters',
   INFISICAL_API_URL: 'https://app.infisical.com',
   INFISICAL_PROJECT_ID: 'project-test',
   INFISICAL_UNIVERSAL_AUTH_CLIENT_ID: 'client-test',
@@ -103,7 +105,7 @@ for (const [name, service] of Object.entries(services)) {
   }
 }
 const planeSecrets = new Set((plane.secrets ?? []).map((secret) => secret.source));
-for (const required of ['plane_database_url', 'plane_readiness_token', 'cell_readiness_token', 'infisical_client_secret']) {
+for (const required of ['plane_database_url', 'plane_readiness_token', 'cell_readiness_token', 'activity_token', 'deletion_token', 'infisical_client_secret']) {
   if (!planeSecrets.has(required)) problems.push(`account-plane is missing secret ${required}`);
 }
 if (planeSecrets.has('plane_database_password')) problems.push('account-plane must not receive the database bootstrap password');
@@ -111,13 +113,15 @@ const databaseSecrets = new Set((database.secrets ?? []).map((secret) => secret.
 if (databaseSecrets.size !== 1 || !databaseSecrets.has('plane_database_password')) {
   problems.push('plane-database must receive only its bootstrap password');
 }
-for (const forbidden of ['RESTLESS_PLANE_DATABASE_URL', 'RESTLESS_PLANE_READINESS_TOKEN', 'RESTLESS_CELL_READINESS_TOKEN', 'INFISICAL_UNIVERSAL_AUTH_CLIENT_SECRET']) {
+for (const forbidden of ['RESTLESS_PLANE_DATABASE_URL', 'RESTLESS_PLANE_READINESS_TOKEN', 'RESTLESS_CELL_READINESS_TOKEN', 'RESTLESS_ACTIVITY_TOKEN', 'RESTLESS_DELETION_TOKEN', 'INFISICAL_UNIVERSAL_AUTH_CLIENT_SECRET']) {
   if (forbidden in (plane.environment ?? {})) problems.push(`${forbidden} must be a mounted secret, not plaintext environment`);
 }
 if (plane.environment?.RESTLESS_ENTRY_MODE !== 'network'
     || plane.environment?.RESTLESS_DATABASE_URL_FILE !== '/run/secrets/plane_database_url'
     || plane.environment?.RESTLESS_PLANE_READINESS_TOKEN_FILE !== '/run/secrets/plane_readiness_token'
-    || plane.environment?.RESTLESS_CELL_READINESS_TOKEN_FILE !== '/run/secrets/cell_readiness_token') {
+    || plane.environment?.RESTLESS_CELL_READINESS_TOKEN_FILE !== '/run/secrets/cell_readiness_token'
+    || plane.environment?.RESTLESS_ACTIVITY_TOKEN_FILE !== '/run/secrets/activity_token'
+    || plane.environment?.RESTLESS_DELETION_TOKEN_FILE !== '/run/secrets/deletion_token') {
   problems.push('account-plane network entry and file-backed secret configuration drifted');
 }
 const labels = plane.labels ?? {};

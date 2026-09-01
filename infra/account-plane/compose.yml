@@ -49,6 +49,8 @@ services:
       RESTLESS_ENTRY_HOST: {{HOSTNAME}}
       RESTLESS_PLANE_READINESS_TOKEN_FILE: /run/secrets/plane_readiness_token
       RESTLESS_CELL_READINESS_TOKEN_FILE: /run/secrets/cell_readiness_token
+      RESTLESS_ACTIVITY_TOKEN_FILE: /run/secrets/activity_token
+      RESTLESS_DELETION_TOKEN_FILE: /run/secrets/deletion_token
       RESTLESS_RUNTIME_BOOTSTRAP_TOKEN_FILE: /run/secrets/runtime_bootstrap_token
       RESTLESS_ACCOUNT_PLANE_IMAGE: {{ACCOUNT_PLANE_IMAGE}}
       RESTLESS_COMPANY_IMAGE: {{COMPANY_RUNTIME_IMAGE}}
@@ -63,6 +65,8 @@ services:
       - plane_database_url
       - plane_readiness_token
       - cell_readiness_token
+      - activity_token
+      - deletion_token
       - runtime_bootstrap_token
       - infisical_client_secret
     volumes:
@@ -116,6 +120,10 @@ secrets:
     environment: RESTLESS_PLANE_READINESS_TOKEN
   cell_readiness_token:
     environment: RESTLESS_CELL_READINESS_TOKEN
+  activity_token:
+    environment: RESTLESS_ACTIVITY_TOKEN
+  deletion_token:
+    environment: RESTLESS_DELETION_TOKEN
   runtime_bootstrap_token:
     environment: RESTLESS_RUNTIME_BOOTSTRAP_TOKEN
   infisical_client_secret:

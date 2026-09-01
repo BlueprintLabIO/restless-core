@@ -488,6 +488,9 @@ export function createCommandHandler(config, options = {}) {
     ?? ((capability) => persistCapability(config.capabilityStateFile, capability));
   const replay = new Map();
   const streams = new Map();
+  // Operation identifiers only: the activity contract must never expose
+  // commands, arguments, paths or owner content across the plane boundary.
+  const activeProcesses = new Set();
   const streamEvent = (type, operationId, fields = {}) => sendEvent({
     type,
     protocol_version: PROTOCOL_VERSION,
@@ -564,7 +567,7 @@ export function createCommandHandler(config, options = {}) {
         operation_id: command.operation_id,
         runtime_id: config.runtimeId,
         runtime_generation: config.runtimeGeneration,
-        active_processes: [],
+        active_processes: [...activeProcesses],
         observed_at: now().toISOString(),
       };
     } else if (command.type === 'file.read') {
@@ -576,7 +579,12 @@ export function createCommandHandler(config, options = {}) {
     } else if (command.type === 'file.remove') {
       response = await removeCompanyFile(command, config, companyRoot);
     } else if (command.type === 'process.run') {
-      response = await runCompanyProcess(command, config, companyRoot);
+      activeProcesses.add(command.operation_id);
+      try {
+        response = await runCompanyProcess(command, config, companyRoot);
+      } finally {
+        activeProcesses.delete(command.operation_id);
+      }
     } else if (command.type === 'desktop.probe') {
       assertExactKeys(command, [
         'type', 'protocol_version', 'operation_id', 'runtime_id', 'runtime_generation',

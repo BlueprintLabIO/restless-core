@@ -192,6 +192,34 @@ test('process execution has no shell, is bounded, and replays idempotently', asy
   })), /replay changed shape/);
 });
 
+test('activity observation reports a concurrent bounded process without leaking its command', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'restless-runtime-activity-'));
+  const config = parseConfiguration(environment('/run/secrets/bridge.cap'));
+  const handle = createCommandHandler(config, { companyRoot: root });
+  const processOperation = '00000000-0000-4000-8000-000000000211';
+  const running = handle(JSON.stringify({
+    type: 'process.run', protocol_version: 1, operation_id: processOperation,
+    runtime_id: 'runtime-1', runtime_generation: 2,
+    program: process.execPath, args: ['-e', 'setTimeout(() => {}, 150)'],
+    cwd: '/company', environment: {}, timeout_ms: 1000, max_output_bytes: 1024,
+  }));
+  await new Promise((resolvePromise) => setTimeout(resolvePromise, 30));
+  const active = await handle(JSON.stringify({
+    type: 'activity.observe', protocol_version: 1,
+    operation_id: '00000000-0000-4000-8000-000000000212',
+    runtime_id: 'runtime-1', runtime_generation: 2,
+  }));
+  assert.deepEqual(active.active_processes, [processOperation]);
+  assert.equal(JSON.stringify(active).includes(process.execPath), false);
+  await running;
+  const quiet = await handle(JSON.stringify({
+    type: 'activity.observe', protocol_version: 1,
+    operation_id: '00000000-0000-4000-8000-000000000213',
+    runtime_id: 'runtime-1', runtime_generation: 2,
+  }));
+  assert.deepEqual(quiet.active_processes, []);
+});
+
 test('TCP streams are loopback-only, bounded and full duplex', async (context) => {
   const server = createServer((socket) => socket.on('data', (bytes) => socket.write(bytes)));
   await new Promise((resolvePromise) => server.listen(0, '127.0.0.1', resolvePromise));

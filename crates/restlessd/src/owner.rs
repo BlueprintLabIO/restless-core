@@ -92,6 +92,8 @@ pub(crate) struct OwnerConfig {
 struct PlaneReadinessConfig {
     token: String,
     cell_token: String,
+    activity_token: String,
+    deletion_token: String,
     runtime_bootstrap_token: String,
     owner_id: Uuid,
     plane_id: Uuid,
@@ -793,6 +795,30 @@ impl PlaneReadinessConfig {
         }) {
             anyhow::bail!("Runtime bootstrap and readiness tokens must all be distinct");
         }
+        let activity_token = required_env("RESTLESS_ACTIVITY_TOKEN")?;
+        if activity_token.len() < 32 {
+            anyhow::bail!("RESTLESS_ACTIVITY_TOKEN must contain at least 32 characters");
+        }
+        let deletion_token = required_env("RESTLESS_DELETION_TOKEN")?;
+        if deletion_token.len() < 32 {
+            anyhow::bail!("RESTLESS_DELETION_TOKEN must contain at least 32 characters");
+        }
+        let service_tokens = [
+            token.as_str(),
+            cell_token.as_str(),
+            runtime_bootstrap_token.as_str(),
+            activity_token.as_str(),
+            deletion_token.as_str(),
+        ];
+        for (index, candidate) in service_tokens.iter().enumerate() {
+            if service_tokens[index + 1..].iter().any(|other| {
+                bool::from(
+                    Sha256::digest(candidate.as_bytes()).ct_eq(&Sha256::digest(other.as_bytes())),
+                )
+            }) {
+                anyhow::bail!("hosted plane machine tokens must all be distinct");
+            }
+        }
         let account_plane_image = required_env("RESTLESS_ACCOUNT_PLANE_IMAGE")?;
         if !immutable_image_reference(&account_plane_image) {
             anyhow::bail!("RESTLESS_ACCOUNT_PLANE_IMAGE must be an immutable OCI @sha256 digest");
@@ -810,6 +836,8 @@ impl PlaneReadinessConfig {
         Ok(Self {
             token,
             cell_token,
+            activity_token,
+            deletion_token,
             runtime_bootstrap_token,
             owner_id: network.owner_id(),
             plane_id: network.plane_id(),
@@ -989,6 +1017,14 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
             post(issue_runtime_bridge_bootstrap),
         )
         .route("/v1/cells/{cell_id}/ready", post(observe_cell_readiness))
+        .route(
+            "/v1/cells/{cell_id}/capacity-activity",
+            post(observe_capacity_activity),
+        )
+        .route(
+            "/v1/cells/{cell_id}/company-data-deletion",
+            post(delete_hosted_company_data),
+        )
         .route("/entry", get(consume_entry_assertion))
         .route("/entry/logout", post(end_entry_session))
         .route("/desktop/{company}", get(open_desktop))
@@ -1043,7 +1079,9 @@ async fn enforce_owner_boundary(
         || request.uri().path() == "/internal/v1/companies/bootstrap"
         || request.uri().path() == "/internal/v1/runtime-bridge/bootstrap"
         || (request.uri().path().starts_with("/v1/cells/")
-            && request.uri().path().ends_with("/ready"))
+            && (request.uri().path().ends_with("/ready")
+                || request.uri().path().ends_with("/capacity-activity")
+                || request.uri().path().ends_with("/company-data-deletion")))
     {
         return next.run(request).await;
     }
@@ -1311,7 +1349,7 @@ async fn bootstrap_hosted_company(
             "the bootstrap request does not name an exact company on this plane",
         );
     }
-    let company = request.company_id.hyphenated().to_string();
+    let company = runtime::hosted_company_slug(request.company_id);
     match runtime::CompanyConfig::load(&state.daemon.root, &company) {
         Ok(existing)
             if existing.model == request.model
@@ -1412,7 +1450,7 @@ async fn issue_runtime_bridge_bootstrap(
             "the dedicated Runtime bootstrap credential is required",
         );
     }
-    let company = request.company_id.hyphenated().to_string();
+    let company = runtime::hosted_company_slug(request.company_id);
     let bounded_identity = |value: &str| {
         !value.is_empty()
             && value.len() <= 160
@@ -1674,6 +1712,279 @@ async fn observe_cell_readiness(
         valid_until: observed_at + ChronoDuration::seconds(20),
     };
     let mut response = Json(observation).into_response();
+    response
+        .headers_mut()
+        .insert(CACHE_CONTROL, HeaderValue::from_static("no-store"));
+    response
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CapacityActivityRequest {
+    contract_version: u32,
+    owner_id: Uuid,
+    company_id: Uuid,
+    cell_id: Uuid,
+    runtime_id: String,
+    desired_revision: i64,
+}
+
+#[derive(Serialize)]
+struct CapacityActivityObservation {
+    contract_version: u32,
+    owner_id: Uuid,
+    company_id: Uuid,
+    cell_id: Uuid,
+    runtime_id: String,
+    protected_activity: bool,
+    protected_kinds: Vec<&'static str>,
+    observed_at: chrono::DateTime<Utc>,
+    valid_until: chrono::DateTime<Utc>,
+}
+
+async fn observe_capacity_activity(
+    State(state): State<OwnerState>,
+    AxumPath(path_cell_id): AxumPath<Uuid>,
+    headers: HeaderMap,
+    Json(request): Json<CapacityActivityRequest>,
+) -> Response<Body> {
+    let Some(config) = &state.plane_readiness else {
+        return api_error(
+            StatusCode::NOT_FOUND,
+            "capacity_activity_unavailable",
+            "capacity activity is available only in configured network mode",
+        );
+    };
+    if headers.contains_key(ORIGIN)
+        || headers.contains_key(COOKIE)
+        || !readiness_token_matches(&headers, &config.activity_token)
+    {
+        return api_error(
+            StatusCode::UNAUTHORIZED,
+            "capacity_activity_unauthorized",
+            "the dedicated read-only capacity activity credential is required",
+        );
+    }
+    let Some(bridge) = state.runtime_bridges.observe_cell(request.cell_id) else {
+        return api_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "capacity_activity_runtime_unavailable",
+            "the exact Runtime must be connected before activity can be observed",
+        );
+    };
+    if request.contract_version != 1
+        || path_cell_id != request.cell_id
+        || request.owner_id != config.owner_id
+        || request.company_id != bridge.company_id
+        || request.cell_id != bridge.cell_id
+        || request.runtime_id != bridge.runtime_id
+        || request.desired_revision != bridge.desired_revision
+        || bridge.plane_id != config.plane_id
+    {
+        return api_error(
+            StatusCode::CONFLICT,
+            "capacity_activity_identity_mismatch",
+            "the activity request does not name this plane's exact active Runtime revision",
+        );
+    }
+    let runtime_activity = match state
+        .runtime_bridges
+        .observe_activity(request.cell_id)
+        .await
+    {
+        Ok(observation) => observation,
+        Err(_) => {
+            return api_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "capacity_activity_probe_failed",
+                "the Runtime did not return a fresh bounded activity observation",
+            );
+        }
+    };
+    let mut protected_kinds = Vec::new();
+    if runtime_activity.protected_process
+        || !state
+            .daemon
+            .staff
+            .running_actors(&bridge.company)
+            .is_empty()
+    {
+        protected_kinds.push("attempt");
+    }
+    let browser_claimed = state
+        .attaches
+        .lock()
+        .map(|attaches| {
+            attaches.values().any(|session| {
+                session.company == bridge.company && session.expires_at > SystemTime::now()
+            })
+        })
+        .unwrap_or(true);
+    if browser_claimed {
+        protected_kinds.push("browser_claim");
+    }
+    let observed_at = Utc::now().max(runtime_activity.observed_at);
+    let observation = CapacityActivityObservation {
+        contract_version: 1,
+        owner_id: request.owner_id,
+        company_id: request.company_id,
+        cell_id: request.cell_id,
+        runtime_id: request.runtime_id,
+        protected_activity: !protected_kinds.is_empty(),
+        protected_kinds,
+        observed_at,
+        valid_until: observed_at + ChronoDuration::seconds(20),
+    };
+    let mut response = Json(observation).into_response();
+    response
+        .headers_mut()
+        .insert(CACHE_CONTROL, HeaderValue::from_static("no-store"));
+    response
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct HostedCompanyDeletionRequest {
+    contract_version: u32,
+    operation_id: Uuid,
+    owner_id: Uuid,
+    company_id: Uuid,
+    cell_id: Uuid,
+    runtime_absent_at: chrono::DateTime<Utc>,
+}
+
+async fn delete_hosted_company_data(
+    State(state): State<OwnerState>,
+    AxumPath(path_cell_id): AxumPath<Uuid>,
+    headers: HeaderMap,
+    Json(request): Json<HostedCompanyDeletionRequest>,
+) -> Response<Body> {
+    let Some(config) = &state.plane_readiness else {
+        return api_error(
+            StatusCode::NOT_FOUND,
+            "company_deletion_unavailable",
+            "hosted company deletion is available only in configured network mode",
+        );
+    };
+    if headers.contains_key(ORIGIN)
+        || headers.contains_key(COOKIE)
+        || !readiness_token_matches(&headers, &config.deletion_token)
+    {
+        return api_error(
+            StatusCode::UNAUTHORIZED,
+            "company_deletion_unauthorized",
+            "the dedicated company deletion credential is required",
+        );
+    }
+    if request.contract_version != 1
+        || request.operation_id.is_nil()
+        || path_cell_id != request.cell_id
+        || request.owner_id != config.owner_id
+        || request.company_id.is_nil()
+        || request.cell_id.is_nil()
+        || request.runtime_absent_at > Utc::now() + ChronoDuration::minutes(1)
+    {
+        return api_error(
+            StatusCode::CONFLICT,
+            "company_deletion_identity_mismatch",
+            "the deletion request does not name an exact absent Runtime on this plane",
+        );
+    }
+    if state
+        .runtime_bridges
+        .observe_cell(request.cell_id)
+        .is_some()
+    {
+        return api_error(
+            StatusCode::CONFLICT,
+            "company_deletion_runtime_present",
+            "company data cannot be deleted while its Runtime remains connected",
+        );
+    }
+    let company = runtime::hosted_company_slug(request.company_id);
+    if !state.daemon.staff.running_actors(&company).is_empty() {
+        return api_error(
+            StatusCode::CONFLICT,
+            "company_deletion_activity_present",
+            "company data cannot be deleted while supervised company work remains active",
+        );
+    }
+    let org = match state.daemon.orgintel.get(&company).await {
+        Ok(org) => org,
+        Err(_) => {
+            return api_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "company_deletion_store_unavailable",
+                "the company coordination store could not be opened for deletion",
+            );
+        }
+    };
+    if org.drop_schema().await.is_err() {
+        return api_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "company_deletion_coordination_failed",
+            "the company coordination store could not be deleted",
+        );
+    }
+    state.daemon.orgintel.forget(&company);
+    if state
+        .daemon
+        .authority
+        .delete_hosted_company(&company)
+        .await
+        .is_err()
+        || state.daemon.spend.forget(&company).is_err()
+    {
+        return api_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "company_deletion_authority_failed",
+            "the company account-plane records could not be deleted",
+        );
+    }
+    for directory in ["companies", "archived-companies"] {
+        let path = state
+            .daemon
+            .root
+            .join(directory)
+            .join(format!("{company}.toml"));
+        if path.exists() && std::fs::remove_file(&path).is_err() {
+            return api_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "company_deletion_config_failed",
+                "the company configuration could not be deleted",
+            );
+        }
+    }
+    let authority_absent = sqlx::query_scalar::<_, bool>(
+        "SELECT NOT EXISTS (SELECT 1 FROM restless_authority.company_migrations WHERE company = $1)",
+    )
+    .bind(&company)
+    .fetch_one(state.daemon.authority.pool())
+    .await
+    .unwrap_or(false);
+    if !authority_absent || org.is_live().await {
+        return api_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "company_deletion_verification_failed",
+            "company data deletion could not be verified",
+        );
+    }
+    let mut response = Json(serde_json::json!({
+        "contract_version": 1,
+        "operation_id": request.operation_id,
+        "owner_id": request.owner_id,
+        "company_id": request.company_id,
+        "cell_id": request.cell_id,
+        "status": "verified_absence",
+        "authority_absent": true,
+        "work_absent": true,
+        "attempts_absent": true,
+        "documents_absent": true,
+        "search_absent": true,
+        "object_versions_absent": true,
+        "observed_at": Utc::now(),
+    }))
+    .into_response();
     response
         .headers_mut()
         .insert(CACHE_CONTROL, HeaderValue::from_static("no-store"));

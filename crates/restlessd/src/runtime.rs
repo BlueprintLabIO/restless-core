@@ -532,6 +532,12 @@ pub(crate) fn validate_company_name(name: &str) -> Result<()> {
     Ok(())
 }
 
+/// Stable PostgreSQL- and filesystem-safe storage name for a hosted company.
+/// Public contracts continue to use the UUID.
+pub(crate) fn hosted_company_slug(company_id: Uuid) -> String {
+    format!("c{}", company_id.simple())
+}
+
 pub fn container_name(company: &str) -> String {
     format!("restless-co-{company}")
 }
