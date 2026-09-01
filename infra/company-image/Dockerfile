@@ -71,8 +71,14 @@ ENV RESTLESS_CORE_VERSION=${RESTLESS_CORE_VERSION} \
 # cannot parse it. BUN_INSTALL is a system path so the unprivileged `company`
 # user can execute what root installed.
 ENV BUN_INSTALL=/usr/local/bun
+ARG TARGETARCH
 RUN npm install -g bun@1.4.0 \
-    && bun install -g --omit=optional @oh-my-pi/pi-coding-agent@18.0.11 \
+    && case "${TARGETARCH}" in \
+         amd64) OMP_NATIVE="@oh-my-pi/pi-natives-linux-x64@18.0.11" ;; \
+         arm64) OMP_NATIVE="@oh-my-pi/pi-natives-linux-arm64@18.0.11" ;; \
+         *) echo "unsupported OMP architecture: ${TARGETARCH}" >&2; exit 1 ;; \
+       esac \
+    && bun install -g --omit=optional @oh-my-pi/pi-coding-agent@18.0.11 "${OMP_NATIVE}" \
     && ln -sf ${BUN_INSTALL}/bin/omp /usr/local/bin/omp \
     && chmod -R a+rX ${BUN_INSTALL} \
     && npm cache clean --force

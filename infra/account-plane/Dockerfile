@@ -47,10 +47,16 @@ RUN apt-get update \
 # not in the credential-free Runtime. Its profile lives below the plane's
 # persistent state mount so OAuth and broker identity survive plane restarts.
 ARG OMP_VERSION=18.0.11
+ARG TARGETARCH
 ENV BUN_INSTALL=/usr/local/bun \
     HOME=/state/authority-home
 RUN npm install -g bun@1.4.0 \
-    && bun install -g --omit=optional "@oh-my-pi/pi-coding-agent@${OMP_VERSION}" \
+    && case "${TARGETARCH}" in \
+         amd64) OMP_NATIVE="@oh-my-pi/pi-natives-linux-x64@${OMP_VERSION}" ;; \
+         arm64) OMP_NATIVE="@oh-my-pi/pi-natives-linux-arm64@${OMP_VERSION}" ;; \
+         *) echo "unsupported OMP architecture: ${TARGETARCH}" >&2; exit 1 ;; \
+       esac \
+    && bun install -g --omit=optional "@oh-my-pi/pi-coding-agent@${OMP_VERSION}" "${OMP_NATIVE}" \
     && ln -sf ${BUN_INSTALL}/bin/omp /usr/local/bin/omp \
     && chmod -R a+rX ${BUN_INSTALL} \
     && npm cache clean --force \
