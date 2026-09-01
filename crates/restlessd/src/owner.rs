@@ -43,7 +43,7 @@ use uuid::Uuid;
 use crate::entry::{company_in_path, EntryMode, SessionStore};
 use crate::{
     airwallex, approval, attention, authority, company as company_projection, credential, finance,
-    legal, reconcile, runtime, Daemon,
+    legal, reconcile, runtime, runtime_bridge, Daemon,
 };
 
 const ATTACH_COOKIE: &str = "restless_attach";
@@ -75,6 +75,7 @@ struct OwnerState {
     entry: EntryMode,
     sessions: Arc<SessionStore>,
     plane_readiness: Option<PlaneReadinessConfig>,
+    runtime_bridges: runtime_bridge::Registry,
 }
 
 #[derive(Clone)]
@@ -89,6 +90,7 @@ pub(crate) struct OwnerConfig {
 #[derive(Clone)]
 struct PlaneReadinessConfig {
     token: String,
+    cell_token: String,
     owner_id: Uuid,
     plane_id: Uuid,
     hostname: String,
@@ -768,6 +770,15 @@ impl PlaneReadinessConfig {
         if token.len() < 32 {
             anyhow::bail!("RESTLESS_PLANE_READINESS_TOKEN must contain at least 32 characters");
         }
+        let cell_token = required_env("RESTLESS_CELL_READINESS_TOKEN")?;
+        if cell_token.len() < 32 {
+            anyhow::bail!("RESTLESS_CELL_READINESS_TOKEN must contain at least 32 characters");
+        }
+        if bool::from(
+            Sha256::digest(token.as_bytes()).ct_eq(&Sha256::digest(cell_token.as_bytes())),
+        ) {
+            anyhow::bail!("plane and cell readiness tokens must be distinct");
+        }
         let account_plane_image = required_env("RESTLESS_ACCOUNT_PLANE_IMAGE")?;
         if !immutable_image_reference(&account_plane_image) {
             anyhow::bail!("RESTLESS_ACCOUNT_PLANE_IMAGE must be an immutable OCI @sha256 digest");
@@ -784,6 +795,7 @@ impl PlaneReadinessConfig {
         }
         Ok(Self {
             token,
+            cell_token,
             owner_id: network.owner_id(),
             plane_id: network.plane_id(),
             hostname: network.host().into(),
@@ -862,6 +874,7 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
         entry,
         sessions: Arc::new(SessionStore::default()),
         plane_readiness,
+        runtime_bridges: runtime_bridge::Registry::default(),
     };
 
     let api = Router::new()
@@ -951,6 +964,8 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
             "/internal/v1/planes/{plane_id}/readiness",
             post(observe_plane_readiness),
         )
+        .route("/internal/v1/runtime-bridge", get(open_runtime_bridge))
+        .route("/v1/cells/{cell_id}/ready", post(observe_cell_readiness))
         .route("/entry", get(consume_entry_assertion))
         .route("/entry/logout", post(end_entry_session))
         .route("/desktop/{company}", get(open_desktop))
@@ -999,8 +1014,11 @@ async fn enforce_owner_boundary(
 ) -> Response<Body> {
     // Machine readiness has its own dedicated bearer boundary and request
     // identity contract. It is deliberately not a browser-origin/session path.
-    if request.uri().path().starts_with("/internal/v1/planes/")
-        && request.uri().path().ends_with("/readiness")
+    if (request.uri().path().starts_with("/internal/v1/planes/")
+        && request.uri().path().ends_with("/readiness"))
+        || request.uri().path() == "/internal/v1/runtime-bridge"
+        || (request.uri().path().starts_with("/v1/cells/")
+            && request.uri().path().ends_with("/ready"))
     {
         return next.run(request).await;
     }
@@ -1159,6 +1177,231 @@ async fn release_health() -> Response<Body> {
         "release": crate::release::ReleaseIdentity::current(),
     }))
     .into_response()
+}
+
+/// The Company Runtime initiates this channel. It is deliberately outside the
+/// browser session middleware: the first WebSocket frame carries a signed,
+/// company-scoped Runtime capability and the registry binds it to this exact
+/// network plane before accepting any protocol traffic.
+async fn open_runtime_bridge(
+    State(state): State<OwnerState>,
+    headers: HeaderMap,
+    upgrade: WebSocketUpgrade,
+) -> Response<Body> {
+    let Some(config) = &state.plane_readiness else {
+        return api_error(
+            StatusCode::NOT_FOUND,
+            "runtime_bridge_unavailable",
+            "the hosted Runtime Bridge is available only in configured network mode",
+        );
+    };
+    if headers.contains_key(ORIGIN) || headers.contains_key(COOKIE) {
+        return api_error(
+            StatusCode::FORBIDDEN,
+            "runtime_bridge_browser_refused",
+            "the Runtime Bridge is a machine channel, not a browser endpoint",
+        );
+    }
+    let registry = state.runtime_bridges.clone();
+    let issuer = state.daemon.capabilities.clone();
+    let scope = runtime_bridge::PlaneScope {
+        owner_id: config.owner_id,
+        plane_id: config.plane_id,
+    };
+    upgrade
+        .on_upgrade(move |socket| async move {
+            if registry.accept(socket, issuer, scope).await.is_err() {
+                // Do not log the registration payload, token, company name or
+                // command data at this shared infrastructure boundary.
+                tracing::warn!("Runtime Bridge connection refused or ended");
+            }
+        })
+        .into_response()
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CellReadinessRequest {
+    contract_version: u32,
+    owner_id: Uuid,
+    company_id: Uuid,
+    cell_id: Uuid,
+    runtime_id: String,
+    runtime_image: String,
+    desired_revision: i64,
+}
+
+#[derive(Serialize)]
+struct CellReadinessCheck {
+    kind: &'static str,
+    status: &'static str,
+}
+
+#[derive(Serialize)]
+struct CellReadinessObservation {
+    contract_version: u32,
+    owner_id: Uuid,
+    company_id: Uuid,
+    cell_id: Uuid,
+    runtime_id: String,
+    runtime_image: String,
+    desired_revision: i64,
+    core_release: &'static str,
+    release_manifest_digest: String,
+    status: &'static str,
+    ready: bool,
+    checks: Vec<CellReadinessCheck>,
+    observed_at: chrono::DateTime<Utc>,
+    valid_until: chrono::DateTime<Utc>,
+}
+
+async fn observe_cell_readiness(
+    State(state): State<OwnerState>,
+    AxumPath(path_cell_id): AxumPath<Uuid>,
+    headers: HeaderMap,
+    Json(request): Json<CellReadinessRequest>,
+) -> Response<Body> {
+    let Some(config) = &state.plane_readiness else {
+        return api_error(
+            StatusCode::NOT_FOUND,
+            "cell_readiness_unavailable",
+            "cell readiness is available only in configured network mode",
+        );
+    };
+    if !readiness_token_matches(&headers, &config.cell_token) {
+        return api_error(
+            StatusCode::UNAUTHORIZED,
+            "cell_readiness_unauthorized",
+            "the dedicated cell readiness credential is required",
+        );
+    }
+    if request.contract_version != 1
+        || path_cell_id != request.cell_id
+        || request.owner_id != config.owner_id
+        || request.company_id.is_nil()
+        || request.cell_id.is_nil()
+        || request.desired_revision < 1
+        || request.runtime_id.is_empty()
+        || request.runtime_id.len() > 160
+        || !immutable_image_reference(&request.runtime_image)
+    {
+        return api_error(
+            StatusCode::CONFLICT,
+            "cell_readiness_identity_mismatch",
+            "the readiness request does not name a valid cell on this owner plane",
+        );
+    }
+
+    let bridge = state.runtime_bridges.observe_cell(request.cell_id);
+    if bridge.as_ref().is_some_and(|bridge| {
+        bridge.owner_id != request.owner_id
+            || bridge.plane_id != config.plane_id
+            || bridge.company_id != request.company_id
+            || bridge.runtime_id != request.runtime_id
+            || bridge.runtime_image != request.runtime_image
+            || bridge.desired_revision != request.desired_revision
+    }) {
+        return api_error(
+            StatusCode::CONFLICT,
+            "cell_readiness_runtime_drift",
+            "the connected Runtime does not match Fleet's exact desired cell revision",
+        );
+    }
+
+    let mut authority_record = "pending";
+    let mut company_database = "pending";
+    let mut orgintel = "pending";
+    if let Some(bridge) = &bridge {
+        authority_record = match sqlx::query_scalar::<_, bool>(
+            "SELECT EXISTS (SELECT 1 FROM restless_authority.company_migrations WHERE company = $1)",
+        )
+        .bind(&bridge.company)
+        .fetch_one(state.daemon.authority.pool())
+        .await
+        {
+            Ok(true) => "ready",
+            Ok(false) => "pending",
+            Err(_) => "failed",
+        };
+        match state.daemon.orgintel.get(&bridge.company).await {
+            Ok(company) => {
+                company_database = "ready";
+                orgintel = if company.is_live().await {
+                    "ready"
+                } else {
+                    "failed"
+                };
+            }
+            Err(_) => {
+                company_database = "failed";
+                orgintel = "failed";
+            }
+        }
+    }
+
+    let runtime = if bridge.is_some() { "ready" } else { "pending" };
+    let persistent_volume = match bridge.as_ref() {
+        Some(bridge) if bridge.persistent_volume_ready && !bridge.volume_name.is_empty() => "ready",
+        Some(_) => "failed",
+        None => "pending",
+    };
+    let runtime_bridge = if bridge.is_some() { "ready" } else { "pending" };
+    let checks = vec![
+        CellReadinessCheck {
+            kind: "runtime",
+            status: runtime,
+        },
+        CellReadinessCheck {
+            kind: "authority_record",
+            status: authority_record,
+        },
+        CellReadinessCheck {
+            kind: "company_database",
+            status: company_database,
+        },
+        CellReadinessCheck {
+            kind: "persistent_volume",
+            status: persistent_volume,
+        },
+        CellReadinessCheck {
+            kind: "orgintel",
+            status: orgintel,
+        },
+        CellReadinessCheck {
+            kind: "runtime_bridge",
+            status: runtime_bridge,
+        },
+    ];
+    let ready = checks.iter().all(|check| check.status == "ready");
+    let failed = checks.iter().any(|check| check.status == "failed");
+    let observed_at = Utc::now();
+    let observation = CellReadinessObservation {
+        contract_version: 1,
+        owner_id: request.owner_id,
+        company_id: request.company_id,
+        cell_id: request.cell_id,
+        runtime_id: request.runtime_id,
+        runtime_image: request.runtime_image,
+        desired_revision: request.desired_revision,
+        core_release: crate::release::CORE_VERSION,
+        release_manifest_digest: config.release_manifest_digest.clone(),
+        status: if ready {
+            "ready"
+        } else if failed {
+            "degraded"
+        } else {
+            "starting"
+        },
+        ready,
+        checks,
+        observed_at,
+        valid_until: observed_at + ChronoDuration::seconds(20),
+    };
+    let mut response = Json(observation).into_response();
+    response
+        .headers_mut()
+        .insert(CACHE_CONTROL, HeaderValue::from_static("no-store"));
+    response
 }
 
 #[derive(Deserialize)]

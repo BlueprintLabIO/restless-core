@@ -47,6 +47,7 @@ services:
       RESTLESS_ENTRY_PLANE_ID: ${RESTLESS_ENTRY_PLANE_ID:?set plane UUID}
       RESTLESS_ENTRY_HOST: ${RESTLESS_ENTRY_HOST:?set exact plane hostname}
       RESTLESS_PLANE_READINESS_TOKEN_FILE: /run/secrets/plane_readiness_token
+      RESTLESS_CELL_READINESS_TOKEN_FILE: /run/secrets/cell_readiness_token
       RESTLESS_ACCOUNT_PLANE_IMAGE: ${RESTLESS_ACCOUNT_PLANE_IMAGE}
       RESTLESS_COMPANY_IMAGE: ${RESTLESS_COMPANY_IMAGE:?set immutable Core Runtime image digest}
       RESTLESS_DESIRED_REVISION: ${RESTLESS_DESIRED_REVISION:?set Fleet desired revision}
@@ -59,6 +60,7 @@ services:
     secrets:
       - plane_database_url
       - plane_readiness_token
+      - cell_readiness_token
       - infisical_client_secret
     volumes:
       - plane-state:/state
@@ -107,5 +109,7 @@ secrets:
     environment: RESTLESS_PLANE_DATABASE_URL
   plane_readiness_token:
     environment: RESTLESS_PLANE_READINESS_TOKEN
+  cell_readiness_token:
+    environment: RESTLESS_CELL_READINESS_TOKEN
   infisical_client_secret:
     environment: INFISICAL_UNIVERSAL_AUTH_CLIENT_SECRET

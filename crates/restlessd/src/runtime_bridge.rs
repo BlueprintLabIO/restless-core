@@ -1,0 +1,390 @@
+//! Hosted Runtime Bridge registration and connection custody.
+//!
+//! A hosted account plane has no Docker authority. The released Runtime opens
+//! this authenticated outbound channel instead. This module owns connection
+//! identity and liveness only; process/file/desktop messages are added as
+//! versioned protocol capabilities rather than smuggled through owner routes.
+
+use std::collections::{HashMap, HashSet};
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
+
+use anyhow::{bail, Context as _, Result};
+use axum::extract::ws::{Message, WebSocket};
+use chrono::{DateTime, Utc};
+use futures_util::StreamExt as _;
+use serde::{Deserialize, Serialize};
+use uuid::Uuid;
+
+use crate::capability::CapabilityIssuer;
+
+pub(crate) const PROTOCOL_VERSION: u32 = 1;
+const REGISTER_TIMEOUT: Duration = Duration::from_secs(5);
+const MAX_REGISTER_BYTES: usize = 64 * 1024;
+const REQUIRED_FEATURES: &[&str] = &[
+    "activity.v1",
+    "desktop.v1",
+    "files.v1",
+    "process.v1",
+    "streams.v1",
+];
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct PlaneScope {
+    pub(crate) owner_id: Uuid,
+    pub(crate) plane_id: Uuid,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Registration {
+    protocol_version: u32,
+    owner_id: Uuid,
+    plane_id: Uuid,
+    company_id: Uuid,
+    cell_id: Uuid,
+    company: String,
+    runtime_id: String,
+    runtime_generation: u64,
+    desired_revision: i64,
+    runtime_image: String,
+    volume_name: String,
+    persistent_volume_ready: bool,
+    source_revision: String,
+    supported_features: Vec<String>,
+    capability: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub(crate) struct Observation {
+    pub(crate) owner_id: Uuid,
+    pub(crate) plane_id: Uuid,
+    pub(crate) company_id: Uuid,
+    pub(crate) cell_id: Uuid,
+    pub(crate) company: String,
+    pub(crate) runtime_id: String,
+    pub(crate) runtime_generation: u64,
+    pub(crate) desired_revision: i64,
+    pub(crate) runtime_image: String,
+    pub(crate) volume_name: String,
+    pub(crate) persistent_volume_ready: bool,
+    pub(crate) source_revision: String,
+    pub(crate) supported_features: Vec<String>,
+    pub(crate) connected_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Serialize)]
+struct Accepted {
+    protocol_version: u32,
+    status: &'static str,
+    connection_id: Uuid,
+    company_id: Uuid,
+    cell_id: Uuid,
+    runtime_id: String,
+    runtime_generation: u64,
+}
+
+#[derive(Clone, Default)]
+pub(crate) struct Registry {
+    entries: Arc<Mutex<HashMap<String, ActiveConnection>>>,
+}
+
+#[derive(Clone)]
+struct ActiveConnection {
+    connection_id: Uuid,
+    observation: Observation,
+}
+
+struct ConnectionGuard {
+    registry: Registry,
+    company: String,
+    connection_id: Uuid,
+}
+
+impl Drop for ConnectionGuard {
+    fn drop(&mut self) {
+        let mut entries = self
+            .registry
+            .entries
+            .lock()
+            .expect("Runtime Bridge registry");
+        if entries
+            .get(&self.company)
+            .is_some_and(|active| active.connection_id == self.connection_id)
+        {
+            entries.remove(&self.company);
+        }
+    }
+}
+
+impl Registry {
+    pub(crate) async fn accept(
+        &self,
+        mut socket: WebSocket,
+        issuer: CapabilityIssuer,
+        scope: PlaneScope,
+    ) -> Result<()> {
+        let first = tokio::time::timeout(REGISTER_TIMEOUT, socket.next())
+            .await
+            .context("Runtime Bridge registration timed out")?
+            .context("Runtime Bridge closed before registration")?
+            .context("read Runtime Bridge registration")?;
+        let Message::Text(raw) = first else {
+            bail!("Runtime Bridge registration must be one text frame");
+        };
+        if raw.len() > MAX_REGISTER_BYTES {
+            bail!("Runtime Bridge registration exceeds the bounded frame size");
+        }
+        let registration: Registration =
+            serde_json::from_str(&raw).context("decode Runtime Bridge registration")?;
+        let observation = authenticate_registration(registration, &issuer, scope)?;
+        let connection_id = Uuid::new_v4();
+
+        {
+            let mut entries = self.entries.lock().expect("Runtime Bridge registry");
+            if let Some(active) = entries.get(&observation.company) {
+                if observation.runtime_generation < active.observation.runtime_generation {
+                    bail!("Runtime Bridge registration carries a stale Runtime generation");
+                }
+                if observation.runtime_generation == active.observation.runtime_generation
+                    && observation.runtime_id != active.observation.runtime_id
+                {
+                    bail!("Runtime Bridge generation conflicts with the active Runtime identity");
+                }
+            }
+            entries.insert(
+                observation.company.clone(),
+                ActiveConnection {
+                    connection_id,
+                    observation: observation.clone(),
+                },
+            );
+        }
+        let _connection = ConnectionGuard {
+            registry: self.clone(),
+            company: observation.company.clone(),
+            connection_id,
+        };
+
+        let accepted = Accepted {
+            protocol_version: PROTOCOL_VERSION,
+            status: "registered",
+            connection_id,
+            company_id: observation.company_id,
+            cell_id: observation.cell_id,
+            runtime_id: observation.runtime_id.clone(),
+            runtime_generation: observation.runtime_generation,
+        };
+        socket
+            .send(Message::Text(serde_json::to_string(&accepted)?.into()))
+            .await
+            .context("acknowledge Runtime Bridge registration")?;
+
+        while let Some(message) = socket.next().await {
+            match message.context("read Runtime Bridge frame")? {
+                Message::Ping(payload) => socket
+                    .send(Message::Pong(payload))
+                    .await
+                    .context("answer Runtime Bridge ping")?,
+                Message::Pong(_) => {}
+                Message::Close(_) => break,
+                Message::Text(_) | Message::Binary(_) => {
+                    bail!("Runtime Bridge sent an unsupported post-registration frame")
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    #[cfg(test)]
+    fn observe(&self, company: &str) -> Option<Observation> {
+        self.entries
+            .lock()
+            .expect("Runtime Bridge registry")
+            .get(company)
+            .map(|active| active.observation.clone())
+    }
+
+    pub(crate) fn observe_cell(&self, cell_id: Uuid) -> Option<Observation> {
+        self.entries
+            .lock()
+            .expect("Runtime Bridge registry")
+            .values()
+            .find(|active| active.observation.cell_id == cell_id)
+            .map(|active| active.observation.clone())
+    }
+}
+
+fn authenticate_registration(
+    registration: Registration,
+    issuer: &CapabilityIssuer,
+    scope: PlaneScope,
+) -> Result<Observation> {
+    if registration.protocol_version != PROTOCOL_VERSION {
+        bail!("unsupported Runtime Bridge protocol version");
+    }
+    if registration.owner_id != scope.owner_id || registration.plane_id != scope.plane_id {
+        bail!("Runtime Bridge owner or plane identity does not match this account plane");
+    }
+    if registration.company_id.is_nil()
+        || registration.cell_id.is_nil()
+        || registration.runtime_generation == 0
+        || registration.desired_revision < 1
+    {
+        bail!("Runtime Bridge company, cell and generation identities must be non-zero");
+    }
+    validate_bounded_identity("company", &registration.company, 96)?;
+    validate_bounded_identity("runtime_id", &registration.runtime_id, 160)?;
+    validate_bounded_identity("volume_name", &registration.volume_name, 160)?;
+    if !immutable_image(&registration.runtime_image) {
+        bail!("Runtime Bridge image must be an immutable sha256 registry reference");
+    }
+    if registration.source_revision.len() != 40
+        || !registration
+            .source_revision
+            .bytes()
+            .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase())
+    {
+        bail!("Runtime Bridge source revision must be an exact lowercase Git revision");
+    }
+    let features = registration
+        .supported_features
+        .iter()
+        .map(String::as_str)
+        .collect::<HashSet<_>>();
+    if features.len() != registration.supported_features.len()
+        || REQUIRED_FEATURES
+            .iter()
+            .any(|required| !features.contains(required))
+    {
+        bail!("Runtime Bridge does not advertise the complete hosted V1 feature set");
+    }
+    let grant = issuer
+        .verify_coordination(&registration.capability)
+        .context("verify Runtime Bridge capability")?;
+    if grant.company != registration.company || grant.actor != "exec" {
+        bail!("Runtime Bridge capability does not match the registered company");
+    }
+
+    let mut supported_features = registration.supported_features;
+    supported_features.sort();
+    Ok(Observation {
+        owner_id: registration.owner_id,
+        plane_id: registration.plane_id,
+        company_id: registration.company_id,
+        cell_id: registration.cell_id,
+        company: registration.company,
+        runtime_id: registration.runtime_id,
+        runtime_generation: registration.runtime_generation,
+        desired_revision: registration.desired_revision,
+        runtime_image: registration.runtime_image,
+        volume_name: registration.volume_name,
+        persistent_volume_ready: registration.persistent_volume_ready,
+        source_revision: registration.source_revision,
+        supported_features,
+        connected_at: Utc::now(),
+    })
+}
+
+fn validate_bounded_identity(name: &str, value: &str, max: usize) -> Result<()> {
+    if value.is_empty()
+        || value.len() > max
+        || !value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.' | b':'))
+    {
+        bail!("Runtime Bridge {name} is not a bounded identity");
+    }
+    Ok(())
+}
+
+fn immutable_image(value: &str) -> bool {
+    let Some((repository, digest)) = value.rsplit_once("@sha256:") else {
+        return false;
+    };
+    !repository.is_empty()
+        && !repository.contains(char::is_whitespace)
+        && digest.len() == 64
+        && digest
+            .bytes()
+            .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{authenticate_registration, PlaneScope, Registration, Registry, REQUIRED_FEATURES};
+    use crate::capability::CapabilityIssuer;
+    use uuid::Uuid;
+
+    fn fixture() -> (
+        tempfile::TempDir,
+        CapabilityIssuer,
+        PlaneScope,
+        Registration,
+    ) {
+        let root = tempfile::tempdir().unwrap();
+        let issuer = CapabilityIssuer::open(root.path()).unwrap();
+        let scope = PlaneScope {
+            owner_id: Uuid::new_v4(),
+            plane_id: Uuid::new_v4(),
+        };
+        let registration = Registration {
+            protocol_version: 1,
+            owner_id: scope.owner_id,
+            plane_id: scope.plane_id,
+            company_id: Uuid::new_v4(),
+            cell_id: Uuid::new_v4(),
+            company: "hosted_test".into(),
+            runtime_id: "restless-cell-runtime-1".into(),
+            runtime_generation: 7,
+            desired_revision: 3,
+            runtime_image: format!("ghcr.io/example/runtime@sha256:{}", "a".repeat(64)),
+            volume_name: "restless-cell-volume-1".into(),
+            persistent_volume_ready: true,
+            source_revision: "b".repeat(40),
+            supported_features: REQUIRED_FEATURES
+                .iter()
+                .map(|value| value.to_string())
+                .collect(),
+            capability: issuer.issue_runtime_bridge("hosted_test").unwrap(),
+        };
+        (root, issuer, scope, registration)
+    }
+
+    #[test]
+    fn registration_is_bound_to_plane_company_release_and_full_protocol() {
+        let (_root, issuer, scope, registration) = fixture();
+        let observation = authenticate_registration(registration, &issuer, scope).unwrap();
+        assert_eq!(observation.company, "hosted_test");
+        assert_eq!(observation.runtime_generation, 7);
+        assert_eq!(observation.supported_features.len(), 5);
+    }
+
+    #[test]
+    fn registration_refuses_foreign_scope_mutable_images_and_partial_agents() {
+        let (_root, issuer, scope, mut registration) = fixture();
+        registration.plane_id = Uuid::new_v4();
+        assert!(authenticate_registration(registration, &issuer, scope).is_err());
+
+        let (_root, issuer, scope, mut registration) = fixture();
+        registration.runtime_image = "ghcr.io/example/runtime:latest".into();
+        assert!(authenticate_registration(registration, &issuer, scope).is_err());
+
+        let (_root, issuer, scope, mut registration) = fixture();
+        registration.supported_features.pop();
+        assert!(authenticate_registration(registration, &issuer, scope).is_err());
+    }
+
+    #[test]
+    fn a_runtime_capability_cannot_register_another_company() {
+        let (_root, issuer, scope, mut registration) = fixture();
+        registration.company = "foreign_test".into();
+        assert!(authenticate_registration(registration, &issuer, scope).is_err());
+    }
+
+    #[test]
+    fn registry_starts_empty() {
+        assert!(Registry::default().observe("hosted_test").is_none());
+    }
+}

@@ -2561,6 +2561,7 @@ dependencies = [
  "sha2",
  "sqlx",
  "subtle",
+ "tempfile",
  "tokio",
  "tokio-tungstenite 0.26.2",
  "tokio-util",
