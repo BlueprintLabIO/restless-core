@@ -202,6 +202,9 @@
 										<span>Started {displayDate(view.attempt.startedAt)}</span><span
 											>{view.attempt.model || 'Model not recorded'}</span
 										>
+										{#each view.attempt.metrics ?? [] as metric (metric.label)}
+											<span>{metric.label}: {metric.value}</span>
+										{/each}
 									</div>
 								{:else}<p class="detail-empty">No run has started yet.</p>{/if}
 							</section>

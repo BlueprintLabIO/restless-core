@@ -118,6 +118,7 @@ export interface WorkDetailAttempt {
 	summary: string;
 	model: string | null;
 	startedAt: string | null;
+	metrics?: Array<{ label: string; value: string }>;
 }
 
 export interface WorkDetailArtifact {
