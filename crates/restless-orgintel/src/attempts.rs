@@ -150,7 +150,13 @@ impl OrgIntel {
                  JOIN work_attempts attempt ON attempt.id=a.attempt_id \
                  WHERE a.work_id=$1 AND attempt.revision <= $2 \
                    AND a.source_commit IS NOT NULL AND a.state IN ('available','superseded') \
-                   AND attempt.state IN ('produced','superseded') \
+                   AND (attempt.state IN ('produced','superseded') OR (\
+                     attempt.state='failed' \
+                     AND a.kind='repository_tree' \
+                     AND attempt.terminal_dirty_entries=0 \
+                     AND attempt.terminal_source_commit=a.source_commit \
+                     AND attempt.terminal_source_tree=a.digest\
+                   )) \
                  ORDER BY attempt.revision DESC, attempt.attempt_no DESC, \
                           a.created_at DESC, a.id DESC \
                  LIMIT 1",
