@@ -99,3 +99,84 @@ export interface WorkSurfaceSelection {
 export interface WorkSurfacePlatform {
 	workHref(workId: string, selection: WorkSurfaceSelection): string;
 }
+
+export type WorkDetailAttemptState =
+	| 'running'
+	| 'produced'
+	| 'changes_requested'
+	| 'blocked'
+	| 'failed'
+	| 'abandoned'
+	| 'superseded'
+	| 'idle'
+	| 'completed';
+
+export interface WorkDetailAttempt {
+	attemptNo: number;
+	revision: number;
+	state: WorkDetailAttemptState;
+	summary: string;
+	model: string | null;
+	startedAt: string | null;
+}
+
+export interface WorkDetailArtifact {
+	id: string;
+	kind: string;
+	label: string;
+	note: string;
+	uri: string;
+	state: 'available' | 'stale' | 'missing' | 'superseded' | 'unknown';
+	openHref?: string;
+}
+
+export interface WorkDetailGate {
+	id: string;
+	name: string;
+	passed: boolean;
+}
+
+export interface WorkDetailRelation {
+	id: string;
+	title: string;
+	revision: number;
+	status: WorkSurfaceStatus;
+	href: string;
+}
+
+export interface WorkDetailRecovery {
+	summary: string;
+	artifacts: WorkDetailArtifact[];
+	preservedCandidate: WorkDetailArtifact | null;
+}
+
+/** Complete product-owned Work detail projection. Adapters translate their
+ * durable source into this contract; presentation and evidence semantics stay
+ * identical across self-hosted and hosted Core. */
+export interface WorkDetailView {
+	id: string;
+	title: string;
+	status: WorkSurfaceStatus;
+	goalTitle: string;
+	readerSummary: string;
+	readerSummaryLabel: string;
+	executionContract: string;
+	ownerName: string;
+	accountableLeadName: string;
+	staffResponsibilityName: string | null;
+	updatedAt: string;
+	expectedArtifact: string;
+	workspace: string;
+	integrationBranch: string;
+	attempt: WorkDetailAttempt | null;
+	artifacts: WorkDetailArtifact[];
+	gates: WorkDetailGate[];
+	prerequisites: WorkDetailRelation[];
+	dependents: WorkDetailRelation[];
+	revisions: WorkDetailRelation[];
+	recovery: WorkDetailRecovery | null;
+}
+
+export interface WorkDetailPlatform {
+	backHref: string;
+}
