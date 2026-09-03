@@ -21,7 +21,7 @@ export interface CompanyCatalogEntry {
 	name: string;
 	mission: string;
 	model: string;
-	spend_ceiling_usd: number;
+	spend_ceiling_usd: number | null;
 	runtime_status: CompanyRuntimeStatus;
 	lifecycle_status: CompanyLifecycleStatus;
 	role?: 'owner' | 'admin' | 'member';

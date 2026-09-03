@@ -118,6 +118,7 @@
 							{#each activeCompanies as company (company.id)}
 								{@const projection = projections[company.id]}
 								{@const spent = projection?.spendAccounted}
+								{@const ceiling = company.spend_ceiling_usd}
 								<a
 									class="portfolio-company-row runtime-{company.runtime_status}"
 									href={companyHref(company)}
@@ -174,19 +175,23 @@
 									</span>
 									<span class="portfolio-metric portfolio-spend">
 										<strong>
-											{spent === null || spent === undefined
-												? `— of ${money(company.spend_ceiling_usd)}`
-												: `${money(spent)} of ${money(company.spend_ceiling_usd)}`}
+											{ceiling === null
+												? '—'
+												: spent === null || spent === undefined
+													? `— of ${money(ceiling)}`
+													: `${money(spent)} of ${money(ceiling)}`}
 										</strong>
 										<small>
-											{spent === null || spent === undefined
+											{ceiling === null
+												? 'Allowance unavailable'
+												: spent === null || spent === undefined
 												? 'Spend unavailable'
-												: `${Math.round((spent / Math.max(company.spend_ceiling_usd, 0.01)) * 100)}% committed`}
+												: `${Math.round((spent / Math.max(ceiling, 0.01)) * 100)}% committed`}
 										</small>
-										{#if spent !== null && spent !== undefined}
+										{#if ceiling !== null && spent !== null && spent !== undefined}
 											<i class="portfolio-spend-track" aria-hidden="true"
 												><b
-													style={`width: ${Math.min(100, (spent / Math.max(company.spend_ceiling_usd, 0.01)) * 100)}%`}
+													style={`width: ${Math.min(100, (spent / Math.max(ceiling, 0.01)) * 100)}%`}
 												></b></i
 											>
 										{/if}
