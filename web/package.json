@@ -10,6 +10,7 @@
 		"check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json && npm run check:type",
 		"check:type": "node scripts/check-type.mjs",
 		"verify:office": "node scripts/verify-office.mjs",
+		"verify:markdown-ssr": "node scripts/verify-markdown-ssr.mjs",
 		"verify:reader": "node scripts/verify-reader-corpus.mjs",
 		"check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
 		"format": "prettier --write .",
@@ -34,7 +35,7 @@
 		"@fontsource/silkscreen": "^5.3.0",
 		"@lucide/svelte": "^1.31.0",
 		"@tanstack/svelte-query": "^6.1.41",
-		"dompurify": "^3.4.14",
+		"isomorphic-dompurify": "4.1.0",
 		"marked": "^18.0.10"
 	}
 }

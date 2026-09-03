@@ -1,5 +1,5 @@
 <script lang="ts">
-	import DOMPurify from 'dompurify';
+	import DOMPurify from 'isomorphic-dompurify';
 	import { marked } from 'marked';
 
 	let { text }: { text: string } = $props();

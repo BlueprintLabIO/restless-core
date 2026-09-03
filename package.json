@@ -1,6 +1,6 @@
 {
   "name": "@restless/core-product",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "private": false,
   "type": "module",
   "files": [
@@ -38,7 +38,7 @@
     "@fontsource/ibm-plex-mono": "^5.3.0",
     "@fontsource/ibm-plex-sans": "^5.3.0",
     "@fontsource/silkscreen": "^5.3.0",
-    "dompurify": "^3.4.14",
+    "isomorphic-dompurify": "4.1.0",
     "marked": "^18.0.10"
   }
 }
