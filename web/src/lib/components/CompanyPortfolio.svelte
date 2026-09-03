@@ -23,7 +23,8 @@
 		onopen = null,
 		onchanged = null,
 		ownerLabel = 'Owner',
-		actions = null
+		actions = null,
+		ownerActions = null
 	}: {
 		companies: CompanyCatalogEntry[];
 		projections: Record<string, PortfolioProjection>;
@@ -38,6 +39,7 @@
 		onchanged?: (() => void | Promise<void>) | null;
 		ownerLabel?: string;
 		actions?: Snippet | null;
+		ownerActions?: Snippet | null;
 	} = $props();
 	const activeCompanies = $derived(
 		companies.filter((company) => company.lifecycle_status === 'active')
@@ -80,14 +82,9 @@
 		{/if}
 		{#if loaded}
 			<div class="tb-right">
-				<OwnerMenu
-					{companies}
-					{manageHref}
-					{onarchive}
-					{onrestore}
-					{onchanged}
-					label={ownerLabel}
-				/>
+				<OwnerMenu {companies} {manageHref} {onarchive} {onrestore} {onchanged} label={ownerLabel}>
+					{#snippet footer()}{#if ownerActions}{@render ownerActions()}{/if}{/snippet}
+				</OwnerMenu>
 			</div>
 		{/if}
 	</header>
@@ -194,8 +191,8 @@
 											{ceiling === null
 												? 'Allowance unavailable'
 												: spent === null || spent === undefined
-												? 'Spend unavailable'
-												: `${Math.round((spent / Math.max(ceiling, 0.01)) * 100)}% committed`}
+													? 'Spend unavailable'
+													: `${Math.round((spent / Math.max(ceiling, 0.01)) * 100)}% committed`}
 										</small>
 										{#if ceiling !== null && spent !== null && spent !== undefined}
 											<i class="portfolio-spend-track" aria-hidden="true"

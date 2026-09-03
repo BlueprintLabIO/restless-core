@@ -1,4 +1,5 @@
 <script lang="ts">
+	import type { Snippet } from 'svelte';
 	import type { CompanyCatalogEntry } from '../product/contracts';
 
 	let {
@@ -8,7 +9,8 @@
 		onarchive = null,
 		onrestore = null,
 		onchanged = null,
-		label = 'Owner'
+		label = 'Owner',
+		footer = null
 	}: {
 		companies: CompanyCatalogEntry[];
 		currentCompanyId?: string | null;
@@ -17,6 +19,7 @@
 		onrestore?: ((company: CompanyCatalogEntry) => Promise<void>) | null;
 		onchanged?: (() => void | Promise<void>) | null;
 		label?: string;
+		footer?: Snippet | null;
 	} = $props();
 
 	let menu = $state<HTMLDetailsElement>();
@@ -72,32 +75,32 @@
 				<div class="owner-company-row">
 					<span><strong>{company.name}</strong><small>{company.runtime_status}</small></span>
 					{#if manageHref}<a class="owner-company-manage" href={manageHref(company)}>Manage</a
-					>{:else if canManage(company) && onarchive}<button
-						type="button"
-						title="Archive this company while keeping its files and history"
-						disabled={busyCompany !== null}
-						onclick={() => changeLifecycle(company)}
-					>
-						{busyCompany === company.id
-							? 'Archiving…'
-							: confirmCompany === company.id
-								? 'Archive now'
-								: 'Archive'}
-					</button>{:else}<small>Member</small>{/if}
+						>{:else if canManage(company) && onarchive}<button
+							type="button"
+							title="Archive this company while keeping its files and history"
+							disabled={busyCompany !== null}
+							onclick={() => changeLifecycle(company)}
+						>
+							{busyCompany === company.id
+								? 'Archiving…'
+								: confirmCompany === company.id
+									? 'Archive now'
+									: 'Archive'}
+						</button>{:else}<small>Member</small>{/if}
 				</div>
 			{/each}
 			{#each archivedCompanies as company (company.id)}
 				<div class="owner-company-row archived">
 					<span><strong>{company.name}</strong><small>Archived</small></span>
 					{#if manageHref}<a class="owner-company-manage" href={manageHref(company)}>Manage</a
-					>{:else if canManage(company) && onrestore}<button
-						type="button"
-						title="Restore this archived company"
-						disabled={busyCompany !== null}
-						onclick={() => changeLifecycle(company)}
-					>
-						{busyCompany === company.id ? 'Restoring…' : 'Restore'}
-					</button>{:else}<small>Member</small>{/if}
+						>{:else if canManage(company) && onrestore}<button
+							type="button"
+							title="Restore this archived company"
+							disabled={busyCompany !== null}
+							onclick={() => changeLifecycle(company)}
+						>
+							{busyCompany === company.id ? 'Restoring…' : 'Restore'}
+						</button>{:else}<small>Member</small>{/if}
 				</div>
 			{/each}
 			{#if companies.length === 0}
@@ -106,6 +109,7 @@
 		</div>
 
 		{#if error}<p class="owner-menu-error" role="alert">{error}</p>{/if}
+		{#if footer}<footer class="owner-menu-footer">{@render footer()}</footer>{/if}
 	</div>
 </details>
 
@@ -204,6 +208,30 @@
 		max-height: min(390px, 58vh);
 		overflow-y: auto;
 		padding: 6px;
+	}
+
+	.owner-menu-footer {
+		padding: 8px 14px 11px;
+		border-top: 1px solid var(--border);
+	}
+
+	.owner-menu-footer :global(a),
+	.owner-menu-footer :global(button) {
+		display: block;
+		width: 100%;
+		padding: 7px 0;
+		border: 0;
+		background: transparent;
+		font: 600 var(--t-label) var(--font-mono);
+		text-align: left;
+		text-decoration: none;
+		color: var(--text-secondary);
+		cursor: pointer;
+	}
+
+	.owner-menu-footer :global(a:hover),
+	.owner-menu-footer :global(button:hover) {
+		color: var(--ink);
 	}
 
 	.owner-company-row {
