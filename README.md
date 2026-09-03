@@ -61,10 +61,8 @@ when a proved slice needs an independent ownership or failure boundary.
 writes through company-scoped owner APIs; the supported local entrypoint is `scripts/restless-dev`,
 not a standalone Vite shell. See [`web/README.md`](./web/README.md).
 
-The public landing page and experiment findings journal now live in the sibling
-[`restless-cloud` repository](https://github.com/BlueprintLabIO/restless-cloud) at `site/`.
-Core retains the local company cell and the historical experiment evidence that the public research
-locators reference.
+The hosted control plane and public website live in a separate, private repository. This repository
+contains the open local company cell, architecture, and experiment evidence.
 
 ## How we work
 
@@ -75,4 +73,5 @@ Sprint-driven, two founders on `dev`. See the "How we work" section of [`CLAUDE.
 
 ## License
 
-TBD.
+Restless Core is licensed under the [Apache License 2.0](./LICENSE). The Restless name, marks, visual
+identity, hosted service, and private cloud control plane are not licensed by this repository.
