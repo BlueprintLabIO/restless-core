@@ -48,3 +48,54 @@ export interface CompanyPortfolioPlatform {
 	archive?(company: CompanyCatalogEntry): Promise<void>;
 	restore?(company: CompanyCatalogEntry): Promise<void>;
 }
+
+export type WorkSurfaceStatus = 'proposed' | 'active' | 'blocked' | 'completed' | 'abandoned';
+export type WorkSurfaceLens = 'map' | 'board';
+
+export interface WorkSurfaceGoal {
+	id: string;
+	title: string;
+	body: string;
+	closedAt: string | null;
+}
+
+/** A source-neutral Work projection. Self-hosted Core derives it from
+ * OrgIntel; a hosted runtime may derive it from its isolated durable store.
+ * Neither adapter gets to replace the product-owned presentation. */
+export interface WorkSurfaceItem {
+	id: string;
+	title: string;
+	status: WorkSurfaceStatus;
+	revision: number;
+	priority: number;
+	goalId: string | null;
+	ownerId: string;
+	ownerName: string;
+	updatedAt: string;
+	attemptState: string;
+	artifactCount: number;
+	gatesPassed: number;
+	gatesTotal: number;
+}
+
+export interface WorkSurfaceEdge {
+	id: string;
+	fromWorkId: string;
+	toWorkId: string;
+	kind: 'requires' | 'revises';
+}
+
+export interface WorkSurfaceView {
+	goals: WorkSurfaceGoal[];
+	work: WorkSurfaceItem[];
+	edges: WorkSurfaceEdge[];
+}
+
+export interface WorkSurfaceSelection {
+	goalId: string;
+	lens: WorkSurfaceLens;
+}
+
+export interface WorkSurfacePlatform {
+	workHref(workId: string, selection: WorkSurfaceSelection): string;
+}

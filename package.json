@@ -1,6 +1,6 @@
 {
 	"name": "@restless/core-product",
-	"version": "0.2.0",
+	"version": "0.3.0",
 	"private": false,
 	"type": "module",
 	"files": [
@@ -12,12 +12,14 @@
 		"web/src/lib/primitives/MatrixGlyph.svelte",
 		"web/src/lib/primitives/SemanticMark.svelte",
 		"web/src/lib/product",
+		"web/src/lib/work",
 		"README.md",
 		"LICENSE"
 	],
 	"exports": {
 		"./contract": "./web/src/lib/product/contracts.ts",
 		"./companies": "./web/src/lib/components/CompanyPortfolio.svelte",
+		"./work": "./web/src/lib/work/WorkSurface.svelte",
 		"./shell": "./web/src/lib/components/AppShell.svelte",
 		"./owner-menu": "./web/src/lib/components/OwnerMenu.svelte",
 		"./matrix-glyph": "./web/src/lib/primitives/MatrixGlyph.svelte",
@@ -29,6 +31,7 @@
 		"svelte": "^5.56.1"
 	},
 	"dependencies": {
+		"@dagrejs/dagre": "^3.1.1",
 		"@lucide/svelte": "^1.39.0",
 		"@fontsource/ibm-plex-mono": "^5.3.0",
 		"@fontsource/ibm-plex-sans": "^5.3.0",
