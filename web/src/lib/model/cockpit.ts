@@ -1,4 +1,7 @@
 import type { CockpitView } from './generated/cockpit';
+import type { CompanyCatalogEntry } from '../product/contracts';
+
+export type { CompanyCatalogEntry } from '../product/contracts';
 
 export type {
 	CockpitEffectReceipt as EffectReceipt,
@@ -9,22 +12,6 @@ export type {
 	CockpitTeam,
 	CockpitView
 } from './generated/cockpit';
-
-export interface CompanyCatalogEntry {
-	id: string;
-	name: string;
-	mission: string;
-	model: string;
-	spend_ceiling_usd: number;
-	runtime_status: 'running' | 'stopped' | 'absent' | 'unavailable';
-	lifecycle_status: 'active' | 'archived';
-	/**
-	 * Present when the account plane could not admit a model route for this
-	 * company at boot. The company is configured but cannot start until the
-	 * reason is resolved. Absent for every company that can start.
-	 */
-	unstartable_reason?: string;
-}
 
 export async function getCompanies(): Promise<CompanyCatalogEntry[]> {
 	const response = await fetch('/api/companies', {

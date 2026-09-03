@@ -1,23 +1,52 @@
 <script lang="ts">
-	import DOMPurify from 'dompurify';
-	import { marked } from 'marked';
+	import { Marked, Renderer, type Tokens } from 'marked';
 
 	let { text }: { text: string } = $props();
 
-	/* Marked deliberately does not sanitize. Employee and owner text crosses a
-	 * trust boundary, so sanitize its HTML before handing it to Svelte. Keep
-	 * only ordinary web links; no javascript:, data:, inline handlers or raw
-	 * model-supplied markup survives the boundary. */
+	function escapeHtml(value: string): string {
+		return value
+			.replaceAll('&', '&amp;')
+			.replaceAll('<', '&lt;')
+			.replaceAll('>', '&gt;')
+			.replaceAll('"', '&quot;')
+			.replaceAll("'", '&#39;');
+	}
+
+	function safeHref(value: string, image = false): string | null {
+		const href = value.trim();
+		if (/^https?:\/\//i.test(href)) return href;
+		if (!image && /^mailto:/i.test(href)) return href;
+		if (/^(?:\/[^/]|\.\.?\/|#|\?)/.test(href)) return href;
+		return null;
+	}
+
+	const renderer = new Renderer();
+	renderer.html = ({ text }: Tokens.HTML | Tokens.Tag) => escapeHtml(text);
+	renderer.link = function ({ href, title, tokens }: Tokens.Link) {
+		const label = this.parser.parseInline(tokens);
+		const safe = safeHref(href);
+		if (!safe) return label;
+		const titleAttribute = title ? ` title="${escapeHtml(title)}"` : '';
+		return `<a href="${escapeHtml(safe)}"${titleAttribute}>${label}</a>`;
+	};
+	renderer.image = ({ href, title, text }: Tokens.Image) => {
+		const safe = safeHref(href, true);
+		if (!safe) return escapeHtml(text);
+		const titleAttribute = title ? ` title="${escapeHtml(title)}"` : '';
+		return `<img src="${escapeHtml(safe)}" alt="${escapeHtml(text)}"${titleAttribute}>`;
+	};
+
+	const markdown = new Marked({ async: false, gfm: true, breaks: true, renderer });
+
+	/* Employee, owner and model text crosses a trust boundary. Raw HTML is
+	 * escaped and every generated URL is allowlisted before Svelte receives it,
+	 * so this renderer is identical in browsers and during server rendering. */
 	const html = $derived.by(() => {
-		const rendered = String(marked.parse(text ?? '', { async: false, gfm: true, breaks: true }));
-		return DOMPurify.sanitize(rendered, {
-			ALLOWED_URI_REGEXP: /^(?:(?:https?|mailto):|[^a-z]|[a-z+.-]+(?:[^a-z+.-:]|$))/i
-		});
+		return String(markdown.parse(text ?? ''));
 	});
 </script>
 
-<!-- `html` is sanitized above. This is intentionally the one rendering
-     boundary rather than a bespoke partial Markdown parser per transcript. -->
+<!-- `html` is produced only by the escaped and protocol-allowlisted renderer above. -->
 <div class="md">{@html html}</div>
 
 <style>

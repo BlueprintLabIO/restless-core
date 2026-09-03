@@ -17,15 +17,17 @@
 
 	import type { Snippet } from 'svelte';
 	import MessageSquare from '@lucide/svelte/icons/message-square';
-	import { PRODUCT_NAME } from '$lib/brand/brand';
-	import type { CompanyCatalogEntry } from '$lib/model/cockpit';
-	import MatrixGlyph, { GLYPHS } from '$lib/primitives/MatrixGlyph.svelte';
+	import { PRODUCT_NAME } from '../brand/brand';
+	import type { CompanyCatalogEntry } from '../product/contracts';
+	import MatrixGlyph, { GLYPHS } from '../primitives/MatrixGlyph.svelte';
 
 	let {
 		companyId,
 		companyName,
 		companies = [],
 		tabs,
+		portfolioHref = '/',
+		companyHref = (company: CompanyCatalogEntry) => `/${company.id}`,
 		execName = 'Exec',
 		execLive = false,
 		railOpen = true,
@@ -41,6 +43,10 @@
 		companyName: string;
 		companies?: CompanyCatalogEntry[];
 		tabs: ShellTab[];
+		/** Platform-owned route back to the authenticated company portfolio. */
+		portfolioHref?: string;
+		/** Platform-owned route or one-time entry URL for another company. */
+		companyHref?: (company: CompanyCatalogEntry) => string;
 		execName?: string;
 		execLive?: boolean;
 		railOpen?: boolean;
@@ -76,7 +82,7 @@
 <div class="bridge-root" class:immersive>
 	<header class="bridge-topbar" aria-label="Global navigation">
 		<div class="tb-brand">
-			<a class="tb-brand-home" href="/" aria-label={`${PRODUCT_NAME} companies`}>
+			<a class="tb-brand-home" href={portfolioHref} aria-label={`${PRODUCT_NAME} companies`}>
 				<span class="tb-mark"><MatrixGlyph rows={GLYPHS.r} size={13} glow /></span>
 				<span class="tb-name">{PRODUCT_NAME}</span>
 			</a>
@@ -88,19 +94,27 @@
 					>
 				</summary>
 				<div class="company-switcher-menu">
-					<a class="company-overview-link" href="/">
+					<a class="company-overview-link" href={portfolioHref}>
 						<MatrixGlyph rows={GLYPHS.r} size={8} />
 						<span><strong>All companies</strong><small>Owner portfolio</small></span>
 					</a>
 					<div class="company-switcher-rule" role="separator"></div>
 					{#each activeCompanies as company (company.id)}
-						<a class:current={company.id === companyId} href={`/${company.id}`}>
+						<a class:current={company.id === companyId} href={companyHref(company)}>
 							<i class="runtime-{company.runtime_status}" aria-hidden="true"></i>
 							<span><strong>{company.name}</strong><small>{company.runtime_status}</small></span>
 							{#if company.id === companyId}<span class="switcher-current">Current</span>{/if}
 						</a>
 					{:else}
-						<a class="current" href={`/${companyId}`}>
+						<a class="current" href={companyHref({
+							id: companyId,
+							name: companyName,
+							mission: '',
+							model: '',
+							spend_ceiling_usd: null,
+							runtime_status: 'running',
+							lifecycle_status: 'active'
+						})}>
 							<i aria-hidden="true"></i><span
 								><strong>{companyName}</strong><small>Current company</small></span
 							>

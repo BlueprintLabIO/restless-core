@@ -1,0 +1,43 @@
+{
+  "name": "@restless/core-product",
+  "version": "0.4.2",
+  "private": false,
+  "type": "module",
+  "files": [
+    "web/src/lib/brand",
+    "web/src/lib/components/CompanyPortfolio.svelte",
+    "web/src/lib/components/AppShell.svelte",
+    "web/src/lib/components/OwnerMenu.svelte",
+    "web/src/lib/design",
+    "web/src/lib/primitives/MatrixGlyph.svelte",
+    "web/src/lib/primitives/Markdown.svelte",
+    "web/src/lib/primitives/SemanticMark.svelte",
+    "web/src/lib/product",
+    "web/src/lib/work",
+    "README.md",
+    "LICENSE"
+  ],
+  "exports": {
+    "./contract": "./web/src/lib/product/contracts.ts",
+    "./companies": "./web/src/lib/components/CompanyPortfolio.svelte",
+    "./work": "./web/src/lib/work/WorkSurface.svelte",
+    "./work-detail": "./web/src/lib/work/WorkDetailSurface.svelte",
+    "./shell": "./web/src/lib/components/AppShell.svelte",
+    "./owner-menu": "./web/src/lib/components/OwnerMenu.svelte",
+    "./matrix-glyph": "./web/src/lib/primitives/MatrixGlyph.svelte",
+    "./semantic-mark": "./web/src/lib/primitives/SemanticMark.svelte",
+    "./brand": "./web/src/lib/brand/brand.ts",
+    "./style.css": "./web/src/lib/design/index.css"
+  },
+  "peerDependencies": {
+    "svelte": "^5.56.1"
+  },
+  "dependencies": {
+    "@dagrejs/dagre": "^3.1.1",
+    "@lucide/svelte": "^1.39.0",
+    "@fontsource/ibm-plex-mono": "^5.3.0",
+    "@fontsource/ibm-plex-sans": "^5.3.0",
+    "@fontsource/silkscreen": "^5.3.0",
+    "marked": "^18.0.10"
+  }
+}

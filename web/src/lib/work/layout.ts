@@ -1,11 +1,11 @@
 import dagre from '@dagrejs/dagre';
-import type { WorkEdgeKind, WorkEdgeRow, WorkRow } from '$lib/model/generated/orgintel';
+import type { WorkSurfaceEdge, WorkSurfaceItem } from '../product/contracts';
 
 export const WORK_NODE_WIDTH = 224;
 export const WORK_NODE_HEIGHT = 126;
 
 export interface WorkGraphNodeData {
-	item: WorkRow;
+	item: WorkSurfaceItem;
 	owner: string;
 	attemptState: string;
 	artifactCount: number;
@@ -23,7 +23,7 @@ export interface WorkGraphLayoutNode {
 
 export interface WorkGraphLayoutEdge {
 	id: string;
-	kind: WorkEdgeKind;
+	kind: WorkSurfaceEdge['kind'];
 	path: string;
 	labelX: number;
 	labelY: number;
@@ -37,9 +37,9 @@ export interface WorkGraphLayout {
 }
 
 export function layoutWorkGraph(
-	work: WorkRow[],
-	edges: WorkEdgeRow[],
-	dataFor: (item: WorkRow) => WorkGraphNodeData
+	work: WorkSurfaceItem[],
+	edges: WorkSurfaceEdge[],
+	dataFor: (item: WorkSurfaceItem) => WorkGraphNodeData
 ): WorkGraphLayout {
 	const graph = new dagre.graphlib.Graph({ multigraph: true })
 		.setGraph({
@@ -58,10 +58,10 @@ export function layoutWorkGraph(
 	}
 	for (const edge of edges) {
 		graph.setEdge(
-			edge.from_work_id,
-			edge.to_work_id,
+			edge.fromWorkId,
+			edge.toWorkId,
 			{ kind: edge.kind },
-			`${edge.from_work_id}:${edge.to_work_id}:${edge.kind}`
+			edge.id
 		);
 	}
 
@@ -82,7 +82,7 @@ export function layoutWorkGraph(
 	});
 	const laidEdges = graph.edges().map((reference): WorkGraphLayoutEdge => {
 		const edge = graph.edge(reference) as {
-			kind: WorkEdgeKind;
+			kind: WorkSurfaceEdge['kind'];
 			points?: Array<{ x: number; y: number }>;
 		};
 		const points = edge.points ?? [];

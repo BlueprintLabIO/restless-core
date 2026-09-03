@@ -1,14 +1,25 @@
 <script lang="ts">
-	import { archiveCompany, restoreCompany, type CompanyCatalogEntry } from '$lib/model/cockpit';
+	import type { Snippet } from 'svelte';
+	import type { CompanyCatalogEntry } from '../product/contracts';
 
 	let {
 		companies,
 		currentCompanyId = null,
-		onchanged = null
+		manageHref = null,
+		onarchive = null,
+		onrestore = null,
+		onchanged = null,
+		label = 'Owner',
+		footer = null
 	}: {
 		companies: CompanyCatalogEntry[];
 		currentCompanyId?: string | null;
+		manageHref?: ((company: CompanyCatalogEntry) => string) | null;
+		onarchive?: ((company: CompanyCatalogEntry) => Promise<void>) | null;
+		onrestore?: ((company: CompanyCatalogEntry) => Promise<void>) | null;
 		onchanged?: (() => void | Promise<void>) | null;
+		label?: string;
+		footer?: Snippet | null;
 	} = $props();
 
 	let menu = $state<HTMLDetailsElement>();
@@ -21,6 +32,8 @@
 	const archivedCompanies = $derived(
 		companies.filter((company) => company.lifecycle_status === 'archived')
 	);
+	const canManage = (company: CompanyCatalogEntry) =>
+		company.role === undefined || company.role === 'owner' || company.role === 'admin';
 
 	async function changeLifecycle(company: CompanyCatalogEntry) {
 		if (busyCompany) return;
@@ -33,8 +46,8 @@
 		confirmCompany = null;
 		error = '';
 		try {
-			if (company.lifecycle_status === 'archived') await restoreCompany(company.id);
-			else await archiveCompany(company.id);
+			if (company.lifecycle_status === 'archived') await onrestore?.(company);
+			else await onarchive?.(company);
 			if (company.id === currentCompanyId && company.lifecycle_status === 'active') {
 				window.location.assign('/');
 				return;
@@ -50,7 +63,7 @@
 
 <details class="owner-menu" bind:this={menu}>
 	<summary aria-label="Open owner settings">
-		<span>Owner</span><span class="owner-chevron" aria-hidden="true">⌄</span>
+		<span>{label}</span><span class="owner-chevron" aria-hidden="true">⌄</span>
 	</summary>
 	<div class="owner-menu-panel">
 		<header>
@@ -61,31 +74,33 @@
 			{#each activeCompanies as company (company.id)}
 				<div class="owner-company-row">
 					<span><strong>{company.name}</strong><small>{company.runtime_status}</small></span>
-					<button
-						type="button"
-						title="Archive this company while keeping its files and history"
-						disabled={busyCompany !== null}
-						onclick={() => changeLifecycle(company)}
-					>
-						{busyCompany === company.id
-							? 'Archiving…'
-							: confirmCompany === company.id
-								? 'Archive now'
-								: 'Archive'}
-					</button>
+					{#if manageHref}<a class="owner-company-manage" href={manageHref(company)}>Manage</a
+						>{:else if canManage(company) && onarchive}<button
+							type="button"
+							title="Archive this company while keeping its files and history"
+							disabled={busyCompany !== null}
+							onclick={() => changeLifecycle(company)}
+						>
+							{busyCompany === company.id
+								? 'Archiving…'
+								: confirmCompany === company.id
+									? 'Archive now'
+									: 'Archive'}
+						</button>{:else}<small>Member</small>{/if}
 				</div>
 			{/each}
 			{#each archivedCompanies as company (company.id)}
 				<div class="owner-company-row archived">
 					<span><strong>{company.name}</strong><small>Archived</small></span>
-					<button
-						type="button"
-						title="Restore this archived company"
-						disabled={busyCompany !== null}
-						onclick={() => changeLifecycle(company)}
-					>
-						{busyCompany === company.id ? 'Restoring…' : 'Restore'}
-					</button>
+					{#if manageHref}<a class="owner-company-manage" href={manageHref(company)}>Manage</a
+						>{:else if canManage(company) && onrestore}<button
+							type="button"
+							title="Restore this archived company"
+							disabled={busyCompany !== null}
+							onclick={() => changeLifecycle(company)}
+						>
+							{busyCompany === company.id ? 'Restoring…' : 'Restore'}
+						</button>{:else}<small>Member</small>{/if}
 				</div>
 			{/each}
 			{#if companies.length === 0}
@@ -94,6 +109,7 @@
 		</div>
 
 		{#if error}<p class="owner-menu-error" role="alert">{error}</p>{/if}
+		{#if footer}<footer class="owner-menu-footer">{@render footer()}</footer>{/if}
 	</div>
 </details>
 
@@ -194,6 +210,30 @@
 		padding: 6px;
 	}
 
+	.owner-menu-footer {
+		padding: 8px 14px 11px;
+		border-top: 1px solid var(--border);
+	}
+
+	.owner-menu-footer :global(a),
+	.owner-menu-footer :global(button) {
+		display: block;
+		width: 100%;
+		padding: 7px 0;
+		border: 0;
+		background: transparent;
+		font: 600 var(--t-label) var(--font-mono);
+		text-align: left;
+		text-decoration: none;
+		color: var(--text-secondary);
+		cursor: pointer;
+	}
+
+	.owner-menu-footer :global(a:hover),
+	.owner-menu-footer :global(button:hover) {
+		color: var(--ink);
+	}
+
 	.owner-company-row {
 		display: grid;
 		grid-template-columns: minmax(0, 1fr) auto;
@@ -232,6 +272,17 @@
 			background-color var(--motion-state) var(--ease-standard),
 			color var(--motion-state) var(--ease-standard),
 			box-shadow var(--motion-state) var(--ease-standard);
+	}
+
+	.owner-company-manage {
+		padding: 6px 8px;
+		border: 1px solid var(--border);
+		border-radius: var(--radius-control);
+		background: rgba(255, 255, 255, 0.7);
+		box-shadow: var(--bevel-subtle);
+		font: 600 var(--t-label) var(--font-mono);
+		color: var(--text-secondary);
+		text-decoration: none;
 	}
 
 	.owner-company-row button {

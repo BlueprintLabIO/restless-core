@@ -1,24 +1,16 @@
 <script lang="ts">
-	import type { WorkEdgeRow, WorkRow } from '$lib/model/generated/orgintel';
+	import type { WorkSurfaceEdge, WorkSurfaceItem } from '../product/contracts';
 	import { layoutWorkGraph, WORK_NODE_HEIGHT, WORK_NODE_WIDTH } from './layout';
 
 	let {
 		work,
 		edges,
 		totalCount,
-		ownerName,
-		attemptState,
-		artifactCount,
-		gateSummary,
 		workHref
 	}: {
-		work: WorkRow[];
-		edges: WorkEdgeRow[];
+		work: WorkSurfaceItem[];
+		edges: WorkSurfaceEdge[];
 		totalCount: number;
-		ownerName: (actorId: string) => string;
-		attemptState: (item: WorkRow) => string;
-		artifactCount: (item: WorkRow) => number;
-		gateSummary: (item: WorkRow) => { passed: number; total: number };
 		workHref: (workId: string) => string;
 	} = $props();
 
@@ -30,17 +22,17 @@
 	const layout = $derived.by(() =>
 		layoutWorkGraph(work, edges, (item) => ({
 			item,
-			owner: ownerName(item.owner_id),
-			attemptState: attemptState(item),
-			artifactCount: artifactCount(item),
-			gateSummary: gateSummary(item),
+			owner: item.ownerName,
+			attemptState: item.attemptState,
+			artifactCount: item.artifactCount,
+			gateSummary: { passed: item.gatesPassed, total: item.gatesTotal },
 			href: workHref(item.id),
 			isFocus: item.id === focusId
 		}))
 	);
 	const scopeLabel = $derived(edges.length ? 'Current path' : 'Current Work');
 
-	function stateLabel(item: WorkRow): string {
+	function stateLabel(item: WorkSurfaceItem): string {
 		return item.status === 'proposed'
 			? 'Next'
 			: item.status === 'active'
