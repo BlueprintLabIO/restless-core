@@ -106,7 +106,15 @@
 							{#if company.id === companyId}<span class="switcher-current">Current</span>{/if}
 						</a>
 					{:else}
-						<a class="current" href={`/${companyId}`}>
+						<a class="current" href={companyHref({
+							id: companyId,
+							name: companyName,
+							mission: '',
+							model: '',
+							spend_ceiling_usd: null,
+							runtime_status: 'running',
+							lifecycle_status: 'active'
+						})}>
 							<i aria-hidden="true"></i><span
 								><strong>{companyName}</strong><small>Current company</small></span
 							>
