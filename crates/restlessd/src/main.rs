@@ -26,17 +26,20 @@ mod finance;
 mod health;
 mod inbound;
 mod ingress;
+mod launch;
 mod legal;
 mod model_gateway;
 mod owner;
 mod owner_brief;
 mod plane;
+mod publication;
 mod reconcile;
 mod release;
 mod runtime;
 mod schedule;
 mod spend;
 mod staff;
+mod telemetry;
 mod wire;
 
 use std::collections::HashMap;
@@ -72,17 +75,29 @@ struct OrgIntelConfig {
 }
 
 impl OrgIntelConfig {
+    fn default_for_user() -> Self {
+        let user = std::env::var("USER").unwrap_or_else(|_| "postgres".to_string());
+        Self {
+            database_url: format!("postgres://{user}@localhost/restless"),
+        }
+    }
+
+    fn read_only(root: &Path) -> Result<Self> {
+        let path = root.join("orgintel.toml");
+        if !path.exists() {
+            return Ok(Self::default_for_user());
+        }
+        let raw =
+            std::fs::read_to_string(&path).with_context(|| format!("read {}", path.display()))?;
+        toml::from_str(&raw).with_context(|| format!("parse {}", path.display()))
+    }
+
     fn load_or_seed(root: &Path) -> Result<Self> {
         let path = root.join("orgintel.toml");
         if path.exists() {
-            let raw = std::fs::read_to_string(&path)
-                .with_context(|| format!("read {}", path.display()))?;
-            return toml::from_str(&raw).with_context(|| format!("parse {}", path.display()));
+            return Self::read_only(root);
         }
-        let user = std::env::var("USER").unwrap_or_else(|_| "postgres".to_string());
-        let config = Self {
-            database_url: format!("postgres://{user}@localhost/restless"),
-        };
+        let config = Self::default_for_user();
         let rendered = toml::to_string_pretty(&config).context("render orgintel.toml")?;
         std::fs::write(&path, rendered).with_context(|| format!("seed {}", path.display()))?;
         Ok(config)
@@ -91,6 +106,9 @@ impl OrgIntelConfig {
 
 fn configured_companies(root: &Path) -> Result<Vec<String>> {
     let directory = root.join("companies");
+    if !directory.is_dir() {
+        return Ok(Vec::new());
+    }
     let mut companies = Vec::new();
     for entry in
         std::fs::read_dir(&directory).with_context(|| format!("read {}", directory.display()))?
@@ -147,6 +165,12 @@ impl OrgIntelRegistry {
     }
 
     async fn get(&self, company: &str) -> Result<OrgIntel> {
+        let config = self.root.join("companies").join(format!("{company}.toml"));
+        if !config.is_file() {
+            anyhow::bail!(
+                "company {company:?} is not configured; refusing to provision or reopen an OrgIntel cell"
+            );
+        }
         let cached = self
             .handles
             .lock()
@@ -207,6 +231,8 @@ pub(crate) struct Daemon {
     pub(crate) capabilities: capability::CapabilityIssuer,
     pub(crate) spend: spend::SpendLedger,
     pub(crate) authority: authority::AuthorityStore,
+    pub(crate) publication: publication::PublicationManager,
+    pub(crate) launch: launch::LaunchBroker,
     pub(crate) orgintel: OrgIntelRegistry,
     pub(crate) staff: staff::StaffRegistry,
     /// Reconnectable live projections for agent turns. Completed messages,
@@ -215,6 +241,9 @@ pub(crate) struct Daemon {
     /// One wake at a time per company, however the wake was requested —
     /// the scheduler (T6) and the owner-typed socket path share this set.
     pub(crate) in_flight: schedule::InFlight,
+    /// Wake-only hints from launchd/systemd or the owner. The durable schedule
+    /// ledger decides whether anything is due; this signal carries no work.
+    pub(crate) schedule_wake: std::sync::Arc<tokio::sync::Notify>,
 }
 
 /// A Runtime is only ready for coordination after the host-issued bridge grant
@@ -317,6 +346,7 @@ pub(crate) async fn continue_after_payment_observation(
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    let machine_profile = restlessd::appliance::MachineProfile::from_env()?;
     // Local source checkouts conventionally keep bootstrap credentials in an
     // ignored `.env`. Load it before any subsystem reads configuration, while
     // preserving explicitly inherited service-manager variables. Infisical is
@@ -325,6 +355,13 @@ async fn main() -> Result<()> {
         Ok(path) => eprintln!("loaded local environment from {}", path.display()),
         Err(dotenvy::Error::Io(error)) if error.kind() == std::io::ErrorKind::NotFound => {}
         Err(error) => return Err(error).context("load local .env"),
+    }
+    restlessd::appliance::load_profile_environment(&machine_profile)?;
+    if matches!(std::env::args().nth(1).as_deref(), Some("--help" | "-h")) {
+        println!(
+            "restlessd\n\nThe supervised Restless account plane. Run it without arguments; use `restless appliance status` for lifecycle status."
+        );
+        return Ok(());
     }
     tracing_subscriber::fmt()
         .with_env_filter(
@@ -340,9 +377,51 @@ async fn main() -> Result<()> {
         return Ok(());
     }
 
-    let root = runtime::state_root();
+    if std::env::args().nth(1).as_deref() == Some("appliance-preflight") {
+        if machine_profile.kind != restlessd::appliance::ProfileKind::Stable {
+            anyhow::bail!("appliance preflight requires the stable profile");
+        }
+        let cockpit = std::env::var_os("RESTLESS_COCKPIT_DIR")
+            .map(PathBuf::from)
+            .context("RESTLESS_COCKPIT_DIR is required for appliance preflight")?;
+        if !cockpit.join("index.html").is_file() {
+            anyhow::bail!("the staged Cockpit has no index.html");
+        }
+        for company in configured_companies(&machine_profile.state_root)? {
+            runtime::CompanyConfig::load(&machine_profile.state_root, &company)
+                .with_context(|| format!("preflight company configuration {company}"))?;
+        }
+        let orgintel = OrgIntelConfig::read_only(&machine_profile.state_root)?;
+        OrgIntel::probe(&orgintel.database_url)
+            .await
+            .context("preflight could not reach OrgIntel")?;
+        println!(
+            "{}",
+            serde_json::json!({
+                "status": "ready_to_activate",
+                "profile": "stable",
+                "state_root": machine_profile.state_root,
+                "cockpit": cockpit,
+            })
+        );
+        return Ok(());
+    }
+
+    // Resolve and lock the machine profile before any migration, provider
+    // listener or schedule reconciliation can mutate state. The Unix socket
+    // is a transport and may be stale; it is not a singleton primitive.
+    let root = machine_profile.state_root.clone();
     std::fs::create_dir_all(root.join("companies"))
         .with_context(|| format!("create state root {}", root.display()))?;
+    std::fs::create_dir_all(machine_profile.log_dir())?;
+    std::fs::create_dir_all(machine_profile.launch_cache_dir())?;
+    let _singleton = restlessd::appliance::SingletonGuard::acquire(&machine_profile)?;
+    tracing::info!(
+        profile = machine_profile.kind.as_str(),
+        root = %machine_profile.state_root.display(),
+        lock = %_singleton.path().display(),
+        "machine profile locked"
+    );
     let capabilities = capability::CapabilityIssuer::open(&root)?;
     // Two supported topologies (ADR 0007): direct loopback, or a network
     // entry that verifies a signed assertion. Resolve and validate the entry
@@ -358,14 +437,12 @@ async fn main() -> Result<()> {
 
     // Model access is a host authority boundary. OMP's imported broker and
     // gateway hold the provider credential; company processes receive only a
-    // signed, scoped relay capability. A failed start is a failed daemon start
-    // because no configured Exec can think without it.
+    // signed, scoped relay capability. Its network/provider startup is kept
+    // off the owner-surface critical path below.
     let company_configs = configured_companies(&root)?
         .into_iter()
         .map(|company| runtime::CompanyConfig::load(&root, &company))
         .collect::<Result<Vec<_>>>()?;
-    let _model_gateway =
-        model_gateway::start(&company_configs, &root, capabilities.clone(), spend.clone()).await?;
     // T5: coordination state. The database must answer at boot — probe,
     // never guess that it will be there when a company wakes.
     let orgintel_config = OrgIntelConfig::load_or_seed(&root)?;
@@ -378,33 +455,48 @@ async fn main() -> Result<()> {
     // One-time custody transfer from the old recoverable event stream. Do it
     // before listeners open so no effect can race its own migration.
     for company in configured_companies(&root)? {
-        let mut config = runtime::CompanyConfig::load(&root, &company)?;
-        // Bootstrap is a serial migration pass, not the live handle registry.
-        // Caching one pool per historical test company here exhausted
-        // PostgreSQL before the daemon could finish booting. Keep only the
-        // current company's pool alive; the runtime registry below remains
-        // lazy and caches only companies that are actually used.
-        let org = ensure_cell_orgintel(&root, &orgintel_config.database_url, &company).await?;
-        ensure_standing_actors(&org, Some(&config.model)).await?;
-        let imported = authority
-            .import_legacy_company(&company, &org, &approval::legacy_config_approvals(&config))
-            .await?;
-        if imported > 0 {
-            tracing::info!(
-                company,
-                imported,
-                "migrated governance truth into Authority"
-            );
+        let bootstrap = async {
+            let mut config = runtime::CompanyConfig::load(&root, &company)?;
+            // Bootstrap is a serial migration pass, not the live handle registry.
+            // Caching one pool per historical test company here exhausted
+            // PostgreSQL before the daemon could finish booting. Keep only the
+            // current company's pool alive; the runtime registry below remains
+            // lazy and caches only companies that are actually used.
+            let org = ensure_cell_orgintel(&root, &orgintel_config.database_url, &company).await?;
+            ensure_standing_actors(&org, Some(&config.model)).await?;
+            let imported = authority
+                .import_legacy_company(&company, &org, &approval::legacy_config_approvals(&config))
+                .await?;
+            if imported > 0 {
+                tracing::info!(
+                    company,
+                    imported,
+                    "migrated governance truth into Authority"
+                );
+            }
+            approval::purge_legacy_config_approvals(&root, &mut config)?;
+            drop(org);
+            Ok::<_, anyhow::Error>(())
         }
-        approval::purge_legacy_config_approvals(&root, &mut config)?;
-        drop(org);
+        .await;
+        if let Err(error) = bootstrap {
+            // One historical or experimental cell must not take every live
+            // company and every schedule offline. Keep the exact company
+            // unavailable and visible through its own failing cell probe,
+            // while the rest of the account plane continues to operate.
+            tracing::error!(company, "company cell quarantined during boot: {error:#}");
+        }
     }
 
+    let publication = publication::PublicationManager::new(&root, authority.clone())?;
+    let launch = launch::LaunchBroker::new(&root)?;
     let daemon = std::sync::Arc::new(Daemon {
         root: root.clone(),
         capabilities,
         spend,
         authority,
+        publication,
+        launch,
         orgintel: OrgIntelRegistry {
             database_url: orgintel_config.database_url,
             root: root.clone(),
@@ -413,6 +505,73 @@ async fn main() -> Result<()> {
         staff: staff::StaffRegistry::default(),
         activities: activity::AgentActivityStreams::default(),
         in_flight: std::sync::Arc::new(std::sync::Mutex::new(schedule::WakeClaims::default())),
+        schedule_wake: std::sync::Arc::new(tokio::sync::Notify::new()),
+    });
+
+    // Owner entry is the appliance's control surface, not proof that every
+    // external model provider is reachable. Open it before slower repair and
+    // provider reconciliation so a founder can always see and repair a
+    // degraded company instead of staring at a dead localhost port.
+    let owner_daemon = std::sync::Arc::clone(&daemon);
+    tokio::spawn(async move {
+        if let Err(error) = owner::serve(owner_daemon, owner_config).await {
+            tracing::error!("owner gateway stopped: {error:#}");
+        }
+    });
+
+    // Start the provider boundary as soon as the owner surface exists. Large
+    // historical stores can make orphan and publication repair expensive;
+    // model readiness must not queue behind those reads. The scheduler still
+    // waits on the explicit recovery barrier below, so no autonomous work can
+    // race cleanup from a previous daemon generation.
+    let test_scheduler_disabled =
+        std::env::var("RESTLESS_TEST_DISABLE_SCHEDULER").is_ok_and(|value| value == "1");
+    if test_scheduler_disabled
+        && company_configs
+            .iter()
+            .any(|config| !config.name.ends_with("_test"))
+    {
+        anyhow::bail!("RESTLESS_TEST_DISABLE_SCHEDULER is allowed only on an all-test plane");
+    }
+    let (recovery_ready_tx, mut recovery_ready_rx) = tokio::sync::watch::channel(false);
+    let model_configs = company_configs.clone();
+    let model_root = root.clone();
+    let model_capabilities = daemon.capabilities.clone();
+    let model_spend = daemon.spend.clone();
+    let schedule_daemon = std::sync::Arc::clone(&daemon);
+    tokio::spawn(async move {
+        loop {
+            match model_gateway::start(
+                &model_configs,
+                &model_root,
+                model_capabilities.clone(),
+                model_spend.clone(),
+            )
+            .await
+            {
+                Ok(processes) => {
+                    tracing::info!("model gateway ready");
+                    while !*recovery_ready_rx.borrow() {
+                        if recovery_ready_rx.changed().await.is_err() {
+                            return;
+                        }
+                    }
+                    if test_scheduler_disabled {
+                        tracing::warn!("automatic scheduler disabled for an isolated test plane");
+                    } else {
+                        tokio::spawn(schedule::run(std::sync::Arc::clone(&schedule_daemon)));
+                    }
+                    let _processes = processes;
+                    std::future::pending::<()>().await;
+                }
+                Err(error) => {
+                    tracing::error!(
+                        "model gateway unavailable; owner plane remains ready and retry is scheduled: {error:#}"
+                    );
+                    tokio::time::sleep(std::time::Duration::from_secs(30)).await;
+                }
+            }
+        }
     });
 
     // Effect children carry the narrowest live secret boundary. Reap an old
@@ -424,37 +583,36 @@ async fn main() -> Result<()> {
     // reap them and close their running Work Attempts before anything new wakes.
     staff::sweep_orphans(&daemon.root, &daemon.orgintel).await;
 
+    // Published services are provider-owned processes, not Runtime children.
+    // Reconcile their receipts after the daemon's own orphan sweeps: a live
+    // fixture is adopted, a dead authorized fixture is restarted once, and an
+    // expired grant is torn down. One broken experimental company cannot block
+    // the account plane from opening its listeners.
+    for company in configured_companies(&root)? {
+        if !company.ends_with("_test") {
+            continue;
+        }
+        let outcome = async {
+            let org = daemon.orgintel.get(&company).await?;
+            daemon.publication.reconcile_company(&org, &company).await
+        }
+        .await;
+        if let Err(error) = outcome {
+            tracing::error!(
+                company,
+                "published-service reconciliation failed: {error:#}"
+            );
+        }
+    }
+
+    recovery_ready_tx.send_replace(true);
+
     // T6: the scheduler is what makes the company act without the owner
     // typing — time triggers (exec-set schedules + periodic tick) and
     // OrgIntel LISTEN/NOTIFY events share one loop. Product integration tests
     // may drive the exact semantic loop themselves; a narrowly named escape
     // hatch prevents the resident scheduler racing that controller. It is
     // refused if any real company is configured.
-    let test_scheduler_disabled =
-        std::env::var("RESTLESS_TEST_DISABLE_SCHEDULER").is_ok_and(|value| value == "1");
-    if test_scheduler_disabled
-        && company_configs
-            .iter()
-            .any(|config| !config.name.ends_with("_test"))
-    {
-        anyhow::bail!("RESTLESS_TEST_DISABLE_SCHEDULER is allowed only on an all-test plane");
-    }
-    if test_scheduler_disabled {
-        tracing::warn!("automatic scheduler disabled for an isolated test plane");
-    } else {
-        tokio::spawn(schedule::run(std::sync::Arc::clone(&daemon)));
-    }
-
-    // S05-T1/T5: the local-owner projection and browser transport are
-    // a separate failure boundary. Losing the SPA must not stop schedules,
-    // coordination or provider ingress.
-    let owner_daemon = std::sync::Arc::clone(&daemon);
-    tokio::spawn(async move {
-        if let Err(error) = owner::serve(owner_daemon, owner_config).await {
-            tracing::error!("owner gateway stopped: {error:#}");
-        }
-    });
-
     let sock = root.join("restlessd.sock");
     if sock.exists() {
         std::fs::remove_file(&sock)?;
@@ -730,10 +888,34 @@ fn authenticate_request(
 fn bind_runtime_actor(request: &mut Request, actor: &str) -> std::result::Result<(), String> {
     let command = request.cmd.clone();
     match command.as_str() {
-        "actor-create" | "actor-model" | "actor-retire" | "team-create" | "team-update"
-        | "team-assign" | "team-lead" | "team-disband" | "goal-add" | "work-goal"
-        | "work-assign" | "work-artifact" | "work-gate" | "work-handoff" | "effect"
-        | "effect-reconcile" => pin_actor(&mut request.orgintel.actor, actor, "actor")?,
+        "actor-create"
+        | "actor-model"
+        | "actor-retire"
+        | "team-create"
+        | "team-update"
+        | "team-assign"
+        | "team-lead"
+        | "team-disband"
+        | "goal-add"
+        | "work-goal"
+        | "work-assign"
+        | "work-artifact"
+        | "work-gate"
+        | "work-handoff"
+        | "effect"
+        | "effect-reconcile"
+        | "identity-evidence-add"
+        | "identity-propose"
+        | "identity-brief"
+        | "voice-evidence-add"
+        | "voice-bind"
+        | "voice-brief"
+        | "voice-render"
+        | "voice-review"
+        | "voice-learn" => pin_actor(&mut request.orgintel.actor, actor, "actor")?,
+        "publish-candidate" | "publish-request" => {
+            pin_actor(&mut request.publication.actor, actor, "publication actor")?
+        }
         "work-add"
         | "work-edge"
         | "work-gate-retire"
@@ -747,6 +929,7 @@ fn bind_runtime_actor(request: &mut Request, actor: &str) -> std::result::Result
         | "judgement"
         | "schedule-list"
         | "schedule-add"
+        | "schedule-policy"
         | "schedule-cancel" => pin_actor(&mut request.common.as_actor, actor, "acting actor")?,
         "message" => pin_actor(&mut request.common.from, actor, "message sender")?,
         "inbox" => {
@@ -831,6 +1014,70 @@ where
     }
 }
 
+fn parse_optional_uuid(
+    value: Option<&str>,
+    label: &str,
+) -> std::result::Result<Option<uuid::Uuid>, String> {
+    value
+        .map(|value| uuid::Uuid::parse_str(value).map_err(|error| format!("bad {label}: {error}")))
+        .transpose()
+}
+
+fn parse_required_uuid(
+    value: Option<&str>,
+    label: &str,
+) -> std::result::Result<uuid::Uuid, String> {
+    parse_optional_uuid(value, label)?.ok_or_else(|| format!("{label} is required"))
+}
+
+fn parse_voice_channel(
+    value: Option<&str>,
+) -> std::result::Result<Option<restless_orgintel::VoiceChannel>, String> {
+    match value {
+        None => Ok(None),
+        Some("newsletter") => Ok(Some(restless_orgintel::VoiceChannel::Newsletter)),
+        Some("founder_email") => Ok(Some(restless_orgintel::VoiceChannel::FounderEmail)),
+        Some("support") => Ok(Some(restless_orgintel::VoiceChannel::Support)),
+        Some("transactional_email") => {
+            Ok(Some(restless_orgintel::VoiceChannel::TransactionalEmail))
+        }
+        Some("product_ui") => Ok(Some(restless_orgintel::VoiceChannel::ProductUi)),
+        Some("blog") => Ok(Some(restless_orgintel::VoiceChannel::Blog)),
+        Some(other) => Err(format!(
+            "bad voice channel {other:?}; expected newsletter, founder_email, support, transactional_email, product_ui or blog"
+        )),
+    }
+}
+
+fn parse_visual_channel(
+    value: Option<&str>,
+) -> std::result::Result<Option<restless_orgintel::VisualChannel>, String> {
+    match value {
+        None => Ok(None),
+        Some("landing_page") => Ok(Some(restless_orgintel::VisualChannel::LandingPage)),
+        Some("email") => Ok(Some(restless_orgintel::VisualChannel::Email)),
+        Some("product") => Ok(Some(restless_orgintel::VisualChannel::Product)),
+        Some("social") => Ok(Some(restless_orgintel::VisualChannel::Social)),
+        Some(other) => Err(format!(
+            "bad visual channel {other}; expected landing_page|email|product|social"
+        )),
+    }
+}
+
+fn parse_culture_case(
+    value: Option<&str>,
+) -> std::result::Result<Option<restless_orgintel::CultureCase>, String> {
+    match value {
+        None => Ok(None),
+        Some("disagreement") => Ok(Some(restless_orgintel::CultureCase::Disagreement)),
+        Some("uncertain_incident") => Ok(Some(restless_orgintel::CultureCase::UncertainIncident)),
+        Some("customer_recovery") => Ok(Some(restless_orgintel::CultureCase::CustomerRecovery)),
+        Some("quality_tradeoff") => Ok(Some(restless_orgintel::CultureCase::QualityTradeoff)),
+        Some("hiring") => Ok(Some(restless_orgintel::CultureCase::Hiring)),
+        Some(other) => Err(format!("bad culture case {other}; expected disagreement|uncertain_incident|customer_recovery|quality_tradeoff|hiring")),
+    }
+}
+
 async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Response {
     // The company catalogue exists above any one company. Keep it explicit
     // instead of inventing a fake global company.
@@ -853,11 +1100,227 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
             Err(error) => return Response::err(format!("read {}: {error}", directory.display())),
         }
     }
+    if request.cmd == "schedule-wake" {
+        let adapter = request.lifecycle.adapter.as_deref().unwrap_or("manual");
+        if !matches!(adapter, "manual" | "launchd" | "systemd") {
+            return Response::err("schedule wake adapter must be manual|launchd|systemd");
+        }
+        let observed_at = chrono::Utc::now();
+        let evidence = serde_json::json!({
+            "adapter": adapter,
+            "observed_at": observed_at,
+            "pid": std::process::id(),
+        });
+        let path = daemon.root.join("machine/last-schedule-wake.json");
+        let result = (|| -> Result<()> {
+            let parent = path.parent().expect("wake evidence has a parent");
+            std::fs::create_dir_all(parent)?;
+            let temporary = parent.join(format!(".last-schedule-wake-{}.json", std::process::id()));
+            std::fs::write(&temporary, serde_json::to_vec_pretty(&evidence)?)?;
+            std::fs::rename(&temporary, &path)?;
+            Ok(())
+        })();
+        if let Err(error) = result {
+            return Response::err(format!("record schedule wake transport: {error:#}"));
+        }
+        daemon.schedule_wake.notify_one();
+        return Response::ok(evidence);
+    }
     let company = match request.company.as_deref() {
         Some(name) => name,
         None => return Response::err("missing company"),
     };
     match request.cmd.as_str() {
+        "publish-candidate" => {
+            let actor = match request.publication.actor.as_deref() {
+                Some(actor) => actor,
+                None => return Response::err("publish-candidate needs actor"),
+            };
+            let source = match request.publication.source_artifact_ref_id.as_deref() {
+                Some(source) => source,
+                None => return Response::err("publish-candidate needs source_artifact_ref_id"),
+            };
+            let manifest = match request.publication.service_manifest.clone() {
+                Some(value) => match serde_json::from_value(value) {
+                    Ok(manifest) => manifest,
+                    Err(error) => return Response::err(format!("bad service_manifest: {error}")),
+                },
+                None => return Response::err("publish-candidate needs service_manifest"),
+            };
+            match daemon.orgintel.get(company).await {
+                Ok(org) => match daemon
+                    .publication
+                    .create_candidate(&org, company, actor, source, manifest)
+                    .await
+                {
+                    Ok(value) => Response::ok(value),
+                    Err(error) => Response::err(format!("{error:#}")),
+                },
+                Err(error) => Response::err(format!("{error:#}")),
+            }
+        }
+        "publish-request" => {
+            let Some(actor) = request.publication.actor.as_deref() else {
+                return Response::err("publish-request needs actor");
+            };
+            let Some(candidate) = request.publication.candidate_artifact_ref_id.as_deref() else {
+                return Response::err("publish-request needs candidate_artifact_ref_id");
+            };
+            let audience = match request.publication.publication_audience.as_deref() {
+                Some("owner-only") => restlessd::published_service_contract::Audience::OwnerOnly,
+                Some("named-invitees") => restlessd::published_service_contract::Audience::NamedInvitees,
+                Some("public") => restlessd::published_service_contract::Audience::Public,
+                _ => return Response::err("publish-request needs publication_audience owner-only|named-invitees|public"),
+            };
+            let expires_at = match request
+                .publication
+                .publication_expires_at
+                .as_deref()
+                .and_then(|value| chrono::DateTime::parse_from_rfc3339(value).ok())
+            {
+                Some(value) => value.with_timezone(&chrono::Utc),
+                None => return Response::err("publish-request needs RFC3339 publication_expires_at"),
+            };
+            let start_deadline = match request
+                .publication
+                .publication_start_deadline
+                .as_deref()
+                .and_then(|value| chrono::DateTime::parse_from_rfc3339(value).ok())
+            {
+                Some(value) => value.with_timezone(&chrono::Utc),
+                None => return Response::err("publish-request needs RFC3339 publication_start_deadline"),
+            };
+            let resources = restlessd::published_service_contract::ResourceLimits {
+                cpu_millis: request.publication.cpu_millis.unwrap_or(500),
+                memory_mib: request.publication.memory_mib.unwrap_or(512),
+                ephemeral_storage_mib: request.publication.ephemeral_storage_mib.unwrap_or(512),
+                max_connections: request.publication.max_connections.unwrap_or(32),
+            };
+            let Some(key) = request.publication.idempotency_key.as_deref() else {
+                return Response::err("publish-request needs idempotency_key");
+            };
+            match daemon.orgintel.get(company).await {
+                Ok(org) => match daemon
+                    .publication
+                    .request(
+                        &org,
+                        company,
+                        actor,
+                        candidate,
+                        audience,
+                        start_deadline,
+                        expires_at,
+                        resources,
+                        key,
+                    )
+                    .await
+                {
+                    Ok(value) => Response::ok(value),
+                    Err(error) => Response::err(format!("{error:#}")),
+                },
+                Err(error) => Response::err(format!("{error:#}")),
+            }
+        }
+        "publish-authorize" => {
+            let Some(id) = request.publication.publication_id.as_deref() else {
+                return Response::err("publish-authorize needs publication_id");
+            };
+            match daemon.orgintel.get(company).await {
+                Ok(org) => match daemon.publication.authorize(&org, company, id).await {
+                    Ok(value) => Response::ok(value),
+                    Err(error) => Response::err(format!("{error:#}")),
+                },
+                Err(error) => Response::err(format!("{error:#}")),
+            }
+        }
+        "publish-invite" => {
+            let Some(id) = request.publication.publication_id.as_deref() else {
+                return Response::err("publish-invite needs publication_id");
+            };
+            let Some(invitation_id) = request.publication.invitation_id.as_deref() else {
+                return Response::err("publish-invite needs invitation_id");
+            };
+            let Some(invitee) = request.publication.invitee.as_deref() else {
+                return Response::err("publish-invite needs invitee");
+            };
+            let expires_at = match request
+                .publication
+                .publication_expires_at
+                .as_deref()
+                .and_then(|value| chrono::DateTime::parse_from_rfc3339(value).ok())
+            {
+                Some(value) => value.with_timezone(&chrono::Utc),
+                None => return Response::err("publish-invite needs RFC3339 publication_expires_at"),
+            };
+            match daemon.orgintel.get(company).await {
+                Ok(org) => match daemon
+                    .publication
+                    .invite(&org, company, id, invitation_id, invitee, expires_at)
+                    .await
+                {
+                    Ok(value) => Response::ok(value),
+                    Err(error) => Response::err(format!("{error:#}")),
+                },
+                Err(error) => Response::err(format!("{error:#}")),
+            }
+        }
+        "publish-revoke" => {
+            let Some(invitation_id) = request.publication.invitation_id.as_deref() else {
+                return Response::err("publish-revoke needs invitation_id");
+            };
+            match daemon.publication.revoke_invitation(company, invitation_id).await {
+                Ok(value) => Response::ok(value),
+                Err(error) => Response::err(format!("{error:#}")),
+            }
+        }
+        "publish-observe" => {
+            let Some(id) = request.publication.publication_id.as_deref() else {
+                return Response::err("publish-observe needs publication_id");
+            };
+            match daemon.publication.observe(company, id).await {
+                Ok(value) => Response::ok(value),
+                Err(error) => Response::err(format!("{error:#}")),
+            }
+        }
+        "publish-reconcile" => {
+            let Some(id) = request.publication.publication_id.as_deref() else {
+                return Response::err("publish-reconcile needs publication_id");
+            };
+            match daemon.orgintel.get(company).await {
+                Ok(org) => match daemon.publication.reconcile(&org, company, id).await {
+                    Ok(value) => Response::ok(value),
+                    Err(error) => Response::err(format!("{error:#}")),
+                },
+                Err(error) => Response::err(format!("{error:#}")),
+            }
+        }
+        "publish-stop" => {
+            let Some(id) = request.publication.publication_id.as_deref() else {
+                return Response::err("publish-stop needs publication_id");
+            };
+            let Some(reason) = request.publication.stop_reason.as_deref() else {
+                return Response::err("publish-stop needs stop_reason");
+            };
+            match daemon.orgintel.get(company).await {
+                Ok(org) => match daemon.publication.stop(&org, company, id, reason).await {
+                    Ok(value) => Response::ok(value),
+                    Err(error) => Response::err(format!("{error:#}")),
+                },
+                Err(error) => Response::err(format!("{error:#}")),
+            }
+        }
+        "publish-show" => match daemon
+            .publication
+            .show(company, request.publication.publication_id.as_deref())
+            .await
+        {
+            Ok(value) => Response::ok(value),
+            Err(error) => Response::err(format!("{error:#}")),
+        },
+        "publish-list" => match daemon.publication.show(company, None).await {
+            Ok(value) => Response::ok(value),
+            Err(error) => Response::err(format!("{error:#}")),
+        },
         // S04-T1. Clone-then-up, so a throwaway is one command rather than a
         // config file someone hand-copies and forgets to strip.
         "up" if request.lifecycle.from_company.is_some() => {
@@ -1007,7 +1470,15 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
                 Ok(org) => org,
                 Err(error) => return Response::err(format!("{error:#}")),
             };
-            match runtime::destroy(&daemon.root, company, &org, &daemon.spend).await {
+            match runtime::destroy(
+                &daemon.root,
+                &daemon.orgintel.database_url,
+                company,
+                &org,
+                &daemon.spend,
+            )
+            .await
+            {
                 Ok(message) => {
                     daemon.orgintel.forget(company);
                     match daemon.authority.delete_test_company(company).await {
@@ -1131,12 +1602,17 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
                         }
                         "spend_ceiling_usd" => runtime::SpendCeiling::parse(value)
                             .map(|parsed| config.spend_ceiling_usd = parsed),
+                        "outcome_standard" => restless_orgintel::OutcomeStandard::parse(value)
+                            .ok_or_else(|| anyhow::anyhow!(
+                                "outcome_standard must be fast, thorough, exceptional, or frontier"
+                            ))
+                            .map(|parsed| config.outcome_standard = parsed),
                         _ if key.starts_with("credentials.") => {
                             config.credentials.insert(key[12..].to_string(), value.to_string());
                             Ok(())
                         }
                         _ => Err(anyhow::anyhow!(
-                            "unknown company key {key:?}; use mission, model, model_failover, worker_runtime, reasoning_effort, spend_ceiling_usd, or credentials.<binding>"
+                            "unknown company key {key:?}; use mission, model, model_failover, worker_runtime, reasoning_effort, spend_ceiling_usd, outcome_standard, or credentials.<binding>"
                         )),
                     };
                     match result.and_then(|()| runtime::CompanyConfig::save(&daemon.root, &config))
@@ -1830,10 +2306,53 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
         ) {
             (Some(name), Some(lead), Some(brief), Some(created_by)) => {
                 match daemon.orgintel.get(company).await {
-                    Ok(org) => match org.create_team(name, brief, lead, created_by).await {
-                        Ok(id) => Response::ok(serde_json::json!({ "team_id": id })),
-                        Err(error) => Response::err(format!("{error:#}")),
-                    },
+                    Ok(org) => {
+                        let config = match runtime::CompanyConfig::load(&daemon.root, company) {
+                            Ok(config) => config,
+                            Err(error) => return Response::err(format!("{error:#}")),
+                        };
+                        let standard = match request.orgintel.outcome_standard.as_deref() {
+                            Some(value) => match restless_orgintel::OutcomeStandard::parse(value) {
+                                Some(value) => value,
+                                None => return Response::err("outcome standard must be fast, thorough, exceptional, or frontier"),
+                            },
+                            None => config.outcome_standard,
+                        };
+                        let source = match request.orgintel.outcome_standard_source.as_deref() {
+                            Some(value) => match restless_orgintel::OutcomeStandardSource::parse(value) {
+                                Some(value) => value,
+                                None => return Response::err("standard source must be company_default, owner_override, or owner_language"),
+                            },
+                            None => restless_orgintel::OutcomeStandardSource::CompanyDefault,
+                        };
+                        if source == restless_orgintel::OutcomeStandardSource::CompanyDefault
+                            && standard != config.outcome_standard
+                        {
+                            return Response::err(format!(
+                                "company_default is {}; use owner_override or owner_language with its source message to commission {standard}",
+                                config.outcome_standard
+                            ));
+                        }
+                        match org
+                            .create_team_with_standard(
+                                name,
+                                brief,
+                                lead,
+                                created_by,
+                                standard,
+                                source,
+                                request.orgintel.source_message_id,
+                            )
+                            .await
+                        {
+                            Ok(id) => Response::ok(serde_json::json!({
+                                "team_id": id,
+                                "outcome_standard": standard,
+                                "outcome_standard_source": source,
+                            })),
+                            Err(error) => Response::err(format!("{error:#}")),
+                        }
+                    }
                     Err(error) => Response::err(format!("{error:#}")),
                 }
             }
@@ -2171,6 +2690,13 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
             },
             Err(error) => Response::err(format!("{error:#}")),
         },
+        "telemetry" => match daemon.orgintel.get(company).await {
+            Ok(org) => match telemetry::collect(company, &org, &daemon.spend).await {
+                Ok(report) => Response::ok(serde_json::to_value(report).unwrap_or_default()),
+                Err(error) => Response::err(format!("{error:#}")),
+            },
+            Err(error) => Response::err(format!("{error:#}")),
+        },
         "work-attempts" => match daemon.orgintel.get(company).await {
             Ok(org) => {
                 let work_id = match request.common.id.as_deref().map(uuid::Uuid::parse_str).transpose() {
@@ -2233,11 +2759,6 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
                             )),
                             Err(error) => return Response::err(format!("{error:#}")),
                         };
-                        if commissioned_by != accountable_lead {
-                            return Response::err(format!(
-                                "production Work for {owner:?} must be commissioned by its accountable lead {accountable_lead:?}, not {commissioned_by:?}"
-                            ));
-                        }
                         let actor = match org.active_actor(owner).await {
                             Ok(Some(actor)) => actor,
                             Ok(None) => return Response::err(format!(
@@ -2245,6 +2766,50 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
                             )),
                             Err(error) => return Response::err(format!("{error:#}")),
                         };
+                        let requested_topology = request
+                            .orgintel
+                            .producing_topology
+                            .as_deref()
+                            .unwrap_or("coherent_single_worker");
+                        let producing_topology =
+                            match restless_orgintel::ProducingTopology::parse(requested_topology) {
+                                Some(topology) => topology,
+                                None => return Response::err(format!(
+                                    "unknown producing topology {requested_topology:?}; use coherent-single-worker or locally-closing-parallel-unit"
+                                )),
+                            };
+                        let active_workers = if commissioned_by == "exec" {
+                            let Some(team_id) = actor.team_id else {
+                                return Response::err(format!(
+                                    "Work owner {owner:?} has no active accountable team"
+                                ));
+                            };
+                            let active_workers = match org.list_actors().await {
+                                Ok(actors) => actors
+                                    .into_iter()
+                                    .filter(|member| {
+                                        member.team_id == Some(team_id)
+                                            && member.id != accountable_lead
+                                    })
+                                    .map(|member| member.id)
+                                    .collect::<Vec<_>>(),
+                                Err(error) => return Response::err(format!("{error:#}")),
+                            };
+                            active_workers
+                        } else {
+                            Vec::new()
+                        };
+                        if !work_commission_is_admitted(
+                            commissioned_by,
+                            &accountable_lead,
+                            producing_topology,
+                            &active_workers,
+                            owner,
+                        ) {
+                            return Response::err(format!(
+                                "production Work for {owner:?} must be commissioned by accountable lead {accountable_lead:?}; Exec may route coherent-single-worker only when that team has exactly one active non-lead worker"
+                            ));
+                        }
                         if actor.role != role {
                             return Response::err(format!(
                                 "Work requested role {role:?}, but durable actor {owner:?} has role {:?}; reuse the actor's recorded role",
@@ -2313,31 +2878,41 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
                                 resources: &gate.resources,
                             })
                             .collect::<Vec<_>>();
-                        let added = if let Some(source_message_id) = request.orgintel.source_message_id
+                        let added = if let Some(contracts) =
+                            request.orgintel.constitution_contracts.as_ref()
                         {
-                            org.add_work_from_external_message_with_edges_and_gates(
+                            org.add_commissioned_work_with_constitution(
                                 work,
                                 &requires,
                                 &revises,
                                 &gates,
                                 request.orgintel.owner_review,
-                                source_message_id,
+                                request.orgintel.source_message_id,
                                 commissioned_by,
-                            )
-                            .await
-                        } else if request.orgintel.owner_review {
-                            org.add_review_required_work_with_edges_and_gates(
-                                work, &requires, &revises, &gates,
+                                producing_topology,
+                                contracts,
                             )
                             .await
                         } else {
-                            org.add_work_with_edges_and_gates(work, &requires, &revises, &gates)
-                                .await
+                            org.add_commissioned_work_with_edges_and_gates(
+                                work,
+                                &requires,
+                                &revises,
+                                &gates,
+                                request.orgintel.owner_review,
+                                request.orgintel.source_message_id,
+                                commissioned_by,
+                                producing_topology,
+                            )
+                            .await
                         };
                         match added {
                             Ok(id) => Response::ok(serde_json::json!({
                                 "work_id": id,
                                 "accountable_lead_id": accountable_lead,
+                                "producer_actor_id": owner,
+                                "commissioned_by": commissioned_by,
+                                "producing_topology": producing_topology,
                             })),
                             Err(error) => Response::err(format!("{error:#}")),
                         }
@@ -2431,6 +3006,28 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
                 }
             }
             _ => Response::err("work-artifact needs work, attempt, kind and uri"),
+        },
+        "work-artifact-retire" => match (
+            request.common.id.as_deref(),
+            request.common.reason.as_deref(),
+            request.orgintel.actor.as_deref(),
+        ) {
+            (Some(artifact), Some(reason), Some(actor)) => {
+                let Ok(artifact_id) = uuid::Uuid::parse_str(artifact) else {
+                    return Response::err("work-artifact-retire needs a UUID artifact");
+                };
+                match daemon.orgintel.get(company).await {
+                    Ok(org) => match org.retire_work_artifact(artifact_id, actor, reason).await {
+                        Ok(changed) => Response::ok(serde_json::json!({
+                            "artifact_ref_id": artifact_id,
+                            "retired": changed,
+                        })),
+                        Err(error) => Response::err(format!("{error:#}")),
+                    },
+                    Err(error) => Response::err(format!("{error:#}")),
+                }
+            }
+            _ => Response::err("work-artifact-retire needs artifact, actor and reason"),
         },
         "work-gate" => match (
             request.common.id.as_deref(),
@@ -2848,6 +3445,99 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
             },
             Err(error) => Response::err(format!("{error:#}")),
         },
+        "schedule-history" => match request.common.id.as_deref() {
+            Some(id) => {
+                let schedule_id = match uuid::Uuid::parse_str(id) {
+                    Ok(id) => id,
+                    Err(error) => return Response::err(format!("bad schedule id: {error}")),
+                };
+                match daemon.orgintel.get(company).await {
+                    Ok(org) => match org
+                        .list_schedule_occurrences(
+                            schedule_id,
+                            request.common.limit.unwrap_or(20),
+                        )
+                        .await
+                    {
+                        Ok(occurrences) => Response::ok_serialized(occurrences),
+                        Err(error) => Response::err(format!("{error:#}")),
+                    },
+                    Err(error) => Response::err(format!("{error:#}")),
+                }
+            }
+            None => Response::err("schedule-history needs schedule"),
+        },
+        "schedule-recover" => match (
+            request.common.id.as_deref(),
+            request.orgintel.fire_at.as_deref(),
+            request.common.as_actor.as_deref(),
+            request.common.from.as_deref(),
+            request.common.reason.as_deref(),
+        ) {
+            (Some(id), Some(scheduled_for), Some(actor), Some(requested_by), Some(reason)) => {
+                let schedule_id = match uuid::Uuid::parse_str(id) {
+                    Ok(id) => id,
+                    Err(error) => return Response::err(format!("bad schedule id: {error}")),
+                };
+                let scheduled_for = match chrono::DateTime::parse_from_rfc3339(scheduled_for) {
+                    Ok(value) => value.with_timezone(&chrono::Utc),
+                    Err(error) => {
+                        return Response::err(format!(
+                            "schedule --scheduled-for must be RFC3339: {error}"
+                        ))
+                    }
+                };
+                match daemon.orgintel.get(company).await {
+                    Ok(org) => match org
+                        .recover_skipped_schedule(
+                            schedule_id,
+                            scheduled_for,
+                            actor,
+                            requested_by,
+                            reason,
+                        )
+                        .await
+                    {
+                        Ok(recovery) => Response::ok_serialized(recovery),
+                        Err(error) => Response::err(format!("{error:#}")),
+                    },
+                    Err(error) => Response::err(format!("{error:#}")),
+                }
+            }
+            _ => Response::err(
+                "schedule-recover needs schedule, scheduled-for, actor, requester and reason",
+            ),
+        },
+        "schedule-retry-recovery" => match (
+            request.common.id.as_deref(),
+            request.orgintel.fire_at.as_deref(),
+            request.common.as_actor.as_deref(),
+            request.common.from.as_deref(),
+            request.common.reason.as_deref(),
+            request.orgintel.prior_message_id,
+            request.orgintel.retry_key.as_deref(),
+        ) {
+            (Some(id), Some(scheduled_for), Some(actor), Some(requested_by), Some(reason), Some(prior_message), Some(key)) => {
+                let schedule_id = match uuid::Uuid::parse_str(id) {
+                    Ok(id) => id,
+                    Err(error) => return Response::err(format!("bad schedule id: {error}")),
+                };
+                let scheduled_for = match chrono::DateTime::parse_from_rfc3339(scheduled_for) {
+                    Ok(value) => value.with_timezone(&chrono::Utc),
+                    Err(error) => return Response::err(format!("schedule --scheduled-for must be RFC3339: {error}")),
+                };
+                match daemon.orgintel.get(company).await {
+                    Ok(org) => match org.retry_schedule_recovery(
+                        schedule_id, scheduled_for, actor, key, prior_message, requested_by, reason,
+                    ).await {
+                        Ok(retry) => Response::ok_serialized(retry),
+                        Err(error) => Response::err(format!("{error:#}")),
+                    },
+                    Err(error) => Response::err(format!("{error:#}")),
+                }
+            }
+            _ => Response::err("schedule-retry-recovery needs schedule, scheduled-for, actor, prior message, key, requester and reason"),
+        },
         "schedule-add" => match (
             request.common.as_actor.as_deref(),
             request.common.reason.as_deref(),
@@ -2871,6 +3561,47 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
                     let Some(timezone) = request.orgintel.timezone.as_deref() else {
                         return Response::err("schedule --weekdays needs an IANA --timezone");
                     };
+                    let Some(missed_policy) = request.orgintel.missed_policy.as_deref() else {
+                        return Response::err(
+                            "schedule --weekdays needs --on-missed skip|skip-if-late|catch-up|coalesce-latest",
+                        );
+                    };
+                    let (missed_policy, catch_up_grace_seconds) = match missed_policy {
+                        "skip" if request.orgintel.catch_up_grace_seconds.is_none() => {
+                            ("skip", None)
+                        }
+                        "skip-if-late" | "catch-up" | "coalesce-latest" => match request.orgintel.catch_up_grace_seconds {
+                            Some(seconds) if seconds > 0 => (
+                                match missed_policy {
+                                    "skip-if-late" => "skip_if_late",
+                                    "catch-up" => "catch_up_once",
+                                    _ => "coalesce_latest",
+                                },
+                                Some(seconds),
+                            ),
+                            _ => {
+                                return Response::err(
+                                    "bounded missed policies need a positive --catch-up-within-minutes",
+                                )
+                            }
+                        },
+                        "skip" => {
+                            return Response::err(
+                                "--catch-up-within-minutes is invalid with unbounded skip",
+                            )
+                        }
+                        _ => return Response::err("--on-missed must be skip|skip-if-late|catch-up|coalesce-latest"),
+                    };
+                    let machine_requirement = match request
+                        .orgintel
+                        .execution_requirement
+                        .as_deref()
+                        .unwrap_or("local-mac")
+                    {
+                        "local-mac" => "local_mac",
+                        "always-on" => "always_on",
+                        _ => return Response::err("--execution must be local-mac|always-on"),
+                    };
                     let org = match daemon.orgintel.get(company).await {
                         Ok(org) => org,
                         Err(error) => return Response::err(format!("{error:#}")),
@@ -2885,7 +3616,16 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
                         }
                     }
                     return match org
-                        .add_weekday_schedule(actor, reason, local_time, timezone, chrono::Utc::now())
+                        .add_weekday_schedule_with_policy_and_requirement(
+                            actor,
+                            reason,
+                            local_time,
+                            timezone,
+                            chrono::Utc::now(),
+                            missed_policy,
+                            catch_up_grace_seconds,
+                            machine_requirement,
+                        )
                         .await
                     {
                         Ok((schedule_id, next_fire_at, created)) => Response::ok(serde_json::json!({
@@ -2894,6 +3634,9 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
                             "recurrence": "weekdays",
                             "local_time": local_time.format("%H:%M").to_string(),
                             "timezone": timezone,
+                            "missed_policy": missed_policy,
+                            "catch_up_grace_seconds": catch_up_grace_seconds,
+                            "machine_requirement": machine_requirement,
                             "next_fire_at": next_fire_at,
                             "created": created,
                         })),
@@ -2903,6 +3646,9 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
                 if request.orgintel.recurrence.is_some()
                     || request.orgintel.local_time.is_some()
                     || request.orgintel.timezone.is_some()
+                    || request.orgintel.missed_policy.is_some()
+                    || request.orgintel.catch_up_grace_seconds.is_some()
+                    || request.orgintel.execution_requirement.is_some()
                 {
                     return Response::err("recurring schedule fields require --weekdays");
                 }
@@ -2956,6 +3702,61 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
             }
             _ => Response::err("schedule-add needs actor and reason"),
         },
+        "schedule-policy" => match (
+            request.common.id.as_deref(),
+            request.common.as_actor.as_deref(),
+            request.orgintel.missed_policy.as_deref(),
+        ) {
+            (Some(id), Some(actor), Some(policy)) => {
+                let schedule_id = match uuid::Uuid::parse_str(id) {
+                    Ok(id) => id,
+                    Err(error) => return Response::err(format!("bad schedule id: {error}")),
+                };
+                let (policy, grace) = match policy {
+                    "skip" if request.orgintel.catch_up_grace_seconds.is_none() => ("skip", None),
+                    "skip-if-late" | "catch-up" | "coalesce-latest" => match request.orgintel.catch_up_grace_seconds {
+                        Some(seconds) if seconds > 0 => (
+                            match policy {
+                                "skip-if-late" => "skip_if_late",
+                                "catch-up" => "catch_up_once",
+                                _ => "coalesce_latest",
+                            },
+                            Some(seconds),
+                        ),
+                        _ => {
+                            return Response::err(
+                                "bounded missed policies need a positive --catch-up-within-minutes",
+                            )
+                        }
+                    },
+                    "skip" => {
+                        return Response::err(
+                            "--catch-up-within-minutes is invalid with unbounded skip",
+                        )
+                    }
+                    _ => return Response::err("--on-missed must be skip|skip-if-late|catch-up|coalesce-latest"),
+                };
+                match daemon.orgintel.get(company).await {
+                    Ok(org) => match org
+                        .set_schedule_missed_policy(schedule_id, actor, policy, grace)
+                        .await
+                    {
+                        Ok(true) => Response::ok(serde_json::json!({
+                            "schedule_id": schedule_id,
+                            "actor_id": actor,
+                            "missed_policy": policy,
+                            "catch_up_grace_seconds": grace,
+                        })),
+                        Ok(false) => Response::err(
+                            "no live recurring schedule matched that id and actor",
+                        ),
+                        Err(error) => Response::err(format!("{error:#}")),
+                    },
+                    Err(error) => Response::err(format!("{error:#}")),
+                }
+            }
+            _ => Response::err("schedule-policy needs schedule, actor and missed policy"),
+        },
         "schedule-cancel" => match (
             request.common.as_actor.as_deref(),
             request.common.id.as_deref(),
@@ -2984,6 +3785,479 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
             }
             _ => Response::err("schedule-cancel needs schedule, actor and reason"),
         },
+        "identity-show" => match daemon.orgintel.get(company).await {
+            Ok(org) => match org.company_identity_snapshot().await {
+                Ok(snapshot) => Response::ok(serde_json::to_value(snapshot).unwrap_or_default()),
+                Err(error) => Response::err(format!("{error:#}")),
+            },
+            Err(error) => Response::err(format!("{error:#}")),
+        },
+        "identity-evidence-add" => {
+            let parse_pillar = |value: &str| match value {
+                "truth" => Some(restless_orgintel::IdentityPillar::Truth),
+                "voice" => Some(restless_orgintel::IdentityPillar::Voice),
+                "visual" => Some(restless_orgintel::IdentityPillar::Visual),
+                "culture" => Some(restless_orgintel::IdentityPillar::Culture),
+                _ => None,
+            };
+            let parse_kind = |value: &str| match value {
+                "fact" => Some(restless_orgintel::IdentityStatementKind::Fact),
+                "belief" => Some(restless_orgintel::IdentityStatementKind::Belief),
+                "guidance" => Some(restless_orgintel::IdentityStatementKind::Guidance),
+                "observation" => Some(restless_orgintel::IdentityStatementKind::Observation),
+                "example" => Some(restless_orgintel::IdentityStatementKind::Example),
+                "exception" => Some(restless_orgintel::IdentityStatementKind::Exception),
+                _ => None,
+            };
+            let parse_polarity = |value: Option<&str>| match value.unwrap_or("neutral") {
+                "neutral" => Some(restless_orgintel::IdentityPolarity::Neutral),
+                "positive" => Some(restless_orgintel::IdentityPolarity::Positive),
+                "negative" => Some(restless_orgintel::IdentityPolarity::Negative),
+                _ => None,
+            };
+            let parse_status = |value: Option<&str>| match value.unwrap_or("active") {
+                "active" => Some(restless_orgintel::IdentityEvidenceStatus::Active),
+                "disputed" => Some(restless_orgintel::IdentityEvidenceStatus::Disputed),
+                "corrected" => Some(restless_orgintel::IdentityEvidenceStatus::Corrected),
+                _ => None,
+            };
+            let Some(pillar) = request
+                .orgintel
+                .identity_pillar
+                .as_deref()
+                .and_then(parse_pillar)
+            else {
+                return Response::err("identity evidence needs --pillar truth|voice|visual|culture");
+            };
+            let Some(statement_kind) = request
+                .orgintel
+                .identity_kind
+                .as_deref()
+                .and_then(parse_kind)
+            else {
+                return Response::err("identity evidence needs a valid --kind");
+            };
+            let Some(polarity) = parse_polarity(request.orgintel.polarity.as_deref()) else {
+                return Response::err("identity evidence polarity must be neutral, positive or negative");
+            };
+            let Some(status) = parse_status(request.orgintel.evidence_status.as_deref()) else {
+                return Response::err("identity evidence status must be active, disputed or corrected");
+            };
+            let supersedes = match request.orgintel.supersedes.as_deref() {
+                Some(value) => match uuid::Uuid::parse_str(value) {
+                    Ok(id) => Some(id),
+                    Err(error) => return Response::err(format!("bad superseded evidence id: {error}")),
+                },
+                None => None,
+            };
+            let exception_expires_at = match request.orgintel.exception_expires_at.as_deref() {
+                Some(value) => match chrono::DateTime::parse_from_rfc3339(value) {
+                    Ok(value) => Some(value.with_timezone(&chrono::Utc)),
+                    Err(error) => return Response::err(format!("bad exception expiry: {error}")),
+                },
+                None => None,
+            };
+            match (
+                request.orgintel.claim_key.as_deref(),
+                request.orgintel.statement.as_deref(),
+                request.orgintel.actor.as_deref(),
+                request.orgintel.source.as_deref(),
+                request.orgintel.identity_authority.as_deref(),
+                request.orgintel.scope.as_deref(),
+                request.orgintel.evidence_locator.as_deref(),
+            ) {
+                (Some(claim_key), Some(statement), Some(actor), Some(source), Some(authority), Some(scope), Some(locator)) => {
+                    match daemon.orgintel.get(company).await {
+                        Ok(org) => match org
+                            .add_identity_evidence(restless_orgintel::NewIdentityEvidence {
+                                pillar,
+                                statement_kind,
+                                claim_key,
+                                statement,
+                                author_id: actor,
+                                source,
+                                authority,
+                                scope,
+                                observed_at: chrono::Utc::now(),
+                                evidence_locator: locator,
+                                polarity,
+                                status,
+                                channel: request.orgintel.channel.as_deref(),
+                                audience: request.orgintel.audience.as_deref(),
+                                supersedes_evidence_id: supersedes,
+                                exception_expires_at,
+                                exception_indefinite: request.orgintel.exception_indefinite,
+                            })
+                            .await
+                        {
+                            Ok(id) => Response::ok(serde_json::json!({ "evidence_id": id })),
+                            Err(error) => Response::err(format!("{error:#}")),
+                        },
+                        Err(error) => Response::err(format!("{error:#}")),
+                    }
+                }
+                _ => Response::err("identity evidence needs claim, statement, source, authority, scope, locator and an acting actor"),
+            }
+        }
+        "identity-propose" => match (
+            request.orgintel.actor.as_deref(),
+            request.common.reason.as_deref(),
+        ) {
+            (Some(actor), Some(rationale)) => {
+                let evidence = match request
+                    .orgintel
+                    .evidence_ids
+                    .iter()
+                    .map(|value| uuid::Uuid::parse_str(value))
+                    .collect::<std::result::Result<Vec<_>, _>>()
+                {
+                    Ok(ids) => ids,
+                    Err(error) => return Response::err(format!("bad identity evidence id: {error}")),
+                };
+                match daemon.orgintel.get(company).await {
+                    Ok(org) => match org.propose_identity_release(actor, rationale, &evidence).await {
+                        Ok(id) => Response::ok(serde_json::json!({ "proposal_id": id })),
+                        Err(error) => Response::err(format!("{error:#}")),
+                    },
+                    Err(error) => Response::err(format!("{error:#}")),
+                }
+            }
+            _ => Response::err("identity proposal needs --reason and an acting actor"),
+        },
+        "identity-brief" => match (
+            request.common.body.as_deref(),
+            request.orgintel.channel.as_deref(),
+            request.orgintel.audience.as_deref(),
+            request.orgintel.actor.as_deref(),
+        ) {
+            (Some(outcome), Some(channel), Some(audience), Some(actor)) => {
+                match daemon.orgintel.get(company).await {
+                    Ok(org) => {
+                        let release_id = match request.orgintel.release_id.as_deref() {
+                            Some(value) => match uuid::Uuid::parse_str(value) {
+                                Ok(id) => id,
+                                Err(error) => return Response::err(format!("bad identity release id: {error}")),
+                            },
+                            None => match org.company_identity_snapshot().await {
+                                Ok(snapshot) => match snapshot.current_release {
+                                    Some(release) => release.id,
+                                    None => return Response::err("company has no released expression identity"),
+                                },
+                                Err(error) => return Response::err(format!("{error:#}")),
+                            },
+                        };
+                        match org.compile_identity_brief(restless_orgintel::IdentityBriefRequest {
+                            release_id,
+                            outcome,
+                            channel,
+                            audience,
+                            author: actor,
+                            max_bytes: request.orgintel.max_bytes.unwrap_or(8 * 1024),
+                            now: chrono::Utc::now(),
+                        }).await {
+                            Ok(brief) => Response::ok(serde_json::to_value(brief).unwrap_or_default()),
+                            Err(error) => Response::err(format!("{error:#}")),
+                        }
+                    }
+                    Err(error) => Response::err(format!("{error:#}")),
+                }
+            }
+            _ => Response::err("identity brief needs outcome, channel, audience and an acting actor"),
+        },
+        "voice-evidence-add" => {
+            let kind = match request.orgintel.voice_kind.as_deref() {
+                Some("approved_passage") => Some(restless_orgintel::VoiceEvidenceKind::ApprovedPassage),
+                Some("rejected_passage") => Some(restless_orgintel::VoiceEvidenceKind::RejectedPassage),
+                Some("expression_principle") => Some(restless_orgintel::VoiceEvidenceKind::ExpressionPrinciple),
+                Some("vocabulary") => Some(restless_orgintel::VoiceEvidenceKind::Vocabulary),
+                Some("named_author") => Some(restless_orgintel::VoiceEvidenceKind::NamedAuthor),
+                Some("channel_observation") => Some(restless_orgintel::VoiceEvidenceKind::ChannelObservation),
+                _ => None,
+            };
+            let channel = match parse_voice_channel(request.orgintel.channel.as_deref()) {
+                Ok(value) => value,
+                Err(error) => return Response::err(error),
+            };
+            let polarity = match request.orgintel.polarity.as_deref().unwrap_or("positive") {
+                "neutral" => Some(restless_orgintel::IdentityPolarity::Neutral),
+                "positive" => Some(restless_orgintel::IdentityPolarity::Positive),
+                "negative" => Some(restless_orgintel::IdentityPolarity::Negative),
+                _ => None,
+            };
+            let supersedes = match parse_optional_uuid(
+                request.orgintel.supersedes.as_deref(),
+                "superseded evidence id",
+            ) {
+                Ok(value) => value,
+                Err(error) => return Response::err(error),
+            };
+            match (
+                kind,
+                polarity,
+                request.orgintel.claim_key.as_deref(),
+                request.orgintel.statement.as_deref(),
+                request.orgintel.actor.as_deref(),
+                request.orgintel.source.as_deref(),
+                request.orgintel.identity_authority.as_deref(),
+                request.orgintel.scope.as_deref(),
+                request.orgintel.evidence_locator.as_deref(),
+                request.orgintel.judgement_reason.as_deref(),
+            ) {
+                (Some(kind), Some(polarity), Some(claim), Some(statement), Some(actor), Some(source), Some(authority), Some(scope), Some(locator), Some(judgement)) => {
+                    match daemon.orgintel.get(company).await {
+                        Ok(org) => match org.add_voice_evidence(restless_orgintel::NewVoiceEvidence {
+                            kind, claim_key: claim, passage_or_principle: statement,
+                            author_id: actor, named_author: request.orgintel.named_author.as_deref(),
+                            source, authority, scope, observed_at: chrono::Utc::now(),
+                            evidence_locator: locator, judgement_reason: judgement, polarity,
+                            channel, audience: request.orgintel.audience.as_deref(),
+                            supersedes_evidence_id: supersedes,
+                        }).await {
+                            Ok(id) => Response::ok(serde_json::json!({"evidence_id": id})),
+                            Err(error) => Response::err(format!("{error:#}")),
+                        },
+                        Err(error) => Response::err(format!("{error:#}")),
+                    }
+                }
+                _ => Response::err("voice evidence needs a valid kind, polarity, claim, statement, source, authority, scope, locator, judgement and acting actor"),
+            }
+        }
+        "voice-bind" => {
+            let channel = match parse_voice_channel(request.orgintel.channel.as_deref()) {
+                Ok(Some(value)) => value,
+                Ok(None) => return Response::err("voice bind needs a channel"),
+                Err(error) => return Response::err(error),
+            };
+            let work_id = match parse_required_uuid(request.orgintel.voice_work_id.as_deref(), "Work id") {
+                Ok(value) => value,
+                Err(error) => return Response::err(error),
+            };
+            match (
+                request.orgintel.actor.as_deref(),
+                request.orgintel.voice_author.as_deref(),
+                request.orgintel.audience.as_deref(),
+                request.orgintel.reader_situation.as_deref(),
+                request.orgintel.desired_understanding.as_deref(),
+                request.orgintel.desired_action.as_deref(), request.orgintel.proof.as_deref(),
+                request.orgintel.consequence.as_deref(),
+            ) {
+                (Some(actor), Some(author), Some(audience), Some(reader), Some(understanding), Some(action), Some(proof), Some(consequence)) => {
+                    match daemon.orgintel.get(company).await {
+                        Ok(org) => match org.bind_voice_work_contract(restless_orgintel::NewVoiceWorkContract {
+                            work_id, channel, author, bound_by: actor, audience, reader_situation: reader,
+                            desired_understanding: understanding, desired_action: action, proof,
+                            consequence,
+                        }).await {
+                            Ok(contract) => Response::ok_serialized(contract),
+                            Err(error) => Response::err(format!("{error:#}")),
+                        },
+                        Err(error) => Response::err(format!("{error:#}")),
+                    }
+                }
+                _ => Response::err("voice bind needs an acting binder, named author, audience, reader situation, understanding, action, proof and consequence"),
+            }
+        }
+        "voice-brief" => {
+            let work_id = match parse_required_uuid(request.orgintel.voice_work_id.as_deref(), "Work id") {
+                Ok(value) => value,
+                Err(error) => return Response::err(error),
+            };
+            match daemon.orgintel.get(company).await {
+                Ok(org) => match org.compile_voice_contract(
+                    work_id,
+                    request.orgintel.max_bytes.unwrap_or(8 * 1024),
+                ).await {
+                    Ok(brief) => Response::ok_serialized(brief),
+                    Err(error) => Response::err(format!("{error:#}")),
+                },
+                Err(error) => Response::err(format!("{error:#}")),
+            }
+        }
+        "voice-render" => {
+            let channel = match parse_voice_channel(request.orgintel.channel.as_deref()) {
+                Ok(Some(value)) => value,
+                Ok(None) => return Response::err("voice render needs a channel"),
+                Err(error) => return Response::err(error),
+            };
+            let artifact_ref_id = match parse_required_uuid(
+                request.orgintel.artifact_ref_id.as_deref(), "artifact ref id",
+            ) {
+                Ok(value) => value,
+                Err(error) => return Response::err(error),
+            };
+            match (
+                request.orgintel.renderer.as_deref(),
+                request.orgintel.renderer_version.as_deref(),
+                request.orgintel.semantic_checks.as_ref(),
+                request.orgintel.actor.as_deref(),
+            ) {
+                (Some(renderer), Some(version), Some(checks), Some(actor)) => {
+                    match daemon.orgintel.get(company).await {
+                        Ok(org) => match org.record_voice_render_evidence(restless_orgintel::NewVoiceRenderEvidence {
+                            artifact_ref_id, channel, renderer, renderer_version: version,
+                            semantic_checks: checks, captured_by: actor,
+                        }).await {
+                            Ok(id) => Response::ok(serde_json::json!({"render_evidence_id": id})),
+                            Err(error) => Response::err(format!("{error:#}")),
+                        },
+                        Err(error) => Response::err(format!("{error:#}")),
+                    }
+                }
+                _ => Response::err("voice render needs renderer, version, JSON checks and an acting actor"),
+            }
+        }
+        "voice-review" => {
+            let render_evidence_id = match parse_required_uuid(
+                request.orgintel.render_evidence_id.as_deref(), "render evidence id",
+            ) {
+                Ok(value) => value,
+                Err(error) => return Response::err(error),
+            };
+            let verdict = match request.orgintel.review_verdict.as_deref() {
+                Some("accept") => Some(restless_orgintel::VoiceReviewVerdict::Accept),
+                Some("revise") => Some(restless_orgintel::VoiceReviewVerdict::Revise),
+                Some("reject") => Some(restless_orgintel::VoiceReviewVerdict::Reject),
+                _ => None,
+            };
+            match (verdict, request.orgintel.actor.as_deref()) {
+                (Some(verdict), Some(actor)) => match daemon.orgintel.get(company).await {
+                    Ok(org) => match org.record_voice_review(restless_orgintel::NewVoiceReview {
+                        render_evidence_id, reviewer: actor, verdict,
+                        factual_findings: request.orgintel.factual_findings.as_deref().unwrap_or(""),
+                        abstraction_findings: request.orgintel.abstraction_findings.as_deref().unwrap_or(""),
+                        repetition_findings: request.orgintel.repetition_findings.as_deref().unwrap_or(""),
+                        channel_findings: request.orgintel.channel_findings.as_deref().unwrap_or(""),
+                        authorship_findings: request.orgintel.authorship_findings.as_deref().unwrap_or(""),
+                        concepts_removed: request.orgintel.concepts_removed.as_deref().unwrap_or(""),
+                    }).await {
+                        Ok(id) => Response::ok(serde_json::json!({"review_id": id})),
+                        Err(error) => Response::err(format!("{error:#}")),
+                    },
+                    Err(error) => Response::err(format!("{error:#}")),
+                },
+                _ => Response::err("voice review needs verdict accept|revise|reject and an acting reviewer"),
+            }
+        }
+        "voice-learn" => {
+            let before = match parse_required_uuid(
+                request.orgintel.before_artifact_ref_id.as_deref(), "before artifact ref id",
+            ) {
+                Ok(value) => value,
+                Err(error) => return Response::err(error),
+            };
+            let after = match parse_required_uuid(
+                request.orgintel.after_artifact_ref_id.as_deref(), "after artifact ref id",
+            ) {
+                Ok(value) => value,
+                Err(error) => return Response::err(error),
+            };
+            let kind = match request.orgintel.learning_kind.as_deref() {
+                Some("typo") => Some(restless_orgintel::VoiceLearningKind::Typo),
+                Some("fact_correction") => Some(restless_orgintel::VoiceLearningKind::FactCorrection),
+                Some("voice_observation") => Some(restless_orgintel::VoiceLearningKind::VoiceObservation),
+                _ => None,
+            };
+            let channel = match parse_voice_channel(request.orgintel.channel.as_deref()) {
+                Ok(value) => value,
+                Err(error) => return Response::err(error),
+            };
+            match (
+                kind,
+                request.orgintel.actor.as_deref(),
+                request.orgintel.claim_key.as_deref(),
+                request.orgintel.observation.as_deref(),
+                request.orgintel.motivating_decision.as_deref(),
+                request.orgintel.scope.as_deref(),
+                request.orgintel.source.as_deref(),
+                request.orgintel.evidence_locator.as_deref(),
+            ) {
+                (Some(change_kind), Some(actor), Some(claim), Some(observation), Some(decision), Some(scope), Some(source), Some(locator)) => {
+                    match daemon.orgintel.get(company).await {
+                        Ok(org) => match org.propose_voice_learning(restless_orgintel::NewVoiceLearningProposal {
+                            created_by: actor, before_artifact_ref_id: before,
+                            after_artifact_ref_id: after, change_kind, claim_key: claim,
+                            observation, motivating_decision: decision, scope, source,
+                            evidence_locator: locator,
+                            named_author: request.orgintel.named_author.as_deref(), channel,
+                            audience: request.orgintel.audience.as_deref(),
+                            observed_at: chrono::Utc::now(),
+                        }).await {
+                            Ok(Some(id)) => Response::ok(serde_json::json!({
+                                "proposal_id": id,
+                                "learning": "pending_owner_identity_decision"
+                            })),
+                            Ok(None) => Response::ok(serde_json::json!({
+                                "proposal_id": serde_json::Value::Null,
+                                "learning": "ignored_non_voice_edit"
+                            })),
+                            Err(error) => Response::err(format!("{error:#}")),
+                        },
+                        Err(error) => Response::err(format!("{error:#}")),
+                    }
+                }
+                _ => Response::err("voice learning needs kind typo|fact_correction|voice_observation, exact before/after artifacts, claim, observation, decision, scope, source, locator and acting owner"),
+            }
+        }
+        "visual-evidence-add" => {
+            let kind=match request.orgintel.visual_kind.as_deref(){Some("semantic_token")=>Some(restless_orgintel::VisualEvidenceKind::SemanticToken),Some("typography_role")=>Some(restless_orgintel::VisualEvidenceKind::TypographyRole),Some("composition_principle")=>Some(restless_orgintel::VisualEvidenceKind::CompositionPrinciple),Some("imagery_direction")=>Some(restless_orgintel::VisualEvidenceKind::ImageryDirection),Some("motion_pattern")=>Some(restless_orgintel::VisualEvidenceKind::MotionPattern),Some("product_representation_rule")=>Some(restless_orgintel::VisualEvidenceKind::ProductRepresentationRule),Some("primitive")=>Some(restless_orgintel::VisualEvidenceKind::Primitive),Some("approved_composition")=>Some(restless_orgintel::VisualEvidenceKind::ApprovedComposition),Some("rejected_example")=>Some(restless_orgintel::VisualEvidenceKind::RejectedExample),_=>None};
+            let channel=match parse_visual_channel(request.orgintel.channel.as_deref()){Ok(v)=>v,Err(e)=>return Response::err(e)};
+            let polarity=match request.orgintel.polarity.as_deref().unwrap_or("positive"){"neutral"=>Some(restless_orgintel::IdentityPolarity::Neutral),"positive"=>Some(restless_orgintel::IdentityPolarity::Positive),"negative"=>Some(restless_orgintel::IdentityPolarity::Negative),_=>None};
+            match (kind,polarity,request.orgintel.claim_key.as_deref(),request.orgintel.statement.as_deref(),request.orgintel.actor.as_deref(),request.orgintel.source.as_deref(),request.orgintel.identity_authority.as_deref(),request.orgintel.scope.as_deref(),request.orgintel.evidence_locator.as_deref(),request.orgintel.visual_purpose.as_deref(),request.orgintel.visual_rationale.as_deref(),request.orgintel.accessibility_notes.as_deref(),request.orgintel.primitive_dependencies.as_ref()) {
+                (Some(kind),Some(polarity),Some(claim),Some(statement),Some(actor),Some(source),Some(authority),Some(scope),Some(locator),Some(purpose),Some(rationale),Some(accessibility),Some(dependencies))=>match daemon.orgintel.get(company).await { Ok(org)=>match org.add_visual_evidence(restless_orgintel::NewVisualEvidence{kind,claim_key:claim,statement,author_id:actor,source,authority,scope,observed_at:chrono::Utc::now(),evidence_locator:locator,rationale,purpose,polarity,channel,semantic_role:request.orgintel.semantic_role.as_deref(),value:request.orgintel.visual_value.as_deref(),reduced_motion_replacement:request.orgintel.reduced_motion_replacement.as_deref(),product_truth_locator:request.orgintel.product_truth_locator.as_deref(),origin:request.orgintel.primitive_origin.as_deref(),licence:request.orgintel.primitive_licence.as_deref(),framework:request.orgintel.primitive_framework.as_deref(),dependencies,adaptation_status:request.orgintel.adaptation_status.as_deref(),accessibility_notes:accessibility,supersedes_evidence_id:None}).await { Ok(id)=>Response::ok(serde_json::json!({"evidence_id":id})),Err(e)=>Response::err(format!("{e:#}"))},Err(e)=>Response::err(format!("{e:#}"))},
+                _=>Response::err("visual evidence needs valid kind, polarity, claim, statement, source, authority, scope, locator, purpose, rationale, accessibility, dependencies and acting actor")
+            }
+        }
+        "visual-bind" => {
+            let channel=match parse_visual_channel(request.orgintel.channel.as_deref()){Ok(Some(v))=>v,Ok(None)=>return Response::err("visual bind needs a channel"),Err(e)=>return Response::err(e)};
+            let work_id=match parse_required_uuid(request.orgintel.visual_work_id.as_deref(),"Work id"){Ok(v)=>v,Err(e)=>return Response::err(e)};
+            let representation=match request.orgintel.product_representation.as_deref(){Some("exact_product")=>Some(restless_orgintel::VisualRepresentation::ExactProduct),Some("clearly_abstract")=>Some(restless_orgintel::VisualRepresentation::ClearlyAbstract),Some("none")=>Some(restless_orgintel::VisualRepresentation::None),_=>None};
+            match (representation,request.orgintel.actor.as_deref(),request.orgintel.audience.as_deref(),request.common.body.as_deref(),request.orgintel.information_hierarchy.as_deref(),request.orgintel.proof.as_deref(),request.orgintel.visual_density.as_deref(),request.orgintel.imagery_role.as_deref(),request.orgintel.motion_role.as_deref()) {
+                (Some(product_representation),Some(actor),Some(audience),Some(outcome),Some(hierarchy),Some(proof),Some(density),Some(imagery),Some(motion))=>match daemon.orgintel.get(company).await {Ok(org)=>match org.bind_visual_work_contract(restless_orgintel::NewVisualWorkContract{work_id,channel,bound_by:actor,audience,outcome,information_hierarchy:hierarchy,proof,density,imagery_role:imagery,motion_role:motion,product_representation,product_truth_locator:request.orgintel.product_truth_locator.as_deref(),requested_departure:request.orgintel.requested_departure.as_deref()}).await {Ok(row)=>Response::ok_serialized(row),Err(e)=>Response::err(format!("{e:#}"))},Err(e)=>Response::err(format!("{e:#}"))},
+                _=>Response::err("visual bind needs valid representation, actor, audience, outcome, hierarchy, proof, density, imagery and motion")
+            }
+        }
+        "visual-brief" => {
+            let work_id=match parse_required_uuid(request.orgintel.visual_work_id.as_deref(),"Work id"){Ok(v)=>v,Err(e)=>return Response::err(e)};
+            match daemon.orgintel.get(company).await {Ok(org)=>match org.compile_visual_direction(work_id,request.orgintel.max_bytes.unwrap_or(10*1024)).await {Ok(brief)=>Response::ok_serialized(brief),Err(e)=>Response::err(format!("{e:#}"))},Err(e)=>Response::err(format!("{e:#}"))}
+        }
+        "visual-use" => {
+            let work_id=match parse_required_uuid(request.orgintel.visual_work_id.as_deref(),"Work id"){Ok(v)=>v,Err(e)=>return Response::err(e)};
+            let evidence_id=match parse_required_uuid(request.orgintel.visual_evidence_id.as_deref(),"visual evidence id"){Ok(v)=>v,Err(e)=>return Response::err(e)};
+            match (request.orgintel.primitive_version.as_deref(),request.orgintel.visual_purpose.as_deref()){(Some(version),Some(purpose))=>match daemon.orgintel.get(company).await{Ok(org)=>match org.record_visual_primitive_use(restless_orgintel::NewVisualPrimitiveUse{work_id,evidence_id,primitive_version:version,purpose}).await{Ok(())=>Response::ok(serde_json::json!({"recorded":true})),Err(e)=>Response::err(format!("{e:#}"))},Err(e)=>Response::err(format!("{e:#}"))},_=>Response::err("visual use needs exact primitive version and purpose")}
+        }
+        "visual-render" => {
+            let work_id=match parse_required_uuid(request.orgintel.visual_work_id.as_deref(),"Work id"){Ok(v)=>v,Err(e)=>return Response::err(e)};
+            let artifact_ref_id=match parse_required_uuid(request.orgintel.artifact_ref_id.as_deref(),"artifact ref id"){Ok(v)=>v,Err(e)=>return Response::err(e)};
+            let channel=match parse_visual_channel(request.orgintel.channel.as_deref()){Ok(Some(v))=>v,Ok(None)=>return Response::err("visual render needs a channel"),Err(e)=>return Response::err(e)};
+            let motion_state=match request.orgintel.motion_state.as_deref(){Some("full")=>Some(restless_orgintel::VisualMotionState::Full),Some("reduced")=>Some(restless_orgintel::VisualMotionState::Reduced),Some("static")=>Some(restless_orgintel::VisualMotionState::Static),_=>None};
+            match (motion_state,request.orgintel.renderer.as_deref(),request.orgintel.renderer_version.as_deref(),request.orgintel.viewport_width,request.orgintel.viewport_height,request.orgintel.semantic_checks.as_ref(),request.orgintel.actor.as_deref()) {(Some(motion_state),Some(renderer),Some(version),Some(width),Some(height),Some(checks),Some(actor))=>match daemon.orgintel.get(company).await{Ok(org)=>match org.record_visual_render_evidence(restless_orgintel::NewVisualRenderEvidence{work_id,artifact_ref_id,channel,renderer,renderer_version:version,viewport_width:width,viewport_height:height,motion_state,native_checks:checks,captured_by:actor}).await{Ok(id)=>Response::ok(serde_json::json!({"render_evidence_id":id})),Err(e)=>Response::err(format!("{e:#}"))},Err(e)=>Response::err(format!("{e:#}"))},_=>Response::err("visual render needs motion state, renderer, version, viewport, JSON checks and acting capturer")}
+        }
+        "visual-review" => {
+            let render_evidence_id=match parse_required_uuid(request.orgintel.render_evidence_id.as_deref(),"render evidence id"){Ok(v)=>v,Err(e)=>return Response::err(e)};
+            let control_render_evidence_id=match parse_optional_uuid(request.orgintel.control_render_evidence_id.as_deref(),"control render evidence id"){Ok(v)=>v,Err(e)=>return Response::err(e)};
+            let verdict=match request.orgintel.review_verdict.as_deref(){Some("accept")=>Some(restless_orgintel::VisualReviewVerdict::Accept),Some("revise")=>Some(restless_orgintel::VisualReviewVerdict::Revise),Some("reject")=>Some(restless_orgintel::VisualReviewVerdict::Reject),_=>None};
+            match (verdict,request.orgintel.actor.as_deref()){(Some(verdict),Some(actor))=>match daemon.orgintel.get(company).await{Ok(org)=>match org.record_visual_review(restless_orgintel::NewVisualReview{render_evidence_id,control_render_evidence_id,reviewer:actor,verdict,identity_findings:request.orgintel.visual_identity_findings.as_deref().unwrap_or(""),hierarchy_findings:request.orgintel.hierarchy_findings.as_deref().unwrap_or(""),density_findings:request.orgintel.density_findings.as_deref().unwrap_or(""),proof_findings:request.orgintel.proof_findings.as_deref().unwrap_or(""),product_fidelity_findings:request.orgintel.product_fidelity_findings.as_deref().unwrap_or(""),motion_findings:request.orgintel.motion_findings.as_deref().unwrap_or(""),defect_findings:request.orgintel.defect_findings.as_deref().unwrap_or(""),departure_decision:request.orgintel.departure_decision.as_deref().unwrap_or("")}).await{Ok(id)=>Response::ok(serde_json::json!({"review_id":id})),Err(e)=>Response::err(format!("{e:#}"))},Err(e)=>Response::err(format!("{e:#}"))},_=>Response::err("visual review needs verdict accept|revise|reject and acting reviewer")}
+        }
+        "culture-evidence-add" => {
+            let kind=match request.orgintel.culture_kind.as_deref(){Some("founding_decision")=>Some(restless_orgintel::CultureEvidenceKind::FoundingDecision),Some("observed_conduct")=>Some(restless_orgintel::CultureEvidenceKind::ObservedConduct),Some("counterexample")=>Some(restless_orgintel::CultureEvidenceKind::Counterexample),Some("promoted_norm")=>Some(restless_orgintel::CultureEvidenceKind::PromotedNorm),Some("bounded_exception")=>Some(restless_orgintel::CultureEvidenceKind::BoundedException),_=>None};
+            let case_kind=match parse_culture_case(request.orgintel.culture_case_kind.as_deref()){Ok(v)=>v,Err(e)=>return Response::err(e)};
+            let confidence=match request.orgintel.culture_confidence.as_deref(){Some("tentative")=>Some(restless_orgintel::CultureConfidence::Tentative),Some("corroborated")=>Some(restless_orgintel::CultureConfidence::Corroborated),Some("owner_founded")=>Some(restless_orgintel::CultureConfidence::OwnerFounded),_=>None};
+            match(kind,confidence,request.orgintel.claim_key.as_deref(),request.orgintel.statement.as_deref(),request.orgintel.actor.as_deref(),request.orgintel.source.as_deref(),request.orgintel.identity_authority.as_deref(),request.orgintel.scope.as_deref(),request.orgintel.evidence_locator.as_deref(),request.orgintel.culture_situation.as_deref(),request.orgintel.consequence.as_deref(),request.orgintel.culture_actors.as_deref(),request.orgintel.decision_authority.as_deref(),request.orgintel.observed_conduct.as_deref(),request.orgintel.observed_outcome.as_deref(),request.orgintel.counterexample.as_deref(),request.orgintel.boundary_conditions.as_deref(),request.orgintel.operational_implication.as_deref(),request.orgintel.actor_scope.as_deref()){
+                (Some(kind),Some(confidence),Some(claim),Some(statement),Some(actor),Some(source),Some(authority),Some(scope),Some(locator),Some(situation),Some(consequence),Some(actors),Some(decision_authority),Some(conduct),Some(outcome),Some(counterexample),Some(boundary),Some(implication),Some(actor_scope))=>match daemon.orgintel.get(company).await{Ok(org)=>match org.add_culture_evidence(restless_orgintel::NewCultureEvidence{kind,case_kind,claim_key:claim,statement,author_id:actor,source,authority,scope,observed_at:chrono::Utc::now(),evidence_locator:locator,polarity:if kind==restless_orgintel::CultureEvidenceKind::Counterexample{restless_orgintel::IdentityPolarity::Negative}else{restless_orgintel::IdentityPolarity::Positive},situation,consequence,actors,decision_authority,conduct,observed_outcome:outcome,confidence,counterexample,boundary_conditions:boundary,operational_implication:implication,actor_scope,supersedes_evidence_id:None}).await{Ok(id)=>Response::ok(serde_json::json!({"evidence_id":id})),Err(e)=>Response::err(format!("{e:#}"))},Err(e)=>Response::err(format!("{e:#}"))},
+                _=>Response::err("culture evidence needs typed conduct, consequence, counterexample, boundary, confidence and acting author")}
+        }
+        "culture-bind" => {
+            let work_id=match parse_required_uuid(request.orgintel.culture_work_id.as_deref(),"Work id"){Ok(v)=>v,Err(e)=>return Response::err(e)};let case_kind=match parse_culture_case(request.orgintel.culture_case_kind.as_deref()){Ok(Some(v))=>v,Ok(None)=>return Response::err("culture bind needs a case"),Err(e)=>return Response::err(e)};
+            match(request.orgintel.culture_actor.as_deref(),request.orgintel.actor_role.as_deref(),request.orgintel.team_name.as_deref(),request.orgintel.consequence.as_deref(),request.orgintel.decision_boundary.as_deref(),request.orgintel.actor.as_deref()){(Some(actor),Some(role),Some(team),Some(consequence),Some(boundary),Some(bound_by))=>match daemon.orgintel.get(company).await{Ok(org)=>match org.bind_culture_work_contract(restless_orgintel::NewCultureWorkContract{work_id,case_kind,actor,actor_role:role,team,consequence,decision_boundary:boundary,bound_by}).await{Ok(row)=>Response::ok_serialized(row),Err(e)=>Response::err(format!("{e:#}"))},Err(e)=>Response::err(format!("{e:#}"))},_=>Response::err("culture bind needs actor, role, team, consequence, decision boundary and binder")}
+        }
+        "culture-brief" => {let work_id=match parse_required_uuid(request.orgintel.culture_work_id.as_deref(),"Work id"){Ok(v)=>v,Err(e)=>return Response::err(e)};match daemon.orgintel.get(company).await{Ok(org)=>match org.compile_culture_posture(work_id,request.orgintel.max_bytes.unwrap_or(8192)).await{Ok(brief)=>Response::ok_serialized(brief),Err(e)=>Response::err(format!("{e:#}"))},Err(e)=>Response::err(format!("{e:#}"))}}
+        "culture-case" => {
+            let work_id=match parse_required_uuid(request.orgintel.culture_work_id.as_deref(),"Work id"){Ok(v)=>v,Err(e)=>return Response::err(e)};let artifact_ref_id=match parse_required_uuid(request.orgintel.artifact_ref_id.as_deref(),"artifact ref id"){Ok(v)=>v,Err(e)=>return Response::err(e)};let case_kind=match parse_culture_case(request.orgintel.culture_case_kind.as_deref()){Ok(Some(v))=>v,Ok(None)=>return Response::err("culture record needs a case"),Err(e)=>return Response::err(e)};let correction_of=match parse_optional_uuid(request.orgintel.correction_of.as_deref(),"correction record id"){Ok(v)=>v,Err(e)=>return Response::err(e)};
+            match(request.orgintel.culture_decision.as_deref(),request.orgintel.culture_alternatives.as_ref(),request.orgintel.culture_unknowns.as_deref(),request.orgintel.semantic_checks.as_ref(),request.orgintel.actor.as_deref()){(Some(decision),Some(alternatives),Some(unknowns),Some(checks),Some(actor))=>match daemon.orgintel.get(company).await{Ok(org)=>match org.record_culture_case(restless_orgintel::NewCultureCaseRecord{work_id,artifact_ref_id,case_kind,decision,alternatives,unknowns,correction_of,correction_account:request.orgintel.correction_account.as_deref().unwrap_or(""),customer_action:request.orgintel.customer_action.as_deref().unwrap_or(""),native_checks:checks,recorded_by:actor}).await{Ok(id)=>Response::ok(serde_json::json!({"case_record_id":id})),Err(e)=>Response::err(format!("{e:#}"))},Err(e)=>Response::err(format!("{e:#}"))},_=>Response::err("culture case needs exact artifact, decision, alternatives, unknowns, native checks and recorder")}
+        }
+        "culture-review" => {
+            let case_record_id=match parse_required_uuid(request.orgintel.culture_case_record_id.as_deref(),"culture case record id"){Ok(v)=>v,Err(e)=>return Response::err(e)};let verdict=match request.orgintel.review_verdict.as_deref(){Some("accept")=>Some(restless_orgintel::CultureReviewVerdict::Accept),Some("revise")=>Some(restless_orgintel::CultureReviewVerdict::Revise),Some("reject")=>Some(restless_orgintel::CultureReviewVerdict::Reject),_=>None};match(verdict,request.orgintel.actor.as_deref()){(Some(verdict),Some(actor))=>match daemon.orgintel.get(company).await{Ok(org)=>match org.record_culture_review(restless_orgintel::NewCultureReview{case_record_id,reviewer:actor,verdict,conduct_findings:request.orgintel.conduct_findings.as_deref().unwrap_or(""),dissent_findings:request.orgintel.dissent_findings.as_deref().unwrap_or(""),uncertainty_findings:request.orgintel.uncertainty_findings.as_deref().unwrap_or(""),correction_findings:request.orgintel.correction_findings.as_deref().unwrap_or(""),authority_findings:request.orgintel.authority_findings.as_deref().unwrap_or(""),customer_or_hiring_findings:request.orgintel.customer_or_hiring_findings.as_deref().unwrap_or(""),slogan_recitation_detected:request.orgintel.slogan_recitation_detected}).await{Ok(id)=>Response::ok(serde_json::json!({"review_id":id})),Err(e)=>Response::err(format!("{e:#}"))},Err(e)=>Response::err(format!("{e:#}"))},_=>Response::err("culture review needs verdict and independent reviewer")}
+        }
         "events" => match daemon.orgintel.get(company).await {
             Ok(org) => match org.list_events(request.common.limit.unwrap_or(50)).await {
                 Ok(events) => Response::ok(serde_json::to_value(events).unwrap_or_default()),
@@ -3174,6 +4448,19 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
     }
 }
 
+fn work_commission_is_admitted(
+    commissioned_by: &str,
+    accountable_lead: &str,
+    producing_topology: restless_orgintel::ProducingTopology,
+    active_workers: &[String],
+    requested_owner: &str,
+) -> bool {
+    commissioned_by == accountable_lead
+        || (commissioned_by == "exec"
+            && producing_topology == restless_orgintel::ProducingTopology::CoherentSingleWorker
+            && active_workers == [requested_owner])
+}
+
 /// Accept a team by name or id. Names are what an Exec or owner actually types;
 /// ids are what another command just returned. Refusing one of the two would
 /// make the surface awkward for no safety gain — both resolve to one live team
@@ -3210,6 +4497,58 @@ mod tests {
 
     fn decoded_request(value: serde_json::Value) -> Request {
         Request::decode(&value.to_string()).expect("decode request through the transport boundary")
+    }
+
+    #[tokio::test]
+    async fn an_unconfigured_company_cannot_recreate_a_destroyed_cell() {
+        let root =
+            std::env::temp_dir().join(format!("restless-cell-tombstone-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(root.join("companies")).unwrap();
+        let registry = OrgIntelRegistry {
+            database_url: "postgres://must-not-connect.invalid/restless".into(),
+            root: root.clone(),
+            handles: std::sync::Mutex::new(HashMap::new()),
+        };
+        let error = match registry.get("destroyed_test").await {
+            Ok(_) => panic!("an unconfigured company unexpectedly acquired an OrgIntel cell"),
+            Err(error) => error,
+        };
+        assert!(error.to_string().contains("not configured"));
+        assert!(!root.join("cells/destroyed_test/database.url").exists());
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn exec_fast_path_is_only_the_unambiguous_coherent_single_worker_route() {
+        let one_worker = vec!["product-builder".to_string()];
+        assert!(work_commission_is_admitted(
+            "exec",
+            "product-direction",
+            restless_orgintel::ProducingTopology::CoherentSingleWorker,
+            &one_worker,
+            "product-builder",
+        ));
+        assert!(!work_commission_is_admitted(
+            "exec",
+            "product-direction",
+            restless_orgintel::ProducingTopology::LocallyClosingParallelUnit,
+            &one_worker,
+            "product-builder",
+        ));
+        assert!(!work_commission_is_admitted(
+            "exec",
+            "product-direction",
+            restless_orgintel::ProducingTopology::CoherentSingleWorker,
+            &["product-builder".into(), "product-reviewer".into()],
+            "product-builder",
+        ));
+        assert!(work_commission_is_admitted(
+            "product-direction",
+            "product-direction",
+            restless_orgintel::ProducingTopology::LocallyClosingParallelUnit,
+            &[],
+            "product-builder",
+        ));
     }
 
     /// The hole this ticket closes: an agent inside the container asking for

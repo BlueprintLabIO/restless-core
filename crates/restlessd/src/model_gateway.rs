@@ -9,6 +9,7 @@
 //! never cross into the Company Runtime.
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::process::Stdio;
 use std::sync::OnceLock;
@@ -23,7 +24,7 @@ use axum::http::{HeaderMap, Response, StatusCode};
 use axum::routing::{get, post};
 use axum::Router;
 use futures_util::{Stream, StreamExt as _};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use tokio::process::{Child, Command};
 
 use crate::runtime::CompanyConfig;
@@ -38,6 +39,7 @@ const OMP_GATEWAY_HOST_URL: &str = "http://127.0.0.1:7796";
 #[cfg(test)]
 const RELAY_RUNTIME_URL: &str = "http://host.docker.internal:7790";
 const MODEL_CAPABILITY_ENV: &str = "RESTLESS_MODEL_CAPABILITY";
+const DISABLED_LOCAL_DISCOVERY_URL: &str = "http://127.0.0.1:1/v1";
 pub(crate) const RESPONSES_TARIFF_VERSION: &str = "omp-18.0.10-gpt-5.6-2026-08-30";
 
 #[derive(Debug, Clone)]
@@ -50,6 +52,7 @@ struct GatewayEndpoints {
     gateway_bind: String,
     relay_runtime_url: String,
     relay_bind: String,
+    relay_loopback_probe: String,
 }
 
 impl GatewayEndpoints {
@@ -74,8 +77,25 @@ impl GatewayEndpoints {
             gateway_bind: format!("127.0.0.1:{gateway_port}"),
             relay_runtime_url: format!("http://host.docker.internal:{relay_port}"),
             relay_bind: format!("0.0.0.0:{relay_port}"),
+            relay_loopback_probe: format!("127.0.0.1:{relay_port}"),
         })
     }
+}
+
+fn preflight_runtime_relay_port(loopback_bind: &str) -> Result<()> {
+    // Docker Desktop can own 127.0.0.1:PORT while macOS still permits a
+    // second process to bind 0.0.0.0:PORT. Company containers then resolve
+    // host.docker.internal to Docker's listener and silently reach the wrong
+    // service. Probe the exact loopback alias before spawning any broker
+    // process so an isolated plane fails with an actionable offset error.
+    let listener = std::net::TcpListener::bind(loopback_bind).with_context(|| {
+        format!(
+            "Runtime model relay port {loopback_bind} is already claimed on loopback; \
+             choose a collision-free RESTLESS_PORT_OFFSET"
+        )
+    })?;
+    drop(listener);
+    Ok(())
 }
 
 static CLIENT: OnceLock<ClientConfig> = OnceLock::new();
@@ -88,6 +108,10 @@ static UNSTARTABLE: OnceLock<BTreeMap<String, String>> = OnceLock::new();
 /// Why this company cannot start, if the plane could not admit it.
 pub fn unstartable_reason(company: &str) -> Option<String> {
     UNSTARTABLE.get()?.get(company).cloned()
+}
+
+pub fn is_ready() -> bool {
+    CLIENT.get().is_some()
 }
 
 #[derive(Clone)]
@@ -106,6 +130,10 @@ impl ClientConfig {
         })
     }
 
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "model admission must bind the exact capability identity and productive coordinates in one visible call"
+    )]
     pub fn auth_for(
         &self,
         model: &str,
@@ -113,6 +141,9 @@ impl ClientConfig {
         company: &str,
         actor: &str,
         session: &str,
+        responsibility: &str,
+        work_id: Option<uuid::Uuid>,
+        attempt_id: Option<uuid::Uuid>,
     ) -> Result<AgentGatewayAuth> {
         let (provider, _) = split_model(model)?;
         let billing = self.billing_for(model)?;
@@ -125,6 +156,9 @@ impl ClientConfig {
                 provider,
                 model,
                 billing.as_str(),
+                responsibility,
+                work_id,
+                attempt_id,
             )?,
             runtime_url: self.runtime_url.clone(),
             billing,
@@ -313,6 +347,7 @@ pub struct Processes {
     broker: Child,
     gateway: Child,
     relay: tokio::task::JoinHandle<()>,
+    marker: PathBuf,
 }
 
 impl Drop for Processes {
@@ -320,7 +355,138 @@ impl Drop for Processes {
         self.relay.abort();
         let _ = self.gateway.start_kill();
         let _ = self.broker.start_kill();
+        let _ = std::fs::remove_file(&self.marker);
     }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct ManagedModelChild {
+    pid: u32,
+    program: String,
+    args: Vec<String>,
+}
+
+fn model_children_path(root: &Path) -> PathBuf {
+    root.join("machine/model-children.json")
+}
+
+fn resolved_program(program: &str) -> Result<PathBuf> {
+    let candidate = Path::new(program);
+    if candidate.components().count() > 1 {
+        return std::fs::canonicalize(candidate)
+            .with_context(|| format!("resolve model child program {program}"));
+    }
+    let path = std::env::var_os("PATH").context("PATH is unavailable")?;
+    for directory in std::env::split_paths(&path) {
+        let candidate = directory.join(program);
+        if candidate.is_file() {
+            return std::fs::canonicalize(&candidate)
+                .with_context(|| format!("resolve {}", candidate.display()));
+        }
+    }
+    bail!("model child program {program:?} is not on PATH")
+}
+
+fn read_model_children(path: &Path) -> Vec<ManagedModelChild> {
+    std::fs::read(path)
+        .ok()
+        .and_then(|bytes| serde_json::from_slice(&bytes).ok())
+        .unwrap_or_default()
+}
+
+fn write_model_children(path: &Path, children: &[ManagedModelChild]) -> Result<()> {
+    let parent = path.parent().context("model child marker has no parent")?;
+    std::fs::create_dir_all(parent)?;
+    let temporary = parent.join(format!(".model-children-{}.tmp", std::process::id()));
+    std::fs::write(&temporary, serde_json::to_vec_pretty(children)?)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&temporary, std::fs::Permissions::from_mode(0o600))?;
+    }
+    std::fs::rename(temporary, path)?;
+    Ok(())
+}
+
+fn record_model_child(root: &Path, child: &Child, program: &Path, args: &[&str]) -> Result<()> {
+    let pid = child.id().context("model child has no pid")?;
+    let path = model_children_path(root);
+    let mut children = read_model_children(&path);
+    children.retain(|entry| entry.pid != pid);
+    children.push(ManagedModelChild {
+        pid,
+        program: program.display().to_string(),
+        args: args.iter().map(|value| (*value).to_string()).collect(),
+    });
+    write_model_children(&path, &children)
+}
+
+fn forget_model_child(root: &Path, pid: u32) -> Result<()> {
+    let path = model_children_path(root);
+    let mut children = read_model_children(&path);
+    children.retain(|entry| entry.pid != pid);
+    if children.is_empty() {
+        if path.exists() {
+            std::fs::remove_file(path)?;
+        }
+    } else {
+        write_model_children(&path, &children)?;
+    }
+    Ok(())
+}
+
+fn model_child_matches(entry: &ManagedModelChild) -> bool {
+    let output = std::process::Command::new("ps")
+        .args(["-p", &entry.pid.to_string(), "-o", "command="])
+        .output();
+    let Ok(output) = output else { return false };
+    if !output.status.success() {
+        return false;
+    }
+    let observed = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    let mut words = observed.split_whitespace();
+    let Some(program) = words.next() else {
+        return false;
+    };
+    let exact = Path::new(program).file_name() == Path::new(&entry.program).file_name()
+        && words.eq(entry.args.iter().map(String::as_str));
+    exact && allowed_model_child_args(&entry.args)
+}
+
+fn allowed_model_child_args(args: &[String]) -> bool {
+    matches!(
+        args,
+        [command, token] if (command == "auth-broker" || command == "auth-gateway") && token == "token"
+    ) || matches!(
+        args,
+        [command, serve, bind, _]
+            if (command == "auth-broker" || command == "auth-gateway")
+                && serve == "serve"
+                && bind == "--bind"
+    )
+}
+
+fn sweep_orphaned_model_children(root: &Path) -> Result<()> {
+    let path = model_children_path(root);
+    let children = read_model_children(&path);
+    for child in children {
+        if !model_child_matches(&child) {
+            continue;
+        }
+        let _ = std::process::Command::new("kill")
+            .args(["-TERM", &child.pid.to_string()])
+            .status();
+        std::thread::sleep(Duration::from_millis(100));
+        if model_child_matches(&child) {
+            let _ = std::process::Command::new("kill")
+                .args(["-KILL", &child.pid.to_string()])
+                .status();
+        }
+    }
+    if path.exists() {
+        std::fs::remove_file(path)?;
+    }
+    Ok(())
 }
 
 /// Start the imported broker/gateway pair and install its narrow client
@@ -331,6 +497,7 @@ pub async fn start(
     capabilities: crate::capability::CapabilityIssuer,
     spend: crate::spend::SpendLedger,
 ) -> Result<Option<Processes>> {
+    sweep_orphaned_model_children(root)?;
     let endpoints = GatewayEndpoints::from_env()?;
     let mut provider_credentials = provider_credentials(configs).await?;
     if provider_credentials.is_empty() {
@@ -351,22 +518,41 @@ pub async fn start(
         return Ok(None);
     }
 
-    let omp = std::env::var("RESTLESS_OMP_BIN").unwrap_or_else(|_| "omp".to_string());
-    let broker_token = token(&omp, &endpoints.broker_profile, "auth-broker").await?;
-    let mut broker = Command::new(&omp)
+    preflight_runtime_relay_port(&endpoints.relay_loopback_probe)?;
+
+    let omp =
+        resolved_program(&std::env::var("RESTLESS_OMP_BIN").unwrap_or_else(|_| "omp".to_string()))?;
+    let discover_llama_cpp = provider_credentials.contains_key("llama.cpp")
+        || std::env::var_os("LLAMA_CPP_BASE_URL").is_some();
+    let broker_token = token(
+        root,
+        &omp,
+        &endpoints.broker_profile,
+        "auth-broker",
+        discover_llama_cpp,
+    )
+    .await?;
+    let broker_args = [
+        "auth-broker",
+        "serve",
+        "--bind",
+        endpoints.broker_bind.as_str(),
+    ];
+    let mut broker_command = Command::new(&omp);
+    if !discover_llama_cpp {
+        broker_command.env("LLAMA_CPP_BASE_URL", DISABLED_LOCAL_DISCOVERY_URL);
+    }
+    let mut broker = broker_command
+        .current_dir(root)
         .env("OMP_PROFILE", &endpoints.broker_profile)
-        .args([
-            "auth-broker",
-            "serve",
-            "--bind",
-            endpoints.broker_bind.as_str(),
-        ])
+        .args(broker_args)
         .stdin(Stdio::null())
         .stdout(Stdio::inherit())
         .stderr(Stdio::inherit())
         .kill_on_drop(true)
         .spawn()
         .context("start OMP model credential broker")?;
+    record_model_child(root, &broker, &omp, &broker_args)?;
     wait_for_broker(&mut broker, &broker_token, &endpoints.broker_url).await?;
 
     let http = reqwest::Client::builder()
@@ -421,30 +607,49 @@ pub async fn start(
     let startable = admission.startable(configs);
     let _ = UNSTARTABLE.set(admission.unstartable);
 
-    let gateway_token = token(&omp, &endpoints.gateway_profile, "auth-gateway").await?;
+    let gateway_token = token(
+        root,
+        &omp,
+        &endpoints.gateway_profile,
+        "auth-gateway",
+        discover_llama_cpp,
+    )
+    .await?;
     let mut gateway_command = Command::new(&omp);
     gateway_command
+        .current_dir(root)
         .env("OMP_PROFILE", &endpoints.gateway_profile)
         .env("OMP_AUTH_BROKER_URL", &endpoints.broker_url)
         .env("OMP_AUTH_BROKER_TOKEN", &broker_token);
+    // OMP probes llama.cpp's conventional localhost:8080 endpoint while it
+    // refreshes its catalogue. Another desktop service can legitimately own
+    // that port and answer without being llama.cpp, leaving OMP's discovery
+    // open before the gateway binds. A Restless gateway may discover only
+    // providers admitted by company policy, so route an unconfigured local
+    // provider to an immediately closed loopback endpoint.
+    if !discover_llama_cpp {
+        gateway_command.env("LLAMA_CPP_BASE_URL", DISABLED_LOCAL_DISCOVERY_URL);
+    }
     if provider_credentials.contains_key("litellm") {
         let base_url = std::env::var("GPT_BASE_URL")
             .context("litellm model route needs GPT_BASE_URL for OMP discovery")?;
         gateway_command.env("LITELLM_BASE_URL", base_url);
     }
+    let gateway_args = [
+        "auth-gateway",
+        "serve",
+        "--bind",
+        endpoints.gateway_bind.as_str(),
+    ];
     let mut gateway = gateway_command
-        .args([
-            "auth-gateway",
-            "serve",
-            "--bind",
-            endpoints.gateway_bind.as_str(),
-        ])
+        .args(gateway_args)
         .stdin(Stdio::null())
         .stdout(Stdio::inherit())
         .stderr(Stdio::inherit())
         .kill_on_drop(true)
         .spawn()
         .context("start OMP model auth gateway")?;
+    record_model_child(root, &gateway, &omp, &gateway_args)?;
     let required_providers = provider_credentials
         .keys()
         .cloned()
@@ -464,12 +669,6 @@ pub async fn start(
         .map(|(provider, credential)| (provider, credential.billing()))
         .collect();
 
-    CLIENT
-        .set(ClientConfig {
-            providers,
-            runtime_url: endpoints.relay_runtime_url.clone(),
-        })
-        .map_err(|_| anyhow::anyhow!("model gateway client was already installed"))?;
     let relay = start_runtime_relay(
         RelayState {
             root: root.to_path_buf(),
@@ -486,10 +685,21 @@ pub async fn start(
         &endpoints.relay_bind,
     )
     .await?;
+    if CLIENT
+        .set(ClientConfig {
+            providers,
+            runtime_url: endpoints.relay_runtime_url.clone(),
+        })
+        .is_err()
+    {
+        relay.abort();
+        bail!("model gateway client was already installed");
+    }
     Ok(Some(Processes {
         broker,
         gateway,
         relay,
+        marker: model_children_path(root),
     }))
 }
 
@@ -933,13 +1143,18 @@ async fn relay_pi_stream(
 
     let status = upstream.status();
     let upstream_headers = upstream.headers().clone();
+    let request_id = uuid::Uuid::new_v4();
     let stream = MeteredStream::new(
         upstream.bytes_stream(),
         state.spend.meter(),
         MeteredRequest {
+            request_id,
             company: grant.company,
             actor: grant.actor,
             session: grant.session,
+            responsibility: grant.responsibility,
+            work_id: grant.work_id,
+            attempt_id: grant.attempt_id,
             model: model.to_string(),
             billing,
         },
@@ -953,7 +1168,9 @@ async fn relay_pi_stream(
     // disconnect the task stops forwarding bytes but continues to the exact
     // semantic terminal.
     let (stream, _drain) = detach_metered_stream(stream);
-    let mut response = Response::builder().status(status);
+    let mut response = Response::builder()
+        .status(status)
+        .header("x-restless-request-id", request_id.to_string());
     for name in [CONTENT_TYPE, CACHE_CONTROL] {
         if let Some(value) = upstream_headers.get(&name) {
             response = response.header(name, value);
@@ -1088,19 +1305,26 @@ async fn relay_responses(
 
     let status = upstream.status();
     let upstream_headers = upstream.headers().clone();
+    let request_id = uuid::Uuid::new_v4();
     let stream = MeteredStream::new_responses(
         upstream.bytes_stream(),
         state.spend.meter(),
         MeteredRequest {
+            request_id,
             company: grant.company,
             actor: grant.actor,
             session: grant.session,
+            responsibility: grant.responsibility,
+            work_id: grant.work_id,
+            attempt_id: grant.attempt_id,
             model: grant.model,
             billing,
         },
     );
     let (stream, _drain) = detach_metered_stream(stream);
-    let mut response = Response::builder().status(status);
+    let mut response = Response::builder()
+        .status(status)
+        .header("x-restless-request-id", request_id.to_string());
     for name in [CONTENT_TYPE, CACHE_CONTROL] {
         if let Some(value) = upstream_headers.get(&name) {
             response = response.header(name, value);
@@ -1173,11 +1397,45 @@ fn relay_error(status: StatusCode, message: &str) -> Response<Body> {
 }
 
 struct MeteredRequest {
+    request_id: uuid::Uuid,
     company: String,
     actor: String,
     session: String,
+    responsibility: String,
+    work_id: Option<uuid::Uuid>,
+    attempt_id: Option<uuid::Uuid>,
     model: String,
     billing: ModelBilling,
+}
+
+impl MeteredRequest {
+    fn spend_record(
+        &self,
+        input_tokens: u64,
+        output_tokens: u64,
+        total_tokens: u64,
+        cached_input_tokens: Option<u64>,
+        cost_micro_usd: u64,
+        settlement: restless_model_gateway::SpendSettlement,
+    ) -> restless_model_gateway::SpendRecord {
+        restless_model_gateway::SpendRecord {
+            request_id: self.request_id,
+            company_id: self.company.clone(),
+            model: self.model.clone(),
+            input_tokens,
+            output_tokens,
+            total_tokens,
+            cached_input_tokens,
+            cost_micro_usd,
+            actor_id: self.actor.clone(),
+            session_id: self.session.clone(),
+            responsibility: self.responsibility.clone(),
+            work_id: self.work_id,
+            attempt_id: self.attempt_id,
+            settlement,
+            occurred_at: chrono::Utc::now(),
+        }
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -1192,7 +1450,7 @@ enum MeteringProtocol {
 /// cost (including zero). A semantic pi-native `done` or `error` message is
 /// the accounting boundary. The `[DONE]` sentinel is transport cleanup, and
 /// a partial, Drop, or EOF without a semantic terminal remains ambiguous and
-/// therefore poisons the company.
+/// therefore records one request-local metering uncertainty.
 struct MeteredStream {
     inner: Pin<Box<dyn Stream<Item = std::result::Result<Bytes, reqwest::Error>> + Send>>,
     meter: crate::spend::TurnMeter,
@@ -1335,14 +1593,14 @@ impl MeteredStream {
             self.failed = true;
             return;
         };
-        self.meter.record_exact(
-            &self.request.company,
-            &self.request.actor,
-            &self.request.session,
-            &self.request.model,
+        self.meter.record_exact(self.request.spend_record(
+            0,
+            0,
             tokens,
+            None,
             micro_usd,
-        );
+            restless_model_gateway::SpendSettlement::Accounted,
+        ));
         self.settled = true;
     }
 
@@ -1386,25 +1644,33 @@ impl MeteredStream {
             self.failed = true;
             return;
         };
-        self.meter.record_exact(
-            &self.request.company,
-            &self.request.actor,
-            &self.request.session,
-            &self.request.model,
+        self.meter.record_exact(self.request.spend_record(
+            input,
+            output,
             tokens,
+            Some(cached),
             micro_usd,
-        );
+            restless_model_gateway::SpendSettlement::Accounted,
+        ));
         self.settled = true;
     }
 
     fn fail_closed(&mut self, detail: &str) {
         if self.request.billing == ModelBilling::MeteredApi && !self.settled {
-            self.meter.poison(&self.request.company);
+            self.meter.record_unknown(self.request.spend_record(
+                0,
+                0,
+                0,
+                None,
+                0,
+                restless_model_gateway::SpendSettlement::MeteringUnknown,
+            ));
             tracing::error!(
                 company = %self.request.company,
                 actor = %self.request.actor,
                 session = %self.request.session,
-                "metered model response had no terminal charged usage: {detail}"
+                request_id = %self.request.request_id,
+                "metered model response had no terminal charged usage; only this request is uncertain: {detail}"
             );
             self.settled = true;
         }
@@ -1587,10 +1853,11 @@ pub fn models_config(model: &str, runtime_url: &str, token_env: &str) -> Result<
     if !recognised_runtime_relay || token_env != MODEL_CAPABILITY_ENV {
         bail!("refusing an unrecognised model gateway route");
     }
-    let api = if matches!(provider, "zai" | "zhipu-coding-plan") {
-        // GLM's ACP-compatible coding routes are Chat Completions. Advertising
-        // Responses makes OMP call an otherwise valid model through the wrong
-        // upstream path and can return a bare 404 as assistant content.
+    let api = if matches!(provider, "moonshot" | "zai" | "zhipu-coding-plan") {
+        // Moonshot and GLM expose these ACP-compatible routes as Chat
+        // Completions. Advertising Responses makes OMP send a valid model to
+        // the wrong upstream API; Moonshot surfaced that mismatch as a 500 and
+        // GLM can return a bare 404 as assistant content.
         "openai-completions"
     } else {
         "openai-responses"
@@ -1681,13 +1948,23 @@ async fn provider_credentials(
                     }
                     ProviderCredential::OmpOauth
                 }
-                None => ProviderCredential::ApiKey(
-                    crate::credential::resolve_reference(reference)
-                        .await
-                        .with_context(|| {
-                            format!("resolve {provider} model credential for {}", config.name)
-                        })?,
-                ),
+                None => match crate::credential::resolve_reference(reference).await {
+                    Ok(value) => ProviderCredential::ApiKey(value),
+                    Err(error) => {
+                        // A missing optional failover must not take down the
+                        // account plane. A missing primary is projected by
+                        // `admit` as this company's unstartable state. Keep
+                        // configuration-shape errors above fatal, but turn an
+                        // unavailable secret backend/value into scoped health.
+                        tracing::warn!(
+                            company = %config.name,
+                            provider,
+                            error = %format!("{error:#}"),
+                            "model credential is unavailable"
+                        );
+                        continue;
+                    }
+                },
             };
             if let Some(existing) = credentials.get(provider) {
                 if existing != &credential {
@@ -1753,14 +2030,34 @@ fn split_model(model: &str) -> Result<(&str, &str)> {
     Ok((provider, id))
 }
 
-async fn token(omp: &str, profile: &str, command: &str) -> Result<String> {
-    let output = Command::new(omp)
+async fn token(
+    root: &Path,
+    omp: &Path,
+    profile: &str,
+    command: &str,
+    discover_llama_cpp: bool,
+) -> Result<String> {
+    let args = [command, "token"];
+    let mut token_command = Command::new(omp);
+    if !discover_llama_cpp {
+        token_command.env("LLAMA_CPP_BASE_URL", DISABLED_LOCAL_DISCOVERY_URL);
+    }
+    let child = token_command
+        .current_dir(root)
         .env("OMP_PROFILE", profile)
-        .args([command, "token"])
+        .args(args)
         .stdin(Stdio::null())
+        .stdout(Stdio::piped())
         .stderr(Stdio::null())
-        .output()
-        .await
+        .kill_on_drop(true)
+        .spawn()
+        .with_context(|| format!("start OMP {command} token command"))?;
+    let pid = child.id().context("OMP token command has no pid")?;
+    record_model_child(root, &child, omp, &args)?;
+    let output = tokio::time::timeout(Duration::from_secs(10), child.wait_with_output()).await;
+    forget_model_child(root, pid)?;
+    let output = output
+        .with_context(|| format!("OMP {command} token command exceeded 10 seconds"))?
         .with_context(|| format!("create OMP {command} bearer"))?;
     if !output.status.success() {
         bail!("OMP {command} token command failed");
@@ -1839,10 +2136,11 @@ async fn wait_for_gateway(
     required_models: &BTreeSet<String>,
 ) -> Result<()> {
     let http = reqwest::Client::builder()
-        .timeout(Duration::from_secs(2))
+        .timeout(Duration::from_millis(500))
         .build()?;
     let mut observed = BTreeSet::new();
-    for _ in 0..300 {
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
+    while tokio::time::Instant::now() < deadline {
         if let Some(status) = child.try_wait().context("inspect OMP gateway")? {
             bail!("OMP model auth gateway exited during boot ({status})");
         }
@@ -1904,6 +2202,7 @@ mod tests {
                 name: "acme_test".into(),
                 mission: "relay test".into(),
                 spend_ceiling_usd: crate::runtime::SpendCeiling::from_micro_usd(2),
+                outcome_standard: Default::default(),
                 model: "moonshot/kimi-k3".into(),
                 worker_runtime: crate::runtime::WorkerRuntime::Omp,
                 reasoning_effort: crate::acp::DEFAULT_REASONING_EFFORT.into(),
@@ -1944,14 +2243,72 @@ mod tests {
     }
 
     #[test]
+    fn orphan_sweep_accepts_only_restless_owned_omp_shapes() {
+        let allowed = [
+            vec!["auth-broker".into(), "token".into()],
+            vec![
+                "auth-broker".into(),
+                "serve".into(),
+                "--bind".into(),
+                "127.0.0.1:7789".into(),
+            ],
+            vec!["auth-gateway".into(), "token".into()],
+            vec![
+                "auth-gateway".into(),
+                "serve".into(),
+                "--bind".into(),
+                "127.0.0.1:7796".into(),
+            ],
+        ];
+        for args in allowed {
+            assert!(allowed_model_child_args(&args));
+        }
+
+        for rejected in [
+            vec!["auth-broker".into(), "delete".into()],
+            vec!["auth-gateway".into(), "serve".into()],
+            vec!["auth-gateway".into(), "serve".into(), "--all".into()],
+            vec!["unrelated".into(), "token".into()],
+        ] {
+            assert!(!allowed_model_child_args(&rejected));
+        }
+    }
+
+    fn metered_request(company: &str, actor: &str, session: &str, model: &str) -> MeteredRequest {
+        MeteredRequest {
+            request_id: uuid::Uuid::new_v4(),
+            company: company.into(),
+            actor: actor.into(),
+            session: session.into(),
+            responsibility: "test:model-relay".into(),
+            work_id: None,
+            attempt_id: None,
+            model: model.into(),
+            billing: ModelBilling::MeteredApi,
+        }
+    }
+
+    #[test]
     fn runtime_model_config_contains_only_the_narrow_gateway_route() {
         let config =
             models_config("moonshot/kimi-k3", RELAY_RUNTIME_URL, MODEL_CAPABILITY_ENV).unwrap();
         assert!(config.contains("\n  moonshot:\n    baseUrl:"));
         assert!(config.contains("transport: pi-native"));
+        assert!(config.contains("api: openai-completions"));
         assert!(config.contains("apiKey: RESTLESS_MODEL_CAPABILITY"));
         assert!(!config.contains("MOONSHOT_API_KEY"));
         assert!(!config.contains("api.kimi.com"));
+    }
+
+    #[test]
+    fn runtime_relay_preflight_rejects_a_loopback_alias_collision() {
+        let occupied = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = occupied.local_addr().unwrap().to_string();
+        let error = preflight_runtime_relay_port(&address).unwrap_err();
+        assert!(error.to_string().contains("RESTLESS_PORT_OFFSET"));
+
+        drop(occupied);
+        preflight_runtime_relay_port(&address).unwrap();
     }
 
     #[test]
@@ -2039,6 +2396,9 @@ mod tests {
                 "moonshot",
                 "moonshot/kimi-k3",
                 "metered_api",
+                "work:delivery",
+                None,
+                None,
             )
             .unwrap();
         let response = relay_models(State(state), bearer_headers(&token)).await;
@@ -2070,6 +2430,7 @@ mod tests {
             name: "catalogue_test".into(),
             mission: String::new(),
             spend_ceiling_usd: crate::runtime::SpendCeiling::from_micro_usd(2),
+            outcome_standard: Default::default(),
             model: "litellm/gpt-5.6-sol".into(),
             worker_runtime: crate::runtime::WorkerRuntime::Omp,
             reasoning_effort: crate::acp::DEFAULT_REASONING_EFFORT.into(),
@@ -2093,6 +2454,7 @@ mod tests {
             name: name.into(),
             mission: String::new(),
             spend_ceiling_usd: crate::runtime::SpendCeiling::from_micro_usd(2),
+            outcome_standard: Default::default(),
             model: model.into(),
             worker_runtime: crate::runtime::WorkerRuntime::Omp,
             reasoning_effort: crate::acp::DEFAULT_REASONING_EFFORT.into(),
@@ -2148,6 +2510,8 @@ mod tests {
             providers: BTreeMap::from([("moonshot".into(), ModelBilling::MeteredApi)]),
             runtime_url: RELAY_RUNTIME_URL.into(),
         };
+        let work_id = uuid::Uuid::new_v4();
+        let attempt_id = uuid::Uuid::new_v4();
         let access = client
             .auth_for(
                 "moonshot/kimi-k3",
@@ -2155,6 +2519,9 @@ mod tests {
                 "acme_test",
                 "delivery-lead",
                 "session_123",
+                "work:delivery",
+                Some(work_id),
+                Some(attempt_id),
             )
             .unwrap();
         assert_eq!(access.token_env, MODEL_CAPABILITY_ENV);
@@ -2168,6 +2535,9 @@ mod tests {
                 provider: "moonshot".into(),
                 model: "moonshot/kimi-k3".into(),
                 billing: "metered_api".into(),
+                responsibility: "work:delivery".into(),
+                work_id: Some(work_id),
+                attempt_id: Some(attempt_id),
             }
         );
         std::fs::remove_dir_all(root).unwrap();
@@ -2185,6 +2555,9 @@ mod tests {
                 "moonshot",
                 "moonshot/kimi-k3",
                 "metered_api",
+                "work:delivery",
+                None,
+                None,
             )
             .unwrap();
         let mismatched = relay_pi_stream(
@@ -2204,12 +2577,20 @@ mod tests {
         assert_eq!(same_provider_wrong_model.status(), StatusCode::FORBIDDEN);
 
         spend.meter().record_exact(
-            "acme_test",
-            "delivery-lead",
-            "prior_session",
-            "moonshot/kimi-k3",
-            1,
-            2,
+            metered_request(
+                "acme_test",
+                "delivery-lead",
+                "prior_session",
+                "moonshot/kimi-k3",
+            )
+            .spend_record(
+                0,
+                0,
+                0,
+                None,
+                2,
+                restless_model_gateway::SpendSettlement::Accounted,
+            ),
         );
         let exhausted = relay_pi_stream(
             State(state),
@@ -2242,13 +2623,12 @@ mod tests {
             let mut stream = MeteredStream::new(
                 inner,
                 ledger.meter(),
-                MeteredRequest {
-                    company: "acme_test".into(),
-                    actor: "delivery-lead".into(),
-                    session: "session_123".into(),
-                    model: "moonshot/kimi-k3".into(),
-                    billing: ModelBilling::MeteredApi,
-                },
+                metered_request(
+                    "acme_test",
+                    "delivery-lead",
+                    "session_123",
+                    "moonshot/kimi-k3",
+                ),
             );
             let frame = Bytes::from(format!("data: {event}\n\n"));
             stream.observe(&frame);
@@ -2280,13 +2660,12 @@ mod tests {
             let _missing_terminal = MeteredStream::new(
                 inner,
                 ledger.meter(),
-                MeteredRequest {
-                    company: "acme_test".into(),
-                    actor: "delivery-lead".into(),
-                    session: "session_missing_usage".into(),
-                    model: "moonshot/kimi-k3".into(),
-                    billing: ModelBilling::MeteredApi,
-                },
+                metered_request(
+                    "acme_test",
+                    "delivery-lead",
+                    "session_missing_usage",
+                    "moonshot/kimi-k3",
+                ),
             );
         }
         assert_eq!(
@@ -2321,13 +2700,12 @@ mod tests {
         let metered = MeteredStream::new(
             upstream,
             ledger.meter(),
-            MeteredRequest {
-                company: "cancelled_test".into(),
-                actor: "support-owner".into(),
-                session: "session_cancelled".into(),
-                model: "zai/glm-5.3".into(),
-                billing: ModelBilling::MeteredApi,
-            },
+            metered_request(
+                "cancelled_test",
+                "support-owner",
+                "session_cancelled",
+                "zai/glm-5.3",
+            ),
         );
         let (downstream, drain) = detach_metered_stream(metered);
 
@@ -2378,13 +2756,12 @@ mod tests {
             let mut stream = MeteredStream::new(
                 inner,
                 ledger.meter(),
-                MeteredRequest {
-                    company: "acme_test".into(),
-                    actor: "delivery-lead".into(),
-                    session: "provider_error_with_zero_cost".into(),
-                    model: "moonshot/kimi-k3".into(),
-                    billing: ModelBilling::MeteredApi,
-                },
+                metered_request(
+                    "acme_test",
+                    "delivery-lead",
+                    "provider_error_with_zero_cost",
+                    "moonshot/kimi-k3",
+                ),
             );
             stream.observe(&Bytes::from(format!(
                 "data: {explicit_zero_cost_error}\n\n"
@@ -2403,13 +2780,12 @@ mod tests {
             let mut stream = MeteredStream::new(
                 inner,
                 ledger.meter(),
-                MeteredRequest {
-                    company: "acme_test".into(),
-                    actor: "delivery-lead".into(),
-                    session: "ambiguous_provider_error".into(),
-                    model: "moonshot/kimi-k3".into(),
-                    billing: ModelBilling::MeteredApi,
-                },
+                metered_request(
+                    "acme_test",
+                    "delivery-lead",
+                    "ambiguous_provider_error",
+                    "moonshot/kimi-k3",
+                ),
             );
             stream.observe(&Bytes::from_static(
                 b"data: {\"type\":\"error\",\"reason\":\"error\"}\n\n",
@@ -2436,13 +2812,12 @@ mod tests {
             let mut stream = MeteredStream::new(
                 inner,
                 ledger.meter(),
-                MeteredRequest {
-                    company: "acme_test".into(),
-                    actor: "delivery-lead".into(),
-                    session: "tool_use_partial".into(),
-                    model: "moonshot/kimi-k3".into(),
-                    billing: ModelBilling::MeteredApi,
-                },
+                metered_request(
+                    "acme_test",
+                    "delivery-lead",
+                    "tool_use_partial",
+                    "moonshot/kimi-k3",
+                ),
             );
             let partial = serde_json::json!({
                 "type": "toolcall_end",
@@ -2496,13 +2871,12 @@ mod tests {
             let mut stream = MeteredStream::new(
                 inner,
                 ledger.meter(),
-                MeteredRequest {
-                    company: "acme_test".into(),
-                    actor: "delivery-lead".into(),
-                    session: "trailing_terminal".into(),
-                    model: "moonshot/kimi-k3".into(),
-                    billing: ModelBilling::MeteredApi,
-                },
+                metered_request(
+                    "acme_test",
+                    "delivery-lead",
+                    "trailing_terminal",
+                    "moonshot/kimi-k3",
+                ),
             );
             stream.observe(&Bytes::from(format!("data: {event}\n")));
             assert_eq!(
@@ -2597,13 +2971,12 @@ mod tests {
             let mut stream = MeteredStream::new_responses(
                 inner,
                 ledger.meter(),
-                MeteredRequest {
-                    company: "acme_test".into(),
-                    actor: "codex-worker".into(),
-                    session: "responses-session".into(),
-                    model: "litellm/gpt-5.6-sol".into(),
-                    billing: ModelBilling::MeteredApi,
-                },
+                metered_request(
+                    "acme_test",
+                    "codex-worker",
+                    "responses-session",
+                    "litellm/gpt-5.6-sol",
+                ),
             );
             let frame = Bytes::from(format!("data: {event}\n\n"));
             stream.observe(&frame);
@@ -2643,13 +3016,7 @@ mod tests {
             let mut stream = MeteredStream::new(
                 inner,
                 ledger.meter(),
-                MeteredRequest {
-                    company: "acme_test".into(),
-                    actor: "delivery-lead".into(),
-                    session: "glm_precision".into(),
-                    model: "zai/glm-5.3".into(),
-                    billing: ModelBilling::MeteredApi,
-                },
+                metered_request("acme_test", "delivery-lead", "glm_precision", "zai/glm-5.3"),
             );
             stream.observe(&Bytes::from(format!("data: {event}\n\n")));
         }
@@ -2706,6 +3073,7 @@ mod tests {
             name: "continuity_test".into(),
             mission: String::new(),
             spend_ceiling_usd: crate::runtime::SpendCeiling::from_micro_usd(10_000_000),
+            outcome_standard: Default::default(),
             model: "moonshot/kimi-k3".into(),
             worker_runtime: crate::runtime::WorkerRuntime::Omp,
             reasoning_effort: crate::acp::DEFAULT_REASONING_EFFORT.into(),
@@ -2778,6 +3146,7 @@ mod tests {
             name: "exact_staff_test".into(),
             mission: String::new(),
             spend_ceiling_usd: crate::runtime::SpendCeiling::from_micro_usd(10_000_000),
+            outcome_standard: Default::default(),
             model: "openai-codex/gpt-5.6-sol".into(),
             worker_runtime: crate::runtime::WorkerRuntime::Omp,
             reasoning_effort: crate::acp::DEFAULT_REASONING_EFFORT.into(),

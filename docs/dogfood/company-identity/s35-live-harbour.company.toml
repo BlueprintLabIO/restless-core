@@ -1,0 +1,11 @@
+name = "harbour_ledger_transfer_test"
+mission = "Produce a compact, safety-conscious release package for Harbour Ledger, an offline marine-maintenance record. Keep the company calm, terse and materially distinct from Restless. Work through accountable Staff and independent native review until the package is genuinely ready for owner judgement. Do not publish, deploy, send, contact anyone, purchase anything or perform another external effect."
+spend_ceiling_usd = "15"
+model = "litellm/gpt-5.6-sol"
+model_failover = []
+worker_runtime = "omp"
+reasoning_effort = "high"
+approved_parties = []
+
+[credentials]
+"model.inference.litellm" = "env:GPT_API_KEY"

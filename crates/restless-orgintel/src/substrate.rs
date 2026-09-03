@@ -230,7 +230,7 @@ impl OrgIntel {
         let actor_id: String = attempt.get("actor_id");
         let cursor: i64 = attempt.get("feedback_checkpoint_cursor");
         let messages = sqlx::query_as::<_, MessageRow>(
-            "SELECT message.id, message.from_actor, message.to_actor, message.body, \
+            "SELECT message.id,message.from_actor,message.to_actor,message.body,message.outcome_standard, \
                     message.created_at, message.read_at \
              FROM work_feedback feedback JOIN messages message ON message.id=feedback.message_id \
              WHERE feedback.work_id=$1 AND message.to_actor=$2 AND message.id>$3 \

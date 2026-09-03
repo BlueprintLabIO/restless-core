@@ -55,6 +55,10 @@ pub struct SpendRecord {
     /// written by the HTTP-proxy path still rebuild on boot.
     #[serde(default)]
     pub total_tokens: u64,
+    /// Provider-reported cached input. Older and pi-native records leave this
+    /// unknown rather than converting absence into zero.
+    #[serde(default)]
+    pub cached_input_tokens: Option<u64>,
     pub cost_micro_usd: u64,
     /// S04-T9. Which actor's turn this was. Defaulted so the records written
     /// before this field existed still rebuild on boot — the spool is
@@ -70,7 +74,27 @@ pub struct SpendRecord {
     /// records predate host-side admission and remain explicitly empty.
     #[serde(default)]
     pub session_id: String,
+    /// Stable Runtime responsibility carried by the signed model grant.
+    #[serde(default)]
+    pub responsibility: String,
+    /// Productive coordinates are absent for Exec and conversational turns.
+    #[serde(default)]
+    pub work_id: Option<Uuid>,
+    #[serde(default)]
+    pub attempt_id: Option<Uuid>,
+    /// An unknown terminal is a request-local incident, not an invented zero
+    /// charge and not permission to contaminate sibling requests.
+    #[serde(default)]
+    pub settlement: SpendSettlement,
     pub occurred_at: DateTime<Utc>,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SpendSettlement {
+    #[default]
+    Accounted,
+    MeteringUnknown,
 }
 
 /// Model field marking a fail-closed poison, and its cancellation. Both are
@@ -168,6 +192,7 @@ struct SpendState {
     accounted_totals: HashMap<String, u64>,
     poisons: HashSet<String>,
     records: HashMap<Uuid, SpendRecord>,
+    unknown_requests: HashMap<Uuid, SpendRecord>,
     corrections: HashMap<Uuid, SpendCorrection>,
     corrected_requests: HashSet<Uuid>,
     breakdowns: HashMap<String, HashMap<(String, String), u64>>,
@@ -188,6 +213,15 @@ impl SpendState {
                 }
                 POISON_CLEARED => {
                     self.poisons.remove(&record.company_id);
+                    // `clear-poison` is the operator's explicit judgement
+                    // after inspecting an interrupted provider stream. The
+                    // unknown request remains in the append-only spool as the
+                    // incident record, while this later marker makes it
+                    // non-blocking from this point forward. Without clearing
+                    // request-local uncertainty too, the command reports
+                    // success but the company stays permanently paused.
+                    self.unknown_requests
+                        .retain(|_, unknown| unknown.company_id != record.company_id);
                     return Ok(());
                 }
                 _ => {
@@ -197,12 +231,35 @@ impl SpendState {
                 }
             }
         }
+        if record.settlement == SpendSettlement::MeteringUnknown {
+            if self.records.contains_key(&record.request_id) {
+                // A detached provider drain may settle after a downstream
+                // disconnect was first observed. Accounted truth wins.
+                return Ok(());
+            }
+            if let Some(existing) = self.unknown_requests.get(&record.request_id) {
+                if same_request_identity(existing, &record) {
+                    return Ok(());
+                }
+                return Err(GatewayError::Configuration(format!(
+                    "request-local metering incident {} changed identity",
+                    record.request_id
+                )));
+            }
+            self.unknown_requests.insert(record.request_id, record);
+            return Ok(());
+        }
         if self.records.contains_key(&record.request_id) {
+            let existing = &self.records[&record.request_id];
+            if same_accounted_request(existing, &record) {
+                return Ok(());
+            }
             return Err(GatewayError::Configuration(format!(
-                "duplicate spend request id {}",
+                "spend request id {} was replayed with different accounting",
                 record.request_id
             )));
         }
+        self.unknown_requests.remove(&record.request_id);
         let current = self
             .accounted_totals
             .get(&record.company_id)
@@ -380,6 +437,27 @@ impl SpendState {
     }
 }
 
+fn same_request_identity(left: &SpendRecord, right: &SpendRecord) -> bool {
+    left.request_id == right.request_id
+        && left.company_id == right.company_id
+        && left.actor_id == right.actor_id
+        && left.session_id == right.session_id
+        && left.responsibility == right.responsibility
+        && left.work_id == right.work_id
+        && left.attempt_id == right.attempt_id
+        && left.model == right.model
+}
+
+fn same_accounted_request(left: &SpendRecord, right: &SpendRecord) -> bool {
+    same_request_identity(left, right)
+        && left.input_tokens == right.input_tokens
+        && left.output_tokens == right.output_tokens
+        && left.total_tokens == right.total_tokens
+        && left.cached_input_tokens == right.cached_input_tokens
+        && left.cost_micro_usd == right.cost_micro_usd
+        && left.settlement == right.settlement
+}
+
 /// Crash-durable per-company spend counter. Append-only JSONL spool +
 /// in-memory totals rebuilt on boot. Open failure is fatal to the gateway
 /// (fail closed): a gateway that cannot account does not serve.
@@ -494,7 +572,12 @@ impl SpendStore {
             .get(company_id)
             .copied()
             .unwrap_or_default();
-        if state.poisons.contains(company_id) {
+        if state.poisons.contains(company_id)
+            || state
+                .unknown_requests
+                .values()
+                .any(|record| record.company_id == company_id)
+        {
             CompanySpendState::MeteringUnknown {
                 accounted_micro_usd,
             }
@@ -530,6 +613,38 @@ impl SpendStore {
             .collect();
         rows.sort_by(|a, b| b.2.cmp(&a.2));
         rows
+    }
+
+    /// Exact request records remain the source for Work/Attempt telemetry;
+    /// aggregates are projections, never a second accounting writer.
+    #[must_use]
+    pub fn records_for_company(&self, company_id: &str) -> Vec<SpendRecord> {
+        let Ok(state) = self.state.lock() else {
+            return Vec::new();
+        };
+        let mut records = state
+            .records
+            .values()
+            .filter(|record| record.company_id == company_id)
+            .cloned()
+            .collect::<Vec<_>>();
+        records.sort_by_key(|record| (record.occurred_at, record.request_id));
+        records
+    }
+
+    #[must_use]
+    pub fn unknown_requests_for_company(&self, company_id: &str) -> Vec<SpendRecord> {
+        let Ok(state) = self.state.lock() else {
+            return Vec::new();
+        };
+        let mut records = state
+            .unknown_requests
+            .values()
+            .filter(|record| record.company_id == company_id)
+            .cloned()
+            .collect::<Vec<_>>();
+        records.sort_by_key(|record| (record.occurred_at, record.request_id));
+        records
     }
 
     /// S04-T1. Forget one company entirely: its spool records, its total and
@@ -584,6 +699,9 @@ impl SpendStore {
             .records
             .retain(|_, record| record.company_id != company_id);
         state
+            .unknown_requests
+            .retain(|_, record| record.company_id != company_id);
+        state
             .corrections
             .retain(|_, correction| correction.company_id != company_id);
         state.corrected_requests = state
@@ -609,6 +727,7 @@ impl SpendStore {
             input_tokens: 0,
             output_tokens: 0,
             total_tokens: 0,
+            cached_input_tokens: None,
             // A poison marker carries state, not a synthetic charge. Keeping
             // this zero makes it impossible for a future reader to mistake
             // the marker for an enormous bill if the record is inspected
@@ -616,6 +735,10 @@ impl SpendStore {
             cost_micro_usd: 0,
             actor_id: "daemon".into(),
             session_id: "system".into(),
+            responsibility: "authority:metering".into(),
+            work_id: None,
+            attempt_id: None,
+            settlement: SpendSettlement::Accounted,
             occurred_at: Utc::now(),
         };
         if self.record(&marker).is_err() {
@@ -636,9 +759,14 @@ impl SpendStore {
             input_tokens: 0,
             output_tokens: 0,
             total_tokens: 0,
+            cached_input_tokens: None,
             cost_micro_usd: 0,
             actor_id: "daemon".into(),
             session_id: "system".into(),
+            responsibility: "authority:metering".into(),
+            work_id: None,
+            attempt_id: None,
+            settlement: SpendSettlement::Accounted,
             occurred_at: Utc::now(),
         };
         self.record(&marker)?;
@@ -649,6 +777,22 @@ impl SpendStore {
     pub fn record(&self, record: &SpendRecord) -> GatewayResult<()> {
         let mut writer = self.writer.lock().map_err(|_| GatewayError::Upstream)?;
         let mut state = self.state.lock().map_err(|_| GatewayError::Upstream)?;
+        let replay = match record.settlement {
+            SpendSettlement::Accounted => state
+                .records
+                .get(&record.request_id)
+                .is_some_and(|existing| same_accounted_request(existing, record)),
+            SpendSettlement::MeteringUnknown => {
+                state.records.contains_key(&record.request_id)
+                    || state
+                        .unknown_requests
+                        .get(&record.request_id)
+                        .is_some_and(|existing| same_request_identity(existing, record))
+            }
+        };
+        if replay {
+            return Ok(());
+        }
         let mut candidate = state.clone();
         candidate.apply_record(record.clone())?;
         self.append(&mut writer, record, "spend record")?;
@@ -842,9 +986,14 @@ mod tests {
             input_tokens: 1,
             output_tokens: 1,
             total_tokens: 0,
+            cached_input_tokens: None,
             cost_micro_usd: cost,
             actor_id: "exec".to_owned(),
             session_id: String::new(),
+            responsibility: String::new(),
+            work_id: None,
+            attempt_id: None,
+            settlement: SpendSettlement::Accounted,
             occurred_at: Utc::now(),
         }
     }
@@ -947,6 +1096,137 @@ mod tests {
             "real spend must survive the poison, un-inflated"
         );
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn operator_clear_resolves_prior_request_uncertainty_without_inventing_spend() {
+        let temporary = tempfile::tempdir().unwrap();
+        let store = SpendStore::open(temporary.path()).unwrap();
+        store.record(&spend_record("acme", 1_500)).unwrap();
+        let mut unknown = spend_record("acme", 0);
+        unknown.settlement = SpendSettlement::MeteringUnknown;
+        store.record(&unknown).unwrap();
+        assert!(store.company_state("acme").is_metering_unknown());
+
+        store.clear_poison("acme").unwrap();
+        assert_eq!(
+            store.company_state("acme"),
+            CompanySpendState::Accounted {
+                accounted_micro_usd: 1_500
+            }
+        );
+        assert!(store.unknown_requests_for_company("acme").is_empty());
+
+        drop(store);
+        let reopened = SpendStore::open(temporary.path()).unwrap();
+        assert_eq!(
+            reopened.company_state("acme"),
+            CompanySpendState::Accounted {
+                accounted_micro_usd: 1_500
+            },
+            "the later clear marker must resolve earlier unknowns on replay"
+        );
+    }
+
+    #[test]
+    fn concurrent_same_actor_requests_keep_exact_identity_and_local_uncertainty() {
+        let temporary = tempfile::tempdir().unwrap();
+        let store = std::sync::Arc::new(SpendStore::open(temporary.path()).unwrap());
+        let work_id = Uuid::new_v4();
+        let exact = [7_u64, 11, 13].map(|cost| {
+            let mut record = spend_record("acme", cost);
+            record.actor_id = "delivery-worker".into();
+            record.session_id = format!("session-{cost}");
+            record.responsibility = "work:ship-vertical-slice".into();
+            record.work_id = Some(work_id);
+            record.attempt_id = Some(Uuid::new_v4());
+            record.total_tokens = cost * 10;
+            record
+        });
+        let mut unknown = spend_record("acme", 0);
+        unknown.actor_id = "delivery-worker".into();
+        unknown.session_id = "session-unknown".into();
+        unknown.responsibility = "work:ship-vertical-slice".into();
+        unknown.work_id = Some(work_id);
+        unknown.attempt_id = Some(Uuid::new_v4());
+        unknown.settlement = SpendSettlement::MeteringUnknown;
+
+        std::thread::scope(|scope| {
+            for record in exact
+                .iter()
+                .cloned()
+                .chain(std::iter::once(unknown.clone()))
+            {
+                let store = std::sync::Arc::clone(&store);
+                scope.spawn(move || store.record(&record).unwrap());
+            }
+        });
+
+        let records = store.records_for_company("acme");
+        assert_eq!(
+            records.len(),
+            3,
+            "all three exact siblings remain accounted"
+        );
+        assert_eq!(
+            records
+                .iter()
+                .map(|record| record.cost_micro_usd)
+                .sum::<u64>(),
+            31
+        );
+        assert!(records.iter().all(|record| {
+            record.actor_id == "delivery-worker"
+                && record.work_id == Some(work_id)
+                && record.attempt_id.is_some()
+                && !record.responsibility.is_empty()
+        }));
+        assert_eq!(
+            store
+                .unknown_requests_for_company("acme")
+                .iter()
+                .map(|record| record.request_id)
+                .collect::<Vec<_>>(),
+            vec![unknown.request_id],
+            "only the request lacking terminal usage is uncertain"
+        );
+        assert_eq!(
+            store.company_state("acme"),
+            CompanySpendState::MeteringUnknown {
+                accounted_micro_usd: 31
+            }
+        );
+
+        let spool = temporary.path().join("spend.jsonl");
+        let before_replay = fs::read_to_string(&spool).unwrap();
+        store.record(&exact[0]).unwrap();
+        assert_eq!(
+            fs::read_to_string(&spool).unwrap(),
+            before_replay,
+            "an exact provider retry is idempotent"
+        );
+
+        let mut settled = unknown.clone();
+        settled.settlement = SpendSettlement::Accounted;
+        settled.input_tokens = 100;
+        settled.output_tokens = 20;
+        settled.total_tokens = 120;
+        settled.cached_input_tokens = Some(40);
+        settled.cost_micro_usd = 17;
+        store.record(&settled).unwrap();
+        assert!(store.unknown_requests_for_company("acme").is_empty());
+        assert_eq!(
+            store.company_state("acme"),
+            CompanySpendState::Accounted {
+                accounted_micro_usd: 48
+            }
+        );
+
+        drop(store);
+        let reopened = SpendStore::open(temporary.path()).unwrap();
+        assert_eq!(reopened.records_for_company("acme").len(), 4);
+        assert!(reopened.unknown_requests_for_company("acme").is_empty());
+        assert_eq!(reopened.accounted_micro_usd("acme"), 48);
     }
 
     #[test]

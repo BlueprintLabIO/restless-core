@@ -34,7 +34,22 @@ fn valid_identifier(name: &str) -> bool {
 /// This cell's database and role name. One name for both keeps the mapping
 /// obvious when an operator is looking at `\l` and `\du` side by side.
 fn cell_object_name(company: &str) -> String {
-    format!("restless_cell_{company}")
+    let namespace = std::env::var("RESTLESS_RESOURCE_NAMESPACE").unwrap_or_default();
+    cell_object_name_for(company, &namespace)
+}
+
+fn cell_object_name_for(company: &str, namespace: &str) -> String {
+    if namespace.is_empty() {
+        return format!("restless_cell_{company}");
+    }
+    use sha2::{Digest, Sha256};
+    let namespace = namespace.replace('-', "_");
+    let prefix = format!("restless_{namespace}_");
+    let digest = format!("{:x}", Sha256::digest(format!("{namespace}:{company}")));
+    let suffix = &digest[..8];
+    let available = 63usize.saturating_sub(prefix.len() + suffix.len() + 1);
+    let company = &company[..company.len().min(available)];
+    format!("{prefix}{company}_{suffix}")
 }
 
 /// Where the plane records this cell's connection string. The password is
@@ -146,6 +161,63 @@ pub async fn ensure_database(
     std::fs::write(&path, &url).with_context(|| format!("write {}", path.display()))?;
     restrict_to_owner(&path)?;
     Ok(url)
+}
+
+/// Remove one explicitly named throwaway cell and its persisted credential.
+/// The caller enforces the `_test` authority boundary; this function still
+/// validates the identifier before it reaches DDL and never accepts a path or
+/// database name from the request directly.
+pub async fn destroy_database(
+    root: &std::path::Path,
+    admin_url: &str,
+    company: &str,
+) -> Result<bool> {
+    if !valid_identifier(company) {
+        bail!("company {company:?} is not a valid cell identifier");
+    }
+    let object = cell_object_name(company);
+    let path = cell_url_path(root, company);
+    let credential_exists = path.exists();
+    let database_exists = {
+        let mut admin = PgConnection::connect(admin_url)
+            .await
+            .context("connect to the OrgIntel admin database to destroy a cell")?;
+        let exists: bool =
+            sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pg_database WHERE datname=$1)")
+                .bind(&object)
+                .fetch_one(&mut admin)
+                .await?;
+        if exists {
+            sqlx::query("SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname=$1 AND pid <> pg_backend_pid()")
+                .bind(&object)
+                .execute(&mut admin)
+                .await
+                .with_context(|| format!("terminate connections to test cell {object}"))?;
+        }
+        admin
+            .execute(format!("DROP DATABASE IF EXISTS {object}").as_str())
+            .await
+            .with_context(|| format!("drop test cell database {object}"))?;
+        admin
+            .execute(format!("DROP ROLE IF EXISTS {object}").as_str())
+            .await
+            .with_context(|| format!("drop test cell role {object}"))?;
+        // A pre-cell test company may still have its recoverable schema in the
+        // admin database. Destroy means destroy for that exact `_test` name.
+        admin
+            .execute(format!("DROP SCHEMA IF EXISTS {company} CASCADE").as_str())
+            .await
+            .with_context(|| format!("drop legacy test schema {company}"))?;
+        admin.close().await.ok();
+        exists
+    };
+    if let Some(dir) = path.parent() {
+        if dir.exists() {
+            std::fs::remove_dir_all(dir)
+                .with_context(|| format!("remove cell credential directory {}", dir.display()))?;
+        }
+    }
+    Ok(database_exists || credential_exists)
 }
 
 /// The cell connection string carries a password: it must not be world- or
@@ -267,6 +339,20 @@ mod tests {
         assert!(!valid_identifier("Aris"));
         assert!(!valid_identifier(""));
         assert!(!valid_identifier("1aris"));
+    }
+
+    #[test]
+    fn development_cells_do_not_share_stable_database_roles() {
+        let stable = cell_object_name_for("aris", "");
+        let dev = cell_object_name_for("aris", "dev42");
+        let other_dev = cell_object_name_for("aris", "dev43");
+        assert_eq!(stable, "restless_cell_aris");
+        assert_ne!(stable, dev);
+        assert_ne!(dev, other_dev);
+        assert!(dev.len() <= 63);
+        assert!(dev
+            .bytes()
+            .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'_'));
     }
 
     #[test]

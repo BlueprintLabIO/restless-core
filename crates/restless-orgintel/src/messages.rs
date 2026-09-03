@@ -19,6 +19,28 @@ impl OrgIntel {
         Ok(row.get(0))
     }
 
+    /// Count durable lead-to-Staff messages for the decision telemetry
+    /// projection. This is an observation of persisted coordination, not a
+    /// second intervention lifecycle.
+    pub async fn count_internal_messages_from(
+        &self,
+        actors: &[String],
+        excluded_recipients: &[String],
+    ) -> Result<i64> {
+        if actors.is_empty() {
+            return Ok(0);
+        }
+        Ok(sqlx::query_scalar(
+            "SELECT COUNT(*) FROM messages \
+             WHERE from_actor=ANY($1) AND to_actor IS NOT NULL \
+               AND NOT (to_actor=ANY($2))",
+        )
+        .bind(actors)
+        .bind(excluded_recipients)
+        .fetch_one(&self.pool)
+        .await?)
+    }
+
     /// Project one Authority-owned external fact into one organisational
     /// message. `source_ref` is the idempotency boundary and remains an
     /// ordinary reference, not a second mailbox or delivery lifecycle.
@@ -165,6 +187,20 @@ impl OrgIntel {
         body: &str,
         new_focus: bool,
     ) -> Result<(i64, ConversationFocusRow)> {
+        self.send_owner_conversation_message_with_standard(actor, body, new_focus, None)
+            .await
+    }
+
+    /// Send owner conversation with an explicit composer-level outcome
+    /// standard. Absence remains meaningful: the company default or the
+    /// accountable Exec's natural-language judgement applies at commission.
+    pub async fn send_owner_conversation_message_with_standard(
+        &self,
+        actor: &str,
+        body: &str,
+        new_focus: bool,
+        outcome_standard: Option<OutcomeStandard>,
+    ) -> Result<(i64, ConversationFocusRow)> {
         let mut tx = self.pool.begin().await?;
         if new_focus {
             let after_message_id: i64 = sqlx::query_scalar(
@@ -191,11 +227,12 @@ impl OrgIntel {
             }
         }
         let id: i64 = sqlx::query_scalar(
-            "INSERT INTO messages (from_actor, to_actor, body) \
-             VALUES ('owner',$1,$2) RETURNING id",
+            "INSERT INTO messages (from_actor,to_actor,body,outcome_standard) \
+             VALUES ('owner',$1,$2,$3) RETURNING id",
         )
         .bind(actor)
         .bind(body)
+        .bind(outcome_standard)
         .fetch_one(&mut *tx)
         .await?;
         let focus = sqlx::query_as(
@@ -261,6 +298,46 @@ impl OrgIntel {
             .bind(from)
             .execute(&mut *tx)
             .await?;
+        // Owner feedback addressed to a live producer remains exact Attempt
+        // input, but it also changes the accountable lead's mission. Route one
+        // non-producing control notice in the same transaction rather than
+        // relying on the worker to relay it or on a polling lead to discover it.
+        if from == "owner" && to == owner {
+            if let Some(lead) = accountable_lead.as_deref().filter(|lead| *lead != to) {
+                let notice_body = format!(
+                    "Material owner correction for Work {work_id}; owner message {id} is addressed to producer {owner}: {body}"
+                );
+                let notice_id: i64 = sqlx::query_scalar(
+                    "INSERT INTO messages (from_actor,to_actor,body) \
+                     VALUES ('daemon',$1,$2) RETURNING id",
+                )
+                .bind(lead)
+                .bind(&notice_body)
+                .fetch_one(&mut *tx)
+                .await?;
+                sqlx::query(
+                    "INSERT INTO work_feedback (work_id,message_id,linked_by) \
+                     VALUES ($1,$2,'daemon')",
+                )
+                .bind(work_id)
+                .bind(notice_id)
+                .execute(&mut *tx)
+                .await?;
+                sqlx::query(
+                    "INSERT INTO events (kind,actor_id,body) \
+                     VALUES ('owner_correction_routed','daemon',$1)",
+                )
+                .bind(serde_json::json!({
+                    "work_id": work_id,
+                    "source_message_id": id,
+                    "notice_message_id": notice_id,
+                    "producer_actor_id": owner,
+                    "accountable_lead_id": lead,
+                }))
+                .execute(&mut *tx)
+                .await?;
+            }
+        }
         tx.commit().await?;
         Ok(id)
     }
@@ -395,8 +472,8 @@ impl OrgIntel {
             )));
         }
         Ok(sqlx::query_as(
-            "SELECT id,from_actor,to_actor,body,created_at,read_at FROM (\
-               SELECT m.id,m.from_actor,m.to_actor,m.body,m.created_at,m.read_at \
+            "SELECT id,from_actor,to_actor,body,outcome_standard,created_at,read_at FROM (\
+               SELECT m.id,m.from_actor,m.to_actor,m.body,m.outcome_standard,m.created_at,m.read_at \
                FROM messages m JOIN work_feedback f ON f.message_id=m.id \
                WHERE f.work_id=$1 AND (\
                  (m.from_actor='owner' AND m.to_actor=$2) OR \
@@ -414,7 +491,7 @@ impl OrgIntel {
     /// An actor's unread inbox (`None` = the owner's), oldest first.
     pub async fn inbox(&self, actor: Option<&str>) -> Result<Vec<MessageRow>> {
         Ok(sqlx::query_as(
-            "SELECT id, from_actor, to_actor, body, created_at, read_at FROM messages \
+            "SELECT id,from_actor,to_actor,body,outcome_standard,created_at,read_at FROM messages \
              WHERE read_at IS NULL AND to_actor IS NOT DISTINCT FROM $1 ORDER BY id",
         )
         .bind(actor)
@@ -468,7 +545,7 @@ impl OrgIntel {
         .fetch_optional(&mut *tx)
         .await?;
         let messages = sqlx::query_as::<_, MessageRow>(
-            "SELECT id, from_actor, to_actor, body, created_at, read_at FROM messages \
+            "SELECT id,from_actor,to_actor,body,outcome_standard,created_at,read_at FROM messages \
              WHERE read_at IS NULL AND to_actor=$1 ORDER BY id FOR UPDATE",
         )
         .bind(actor)
@@ -507,8 +584,8 @@ impl OrgIntel {
     pub async fn owner_conversation(&self, actor: &str, limit: i64) -> Result<Vec<MessageRow>> {
         let limit = limit.clamp(1, 200);
         Ok(sqlx::query_as(
-            "SELECT id, from_actor, to_actor, body, created_at, read_at FROM (\
-               SELECT id, from_actor, to_actor, body, created_at, read_at FROM messages \
+            "SELECT id,from_actor,to_actor,body,outcome_standard,created_at,read_at FROM (\
+               SELECT id,from_actor,to_actor,body,outcome_standard,created_at,read_at FROM messages \
                WHERE (from_actor = 'owner' AND to_actor = $1) \
                   OR (from_actor = $1 AND to_actor IS NULL) \
                ORDER BY id DESC LIMIT $2\
@@ -586,8 +663,8 @@ impl OrgIntel {
     ) -> Result<Vec<MessageRow>> {
         let limit = limit.clamp(1, 200);
         Ok(sqlx::query_as(
-            "SELECT id,from_actor,to_actor,body,created_at,read_at FROM (\
-               SELECT id,from_actor,to_actor,body,created_at,read_at FROM messages \
+            "SELECT id,from_actor,to_actor,body,outcome_standard,created_at,read_at FROM (\
+               SELECT id,from_actor,to_actor,body,outcome_standard,created_at,read_at FROM messages \
                WHERE id>$2 AND ((from_actor='owner' AND to_actor=$1) \
                             OR (from_actor=$1 AND to_actor IS NULL)) \
                ORDER BY id DESC LIMIT $3\

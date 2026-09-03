@@ -592,6 +592,26 @@ fn first_string(value: &serde_json::Value, keys: &[&str]) -> Option<String> {
 mod tests {
     use super::*;
 
+    fn configure_test_company(root: &std::path::Path, name: &str) {
+        std::fs::create_dir_all(root.join("companies")).unwrap();
+        crate::runtime::CompanyConfig::save(
+            root,
+            &crate::runtime::CompanyConfig {
+                name: name.to_string(),
+                mission: "isolated inbound test".into(),
+                spend_ceiling_usd: crate::runtime::SpendCeiling::from_micro_usd(0),
+                outcome_standard: Default::default(),
+                model: "moonshot/kimi-k3".into(),
+                worker_runtime: crate::runtime::WorkerRuntime::Omp,
+                reasoning_effort: crate::acp::DEFAULT_REASONING_EFFORT.into(),
+                model_failover: Vec::new(),
+                credentials: std::collections::BTreeMap::new(),
+                approved_parties: Vec::new(),
+            },
+        )
+        .unwrap();
+    }
+
     struct ExpectedAuthoritySink {
         inner: AuthoritySink,
         expected_recipient: String,
@@ -770,6 +790,8 @@ mod tests {
             root: root.clone(),
             capabilities: crate::capability::CapabilityIssuer::open(&root)?,
             spend: crate::spend::SpendLedger::open(&root)?,
+            publication: crate::publication::PublicationManager::new(&root, authority.clone())?,
+            launch: crate::launch::LaunchBroker::new(&root)?,
             authority: authority.clone(),
             orgintel: crate::OrgIntelRegistry {
                 database_url,
@@ -779,6 +801,7 @@ mod tests {
             staff: crate::staff::StaffRegistry::default(),
             activities: crate::activity::AgentActivityStreams::default(),
             in_flight: Arc::new(std::sync::Mutex::new(crate::schedule::WakeClaims::default())),
+            schedule_wake: Arc::new(tokio::sync::Notify::new()),
         });
         let org = daemon.orgintel.get(&company).await?;
         org.ensure_actor("owner", "owner", "owner", "The Owner")
@@ -934,6 +957,8 @@ mod tests {
         let healthy_company = format!("s17zhealthy{}_test", &suffix[..10]);
         let root = std::env::temp_dir().join(format!("restless-s17-isolation-{suffix}"));
         std::fs::create_dir_all(&root).unwrap();
+        configure_test_company(&root, &degraded_company);
+        configure_test_company(&root, &healthy_company);
         let authority = crate::authority::AuthorityStore::connect(&database_url)
             .await
             .unwrap();
@@ -941,6 +966,9 @@ mod tests {
             root: root.clone(),
             capabilities: crate::capability::CapabilityIssuer::open(&root).unwrap(),
             spend: crate::spend::SpendLedger::open(&root).unwrap(),
+            publication: crate::publication::PublicationManager::new(&root, authority.clone())
+                .unwrap(),
+            launch: crate::launch::LaunchBroker::new(&root).unwrap(),
             authority: authority.clone(),
             orgintel: crate::OrgIntelRegistry {
                 database_url,
@@ -952,6 +980,7 @@ mod tests {
             in_flight: std::sync::Arc::new(std::sync::Mutex::new(
                 crate::schedule::WakeClaims::default(),
             )),
+            schedule_wake: std::sync::Arc::new(tokio::sync::Notify::new()),
         };
         let healthy_org = daemon.orgintel.get(&healthy_company).await.unwrap();
         healthy_org
@@ -1007,7 +1036,13 @@ mod tests {
         assert_eq!(healthy_inbox.len(), 1);
         assert!(healthy_inbox[0].body.contains("independent provider fact"));
 
-        healthy_org.drop_schema().await.unwrap();
+        healthy_org.close().await;
+        crate::cell::destroy_database(&root, &daemon.orgintel.database_url, &degraded_company)
+            .await
+            .unwrap();
+        crate::cell::destroy_database(&root, &daemon.orgintel.database_url, &healthy_company)
+            .await
+            .unwrap();
         authority
             .delete_test_company(&degraded_company)
             .await
@@ -1029,6 +1064,7 @@ mod tests {
         let company = format!("s17inbound{}_test", &suffix[..12]);
         let root = std::env::temp_dir().join(format!("restless-s17-inbound-{suffix}"));
         std::fs::create_dir_all(&root).unwrap();
+        configure_test_company(&root, &company);
         let authority = crate::authority::AuthorityStore::connect(&database_url)
             .await
             .unwrap();
@@ -1036,6 +1072,9 @@ mod tests {
             root: root.clone(),
             capabilities: crate::capability::CapabilityIssuer::open(&root).unwrap(),
             spend: crate::spend::SpendLedger::open(&root).unwrap(),
+            publication: crate::publication::PublicationManager::new(&root, authority.clone())
+                .unwrap(),
+            launch: crate::launch::LaunchBroker::new(&root).unwrap(),
             authority: authority.clone(),
             orgintel: crate::OrgIntelRegistry {
                 database_url,
@@ -1047,6 +1086,7 @@ mod tests {
             in_flight: std::sync::Arc::new(std::sync::Mutex::new(
                 crate::schedule::WakeClaims::default(),
             )),
+            schedule_wake: std::sync::Arc::new(tokio::sync::Notify::new()),
         };
         let org = daemon.orgintel.get(&company).await.unwrap();
         org.ensure_actor("exec", "exec", "exec", "The Exec")
@@ -1158,7 +1198,10 @@ mod tests {
             2
         );
 
-        org.drop_schema().await.unwrap();
+        org.close().await;
+        crate::cell::destroy_database(&root, &daemon.orgintel.database_url, &company)
+            .await
+            .unwrap();
         authority.delete_test_company(&company).await.unwrap();
         std::fs::remove_dir_all(&root).unwrap();
     }

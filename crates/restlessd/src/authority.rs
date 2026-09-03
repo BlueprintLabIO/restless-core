@@ -14,6 +14,7 @@ use restless_orgintel::OrgIntel;
 use sha2::{Digest as _, Sha256};
 use sqlx::postgres::PgPoolOptions;
 use sqlx::{PgPool, Row as _};
+use uuid::Uuid;
 
 pub const GOVERNANCE_KINDS: &[&str] = &[
     "effect_intent",
@@ -28,10 +29,22 @@ pub const GOVERNANCE_KINDS: &[&str] = &[
     "approval_revoked",
     "lifecycle",
     "mandate_revision",
+    "company_identity_decision",
     "provider_connection_requested",
     "provider_connection_enabled",
     "provider_connection_observed",
     "provider_connection_disabled",
+    "publication_request",
+    "publication_authorized",
+    "publication_resource_grant",
+    "publication_ready",
+    "publication_recovered",
+    "publication_failed",
+    "publication_observation",
+    "publication_invitation",
+    "publication_invitation_revoked",
+    "publication_stopped",
+    "publication_cleanup",
 ];
 
 const IMPORT_VERSION: i32 = 2;
@@ -82,6 +95,18 @@ impl AuthorityStore {
             .connect(database_url)
             .await
             .context("connect Authority store")?;
+        // Several daemon/test callers may open the one installation-wide
+        // Authority store concurrently. PostgreSQL's `IF NOT EXISTS` DDL is
+        // not race-free: concurrent schema/type creation can still collide in
+        // system catalogues. A transaction-scoped advisory lock serializes
+        // only this short, idempotent bootstrap and releases automatically on
+        // every error path.
+        let mut bootstrap = pool.begin().await.context("begin Authority bootstrap")?;
+        sqlx::query("SELECT pg_advisory_xact_lock($1)")
+            .bind(0x5253_544c_4155_5448_i64)
+            .execute(&mut *bootstrap)
+            .await
+            .context("serialize Authority bootstrap")?;
         // Fixed identifiers only. No company or request data is interpolated.
         sqlx::query("CREATE SCHEMA IF NOT EXISTS restless_authority")
             .execute(&pool)
@@ -135,6 +160,86 @@ impl AuthorityStore {
         .execute(&pool)
         .await
         .context("index inbound provider events")?;
+        for (name, sql) in [
+            (
+                "publication request idempotency",
+                "CREATE UNIQUE INDEX IF NOT EXISTS authority_publication_request_key \
+                 ON restless_authority.records (company, (body->>'idempotency_key')) \
+                 WHERE kind = 'publication_request'",
+            ),
+            (
+                "publication authorization",
+                "CREATE UNIQUE INDEX IF NOT EXISTS authority_publication_authorized_once \
+                 ON restless_authority.records (company, (body->>'publication_id')) \
+                 WHERE kind = 'publication_authorized'",
+            ),
+            (
+                "publication resource grant",
+                "CREATE UNIQUE INDEX IF NOT EXISTS authority_publication_resource_grant_once \
+                 ON restless_authority.records (company, (body->>'publication_id')) \
+                 WHERE kind = 'publication_resource_grant'",
+            ),
+            (
+                "publication ready receipt",
+                "CREATE UNIQUE INDEX IF NOT EXISTS authority_publication_ready_once \
+                 ON restless_authority.records (company, (body->>'publication_id')) \
+                 WHERE kind = 'publication_ready'",
+            ),
+            (
+                "publication provider failure",
+                "CREATE UNIQUE INDEX IF NOT EXISTS authority_publication_failure_key \
+                 ON restless_authority.records (company, (body->>'failure_key')) \
+                 WHERE kind = 'publication_failed'",
+            ),
+            (
+                "publication invitation",
+                "CREATE UNIQUE INDEX IF NOT EXISTS authority_publication_invitation_id \
+                 ON restless_authority.records (company, (body->>'invitation_id')) \
+                 WHERE kind = 'publication_invitation'",
+            ),
+            (
+                "publication invitation revocation",
+                "CREATE UNIQUE INDEX IF NOT EXISTS authority_publication_invitation_revoke_once \
+                 ON restless_authority.records (company, (body->>'invitation_id')) \
+                 WHERE kind = 'publication_invitation_revoked'",
+            ),
+            (
+                "publication stop",
+                "CREATE UNIQUE INDEX IF NOT EXISTS authority_publication_stop_once \
+                 ON restless_authority.records (company, (body->>'publication_id')) \
+                 WHERE kind = 'publication_stopped'",
+            ),
+            (
+                "publication cleanup",
+                "CREATE UNIQUE INDEX IF NOT EXISTS authority_publication_cleanup_once \
+                 ON restless_authority.records (company, (body->>'publication_id')) \
+                 WHERE kind = 'publication_cleanup'",
+            ),
+        ] {
+            sqlx::query(sql)
+                .execute(&mut *bootstrap)
+                .await
+                .with_context(|| format!("index {name}"))?;
+        }
+        // Tests and multi-plane startup can initialise this shared account
+        // store concurrently. PostgreSQL's IF NOT EXISTS does not serialize
+        // two simultaneous index catalogue writes, so keep this one-time DDL
+        // under a transaction-scoped database lock.
+        let mut identity_ddl = pool.begin().await?;
+        sqlx::query("SELECT pg_advisory_xact_lock(7310026)")
+            .execute(&mut *identity_ddl)
+            .await
+            .context("lock company identity Authority migration")?;
+        sqlx::query(
+            "CREATE UNIQUE INDEX IF NOT EXISTS authority_company_identity_decision \
+             ON restless_authority.records \
+             (company, kind, (body->>'proposal_id'), (body->>'decision')) \
+             WHERE kind = 'company_identity_decision'",
+        )
+        .execute(&mut *identity_ddl)
+        .await
+        .context("index company identity decisions")?;
+        identity_ddl.commit().await?;
         sqlx::query(
             "CREATE TABLE IF NOT EXISTS restless_authority.company_migrations (\
                company TEXT PRIMARY KEY, \
@@ -166,6 +271,10 @@ impl AuthorityStore {
         crate::finance::ensure_schema(&pool).await?;
         crate::airwallex::ensure_schema(&pool).await?;
         crate::connected_tool::ensure_schema(&pool).await?;
+        bootstrap
+            .commit()
+            .await
+            .context("complete Authority bootstrap")?;
         Ok(Self { pool })
     }
 
@@ -235,6 +344,47 @@ impl AuthorityStore {
         .await
         .with_context(|| format!("record Authority {kind} for {company}"))?;
         Ok(id)
+    }
+
+    /// Record one owner identity decision idempotently. Authority owns the
+    /// decision; OrgIntel projects the resulting release and can safely retry
+    /// after a crash between the two stores.
+    pub async fn record_company_identity_decision(
+        &self,
+        company: &str,
+        proposal_id: Uuid,
+        decision: &str,
+        rationale: &str,
+    ) -> Result<i64> {
+        let body = serde_json::json!({
+            "proposal_id": proposal_id,
+            "decision": decision,
+            "rationale": rationale,
+        });
+        let inserted = sqlx::query_scalar::<_, i64>(
+            "INSERT INTO restless_authority.records (company,kind,actor_id,body) \
+             VALUES ($1,'company_identity_decision','owner',$2) \
+             ON CONFLICT (company,kind,(body->>'proposal_id'),(body->>'decision')) \
+             WHERE kind='company_identity_decision' DO NOTHING RETURNING id",
+        )
+        .bind(company)
+        .bind(body)
+        .fetch_optional(&self.pool)
+        .await?;
+        if let Some(id) = inserted {
+            return Ok(id);
+        }
+        sqlx::query_scalar(
+            "SELECT id FROM restless_authority.records WHERE company=$1 \
+             AND kind='company_identity_decision' AND body->>'proposal_id'=$2 \
+             AND body->>'decision'=$3 ORDER BY id LIMIT 1",
+        )
+        .bind(company)
+        .bind(proposal_id.to_string())
+        .bind(decision)
+        .fetch_one(&self.pool)
+        .await
+        .context("recover company identity decision")
     }
 
     /// Atomically reserve one execution number for a generic material effect.

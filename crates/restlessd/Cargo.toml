@@ -30,15 +30,21 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 url = "2"
 uuid = { version = "1", features = ["v4"] }
+zip = { version = "2", default-features = false, features = ["deflate"] }
 hmac = "0.12"
 base64 = "0.23.1"
 futures-util = "0.3"
+fs2 = "0.4"
 http-body-util = "0.1"
-hyper = { version = "1", features = ["client", "http1"] }
-hyper-util = { version = "0.1", features = ["tokio"] }
+hyper = { version = "1", features = ["client", "http1", "server"] }
+hyper-util = { version = "0.1", features = ["tokio", "server", "service", "http1"] }
 tokio-tungstenite = "0.26"
+tokio-rustls = "0.26"
+rustls = "0.23"
+rcgen = "0.13"
 tower-http = { version = "0.6", features = ["fs", "trace"] }
 ts-rs = { version = "12.0.1", features = ["chrono-impl", "uuid-impl", "serde-json-impl"] }
 
 [dev-dependencies]
 tower = { version = "0.5", features = ["util"] }
+rustls-pemfile = "2"

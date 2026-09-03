@@ -12,6 +12,7 @@ use std::{
 };
 
 use anyhow::{Context, Result};
+#[cfg(test)]
 use chrono::Utc;
 use restless_model_gateway::{
     CompanySpendState, SpendCorrection, SpendCorrectionPreview, SpendRecord, SpendStore,
@@ -203,46 +204,43 @@ impl TurnMeter {
     /// ledger's micro-USD unit and attributed it to one supervised session.
     /// Preserve that integer charge through the spool rather than converting a
     /// provider decimal back through `f64`.
-    pub fn record_exact(
-        &self,
-        company: &str,
-        actor: &str,
-        session: &str,
-        model: &str,
-        used: u64,
-        cost_micro_usd: u64,
-    ) {
-        let record = SpendRecord {
-            request_id: Uuid::new_v4(),
-            company_id: company.to_owned(),
-            model: model.to_owned(),
-            input_tokens: 0,
-            output_tokens: 0,
-            total_tokens: used,
-            cost_micro_usd,
-            actor_id: actor.to_owned(),
-            session_id: session.to_owned(),
-            occurred_at: Utc::now(),
-        };
-        let Ok(store) = self.ledger.store(company) else {
+    pub fn record_exact(&self, record: SpendRecord) {
+        let Ok(store) = self.ledger.store(&record.company_id) else {
             tracing::error!(
-                company,
+                company = %record.company_id,
+                request_id = %record.request_id,
                 "cell spend ledger unavailable; turn charge not recorded"
             );
             return;
         };
         if store.record(&record).is_err() {
-            store.poison(company);
+            store.poison(&record.company_id);
             tracing::error!(
-                company,
+                company = %record.company_id,
+                request_id = %record.request_id,
                 "turn spend record failed; company poisoned fail-closed"
             );
         }
     }
 
-    pub fn poison(&self, company: &str) {
-        if let Ok(store) = self.ledger.store(company) {
-            store.poison(company);
+    /// Preserve one exact request-local uncertainty. It stops later charged
+    /// admission without relabelling already-running sibling requests as bad.
+    pub fn record_unknown(&self, record: SpendRecord) {
+        let Ok(store) = self.ledger.store(&record.company_id) else {
+            tracing::error!(
+                company = %record.company_id,
+                request_id = %record.request_id,
+                "cell spend ledger unavailable; request uncertainty not recorded"
+            );
+            return;
+        };
+        if let Err(error) = store.record(&record) {
+            store.poison(&record.company_id);
+            tracing::error!(
+                company = %record.company_id,
+                request_id = %record.request_id,
+                "request uncertainty record failed; company poisoned: {error}"
+            );
         }
     }
 }
@@ -493,6 +491,23 @@ impl SpendLedger {
             .into_iter()
             .map(|(actor, model, micro)| (actor, model, micro as f64 / 1_000_000.0))
             .collect()
+    }
+
+    /// Exact canonical request records for decision telemetry. The append-only
+    /// spend store remains the sole writer; this is only a read projection.
+    #[must_use]
+    pub fn records(&self, company: &str) -> Vec<SpendRecord> {
+        self.store(company)
+            .map(|store| store.records_for_company(company))
+            .unwrap_or_default()
+    }
+
+    /// Requests whose provider terminal could not be settled exactly.
+    #[must_use]
+    pub fn unknown_requests(&self, company: &str) -> Vec<SpendRecord> {
+        self.store(company)
+            .map(|store| store.unknown_requests_for_company(company))
+            .unwrap_or_default()
     }
 
     /// Owner recovery preview: validate exact duplicate request ids and show

@@ -386,6 +386,31 @@ impl OrgIntel {
         lead_actor_id: &str,
         created_by: &str,
     ) -> Result<Uuid> {
+        self.create_team_with_standard(
+            name,
+            brief,
+            lead_actor_id,
+            created_by,
+            OutcomeStandard::Exceptional,
+            OutcomeStandardSource::CompanyDefault,
+            None,
+        )
+        .await
+    }
+
+    /// Form a team while preserving the ambition that caused its outcome.
+    /// This is coordination context, never a capability or spend grant.
+    #[allow(clippy::too_many_arguments)]
+    pub async fn create_team_with_standard(
+        &self,
+        name: &str,
+        brief: &str,
+        lead_actor_id: &str,
+        created_by: &str,
+        outcome_standard: OutcomeStandard,
+        outcome_standard_source: OutcomeStandardSource,
+        standard_source_message_id: Option<i64>,
+    ) -> Result<Uuid> {
         if name.trim().is_empty() {
             return Err(OrgIntelError::InvalidWork("a team needs a name".into()));
         }
@@ -399,8 +424,60 @@ impl OrgIntel {
                 "a standing company/system actor cannot be appointed as a team lead".into(),
             ));
         }
+        match (outcome_standard_source, standard_source_message_id) {
+            (OutcomeStandardSource::CompanyDefault, None)
+            | (
+                OutcomeStandardSource::OwnerOverride | OutcomeStandardSource::OwnerLanguage,
+                Some(_),
+            ) => {}
+            (OutcomeStandardSource::CompanyDefault, Some(_)) => {
+                return Err(OrgIntelError::InvalidWork(
+                    "a company-default standard cannot cite an owner message".into(),
+                ));
+            }
+            (_, None) => {
+                return Err(OrgIntelError::InvalidWork(
+                    "an owner-selected standard needs its source message".into(),
+                ));
+            }
+        }
         let id = Uuid::new_v4();
         let mut tx = self.pool.begin().await?;
+        if let Some(message_id) = standard_source_message_id {
+            let source = sqlx::query(
+                "SELECT from_actor,to_actor,outcome_standard FROM messages WHERE id=$1",
+            )
+            .bind(message_id)
+            .fetch_optional(&mut *tx)
+            .await?
+            .ok_or_else(|| {
+                OrgIntelError::InvalidWork(format!(
+                    "outcome-standard source message {message_id} does not exist"
+                ))
+            })?;
+            if source.get::<String, _>("from_actor") != "owner"
+                || source.get::<Option<String>, _>("to_actor").as_deref() != Some("exec")
+            {
+                return Err(OrgIntelError::InvalidWork(
+                    "an outcome-standard override must cite an owner message to Exec".into(),
+                ));
+            }
+            let explicit = source.get::<Option<OutcomeStandard>, _>("outcome_standard");
+            match outcome_standard_source {
+                OutcomeStandardSource::OwnerOverride if explicit != Some(outcome_standard) => {
+                    return Err(OrgIntelError::InvalidWork(
+                        "the commissioned standard does not match the owner's explicit selection"
+                            .into(),
+                    ));
+                }
+                OutcomeStandardSource::OwnerLanguage if explicit.is_some() => {
+                    return Err(OrgIntelError::InvalidWork(
+                        "owner_language cannot replace an explicit composer selection".into(),
+                    ));
+                }
+                _ => {}
+            }
+        }
         let commissioner_exists: bool = sqlx::query_scalar(
             "SELECT EXISTS(SELECT 1 FROM actors WHERE id=$1 AND retired_at IS NULL \
              AND id IN ('owner','exec'))",
@@ -432,12 +509,16 @@ impl OrgIntel {
             ));
         }
         sqlx::query(
-            "INSERT INTO teams (id, name, brief, lead_actor_id, created_by) \
-             VALUES ($1,$2,$3,$4,$5)",
+            "INSERT INTO teams \
+             (id,name,brief,outcome_standard,outcome_standard_source,standard_source_message_id,lead_actor_id,created_by) \
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8)",
         )
         .bind(id)
         .bind(name.trim())
         .bind(brief.trim())
+        .bind(outcome_standard)
+        .bind(outcome_standard_source)
+        .bind(standard_source_message_id)
         .bind(lead_actor_id)
         .bind(created_by)
         .execute(&mut *tx)
@@ -460,6 +541,9 @@ impl OrgIntel {
                 "team_id": id,
                 "name": name.trim(),
                 "brief": brief.trim(),
+                "outcome_standard": outcome_standard,
+                "outcome_standard_source": outcome_standard_source,
+                "standard_source_message_id": standard_source_message_id,
                 "lead_actor_id": lead_actor_id,
             }))
             .execute(&mut *tx)
@@ -489,7 +573,8 @@ impl OrgIntel {
     /// returned — they are history, not structure.
     pub async fn list_teams(&self) -> Result<Vec<TeamRow>> {
         Ok(sqlx::query_as::<_, TeamRow>(
-            "SELECT id, name, brief, lead_actor_id, created_by, created_at, disbanded_at \
+            "SELECT id,name,brief,outcome_standard,outcome_standard_source,standard_source_message_id, \
+                    lead_actor_id,created_by,created_at,disbanded_at \
              FROM teams WHERE disbanded_at IS NULL ORDER BY created_at, id",
         )
         .fetch_all(&self.pool)

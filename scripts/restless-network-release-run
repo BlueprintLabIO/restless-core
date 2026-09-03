@@ -18,6 +18,9 @@ fi
 
 revision="$(git rev-parse HEAD)"
 version="$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)"
+api_contract="$(sed -n 's/.*API_CONTRACT_VERSION: u32 = \([0-9]*\);.*/\1/p' crates/restlessd/src/release.rs)"
+assertion_contract="$(sed -n 's/.*ASSERTION_CONTRACT_VERSION: u32 = \([0-9]*\);.*/\1/p' crates/restlessd/src/entry.rs)"
+schema_version="$(sed -n 's/.*SCHEMA_VERSION: u32 = \([0-9]*\);.*/\1/p' crates/restlessd/src/release.rs)"
 run_id="${RESTLESS_NETWORK_TEST_RUN_ID:-$$}"
 company="core27_network_${run_id}_test"
 registry_port="${RESTLESS_NETWORK_TEST_REGISTRY_PORT:-15000}"
@@ -77,9 +80,9 @@ docker build -f infra/account-plane/Dockerfile --build-arg SOURCE_REVISION="$rev
 docker build -f infra/company-image/Dockerfile \
   --build-arg RESTLESS_CORE_VERSION="$version" \
   --build-arg RESTLESS_SOURCE_REVISION="$revision" \
-  --build-arg RESTLESS_API_CONTRACT_VERSION=1 \
-  --build-arg RESTLESS_ASSERTION_CONTRACT_VERSION=1 \
-  --build-arg RESTLESS_SCHEMA_VERSION=21 \
+  --build-arg "RESTLESS_API_CONTRACT_VERSION=$api_contract" \
+  --build-arg "RESTLESS_ASSERTION_CONTRACT_VERSION=$assertion_contract" \
+  --build-arg "RESTLESS_SCHEMA_VERSION=$schema_version" \
   -t "$runtime_tag" .
 docker push "$plane_tag" >/dev/null
 docker push "$runtime_tag" >/dev/null

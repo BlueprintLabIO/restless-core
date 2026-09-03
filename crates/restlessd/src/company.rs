@@ -8,6 +8,7 @@ use std::collections::BTreeSet;
 
 use anyhow::{bail, Context as _, Result};
 use chrono::{DateTime, Utc};
+use restless_orgintel::{ArtifactRefRow, ScheduleRow};
 use serde::Serialize;
 
 use crate::{airwallex, approval, credential, finance, legal, reconcile, runtime, Daemon};
@@ -63,6 +64,7 @@ pub(crate) struct CompanyView {
 struct CompanyIdentity {
     id: String,
     name: String,
+    outcome_standard: restless_orgintel::OutcomeStandard,
 }
 
 #[derive(Debug, Serialize)]
@@ -176,6 +178,8 @@ struct ResourceRow {
     detail: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     metadata: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    launch: Option<crate::launch::ArtifactLaunchDescriptor>,
 }
 
 #[derive(Debug, Serialize)]
@@ -249,6 +253,7 @@ struct AuthorityProjection {
     envelopes: Vec<finance::MoneyEnvelope>,
     payments: Vec<finance::PaymentIntent>,
     cooldowns: Vec<crate::authority::ModelCooldown>,
+    publications: Vec<crate::authority::AuthorityRecord>,
 }
 
 pub(crate) async fn project(
@@ -259,12 +264,24 @@ pub(crate) async fn project(
     let observed_at = Utc::now();
 
     let org_result = match daemon.orgintel.get(&config.name).await {
-        Ok(org) => org.list_goals().await.map_err(|error| format!("{error:#}")),
+        Ok(org) => tokio::try_join!(
+            org.list_goals(),
+            org.list_artifact_refs(None),
+            org.list_schedules(None, true),
+        )
+        .map_err(|error| format!("{error:#}")),
         Err(error) => Err(format!("{error:#}")),
     };
-    let (goals, orgintel_source) = match org_result {
-        Ok(goals) => (goals, SourceObservation::available(observed_at)),
+    let (goals, artifacts, schedules, orgintel_source) = match org_result {
+        Ok((goals, artifacts, schedules)) => (
+            goals,
+            artifacts,
+            schedules,
+            SourceObservation::available(observed_at),
+        ),
         Err(error) => (
+            Vec::new(),
+            Vec::new(),
             Vec::new(),
             SourceObservation::unavailable(observed_at, error),
         ),
@@ -394,6 +411,8 @@ pub(crate) async fn project(
         config,
         authority.as_ref(),
         runtime_doctor.as_ref(),
+        &artifacts,
+        &schedules,
         probe_credentials,
     )
     .await;
@@ -414,6 +433,7 @@ pub(crate) async fn project(
         company: CompanyIdentity {
             id: config.name.clone(),
             name: display_name(&config.name),
+            outcome_standard: config.outcome_standard,
         },
         sources: Sources {
             authority: authority_source,
@@ -453,6 +473,7 @@ async fn read_authority(daemon: &Daemon, company: &str) -> Result<AuthorityProje
         envelopes,
         payments,
         cooldowns,
+        publications,
     ) = tokio::try_join!(
         approval::approved_parties(&daemon.authority, company),
         daemon.authority.records_of_kind(company, "effect"),
@@ -465,6 +486,7 @@ async fn read_authority(daemon: &Daemon, company: &str) -> Result<AuthorityProje
         finance::envelopes(&daemon.authority, company),
         finance::payments(&daemon.authority, company),
         daemon.authority.active_model_cooldowns(company),
+        publication_records(&daemon.authority, company),
     )?;
     Ok(AuthorityProjection {
         approved_parties,
@@ -476,13 +498,37 @@ async fn read_authority(daemon: &Daemon, company: &str) -> Result<AuthorityProje
         envelopes,
         payments,
         cooldowns,
+        publications,
     })
+}
+
+async fn publication_records(
+    authority: &crate::authority::AuthorityStore,
+    company: &str,
+) -> Result<Vec<crate::authority::AuthorityRecord>> {
+    let mut records = Vec::new();
+    for kind in [
+        "publication_request",
+        "publication_authorized",
+        "publication_resource_grant",
+        "publication_ready",
+        "publication_recovered",
+        "publication_failed",
+        "publication_stopped",
+        "publication_cleanup",
+    ] {
+        records.extend(authority.records_of_kind(company, kind).await?);
+    }
+    records.sort_by_key(|record| record.id);
+    Ok(records)
 }
 
 async fn resources(
     config: &runtime::CompanyConfig,
     authority: Option<&AuthorityProjection>,
     doctor: Option<&runtime::RuntimeDoctor>,
+    artifacts: &[ArtifactRefRow],
+    schedules: &[ScheduleRow],
     probe_credentials: bool,
 ) -> Resources {
     let observed_at = Utc::now();
@@ -516,6 +562,7 @@ async fn resources(
             "worker_runtime": config.worker_runtime,
             "reasoning_effort": config.reasoning_effort,
         })),
+        launch: None,
     });
 
     for (binding, reference) in &config.credentials {
@@ -537,6 +584,7 @@ async fn resources(
             observed_at,
             detail,
             metadata: None,
+            launch: None,
         });
     }
 
@@ -564,6 +612,7 @@ async fn resources(
                 "read_scopes": provider.configured.read_scopes,
                 "submit_scopes": provider.configured.submit_scopes,
             })),
+            launch: None,
         });
     }
 
@@ -578,8 +627,311 @@ async fn resources(
                 observed_at,
                 detail: Some("Observed from the Company computer process supervisor.".into()),
                 metadata: None,
+                launch: None,
             });
         }
+    }
+
+    if let Some(authority) = authority {
+        for requested in authority
+            .publications
+            .iter()
+            .filter(|record| record.body.get("request").is_some())
+        {
+            let Some(publication_id) = requested
+                .body
+                .get("publication_id")
+                .and_then(serde_json::Value::as_str)
+            else {
+                continue;
+            };
+            let related = |record: &&crate::authority::AuthorityRecord| {
+                record
+                    .body
+                    .get("publication_id")
+                    .and_then(serde_json::Value::as_str)
+                    == Some(publication_id)
+            };
+            let latest = authority
+                .publications
+                .iter()
+                .filter(related)
+                .max_by_key(|record| record.id)
+                .unwrap_or(requested);
+            let status = if latest.body.get("cleaned_at").is_some() {
+                "cleaned"
+            } else if latest.body.get("stopped_at").is_some() {
+                "stopped"
+            } else if latest.body.get("error").is_some() {
+                "failed"
+            } else if latest.body.get("receipt").is_some() {
+                "ready"
+            } else if latest.body.get("authorized_at").is_some()
+                || latest.body.get("resources").is_some() && latest.body.get("provider").is_some()
+            {
+                "authorized"
+            } else {
+                "awaiting_owner_authorization"
+            };
+            let request = requested.body.get("request").cloned().unwrap_or_default();
+            let profile = request
+                .pointer("/candidate/manifest/profile")
+                .and_then(serde_json::Value::as_str);
+            let expires_at = request
+                .get("expires_at")
+                .and_then(serde_json::Value::as_str)
+                .and_then(|value| chrono::DateTime::parse_from_rfc3339(value).ok())
+                .map(|value| value.with_timezone(&Utc));
+            let availability = if expires_at.is_some_and(|expiry| expiry <= observed_at) {
+                "expired"
+            } else {
+                match status {
+                    "ready" if profile == Some("https-websocket-demo") => "ready",
+                    "ready" => "unavailable",
+                    "authorized" => "preparing",
+                    "stopped" | "cleaned" => "stopped",
+                    _ => "unavailable",
+                }
+            };
+            let launch = profile.map(|profile| crate::launch::ArtifactLaunchDescriptor {
+                contract_version: crate::launch::CONTRACT_VERSION,
+                shape: if profile == "https-websocket-demo" {
+                    crate::launch::LaunchShape::EmbeddedWeb
+                } else {
+                    crate::launch::LaunchShape::NativeClient
+                },
+                availability: availability.into(),
+                detail: if profile == "https-websocket-demo" {
+                    match availability {
+                        "ready" => "Open the exact released web artifact inside Restless.",
+                        "preparing" => "The released web artifact is still preparing.",
+                        "expired" => "The publication access window has expired.",
+                        "stopped" => "The publication has been stopped.",
+                        _ => "The released web artifact is not currently reachable.",
+                    }
+                } else {
+                    "This is the authoritative native server. Open its matching verified client artifact."
+                }
+                .into(),
+                open_endpoint: format!(
+                    "/api/companies/{}/resources/published-service:{publication_id}/open",
+                    config.name
+                ),
+                artifact_digest: request
+                    .pointer("/candidate/image")
+                    .and_then(serde_json::Value::as_str)
+                    .and_then(|image| image.rsplit_once('@').map(|(_, digest)| digest.to_string())),
+                candidate_digest: request
+                    .pointer("/candidate/manifest_digest")
+                    .and_then(serde_json::Value::as_str)
+                    .map(str::to_string),
+                work_id: request
+                    .pointer("/candidate/work_id")
+                    .and_then(serde_json::Value::as_str)
+                    .map(str::to_string),
+                attempt_id: request
+                    .pointer("/candidate/attempt_id")
+                    .and_then(serde_json::Value::as_str)
+                    .map(str::to_string),
+                audience: request
+                    .get("audience")
+                    .and_then(serde_json::Value::as_str)
+                    .map(str::to_string),
+                expires_at,
+                platform: (profile == "godot-enet-udp").then(|| "macos-arm64".into()),
+                publication_id: Some(publication_id.to_string()),
+                runtime_generation: request
+                    .pointer("/candidate/runtime_generation")
+                    .and_then(serde_json::Value::as_str)
+                    .map(str::to_string),
+            });
+            items.push(ResourceRow {
+                id: format!("published-service:{publication_id}"),
+                label: publication_id.to_string(),
+                kind: "published_service",
+                source: "authority",
+                status: status.into(),
+                observed_at: latest.created_at,
+                detail: Some(if status == "awaiting_owner_authorization" {
+                    "Prepared by the company; the exact audience, expiry, resource envelope and immutable build await owner authorization.".into()
+                } else {
+                    "Bounded provider state; the company Runtime itself has no public route.".into()
+                }),
+                metadata: Some(serde_json::json!({
+                    "image": request.pointer("/candidate/image"),
+                    "manifest_digest": request.pointer("/candidate/manifest_digest"),
+                    "work_id": request.pointer("/candidate/work_id"),
+                    "attempt_id": request.pointer("/candidate/attempt_id"),
+                    "runtime_generation": request.pointer("/candidate/runtime_generation"),
+                    "profile": request.pointer("/candidate/manifest/profile"),
+                    "audience": request.get("audience"),
+                    "expires_at": request.get("expires_at"),
+                    "resources": request.get("resources"),
+                })),
+                launch,
+            });
+        }
+
+        for artifact in artifacts {
+            if artifact.kind != "native_client_release"
+                || artifact.state != restless_orgintel::ArtifactRefState::Available
+            {
+                continue;
+            }
+            let manifest = match crate::launch::NativeClientRelease::parse(artifact) {
+                Ok(manifest) => manifest,
+                Err(error) => {
+                    items.push(ResourceRow {
+                        id: format!("artifact:{}", artifact.id),
+                        label: artifact.label.clone(),
+                        kind: "native_client",
+                        source: "orgintel",
+                        status: "unavailable".into(),
+                        observed_at: artifact.created_at,
+                        detail: Some(format!("Native client release is invalid: {error}")),
+                        metadata: Some(serde_json::json!({
+                            "digest": artifact.digest,
+                            "work_id": artifact.work_id,
+                            "attempt_id": artifact.attempt_id,
+                        })),
+                        launch: None,
+                    });
+                    continue;
+                }
+            };
+            let related = |record: &&crate::authority::AuthorityRecord| {
+                record
+                    .body
+                    .get("publication_id")
+                    .and_then(serde_json::Value::as_str)
+                    == Some(manifest.publication_id.as_str())
+            };
+            let request = authority
+                .publications
+                .iter()
+                .find(|record| related(record) && record.body.get("request").is_some());
+            let latest = authority
+                .publications
+                .iter()
+                .filter(related)
+                .max_by_key(|row| row.id);
+            let expires_at = request
+                .and_then(|row| row.body.pointer("/request/expires_at"))
+                .and_then(serde_json::Value::as_str)
+                .and_then(|value| chrono::DateTime::parse_from_rfc3339(value).ok())
+                .map(|value| value.with_timezone(&Utc));
+            let availability = if expires_at.is_some_and(|expiry| expiry <= observed_at) {
+                "expired"
+            } else if latest.is_some_and(|row| {
+                row.body.get("stopped_at").is_some() || row.body.get("cleaned_at").is_some()
+            }) {
+                "stopped"
+            } else if latest.is_some_and(|row| row.body.get("receipt").is_some()) {
+                "ready"
+            } else if request.is_some() {
+                "preparing"
+            } else {
+                "unavailable"
+            };
+            items.push(ResourceRow {
+                id: format!("artifact:{}", artifact.id),
+                label: artifact.label.clone(),
+                kind: "native_client",
+                source: "orgintel",
+                status: availability.into(),
+                observed_at: artifact.created_at,
+                detail: Some(match availability {
+                    "ready" => "Verified native client for the matching authoritative session.",
+                    "preparing" => "The matching authoritative session is still preparing.",
+                    "expired" => "The matching session has expired.",
+                    "stopped" => "The matching session was stopped.",
+                    _ => "No matching authoritative session is available.",
+                }.into()),
+                metadata: Some(serde_json::json!({
+                    "digest": artifact.digest,
+                    "work_id": artifact.work_id,
+                    "attempt_id": artifact.attempt_id,
+                    "platform": manifest.platform,
+                    "publication_id": manifest.publication_id,
+                })),
+                launch: Some(crate::launch::ArtifactLaunchDescriptor {
+                    contract_version: crate::launch::CONTRACT_VERSION,
+                    shape: crate::launch::LaunchShape::NativeClient,
+                    availability: availability.into(),
+                    detail: "Verify the exact archive, launch locally and exchange one short-lived session handle.".into(),
+                    open_endpoint: format!(
+                        "/api/companies/{}/resources/artifact:{}/open",
+                        config.name, artifact.id
+                    ),
+                    artifact_digest: artifact.digest.clone(),
+                    candidate_digest: request
+                        .and_then(|row| row.body.pointer("/request/candidate/manifest_digest"))
+                        .and_then(serde_json::Value::as_str)
+                        .map(str::to_string),
+                    work_id: artifact.work_id.map(|id| id.to_string()),
+                    attempt_id: artifact.attempt_id.map(|id| id.to_string()),
+                    audience: request
+                        .and_then(|row| row.body.pointer("/request/audience"))
+                        .and_then(serde_json::Value::as_str)
+                        .map(str::to_string),
+                    expires_at,
+                    platform: Some(manifest.platform),
+                    publication_id: Some(manifest.publication_id),
+                    runtime_generation: artifact.runtime_generation.clone(),
+                }),
+            });
+        }
+    }
+
+    if let Some(doctor) = doctor {
+        let ready = doctor.container == runtime::ContainerStatus::Running;
+        items.push(ResourceRow {
+            id: "company-computer".into(),
+            label: "Company Computer".into(),
+            kind: "company_computer",
+            source: "runtime",
+            status: if ready { "ready" } else { "unavailable" }.into(),
+            observed_at,
+            detail: Some(
+                if ready {
+                    "Private streamed fallback for visual or non-packaged work."
+                } else {
+                    "The Company Computer is not running."
+                }
+                .into(),
+            ),
+            metadata: None,
+            launch: Some(crate::launch::ArtifactLaunchDescriptor::computer(
+                &config.name,
+                ready,
+            )),
+        });
+    }
+
+    for schedule in schedules
+        .iter()
+        .filter(|schedule| schedule.cancelled_at.is_none())
+    {
+        let always_on = schedule.machine_requirement == "always_on";
+        items.push(ResourceRow {
+            id: format!("schedule:{}", schedule.id),
+            label: schedule.reason.clone(),
+            kind: "schedule",
+            source: "orgintel",
+            status: if always_on { "requires_always_on_runner" } else { "mac_must_remain_awake" }.into(),
+            observed_at: schedule.last_considered_at.unwrap_or(schedule.created_at),
+            detail: Some(if always_on {
+                "This timing guarantee is not claimed by the local Mac; attach an always-on runner."
+            } else {
+                "This schedule catches up according to policy after resume, but the Mac cannot work while powered off."
+            }.into()),
+            metadata: Some(serde_json::json!({
+                "next_fire_at": schedule.fire_at,
+                "missed_policy": schedule.missed_policy,
+                "maximum_lateness_seconds": schedule.catch_up_grace_seconds,
+            })),
+            launch: None,
+        });
     }
 
     Resources {

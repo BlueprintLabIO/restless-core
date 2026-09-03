@@ -12,6 +12,7 @@
 //!   RESTLESS_OWNER_URL    — loopback owner gateway used by `chat` and probed by `doctor`
 //!   RESTLESS_COCKPIT_URL  — optional dev cockpit origin probed by `doctor`
 
+mod appliance;
 mod chat;
 
 use std::io::{BufRead, BufReader, Read, Write};
@@ -32,6 +33,13 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
+    /// Install and operate the dependable local Restless appliance.
+    Appliance {
+        #[command(subcommand)]
+        command: ApplianceCommand,
+    },
+    /// Open the owner Cockpit for the selected machine profile.
+    Open,
     /// Create and configure companies without hand-editing daemon state.
     Company {
         #[command(subcommand)]
@@ -62,6 +70,13 @@ enum Command {
         company: Option<String>,
         #[command(subcommand)]
         command: FinanceCommand,
+    },
+    /// Publish one immutable Work/Attempt artifact through a bounded demo or game-server profile.
+    Publish {
+        #[arg(long, short = 'c', env = "RESTLESS_COMPANY", global = true)]
+        company: Option<String>,
+        #[command(subcommand)]
+        command: PublishCommand,
     },
     /// Bring a company environment up (create if absent, then start).
     Up {
@@ -101,6 +116,13 @@ enum Command {
     OrgintelInit {
         #[arg(long, short = 'c', env = "RESTLESS_COMPANY")]
         company: Option<String>,
+    },
+    /// Source-owned company truth and expression evidence.
+    Identity {
+        #[arg(long, short = 'c', env = "RESTLESS_COMPANY", global = true)]
+        company: Option<String>,
+        #[command(subcommand)]
+        command: IdentityCommand,
     },
     /// Owner attention, projected from its source planes.
     Attention {
@@ -197,6 +219,12 @@ enum Command {
     },
     /// Spend against the ceiling, broken down by actor and model.
     Spend {
+        #[arg(long, short = 'c', env = "RESTLESS_COMPANY")]
+        company: Option<String>,
+    },
+    /// Exact decision telemetry projected from Attempts, gates, model requests,
+    /// messages and Runtime events. Unavailable measurements remain null.
+    Telemetry {
         #[arg(long, short = 'c', env = "RESTLESS_COMPANY")]
         company: Option<String>,
     },
@@ -332,6 +360,550 @@ enum Command {
     EffectChild,
 }
 
+#[derive(Subcommand)]
+enum ApplianceCommand {
+    /// Stage this CLI, its sibling daemon and built Cockpit, then install the user service.
+    Install {
+        #[arg(long)]
+        daemon: Option<PathBuf>,
+        #[arg(long)]
+        cockpit: Option<PathBuf>,
+        /// Import only company-referenced environment credentials and provider
+        /// endpoints into the stable appliance's private credential file.
+        #[arg(long)]
+        environment: Option<PathBuf>,
+    },
+    /// Stage and activate a new release, rolling back if readiness fails.
+    Upgrade {
+        #[arg(long)]
+        daemon: Option<PathBuf>,
+        #[arg(long)]
+        cockpit: Option<PathBuf>,
+        /// Refresh the private, filtered stable environment from this dotenv file.
+        #[arg(long)]
+        environment: Option<PathBuf>,
+    },
+    /// Activate the previous known-good release.
+    Rollback,
+    /// Inspect service definitions, lock ownership and owner readiness.
+    Status,
+    /// Bootstrap or restart the installed user services.
+    Start,
+    /// Stop the installed user services without touching company state.
+    Stop,
+    /// Deliver one bounded schedule-reconciliation hint to the running daemon.
+    WakeDue {
+        #[arg(long, default_value = "manual")]
+        adapter: String,
+    },
+    /// Remove services and owned machine caches while retaining company data.
+    Uninstall,
+}
+
+#[derive(Subcommand)]
+enum PublishCommand {
+    /// Bind a versioned service manifest to an exact immutable source artifact.
+    Candidate {
+        #[arg(long)]
+        source_artifact: String,
+        #[arg(long)]
+        manifest: PathBuf,
+        #[arg(long, env = "RESTLESS_ACTOR")]
+        actor: Option<String>,
+    },
+    /// Request an exact audience, expiry and resource envelope; no provider runs yet.
+    Request {
+        #[arg(long)]
+        candidate_artifact: String,
+        #[arg(long, value_parser = ["owner-only", "named-invitees", "public"])]
+        audience: String,
+        #[arg(long)]
+        start_deadline: String,
+        #[arg(long)]
+        expires_at: String,
+        #[arg(long, default_value = "500")]
+        cpu_millis: u32,
+        #[arg(long, default_value = "512")]
+        memory_mib: u32,
+        #[arg(long, default_value = "512")]
+        ephemeral_storage_mib: u32,
+        #[arg(long, default_value = "32")]
+        max_connections: u32,
+        #[arg(long)]
+        key: String,
+        #[arg(long, env = "RESTLESS_ACTOR")]
+        actor: Option<String>,
+    },
+    /// Owner authorization for the exact request consequences.
+    Authorize {
+        #[arg(long)]
+        publication: String,
+    },
+    /// Mint a signed, scoped and expiring invitation.
+    Invite {
+        #[arg(long)]
+        publication: String,
+        #[arg(long)]
+        id: String,
+        #[arg(long)]
+        subject: String,
+        #[arg(long)]
+        expires_at: String,
+    },
+    /// Revoke one invitation immediately.
+    Revoke {
+        #[arg(long)]
+        invitation: String,
+    },
+    /// Capture current provider activity as an Authority observation.
+    Observe {
+        #[arg(long)]
+        publication: String,
+    },
+    /// Recover an authorized provider after daemon/provider interruption.
+    Reconcile {
+        #[arg(long)]
+        publication: String,
+    },
+    /// Stop the provider and prove process, route, invitation and temp cleanup.
+    Stop {
+        #[arg(long)]
+        publication: String,
+        #[arg(long)]
+        reason: String,
+    },
+    /// Show one publication and all of its source-owned records.
+    Show {
+        #[arg(long)]
+        publication: String,
+    },
+    /// List all publication records for the company.
+    List,
+}
+
+#[derive(Subcommand)]
+#[allow(
+    clippy::large_enum_variant,
+    reason = "clap owns this one-shot CLI value; boxing its argument variants adds indirection without reducing a resident data structure"
+)]
+enum IdentityCommand {
+    /// Show the effective release, proposals, evidence, lineage and bindings.
+    Show,
+    /// Add one attributed evidence statement. This does not make it effective.
+    Evidence {
+        #[arg(long)]
+        pillar: String,
+        #[arg(long = "kind")]
+        statement_kind: String,
+        #[arg(long)]
+        claim: String,
+        #[arg(long)]
+        statement: String,
+        #[arg(long)]
+        source: String,
+        #[arg(long)]
+        authority: String,
+        #[arg(long, default_value = "company")]
+        scope: String,
+        #[arg(long)]
+        locator: String,
+        #[arg(long, default_value = "neutral")]
+        polarity: String,
+        #[arg(long, default_value = "active")]
+        status: String,
+        #[arg(long)]
+        channel: Option<String>,
+        #[arg(long)]
+        audience: Option<String>,
+        #[arg(long)]
+        supersedes: Option<String>,
+        #[arg(long)]
+        expires_at: Option<String>,
+        #[arg(long)]
+        indefinite: bool,
+    },
+    /// Propose a complete release from exact evidence ids.
+    Propose {
+        #[arg(long)]
+        reason: String,
+        #[arg(long = "evidence", required = true)]
+        evidence_ids: Vec<String>,
+    },
+    /// Compile one deterministic bounded brief for a concrete outcome.
+    Brief {
+        #[arg(long)]
+        outcome: String,
+        #[arg(long)]
+        channel: String,
+        #[arg(long)]
+        audience: String,
+        #[arg(long)]
+        release: Option<String>,
+        #[arg(long, default_value = "8192")]
+        max_bytes: usize,
+    },
+    /// Add typed, attributed Voice evidence. It remains ineffective until an owner release.
+    VoiceEvidence {
+        #[arg(long = "kind")]
+        voice_kind: String,
+        #[arg(long)]
+        claim: String,
+        #[arg(long)]
+        statement: String,
+        #[arg(long)]
+        source: String,
+        #[arg(long)]
+        authority: String,
+        #[arg(long, default_value = "company")]
+        scope: String,
+        #[arg(long)]
+        locator: String,
+        #[arg(long)]
+        judgement: String,
+        #[arg(long, default_value = "positive")]
+        polarity: String,
+        #[arg(long)]
+        channel: Option<String>,
+        #[arg(long)]
+        audience: Option<String>,
+        #[arg(long)]
+        named_author: Option<String>,
+        #[arg(long)]
+        supersedes: Option<String>,
+    },
+    /// Set the human communication situation for one voice-producing Work.
+    VoiceBind {
+        #[arg(long)]
+        work: String,
+        #[arg(long)]
+        channel: String,
+        #[arg(long)]
+        author: String,
+        #[arg(long)]
+        audience: String,
+        #[arg(long)]
+        reader: String,
+        #[arg(long)]
+        understanding: String,
+        #[arg(long)]
+        action: String,
+        #[arg(long)]
+        proof: String,
+        #[arg(long)]
+        consequence: String,
+    },
+    /// Inspect the deterministic voice contract already bound to one Work.
+    VoiceBrief {
+        #[arg(long)]
+        work: String,
+        #[arg(long, default_value = "8192")]
+        max_bytes: usize,
+    },
+    /// Bind representative native-render checks to an exact artifact.
+    VoiceRender {
+        #[arg(long)]
+        artifact: String,
+        #[arg(long)]
+        channel: String,
+        #[arg(long)]
+        renderer: String,
+        #[arg(long)]
+        renderer_version: String,
+        /// JSON object of native semantic checks and observed results.
+        #[arg(long)]
+        checks: String,
+    },
+    /// Record a blinded copy-desk decision on one native render.
+    VoiceReview {
+        #[arg(long)]
+        render: String,
+        #[arg(long)]
+        verdict: String,
+        #[arg(long, default_value = "")]
+        factual: String,
+        #[arg(long, default_value = "")]
+        abstraction: String,
+        #[arg(long, default_value = "")]
+        repetition: String,
+        #[arg(long, default_value = "")]
+        channel: String,
+        #[arg(long, default_value = "")]
+        authorship: String,
+        #[arg(long, default_value = "")]
+        concepts_removed: String,
+    },
+    /// Turn an exact owner edit into a scoped proposal; typo and fact fixes create no Voice rule.
+    VoiceLearn {
+        #[arg(long)]
+        before: String,
+        #[arg(long)]
+        after: String,
+        #[arg(long = "kind")]
+        learning_kind: String,
+        #[arg(long)]
+        claim: String,
+        #[arg(long)]
+        observation: String,
+        #[arg(long)]
+        decision: String,
+        #[arg(long, default_value = "company")]
+        scope: String,
+        #[arg(long)]
+        source: String,
+        #[arg(long)]
+        locator: String,
+        #[arg(long)]
+        named_author: Option<String>,
+        #[arg(long)]
+        channel: Option<String>,
+        #[arg(long)]
+        audience: Option<String>,
+    },
+    /// Add typed Visual Language evidence or one inspectable registry capability.
+    VisualEvidence {
+        #[arg(long = "kind")]
+        visual_kind: String,
+        #[arg(long)]
+        claim: String,
+        #[arg(long)]
+        statement: String,
+        #[arg(long)]
+        source: String,
+        #[arg(long)]
+        authority: String,
+        #[arg(long, default_value = "company")]
+        scope: String,
+        #[arg(long)]
+        locator: String,
+        #[arg(long)]
+        purpose: String,
+        #[arg(long)]
+        rationale: String,
+        #[arg(long)]
+        accessibility: String,
+        #[arg(long)]
+        channel: Option<String>,
+        #[arg(long)]
+        reduced_motion: Option<String>,
+        #[arg(long)]
+        product_truth: Option<String>,
+        #[arg(long)]
+        origin: Option<String>,
+        #[arg(long)]
+        licence: Option<String>,
+        #[arg(long)]
+        framework: Option<String>,
+        #[arg(long)]
+        adaptation: Option<String>,
+        #[arg(long, default_value = "[]")]
+        dependencies: String,
+        #[arg(long)]
+        semantic_role: Option<String>,
+        #[arg(long)]
+        value: Option<String>,
+        #[arg(long, default_value = "positive")]
+        polarity: String,
+    },
+    /// Bind channel art direction and product-representation truth to one Work.
+    VisualBind {
+        #[arg(long)]
+        work: String,
+        #[arg(long)]
+        channel: String,
+        #[arg(long)]
+        audience: String,
+        #[arg(long)]
+        outcome: String,
+        #[arg(long)]
+        hierarchy: String,
+        #[arg(long)]
+        proof: String,
+        #[arg(long)]
+        density: String,
+        #[arg(long)]
+        imagery: String,
+        #[arg(long)]
+        motion: String,
+        #[arg(long)]
+        representation: String,
+        #[arg(long)]
+        product_truth: Option<String>,
+        #[arg(long)]
+        departure: Option<String>,
+    },
+    /// Inspect the deterministic Visual Language direction for one Work.
+    VisualBrief {
+        #[arg(long)]
+        work: String,
+        #[arg(long, default_value = "10240")]
+        max_bytes: usize,
+    },
+    /// Record the exact released primitive version actually selected for Work.
+    VisualUse {
+        #[arg(long)]
+        work: String,
+        #[arg(long)]
+        evidence: String,
+        #[arg(long)]
+        version: String,
+        #[arg(long)]
+        purpose: String,
+    },
+    /// Bind native viewport, motion and accessibility checks to an exact artifact.
+    VisualRender {
+        #[arg(long)]
+        work: String,
+        #[arg(long)]
+        artifact: String,
+        #[arg(long)]
+        channel: String,
+        #[arg(long)]
+        renderer: String,
+        #[arg(long)]
+        renderer_version: String,
+        #[arg(long)]
+        width: i32,
+        #[arg(long)]
+        height: i32,
+        #[arg(long)]
+        motion_state: String,
+        #[arg(long)]
+        checks: String,
+    },
+    /// Record independent art direction, optionally against a restrained control.
+    VisualReview {
+        #[arg(long)]
+        render: String,
+        #[arg(long)]
+        control: Option<String>,
+        #[arg(long)]
+        verdict: String,
+        #[arg(long, default_value = "")]
+        identity: String,
+        #[arg(long, default_value = "")]
+        hierarchy: String,
+        #[arg(long, default_value = "")]
+        density: String,
+        #[arg(long, default_value = "")]
+        proof: String,
+        #[arg(long, default_value = "")]
+        product_fidelity: String,
+        #[arg(long, default_value = "")]
+        motion: String,
+        #[arg(long, default_value = "")]
+        defects: String,
+        #[arg(long, default_value = "")]
+        departure: String,
+    },
+    /// Add observed conduct with consequence, counterexample and boundary.
+    CultureEvidence {
+        #[arg(long = "kind")]
+        culture_kind: String,
+        #[arg(long)]
+        case_kind: Option<String>,
+        #[arg(long)]
+        claim: String,
+        #[arg(long)]
+        statement: String,
+        #[arg(long)]
+        source: String,
+        #[arg(long)]
+        authority: String,
+        #[arg(long, default_value = "company")]
+        scope: String,
+        #[arg(long)]
+        locator: String,
+        #[arg(long)]
+        situation: String,
+        #[arg(long)]
+        consequence: String,
+        #[arg(long)]
+        actors: String,
+        #[arg(long)]
+        decision_authority: String,
+        #[arg(long)]
+        conduct: String,
+        #[arg(long)]
+        observed_outcome: String,
+        #[arg(long)]
+        confidence: String,
+        #[arg(long)]
+        counterexample: String,
+        #[arg(long)]
+        boundary: String,
+        #[arg(long)]
+        implication: String,
+        #[arg(long, default_value = "company")]
+        actor_scope: String,
+    },
+    /// Bind a consequence-relevant cultural posture to one Work.
+    CultureBind {
+        #[arg(long)]
+        work: String,
+        #[arg(long)]
+        case_kind: String,
+        #[arg(long)]
+        actor: String,
+        #[arg(long)]
+        actor_role: String,
+        #[arg(long)]
+        team: String,
+        #[arg(long)]
+        consequence: String,
+        #[arg(long)]
+        decision_boundary: String,
+    },
+    CultureBrief {
+        #[arg(long)]
+        work: String,
+        #[arg(long, default_value = "8192")]
+        max_bytes: usize,
+    },
+    /// Bind an exact decision or communication artifact to a culture case.
+    CultureCase {
+        #[arg(long)]
+        work: String,
+        #[arg(long)]
+        artifact: String,
+        #[arg(long)]
+        case_kind: String,
+        #[arg(long)]
+        decision: String,
+        #[arg(long, default_value = "[]")]
+        alternatives: String,
+        #[arg(long)]
+        unknowns: String,
+        #[arg(long)]
+        correction_of: Option<String>,
+        #[arg(long, default_value = "")]
+        correction_account: String,
+        #[arg(long, default_value = "")]
+        customer_action: String,
+        #[arg(long)]
+        checks: String,
+    },
+    CultureReview {
+        #[arg(long)]
+        record: String,
+        #[arg(long)]
+        verdict: String,
+        #[arg(long, default_value = "")]
+        conduct: String,
+        #[arg(long, default_value = "")]
+        dissent: String,
+        #[arg(long, default_value = "")]
+        uncertainty: String,
+        #[arg(long, default_value = "")]
+        correction: String,
+        #[arg(long, default_value = "")]
+        authority: String,
+        #[arg(long, default_value = "")]
+        customer_or_hiring: String,
+        #[arg(long, default_value_t = false)]
+        slogan_recitation: bool,
+    },
+}
+
 #[derive(serde::Deserialize)]
 struct EffectChildEnvelope {
     argv: Vec<String>,
@@ -393,6 +965,15 @@ enum TeamCommand {
         /// Why this team exists and what it is accountable for.
         #[arg(long)]
         brief: String,
+        /// Effective outcome ambition. Omit only to inherit company policy.
+        #[arg(long)]
+        standard: Option<String>,
+        /// company_default, owner_override, or owner_language.
+        #[arg(long)]
+        standard_source: Option<String>,
+        /// Owner message supporting an override or language interpretation.
+        #[arg(long)]
+        source_message: Option<i64>,
     },
     /// Rename a team or revise its outcome charter. Owner/Exec only.
     Update {
@@ -458,6 +1039,57 @@ enum ScheduleCommand {
         #[arg(long)]
         all: bool,
     },
+    /// Inspect fired and skipped occurrences for one schedule.
+    History {
+        #[arg(long, short = 'c', env = "RESTLESS_COMPANY")]
+        company: Option<String>,
+        /// Schedule UUID.
+        #[arg(long)]
+        schedule: String,
+        #[arg(long, default_value_t = 20)]
+        limit: i64,
+    },
+    /// Recover one recorded skipped occurrence with one idempotent actor wake.
+    Recover {
+        #[arg(long, short = 'c', env = "RESTLESS_COMPANY")]
+        company: Option<String>,
+        /// Schedule UUID.
+        #[arg(long)]
+        schedule: String,
+        /// Exact skipped occurrence time in RFC3339 form.
+        #[arg(long)]
+        scheduled_for: String,
+        /// The accountable actor whose skipped occurrence is being recovered.
+        #[arg(long = "as", env = "RESTLESS_ACTOR")]
+        as_actor: String,
+        /// Attribution for the person or system requesting recovery.
+        #[arg(long, default_value = "owner")]
+        requested_by: String,
+        /// Why this occurrence should be recovered now.
+        #[arg(long)]
+        reason: String,
+    },
+    /// Retry a failed recovery wake with an explicit idempotency key.
+    RetryRecovery {
+        #[arg(long, short = 'c', env = "RESTLESS_COMPANY")]
+        company: Option<String>,
+        #[arg(long)]
+        schedule: String,
+        #[arg(long)]
+        scheduled_for: String,
+        #[arg(long = "as", env = "RESTLESS_ACTOR")]
+        as_actor: String,
+        /// Exact prior recovery message that was reconciled as failed.
+        #[arg(long)]
+        prior_message: i64,
+        /// Stable key for this one retry; repeating it is a read, not a new wake.
+        #[arg(long)]
+        key: String,
+        #[arg(long, default_value = "owner")]
+        requested_by: String,
+        #[arg(long)]
+        reason: String,
+    },
     /// Add a genuinely time-driven wake: one exact instant, or one weekday local-time cadence.
     Add {
         #[arg(long, short = 'c', env = "RESTLESS_COMPANY")]
@@ -477,11 +1109,37 @@ enum ScheduleCommand {
         /// IANA timezone, for example Australia/Sydney.
         #[arg(long)]
         timezone: Option<String>,
+        /// What to do if the daemon was down: skip, skip-if-late, catch-up, or coalesce-latest.
+        #[arg(long)]
+        on_missed: Option<String>,
+        /// Catch-up window for --on-missed catch-up. After this many minutes, skip.
+        #[arg(long)]
+        catch_up_within_minutes: Option<i64>,
+        /// local-mac, or always-on. Always-on work waits for a capable runner.
+        #[arg(long, default_value = "local-mac")]
+        execution: String,
         #[arg(long)]
         reason: String,
         /// Optional Work waiting on this exact time condition.
         #[arg(long)]
         work: Option<String>,
+    },
+    /// Change how one live recurring schedule handles a missed clock time.
+    Policy {
+        #[arg(long, short = 'c', env = "RESTLESS_COMPANY")]
+        company: Option<String>,
+        /// Schedule UUID.
+        #[arg(long)]
+        schedule: String,
+        /// The accountable actor whose schedule is being changed.
+        #[arg(long = "as", env = "RESTLESS_ACTOR")]
+        as_actor: String,
+        /// skip, skip-if-late, catch-up, or coalesce-latest.
+        #[arg(long)]
+        on_missed: String,
+        /// Required for every bounded policy; the stale wake is skipped after this window.
+        #[arg(long)]
+        catch_up_within_minutes: Option<i64>,
     },
     /// Stop one pending exact or recurring schedule. Fired history remains visible with --all.
     Cancel {
@@ -524,6 +1182,11 @@ enum WorkCommand {
         role: String,
         #[arg(long)]
         model: Option<String>,
+        /// coherent-single-worker or locally-closing-parallel-unit. Exec may
+        /// use the coherent route only when the team has exactly one worker;
+        /// every other production commission belongs to the accountable lead.
+        #[arg(long, default_value = "coherent-single-worker")]
+        topology: String,
         #[arg(long)]
         title: String,
         #[arg(long)]
@@ -571,6 +1234,10 @@ enum WorkCommand {
         /// Attempt workspace and commit atomically with the Work node.
         #[arg(long)]
         gate: Vec<String>,
+        /// Company Constitution situation JSON committed atomically with Work.
+        /// The object may contain voice, visual and/or culture contracts.
+        #[arg(long)]
+        constitution_contracts: Option<String>,
     },
     /// Move unsettled Work to another durable actor.
     Assign {
@@ -623,6 +1290,17 @@ enum WorkCommand {
         label: String,
         #[arg(long, default_value = "")]
         note: String,
+    },
+    /// Retire a stale artifact reference without deleting its history.
+    RetireArtifact {
+        #[arg(long, short = 'c', env = "RESTLESS_COMPANY")]
+        company: Option<String>,
+        #[arg(long)]
+        artifact: String,
+        #[arg(long)]
+        reason: String,
+        #[arg(long = "as", env = "RESTLESS_ACTOR")]
+        as_actor: Option<String>,
     },
     Gate {
         #[arg(long, short = 'c', env = "RESTLESS_COMPANY")]
@@ -1138,7 +1816,82 @@ fn state_root() -> PathBuf {
 
 fn main() -> Result<()> {
     let cli = Cli::parse();
+    // Host commands must name a coherent appliance profile before they can
+    // reach a socket, Docker resource or destructive lifecycle operation.
+    // Runtime clients authenticate through RESTLESS_COORDINATOR instead and
+    // deliberately do not inherit host filesystem identity.
+    if !is_runtime() {
+        restlessd::appliance::MachineProfile::from_env()?;
+    }
     match cli.command {
+        Command::Appliance { command } => match command {
+            ApplianceCommand::Install {
+                daemon,
+                cockpit,
+                environment,
+            } => {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&appliance::install(
+                        daemon,
+                        cockpit,
+                        environment,
+                        false,
+                    )?)?
+                );
+                Ok(())
+            }
+            ApplianceCommand::Upgrade {
+                daemon,
+                cockpit,
+                environment,
+            } => {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&appliance::install(
+                        daemon,
+                        cockpit,
+                        environment,
+                        true,
+                    )?)?
+                );
+                Ok(())
+            }
+            ApplianceCommand::Rollback => {
+                println!("{}", serde_json::to_string_pretty(&appliance::rollback()?)?);
+                Ok(())
+            }
+            ApplianceCommand::Status => {
+                println!("{}", serde_json::to_string_pretty(&appliance::status()?)?);
+                Ok(())
+            }
+            ApplianceCommand::Start => {
+                println!("{}", serde_json::to_string_pretty(&appliance::start()?)?);
+                Ok(())
+            }
+            ApplianceCommand::Stop => {
+                println!("{}", serde_json::to_string_pretty(&appliance::stop()?)?);
+                Ok(())
+            }
+            ApplianceCommand::WakeDue { adapter } => {
+                if !matches!(adapter.as_str(), "manual" | "launchd" | "systemd") {
+                    bail!("wake adapter must be manual|launchd|systemd");
+                }
+                let request = stamp(serde_json::json!({
+                    "cmd": "schedule-wake",
+                    "adapter": adapter,
+                }));
+                print_response(&request_once(&request.to_string())?)
+            }
+            ApplianceCommand::Uninstall => {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&appliance::uninstall()?)?
+                );
+                Ok(())
+            }
+        },
+        Command::Open => appliance::open_owner(),
         Command::EffectChild => {
             let envelope: EffectChildEnvelope = serde_json::from_reader(std::io::stdin())
                 .context("read governed child envelope")?;
@@ -1172,7 +1925,7 @@ fn main() -> Result<()> {
                 format!("RESTLESS_COMPANY={name}"),
                 "-e".to_string(),
                 "RESTLESS_ACTOR=owner".to_string(),
-                format!("restless-co-{name}"),
+                restlessd::appliance::MachineProfile::from_env()?.docker_container_name(&name),
             ]);
             if command.is_empty() {
                 args.push("bash".to_string());
@@ -1239,6 +1992,93 @@ fn stamp(mut request: serde_json::Value) -> serde_json::Value {
 /// One request/response pair; `watch` and `attach` handle their own I/O.
 fn request_json(command: Command) -> Result<serde_json::Value> {
     Ok(match command {
+        Command::Publish { company, command } => {
+            let company = company.context("no company: pass -c or set RESTLESS_COMPANY")?;
+            match command {
+                PublishCommand::Candidate {
+                    source_artifact,
+                    manifest,
+                    actor,
+                } => {
+                    let raw = std::fs::read(&manifest)
+                        .with_context(|| format!("read {}", manifest.display()))?;
+                    let service_manifest: serde_json::Value = serde_json::from_slice(&raw)
+                        .with_context(|| format!("parse {}", manifest.display()))?;
+                    serde_json::json!({
+                        "cmd": "publish-candidate",
+                        "company": company,
+                        "actor": actor.unwrap_or_else(|| "owner".into()),
+                        "source_artifact_ref_id": source_artifact,
+                        "service_manifest": service_manifest,
+                    })
+                }
+                PublishCommand::Request {
+                    candidate_artifact,
+                    audience,
+                    start_deadline,
+                    expires_at,
+                    cpu_millis,
+                    memory_mib,
+                    ephemeral_storage_mib,
+                    max_connections,
+                    key,
+                    actor,
+                } => serde_json::json!({
+                    "cmd": "publish-request",
+                    "company": company,
+                    "actor": actor.unwrap_or_else(|| "owner".into()),
+                    "candidate_artifact_ref_id": candidate_artifact,
+                    "publication_audience": audience,
+                    "publication_start_deadline": start_deadline,
+                    "publication_expires_at": expires_at,
+                    "cpu_millis": cpu_millis,
+                    "memory_mib": memory_mib,
+                    "ephemeral_storage_mib": ephemeral_storage_mib,
+                    "max_connections": max_connections,
+                    "idempotency_key": key,
+                }),
+                PublishCommand::Authorize { publication } => serde_json::json!({
+                    "cmd": "publish-authorize", "company": company, "publication_id": publication,
+                }),
+                PublishCommand::Invite {
+                    publication,
+                    id,
+                    subject,
+                    expires_at,
+                } => serde_json::json!({
+                    "cmd": "publish-invite",
+                    "company": company,
+                    "publication_id": publication,
+                    "invitation_id": id,
+                    "invitee": subject,
+                    "publication_expires_at": expires_at,
+                }),
+                PublishCommand::Revoke { invitation } => serde_json::json!({
+                    "cmd": "publish-revoke", "company": company, "invitation_id": invitation,
+                }),
+                PublishCommand::Observe { publication } => serde_json::json!({
+                    "cmd": "publish-observe", "company": company, "publication_id": publication,
+                }),
+                PublishCommand::Reconcile { publication } => serde_json::json!({
+                    "cmd": "publish-reconcile", "company": company, "publication_id": publication,
+                }),
+                PublishCommand::Stop {
+                    publication,
+                    reason,
+                } => serde_json::json!({
+                    "cmd": "publish-stop",
+                    "company": company,
+                    "publication_id": publication,
+                    "stop_reason": reason,
+                }),
+                PublishCommand::Show { publication } => serde_json::json!({
+                    "cmd": "publish-show", "company": company, "publication_id": publication,
+                }),
+                PublishCommand::List => serde_json::json!({
+                    "cmd": "publish-list", "company": company,
+                }),
+            }
+        }
         Command::Company { command } => match command {
             CompanyCommand::Create { from_file } => {
                 let body = std::fs::read_to_string(&from_file)
@@ -1483,6 +2323,309 @@ fn request_json(command: Command) -> Result<serde_json::Value> {
         Command::OrgintelInit { company: c } => {
             serde_json::json!({ "cmd": "orgintel-init", "company": c })
         }
+        Command::Identity { company, command } => match command {
+            IdentityCommand::Show => serde_json::json!({
+                "cmd": "identity-show", "company": company,
+            }),
+            IdentityCommand::Evidence {
+                pillar,
+                statement_kind,
+                claim,
+                statement,
+                source,
+                authority,
+                scope,
+                locator,
+                polarity,
+                status,
+                channel,
+                audience,
+                supersedes,
+                expires_at,
+                indefinite,
+            } => serde_json::json!({
+                "cmd": "identity-evidence-add", "company": company,
+                "identity_pillar": pillar, "identity_kind": statement_kind,
+                "claim_key": claim, "statement": statement,
+                "source": source, "identity_authority": authority,
+                "scope": scope, "evidence_locator": locator,
+                "polarity": polarity, "evidence_status": status,
+                "channel": channel, "audience": audience,
+                "supersedes": supersedes,
+                "exception_expires_at": expires_at,
+                "exception_indefinite": indefinite,
+                "actor": acting_actor(),
+            }),
+            IdentityCommand::Propose {
+                reason,
+                evidence_ids,
+            } => serde_json::json!({
+                "cmd": "identity-propose", "company": company,
+                "reason": reason, "evidence_ids": evidence_ids,
+                "actor": acting_actor(),
+            }),
+            IdentityCommand::Brief {
+                outcome,
+                channel,
+                audience,
+                release,
+                max_bytes,
+            } => serde_json::json!({
+                "cmd": "identity-brief", "company": company,
+                "body": outcome, "channel": channel, "audience": audience,
+                "release_id": release, "max_bytes": max_bytes,
+                "actor": acting_actor(),
+            }),
+            IdentityCommand::VoiceEvidence {
+                voice_kind,
+                claim,
+                statement,
+                source,
+                authority,
+                scope,
+                locator,
+                judgement,
+                polarity,
+                channel,
+                audience,
+                named_author,
+                supersedes,
+            } => serde_json::json!({
+                "cmd": "voice-evidence-add", "company": company,
+                "voice_kind": voice_kind, "claim_key": claim, "statement": statement,
+                "source": source, "identity_authority": authority, "scope": scope,
+                "evidence_locator": locator, "judgement_reason": judgement,
+                "polarity": polarity, "channel": channel, "audience": audience,
+                "named_author": named_author, "supersedes": supersedes,
+                "actor": acting_actor(),
+            }),
+            IdentityCommand::VoiceBind {
+                work,
+                channel,
+                author,
+                audience,
+                reader,
+                understanding,
+                action,
+                proof,
+                consequence,
+            } => serde_json::json!({
+                "cmd": "voice-bind", "company": company, "voice_work_id": work,
+                "channel": channel, "voice_author": author, "audience": audience, "reader_situation": reader,
+                "desired_understanding": understanding, "desired_action": action,
+                "proof": proof, "consequence": consequence, "actor": acting_actor(),
+            }),
+            IdentityCommand::VoiceBrief { work, max_bytes } => serde_json::json!({
+                "cmd": "voice-brief", "company": company, "voice_work_id": work,
+                "max_bytes": max_bytes, "actor": acting_actor(),
+            }),
+            IdentityCommand::VoiceRender {
+                artifact,
+                channel,
+                renderer,
+                renderer_version,
+                checks,
+            } => serde_json::json!({
+                "cmd": "voice-render", "company": company, "artifact_ref_id": artifact,
+                "channel": channel, "renderer": renderer, "renderer_version": renderer_version,
+                "semantic_checks": serde_json::from_str::<serde_json::Value>(&checks)
+                    .unwrap_or_else(|_| serde_json::Value::String(checks)),
+                "actor": acting_actor(),
+            }),
+            IdentityCommand::VoiceReview {
+                render,
+                verdict,
+                factual,
+                abstraction,
+                repetition,
+                channel,
+                authorship,
+                concepts_removed,
+            } => serde_json::json!({
+                "cmd": "voice-review", "company": company, "render_evidence_id": render,
+                "review_verdict": verdict, "factual_findings": factual,
+                "abstraction_findings": abstraction, "repetition_findings": repetition,
+                "channel_findings": channel, "authorship_findings": authorship,
+                "concepts_removed": concepts_removed, "actor": acting_actor(),
+            }),
+            IdentityCommand::VoiceLearn {
+                before,
+                after,
+                learning_kind,
+                claim,
+                observation,
+                decision,
+                scope,
+                source,
+                locator,
+                named_author,
+                channel,
+                audience,
+            } => serde_json::json!({
+                "cmd": "voice-learn", "company": company,
+                "before_artifact_ref_id": before, "after_artifact_ref_id": after,
+                "learning_kind": learning_kind, "claim_key": claim,
+                "observation": observation, "motivating_decision": decision,
+                "scope": scope, "source": source, "evidence_locator": locator,
+                "named_author": named_author, "channel": channel, "audience": audience,
+                "actor": acting_actor(),
+            }),
+            IdentityCommand::VisualEvidence {
+                visual_kind,
+                claim,
+                statement,
+                source,
+                authority,
+                scope,
+                locator,
+                purpose,
+                rationale,
+                accessibility,
+                channel,
+                reduced_motion,
+                product_truth,
+                origin,
+                licence,
+                framework,
+                adaptation,
+                dependencies,
+                semantic_role,
+                value,
+                polarity,
+            } => serde_json::json!({
+                "cmd":"visual-evidence-add", "company":company, "visual_kind":visual_kind,
+                "claim_key":claim, "statement":statement, "source":source, "identity_authority":authority,
+                "scope":scope, "evidence_locator":locator, "visual_purpose":purpose, "visual_rationale":rationale,
+                "accessibility_notes":accessibility, "channel":channel, "reduced_motion_replacement":reduced_motion,
+                "product_truth_locator":product_truth, "primitive_origin":origin, "primitive_licence":licence,
+                "primitive_framework":framework, "adaptation_status":adaptation,
+                "primitive_dependencies":serde_json::from_str::<serde_json::Value>(&dependencies).unwrap_or_else(|_| serde_json::Value::String(dependencies)),
+                "semantic_role":semantic_role, "visual_value":value, "polarity":polarity, "actor":acting_actor(),
+            }),
+            IdentityCommand::VisualBind {
+                work,
+                channel,
+                audience,
+                outcome,
+                hierarchy,
+                proof,
+                density,
+                imagery,
+                motion,
+                representation,
+                product_truth,
+                departure,
+            } => serde_json::json!({
+                "cmd":"visual-bind", "company":company, "visual_work_id":work, "channel":channel,
+                "audience":audience, "body":outcome, "information_hierarchy":hierarchy, "proof":proof,
+                "visual_density":density, "imagery_role":imagery, "motion_role":motion,
+                "product_representation":representation, "product_truth_locator":product_truth,
+                "requested_departure":departure, "actor":acting_actor(),
+            }),
+            IdentityCommand::VisualBrief { work, max_bytes } => serde_json::json!({
+                "cmd":"visual-brief", "company":company, "visual_work_id":work, "max_bytes":max_bytes, "actor":acting_actor(),
+            }),
+            IdentityCommand::VisualUse {
+                work,
+                evidence,
+                version,
+                purpose,
+            } => {
+                serde_json::json!({"cmd":"visual-use","company":company,"visual_work_id":work,"visual_evidence_id":evidence,"primitive_version":version,"visual_purpose":purpose,"actor":acting_actor()})
+            }
+            IdentityCommand::VisualRender {
+                work,
+                artifact,
+                channel,
+                renderer,
+                renderer_version,
+                width,
+                height,
+                motion_state,
+                checks,
+            } => {
+                serde_json::json!({"cmd":"visual-render","company":company,"visual_work_id":work,"artifact_ref_id":artifact,"channel":channel,"renderer":renderer,"renderer_version":renderer_version,"viewport_width":width,"viewport_height":height,"motion_state":motion_state,"semantic_checks":serde_json::from_str::<serde_json::Value>(&checks).unwrap_or_else(|_|serde_json::Value::String(checks)),"actor":acting_actor()})
+            }
+            IdentityCommand::VisualReview {
+                render,
+                control,
+                verdict,
+                identity,
+                hierarchy,
+                density,
+                proof,
+                product_fidelity,
+                motion,
+                defects,
+                departure,
+            } => {
+                serde_json::json!({"cmd":"visual-review","company":company,"render_evidence_id":render,"control_render_evidence_id":control,"review_verdict":verdict,"visual_identity_findings":identity,"hierarchy_findings":hierarchy,"density_findings":density,"proof_findings":proof,"product_fidelity_findings":product_fidelity,"motion_findings":motion,"defect_findings":defects,"departure_decision":departure,"actor":acting_actor()})
+            }
+            IdentityCommand::CultureEvidence {
+                culture_kind,
+                case_kind,
+                claim,
+                statement,
+                source,
+                authority,
+                scope,
+                locator,
+                situation,
+                consequence,
+                actors,
+                decision_authority,
+                conduct,
+                observed_outcome,
+                confidence,
+                counterexample,
+                boundary,
+                implication,
+                actor_scope,
+            } => {
+                serde_json::json!({"cmd":"culture-evidence-add","company":company,"culture_kind":culture_kind,"culture_case_kind":case_kind,"claim_key":claim,"statement":statement,"source":source,"identity_authority":authority,"scope":scope,"evidence_locator":locator,"culture_situation":situation,"consequence":consequence,"culture_actors":actors,"decision_authority":decision_authority,"observed_conduct":conduct,"observed_outcome":observed_outcome,"culture_confidence":confidence,"counterexample":counterexample,"boundary_conditions":boundary,"operational_implication":implication,"actor_scope":actor_scope,"actor":acting_actor()})
+            }
+            IdentityCommand::CultureBind {
+                work,
+                case_kind,
+                actor,
+                actor_role,
+                team,
+                consequence,
+                decision_boundary,
+            } => {
+                serde_json::json!({"cmd":"culture-bind","company":company,"culture_work_id":work,"culture_case_kind":case_kind,"culture_actor":actor,"actor_role":actor_role,"team_name":team,"consequence":consequence,"decision_boundary":decision_boundary,"actor":acting_actor()})
+            }
+            IdentityCommand::CultureBrief { work, max_bytes } => {
+                serde_json::json!({"cmd":"culture-brief","company":company,"culture_work_id":work,"max_bytes":max_bytes,"actor":acting_actor()})
+            }
+            IdentityCommand::CultureCase {
+                work,
+                artifact,
+                case_kind,
+                decision,
+                alternatives,
+                unknowns,
+                correction_of,
+                correction_account,
+                customer_action,
+                checks,
+            } => {
+                serde_json::json!({"cmd":"culture-case","company":company,"culture_work_id":work,"artifact_ref_id":artifact,"culture_case_kind":case_kind,"culture_decision":decision,"culture_alternatives":serde_json::from_str::<serde_json::Value>(&alternatives).unwrap_or_else(|_|serde_json::Value::String(alternatives)),"culture_unknowns":unknowns,"correction_of":correction_of,"correction_account":correction_account,"customer_action":customer_action,"semantic_checks":serde_json::from_str::<serde_json::Value>(&checks).unwrap_or_else(|_|serde_json::Value::String(checks)),"actor":acting_actor()})
+            }
+            IdentityCommand::CultureReview {
+                record,
+                verdict,
+                conduct,
+                dissent,
+                uncertainty,
+                correction,
+                authority,
+                customer_or_hiring,
+                slogan_recitation,
+            } => {
+                serde_json::json!({"cmd":"culture-review","company":company,"culture_case_record_id":record,"review_verdict":verdict,"conduct_findings":conduct,"dissent_findings":dissent,"uncertainty_findings":uncertainty,"correction_findings":correction,"authority_findings":authority,"customer_or_hiring_findings":customer_or_hiring,"slogan_recitation_detected":slogan_recitation,"actor":acting_actor()})
+            }
+        },
         Command::Attention { company: c, .. } => {
             serde_json::json!({ "cmd": "attention", "company": c })
         }
@@ -1555,9 +2698,15 @@ fn request_json(command: Command) -> Result<serde_json::Value> {
                 name,
                 lead,
                 brief,
+                standard,
+                standard_source,
+                source_message,
             } => serde_json::json!({
                 "cmd": "team-create", "company": company, "name": name, "to": lead,
                 "body": brief,
+                "outcome_standard": standard,
+                "outcome_standard_source": standard_source,
+                "source_message_id": source_message,
                 "actor": acting_actor(),
             }),
             TeamCommand::Update {
@@ -1601,6 +2750,9 @@ fn request_json(command: Command) -> Result<serde_json::Value> {
             }),
         },
         Command::Spend { company: c } => serde_json::json!({ "cmd": "spend", "company": c }),
+        Command::Telemetry { company: c } => {
+            serde_json::json!({ "cmd": "telemetry", "company": c })
+        }
         Command::SpendCorrect {
             company,
             correction_id,
@@ -1648,6 +2800,7 @@ fn request_json(command: Command) -> Result<serde_json::Value> {
                 owner,
                 role,
                 model,
+                topology,
                 title,
                 outcome,
                 priority,
@@ -1663,6 +2816,7 @@ fn request_json(command: Command) -> Result<serde_json::Value> {
                 requires,
                 revises,
                 gate,
+                constitution_contracts,
             } => {
                 let gates = gate
                     .iter()
@@ -1671,14 +2825,23 @@ fn request_json(command: Command) -> Result<serde_json::Value> {
                             .with_context(|| format!("invalid --gate JSON {value:?}"))
                     })
                     .collect::<Result<Vec<_>>>()?;
+                let constitution_contracts = constitution_contracts
+                    .as_deref()
+                    .map(|value| {
+                        serde_json::from_str::<serde_json::Value>(value)
+                            .context("invalid --constitution-contracts JSON")
+                    })
+                    .transpose()?;
                 serde_json::json!({
                     "cmd": "work-add", "company": company, "actor": owner, "role": role,
-                    "model": model, "title": title, "body": outcome, "priority": priority,
+                    "model": model, "producing_topology": topology, "title": title,
+                    "body": outcome, "priority": priority,
                     "expected_artifact": expected_artifact, "repo": repo, "base_ref": base_ref,
                     "integration_branch": integration_branch, "worktree": worktree,
                     "attempt_limit": attempt_limit, "owner_review": owner_review, "goal": goal,
                     "source_message_id": source_message,
                     "requires": requires, "revises": revises, "gates": gates,
+                    "constitution_contracts": constitution_contracts,
                     "as_actor": acting_actor(),
                 })
             }
@@ -1720,6 +2883,15 @@ fn request_json(command: Command) -> Result<serde_json::Value> {
                 "kind": kind, "uri": uri, "digest": digest, "source_commit": source_commit,
                 "label": label, "body": note,
                 "actor": std::env::var("RESTLESS_ACTOR").unwrap_or_else(|_| "owner".to_string()),
+            }),
+            WorkCommand::RetireArtifact {
+                company,
+                artifact,
+                reason,
+                as_actor,
+            } => serde_json::json!({
+                "cmd": "work-artifact-retire", "company": company, "id": artifact,
+                "reason": reason, "actor": as_actor.unwrap_or_else(acting_actor),
             }),
             WorkCommand::Gate {
                 company,
@@ -1865,6 +3037,41 @@ fn request_json(command: Command) -> Result<serde_json::Value> {
                 "as_actor": as_actor.or_else(|| std::env::var("RESTLESS_ACTOR").ok()),
                 "include_fired": all,
             }),
+            ScheduleCommand::History {
+                company,
+                schedule,
+                limit,
+            } => serde_json::json!({
+                "cmd": "schedule-history", "company": company,
+                "id": schedule, "limit": limit,
+            }),
+            ScheduleCommand::Recover {
+                company,
+                schedule,
+                scheduled_for,
+                as_actor,
+                requested_by,
+                reason,
+            } => serde_json::json!({
+                "cmd": "schedule-recover", "company": company,
+                "id": schedule, "fire_at": scheduled_for,
+                "as_actor": as_actor, "from": requested_by, "reason": reason,
+            }),
+            ScheduleCommand::RetryRecovery {
+                company,
+                schedule,
+                scheduled_for,
+                as_actor,
+                prior_message,
+                key,
+                requested_by,
+                reason,
+            } => serde_json::json!({
+                "cmd": "schedule-retry-recovery", "company": company,
+                "id": schedule, "fire_at": scheduled_for,
+                "as_actor": as_actor, "prior_message_id": prior_message,
+                "retry_key": key, "from": requested_by, "reason": reason,
+            }),
             ScheduleCommand::Add {
                 company,
                 as_actor,
@@ -1872,6 +3079,9 @@ fn request_json(command: Command) -> Result<serde_json::Value> {
                 weekdays,
                 at_local,
                 timezone,
+                on_missed,
+                catch_up_within_minutes,
+                execution,
                 reason,
                 work,
             } => serde_json::json!({
@@ -1880,7 +3090,21 @@ fn request_json(command: Command) -> Result<serde_json::Value> {
                     .unwrap_or_else(|| "exec".to_string()),
                 "fire_at": at, "recurrence": weekdays.then_some("weekdays"),
                 "local_time": at_local, "timezone": timezone,
+                "missed_policy": on_missed,
+                "catch_up_grace_seconds": catch_up_within_minutes.map(|minutes| minutes.saturating_mul(60)),
+                "execution_requirement": execution,
                 "reason": reason, "id": work,
+            }),
+            ScheduleCommand::Policy {
+                company,
+                schedule,
+                as_actor,
+                on_missed,
+                catch_up_within_minutes,
+            } => serde_json::json!({
+                "cmd": "schedule-policy", "company": company, "id": schedule,
+                "as_actor": as_actor, "missed_policy": on_missed,
+                "catch_up_grace_seconds": catch_up_within_minutes.map(|minutes| minutes.saturating_mul(60)),
             }),
             ScheduleCommand::Cancel {
                 company,
@@ -1998,7 +3222,9 @@ fn request_json(command: Command) -> Result<serde_json::Value> {
             "id": evidence_receipt,
             "actor": std::env::var("RESTLESS_ACTOR").unwrap_or_else(|_| "owner".to_string()),
         }),
-        Command::Doctor { .. }
+        Command::Appliance { .. }
+        | Command::Open
+        | Command::Doctor { .. }
         | Command::Watch { .. }
         | Command::Attach { .. }
         | Command::Chat { .. }
@@ -2597,7 +3823,7 @@ fn connect() -> Result<Stream> {
             .map(Stream::Tcp)
             .with_context(|| format!("connect {coordinator} — is restlessd running?"));
     }
-    let sock = state_root().join("restlessd.sock");
+    let sock = restlessd::appliance::MachineProfile::from_env()?.socket_path();
     if let Ok(stream) = UnixStream::connect(&sock) {
         return Ok(Stream::Unix(stream));
     }

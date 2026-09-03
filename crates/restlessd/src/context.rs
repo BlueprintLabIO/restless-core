@@ -28,6 +28,7 @@ pub struct ContextSnapshot {
     /// `docs/COMPANY_OPERATING_RULES.md`. Layer 1 of four — see `assemble`.
     pub operating_rules: String,
     pub mission: String,
+    pub outcome_standard: restless_orgintel::OutcomeStandard,
     /// Authority-owned, owner-approved safe business identity projection.
     /// Restricted KYB/identity material has no representation here.
     pub legal_identity: Option<serde_json::Value>,
@@ -107,9 +108,13 @@ pub fn assemble(snapshot: &ContextSnapshot) -> ContextPackage {
         // Exec decides whether it is conversation, Work feedback, durable
         // direction, or a request for an Authority decision.
         if message.from_actor == "owner" {
+            let standard = message
+                .outcome_standard
+                .map(|value| format!(" [explicit outcome standard: {value}]"))
+                .unwrap_or_default();
             owner_input.push_str(&format!(
-                "- owner message {}: {}\n",
-                message.id, message.body
+                "- owner message {}{}: {}\n",
+                message.id, standard, message.body
             ));
         } else {
             inbox.push_str(&format!(
@@ -179,6 +184,8 @@ pub fn assemble(snapshot: &ContextSnapshot) -> ContextPackage {
          Context sections are labelled by trust: owner directives are authoritative and \
          read-only; working hypotheses are your own editable strategy; historical memory is \
          your past self's record; internal decisions are the company's coordination state.\n\n\
+         # Outcome standard [owner policy]\n\
+         The company default for newly commissioned outcomes is `{outcome_standard}`. An explicit standard attached to an owner message wins. Otherwise infer a different standard only when the owner's language is unambiguous; ambiguity keeps the company default. Record the effective value when commissioning the accountable team with `restless teams create --standard <value> --standard-source <company_default|owner_override|owner_language> [--source-message <id>]`. The standard changes ambition and judgement, never safety, truth, authority, model access, team quotas, loop counts, or the company spend ceiling.\n\n\
          # Mission [owner directive — read-only] (/company/mission.md)\n{mission}\n\n\
          # Legal identity safe for ordinary business use [Authority observation]\n{legal_identity}\n\n\
          # Your continuity\n\
@@ -208,8 +215,15 @@ pub fn assemble(snapshot: &ContextSnapshot) -> ContextPackage {
          Classify each owner request before acting. Conversation and company-level judgement remain \
          yours. Every request that requires productive execution is always dispatched to exactly one \
          accountable team lead, whether the work is small or large. Reuse a standing lead or appoint \
-         a temporary outcome lead, send that lead the exact outcome charter, and let the lead \
-         commission at least one Staff-owned Work node. The lead remains a non-producing supervisor \
+         a temporary outcome lead and make the exact outcome charter durable. When that lead's active \
+         team has exactly one non-lead worker and the outcome is one coherent artifact, use the \
+         `coherent-single-worker` Work route in this same delegation; the substrate may commission that \
+         sole worker without a second paid lead paraphrase. Identity-bearing communication or design \
+         is not eligible for that shortcut when a Company Identity release exists: the accountable lead \
+         must select any relevant Voice, Visual, or Culture situation atomically with Work rather than \
+         letting Exec or Staff invent it. If the team has several possible workers, \
+         the work is a parallel unit, or any partitioning judgement remains, address the lead and let \
+         it commission Staff-owned Work. The lead remains a non-producing supervisor \
          even for tightly coupled work; neither you nor the lead substitutes as producer or \
          integrator. Do not privately implement a delegated outcome inside the Exec turn, and do not \
          merely narrate delegation: make the appointment and direct commission true in OrgIntel. \
@@ -318,6 +332,7 @@ pub fn assemble(snapshot: &ContextSnapshot) -> ContextPackage {
         conversation_style = crate::owner_brief::CONVERSE_WITH_OWNER.trim(),
         name = snapshot.company,
         mission = snapshot.mission,
+        outcome_standard = snapshot.outcome_standard,
         legal_identity = snapshot
             .legal_identity
             .as_ref()
@@ -375,9 +390,11 @@ pub fn assemble(snapshot: &ContextSnapshot) -> ContextPackage {
          output, run a productive repair, or claim a produced outcome in this wake. If the owner \
          input requires productive execution, first inspect the current standing team leads and \
          reuse a lead whose charter already covers the outcome; commission new capacity only when \
-         no such role exists. Send exactly one accountable lead a direct charter with the required \
-         repository coordinates and expected proof; the lead creates Staff-owned Work and supervises \
-         its Attempt. When the owner names a concrete output path or URL, preserve that exact locator \
+         no such role exists. Make exactly one accountable lead own the charter with the required \
+         repository coordinates and expected proof. If that team has one possible worker, record the \
+         charter and its `coherent-single-worker` Work in this turn; otherwise address the lead so it \
+         can partition and commission Staff-owned Work. In either case the lead supervises the Attempt \
+         without producing. When the owner names a concrete output path or URL, preserve that exact locator \
          in the charter rather than combining it with prose. Then \
          quiesce. Any product file, screenshot, \
          test result, or output created directly by this Exec wake is not an attributable outcome \
@@ -425,6 +442,7 @@ mod tests {
             company: "probe".into(),
             operating_rules: "1. Claims are not observations.".into(),
             mission: "make the thing".into(),
+            outcome_standard: restless_orgintel::OutcomeStandard::Exceptional,
             legal_identity: None,
             current_plan: "# plan\nstep 1".into(),
             latest_journal: Some("== 0001.md ==\ndid step 0".into()),
@@ -440,6 +458,8 @@ mod tests {
                 priority: 0,
                 expected_artifact: String::new(),
                 owner_review_required: false,
+                producing_topology: restless_orgintel::ProducingTopology::CoherentSingleWorker,
+                commissioned_by: "exec".into(),
                 repo: None,
                 base_ref: None,
                 integration_branch: None,
@@ -476,6 +496,7 @@ mod tests {
             from_actor: "owner".into(),
             to_actor: Some("exec".into()),
             body: "prioritise the red one".into(),
+            outcome_standard: None,
             created_at: chrono::Utc::now(),
             read_at: None,
         });
@@ -501,6 +522,7 @@ mod tests {
                 from_actor: "owner".into(),
                 to_actor: Some("exec".into()),
                 body: "Compare the two launch paths.".into(),
+                outcome_standard: None,
                 created_at: now,
                 read_at: Some(now),
             },
@@ -509,6 +531,7 @@ mod tests {
                 from_actor: "exec".into(),
                 to_actor: None,
                 body: "Path B preserves the prepared review.".into(),
+                outcome_standard: None,
                 created_at: now,
                 read_at: None,
             },
@@ -518,6 +541,7 @@ mod tests {
             from_actor: "owner".into(),
             to_actor: Some("exec".into()),
             body: "What would change your mind?".into(),
+            outcome_standard: None,
             created_at: now,
             read_at: None,
         });
@@ -665,7 +689,16 @@ mod tests {
             .contains("Do not edit application or repository files"));
         assert!(package
             .user_prompt
-            .contains("Send exactly one accountable lead a direct charter"));
+            .contains("Make exactly one accountable lead own the charter"));
+        assert!(package
+            .system_prompt
+            .contains("without a second paid lead paraphrase"));
+        assert!(package
+            .system_prompt
+            .contains("Identity-bearing communication or design"));
+        assert!(package
+            .system_prompt
+            .contains("select any relevant Voice, Visual, or Culture situation atomically"));
         assert!(package
             .user_prompt
             .contains("reuse a lead whose charter already covers the outcome"));

@@ -16,13 +16,18 @@ use uuid::Uuid;
 mod actors;
 mod artifacts;
 mod attempts;
+mod constitution;
+mod culture;
 mod events;
 mod goals_work;
+mod identity;
 mod messages;
 mod review;
 mod schedules;
 mod substrate;
 mod types;
+mod visual;
+mod voice;
 
 pub use types::*;
 
@@ -159,6 +164,13 @@ impl OrgIntel {
             .execute(&self.pool)
             .await?;
         Ok(())
+    }
+
+    /// Close every clone of this company's pool before the account plane
+    /// removes a throwaway cell database. `PgPool::close` is shared across
+    /// clones, so a registry handle cannot keep the database alive invisibly.
+    pub async fn close(&self) {
+        self.pool.close().await;
     }
     /// Ensure the company's schema exists and is migrated, then return a
     /// handle whose connections are pinned to it.

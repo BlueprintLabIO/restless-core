@@ -224,7 +224,13 @@ pub(super) async fn record_staff_outcome(
         if terminal_fact_recorded {
             org.release_attempt_resources(attempt_id, "Attempt reached terminal state")
                 .await?;
-            cleanup_attempt_runtime(container, workdir, attempt_id).await?;
+            let cleanup = cleanup_attempt_runtime(container, workdir, attempt_id).await?;
+            org.emit_event(
+                "attempt_runtime_cleaned",
+                Some("daemon"),
+                serde_json::to_value(&cleanup)?,
+            )
+            .await?;
             org.flush_terminal_supervisor_notices(16).await?;
         }
         anyhow::Ok(())
@@ -607,7 +613,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn terminal_work_fact_remains_owed_to_the_accountable_lead() {
+    async fn material_terminal_work_fact_remains_owed_to_the_accountable_lead() {
         let Ok(url) = std::env::var("RESTLESS_TEST_DATABASE_URL") else {
             eprintln!(
                 "RESTLESS_TEST_DATABASE_URL unset; skipping terminal supervisor wake scenario"
@@ -677,8 +683,8 @@ mod tests {
         let claimed = org.claim_ready_work("test runtime").await.unwrap().unwrap();
         org.finish_work_attempt(
             claimed.attempt_id,
-            WorkAttemptState::Produced,
-            "dossier accepted",
+            WorkAttemptState::Blocked,
+            "source contradiction needs accountable judgement",
         )
         .await
         .unwrap();
@@ -704,7 +710,9 @@ mod tests {
         let inbox = org.inbox(Some("opportunity-direction")).await.unwrap();
         assert_eq!(inbox.len(), 1);
         assert_eq!(inbox[0].from_actor, "daemon");
-        assert!(inbox[0].body.contains("status completed, revision 1"));
+        assert!(inbox[0]
+            .body
+            .contains("Attempt blocked, Work blocked, revision 1"));
         assert_eq!(
             org.message_work_id(inbox[0].id).await.unwrap(),
             Some(work_id)

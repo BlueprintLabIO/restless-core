@@ -110,6 +110,33 @@ fn docker_company_command(container: &str) -> Arc<CompanyCommand> {
     })
 }
 
+fn docker_root_command(container: &str) -> Arc<CompanyCommand> {
+    let container = container.to_string();
+    Arc::new(move |args| {
+        let container = container.clone();
+        Box::pin(async move {
+            let output = tokio::process::Command::new("docker")
+                .args([
+                    "exec",
+                    "-u",
+                    "root",
+                    "-e",
+                    "GIT_CONFIG_COUNT=1",
+                    "-e",
+                    "GIT_CONFIG_KEY_0=safe.directory",
+                    "-e",
+                    "GIT_CONFIG_VALUE_0=*",
+                    &container,
+                ])
+                .args(args)
+                .output()
+                .await
+                .context("run root-owned Runtime custody command")?;
+            Ok(output.into())
+        })
+    })
+}
+
 /// Observe a Git checkout without writing to it. Kept independent from Docker
 /// so the exact preparation logic can be exercised against a real local Git
 /// repository in the focused integrity scenario below.
@@ -243,10 +270,11 @@ pub(crate) async fn ensure_worktree(
             &container,
             "sh",
             "-c",
-            "set -eu; mkdir -p \"$2/cache\" \"$2/tmp\" \"$2/godot\" /company/worktrees /company/reviews; chown -R 2000:2000 \"$1\" \"$2\" /company/worktrees /company/reviews",
+            "set -eu; mkdir -p \"$2/cache\" \"$2/tmp\" \"$2/godot\" /company/worktrees /company/reviews; chown 2000:2000 \"$1\" \"$2\" /company/worktrees /company/reviews; if test -e \"$3\"; then chown -R 2000:2000 \"$3\"; fi",
             "restless-workspace",
             &repo_path,
             &runtime_root,
+            &path,
         ])
         .output()
         .await
@@ -460,6 +488,9 @@ pub(crate) async fn ensure_worktree(
 pub(crate) struct PreparedReviewCopy {
     pub(crate) workdir: String,
     pub(crate) source_commit: String,
+    pub(crate) content_digest: String,
+    pub(crate) file_count: usize,
+    pub(crate) access_probed: bool,
     pub(crate) source_before: WorkspaceObservation,
     pub(crate) source_after: WorkspaceObservation,
 }
@@ -610,12 +641,22 @@ pub(crate) async fn promote_integration_commit(
 
 /// Remove only transient state owned by one exact Attempt. The source
 /// worktree and Git checkpoint remain available for recovery/review.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub(crate) struct AttemptCleanupReceipt {
+    pub(crate) attempt_id: Uuid,
+    pub(crate) removed_paths: Vec<String>,
+    pub(crate) residue_count: usize,
+}
+
 pub(crate) async fn cleanup_attempt_runtime(
     container: &str,
     workdir: &str,
     attempt_id: Uuid,
-) -> Result<()> {
+) -> Result<AttemptCleanupReceipt> {
     let attempt = attempt_id.to_string();
+    let attempt_runtime = format!("/company/run/attempts/{attempt}");
+    let gate_runtime = format!("/company/run/gates/{attempt}");
+    let godot_link = format!("{workdir}/.godot");
     let output = tokio::process::Command::new("docker")
         .args([
             "exec",
@@ -624,7 +665,7 @@ pub(crate) async fn cleanup_attempt_runtime(
             container,
             "sh",
             "-lc",
-            "if test -L \"$1/.godot\"; then rm -f \"$1/.godot\"; fi; rm -rf \"/company/run/attempts/$2\" \"/company/run/gates/$2\"",
+            "set -eu; if test -L \"$1/.godot\"; then rm -f \"$1/.godot\"; fi; rm -rf \"/company/run/attempts/$2\" \"/company/run/gates/$2\"; test ! -e \"$1/.godot\"; test ! -L \"$1/.godot\"; test ! -e \"/company/run/attempts/$2\"; test ! -e \"/company/run/gates/$2\"",
             "attempt-cleanup",
             workdir,
             &attempt,
@@ -638,7 +679,11 @@ pub(crate) async fn cleanup_attempt_runtime(
             String::from_utf8_lossy(&output.stderr).trim()
         );
     }
-    Ok(())
+    Ok(AttemptCleanupReceipt {
+        attempt_id,
+        removed_paths: vec![godot_link, attempt_runtime, gate_runtime],
+        residue_count: 0,
+    })
 }
 
 async fn review_copy_is_exact(
@@ -657,6 +702,74 @@ async fn review_copy_is_exact(
         );
     }
     Ok(())
+}
+
+async fn review_copy_file_count(command: &CompanyCommand, review_workdir: &str) -> Result<usize> {
+    let output = require_success(
+        command,
+        vec![
+            "git".into(),
+            "-C".into(),
+            review_workdir.into(),
+            "ls-tree".into(),
+            "-r".into(),
+            "--name-only".into(),
+            "HEAD".into(),
+        ],
+        "enumerate declared review files",
+    )
+    .await?;
+    Ok(String::from_utf8(output.stdout)
+        .context("review manifest paths are not UTF-8")?
+        .lines()
+        .count())
+}
+
+async fn probe_review_copy_as_reviewer(
+    command: &CompanyCommand,
+    review_workdir: &str,
+    alias: &str,
+    source_commit: &str,
+    source_tree: &str,
+) -> Result<usize> {
+    let probe = require_success(
+        command,
+        vec![
+            "bash".into(),
+            "-c".into(),
+            "set -eu; git_review() { git -c safe.directory=\"$1\" -C \"$1\" \"${@:2}\"; }; test \"$(readlink \"$2\")\" = \"$1\"; test ! -w \"$1\"; test \"$(git_review \"$1\" rev-parse HEAD)\" = \"$3\"; test \"$(git_review \"$1\" rev-parse 'HEAD^{tree}')\" = \"$4\"; git_review \"$1\" diff --quiet --ignore-submodules --; git_review \"$1\" diff --cached --quiet --ignore-submodules --; git_review \"$1\" ls-tree -r -z --name-only HEAD | while IFS= read -r -d '' path; do test -r \"$1/$path\"; test ! -w \"$1/$path\"; done; git_review \"$1\" ls-tree -r --name-only HEAD | wc -l".into(),
+            "review-access-probe".into(),
+            review_workdir.into(),
+            alias.into(),
+            source_commit.into(),
+            source_tree.into(),
+        ],
+        "probe review evidence as reviewer identity",
+    )
+    .await?;
+    String::from_utf8(probe.stdout)
+        .context("review access probe count is not UTF-8")?
+        .trim()
+        .parse::<usize>()
+        .context("review access probe did not return an exact file count")
+}
+
+pub(crate) async fn probe_hardened_review_copy(
+    container: &str,
+    review_workdir: &str,
+    alias: &str,
+    source_commit: &str,
+    source_tree: &str,
+) -> Result<usize> {
+    let reviewer_command = docker_company_command(container);
+    probe_review_copy_as_reviewer(
+        &*reviewer_command,
+        review_workdir,
+        alias,
+        source_commit,
+        source_tree,
+    )
+    .await
 }
 
 /// Prepare one detached Git worktree for a completed Attempt review. The
@@ -725,15 +838,23 @@ async fn prepare_review_copy_with(
         review_copy_is_exact(command, review_workdir, source_commit).await?;
     }
 
+    let file_count = review_copy_file_count(command, review_workdir).await?;
     let source_after = observe_git_workspace(command, source_workdir).await;
     if source_after != source_before {
         bail!(
             "completed Attempt source {source_workdir} changed while review evidence was prepared; review target is unavailable"
         );
     }
+    let source_tree = source_after
+        .source_tree
+        .clone()
+        .context("completed Attempt commit has no exact Git tree")?;
     Ok(PreparedReviewCopy {
         workdir: review_workdir.to_string(),
         source_commit: source_commit.to_string(),
+        content_digest: format!("git-tree:{source_tree}"),
+        file_count,
+        access_probed: false,
         source_before,
         source_after,
     })
@@ -758,39 +879,53 @@ pub(crate) async fn prepare_review_copy(
     let source_workdir = workdir_for(work)?;
     let review_workdir = review_workdir_for(source_commit);
     let repo_path = format!("/company/repos/{repo}");
-    let command = docker_company_command(container);
-    let prepared = prepare_review_copy_with(
-        &*command,
+    // Custody preparation runs as root so the producer/reviewer identity can
+    // never replace the content-addressed directory or its alias. Ordinary
+    // Git remains the source of truth; this is a hardened detached worktree,
+    // not a parallel artifact lifecycle.
+    let root_command = docker_root_command(container);
+    let mut prepared = prepare_review_copy_with(
+        &*root_command,
         &source_workdir,
         &repo_path,
         &review_workdir,
         source_commit,
     )
     .await?;
+    let alias = format!("/company/reviews/by-attempt/{}", attempt_id.simple());
     require_success(
-        &*command,
+        &*root_command,
         vec![
-            "mkdir".into(),
-            "-p".into(),
-            "/company/reviews/by-attempt".into(),
+            "sh".into(),
+            "-c".into(),
+            "set -eu; mkdir -p /company/reviews/by-attempt; if test -L \"$2\"; then test \"$(readlink \"$2\")\" = \"$1\"; elif test -e \"$2\"; then exit 71; else ln -s \"$1\" \"$2\"; fi; chown -R 0:2000 \"$1\"; find \"$1\" -type d -exec chmod 0550 {} +; find \"$1\" -type f -exec chmod 0440 {} +; chown 0:2000 /company/reviews/by-attempt; chmod 0550 /company/reviews/by-attempt; chown -h 0:2000 \"$2\"".into(),
+            "harden-review-evidence".into(),
+            review_workdir.clone(),
+            alias.clone(),
         ],
-        "create review alias directory",
+        "harden detached review evidence",
     )
     .await?;
-    let alias = format!("/company/reviews/by-attempt/{}", attempt_id.simple());
-    let existing = command(vec!["readlink".into(), alias.clone()]).await?;
-    if existing.success {
-        if String::from_utf8_lossy(&existing.stdout).trim() != review_workdir {
-            bail!("review alias {alias} already resolves to different immutable content");
-        }
-    } else {
-        require_success(
-            &*command,
-            vec!["ln".into(), "-s".into(), review_workdir, alias],
-            "create immutable review alias",
-        )
-        .await?;
+    let source_tree = prepared
+        .source_after
+        .source_tree
+        .as_deref()
+        .context("prepared review copy has no exact source tree")?;
+    let probed_files = probe_hardened_review_copy(
+        container,
+        &prepared.workdir,
+        &alias,
+        &prepared.source_commit,
+        source_tree,
+    )
+    .await?;
+    if probed_files != prepared.file_count {
+        bail!(
+            "review access probe observed {probed_files} files but custody declared {}",
+            prepared.file_count
+        );
     }
+    prepared.access_probed = true;
     Ok(prepared)
 }
 
@@ -799,8 +934,8 @@ mod tests {
     use std::sync::Arc;
 
     use super::{
-        observe_git_workspace, prepare_review_copy_with, promote_integration_commit_with,
-        CommandFuture, CommandOutput, CompanyCommand,
+        observe_git_workspace, prepare_review_copy_with, probe_review_copy_as_reviewer,
+        promote_integration_commit_with, CommandFuture, CommandOutput, CompanyCommand,
     };
 
     fn local_git_command() -> Arc<CompanyCommand> {
@@ -948,12 +1083,38 @@ mod tests {
         )
         .await
         .expect("prepare detached review copy");
-
-        std::fs::write(
-            review.join("review-notes.txt"),
-            "supporting evidence only\n",
+        let alias = root.join("review-alias");
+        std::os::unix::fs::symlink(&review, &alias).expect("create stable review alias");
+        let hardened = std::process::Command::new("chmod")
+            .args(["-R", "a-w"])
+            .arg(&review)
+            .status()
+            .expect("harden local review fixture");
+        assert!(hardened.success());
+        let source_tree = prepared
+            .source_after
+            .source_tree
+            .as_deref()
+            .expect("source tree");
+        let probed = probe_review_copy_as_reviewer(
+            &*command,
+            review.to_str().unwrap(),
+            alias.to_str().unwrap(),
+            &source_commit,
+            source_tree,
         )
-        .expect("write review-only output");
+        .await
+        .expect("reviewer identity can read but not write the declared snapshot");
+        assert_eq!(probed, prepared.file_count);
+        assert!(prepared.content_digest.starts_with("git-tree:"));
+        assert!(
+            !prepared.access_probed,
+            "generic preparation does not fake the Runtime identity probe"
+        );
+        assert!(
+            std::fs::write(review.join("tracked.txt"), "reviewer mutation\n").is_err(),
+            "the reviewer cannot change published bytes"
+        );
         let after = observe_git_workspace(&*command, source.to_str().unwrap()).await;
         assert_eq!(prepared.source_commit, source_commit);
         assert_eq!(prepared.source_before, prepared.source_after);
@@ -967,6 +1128,12 @@ mod tests {
             "review copy is detached at the recorded candidate commit"
         );
 
+        let restored = std::process::Command::new("chmod")
+            .args(["-R", "u+w"])
+            .arg(&review)
+            .status()
+            .expect("restore cleanup permission");
+        assert!(restored.success());
         std::fs::remove_dir_all(&root).expect("remove isolated review test repository");
     }
 }

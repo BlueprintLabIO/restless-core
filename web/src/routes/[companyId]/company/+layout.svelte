@@ -7,6 +7,7 @@
 	import Monitor from '@lucide/svelte/icons/monitor';
 	import RadioTower from '@lucide/svelte/icons/radio-tower';
 	import ShieldCheck from '@lucide/svelte/icons/shield-check';
+	import Fingerprint from '@lucide/svelte/icons/fingerprint';
 	import InfoTip from '$lib/components/InfoTip.svelte';
 	import { companyQuery } from '$lib/model/queries.svelte';
 
@@ -17,6 +18,7 @@
 	const computerSurface = $derived(page.url.pathname === `/${companyId}/company/computer`);
 	const routes = $derived([
 		{ label: 'Company charter', href: `/${companyId}/company`, exact: true, icon: BookOpen },
+		{ label: 'Company identity', href: `/${companyId}/company/identity`, icon: Fingerprint },
 		{ label: 'Decision history', href: `/${companyId}/company/decisions`, icon: ListChecks },
 		{
 			label: 'Authority & limits',

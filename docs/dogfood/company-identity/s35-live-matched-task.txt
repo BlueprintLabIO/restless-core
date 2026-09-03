@@ -1,0 +1,11 @@
+Produce, independently review, repair and return an exceptional nine-channel release package for Restless. The factual change is:
+
+- Restless binds each accepted company artifact to the exact identity release and evidence it used.
+- Correction: bindings cover accepted artifacts, not every draft produced during Work.
+- Only accepted artifacts repeating the broader claim require a retain, revise or retire decision.
+
+Create these nine complete, standalone assets: product UI copy/state, landing-page section with product proof, founder email, newsletter edition, support reply, transactional email, standalone Blog, social copy plus visual direction, and internal decision memo. The Blog must contain its full reasoning and useful raw observations; it must not ask a reader to open Markdown, repository paths or private evidence. Named authors must sound credibly different while every claim remains consistent.
+
+Use accountable Staff and a genuinely independent critic. Inspect the native artifacts, identify concrete defects and revise until the package meets the company’s exceptional outcome standard. Visual work must be product-grounded, responsive, accessible and motion-safe; avoid fake product UI, generic node diagrams, goofy blobs and decorative spectacle without meaning. Human writing must be plain, pointed and consequence-first, without academic framing, slogan stacks, throat-clearing or repeated AI abstractions.
+
+Write the accepted package to `/company/outputs/identity-evaluation/review-gallery.html`, the blinded evaluation and repair account to `/company/outputs/identity-evaluation/evaluation.md`, and a source-backed operational receipt to `/company/outputs/identity-evaluation/receipt.json`. The receipt must name each actor, model, review pass, reversal, remaining unknown, context or spend observation available to you, and every effect boundary. Do not publish, deploy, send, post, contact anyone, purchase anything or perform another external effect. Return only a local ReviewTarget once the files exist and have been checked.

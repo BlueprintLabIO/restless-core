@@ -40,7 +40,7 @@ use uuid::Uuid;
 use crate::entry::{company_in_path, EntryMode, SessionStore};
 use crate::{
     airwallex, approval, attention, authority, company as company_projection, credential, finance,
-    legal, reconcile, runtime, Daemon,
+    legal, model_gateway, reconcile, runtime, Daemon,
 };
 
 const ATTACH_COOKIE: &str = "restless_attach";
@@ -128,6 +128,7 @@ struct PartyAction {
 #[derive(Default)]
 struct OwnerMessageInput {
     body: String,
+    outcome_standard: Option<restless_orgintel::OutcomeStandard>,
     work_id: Option<Uuid>,
     new_focus: bool,
     interrupt: bool,
@@ -213,6 +214,7 @@ struct ConversationMessageView {
     from_actor: String,
     to_actor: Option<String>,
     body: String,
+    outcome_standard: Option<restless_orgintel::OutcomeStandard>,
     attachments: Vec<OwnerAttachment>,
     details: Option<String>,
     intent: Option<OwnerIntentReceipt>,
@@ -228,6 +230,7 @@ struct ConversationSendResponse {
     context_attached: bool,
     context_omitted: bool,
     focus: Option<ConversationFocusView>,
+    requested_outcome_standard: Option<restless_orgintel::OutcomeStandard>,
 }
 
 /// An explicit interruption does not manufacture a second owner message.
@@ -266,6 +269,27 @@ struct CompanyRecoveryInput {
 struct CharterRevisionInput {
     markdown: String,
     base_revision: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct OutcomeStandardInput {
+    standard: restless_orgintel::OutcomeStandard,
+}
+
+#[derive(Debug, Deserialize)]
+struct IdentityPromotionInput {
+    change_account: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct IdentityRejectionInput {
+    rationale: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct IdentityMigrationInput {
+    disposition: restless_orgintel::IdentityMigrationDisposition,
+    rationale: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -370,6 +394,7 @@ struct CockpitCompany {
     name: String,
     mission: String,
     model: String,
+    outcome_standard: restless_orgintel::OutcomeStandard,
 }
 
 #[derive(Debug, Serialize, ts_rs::TS)]
@@ -399,6 +424,10 @@ struct CockpitTeam {
     id: Uuid,
     name: String,
     brief: String,
+    outcome_standard: restless_orgintel::OutcomeStandard,
+    outcome_standard_source: restless_orgintel::OutcomeStandardSource,
+    standard_source_message_id: Option<i64>,
+    frontier_phase: String,
     lead_actor_id: String,
     created_by: String,
     created_at: chrono::DateTime<Utc>,
@@ -767,6 +796,7 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
     };
 
     let api = Router::new()
+        .route("/appliance", get(appliance_status))
         .route("/companies", get(company_catalog))
         .route("/companies/{company}/archive", post(archive_company))
         .route("/companies/{company}/restore", post(restore_company))
@@ -778,9 +808,36 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
             post(revise_company_charter),
         )
         .route(
+            "/companies/{company}/company/outcome-standard",
+            post(set_company_outcome_standard),
+        )
+        .route(
+            "/companies/{company}/company/identity",
+            get(company_identity_view),
+        )
+        .route(
+            "/companies/{company}/company/identity/proposals/{proposal}/promote",
+            post(promote_company_identity),
+        )
+        .route(
+            "/companies/{company}/company/identity/proposals/{proposal}/reject",
+            post(reject_company_identity),
+        )
+        .route(
+            "/companies/{company}/company/identity/drift/{finding}/decide",
+            post(decide_company_identity_migration),
+        )
+        .route(
             "/companies/{company}/company/recover",
             post(recover_company_computer),
         )
+        .route(
+            "/companies/{company}/resources/{resource}/open",
+            post(open_company_resource),
+        )
+        .route("/launches/{handle}", get(open_launch_root))
+        .route("/launches/{handle}/{*asset}", get(open_launch_asset))
+        .route("/launches/{handle}/exchange", post(exchange_native_launch))
         .route(
             "/companies/{company}/actors/{actor}/conversation",
             get(actor_conversation).post(send_actor_message),
@@ -1391,6 +1448,367 @@ async fn company_view(
         .into_response()
 }
 
+async fn open_company_resource(
+    State(state): State<OwnerState>,
+    AxumPath((company, resource)): AxumPath<(String, String)>,
+) -> impl IntoResponse {
+    if runtime::CompanyConfig::load(&state.daemon.root, &company).is_err() {
+        return api_error(StatusCode::NOT_FOUND, "company", "company does not exist");
+    }
+    match state
+        .daemon
+        .launch
+        .open(&state.daemon, &company, &resource)
+        .await
+    {
+        Ok(outcome) => Json(outcome).into_response(),
+        Err(error) => api_error(
+            StatusCode::CONFLICT,
+            "artifact_launch",
+            format!("{error:#}"),
+        ),
+    }
+}
+
+async fn open_launch_root(
+    State(state): State<OwnerState>,
+    AxumPath(handle): AxumPath<String>,
+    headers: HeaderMap,
+) -> impl IntoResponse {
+    state.daemon.launch.proxy_web(&handle, "", &headers).await
+}
+
+async fn open_launch_asset(
+    State(state): State<OwnerState>,
+    AxumPath((handle, asset)): AxumPath<(String, String)>,
+    headers: HeaderMap,
+) -> impl IntoResponse {
+    state
+        .daemon
+        .launch
+        .proxy_web(&handle, &asset, &headers)
+        .await
+}
+
+async fn exchange_native_launch(
+    State(state): State<OwnerState>,
+    AxumPath(handle): AxumPath<String>,
+) -> impl IntoResponse {
+    match state.daemon.launch.exchange_native(&handle) {
+        Ok(exchange) => Json(exchange).into_response(),
+        Err(error) => api_error(StatusCode::GONE, "artifact_launch", format!("{error:#}")),
+    }
+}
+
+#[derive(Serialize)]
+struct ApplianceStatus {
+    profile: String,
+    state: &'static str,
+    model_gateway: &'static str,
+    schedule_transport: &'static str,
+    last_schedule_wake: Option<serde_json::Value>,
+    repair: Option<&'static str>,
+}
+
+async fn appliance_status(State(state): State<OwnerState>) -> impl IntoResponse {
+    let profile = match restlessd::appliance::MachineProfile::from_env() {
+        Ok(profile) => profile,
+        Err(error) => {
+            return api_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "appliance",
+                format!("machine profile is invalid: {error:#}"),
+            )
+        }
+    };
+    let last_schedule_wake =
+        std::fs::read(state.daemon.root.join("machine/last-schedule-wake.json"))
+            .ok()
+            .and_then(|bytes| serde_json::from_slice(&bytes).ok());
+    let recovery = std::fs::read(state.daemon.root.join("machine/appliance-recovery.json"))
+        .ok()
+        .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok());
+    let (state_name, schedule_transport, repair) = match profile.kind {
+        restlessd::appliance::ProfileKind::Stable if cfg!(target_os = "macos") => {
+            let definition = std::env::var_os("HOME")
+                .map(PathBuf::from)
+                .map(|home| {
+                    home.join("Library/LaunchAgents/io.restless.wake-due.plist")
+                        .is_file()
+                })
+                .unwrap_or(false);
+            let loaded = std::process::Command::new("launchctl")
+                .args([
+                    "print",
+                    &format!("gui/{}/io.restless.wake-due", unsafe { libc_getuid() }),
+                ])
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .status()
+                .is_ok_and(|status| status.success());
+            if definition && loaded {
+                ("ready", "launchd", None)
+            } else {
+                (
+                    "degraded",
+                    "unavailable",
+                    Some("Run `restless appliance start` to restore schedule wake delivery."),
+                )
+            }
+        }
+        restlessd::appliance::ProfileKind::Stable => (
+            "degraded",
+            "unavailable",
+            Some("Install the released systemd wake adapter on this host."),
+        ),
+        restlessd::appliance::ProfileKind::Dev => ("development", "in_process", None),
+        restlessd::appliance::ProfileKind::Test => ("test", "in_process", None),
+    };
+    let (state_name, repair) = if let Some(recovery) = recovery {
+        (
+            "degraded",
+            recovery
+                .get("detail")
+                .and_then(serde_json::Value::as_str)
+                .map(|_| {
+                    "The last appliance upgrade was blocked. Inspect the service log, then retry or roll back."
+                }),
+        )
+    } else {
+        (state_name, repair)
+    };
+    Json(ApplianceStatus {
+        profile: profile.kind.as_str().to_string(),
+        state: state_name,
+        model_gateway: if model_gateway::is_ready() {
+            "ready"
+        } else {
+            "starting"
+        },
+        schedule_transport,
+        last_schedule_wake,
+        repair,
+    })
+    .into_response()
+}
+
+#[cfg(unix)]
+extern "C" {
+    fn getuid() -> u32;
+}
+
+#[cfg(unix)]
+unsafe fn libc_getuid() -> u32 {
+    getuid()
+}
+
+async fn company_identity_view(
+    State(state): State<OwnerState>,
+    AxumPath(company): AxumPath<String>,
+) -> impl IntoResponse {
+    let org = match state.daemon.orgintel.get(&company).await {
+        Ok(org) => org,
+        Err(error) => {
+            return api_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "identity",
+                format!("company identity is unavailable: {error:#}"),
+            )
+        }
+    };
+    match org.company_identity_snapshot().await {
+        Ok(snapshot) => Json(snapshot).into_response(),
+        Err(error) => api_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "identity",
+            format!("company identity could not be read: {error:#}"),
+        ),
+    }
+}
+
+async fn promote_company_identity(
+    State(state): State<OwnerState>,
+    AxumPath((company, proposal)): AxumPath<(String, Uuid)>,
+    Json(input): Json<IdentityPromotionInput>,
+) -> impl IntoResponse {
+    if input.change_account.trim().is_empty() {
+        return api_error(
+            StatusCode::BAD_REQUEST,
+            "identity",
+            "promotion needs a concise account of what changed",
+        );
+    }
+    let authority_id = match state
+        .daemon
+        .authority
+        .record_company_identity_decision(
+            &company,
+            proposal,
+            "promote",
+            input.change_account.trim(),
+        )
+        .await
+    {
+        Ok(id) => id,
+        Err(error) => {
+            return api_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "authority",
+                format!("identity decision could not be recorded: {error:#}"),
+            )
+        }
+    };
+    let org = match state.daemon.orgintel.get(&company).await {
+        Ok(org) => org,
+        Err(error) => {
+            return api_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "identity",
+                format!("owner decision was recorded but its company projection failed: {error:#}"),
+            )
+        }
+    };
+    match org
+        .promote_identity_proposal(
+            proposal,
+            "owner",
+            &format!("authority:{authority_id}"),
+            input.change_account.trim(),
+            Utc::now(),
+        )
+        .await
+    {
+        Ok(release_id) => Json(serde_json::json!({
+            "proposal_id": proposal,
+            "release_id": release_id,
+            "authority_record_id": authority_id,
+        }))
+        .into_response(),
+        Err(error) => api_error(StatusCode::CONFLICT, "identity", format!("{error:#}")),
+    }
+}
+
+async fn reject_company_identity(
+    State(state): State<OwnerState>,
+    AxumPath((company, proposal)): AxumPath<(String, Uuid)>,
+    Json(input): Json<IdentityRejectionInput>,
+) -> impl IntoResponse {
+    if input.rationale.trim().is_empty() {
+        return api_error(
+            StatusCode::BAD_REQUEST,
+            "identity",
+            "rejection needs the owner's reason",
+        );
+    }
+    let authority_id = match state
+        .daemon
+        .authority
+        .record_company_identity_decision(&company, proposal, "reject", input.rationale.trim())
+        .await
+    {
+        Ok(id) => id,
+        Err(error) => {
+            return api_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "authority",
+                format!("identity decision could not be recorded: {error:#}"),
+            )
+        }
+    };
+    let org = match state.daemon.orgintel.get(&company).await {
+        Ok(org) => org,
+        Err(error) => {
+            return api_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "identity",
+                format!("owner decision was recorded but its company projection failed: {error:#}"),
+            )
+        }
+    };
+    match org
+        .reject_identity_proposal(
+            proposal,
+            "owner",
+            &format!("authority:{authority_id}"),
+            input.rationale.trim(),
+        )
+        .await
+    {
+        Ok(()) => Json(serde_json::json!({
+            "proposal_id": proposal,
+            "decision": "rejected",
+            "authority_record_id": authority_id,
+        }))
+        .into_response(),
+        Err(error) => api_error(StatusCode::CONFLICT, "identity", format!("{error:#}")),
+    }
+}
+
+async fn decide_company_identity_migration(
+    State(state): State<OwnerState>,
+    AxumPath((company, finding)): AxumPath<(String, Uuid)>,
+    Json(input): Json<IdentityMigrationInput>,
+) -> impl IntoResponse {
+    if input.rationale.trim().is_empty() {
+        return api_error(
+            StatusCode::BAD_REQUEST,
+            "identity",
+            "migration needs the owner's concrete reason",
+        );
+    }
+    let authority_id = match state
+        .daemon
+        .authority
+        .emit(
+            &company,
+            "company_identity_migration",
+            Some("owner"),
+            serde_json::json!({
+                "drift_finding_id": finding,
+                "disposition": input.disposition,
+                "rationale": input.rationale.trim(),
+            }),
+        )
+        .await
+    {
+        Ok(id) => id,
+        Err(error) => {
+            return api_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "authority",
+                format!("migration decision could not be recorded: {error:#}"),
+            )
+        }
+    };
+    let org = match state.daemon.orgintel.get(&company).await {
+        Ok(org) => org,
+        Err(error) => {
+            return api_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "identity",
+                format!("owner decision was recorded but its company projection failed: {error:#}"),
+            )
+        }
+    };
+    match org
+        .decide_identity_migration(restless_orgintel::NewIdentityMigrationDecision {
+            drift_finding_id: finding,
+            disposition: input.disposition,
+            decided_by: "owner",
+            rationale: input.rationale.trim(),
+            authority_record_id: &format!("authority:{authority_id}"),
+        })
+        .await
+    {
+        Ok(decision) => Json(serde_json::json!({
+            "decision": decision,
+            "authority_record_id": authority_id,
+        }))
+        .into_response(),
+        Err(error) => api_error(StatusCode::CONFLICT, "identity", format!("{error:#}")),
+    }
+}
+
 async fn revise_company_charter(
     State(state): State<OwnerState>,
     AxumPath(company): AxumPath<String>,
@@ -1449,6 +1867,54 @@ async fn revise_company_charter(
         revision,
     })
     .into_response()
+}
+
+async fn set_company_outcome_standard(
+    State(state): State<OwnerState>,
+    AxumPath(company): AxumPath<String>,
+    Json(input): Json<OutcomeStandardInput>,
+) -> impl IntoResponse {
+    // Share the bounded company-config write lock with charter revision. The
+    // standard is owner policy in the same file; neither write may erase the
+    // other after two tabs read an older copy.
+    let _write = state.charter_writes.lock().await;
+    let mut config = match runtime::CompanyConfig::load(&state.daemon.root, &company) {
+        Ok(config) => config,
+        Err(error) => return api_error(StatusCode::NOT_FOUND, "company", format!("{error:#}")),
+    };
+    if config.outcome_standard != input.standard {
+        let previous = config.outcome_standard;
+        config.outcome_standard = input.standard;
+        if let Err(error) = runtime::CompanyConfig::save(&state.daemon.root, &config) {
+            return api_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "outcome_standard",
+                format!("{error:#}"),
+            );
+        }
+        if let Err(error) = state
+            .daemon
+            .authority
+            .emit(
+                &company,
+                "company_outcome_standard_changed",
+                Some("owner"),
+                serde_json::json!({
+                    "previous": previous,
+                    "standard": input.standard,
+                    "effect": "newly commissioned outcomes only",
+                }),
+            )
+            .await
+        {
+            return api_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "authority",
+                format!("the setting changed but its owner audit record failed: {error:#}"),
+            );
+        }
+    }
+    Json(company_projection::project(&state.daemon, &config, false).await).into_response()
 }
 
 async fn recover_company_computer(
@@ -1608,10 +2074,39 @@ async fn cockpit_view(
                         && actor_teams.get(item.owner_id.as_str()) == Some(&team.id)
                 })
                 .count();
+            let proposed_count = work
+                .iter()
+                .filter(|item| {
+                    item.status == restless_orgintel::WorkStatus::Proposed
+                        && actor_teams.get(item.owner_id.as_str()) == Some(&team.id)
+                })
+                .count();
+            let completed_count = work
+                .iter()
+                .filter(|item| {
+                    item.status == restless_orgintel::WorkStatus::Completed
+                        && actor_teams.get(item.owner_id.as_str()) == Some(&team.id)
+                })
+                .count();
+            let frontier_phase = if blocked_count > 0 {
+                "repairing"
+            } else if in_motion_count > 0 {
+                "building"
+            } else if proposed_count > 0 {
+                "framing"
+            } else if completed_count > 0 {
+                "returned"
+            } else {
+                "commissioned"
+            };
             CockpitTeam {
                 id: team.id,
                 name: team.name.clone(),
                 brief: team.brief.clone(),
+                outcome_standard: team.outcome_standard,
+                outcome_standard_source: team.outcome_standard_source,
+                standard_source_message_id: team.standard_source_message_id,
+                frontier_phase: frontier_phase.into(),
                 lead_actor_id: team.lead_actor_id.clone(),
                 created_by: team.created_by.clone(),
                 created_at: team.created_at,
@@ -1768,6 +2263,7 @@ async fn cockpit_view(
             name: config.name,
             mission: config.mission,
             model: config.model,
+            outcome_standard: config.outcome_standard,
         },
         source_health,
         people,
@@ -1827,6 +2323,8 @@ fn render_cockpit_bindings() -> String {
     );
     for declaration in [
         serde_json::Value::decl(&config),
+        restless_orgintel::OutcomeStandard::decl(&config),
+        restless_orgintel::OutcomeStandardSource::decl(&config),
         CockpitCompany::decl(&config),
         CockpitModelCooldown::decl(&config),
         CockpitPerson::decl(&config),
@@ -1880,6 +2378,7 @@ fn render_conversation_bindings() -> String {
          \n",
     );
     for declaration in [
+        restless_orgintel::OutcomeStandard::decl(&config),
         OwnerAttachment::decl(&config),
         OwnerIntentKind::decl(&config),
         OwnerIntentReceipt::decl(&config),
@@ -1996,6 +2495,7 @@ fn conversation_message_view(message: restless_orgintel::MessageRow) -> Conversa
         from_actor: message.from_actor,
         to_actor: message.to_actor,
         body: body.to_string(),
+        outcome_standard: message.outcome_standard,
         attachments,
         details,
         intent,
@@ -2181,6 +2681,13 @@ async fn send_actor_message(
             "New focus is available only for ordinary Exec conversation",
         );
     }
+    if input.outcome_standard.is_some() && (actor != "exec" || input.work_id.is_some()) {
+        return api_error(
+            StatusCode::BAD_REQUEST,
+            "outcome_standard",
+            "an outcome standard can be selected only for a new Exec request",
+        );
+    }
     // Context is useful navigation metadata, not part of message delivery. Parse
     // it as a URL so a root screen with query state (for example
     // `/aris?item=...`) remains company-scoped. A malformed or cross-company
@@ -2270,7 +2777,12 @@ async fn send_actor_message(
             .await
             .map(|message_id| (message_id, None)),
         None => org
-            .send_owner_conversation_message(&actor, &recorded_body, input.new_focus)
+            .send_owner_conversation_message_with_standard(
+                &actor,
+                &recorded_body,
+                input.new_focus,
+                input.outcome_standard,
+            )
             .await
             .map(|(message_id, focus)| (message_id, Some(focus))),
     };
@@ -2306,6 +2818,7 @@ async fn send_actor_message(
                     after_message_id: focus.after_message_id,
                     started_at: focus.started_at,
                 }),
+                requested_outcome_standard: input.outcome_standard,
             })
             .into_response()
         }
@@ -2431,6 +2944,18 @@ async fn parse_owner_message(
                             .map_err(|error| format!("invalid Work reference: {error}"))?,
                     );
                 }
+            }
+            Some("outcome_standard") => {
+                let value = field
+                    .text()
+                    .await
+                    .map_err(|error| format!("read outcome standard: {error}"))?;
+                input.outcome_standard = Some(
+                    restless_orgintel::OutcomeStandard::parse(&value).ok_or_else(|| {
+                        "outcome_standard must be fast, thorough, exceptional, or frontier"
+                            .to_string()
+                    })?,
+                );
             }
             Some("new_focus") => {
                 let value = field
@@ -3621,6 +4146,9 @@ mod tests {
             root: root.clone(),
             capabilities: crate::capability::CapabilityIssuer::open(&root).unwrap(),
             spend: crate::spend::SpendLedger::open(&root).unwrap(),
+            publication: crate::publication::PublicationManager::new(&root, authority.clone())
+                .unwrap(),
+            launch: crate::launch::LaunchBroker::new(&root).unwrap(),
             authority,
             orgintel: crate::OrgIntelRegistry {
                 database_url,
@@ -3630,6 +4158,7 @@ mod tests {
             staff: crate::staff::StaffRegistry::default(),
             activities: crate::activity::AgentActivityStreams::default(),
             in_flight: Arc::new(std::sync::Mutex::new(crate::schedule::WakeClaims::default())),
+            schedule_wake: Arc::new(tokio::sync::Notify::new()),
         });
         // Prove the requested company exists in both the configured Runtime
         // set and the isolated OrgIntel database before publishing a surface.
@@ -3878,6 +4407,7 @@ mod tests {
                 from_actor: "owner".into(),
                 to_actor: Some("exec".into()),
                 body: "Please verify the launch plan.".into(),
+                outcome_standard: Some(restless_orgintel::OutcomeStandard::Exceptional),
                 attachments: vec![OwnerAttachment {
                     upload_id: Uuid::nil(),
                     name: "plan.md".into(),
@@ -4035,6 +4565,7 @@ mod tests {
                 name: "Fixture Test".into(),
                 mission: "Verify the owner projection.".into(),
                 model: "fixture/model".into(),
+                outcome_standard: restless_orgintel::OutcomeStandard::Exceptional,
             },
             source_health,
             people: vec![CockpitPerson {
@@ -4053,6 +4584,10 @@ mod tests {
                 id: Uuid::from_u128(3),
                 name: "Research".into(),
                 brief: "Research the fixture.".into(),
+                outcome_standard: restless_orgintel::OutcomeStandard::Exceptional,
+                outcome_standard_source: restless_orgintel::OutcomeStandardSource::CompanyDefault,
+                standard_source_message_id: None,
+                frontier_phase: "building".into(),
                 lead_actor_id: "exec".into(),
                 created_by: "owner".into(),
                 created_at: at(),

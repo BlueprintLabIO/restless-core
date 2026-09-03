@@ -3,6 +3,7 @@
 	import { page } from '$app/state';
 	import { PRODUCT_NAME } from '$lib/brand/brand';
 	import OwnerMenu from '$lib/components/OwnerMenu.svelte';
+	import { getApplianceStatus, type ApplianceStatus } from '$lib/model/appliance';
 	import MatrixGlyph, { GLYPHS } from '$lib/primitives/MatrixGlyph.svelte';
 	import SemanticMark from '$lib/primitives/SemanticMark.svelte';
 	import { portfolioQuery, type PortfolioProjection } from '$lib/model/queries.svelte';
@@ -16,6 +17,7 @@
 	const loaded = $derived(portfolio.status !== 'unknown');
 	const error = $derived(portfolio.failure?.message ?? '');
 	let redirected = $state(false);
+	let appliance = $state<ApplianceStatus | null>(null);
 	const activeCompanies = $derived(
 		companies.filter((company) => company.lifecycle_status === 'active')
 	);
@@ -28,6 +30,16 @@
 		redirected = true;
 		const next = safeNext(page.url.searchParams.get('next'));
 		if (next) void goto(next, { replaceState: true });
+	});
+
+	$effect(() => {
+		const controller = new AbortController();
+		void getApplianceStatus(controller.signal)
+			.then((value) => (appliance = value))
+			.catch(() => {
+				// The portfolio query already owns the global unavailable state.
+			});
+		return () => controller.abort();
 	});
 
 	function safeNext(value: string | null): string {
@@ -75,6 +87,17 @@
 
 	{#if loaded}
 		<main class="portfolio-main">
+			{#if appliance?.state === 'degraded'}
+				<div class="appliance-notice" role="status">
+					<span>Schedule wake needs repair.</span>
+					<p>{appliance.repair}</p>
+				</div>
+			{:else if appliance?.model_gateway === 'starting'}
+				<div class="appliance-notice" role="status">
+					<span>Model access is starting.</span>
+					<p>Companies will wake after provider access is ready. The owner surface remains available.</p>
+				</div>
+			{/if}
 			<header class="portfolio-head">
 				<h1>Companies</h1>
 			</header>
@@ -124,8 +147,9 @@
 											{#if company.unstartable_reason}
 												<!-- The exact reason is the hover explanation; the row stays
 												     one short phrase rather than growing a second line. -->
-												<small class="portfolio-company-unstartable" title={company.unstartable_reason}
-													>cannot start</small
+												<small
+													class="portfolio-company-unstartable"
+													title={company.unstartable_reason}>cannot start</small
 												>
 											{:else}
 												<small>{company.runtime_status}</small>
@@ -196,3 +220,31 @@
 		<main class="portfolio-loading">Loading companies…</main>
 	{/if}
 </div>
+
+<style>
+	.appliance-notice {
+		display: grid;
+		grid-template-columns: max-content 1fr;
+		gap: 8px 18px;
+		align-items: baseline;
+		margin: 0 0 32px;
+		padding: 12px 0;
+		border-block: 1px solid color-mix(in srgb, var(--ink, #171b24) 18%, transparent);
+		color: var(--ink, #171b24);
+	}
+
+	.appliance-notice span {
+		font-weight: 650;
+	}
+
+	.appliance-notice p {
+		margin: 0;
+		color: var(--ink-muted, #596170);
+	}
+
+	@media (max-width: 640px) {
+		.appliance-notice {
+			grid-template-columns: 1fr;
+		}
+	}
+</style>

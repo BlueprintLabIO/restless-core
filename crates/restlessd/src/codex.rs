@@ -588,18 +588,35 @@ where
     let _ = send_operation(&stdin, serde_json::json!({"op":"shutdown"})).await;
     let owned_session = crate::acp::read_session_id(container, &session_marker).await;
     let _ = child.kill().await;
-    if let Some(session_id) = owned_session {
+    let process_cleanup = if let Some(session_id) = owned_session {
         let _ = crate::acp::reap_session(container, &session_id).await;
+        crate::acp::verify_session_reaped(container, &session_id).await
     } else {
-        tracing::warn!(container, marker = %session_marker, "Codex session marker missing; declining broad cleanup");
+        Err(anyhow::anyhow!(
+            "Codex session marker {session_marker} is missing; broad process cleanup was refused"
+        ))
+    };
+    let artifact_cleanup = crate::acp::remove_and_verify_session_artifacts(
+        container,
+        &[&session_marker, &session_runtime],
+    )
+    .await;
+    match result {
+        Ok(value) => {
+            process_cleanup?;
+            artifact_cleanup?;
+            Ok(value)
+        }
+        Err(error) => {
+            if let Err(cleanup) = process_cleanup.and(artifact_cleanup) {
+                tracing::error!(
+                    container,
+                    "Codex failed and terminal cleanup also failed: {cleanup:#}"
+                );
+            }
+            Err(error)
+        }
     }
-    for path in [&session_marker, &session_runtime] {
-        let _ = Command::new("docker")
-            .args(["exec", "-u", "root", container, "rm", "-rf", path])
-            .output()
-            .await;
-    }
-    result
 }
 
 #[cfg(test)]

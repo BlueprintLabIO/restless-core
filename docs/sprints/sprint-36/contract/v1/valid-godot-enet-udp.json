@@ -1,0 +1,11 @@
+{
+  "contract_version": "published-service.v1",
+  "image": "registry.example/restless/swift-arrival-server@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "profile": "godot-enet-udp",
+  "internal_port": 7777,
+  "readiness": {
+    "kind": "udp",
+    "request": "RESTLESS_READY_V1",
+    "response": "RESTLESS_READY_V1_OK"
+  }
+}

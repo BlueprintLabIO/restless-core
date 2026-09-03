@@ -1,0 +1,42 @@
+{
+  "contract_version": "published-service.v1",
+  "publication_id": "publication-0123456789abcdef01234568",
+  "candidate": {
+    "contract_version": "published-service.v1",
+    "candidate_id": "candidate-0123456789abcdef01234568",
+    "company": "company-example",
+    "work_id": "55555555-5555-4555-8555-555555555555",
+    "attempt_id": "66666666-6666-4666-8666-666666666666",
+    "producing_actor": "game-team-worker",
+    "source_artifact_ref_id": "77777777-7777-4777-8777-777777777777",
+    "image": "registry.example/restless/swift-arrival-server@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "manifest": {
+      "contract_version": "published-service.v1",
+      "image": "registry.example/restless/swift-arrival-server@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "profile": "godot-enet-udp",
+      "internal_port": 7777,
+      "readiness": {
+        "kind": "udp",
+        "request": "RESTLESS_READY_V1",
+        "response": "RESTLESS_READY_V1_OK"
+      }
+    },
+    "manifest_digest": "sha256:9acadc8499f17f02af4f52fe898e47d932c1e2f3abd34efd4b1586586951b39f",
+    "source_commit": "8888888888888888888888888888888888888888",
+    "runtime_generation": "runtime-generation-2",
+    "created_at": "2026-09-02T00:00:00Z"
+  },
+  "audience": "named-invitees",
+  "egress": "denied",
+  "start_deadline": "2026-09-02T00:15:00Z",
+  "expires_at": "2026-09-02T04:00:00Z",
+  "resources": {
+    "cpu_millis": 1000,
+    "memory_mib": 1024,
+    "ephemeral_storage_mib": 2048,
+    "max_connections": 8
+  },
+  "idempotency_key": "publish-game-example-1",
+  "requested_by": "game-team-worker",
+  "requested_at": "2026-09-02T00:05:00Z"
+}

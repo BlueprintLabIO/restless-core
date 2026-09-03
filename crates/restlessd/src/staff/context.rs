@@ -17,6 +17,10 @@ Maintain a concise durable quality contract in the team charter, Work outcomes, 
 
 Treat every producer result as a claim. Inspect the real artifact in its native environment. Separate creation from evaluation and, where taste, correctness, safety, or consequence matters, commission a fresh-context independent critic who receives the contract and exact artifact but not the producer's rationale. Verify that the critic and its evidence actually test the promised outcome; green mechanical gates can reject broken work but cannot approve qualitative excellence.
 
+Bind every evaluation and re-evaluation to the exact current candidate identity available in the Runtime—commit, digest, artifact version, or runtime generation. A revision invalidates verdicts and captures from the prior identity even when their paths are unchanged. Require the critic to record the identity it actually operated, and where deterministic identity exists, gate that record against the candidate before accepting the verdict. Never let a stale report decide a repaired candidate.
+
+When the owner asked to review an exact native outcome, close through one Work explicitly declared `--owner-review`. Linking a `review_target` artifact to ordinary Work is evidence, not owner delivery, and does not create Attention. Before declaring the charter complete, inspect the owner projection and prove that exactly one current available ReviewTarget for the accepted candidate is present.
+
 Continue attributable Staff-owned produce → operate → evaluate → repair loops while a consequential contract gap and a credible improvement hypothesis remain. An Attempt limit is a local execution guard, never an outcome-quality ceiling: commission the next sparse revision or replacement Work when needed. Change the approach rather than repeating an exhausted one; reset a contaminated trajectory when its assumptions or rejected form keep anchoring the result. Prefer the simplest root fix that closes the largest gap, and make repeated failures pay rent through a reusable skill, evaluation, test, tool, or durable observation.
 
 Stop only at quality convergence: the contract is proven in the native environment, independent review accepts it when required, the verifier is credible, and remaining gaps are non-consequential—or a concrete external constraint, authority boundary, or irreducible owner judgement prevents further machine work. Report uncertainty honestly and never lower the bar merely because time, tokens, attempts, or enthusiasm are running low."#;
@@ -26,9 +30,9 @@ Stop only at quality convergence: the contract is proven in the native environme
 /// its productive Work wake called the same actor a mere specialist.
 pub(super) fn actor_posture(accountable_lead: bool) -> &'static str {
     if accountable_lead {
-        "You are the ACCOUNTABLE LEAD for this team's whole accepted outcome, not a relay, producer, or smaller Exec. You remain a non-producing supervisor on every wake. Frame, commission, observe, guide, redirect, and repair through at least one Staff worker; never edit the candidate, perform its planned production, or silently repair its artifact yourself. You retain native review, quality convergence judgement, and truthful attribution of every real contribution. A terminal Staff callback is a decision boundary, not a status-update opportunity: before ending that wake, either prove the whole team charter and its quality contract are complete, record the concrete blocker that prevents further machine work, or commission the next smallest attributable Staff-owned Work. Never leave an incomplete or consequentially substandard charter quiescent after merely reporting progress."
+        "You are the ACCOUNTABLE LEAD for this team's whole accepted outcome, not a relay, producer, or smaller Exec. You remain a non-producing supervisor on every wake. Frame, commission, observe, guide, redirect, and repair through at least one Staff worker; never edit the candidate, perform its planned production, or silently repair its artifact yourself. You retain native review, quality convergence judgement, and truthful attribution of every real contribution. A material Staff exception is a decision boundary, not a status-update opportunity: before ending that wake, either repair or redirect attributable Work, record the concrete blocker, or escalate the exact judgement. Clean passing completion remains observable state and does not require a ceremonial model wake. Never accept a consequentially substandard charter merely because one bounded Work item passed."
     } else {
-        "You are a SPECIALIST, not a smaller Exec. Own the bounded responsibility your role names, surface material contradictions early, and say plainly when something falls outside it. Do not quietly take over the whole team outcome: a specialist who does every job is a generalist with a job title. The Runtime sends your accountable lead one durable terminal Work fact after it observes your artifacts, gates, and final state. Do not send progress or completion mail merely to wake the lead; message the lead only for a genuinely new fact or contradiction that must be judged before your terminal result."
+        "You are a SPECIALIST, not a smaller Exec. Own the bounded responsibility your role names, surface material contradictions early, and say plainly when something falls outside it. Do not quietly take over the whole team outcome: a specialist who does every job is a generalist with a job title. The Runtime records every terminal Work fact and wakes your accountable lead only for a material exception. Do not send progress or completion mail merely to wake the lead; message the lead only for a genuinely new fact or contradiction that must be judged before your terminal result."
     }
 }
 
@@ -54,13 +58,20 @@ pub(super) fn team_capacity_context(team: &TeamRow, actors: &[ActorRow]) -> Stri
         })
         .collect::<Vec<_>>();
     format!(
-        "\n# Your available team [internal decision]\n{} — {}\n{}\n\
+        "\n# Commissioned outcome standard [owner/company policy]\n\
+         `{}` via `{}`{}. This is an ambition contract, not permission, a team-size target, or a loop quota. Fast still preserves safety, truth, authority and native correctness. Thorough seeks production readiness. Exceptional seeks a clearly superior outcome through strong references, purposeful exploration and independent native evaluation where consequence warrants it. Frontier seeks a new ceiling while reporting uncertainty and diminishing returns honestly. Translate the standard into this outcome's fitness, evidence and stopping judgement.\n\n\
+         # Your available team [internal decision]\n{} — {}\n{}\n\
          This is available capacity, not a headcount target. Every executable outcome needs at least \
          one Staff producer: commission one end-to-end worker by default, and add more only when a \
          stable independently useful seam repays coordination cost. Create each producer's bounded \
          Work with `restless work add` before it starts; messages are not assignments, and lead-owned \
          production Work is invalid. When an authenticated external message caused the outcome, add \
          `--source-message <message-id>` so source linkage and Work creation commit once together.\n",
+        team.outcome_standard,
+        team.outcome_standard_source.as_str(),
+        team.standard_source_message_id
+            .map(|id| format!(" from owner message {id}"))
+            .unwrap_or_default(),
         team.name,
         team.brief,
         if roster.is_empty() {
@@ -122,7 +133,7 @@ pub(super) async fn shared_spine(
         );
     } else if accountable_lead {
         spine.push_str(
-            "\nYou are the non-producing accountable supervisor for this team's outcome. Resolve ordinary uncertainty and local blockers inside the charter by guiding or recommissioning Staff; message Exec only for cross-team resources, company priority, strategy, charter scope, or authority escalation. Use the Work CLI to make every Staff contribution and its exact artifact observable. After a terminal Staff callback, do not end with a progress-only conversation while the charter remains incomplete: commission the next smallest Staff-owned Work in that wake, record a genuine blocker, or prove the charter outcome.\n",
+            "\nYou are the non-producing accountable supervisor for this team's outcome. Resolve ordinary uncertainty and local blockers inside the charter by guiding or recommissioning Staff; message Exec only for cross-team resources, company priority, strategy, charter scope, or authority escalation. Use the Work CLI to make every Staff contribution and its exact artifact observable. A material Staff exception is a decision boundary: do not end that wake with progress-only conversation while the charter remains incomplete; repair or redirect Staff-owned Work, record a genuine blocker, or escalate the exact judgement. Clean passing completion remains observable and needs no ceremonial model wake.\n",
         );
     } else {
         let coordinator = org
@@ -153,6 +164,11 @@ pub(super) fn bound_attempt_context(
     company: &str,
     accountable_lead: bool,
 ) -> (String, serde_json::Value) {
+    let is_critic = !claimed.review_targets.is_empty();
+    let context_recovery = claimed
+        .previous_attempt_summary
+        .as_deref()
+        .is_some_and(|summary| summary.trim_start().starts_with("[context]"));
     let workspace = serde_json::json!({
         "runtime_workdir": workdir,
         "repository": claimed.work.repo.clone(),
@@ -218,6 +234,8 @@ pub(super) fn bound_attempt_context(
                 "outcome": claimed.work.outcome.clone(),
                 "expected_artifact": claimed.work.expected_artifact.clone(),
                 "input_fingerprint": claimed.input_fingerprint.clone(),
+                "context_recovery": context_recovery,
+                "review_targets": claimed.review_targets,
             },
             "workspace": workspace,
             "upstream_artifact_versions": inputs,
@@ -359,16 +377,49 @@ pub(super) fn bound_attempt_context(
     };
     let completion_evidence =
         format!("{completion_evidence}{inherited_output_note}{integration_note}");
+    let craft_posture = if is_critic {
+        format!(
+            "# Critic posture [independent judgement]\n\
+             Judge the customer-facing outcome before policing constraints. Review in this order: \
+             (1) is the offer immediately clear, valuable and credible to its intended reader; \
+             (2) does the voice feel natural, specific and confident; (3) is the requested action easy; \
+             (4) are claims supported and internal boundaries respected. Quality comes first, but it \
+             never licenses invented facts. Distinguish an empirical claim from a deliberate commercial \
+             offer: a company-chosen prototype, trial, price or service promise is a decision to honour, \
+             not a historical fact that must be hedged for lack of prior evidence. If the stated offer \
+             conflicts with a real capacity or authority uncertainty, escalate that internal decision \
+             instead of weakening customer copy into tentative research language. Keep \
+             constraints in the review report; do not rewrite the \
+             artifact into governance language. Inspect the exact candidates from producer Work: {}.\n",
+            claimed
+                .review_targets
+                .iter()
+                .map(ToString::to_string)
+                .collect::<Vec<_>>()
+                .join(", ")
+        )
+    } else {
+        "# Producer posture [creative ownership]\n\
+         Create the strongest outcome for the real audience. Lead with customer value, clarity, specificity and a natural human voice. Use company truth and evidence as material, not as a compliance checklist. State a company-chosen commercial offer directly as something the company intends to honour; do not weaken it into exploring, considering or discussing whether it could be appropriate. Internal approval state, review mechanics, authority language, risk controls and process labels are not customer copy unless the outcome genuinely requires the reader to know them. Do not pre-emptively weaken the work to satisfy an imagined critic. A separate critic owns constraint checking after a compelling candidate exists.\n"
+            .to_string()
+    };
+    let recovery_note = if context_recovery {
+        "\n\n# Context-recovery posture [automatic]\n- The immediately preceding Attempt exceeded the provider context limit; its model session is not a usable continuation.\n- Continue from durable files, linked artifacts, compact manifests, and text summaries already present. Do not repeat completed browser capture, media loading, broad repository scans, or another high-volume evidence pass.\n- Use targeted probes only for missing decision-bearing facts. If capture and judgement cannot fit in one bounded pass, stop and ask the accountable lead to split them into separate Work instead of rebuilding the same context."
+    } else {
+        ""
+    };
     let context = format!(
-        "# Work {} revision {} attempt {}\nAttempt UUID: {}\n{}\n\nExpected artifact / proof: {}\nInput fingerprint: {}\n\n# Completion evidence [deterministic]\n{}\n\n# Bound workspace facts [automatic]\n{}\n\n# Bound artifact versions [automatic]\n{}\n\n# Work-linked feedback [automatic]\n{}\n\n# Skill roots and truthful capability probes [automatic]\n- Skill roots available to OMP: {}\n- Probe Runtime tools at: `{}`\n- Probe company/runtime reachability at: `{}`\n- Probe configured credential references at: `{}`\n- Probe skill directories at: `{}`\nDo not treat a configured credential or an installed executable as provider acceptance, authority, or a successful effect.\n\n# Context accounting\n- Automatically attached: company doctrine and mission, actor role, Work/Attempt identity, exact workspace coordinates, bound artifact versions, Work-linked feedback, skill roots, probe locations, and {}.\n- Retrieved depth at launch: none. Inspect bound files, project instructions, skills, Git history, and attached artifact content only when useful.\n- Not replayed: lead conversation, full team transcript, and unrelated actor messages.\n",
+        "# Work {} revision {} attempt {}\nAttempt UUID: {}\n{}\n\n{}\nExpected artifact / proof: {}\nInput fingerprint: {}\n\n# Completion evidence [deterministic]\n{}{}\n\n# Bound workspace facts [automatic]\n{}\n\n# Bound artifact versions [automatic]\n{}\n\n# Work-linked feedback [automatic]\n{}\n\n# Skill roots and truthful capability probes [automatic]\n- Skill roots available to OMP: {}\n- Probe Runtime tools at: `{}`\n- Probe company/runtime reachability at: `{}`\n- Probe configured credential references at: `{}`\n- Probe skill directories at: `{}`\nDo not treat a configured credential or an installed executable as provider acceptance, authority, or a successful effect.\n\n# Context accounting\n- Automatically attached: company doctrine and mission, actor role, Work/Attempt identity, exact workspace coordinates, bound artifact versions, Work-linked feedback, skill roots, probe locations, and {}.\n- Retrieved depth at launch: none. Inspect bound files, project instructions, skills, Git history, and attached artifact content only when useful.\n- Not replayed: lead conversation, full team transcript, and unrelated actor messages.\n",
         claimed.work.id,
         claimed.work.revision,
         claimed.attempt_no,
         claimed.attempt_id,
         claimed.work.outcome,
+        craft_posture,
         claimed.work.expected_artifact,
         claimed.input_fingerprint,
         completion_evidence,
+        recovery_note,
         workspace_lines,
         input_lines,
         feedback_lines,

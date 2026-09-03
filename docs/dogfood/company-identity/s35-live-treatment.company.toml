@@ -1,0 +1,11 @@
+name = "constitution_treatment_test"
+mission = "Produce an exceptional, internally coherent nine-channel release package for Restless. Work autonomously through accountable Staff and independent review until the package is genuinely ready for owner judgement. Preserve exact evidence, authorship, uncertainty and effect boundaries. Do not publish, deploy, send, contact anyone, purchase anything or perform another external effect."
+spend_ceiling_usd = "25"
+model = "litellm/gpt-5.6-sol"
+model_failover = []
+worker_runtime = "omp"
+reasoning_effort = "high"
+approved_parties = []
+
+[credentials]
+"model.inference.litellm" = "env:GPT_API_KEY"

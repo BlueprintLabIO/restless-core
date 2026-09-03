@@ -8,6 +8,117 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest as _, Sha256};
 use uuid::Uuid;
 
+/// The owner-visible ambition promise for one commissioned outcome. It changes
+/// accountable judgement posture, never authority, safety floors, or a fixed
+/// amount of Runtime machinery.
+#[derive(
+    Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize, sqlx::Type, ts_rs::TS,
+)]
+#[sqlx(type_name = "outcome_standard", rename_all = "snake_case")]
+#[serde(rename_all = "snake_case")]
+pub enum OutcomeStandard {
+    Fast,
+    Thorough,
+    #[default]
+    Exceptional,
+    Frontier,
+}
+
+impl OutcomeStandard {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Fast => "fast",
+            Self::Thorough => "thorough",
+            Self::Exceptional => "exceptional",
+            Self::Frontier => "frontier",
+        }
+    }
+
+    pub fn parse(value: &str) -> Option<Self> {
+        match value.trim().to_ascii_lowercase().as_str() {
+            "fast" => Some(Self::Fast),
+            "thorough" => Some(Self::Thorough),
+            "exceptional" => Some(Self::Exceptional),
+            "frontier" => Some(Self::Frontier),
+            _ => None,
+        }
+    }
+}
+
+impl std::fmt::Display for OutcomeStandard {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(self.as_str())
+    }
+}
+
+#[derive(
+    Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize, sqlx::Type, ts_rs::TS,
+)]
+#[sqlx(type_name = "outcome_standard_source", rename_all = "snake_case")]
+#[serde(rename_all = "snake_case")]
+pub enum OutcomeStandardSource {
+    #[default]
+    CompanyDefault,
+    OwnerOverride,
+    OwnerLanguage,
+}
+
+impl OutcomeStandardSource {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::CompanyDefault => "company_default",
+            Self::OwnerOverride => "owner_override",
+            Self::OwnerLanguage => "owner_language",
+        }
+    }
+
+    pub fn parse(value: &str) -> Option<Self> {
+        match value.trim().to_ascii_lowercase().as_str() {
+            "company_default" => Some(Self::CompanyDefault),
+            "owner_override" => Some(Self::OwnerOverride),
+            "owner_language" => Some(Self::OwnerLanguage),
+            _ => None,
+        }
+    }
+}
+
+/// The smallest producing shape selected when Work is commissioned. This is
+/// a routing fact, not a workflow: one Work still has one accountable producer
+/// and one Attempt at a time.
+#[derive(
+    Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize, sqlx::Type, ts_rs::TS,
+)]
+#[sqlx(type_name = "producing_topology", rename_all = "snake_case")]
+#[serde(rename_all = "snake_case")]
+pub enum ProducingTopology {
+    #[default]
+    CoherentSingleWorker,
+    LocallyClosingParallelUnit,
+}
+
+impl ProducingTopology {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::CoherentSingleWorker => "coherent_single_worker",
+            Self::LocallyClosingParallelUnit => "locally_closing_parallel_unit",
+        }
+    }
+
+    pub fn parse(value: &str) -> Option<Self> {
+        match value.trim().to_ascii_lowercase().replace('-', "_").as_str() {
+            "coherent_single_worker" => Some(Self::CoherentSingleWorker),
+            "locally_closing_parallel_unit" => Some(Self::LocallyClosingParallelUnit),
+            _ => None,
+        }
+    }
+}
+
+impl std::fmt::Display for ProducingTopology {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(self.as_str())
+    }
+}
+
 /// The Work lifecycle. Migration 0006 renames the former primitive in place;
 /// there is no second task or workflow truth beneath it.
 #[derive(
@@ -44,6 +155,20 @@ pub enum WorkAttemptState {
     Failed,
     Abandoned,
     Superseded,
+}
+
+impl WorkAttemptState {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Running => "running",
+            Self::Produced => "produced",
+            Self::ChangesRequested => "changes_requested",
+            Self::Blocked => "blocked",
+            Self::Failed => "failed",
+            Self::Abandoned => "abandoned",
+            Self::Superseded => "superseded",
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, sqlx::Type, ts_rs::TS)]
@@ -206,6 +331,9 @@ pub struct TeamRow {
     pub name: String,
     /// Why this team exists and what it is accountable for.
     pub brief: String,
+    pub outcome_standard: OutcomeStandard,
+    pub outcome_standard_source: OutcomeStandardSource,
+    pub standard_source_message_id: Option<i64>,
     pub lead_actor_id: String,
     pub created_by: String,
     pub created_at: DateTime<Utc>,
@@ -237,6 +365,14 @@ pub struct WorkRow {
     /// recoverable coordination state, not an implicit consequence of a
     /// generic artifact or completion state.
     pub owner_review_required: bool,
+    /// Exact producing route selected at commission. Parallel capacity is
+    /// represented as several disjoint unit Work nodes, never several writers
+    /// racing inside one node.
+    pub producing_topology: ProducingTopology,
+    /// Actor that made the durable commission. This can be Exec only for the
+    /// unambiguous sole-worker fast path; accountability still belongs to the
+    /// worker's team lead.
+    pub commissioned_by: String,
     pub repo: Option<String>,
     pub base_ref: Option<String>,
     pub integration_branch: Option<String>,
@@ -348,6 +484,12 @@ pub struct AttemptRecoveryNotice {
 #[derive(Debug, Serialize)]
 pub struct ClaimedWork {
     pub work: WorkRow,
+    /// Producer Work this node is explicitly responsible for reviewing and
+    /// may return feedback to. An empty set means this is production Work.
+    /// Keeping the distinction in the immutable Attempt membrane lets the
+    /// Runtime give creators and critics different cognitive jobs without
+    /// guessing from actor names or prose.
+    pub review_targets: Vec<Uuid>,
     /// The immutable Git starting point for this Attempt. A moving Work ref
     /// such as `main` resolves to the sole exact commit produced by a
     /// completed same-repository prerequisite when one exists.
@@ -358,6 +500,11 @@ pub struct ClaimedWork {
     pub input_fingerprint: String,
     pub inputs: Vec<ArtifactRefRow>,
     pub feedback: Vec<MessageRow>,
+    /// The newest prior Attempt in this Work revision, when one exists. The
+    /// launch membrane uses this bounded terminal fact to prevent a successor
+    /// from repeating context-heavy capture work after provider rejection.
+    pub previous_attempt_state: Option<WorkAttemptState>,
+    pub previous_attempt_summary: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, sqlx::FromRow, ts_rs::TS)]
@@ -713,7 +860,53 @@ pub struct ScheduleRow {
     pub timezone: Option<String>,
     pub local_time: Option<chrono::NaiveTime>,
     pub last_fired_at: Option<DateTime<Utc>>,
+    pub missed_policy: String,
+    pub catch_up_grace_seconds: Option<i64>,
+    pub last_missed_at: Option<DateTime<Utc>>,
+    pub last_considered_at: Option<DateTime<Utc>>,
+    pub machine_requirement: String,
     pub created_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, sqlx::FromRow, ts_rs::TS)]
+pub struct ScheduleOccurrenceRow {
+    pub schedule_id: Uuid,
+    pub scheduled_for: DateTime<Utc>,
+    pub fired_at: DateTime<Utc>,
+    pub disposition: String,
+    pub detail: Option<String>,
+    pub supersedes_through: Option<DateTime<Utc>>,
+    pub superseded_count: i64,
+    pub recovered_at: Option<DateTime<Utc>>,
+    pub recovery_message_id: Option<i64>,
+    pub recovered_by: Option<String>,
+    pub recovery_reason: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, sqlx::FromRow, ts_rs::TS)]
+pub struct ScheduleRecoveryRow {
+    pub schedule_id: Uuid,
+    pub scheduled_for: DateTime<Utc>,
+    pub actor_id: String,
+    pub message_id: i64,
+    pub recovered_at: DateTime<Utc>,
+    pub recovered_by: String,
+    pub reason: String,
+    pub created: bool,
+}
+
+#[derive(Debug, Clone, Serialize, sqlx::FromRow, ts_rs::TS)]
+pub struct ScheduleRecoveryRetryRow {
+    pub schedule_id: Uuid,
+    pub scheduled_for: DateTime<Utc>,
+    pub actor_id: String,
+    pub retry_key: String,
+    pub prior_message_id: i64,
+    pub message_id: i64,
+    pub retried_at: DateTime<Utc>,
+    pub retried_by: String,
+    pub reason: String,
+    pub created: bool,
 }
 
 #[derive(Debug, Serialize, sqlx::FromRow, ts_rs::TS)]
@@ -722,6 +915,9 @@ pub struct MessageRow {
     pub from_actor: String,
     pub to_actor: Option<String>,
     pub body: String,
+    /// An explicit owner composer override. Absence means the Exec applies the
+    /// company default or makes an attributable natural-language judgement.
+    pub outcome_standard: Option<OutcomeStandard>,
     pub created_at: DateTime<Utc>,
     pub read_at: Option<DateTime<Utc>>,
 }
@@ -759,4 +955,1015 @@ pub struct EventRow {
     pub actor_id: Option<String>,
     pub body: serde_json::Value,
     pub created_at: DateTime<Utc>,
+}
+
+// ---- Company expression identity (S31) ----
+
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, sqlx::Type, ts_rs::TS,
+)]
+#[sqlx(type_name = "company_identity_pillar", rename_all = "snake_case")]
+#[serde(rename_all = "snake_case")]
+pub enum IdentityPillar {
+    Truth,
+    Voice,
+    Visual,
+    Culture,
+}
+
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, sqlx::Type, ts_rs::TS,
+)]
+#[sqlx(
+    type_name = "company_identity_statement_kind",
+    rename_all = "snake_case"
+)]
+#[serde(rename_all = "snake_case")]
+pub enum IdentityStatementKind {
+    Fact,
+    Belief,
+    Guidance,
+    Observation,
+    Example,
+    Exception,
+}
+
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, sqlx::Type, ts_rs::TS,
+)]
+#[sqlx(
+    type_name = "company_identity_evidence_status",
+    rename_all = "snake_case"
+)]
+#[serde(rename_all = "snake_case")]
+pub enum IdentityEvidenceStatus {
+    Active,
+    Disputed,
+    Corrected,
+}
+
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, sqlx::Type, ts_rs::TS,
+)]
+#[sqlx(type_name = "company_identity_polarity", rename_all = "snake_case")]
+#[serde(rename_all = "snake_case")]
+pub enum IdentityPolarity {
+    Neutral,
+    Positive,
+    Negative,
+}
+
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, sqlx::Type, ts_rs::TS,
+)]
+#[sqlx(
+    type_name = "company_identity_proposal_state",
+    rename_all = "snake_case"
+)]
+#[serde(rename_all = "snake_case")]
+pub enum IdentityProposalState {
+    Pending,
+    Promoted,
+    Rejected,
+}
+
+#[derive(Debug, Clone, Serialize, sqlx::FromRow, ts_rs::TS)]
+pub struct IdentityEvidenceRow {
+    pub id: Uuid,
+    pub pillar: IdentityPillar,
+    pub statement_kind: IdentityStatementKind,
+    pub claim_key: String,
+    pub statement: String,
+    pub author_id: String,
+    pub source: String,
+    pub authority: String,
+    pub scope: String,
+    pub observed_at: DateTime<Utc>,
+    pub evidence_locator: String,
+    pub polarity: IdentityPolarity,
+    pub status: IdentityEvidenceStatus,
+    pub channel: Option<String>,
+    pub audience: Option<String>,
+    pub supersedes_evidence_id: Option<Uuid>,
+    pub exception_expires_at: Option<DateTime<Utc>>,
+    pub exception_indefinite: bool,
+    pub created_at: DateTime<Utc>,
+}
+
+pub struct NewIdentityEvidence<'a> {
+    pub pillar: IdentityPillar,
+    pub statement_kind: IdentityStatementKind,
+    pub claim_key: &'a str,
+    pub statement: &'a str,
+    pub author_id: &'a str,
+    pub source: &'a str,
+    pub authority: &'a str,
+    pub scope: &'a str,
+    pub observed_at: DateTime<Utc>,
+    pub evidence_locator: &'a str,
+    pub polarity: IdentityPolarity,
+    pub status: IdentityEvidenceStatus,
+    pub channel: Option<&'a str>,
+    pub audience: Option<&'a str>,
+    pub supersedes_evidence_id: Option<Uuid>,
+    pub exception_expires_at: Option<DateTime<Utc>>,
+    pub exception_indefinite: bool,
+}
+
+#[derive(Debug, Clone, Serialize, sqlx::FromRow, ts_rs::TS)]
+pub struct IdentityProposalRow {
+    pub id: Uuid,
+    pub created_by: String,
+    pub rationale: String,
+    pub expected_predecessor: Option<Uuid>,
+    pub state: IdentityProposalState,
+    pub decided_by: Option<String>,
+    pub authority_record_id: Option<String>,
+    pub decision_rationale: String,
+    pub created_at: DateTime<Utc>,
+    pub decided_at: Option<DateTime<Utc>>,
+}
+
+#[derive(Debug, Clone, Serialize, sqlx::FromRow, ts_rs::TS)]
+pub struct IdentityReleaseRow {
+    pub id: Uuid,
+    pub predecessor: Option<Uuid>,
+    pub effective_from: DateTime<Utc>,
+    pub promoted_by: String,
+    pub authority_record_id: String,
+    pub change_account: String,
+    pub created_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, sqlx::FromRow, ts_rs::TS)]
+pub struct IdentityWorkBindingRow {
+    pub work_id: Uuid,
+    pub release_id: Uuid,
+    pub bound_at: DateTime<Utc>,
+    pub stale_at: Option<DateTime<Utc>>,
+    pub stale_reason: String,
+}
+
+#[derive(Debug, Clone, Serialize, sqlx::FromRow, ts_rs::TS)]
+pub struct IdentityProposalEvidenceRow {
+    pub proposal_id: Uuid,
+    pub evidence_id: Uuid,
+}
+
+#[derive(Debug, Clone, Serialize, sqlx::FromRow, ts_rs::TS)]
+pub struct IdentityReleaseEvidenceRow {
+    pub release_id: Uuid,
+    pub evidence_id: Uuid,
+}
+
+#[derive(Debug, Clone, Serialize, ts_rs::TS)]
+pub struct CompanyIdentitySnapshot {
+    pub current_release: Option<IdentityReleaseRow>,
+    pub releases: Vec<IdentityReleaseRow>,
+    pub pending_proposals: Vec<IdentityProposalRow>,
+    pub evidence: Vec<IdentityEvidenceRow>,
+    pub proposal_evidence: Vec<IdentityProposalEvidenceRow>,
+    pub release_evidence: Vec<IdentityReleaseEvidenceRow>,
+    pub bindings: Vec<IdentityWorkBindingRow>,
+    pub voice_evidence_details: Vec<VoiceEvidenceDetailRow>,
+    pub voice_work_contracts: Vec<VoiceWorkContractRow>,
+    pub voice_render_evidence: Vec<VoiceRenderEvidenceRow>,
+    pub voice_reviews: Vec<VoiceReviewRow>,
+    pub visual_evidence_details: Vec<VisualEvidenceDetailRow>,
+    pub visual_work_contracts: Vec<VisualWorkContractRow>,
+    pub visual_primitive_uses: Vec<VisualPrimitiveUseRow>,
+    pub visual_render_evidence: Vec<VisualRenderEvidenceRow>,
+    pub visual_reviews: Vec<VisualReviewRow>,
+    pub culture_evidence_details: Vec<CultureEvidenceDetailRow>,
+    pub culture_work_contracts: Vec<CultureWorkContractRow>,
+    pub culture_case_records: Vec<CultureCaseRecordRow>,
+    pub culture_reviews: Vec<CultureReviewRow>,
+    pub constitution_artifact_bindings: Vec<ConstitutionArtifactBindingRow>,
+    pub constitution_artifact_evidence: Vec<ConstitutionArtifactEvidenceRow>,
+    pub constitution_learning_proposals: Vec<ConstitutionLearningProposalRow>,
+    pub identity_drift_findings: Vec<IdentityDriftFindingRow>,
+    pub identity_migration_decisions: Vec<IdentityMigrationDecisionRow>,
+}
+
+pub struct IdentityBriefRequest<'a> {
+    pub release_id: Uuid,
+    pub outcome: &'a str,
+    pub channel: &'a str,
+    pub audience: &'a str,
+    pub author: &'a str,
+    pub max_bytes: usize,
+    pub now: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, ts_rs::TS)]
+pub struct IdentityBrief {
+    pub release_id: Uuid,
+    pub outcome: String,
+    pub channel: String,
+    pub audience: String,
+    pub author: String,
+    pub body: String,
+    pub digest: String,
+    pub included_evidence_ids: Vec<Uuid>,
+    pub omitted_evidence_ids: Vec<Uuid>,
+    pub bytes: usize,
+}
+
+// ---- Human company voice (S32) ----
+
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, sqlx::Type, ts_rs::TS,
+)]
+#[sqlx(type_name = "company_voice_evidence_kind", rename_all = "snake_case")]
+#[serde(rename_all = "snake_case")]
+pub enum VoiceEvidenceKind {
+    ApprovedPassage,
+    RejectedPassage,
+    ExpressionPrinciple,
+    Vocabulary,
+    NamedAuthor,
+    ChannelObservation,
+}
+
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, sqlx::Type, ts_rs::TS,
+)]
+#[sqlx(type_name = "company_voice_channel", rename_all = "snake_case")]
+#[serde(rename_all = "snake_case")]
+pub enum VoiceChannel {
+    Newsletter,
+    FounderEmail,
+    Support,
+    TransactionalEmail,
+    ProductUi,
+    Blog,
+}
+
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, sqlx::Type, ts_rs::TS,
+)]
+#[sqlx(type_name = "company_voice_review_verdict", rename_all = "snake_case")]
+#[serde(rename_all = "snake_case")]
+pub enum VoiceReviewVerdict {
+    Accept,
+    Revise,
+    Reject,
+}
+
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, sqlx::Type, ts_rs::TS,
+)]
+#[sqlx(type_name = "company_voice_learning_kind", rename_all = "snake_case")]
+#[serde(rename_all = "snake_case")]
+pub enum VoiceLearningKind {
+    Typo,
+    FactCorrection,
+    VoiceObservation,
+}
+
+pub struct NewVoiceEvidence<'a> {
+    pub kind: VoiceEvidenceKind,
+    pub claim_key: &'a str,
+    pub passage_or_principle: &'a str,
+    pub author_id: &'a str,
+    pub named_author: Option<&'a str>,
+    pub source: &'a str,
+    pub authority: &'a str,
+    pub scope: &'a str,
+    pub observed_at: DateTime<Utc>,
+    pub evidence_locator: &'a str,
+    pub judgement_reason: &'a str,
+    pub polarity: IdentityPolarity,
+    pub channel: Option<VoiceChannel>,
+    pub audience: Option<&'a str>,
+    pub supersedes_evidence_id: Option<Uuid>,
+}
+
+#[derive(Debug, Clone, Serialize, sqlx::FromRow, ts_rs::TS)]
+pub struct VoiceEvidenceDetailRow {
+    pub evidence_id: Uuid,
+    pub kind: VoiceEvidenceKind,
+    pub judgement_reason: String,
+    pub named_author: Option<String>,
+    pub channel: Option<VoiceChannel>,
+    pub audience: Option<String>,
+}
+
+pub struct NewVoiceWorkContract<'a> {
+    pub work_id: Uuid,
+    pub channel: VoiceChannel,
+    pub author: &'a str,
+    pub bound_by: &'a str,
+    pub audience: &'a str,
+    pub reader_situation: &'a str,
+    pub desired_understanding: &'a str,
+    pub desired_action: &'a str,
+    pub proof: &'a str,
+    pub consequence: &'a str,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, sqlx::FromRow, ts_rs::TS)]
+pub struct VoiceWorkContractRow {
+    pub work_id: Uuid,
+    pub release_id: Uuid,
+    pub channel: VoiceChannel,
+    pub author: String,
+    pub bound_by: String,
+    pub audience: String,
+    pub reader_situation: String,
+    pub desired_understanding: String,
+    pub desired_action: String,
+    pub proof: String,
+    pub consequence: String,
+    pub contract_digest: String,
+    pub bound_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, ts_rs::TS)]
+pub struct VoiceContractBrief {
+    pub contract: VoiceWorkContractRow,
+    pub body: String,
+    pub digest: String,
+    pub included_evidence_ids: Vec<Uuid>,
+    pub omitted_evidence_ids: Vec<Uuid>,
+    pub bytes: usize,
+}
+
+pub struct NewVoiceRenderEvidence<'a> {
+    pub artifact_ref_id: Uuid,
+    pub channel: VoiceChannel,
+    pub renderer: &'a str,
+    pub renderer_version: &'a str,
+    pub semantic_checks: &'a serde_json::Value,
+    pub captured_by: &'a str,
+}
+
+#[derive(Debug, Clone, Serialize, sqlx::FromRow, ts_rs::TS)]
+pub struct VoiceRenderEvidenceRow {
+    pub id: Uuid,
+    pub artifact_ref_id: Uuid,
+    pub channel: VoiceChannel,
+    pub renderer: String,
+    pub renderer_version: String,
+    pub semantic_checks: serde_json::Value,
+    pub captured_by: String,
+    pub captured_at: DateTime<Utc>,
+}
+
+pub struct NewVoiceReview<'a> {
+    pub render_evidence_id: Uuid,
+    pub reviewer: &'a str,
+    pub verdict: VoiceReviewVerdict,
+    pub factual_findings: &'a str,
+    pub abstraction_findings: &'a str,
+    pub repetition_findings: &'a str,
+    pub channel_findings: &'a str,
+    pub authorship_findings: &'a str,
+    pub concepts_removed: &'a str,
+}
+
+#[derive(Debug, Clone, Serialize, sqlx::FromRow, ts_rs::TS)]
+pub struct VoiceReviewRow {
+    pub id: Uuid,
+    pub render_evidence_id: Uuid,
+    pub reviewer: String,
+    pub verdict: VoiceReviewVerdict,
+    pub factual_findings: String,
+    pub abstraction_findings: String,
+    pub repetition_findings: String,
+    pub channel_findings: String,
+    pub authorship_findings: String,
+    pub concepts_removed: String,
+    pub created_at: DateTime<Utc>,
+}
+
+pub struct NewVoiceLearningProposal<'a> {
+    pub created_by: &'a str,
+    pub before_artifact_ref_id: Uuid,
+    pub after_artifact_ref_id: Uuid,
+    pub change_kind: VoiceLearningKind,
+    pub claim_key: &'a str,
+    pub observation: &'a str,
+    pub motivating_decision: &'a str,
+    pub scope: &'a str,
+    pub source: &'a str,
+    pub evidence_locator: &'a str,
+    pub channel: Option<VoiceChannel>,
+    pub named_author: Option<&'a str>,
+    pub audience: Option<&'a str>,
+    pub observed_at: DateTime<Utc>,
+}
+
+// ---- Durable visual language (S33) ----
+
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, sqlx::Type, ts_rs::TS,
+)]
+#[sqlx(type_name = "company_visual_evidence_kind", rename_all = "snake_case")]
+#[serde(rename_all = "snake_case")]
+pub enum VisualEvidenceKind {
+    SemanticToken,
+    TypographyRole,
+    CompositionPrinciple,
+    ImageryDirection,
+    MotionPattern,
+    ProductRepresentationRule,
+    Primitive,
+    ApprovedComposition,
+    RejectedExample,
+}
+
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, sqlx::Type, ts_rs::TS,
+)]
+#[sqlx(type_name = "company_visual_channel", rename_all = "snake_case")]
+#[serde(rename_all = "snake_case")]
+pub enum VisualChannel {
+    LandingPage,
+    Email,
+    Product,
+    Social,
+}
+
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, sqlx::Type, ts_rs::TS,
+)]
+#[sqlx(type_name = "company_visual_representation", rename_all = "snake_case")]
+#[serde(rename_all = "snake_case")]
+pub enum VisualRepresentation {
+    ExactProduct,
+    ClearlyAbstract,
+    None,
+}
+
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, sqlx::Type, ts_rs::TS,
+)]
+#[sqlx(type_name = "company_visual_motion_state", rename_all = "snake_case")]
+#[serde(rename_all = "snake_case")]
+pub enum VisualMotionState {
+    Full,
+    Reduced,
+    Static,
+}
+
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, sqlx::Type, ts_rs::TS,
+)]
+#[sqlx(type_name = "company_visual_review_verdict", rename_all = "snake_case")]
+#[serde(rename_all = "snake_case")]
+pub enum VisualReviewVerdict {
+    Accept,
+    Revise,
+    Reject,
+}
+
+pub struct NewVisualEvidence<'a> {
+    pub kind: VisualEvidenceKind,
+    pub claim_key: &'a str,
+    pub statement: &'a str,
+    pub author_id: &'a str,
+    pub source: &'a str,
+    pub authority: &'a str,
+    pub scope: &'a str,
+    pub observed_at: DateTime<Utc>,
+    pub evidence_locator: &'a str,
+    pub rationale: &'a str,
+    pub purpose: &'a str,
+    pub polarity: IdentityPolarity,
+    pub channel: Option<VisualChannel>,
+    pub semantic_role: Option<&'a str>,
+    pub value: Option<&'a str>,
+    pub reduced_motion_replacement: Option<&'a str>,
+    pub product_truth_locator: Option<&'a str>,
+    pub origin: Option<&'a str>,
+    pub licence: Option<&'a str>,
+    pub framework: Option<&'a str>,
+    pub dependencies: &'a serde_json::Value,
+    pub adaptation_status: Option<&'a str>,
+    pub accessibility_notes: &'a str,
+    pub supersedes_evidence_id: Option<Uuid>,
+}
+
+#[derive(Debug, Clone, Serialize, sqlx::FromRow, ts_rs::TS)]
+pub struct VisualEvidenceDetailRow {
+    pub evidence_id: Uuid,
+    pub kind: VisualEvidenceKind,
+    pub channel: Option<VisualChannel>,
+    pub purpose: String,
+    pub rationale: String,
+    pub semantic_role: Option<String>,
+    pub value: Option<String>,
+    pub reduced_motion_replacement: Option<String>,
+    pub product_truth_locator: Option<String>,
+    pub origin: Option<String>,
+    pub licence: Option<String>,
+    pub framework: Option<String>,
+    pub dependencies: serde_json::Value,
+    pub adaptation_status: Option<String>,
+    pub accessibility_notes: String,
+}
+
+pub struct NewVisualWorkContract<'a> {
+    pub work_id: Uuid,
+    pub channel: VisualChannel,
+    pub bound_by: &'a str,
+    pub audience: &'a str,
+    pub outcome: &'a str,
+    pub information_hierarchy: &'a str,
+    pub proof: &'a str,
+    pub density: &'a str,
+    pub imagery_role: &'a str,
+    pub motion_role: &'a str,
+    pub product_representation: VisualRepresentation,
+    pub product_truth_locator: Option<&'a str>,
+    pub requested_departure: Option<&'a str>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, sqlx::FromRow, ts_rs::TS)]
+pub struct VisualWorkContractRow {
+    pub work_id: Uuid,
+    pub release_id: Uuid,
+    pub channel: VisualChannel,
+    pub bound_by: String,
+    pub audience: String,
+    pub outcome: String,
+    pub information_hierarchy: String,
+    pub proof: String,
+    pub density: String,
+    pub imagery_role: String,
+    pub motion_role: String,
+    pub product_representation: VisualRepresentation,
+    pub product_truth_locator: Option<String>,
+    pub requested_departure: Option<String>,
+    pub contract_digest: String,
+    pub bound_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, ts_rs::TS)]
+pub struct VisualDirectionBrief {
+    pub contract: VisualWorkContractRow,
+    pub body: String,
+    pub digest: String,
+    pub included_evidence_ids: Vec<Uuid>,
+    pub omitted_evidence_ids: Vec<Uuid>,
+    pub bytes: usize,
+}
+
+pub struct NewVisualPrimitiveUse<'a> {
+    pub work_id: Uuid,
+    pub evidence_id: Uuid,
+    pub primitive_version: &'a str,
+    pub purpose: &'a str,
+}
+#[derive(Debug, Clone, Serialize, sqlx::FromRow, ts_rs::TS)]
+pub struct VisualPrimitiveUseRow {
+    pub work_id: Uuid,
+    pub evidence_id: Uuid,
+    pub primitive_version: String,
+    pub purpose: String,
+}
+
+pub struct NewVisualRenderEvidence<'a> {
+    pub work_id: Uuid,
+    pub artifact_ref_id: Uuid,
+    pub channel: VisualChannel,
+    pub renderer: &'a str,
+    pub renderer_version: &'a str,
+    pub viewport_width: i32,
+    pub viewport_height: i32,
+    pub motion_state: VisualMotionState,
+    pub native_checks: &'a serde_json::Value,
+    pub captured_by: &'a str,
+}
+#[derive(Debug, Clone, Serialize, sqlx::FromRow, ts_rs::TS)]
+pub struct VisualRenderEvidenceRow {
+    pub id: Uuid,
+    pub work_id: Uuid,
+    pub artifact_ref_id: Uuid,
+    pub channel: VisualChannel,
+    pub renderer: String,
+    pub renderer_version: String,
+    pub viewport_width: i32,
+    pub viewport_height: i32,
+    pub motion_state: VisualMotionState,
+    pub native_checks: serde_json::Value,
+    pub captured_by: String,
+    pub captured_at: DateTime<Utc>,
+}
+
+pub struct NewVisualReview<'a> {
+    pub render_evidence_id: Uuid,
+    pub control_render_evidence_id: Option<Uuid>,
+    pub reviewer: &'a str,
+    pub verdict: VisualReviewVerdict,
+    pub identity_findings: &'a str,
+    pub hierarchy_findings: &'a str,
+    pub density_findings: &'a str,
+    pub proof_findings: &'a str,
+    pub product_fidelity_findings: &'a str,
+    pub motion_findings: &'a str,
+    pub defect_findings: &'a str,
+    pub departure_decision: &'a str,
+}
+#[derive(Debug, Clone, Serialize, sqlx::FromRow, ts_rs::TS)]
+pub struct VisualReviewRow {
+    pub id: Uuid,
+    pub render_evidence_id: Uuid,
+    pub control_render_evidence_id: Option<Uuid>,
+    pub reviewer: String,
+    pub verdict: VisualReviewVerdict,
+    pub identity_findings: String,
+    pub hierarchy_findings: String,
+    pub density_findings: String,
+    pub proof_findings: String,
+    pub product_fidelity_findings: String,
+    pub motion_findings: String,
+    pub defect_findings: String,
+    pub departure_decision: String,
+    pub created_at: DateTime<Utc>,
+}
+
+// ---- Observable operating culture (S34) ----
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, sqlx::Type, ts_rs::TS,
+)]
+#[sqlx(type_name = "company_culture_evidence_kind", rename_all = "snake_case")]
+#[serde(rename_all = "snake_case")]
+pub enum CultureEvidenceKind {
+    FoundingDecision,
+    ObservedConduct,
+    Counterexample,
+    PromotedNorm,
+    BoundedException,
+}
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, sqlx::Type, ts_rs::TS,
+)]
+#[sqlx(type_name = "company_culture_case", rename_all = "snake_case")]
+#[serde(rename_all = "snake_case")]
+pub enum CultureCase {
+    Disagreement,
+    UncertainIncident,
+    CustomerRecovery,
+    QualityTradeoff,
+    Hiring,
+}
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, sqlx::Type, ts_rs::TS,
+)]
+#[sqlx(type_name = "company_culture_confidence", rename_all = "snake_case")]
+#[serde(rename_all = "snake_case")]
+pub enum CultureConfidence {
+    Tentative,
+    Corroborated,
+    OwnerFounded,
+}
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, sqlx::Type, ts_rs::TS,
+)]
+#[sqlx(
+    type_name = "company_culture_review_verdict",
+    rename_all = "snake_case"
+)]
+#[serde(rename_all = "snake_case")]
+pub enum CultureReviewVerdict {
+    Accept,
+    Revise,
+    Reject,
+}
+
+pub struct NewCultureEvidence<'a> {
+    pub kind: CultureEvidenceKind,
+    pub case_kind: Option<CultureCase>,
+    pub claim_key: &'a str,
+    pub statement: &'a str,
+    pub author_id: &'a str,
+    pub source: &'a str,
+    pub authority: &'a str,
+    pub scope: &'a str,
+    pub observed_at: DateTime<Utc>,
+    pub evidence_locator: &'a str,
+    pub polarity: IdentityPolarity,
+    pub situation: &'a str,
+    pub consequence: &'a str,
+    pub actors: &'a str,
+    pub decision_authority: &'a str,
+    pub conduct: &'a str,
+    pub observed_outcome: &'a str,
+    pub confidence: CultureConfidence,
+    pub counterexample: &'a str,
+    pub boundary_conditions: &'a str,
+    pub operational_implication: &'a str,
+    pub actor_scope: &'a str,
+    pub supersedes_evidence_id: Option<Uuid>,
+}
+#[derive(Debug, Clone, Serialize, sqlx::FromRow, ts_rs::TS)]
+pub struct CultureEvidenceDetailRow {
+    pub evidence_id: Uuid,
+    pub kind: CultureEvidenceKind,
+    pub case_kind: Option<CultureCase>,
+    pub situation: String,
+    pub consequence: String,
+    pub actors: String,
+    pub decision_authority: String,
+    pub conduct: String,
+    pub observed_outcome: String,
+    pub confidence: CultureConfidence,
+    pub counterexample: String,
+    pub boundary_conditions: String,
+    pub operational_implication: String,
+    pub actor_scope: String,
+}
+pub struct NewCultureWorkContract<'a> {
+    pub work_id: Uuid,
+    pub case_kind: CultureCase,
+    pub actor: &'a str,
+    pub actor_role: &'a str,
+    pub team: &'a str,
+    pub consequence: &'a str,
+    pub decision_boundary: &'a str,
+    pub bound_by: &'a str,
+}
+
+/// Optional Company Constitution context selected by the accountable lead and
+/// committed in the same transaction as new Work. These values describe the
+/// communication situation; released evidence remains the source of company
+/// policy. Keeping them on Work creation prevents Staff from racing ahead of
+/// its Voice, Visual, or Culture context.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct InitialVoiceContract {
+    pub channel: VoiceChannel,
+    pub author: String,
+    pub audience: String,
+    pub reader_situation: String,
+    pub desired_understanding: String,
+    pub desired_action: String,
+    pub proof: String,
+    pub consequence: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct InitialVisualContract {
+    pub channel: VisualChannel,
+    pub audience: String,
+    pub outcome: String,
+    pub information_hierarchy: String,
+    pub proof: String,
+    pub density: String,
+    pub imagery_role: String,
+    pub motion_role: String,
+    pub product_representation: VisualRepresentation,
+    #[serde(default)]
+    pub product_truth_locator: Option<String>,
+    #[serde(default)]
+    pub requested_departure: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct InitialCultureContract {
+    pub case_kind: CultureCase,
+    pub actor: String,
+    pub actor_role: String,
+    pub team: String,
+    pub consequence: String,
+    pub decision_boundary: String,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct InitialConstitutionContracts {
+    #[serde(default)]
+    pub voice: Option<InitialVoiceContract>,
+    #[serde(default)]
+    pub visual: Option<InitialVisualContract>,
+    #[serde(default)]
+    pub culture: Option<InitialCultureContract>,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, sqlx::FromRow, ts_rs::TS)]
+pub struct CultureWorkContractRow {
+    pub work_id: Uuid,
+    pub release_id: Uuid,
+    pub case_kind: CultureCase,
+    pub actor: String,
+    pub actor_role: String,
+    pub team: String,
+    pub consequence: String,
+    pub decision_boundary: String,
+    pub bound_by: String,
+    pub contract_digest: String,
+    pub bound_at: DateTime<Utc>,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, ts_rs::TS)]
+pub struct CulturePostureBrief {
+    pub contract: CultureWorkContractRow,
+    pub body: String,
+    pub digest: String,
+    pub included_evidence_ids: Vec<Uuid>,
+    pub omitted_evidence_ids: Vec<Uuid>,
+    pub bytes: usize,
+}
+pub struct NewCultureCaseRecord<'a> {
+    pub work_id: Uuid,
+    pub artifact_ref_id: Uuid,
+    pub case_kind: CultureCase,
+    pub decision: &'a str,
+    pub alternatives: &'a serde_json::Value,
+    pub unknowns: &'a str,
+    pub correction_of: Option<Uuid>,
+    pub correction_account: &'a str,
+    pub customer_action: &'a str,
+    pub native_checks: &'a serde_json::Value,
+    pub recorded_by: &'a str,
+}
+#[derive(Debug, Clone, Serialize, sqlx::FromRow, ts_rs::TS)]
+pub struct CultureCaseRecordRow {
+    pub id: Uuid,
+    pub work_id: Uuid,
+    pub artifact_ref_id: Uuid,
+    pub case_kind: CultureCase,
+    pub decision: String,
+    pub alternatives: serde_json::Value,
+    pub unknowns: String,
+    pub correction_of: Option<Uuid>,
+    pub correction_account: String,
+    pub customer_action: String,
+    pub native_checks: serde_json::Value,
+    pub recorded_by: String,
+    pub recorded_at: DateTime<Utc>,
+}
+pub struct NewCultureReview<'a> {
+    pub case_record_id: Uuid,
+    pub reviewer: &'a str,
+    pub verdict: CultureReviewVerdict,
+    pub conduct_findings: &'a str,
+    pub dissent_findings: &'a str,
+    pub uncertainty_findings: &'a str,
+    pub correction_findings: &'a str,
+    pub authority_findings: &'a str,
+    pub customer_or_hiring_findings: &'a str,
+    pub slogan_recitation_detected: bool,
+}
+#[derive(Debug, Clone, Serialize, sqlx::FromRow, ts_rs::TS)]
+pub struct CultureReviewRow {
+    pub id: Uuid,
+    pub case_record_id: Uuid,
+    pub reviewer: String,
+    pub verdict: CultureReviewVerdict,
+    pub conduct_findings: String,
+    pub dissent_findings: String,
+    pub uncertainty_findings: String,
+    pub correction_findings: String,
+    pub authority_findings: String,
+    pub customer_or_hiring_findings: String,
+    pub slogan_recitation_detected: bool,
+    pub created_at: DateTime<Utc>,
+}
+
+// ---- Executable Company Constitution (S35) ----
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, sqlx::Type, ts_rs::TS,
+)]
+#[sqlx(
+    type_name = "company_constitution_learning_trigger",
+    rename_all = "snake_case"
+)]
+#[serde(rename_all = "snake_case")]
+pub enum ConstitutionLearningTrigger {
+    OwnerEvidence,
+    CustomerEvidence,
+    ExercisedOutcome,
+}
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, sqlx::Type, ts_rs::TS,
+)]
+#[sqlx(type_name = "company_identity_drift_kind", rename_all = "snake_case")]
+#[serde(rename_all = "snake_case")]
+pub enum IdentityDriftKind {
+    TruthStale,
+    VoiceDifference,
+    VisualDifference,
+    CultureDifference,
+    UnknownDependency,
+}
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, sqlx::Type, ts_rs::TS,
+)]
+#[sqlx(
+    type_name = "company_identity_migration_disposition",
+    rename_all = "snake_case"
+)]
+#[serde(rename_all = "snake_case")]
+pub enum IdentityMigrationDisposition {
+    Retain,
+    Revise,
+    Retire,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, ts_rs::TS)]
+pub struct ConstitutionPillarAccount {
+    pub pillar: IdentityPillar,
+    pub status: String,
+    pub digest: Option<String>,
+    pub bytes: usize,
+    pub included_evidence_ids: Vec<Uuid>,
+    pub omitted_evidence_ids: Vec<Uuid>,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, ts_rs::TS)]
+pub struct ConstitutionBrief {
+    pub work_id: Uuid,
+    pub release_id: Uuid,
+    pub body: String,
+    pub digest: String,
+    pub pillars: Vec<ConstitutionPillarAccount>,
+    pub bytes: usize,
+}
+pub struct NewConstitutionArtifactBinding<'a> {
+    pub artifact_ref_id: Uuid,
+    pub work_id: Uuid,
+    pub channel: &'a str,
+    pub audience: &'a str,
+    pub named_author: &'a str,
+    pub producer: &'a str,
+    pub accountable_lead: &'a str,
+    pub company_voice: &'a str,
+    pub native_evidence: &'a serde_json::Value,
+    pub constitution_digest: &'a str,
+    pub evidence_ids: &'a [Uuid],
+}
+#[derive(Debug, Clone, Serialize, sqlx::FromRow, ts_rs::TS)]
+pub struct ConstitutionArtifactBindingRow {
+    pub artifact_ref_id: Uuid,
+    pub work_id: Uuid,
+    pub release_id: Uuid,
+    pub channel: String,
+    pub audience: String,
+    pub named_author: String,
+    pub producer: String,
+    pub accountable_lead: String,
+    pub company_voice: String,
+    pub native_evidence: serde_json::Value,
+    pub constitution_digest: String,
+    pub bound_at: DateTime<Utc>,
+}
+#[derive(Debug, Clone, Serialize, sqlx::FromRow, ts_rs::TS)]
+pub struct ConstitutionArtifactEvidenceRow {
+    pub artifact_ref_id: Uuid,
+    pub evidence_id: Uuid,
+}
+pub struct NewConstitutionLearningProposal<'a> {
+    pub created_by: &'a str,
+    pub evidence_id: Uuid,
+    pub pillar: IdentityPillar,
+    pub trigger_kind: ConstitutionLearningTrigger,
+    pub triggering_event: &'a str,
+    pub before_artifact_ref_id: Uuid,
+    pub after_artifact_ref_id: Uuid,
+    pub scope: &'a str,
+    pub contradiction_check: &'a str,
+}
+#[derive(Debug, Clone, Serialize, sqlx::FromRow, ts_rs::TS)]
+pub struct ConstitutionLearningProposalRow {
+    pub proposal_id: Uuid,
+    pub evidence_id: Uuid,
+    pub pillar: IdentityPillar,
+    pub trigger_kind: ConstitutionLearningTrigger,
+    pub triggering_event: String,
+    pub before_artifact_ref_id: Uuid,
+    pub after_artifact_ref_id: Uuid,
+    pub scope: String,
+    pub contradiction_check: String,
+    pub created_at: DateTime<Utc>,
+}
+#[derive(Debug, Clone, Serialize, sqlx::FromRow, ts_rs::TS)]
+pub struct IdentityDriftFindingRow {
+    pub id: Uuid,
+    pub artifact_ref_id: Uuid,
+    pub from_release_id: Uuid,
+    pub to_release_id: Uuid,
+    pub kind: IdentityDriftKind,
+    pub old_evidence_id: Option<Uuid>,
+    pub new_evidence_id: Option<Uuid>,
+    pub dependency: String,
+    pub consequence: String,
+    pub created_at: DateTime<Utc>,
+}
+pub struct NewIdentityMigrationDecision<'a> {
+    pub drift_finding_id: Uuid,
+    pub disposition: IdentityMigrationDisposition,
+    pub decided_by: &'a str,
+    pub rationale: &'a str,
+    pub authority_record_id: &'a str,
+}
+#[derive(Debug, Clone, Serialize, sqlx::FromRow, ts_rs::TS)]
+pub struct IdentityMigrationDecisionRow {
+    pub drift_finding_id: Uuid,
+    pub disposition: IdentityMigrationDisposition,
+    pub decided_by: String,
+    pub rationale: String,
+    pub authority_record_id: String,
+    pub decided_at: DateTime<Utc>,
 }

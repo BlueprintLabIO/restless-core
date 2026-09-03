@@ -151,7 +151,8 @@
 			lastDesktopActivity = 0;
 			await browserProjection.refresh();
 		} catch (cause) {
-			if (!automatic) error = cause instanceof Error ? cause.message : 'Control could not be returned.';
+			if (!automatic)
+				error = cause instanceof Error ? cause.message : 'Control could not be returned.';
 		} finally {
 			working = '';
 		}
@@ -224,7 +225,7 @@
 						type="button"
 						disabled={!!working}
 						title="Returns input to the company actor. It does not complete Work or an owner decision."
-					onclick={() => returnControl()}>Return control</button
+						onclick={() => returnControl()}>Return control</button
 					>
 				{:else}
 					<button

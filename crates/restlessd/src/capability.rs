@@ -56,6 +56,12 @@ struct Claims {
     model: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     billing: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    responsibility: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    work_id: Option<Uuid>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    attempt_id: Option<Uuid>,
     session: String,
     expires_at: DateTime<Utc>,
 }
@@ -80,6 +86,9 @@ pub(crate) struct ModelGrant {
     pub(crate) provider: String,
     pub(crate) model: String,
     pub(crate) billing: String,
+    pub(crate) responsibility: String,
+    pub(crate) work_id: Option<Uuid>,
+    pub(crate) attempt_id: Option<Uuid>,
 }
 
 impl CapabilityIssuer {
@@ -133,6 +142,9 @@ impl CapabilityIssuer {
             provider: None,
             model: None,
             billing: None,
+            responsibility: None,
+            work_id: None,
+            attempt_id: None,
             session: format!("bridge-{}", Uuid::new_v4().simple()),
             expires_at: Utc::now() + RUNTIME_BRIDGE_TTL,
         })
@@ -153,6 +165,9 @@ impl CapabilityIssuer {
             provider: None,
             model: None,
             billing: None,
+            responsibility: None,
+            work_id: None,
+            attempt_id: None,
             session: session.to_string(),
             expires_at: Utc::now() + SESSION_TTL,
         })
@@ -160,6 +175,10 @@ impl CapabilityIssuer {
 
     /// Model access is a separate grant so a coordination bearer cannot be
     /// replayed at the model relay.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "the signed grant boundary keeps company, actor, session, provider, model, billing and productive coordinates explicit"
+    )]
     pub(crate) fn issue_model_session(
         &self,
         company: &str,
@@ -168,6 +187,9 @@ impl CapabilityIssuer {
         provider: &str,
         model: &str,
         billing: &str,
+        responsibility: &str,
+        work_id: Option<Uuid>,
+        attempt_id: Option<Uuid>,
     ) -> Result<String> {
         self.issue(Claims {
             version: 1,
@@ -177,6 +199,9 @@ impl CapabilityIssuer {
             provider: Some(provider.to_string()),
             model: Some(model.to_string()),
             billing: Some(billing.to_string()),
+            responsibility: Some(responsibility.to_string()),
+            work_id,
+            attempt_id,
             session: session.to_string(),
             expires_at: Utc::now() + SESSION_TTL,
         })
@@ -218,6 +243,11 @@ impl CapabilityIssuer {
             billing: claims
                 .billing
                 .context("model capability is missing its billing policy")?,
+            responsibility: claims
+                .responsibility
+                .context("model capability is missing its responsibility")?,
+            work_id: claims.work_id,
+            attempt_id: claims.attempt_id,
         })
     }
 
@@ -302,12 +332,28 @@ fn validate_claims(claims: &Claims) -> Result<()> {
             bail!("capability billing policy is invalid");
         }
     }
+    if let Some(responsibility) = &claims.responsibility {
+        if responsibility.is_empty()
+            || responsibility.len() > 300
+            || responsibility
+                .chars()
+                .any(|character| character.is_control())
+        {
+            bail!("capability responsibility is invalid");
+        }
+    }
+    if claims.work_id == Some(Uuid::nil()) || claims.attempt_id == Some(Uuid::nil()) {
+        bail!("capability Work and Attempt coordinates must be non-nil");
+    }
     match claims.kind {
         CapabilityKind::RuntimeBridge => {
             if claims.actor.is_some()
                 || claims.provider.is_some()
                 || claims.model.is_some()
                 || claims.billing.is_some()
+                || claims.responsibility.is_some()
+                || claims.work_id.is_some()
+                || claims.attempt_id.is_some()
             {
                 bail!("runtime bridge capability carries a foreign scope");
             }
@@ -317,6 +363,9 @@ fn validate_claims(claims: &Claims) -> Result<()> {
                 || claims.provider.is_some()
                 || claims.model.is_some()
                 || claims.billing.is_some()
+                || claims.responsibility.is_some()
+                || claims.work_id.is_some()
+                || claims.attempt_id.is_some()
             {
                 bail!("actor session capability has an invalid scope");
             }
@@ -326,8 +375,12 @@ fn validate_claims(claims: &Claims) -> Result<()> {
                 || claims.provider.is_none()
                 || claims.model.is_none()
                 || claims.billing.is_none()
+                || claims.responsibility.is_none()
             {
                 bail!("model capability has an incomplete scope");
+            }
+            if claims.attempt_id.is_some() != claims.work_id.is_some() {
+                bail!("model capability must pair Work and Attempt coordinates");
             }
         }
     }
@@ -419,6 +472,9 @@ mod tests {
                 "moonshot",
                 "moonshot/kimi-k3",
                 "metered_api",
+                "work:delivery",
+                None,
+                None,
             )
             .unwrap();
         assert_eq!(issuer.verify_model(&model).unwrap().provider, "moonshot");
@@ -443,6 +499,9 @@ mod tests {
                 provider: Some("moonshot".into()),
                 model: Some("moonshot/kimi-k3".into()),
                 billing: Some("metered_api".into()),
+                responsibility: Some("work:delivery".into()),
+                work_id: None,
+                attempt_id: None,
                 session: "expired_1".into(),
                 expires_at: Utc::now() - Duration::seconds(1),
             })

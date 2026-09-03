@@ -1,12 +1,34 @@
 <script lang="ts">
 	import { page } from '$app/state';
 	import InfoTip from '$lib/components/InfoTip.svelte';
+	import { setCompanyOutcomeStandard, type OutcomeStandard } from '$lib/model/company';
 	import { companyQuery } from '$lib/model/queries.svelte';
 
 	const companyId = $derived(page.params.companyId ?? 'aris');
 	const source = $derived(companyQuery(companyId));
 	$effect(() => source.attach());
 	const view = $derived(source.view);
+	let standardSaving = $state(false);
+	let standardNotice = $state('');
+	let standardFailure = $state('');
+
+	async function changeOutcomeStandard(event: Event) {
+		const standard = (event.currentTarget as HTMLSelectElement).value as OutcomeStandard;
+		if (!view || standard === view.company.outcome_standard || standardSaving) return;
+		standardSaving = true;
+		standardNotice = '';
+		standardFailure = '';
+		try {
+			const next = await setCompanyOutcomeStandard(companyId, standard);
+			source.accept(next);
+			standardNotice = `New outcomes now inherit ${standard}. Existing outcomes are unchanged.`;
+		} catch (cause) {
+			standardFailure =
+				cause instanceof Error ? cause.message : 'The outcome standard was not changed.';
+		} finally {
+			standardSaving = false;
+		}
+	}
 
 	function money(value: number): string {
 		return new Intl.NumberFormat(undefined, { style: 'currency', currency: 'USD' }).format(value);
@@ -33,6 +55,41 @@
 				mandate.
 			</p>
 		{:else}
+			<section class="outcome-standard-setting">
+				<div class="section-heading">
+					<h2>Outcome standard</h2>
+					<InfoTip
+						text="The ambition new outcomes inherit. It changes how deeply Restless explores and evaluates; it never lowers safety or raises the company spend ceiling."
+					/>
+				</div>
+				<div class="standard-setting-line">
+					<div>
+						<strong
+							>{view.company.outcome_standard[0].toUpperCase() +
+								view.company.outcome_standard.slice(1)}</strong
+						>
+						<span>Default for newly commissioned outcomes</span>
+					</div>
+					<select
+						value={view.company.outcome_standard}
+						disabled={standardSaving}
+						onchange={changeOutcomeStandard}
+						aria-label="Company outcome standard"
+					>
+						<option value="fast">Fast — smallest correct result</option>
+						<option value="thorough">Thorough — production ready</option>
+						<option value="exceptional">Exceptional — clearly superior</option>
+						<option value="frontier">Frontier — seek a new ceiling</option>
+					</select>
+				</div>
+				{#if standardNotice}<p class="standard-setting-message" role="status">
+						{standardNotice}
+					</p>{/if}
+				{#if standardFailure}<p class="standard-setting-message failure" role="alert">
+						{standardFailure}
+					</p>{/if}
+			</section>
+
 			<div class="authority-boundaries">
 				<section>
 					<div class="section-heading">
@@ -130,3 +187,65 @@
 			{source.failure.message}
 		</div>{:else}<div class="company-page-wait" aria-label="Reading Authority"></div>{/if}
 </div>
+
+<style>
+	.outcome-standard-setting {
+		display: grid;
+		gap: 12px;
+		padding: 18px;
+		border: 1px solid var(--border);
+		border-radius: var(--radius-pane);
+		background: rgba(255, 255, 255, 0.56);
+		box-shadow: var(--bevel-subtle);
+	}
+
+	.standard-setting-line {
+		display: flex;
+		align-items: end;
+		justify-content: space-between;
+		gap: 18px;
+	}
+
+	.standard-setting-line > div,
+	.standard-setting-line strong,
+	.standard-setting-line span {
+		display: block;
+	}
+
+	.standard-setting-line strong {
+		font-size: var(--t-title);
+		color: var(--text-primary);
+	}
+
+	.standard-setting-line span,
+	.standard-setting-message {
+		margin-top: 4px;
+		color: var(--text-secondary);
+		font-size: var(--t-body-small);
+	}
+
+	.standard-setting-line select {
+		max-width: min(100%, 300px);
+		padding: 8px 10px;
+		border: 1px solid var(--border-strong);
+		border-radius: var(--radius-control);
+		background: var(--surface);
+		color: var(--text-primary);
+		font: 600 var(--t-body-small) var(--font-sans);
+	}
+
+	.standard-setting-message.failure {
+		color: var(--danger);
+	}
+
+	@media (max-width: 720px) {
+		.standard-setting-line {
+			align-items: stretch;
+			flex-direction: column;
+		}
+
+		.standard-setting-line select {
+			max-width: none;
+		}
+	}
+</style>

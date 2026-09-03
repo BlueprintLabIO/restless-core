@@ -5,6 +5,60 @@
 use super::*;
 
 impl OrgIntel {
+    /// Make a stale Work artifact unavailable while preserving its exact
+    /// provenance. This is ordinary recoverable coordination repair, not
+    /// deletion or a content rewrite.
+    pub async fn retire_work_artifact(
+        &self,
+        artifact_id: Uuid,
+        retired_by: &str,
+        reason: &str,
+    ) -> Result<bool> {
+        if retired_by.trim().is_empty() || reason.trim().is_empty() {
+            return Err(OrgIntelError::InvalidWork(
+                "artifact retirement needs an actor and observed reason".into(),
+            ));
+        }
+        let mut tx = self.pool.begin().await?;
+        let permitted: bool = sqlx::query_scalar(
+            "SELECT EXISTS(\
+               SELECT 1 FROM artifact_refs a \
+               LEFT JOIN work w ON w.id=a.work_id \
+               WHERE a.id=$1 AND a.state='available' AND (\
+                 $2='exec' OR a.created_by=$2 OR w.owner_id=$2 OR w.commissioned_by=$2\
+               )\
+             )",
+        )
+        .bind(artifact_id)
+        .bind(retired_by.trim())
+        .fetch_one(&mut *tx)
+        .await?;
+        if !permitted {
+            return Err(OrgIntelError::InvalidWork(
+                "only Exec, the producer, Work owner, or commissioning lead may retire this artifact"
+                    .into(),
+            ));
+        }
+        let changed = sqlx::query(
+            "UPDATE artifact_refs SET state='superseded', superseded_at=now() \
+             WHERE id=$1 AND state='available'",
+        )
+        .bind(artifact_id)
+        .execute(&mut *tx)
+        .await?
+        .rows_affected()
+            == 1;
+        if changed {
+            sqlx::query("INSERT INTO events(kind,actor_id,body) VALUES ('artifact_retired',$1,$2)")
+                .bind(retired_by.trim())
+                .bind(serde_json::json!({"artifact_ref_id": artifact_id, "reason": reason.trim()}))
+                .execute(&mut *tx)
+                .await?;
+        }
+        tx.commit().await?;
+        Ok(changed)
+    }
+
     /// Artifact references point at Runtime truth; digest/commit make the
     /// exact version an Attempt consumed checkable without importing custody.
     pub async fn link_work_artifact(&self, artifact: NewArtifactRef<'_>) -> Result<Uuid> {
@@ -139,6 +193,20 @@ impl OrgIntel {
         .await?)
     }
 
+    /// Resolve one exact artifact reference without making OrgIntel the
+    /// custodian of its bytes. Publication uses this to bind an immutable
+    /// service candidate to the Work/Attempt evidence that produced it.
+    pub async fn get_artifact_ref(&self, id: Uuid) -> Result<Option<ArtifactRefRow>> {
+        Ok(sqlx::query_as(
+            "SELECT id, kind, uri, note, created_by, work_id, attempt_id, digest, source_commit, \
+                    runtime_generation, label, state, created_at, superseded_at \
+             FROM artifact_refs WHERE id = $1",
+        )
+        .bind(id)
+        .fetch_optional(&self.pool)
+        .await?)
+    }
+
     pub async fn add_work_gate(&self, gate: NewWorkGate<'_>) -> Result<Uuid> {
         if gate.command.is_empty() {
             return Err(OrgIntelError::InvalidWork(
@@ -267,7 +335,7 @@ impl OrgIntel {
             .await?;
         let work = sqlx::query_as(
             "SELECT id, goal_id, owner_id, title, outcome, status, resolution, priority, \
-             expected_artifact, owner_review_required, repo, base_ref, integration_branch, worktree, revision, \
+             expected_artifact, owner_review_required, producing_topology, commissioned_by, repo, base_ref, integration_branch, worktree, revision, \
              attempt_limit, created_at, updated_at FROM work ORDER BY priority DESC, created_at",
         )
         .fetch_all(&mut *tx)

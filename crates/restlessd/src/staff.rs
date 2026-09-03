@@ -326,13 +326,52 @@ pub async fn dispatch_claimed_work(
         }
     };
 
-    let (task, context_accounting) = bound_attempt_context(
+    let (mut task, mut context_accounting) = bound_attempt_context(
         &claimed,
         &actor_row.role,
         &workdir,
         &config.name,
         accountable_lead,
     );
+    match org.compile_constitution(claimed.work.id, 32 * 1024).await {
+        Ok(brief) => {
+            task.push_str("\n\n# Company Constitution [owner-released, Work-bound]\n");
+            task.push_str(&brief.body);
+            context_accounting["automatically_attached"]["company_constitution"] = serde_json::json!({
+                "release_id": brief.release_id,
+                "brief_digest": brief.digest,
+                "bytes": brief.bytes,
+                "pillars": brief.pillars.iter().map(|pillar| serde_json::json!({
+                    "pillar": pillar.pillar,
+                    "status": pillar.status,
+                    "digest": pillar.digest,
+                    "bytes": pillar.bytes,
+                    "included_evidence": pillar.included_evidence_ids.len(),
+                    "omitted_evidence": pillar.omitted_evidence_ids.len(),
+                })).collect::<Vec<_>>(),
+            });
+        }
+        Err(error)
+            if error
+                .to_string()
+                .contains("no released expression identity") =>
+        {
+            context_accounting["automatically_attached"]["company_constitution"] =
+                serde_json::json!("no owner-authored release");
+        }
+        Err(error) => {
+            tracing::warn!(
+                %error,
+                work_id = %claimed.work.id,
+                "could not compile the Work-bound company constitution"
+            );
+            task.push_str(&format!(
+                "\n\n# Company Constitution [Work-bound]\nThe bounded constitution could not be compiled: {error}. Do not invent replacement facts, voice, visuals or culture. Surface this exact conflict to the accountable lead when identity affects the outcome.\n"
+            ));
+            context_accounting["automatically_attached"]["company_constitution"] =
+                serde_json::json!({ "error": error.to_string() });
+        }
+    }
     if let Err(error) = org
         .emit_event(
             "attempt_context_bound",
@@ -553,8 +592,8 @@ mod tests {
     use crate::model_gateway::ModelBilling;
     use chrono::Utc;
     use restless_orgintel::{
-        ActorRow, ArtifactRefRow, ArtifactRefState, ClaimedWork, MessageRow, TeamRow, WorkRow,
-        WorkStatus,
+        ActorRow, ArtifactRefRow, ArtifactRefState, ClaimedWork, MessageRow, TeamRow,
+        WorkAttemptState, WorkRow, WorkStatus,
     };
 
     #[test]
@@ -565,6 +604,9 @@ mod tests {
             id: team_id,
             name: "Onboarding Quality".into(),
             brief: "Owns first-player discovery quality.".into(),
+            outcome_standard: restless_orgintel::OutcomeStandard::Exceptional,
+            outcome_standard_source: restless_orgintel::OutcomeStandardSource::CompanyDefault,
+            standard_source_message_id: None,
             lead_actor_id: "onboarding-curator".into(),
             created_by: "exec".into(),
             created_at: now,
@@ -661,6 +703,7 @@ mod tests {
             from_actor: "world-builder".into(),
             to_actor: Some("product-direction".into()),
             body: "terrain interface changed".into(),
+            outcome_standard: None,
             created_at: Utc::now(),
             read_at: None,
         };
@@ -710,6 +753,8 @@ mod tests {
                 priority: 0,
                 expected_artifact: "/company/outputs/playable-room.html".into(),
                 owner_review_required: false,
+                producing_topology: restless_orgintel::ProducingTopology::CoherentSingleWorker,
+                commissioned_by: "world-direction".into(),
                 repo: Some("cosmon".into()),
                 // A lead did not fill every optional coordinate. The Runtime
                 // still has an authoritative repository and generated worktree
@@ -722,6 +767,7 @@ mod tests {
                 created_at: Utc::now(),
                 updated_at: Utc::now(),
             },
+            review_targets: Vec::new(),
             effective_base_ref: None,
             attempt_id: uuid::Uuid::new_v4(),
             attempt_no: 1,
@@ -729,6 +775,8 @@ mod tests {
             input_fingerprint: "input-fingerprint".into(),
             inputs: Vec::new(),
             feedback: Vec::new(),
+            previous_attempt_state: None,
+            previous_attempt_summary: None,
         };
 
         let (context, accounting) = bound_attempt_context(
@@ -746,6 +794,9 @@ mod tests {
         assert!(context.contains("Runtime will fast-forward"));
         assert!(context.contains("Do not move `main`"));
         assert!(context.contains("# Completion evidence [deterministic]"));
+        assert!(context.contains("# Producer posture [creative ownership]"));
+        assert!(context.contains("A separate critic owns constraint checking"));
+        assert!(!context.contains("# Critic posture [independent judgement]"));
         assert!(!context.contains("the active team charter and roster when present"));
         assert!(context.contains("Runtime binds this Attempt's clean terminal commit and tree"));
         assert!(context.contains("may materialize that evidence themselves"));
@@ -756,6 +807,7 @@ mod tests {
             claimed.attempt_id
         )));
         assert!(context.contains("Not replayed: lead conversation"));
+        assert!(!context.contains("# Context-recovery posture [automatic]"));
         assert_eq!(
             accounting["automatically_attached"]["workspace"]["effective_base_ref"],
             serde_json::Value::Null
@@ -795,6 +847,23 @@ mod tests {
         assert!(successor_context.contains("without re-linking or relabelling its producer"));
         assert!(successor_context.contains("# Bound artifact versions [automatic]"));
 
+        claimed.previous_attempt_state = Some(WorkAttemptState::Blocked);
+        claimed.previous_attempt_summary =
+            Some("[context] the provider session history exceeded the request limit".into());
+        let (recovery_context, recovery_accounting) = bound_attempt_context(
+            &claimed,
+            "world builder",
+            "/company/worktrees/work-bound-r1",
+            "cosmon_test",
+            false,
+        );
+        assert!(recovery_context.contains("# Context-recovery posture [automatic]"));
+        assert!(recovery_context.contains("Do not repeat completed browser capture"));
+        assert_eq!(
+            recovery_accounting["automatically_attached"]["work"]["context_recovery"],
+            true
+        );
+
         claimed.work.owner_review_required = true;
         let (review_context, _) = bound_attempt_context(
             &claimed,
@@ -809,6 +878,26 @@ mod tests {
         )));
         assert!(review_context.contains(restless_orgintel::REVIEW_TARGET_LIVE_PROBE_GATE));
         assert!(!review_context.contains("--kind output --uri /company/outputs/playable-room.html"));
+
+        claimed.review_targets = vec![uuid::Uuid::new_v4()];
+        let (critic_context, critic_accounting) = bound_attempt_context(
+            &claimed,
+            "customer copy critic",
+            "/company/worktrees/work-bound-r1",
+            "cosmon_test",
+            false,
+        );
+        assert!(critic_context.contains("# Critic posture [independent judgement]"));
+        assert!(critic_context
+            .contains("Judge the customer-facing outcome before policing constraints"));
+        assert!(critic_context.contains("Quality comes first"));
+        assert!(!critic_context.contains("# Producer posture [creative ownership]"));
+        assert_eq!(
+            critic_accounting["automatically_attached"]["work"]["review_targets"]
+                .as_array()
+                .map(Vec::len),
+            Some(1)
+        );
     }
 
     #[test]
@@ -821,14 +910,21 @@ mod tests {
         assert!(rules.contains("prove that another actor contributed"));
         assert!(rules.contains("not the lead's plan, reasoning, checklist"));
         assert!(rules.contains("do not commission promotion-only Work"));
+        assert!(crate::staff::context::ACCOUNTABLE_QUALITY_ENFORCEMENT
+            .contains("Never let a stale report decide a repaired candidate"));
+        assert!(crate::staff::context::ACCOUNTABLE_QUALITY_ENFORCEMENT
+            .contains("evidence, not owner delivery"));
+        assert!(crate::staff::context::ACCOUNTABLE_QUALITY_ENFORCEMENT
+            .contains("exactly one current available ReviewTarget"));
 
         let lead = actor_posture(true);
         assert!(lead.contains("ACCOUNTABLE LEAD"));
         assert!(lead.contains("non-producing supervisor"));
         assert!(lead.contains("at least one Staff worker"));
         assert!(lead.contains("truthful attribution"));
-        assert!(lead.contains("terminal Staff callback is a decision boundary"));
-        assert!(lead.contains("Never leave an incomplete charter quiescent"));
+        assert!(lead.contains("material Staff exception is a decision boundary"));
+        assert!(lead.contains("Clean passing completion remains observable state"));
+        assert!(lead.contains("Never accept a consequentially substandard charter"));
         assert!(!lead.contains("You are a SPECIALIST"));
 
         let specialist = actor_posture(false);

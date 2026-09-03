@@ -4,8 +4,63 @@
 
 use restless_orgintel::{
     ArtifactRefState, InitialWorkGate, NewArtifactRef, NewAttemptRecovery, NewWork, NewWorkGate,
-    OrgIntel, WorkAttemptState, WorkspaceSpec,
+    OrgIntel, OutcomeStandard, OutcomeStandardSource, WorkAttemptState, WorkspaceSpec,
 };
+
+#[tokio::test]
+async fn commissioned_outcome_standard_keeps_its_owner_source() {
+    let Ok(url) = std::env::var("RESTLESS_TEST_DATABASE_URL") else {
+        eprintln!("RESTLESS_TEST_DATABASE_URL unset; skipping outcome-standard scenario");
+        return;
+    };
+    let company = format!("standard{}", uuid::Uuid::new_v4().simple());
+    let org = OrgIntel::ensure(&url, &company)
+        .await
+        .expect("ensure scratch company schema");
+    org.ensure_actor("owner", "owner", "owner", "The Owner")
+        .await
+        .unwrap();
+    org.ensure_actor("exec", "exec", "exec", "The Exec")
+        .await
+        .unwrap();
+    create_actor(&org, "site-direction", "design lead").await;
+
+    let (message_id, _) = org
+        .send_owner_conversation_message_with_standard(
+            "exec",
+            "Create the launch page.",
+            false,
+            Some(OutcomeStandard::Frontier),
+        )
+        .await
+        .unwrap();
+    let team_id = org
+        .create_team_with_standard(
+            "Launch page",
+            "Create and prove one distinctive public page.",
+            "site-direction",
+            "exec",
+            OutcomeStandard::Frontier,
+            OutcomeStandardSource::OwnerOverride,
+            Some(message_id),
+        )
+        .await
+        .unwrap();
+
+    let team = org
+        .list_teams()
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|team| team.id == team_id)
+        .unwrap();
+    assert_eq!(team.outcome_standard, OutcomeStandard::Frontier);
+    assert_eq!(
+        team.outcome_standard_source,
+        OutcomeStandardSource::OwnerOverride
+    );
+    assert_eq!(team.standard_source_message_id, Some(message_id));
+}
 
 #[tokio::test]
 async fn mutable_artifact_locator_has_one_available_version() {
@@ -698,6 +753,26 @@ async fn initial_work_gates_commit_atomically_and_follow_the_attempt_workspace()
         .as_deref()
         .unwrap()
         .contains("shared checkout"));
+    let replacement = org
+        .add_work_gate(NewWorkGate {
+            work_id: work,
+            name: "smoke",
+            cwd: "@attempt",
+            command: &build,
+            created_by: "release-build",
+        })
+        .await
+        .expect("a corrected active gate may reuse the retired gate's semantic name");
+    let active = org.list_work_gates(work).await.unwrap();
+    assert_eq!(active.iter().filter(|gate| gate.name == "smoke").count(), 1);
+    assert_eq!(
+        active
+            .iter()
+            .find(|gate| gate.id == replacement)
+            .map(|gate| gate.sequence_no),
+        Some(3),
+        "the replacement remains an append-only declaration"
+    );
 
     let duplicate = org
         .add_work_with_edges_and_gates(
@@ -1073,6 +1148,18 @@ async fn material_member_message_wakes_the_lead_and_late_direct_feedback_gets_a_
             .await
             .unwrap(),
         "feedback to the current Work owner remains deterministic Attempt input"
+    );
+    let lead_mail = org.inbox(Some("product-direction")).await.unwrap();
+    let correction_notice = lead_mail
+        .iter()
+        .find(|message| message.body.contains("Material owner correction"))
+        .expect("owner correction should wake the accountable lead exactly once");
+    assert!(correction_notice.body.contains(&owner_feedback.to_string()));
+    assert!(
+        !org.message_is_work_attempt_input(correction_notice.id)
+            .await
+            .unwrap(),
+        "the lead control notice cannot become a second producing Attempt input"
     );
     assert_eq!(
         attempt.attempt_id,

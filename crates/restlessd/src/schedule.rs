@@ -17,7 +17,10 @@ use tokio_util::sync::CancellationToken;
 use crate::runtime::{self, CompanyConfig, ContainerStatus};
 use crate::{exec, Daemon};
 
-const SCAN_INTERVAL: Duration = Duration::from_secs(5);
+/// LISTEN/NOTIFY, the exact next-due timer and the OS wake entry are the normal
+/// sources. This slow sweep repairs a lost listener or newly added cell; it is
+/// deliberately not the schedule engine.
+const REPAIR_SWEEP_INTERVAL: Duration = Duration::from_secs(300);
 
 /// Free-form Exec conversation liveness. Work custody is the running Attempt.
 pub(crate) type InFlight = Arc<Mutex<WakeClaims>>;
@@ -154,12 +157,18 @@ pub async fn run(daemon: Arc<Daemon>) {
     let mut listening = std::collections::HashSet::<String>::new();
     ensure_cell_listeners(&daemon, &wakes, &mut listening).await;
     scan_all_companies(&daemon, &in_flight).await;
-    let mut scan = tokio::time::interval(SCAN_INTERVAL);
     loop {
+        let next_due = next_due_delay(&daemon).await;
         tokio::select! {
-            _ = scan.tick() => {
+            _ = tokio::time::sleep(next_due) => {
                 // A company created since boot needs its own listener; this is
                 // also where a cell whose listener never started is retried.
+                ensure_cell_listeners(&daemon, &wakes, &mut listening).await;
+                fire_pending(&daemon, &in_flight).await;
+                scan_all_companies(&daemon, &in_flight).await;
+            }
+            _ = daemon.schedule_wake.notified() => {
+                tracing::info!("native schedule wake observed; reconciling durable due state");
                 ensure_cell_listeners(&daemon, &wakes, &mut listening).await;
                 fire_pending(&daemon, &in_flight).await;
                 scan_all_companies(&daemon, &in_flight).await;
@@ -314,10 +323,35 @@ async fn handle_notification(daemon: &Arc<Daemon>, in_flight: &InFlight, payload
             // authority-bearing `work interrupt` operation.
             scan_company(daemon, in_flight, company).await;
         }
-        Some("work_changed" | "artifact_linked" | "handoff_changed") => {
+        Some("work_changed" | "artifact_linked" | "handoff_changed" | "schedule_changed") => {
             scan_company(daemon, in_flight, company).await;
         }
         _ => {}
+    }
+}
+
+async fn next_due_delay(daemon: &Arc<Daemon>) -> Duration {
+    let now = chrono::Utc::now();
+    let mut earliest = None;
+    for company in configured_companies(daemon) {
+        let Ok(org) = daemon.orgintel.get(&company).await else {
+            continue;
+        };
+        if let Ok(Some(next)) = org.next_schedule_due_at().await {
+            earliest = Some(
+                earliest.map_or(next, |current: chrono::DateTime<chrono::Utc>| {
+                    current.min(next)
+                }),
+            );
+        }
+    }
+    match earliest {
+        Some(due) if due <= now => Duration::from_millis(50),
+        Some(due) => (due - now)
+            .to_std()
+            .unwrap_or(Duration::from_millis(50))
+            .min(REPAIR_SWEEP_INTERVAL),
+        None => REPAIR_SWEEP_INTERVAL,
     }
 }
 

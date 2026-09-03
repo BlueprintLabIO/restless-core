@@ -93,6 +93,39 @@ hard green requirement.
 - [`sprint-28.md`](./sprint-28.md) — draft: makes Attention, Work, artifacts and consequential agent
   communication reader-friendly through source-backed semantics, accountable authorship, structural
   validation and deterministic presentation without forcing ordinary conversation into one template.
+- [`sprint-29.md`](./sprint-29.md) — draft: gives every commissioned outcome one inherited ambition
+  standard, makes the Exec and accountable lead adapt quality enforcement to consequence, and exposes
+  one sane owner control plus honest frontier and limit reporting.
+- [`sprint-30.md`](./sprint-30.md) — complete: preserves Exec/lead accountability without routine lead
+  model tax, localises concurrent settlement, proves immutable review access before spend, exports
+  honest decision telemetry and verifies terminal cleanup in one adversarial coherent/parallel fixture.
+- [Company Identity programme](./company-identity-programme.md) — completed five-sprint sequence for one
+  source-owned Company Truth, human Voice, native Visual Language and observable Culture, culminating
+  in an executable constitution with approved learning and concrete drift control; the all-pillar
+  Restless package and held-back Harbour Ledger transfer were independently accepted.
+- [`sprint-31.md`](./sprint-31.md) — implemented: establishes immutable identity releases, owner-governed
+  promotion, evidence provenance and one bounded outcome-specific Identity Brief.
+- [`sprint-32.md`](./sprint-32.md) — implemented: produces human, factually stable and recognisably related
+  writing across founder email, newsletter, support, transactional email, product UI and Blogs without
+  homogenising named authors.
+- [`sprint-33.md`](./sprint-33.md) — implemented: makes product-grounded composition, typography, imagery,
+  motion and reusable primitives a versioned Visual Language verified in each native channel.
+- [`sprint-34.md`](./sprint-34.md) — implemented: turns observed decisions, dissent, uncertainty, corrections
+  and customer conduct into bounded Culture evidence without slogans, worker scoring or surveillance.
+- [`sprint-35.md`](./sprint-35.md) — complete: integrates the four
+  source-backed pillars, binds Work and artifacts to exact releases, and proves approved learning and
+  concrete drift through accepted Restless and Harbour Ledger native release packages.
+- [`sprint-36.md`](./sprint-36.md) — Core implemented and verified: one exact artifact can become a
+  bounded, time-limited HTTPS/WebSocket or UDP service without exposing the company Runtime. The
+  released v1 corpus passes Cloud compatibility; Cloud 14 still owns public ingress, real ENet and
+  external-player acceptance.
+- [`sprint-37.md`](./sprint-37.md) — draft for founder alignment: productises bounded publication into
+  a prepared network experience through Restless-owned HTTPS/WSS and UDP endpoints, scoped admission,
+  isolated service workloads and native review targets. Runtimes remain private; Cloud 14's external
+  transport gates must pass before this sprint can claim the wider access fabric.
+- [`sprint-38.md`](./sprint-38.md) — draft for founder alignment: installs one stable local Restless
+  appliance, separates daily use from development, recovers schedules through OS-native wake signals
+  plus durable misfire policy, and opens web, native and streamed artifacts from one owner surface.
 
 Sprint 26 is the completed first stage of the
 [Harness → NPC → benchmark programme](../../experiment/HARNESS_NPC_BENCHMARK_PROGRAMME.md). EXP-16 and

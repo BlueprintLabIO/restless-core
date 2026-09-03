@@ -1,0 +1,1178 @@
+{
+  "schema": "restless.web-review/v2",
+  "generatedAt": "2026-09-01T09:55:00.422Z",
+  "candidate": {
+    "baseUrl": "http://127.0.0.1:4317/",
+    "routes": [
+      "/review-gallery.html"
+    ]
+  },
+  "reference": null,
+  "method": {
+    "browser": "system Chromium through Playwright",
+    "scrollExercise": true,
+    "fontsAwaited": true,
+    "computedDesignEvidence": true,
+    "acceptanceVerdict": "none; deterministic observations only",
+    "profiles": [
+      {
+        "name": "desktop",
+        "viewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "reducedMotion": "no-preference"
+      },
+      {
+        "name": "mobile",
+        "viewport": {
+          "width": 390,
+          "height": 844
+        },
+        "reducedMotion": "no-preference"
+      },
+      {
+        "name": "desktop-reduced-motion",
+        "viewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "reducedMotion": "reduce"
+      }
+    ]
+  },
+  "pages": [
+    {
+      "target": "candidate",
+      "profile": "desktop",
+      "route": "/review-gallery.html",
+      "screenshot": "candidate-desktop-review-gallery.html.png",
+      "navigationError": null,
+      "observation": {
+        "status": 200,
+        "title": "Harbour Ledger — Review gallery",
+        "url": "http://127.0.0.1:4317/review-gallery.html",
+        "viewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "document": {
+          "width": 1440,
+          "height": 3660,
+          "bodyTextCharacters": 3058
+        },
+        "horizontalOverflow": false,
+        "overflowElements": [],
+        "offViewportInteractive": [],
+        "invisibleAuthoredContent": [],
+        "headings": [
+          {
+            "level": "h1",
+            "text": "The vessel record, kept clear."
+          },
+          {
+            "level": "h2",
+            "text": "Pump inspection"
+          },
+          {
+            "level": "h2",
+            "text": "Keep the inspection paused."
+          },
+          {
+            "level": "h2",
+            "text": "Pump inspection remains paused."
+          },
+          {
+            "level": "h3",
+            "text": "Current record"
+          },
+          {
+            "level": "h3",
+            "text": "Consequence"
+          },
+          {
+            "level": "h3",
+            "text": "Stop-and-document boundary"
+          },
+          {
+            "level": "h3",
+            "text": "Authority to resume"
+          }
+        ],
+        "links": [
+          {
+            "text": "Skip to gallery",
+            "href": "http://127.0.0.1:4317/review-gallery.html#content",
+            "visible": true
+          },
+          {
+            "text": "Harbour Ledger",
+            "href": "http://127.0.0.1:4317/review-gallery.html#landing",
+            "visible": true
+          },
+          {
+            "text": "Product",
+            "href": "http://127.0.0.1:4317/review-gallery.html#landing",
+            "visible": true
+          },
+          {
+            "text": "Support",
+            "href": "http://127.0.0.1:4317/review-gallery.html#support",
+            "visible": true
+          },
+          {
+            "text": "Safety memo",
+            "href": "http://127.0.0.1:4317/review-gallery.html#memo",
+            "visible": true
+          }
+        ],
+        "footer": {
+          "present": true,
+          "visible": true,
+          "textCharacters": 90
+        },
+        "design": {
+          "root": {
+            "fontFamily": "Arial, Helvetica, sans-serif",
+            "fontSize": "16px",
+            "lineHeight": "25.6px",
+            "color": "rgb(19, 47, 60)",
+            "backgroundColor": "rgb(238, 242, 239)"
+          },
+          "typography": [
+            {
+              "value": "Arial, Helvetica, sans-serif | 16px | 400 | 25.6px | normal",
+              "count": 44
+            },
+            {
+              "value": "Arial, Helvetica, sans-serif | 12.8px | 400 | 20.48px | normal",
+              "count": 6
+            },
+            {
+              "value": "Arial, Helvetica, sans-serif | 11.04px | 700 | 17.664px | 0.9936px",
+              "count": 4
+            },
+            {
+              "value": "Arial, Helvetica, sans-serif | 11.68px | 700 | 18.688px | 1.4016px",
+              "count": 4
+            },
+            {
+              "value": "Georgia, \"Times New Roman\", serif | 16.8px | 400 | 28.896px | normal",
+              "count": 4
+            },
+            {
+              "value": "Georgia, \"Times New Roman\", serif | 16px | 400 | 22.4px | normal",
+              "count": 4
+            },
+            {
+              "value": "Georgia, \"Times New Roman\", serif | 17.28px | 400 | 30.24px | normal",
+              "count": 4
+            },
+            {
+              "value": "Arial, Helvetica, sans-serif | 10.72px | 800 | 17.152px | 1.072px",
+              "count": 3
+            },
+            {
+              "value": "Arial, Helvetica, sans-serif | 11.52px | 700 | 18.432px | 1.8432px",
+              "count": 3
+            },
+            {
+              "value": "Arial, Helvetica, sans-serif | 12.16px | 700 | 19.456px | 1.0944px",
+              "count": 3
+            },
+            {
+              "value": "Arial, Helvetica, sans-serif | 12px | 400 | 19.2px | 1.32px",
+              "count": 3
+            },
+            {
+              "value": "Georgia, \"Times New Roman\", serif | 16px | 400 | 23.2px | normal",
+              "count": 3
+            },
+            {
+              "value": "Arial, Helvetica, sans-serif | 12.8px | 700 | 20.48px | 1.024px",
+              "count": 2
+            },
+            {
+              "value": "Georgia, \"Times New Roman\", serif | 92.16px | 400 | 88.4736px | -4.1472px",
+              "count": 2
+            },
+            {
+              "value": "Arial, Helvetica, sans-serif | 10.72px | 800 | 17.152px | 1.2864px",
+              "count": 1
+            },
+            {
+              "value": "Arial, Helvetica, sans-serif | 10.88px | 700 | 16.864px | 1.4144px",
+              "count": 1
+            }
+          ],
+          "palette": {
+            "text": [
+              {
+                "value": "rgb(19, 47, 60)",
+                "count": 44
+              },
+              {
+                "value": "rgb(255, 255, 255)",
+                "count": 24
+              },
+              {
+                "value": "rgb(82, 101, 106)",
+                "count": 15
+              },
+              {
+                "value": "rgb(11, 43, 61)",
+                "count": 8
+              },
+              {
+                "value": "rgb(213, 226, 229)",
+                "count": 4
+              },
+              {
+                "value": "rgb(109, 44, 34)",
+                "count": 3
+              },
+              {
+                "value": "rgb(199, 220, 226)",
+                "count": 3
+              },
+              {
+                "value": "rgb(45, 100, 126)",
+                "count": 3
+              },
+              {
+                "value": "rgb(97, 43, 34)",
+                "count": 3
+              },
+              {
+                "value": "rgb(95, 42, 33)",
+                "count": 2
+              },
+              {
+                "value": "rgb(199, 215, 220)",
+                "count": 1
+              },
+              {
+                "value": "rgb(211, 227, 228)",
+                "count": 1
+              },
+              {
+                "value": "rgb(213, 229, 229)",
+                "count": 1
+              },
+              {
+                "value": "rgb(216, 229, 229)",
+                "count": 1
+              },
+              {
+                "value": "rgb(231, 238, 238)",
+                "count": 1
+              }
+            ],
+            "background": [
+              {
+                "value": "rgb(11, 43, 61)",
+                "count": 4
+              },
+              {
+                "value": "rgb(18, 62, 88)",
+                "count": 3
+              },
+              {
+                "value": "rgb(244, 232, 225)",
+                "count": 3
+              },
+              {
+                "value": "rgb(251, 250, 245)",
+                "count": 3
+              },
+              {
+                "value": "rgb(238, 242, 239)",
+                "count": 1
+              },
+              {
+                "value": "rgb(240, 238, 230)",
+                "count": 1
+              },
+              {
+                "value": "rgb(243, 240, 230)",
+                "count": 1
+              }
+            ],
+            "border": [
+              {
+                "value": "rgb(19, 47, 60)",
+                "count": 37
+              },
+              {
+                "value": "rgb(255, 255, 255)",
+                "count": 23
+              },
+              {
+                "value": "rgb(82, 101, 106)",
+                "count": 14
+              },
+              {
+                "value": "rgb(11, 43, 61)",
+                "count": 8
+              },
+              {
+                "value": "rgb(182, 196, 194)",
+                "count": 6
+              },
+              {
+                "value": "rgb(213, 226, 229)",
+                "count": 4
+              },
+              {
+                "value": "rgb(109, 44, 34)",
+                "count": 3
+              },
+              {
+                "value": "rgb(199, 220, 226)",
+                "count": 3
+              },
+              {
+                "value": "rgb(45, 100, 126)",
+                "count": 3
+              },
+              {
+                "value": "rgb(95, 42, 33)",
+                "count": 2
+              },
+              {
+                "value": "rgb(97, 43, 34)",
+                "count": 2
+              },
+              {
+                "value": "rgb(18, 62, 88)",
+                "count": 1
+              },
+              {
+                "value": "rgb(199, 215, 220)",
+                "count": 1
+              },
+              {
+                "value": "rgb(203, 211, 207)",
+                "count": 1
+              },
+              {
+                "value": "rgb(204, 210, 205)",
+                "count": 1
+              },
+              {
+                "value": "rgb(211, 227, 228)",
+                "count": 1
+              }
+            ]
+          },
+          "geometry": {
+            "borderRadii": [],
+            "backdropFilteredElements": 114
+          },
+          "motion": {
+            "animations": [],
+            "transitions": []
+          },
+          "readingSurfaces": [
+            {
+              "selector": "main > section.asset > article.letter > div.letter-body",
+              "width": 898,
+              "maxWidth": "none",
+              "marginLeft": "0px",
+              "fontFamily": "Arial, Helvetica, sans-serif",
+              "fontSize": "16px",
+              "lineHeight": "25.6px",
+              "textCharacters": 762
+            },
+            {
+              "selector": "section.asset > article.letter > div.letter-body > div.prose",
+              "width": 670,
+              "maxWidth": "670px",
+              "marginLeft": "0px",
+              "fontFamily": "Georgia, \"Times New Roman\", serif",
+              "fontSize": "17.28px",
+              "lineHeight": "30.24px",
+              "textCharacters": 664
+            },
+            {
+              "selector": "main > section.asset > article.memo-sheet > div.memo-body",
+              "width": 1050,
+              "maxWidth": "none",
+              "marginLeft": "0px",
+              "fontFamily": "Arial, Helvetica, sans-serif",
+              "fontSize": "16px",
+              "lineHeight": "25.6px",
+              "textCharacters": 927
+            }
+          ],
+          "graphics": {
+            "svg": 0,
+            "canvas": 0,
+            "images": 0,
+            "video": 0,
+            "authoredVisuals": 0
+          }
+        },
+        "consoleErrors": [],
+        "pageErrors": []
+      }
+    },
+    {
+      "target": "candidate",
+      "profile": "mobile",
+      "route": "/review-gallery.html",
+      "screenshot": "candidate-mobile-review-gallery.html.png",
+      "navigationError": null,
+      "observation": {
+        "status": 200,
+        "title": "Harbour Ledger — Review gallery",
+        "url": "http://127.0.0.1:4317/review-gallery.html",
+        "viewport": {
+          "width": 390,
+          "height": 844
+        },
+        "document": {
+          "width": 390,
+          "height": 5139,
+          "bodyTextCharacters": 3058
+        },
+        "horizontalOverflow": false,
+        "overflowElements": [],
+        "offViewportInteractive": [],
+        "invisibleAuthoredContent": [],
+        "headings": [
+          {
+            "level": "h1",
+            "text": "The vessel record, kept clear."
+          },
+          {
+            "level": "h2",
+            "text": "Pump inspection"
+          },
+          {
+            "level": "h2",
+            "text": "Keep the inspection paused."
+          },
+          {
+            "level": "h2",
+            "text": "Pump inspection remains paused."
+          },
+          {
+            "level": "h3",
+            "text": "Current record"
+          },
+          {
+            "level": "h3",
+            "text": "Consequence"
+          },
+          {
+            "level": "h3",
+            "text": "Stop-and-document boundary"
+          },
+          {
+            "level": "h3",
+            "text": "Authority to resume"
+          }
+        ],
+        "links": [
+          {
+            "text": "Skip to gallery",
+            "href": "http://127.0.0.1:4317/review-gallery.html#content",
+            "visible": true
+          },
+          {
+            "text": "Harbour Ledger",
+            "href": "http://127.0.0.1:4317/review-gallery.html#landing",
+            "visible": true
+          },
+          {
+            "text": "Product",
+            "href": "http://127.0.0.1:4317/review-gallery.html#landing",
+            "visible": true
+          },
+          {
+            "text": "Support",
+            "href": "http://127.0.0.1:4317/review-gallery.html#support",
+            "visible": true
+          },
+          {
+            "text": "Safety memo",
+            "href": "http://127.0.0.1:4317/review-gallery.html#memo",
+            "visible": true
+          }
+        ],
+        "footer": {
+          "present": true,
+          "visible": true,
+          "textCharacters": 90
+        },
+        "design": {
+          "root": {
+            "fontFamily": "Arial, Helvetica, sans-serif",
+            "fontSize": "16px",
+            "lineHeight": "25.6px",
+            "color": "rgb(19, 47, 60)",
+            "backgroundColor": "rgb(238, 242, 239)"
+          },
+          "typography": [
+            {
+              "value": "Arial, Helvetica, sans-serif | 16px | 400 | 25.6px | normal",
+              "count": 44
+            },
+            {
+              "value": "Arial, Helvetica, sans-serif | 12.8px | 400 | 20.48px | normal",
+              "count": 6
+            },
+            {
+              "value": "Arial, Helvetica, sans-serif | 11.04px | 700 | 17.664px | 0.9936px",
+              "count": 4
+            },
+            {
+              "value": "Arial, Helvetica, sans-serif | 11.68px | 700 | 18.688px | 1.4016px",
+              "count": 4
+            },
+            {
+              "value": "Georgia, \"Times New Roman\", serif | 16.8px | 400 | 28.896px | normal",
+              "count": 4
+            },
+            {
+              "value": "Georgia, \"Times New Roman\", serif | 16px | 400 | 22.4px | normal",
+              "count": 4
+            },
+            {
+              "value": "Georgia, \"Times New Roman\", serif | 17.28px | 400 | 30.24px | normal",
+              "count": 4
+            },
+            {
+              "value": "Arial, Helvetica, sans-serif | 10.4px | 700 | 16.64px | 0.936px",
+              "count": 3
+            },
+            {
+              "value": "Arial, Helvetica, sans-serif | 10.72px | 800 | 17.152px | 1.072px",
+              "count": 3
+            },
+            {
+              "value": "Arial, Helvetica, sans-serif | 11.52px | 700 | 18.432px | 1.8432px",
+              "count": 3
+            },
+            {
+              "value": "Arial, Helvetica, sans-serif | 12px | 400 | 19.2px | 1.32px",
+              "count": 3
+            },
+            {
+              "value": "Georgia, \"Times New Roman\", serif | 16px | 400 | 23.2px | normal",
+              "count": 3
+            },
+            {
+              "value": "Arial, Helvetica, sans-serif | 12.8px | 700 | 20.48px | 1.024px",
+              "count": 2
+            },
+            {
+              "value": "Georgia, \"Times New Roman\", serif | 58.5px | 400 | 56.16px | -2.6325px",
+              "count": 2
+            },
+            {
+              "value": "Arial, Helvetica, sans-serif | 10.72px | 800 | 17.152px | 1.2864px",
+              "count": 1
+            },
+            {
+              "value": "Arial, Helvetica, sans-serif | 10.88px | 700 | 16.864px | 1.4144px",
+              "count": 1
+            }
+          ],
+          "palette": {
+            "text": [
+              {
+                "value": "rgb(19, 47, 60)",
+                "count": 44
+              },
+              {
+                "value": "rgb(255, 255, 255)",
+                "count": 24
+              },
+              {
+                "value": "rgb(82, 101, 106)",
+                "count": 15
+              },
+              {
+                "value": "rgb(11, 43, 61)",
+                "count": 8
+              },
+              {
+                "value": "rgb(213, 226, 229)",
+                "count": 4
+              },
+              {
+                "value": "rgb(109, 44, 34)",
+                "count": 3
+              },
+              {
+                "value": "rgb(199, 220, 226)",
+                "count": 3
+              },
+              {
+                "value": "rgb(45, 100, 126)",
+                "count": 3
+              },
+              {
+                "value": "rgb(97, 43, 34)",
+                "count": 3
+              },
+              {
+                "value": "rgb(95, 42, 33)",
+                "count": 2
+              },
+              {
+                "value": "rgb(199, 215, 220)",
+                "count": 1
+              },
+              {
+                "value": "rgb(211, 227, 228)",
+                "count": 1
+              },
+              {
+                "value": "rgb(213, 229, 229)",
+                "count": 1
+              },
+              {
+                "value": "rgb(216, 229, 229)",
+                "count": 1
+              },
+              {
+                "value": "rgb(231, 238, 238)",
+                "count": 1
+              }
+            ],
+            "background": [
+              {
+                "value": "rgb(11, 43, 61)",
+                "count": 4
+              },
+              {
+                "value": "rgb(18, 62, 88)",
+                "count": 3
+              },
+              {
+                "value": "rgb(244, 232, 225)",
+                "count": 3
+              },
+              {
+                "value": "rgb(251, 250, 245)",
+                "count": 3
+              },
+              {
+                "value": "rgb(238, 242, 239)",
+                "count": 1
+              },
+              {
+                "value": "rgb(240, 238, 230)",
+                "count": 1
+              },
+              {
+                "value": "rgb(243, 240, 230)",
+                "count": 1
+              }
+            ],
+            "border": [
+              {
+                "value": "rgb(19, 47, 60)",
+                "count": 37
+              },
+              {
+                "value": "rgb(255, 255, 255)",
+                "count": 23
+              },
+              {
+                "value": "rgb(82, 101, 106)",
+                "count": 14
+              },
+              {
+                "value": "rgb(11, 43, 61)",
+                "count": 8
+              },
+              {
+                "value": "rgb(182, 196, 194)",
+                "count": 6
+              },
+              {
+                "value": "rgb(213, 226, 229)",
+                "count": 4
+              },
+              {
+                "value": "rgb(109, 44, 34)",
+                "count": 3
+              },
+              {
+                "value": "rgb(199, 220, 226)",
+                "count": 3
+              },
+              {
+                "value": "rgb(45, 100, 126)",
+                "count": 3
+              },
+              {
+                "value": "rgb(95, 42, 33)",
+                "count": 2
+              },
+              {
+                "value": "rgb(97, 43, 34)",
+                "count": 2
+              },
+              {
+                "value": "rgb(18, 62, 88)",
+                "count": 1
+              },
+              {
+                "value": "rgb(199, 215, 220)",
+                "count": 1
+              },
+              {
+                "value": "rgb(203, 211, 207)",
+                "count": 1
+              },
+              {
+                "value": "rgb(204, 210, 205)",
+                "count": 1
+              },
+              {
+                "value": "rgb(211, 227, 228)",
+                "count": 1
+              }
+            ]
+          },
+          "geometry": {
+            "borderRadii": [],
+            "backdropFilteredElements": 114
+          },
+          "motion": {
+            "animations": [],
+            "transitions": []
+          },
+          "readingSurfaces": [
+            {
+              "selector": "main > section.asset > article.letter > div.letter-body",
+              "width": 348,
+              "maxWidth": "none",
+              "marginLeft": "0px",
+              "fontFamily": "Arial, Helvetica, sans-serif",
+              "fontSize": "16px",
+              "lineHeight": "25.6px",
+              "textCharacters": 762
+            },
+            {
+              "selector": "section.asset > article.letter > div.letter-body > div.prose",
+              "width": 268,
+              "maxWidth": "670px",
+              "marginLeft": "0px",
+              "fontFamily": "Georgia, \"Times New Roman\", serif",
+              "fontSize": "17.28px",
+              "lineHeight": "30.24px",
+              "textCharacters": 664
+            },
+            {
+              "selector": "main > section.asset > article.memo-sheet > div.memo-body",
+              "width": 350,
+              "maxWidth": "none",
+              "marginLeft": "0px",
+              "fontFamily": "Arial, Helvetica, sans-serif",
+              "fontSize": "16px",
+              "lineHeight": "25.6px",
+              "textCharacters": 927
+            }
+          ],
+          "graphics": {
+            "svg": 0,
+            "canvas": 0,
+            "images": 0,
+            "video": 0,
+            "authoredVisuals": 0
+          }
+        },
+        "consoleErrors": [],
+        "pageErrors": []
+      }
+    },
+    {
+      "target": "candidate",
+      "profile": "desktop-reduced-motion",
+      "route": "/review-gallery.html",
+      "screenshot": "candidate-desktop-reduced-motion-review-gallery.html.png",
+      "navigationError": null,
+      "observation": {
+        "status": 200,
+        "title": "Harbour Ledger — Review gallery",
+        "url": "http://127.0.0.1:4317/review-gallery.html",
+        "viewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "document": {
+          "width": 1440,
+          "height": 3660,
+          "bodyTextCharacters": 3058
+        },
+        "horizontalOverflow": false,
+        "overflowElements": [],
+        "offViewportInteractive": [],
+        "invisibleAuthoredContent": [],
+        "headings": [
+          {
+            "level": "h1",
+            "text": "The vessel record, kept clear."
+          },
+          {
+            "level": "h2",
+            "text": "Pump inspection"
+          },
+          {
+            "level": "h2",
+            "text": "Keep the inspection paused."
+          },
+          {
+            "level": "h2",
+            "text": "Pump inspection remains paused."
+          },
+          {
+            "level": "h3",
+            "text": "Current record"
+          },
+          {
+            "level": "h3",
+            "text": "Consequence"
+          },
+          {
+            "level": "h3",
+            "text": "Stop-and-document boundary"
+          },
+          {
+            "level": "h3",
+            "text": "Authority to resume"
+          }
+        ],
+        "links": [
+          {
+            "text": "Skip to gallery",
+            "href": "http://127.0.0.1:4317/review-gallery.html#content",
+            "visible": true
+          },
+          {
+            "text": "Harbour Ledger",
+            "href": "http://127.0.0.1:4317/review-gallery.html#landing",
+            "visible": true
+          },
+          {
+            "text": "Product",
+            "href": "http://127.0.0.1:4317/review-gallery.html#landing",
+            "visible": true
+          },
+          {
+            "text": "Support",
+            "href": "http://127.0.0.1:4317/review-gallery.html#support",
+            "visible": true
+          },
+          {
+            "text": "Safety memo",
+            "href": "http://127.0.0.1:4317/review-gallery.html#memo",
+            "visible": true
+          }
+        ],
+        "footer": {
+          "present": true,
+          "visible": true,
+          "textCharacters": 90
+        },
+        "design": {
+          "root": {
+            "fontFamily": "Arial, Helvetica, sans-serif",
+            "fontSize": "16px",
+            "lineHeight": "25.6px",
+            "color": "rgb(19, 47, 60)",
+            "backgroundColor": "rgb(238, 242, 239)"
+          },
+          "typography": [
+            {
+              "value": "Arial, Helvetica, sans-serif | 16px | 400 | 25.6px | normal",
+              "count": 44
+            },
+            {
+              "value": "Arial, Helvetica, sans-serif | 12.8px | 400 | 20.48px | normal",
+              "count": 6
+            },
+            {
+              "value": "Arial, Helvetica, sans-serif | 11.04px | 700 | 17.664px | 0.9936px",
+              "count": 4
+            },
+            {
+              "value": "Arial, Helvetica, sans-serif | 11.68px | 700 | 18.688px | 1.4016px",
+              "count": 4
+            },
+            {
+              "value": "Georgia, \"Times New Roman\", serif | 16.8px | 400 | 28.896px | normal",
+              "count": 4
+            },
+            {
+              "value": "Georgia, \"Times New Roman\", serif | 16px | 400 | 22.4px | normal",
+              "count": 4
+            },
+            {
+              "value": "Georgia, \"Times New Roman\", serif | 17.28px | 400 | 30.24px | normal",
+              "count": 4
+            },
+            {
+              "value": "Arial, Helvetica, sans-serif | 10.72px | 800 | 17.152px | 1.072px",
+              "count": 3
+            },
+            {
+              "value": "Arial, Helvetica, sans-serif | 11.52px | 700 | 18.432px | 1.8432px",
+              "count": 3
+            },
+            {
+              "value": "Arial, Helvetica, sans-serif | 12.16px | 700 | 19.456px | 1.0944px",
+              "count": 3
+            },
+            {
+              "value": "Arial, Helvetica, sans-serif | 12px | 400 | 19.2px | 1.32px",
+              "count": 3
+            },
+            {
+              "value": "Georgia, \"Times New Roman\", serif | 16px | 400 | 23.2px | normal",
+              "count": 3
+            },
+            {
+              "value": "Arial, Helvetica, sans-serif | 12.8px | 700 | 20.48px | 1.024px",
+              "count": 2
+            },
+            {
+              "value": "Georgia, \"Times New Roman\", serif | 92.16px | 400 | 88.4736px | -4.1472px",
+              "count": 2
+            },
+            {
+              "value": "Arial, Helvetica, sans-serif | 10.72px | 800 | 17.152px | 1.2864px",
+              "count": 1
+            },
+            {
+              "value": "Arial, Helvetica, sans-serif | 10.88px | 700 | 16.864px | 1.4144px",
+              "count": 1
+            }
+          ],
+          "palette": {
+            "text": [
+              {
+                "value": "rgb(19, 47, 60)",
+                "count": 44
+              },
+              {
+                "value": "rgb(255, 255, 255)",
+                "count": 24
+              },
+              {
+                "value": "rgb(82, 101, 106)",
+                "count": 15
+              },
+              {
+                "value": "rgb(11, 43, 61)",
+                "count": 8
+              },
+              {
+                "value": "rgb(213, 226, 229)",
+                "count": 4
+              },
+              {
+                "value": "rgb(109, 44, 34)",
+                "count": 3
+              },
+              {
+                "value": "rgb(199, 220, 226)",
+                "count": 3
+              },
+              {
+                "value": "rgb(45, 100, 126)",
+                "count": 3
+              },
+              {
+                "value": "rgb(97, 43, 34)",
+                "count": 3
+              },
+              {
+                "value": "rgb(95, 42, 33)",
+                "count": 2
+              },
+              {
+                "value": "rgb(199, 215, 220)",
+                "count": 1
+              },
+              {
+                "value": "rgb(211, 227, 228)",
+                "count": 1
+              },
+              {
+                "value": "rgb(213, 229, 229)",
+                "count": 1
+              },
+              {
+                "value": "rgb(216, 229, 229)",
+                "count": 1
+              },
+              {
+                "value": "rgb(231, 238, 238)",
+                "count": 1
+              }
+            ],
+            "background": [
+              {
+                "value": "rgb(11, 43, 61)",
+                "count": 4
+              },
+              {
+                "value": "rgb(18, 62, 88)",
+                "count": 3
+              },
+              {
+                "value": "rgb(244, 232, 225)",
+                "count": 3
+              },
+              {
+                "value": "rgb(251, 250, 245)",
+                "count": 3
+              },
+              {
+                "value": "rgb(238, 242, 239)",
+                "count": 1
+              },
+              {
+                "value": "rgb(240, 238, 230)",
+                "count": 1
+              },
+              {
+                "value": "rgb(243, 240, 230)",
+                "count": 1
+              }
+            ],
+            "border": [
+              {
+                "value": "rgb(19, 47, 60)",
+                "count": 37
+              },
+              {
+                "value": "rgb(255, 255, 255)",
+                "count": 23
+              },
+              {
+                "value": "rgb(82, 101, 106)",
+                "count": 14
+              },
+              {
+                "value": "rgb(11, 43, 61)",
+                "count": 8
+              },
+              {
+                "value": "rgb(182, 196, 194)",
+                "count": 6
+              },
+              {
+                "value": "rgb(213, 226, 229)",
+                "count": 4
+              },
+              {
+                "value": "rgb(109, 44, 34)",
+                "count": 3
+              },
+              {
+                "value": "rgb(199, 220, 226)",
+                "count": 3
+              },
+              {
+                "value": "rgb(45, 100, 126)",
+                "count": 3
+              },
+              {
+                "value": "rgb(95, 42, 33)",
+                "count": 2
+              },
+              {
+                "value": "rgb(97, 43, 34)",
+                "count": 2
+              },
+              {
+                "value": "rgb(18, 62, 88)",
+                "count": 1
+              },
+              {
+                "value": "rgb(199, 215, 220)",
+                "count": 1
+              },
+              {
+                "value": "rgb(203, 211, 207)",
+                "count": 1
+              },
+              {
+                "value": "rgb(204, 210, 205)",
+                "count": 1
+              },
+              {
+                "value": "rgb(211, 227, 228)",
+                "count": 1
+              }
+            ]
+          },
+          "geometry": {
+            "borderRadii": [],
+            "backdropFilteredElements": 114
+          },
+          "motion": {
+            "animations": [],
+            "transitions": []
+          },
+          "readingSurfaces": [
+            {
+              "selector": "main > section.asset > article.letter > div.letter-body",
+              "width": 898,
+              "maxWidth": "none",
+              "marginLeft": "0px",
+              "fontFamily": "Arial, Helvetica, sans-serif",
+              "fontSize": "16px",
+              "lineHeight": "25.6px",
+              "textCharacters": 762
+            },
+            {
+              "selector": "section.asset > article.letter > div.letter-body > div.prose",
+              "width": 670,
+              "maxWidth": "670px",
+              "marginLeft": "0px",
+              "fontFamily": "Georgia, \"Times New Roman\", serif",
+              "fontSize": "17.28px",
+              "lineHeight": "30.24px",
+              "textCharacters": 664
+            },
+            {
+              "selector": "main > section.asset > article.memo-sheet > div.memo-body",
+              "width": 1050,
+              "maxWidth": "none",
+              "marginLeft": "0px",
+              "fontFamily": "Arial, Helvetica, sans-serif",
+              "fontSize": "16px",
+              "lineHeight": "25.6px",
+              "textCharacters": 927
+            }
+          ],
+          "graphics": {
+            "svg": 0,
+            "canvas": 0,
+            "images": 0,
+            "video": 0,
+            "authoredVisuals": 0
+          }
+        },
+        "consoleErrors": [],
+        "pageErrors": []
+      }
+    }
+  ],
+  "internalLinks": [
+    {
+      "url": "http://127.0.0.1:4317/review-gallery.html",
+      "status": 200,
+      "ok": true
+    }
+  ]
+}

@@ -360,6 +360,18 @@ pub fn classify_provider_error(text: &str) -> Option<Blocked> {
             ),
         ));
     }
+    if has("500")
+        || has("502")
+        || has("503")
+        || has("504")
+        || has("server_error")
+        || has("server had an error")
+    {
+        return Some(Blocked::new(
+            BlockKind::Transport,
+            format!("the provider returned a server error: {}", trim(text)),
+        ));
+    }
     if has("model") && (has("not found") || has("unknown") || has("does not exist")) {
         return Some(Blocked::new(
             BlockKind::Model,
@@ -399,18 +411,20 @@ pub fn classify_provider_error_content(text: &str) -> Option<Blocked> {
 
     let first = trimmed.lines().next().unwrap_or(trimmed).trim();
     let lower = first.to_ascii_lowercase();
-    let status_prefix = ["401", "402", "403", "404", "413", "429"]
-        .into_iter()
-        .any(|status| {
-            lower.starts_with(status)
-                || lower.starts_with(&format!("http {status}"))
-                || lower.starts_with(&format!("http/{status}"))
-                || lower.starts_with(&format!("error {status}"))
-                || lower.starts_with(&format!("error: {status}"))
-                || lower.starts_with(&format!("provider error {status}"))
-                || lower.starts_with(&format!("provider error: {status}"))
-                || lower.starts_with(&format!("auth-gateway {status}"))
-        });
+    let status_prefix = [
+        "401", "402", "403", "404", "413", "429", "500", "502", "503", "504",
+    ]
+    .into_iter()
+    .any(|status| {
+        lower.starts_with(status)
+            || lower.starts_with(&format!("http {status}"))
+            || lower.starts_with(&format!("http/{status}"))
+            || lower.starts_with(&format!("error {status}"))
+            || lower.starts_with(&format!("error: {status}"))
+            || lower.starts_with(&format!("provider error {status}"))
+            || lower.starts_with(&format!("provider error: {status}"))
+            || lower.starts_with(&format!("auth-gateway {status}"))
+    });
     let named_error_prefix = [
         "invalid authentication",
         "authentication failed",
@@ -426,6 +440,8 @@ pub fn classify_provider_error_content(text: &str) -> Option<Blocked> {
     let explicit_error_prefix = lower.starts_with("api error")
         || lower.starts_with("upstream error")
         || lower.starts_with("provider error")
+        || lower.starts_with("error code ")
+        || lower.starts_with("credit_balance_exhausted")
         || lower.starts_with("error:");
 
     (status_prefix || named_error_prefix || explicit_error_prefix)
@@ -695,7 +711,15 @@ mod tests {
                 r#"{"error":{"status":429,"message":"rate limit exceeded"}}"#,
                 BlockKind::Quota,
             ),
+            (
+                "Error Code credit_balance_exhausted: You have no credits remaining.",
+                BlockKind::Quota,
+            ),
             ("auth-gateway 413: Payload Too Large", BlockKind::Context),
+            (
+                "500 The server had an error while processing your request (type=server_error)",
+                BlockKind::Transport,
+            ),
         ];
         for (content, expected) in provider_content {
             assert_eq!(

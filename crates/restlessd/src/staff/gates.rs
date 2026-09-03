@@ -188,6 +188,7 @@ async fn execute_gate(execution: &GateExecution<'_>, gate: &WorkGateRow) -> Resu
         "governed gate failed to execute"
     };
     let leaked = terminate_process_group(container, &resources.marker).await;
+    let runtime_cleanup = cleanup_gate_runtime(container, runtime_root).await;
     for lease in resources.leases.drain(..) {
         if let Err(error) = org
             .release_runtime_resource(lease.id, &resources.holder, cleanup_reason)
@@ -197,6 +198,7 @@ async fn execute_gate(execution: &GateExecution<'_>, gate: &WorkGateRow) -> Resu
         }
     }
     let evidence = result?;
+    runtime_cleanup?;
     let combined = evidence.combined;
     let digest = format!("{:x}", Sha256::digest(combined.as_bytes()));
     let engine_error = combined.lines().any(|line| {
@@ -226,6 +228,31 @@ async fn execute_gate(execution: &GateExecution<'_>, gate: &WorkGateRow) -> Resu
     })
     .await?;
     Ok(passed)
+}
+
+async fn cleanup_gate_runtime(container: &str, runtime_root: &str) -> Result<()> {
+    let output = tokio::process::Command::new("docker")
+        .args([
+            "exec",
+            "-u",
+            "root",
+            container,
+            "sh",
+            "-c",
+            "set -eu; rm -rf \"$1\"; parent=$(dirname \"$1\"); rmdir \"$parent\" 2>/dev/null || true; test ! -e \"$1\"",
+            "gate-runtime-cleanup",
+            runtime_root,
+        ])
+        .output()
+        .await
+        .context("clean governed gate runtime")?;
+    if !output.status.success() {
+        bail!(
+            "clean governed gate runtime: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        );
+    }
+    Ok(())
 }
 
 struct GateEvidence {
@@ -328,7 +355,16 @@ async fn allocate_resources(
     gate: &WorkGateRow,
 ) -> Result<GateResources> {
     let holder = uuid::Uuid::new_v4().simple().to_string();
-    let root = format!("/company/run/gates/{attempt_id}/{}", gate.id);
+    // Keep TMPDIR short enough for tools such as `tsx` that create a Unix
+    // domain socket beneath it. macOS limits AF_UNIX paths to roughly 104
+    // bytes; nesting two UUIDs here left too little room for tool-owned
+    // suffixes and turned healthy product gates into false failures.
+    //
+    // The random lease holder is already unique per gate execution, so its
+    // first 16 hex digits give us a compact, governed runtime directory. It
+    // remains under /company/run/gates, where the orphan reaper and normal
+    // gate cleanup already own it.
+    let root = gate_runtime_root(&holder);
     let mut allocated = GateResources {
         holder: holder.clone(),
         tempdir: format!("{root}/tmp"),
@@ -360,6 +396,11 @@ async fn allocate_resources(
         allocated.leases.push(lease);
     }
     Ok(allocated)
+}
+
+fn gate_runtime_root(holder: &str) -> String {
+    let compact = holder.get(..16).unwrap_or(holder);
+    format!("/company/run/gates/{compact}")
 }
 
 async fn acquire_numbered(
@@ -482,12 +523,22 @@ mod tests {
     use crate::runtime::{CompanyConfig, SpendCeiling};
     use crate::staff::workspace::{
         cleanup_attempt_runtime, ensure_worktree, observe_workspace, prepare_review_copy,
-        promote_integration_commit,
+        probe_hardened_review_copy, promote_integration_commit,
     };
     use restless_orgintel::{
-        NewCandidatePromotion, NewImmutableReviewTarget, NewWork, NewWorkGate, OrgIntel,
-        WorkAttemptState, WorkspaceSpec,
+        NewCandidatePromotion, NewGateRun, NewImmutableReviewTarget, NewWork, NewWorkGate,
+        OrgIntel, ProducingTopology, WorkAttemptState, WorkspaceSpec,
     };
+
+    #[test]
+    fn gate_tmpdir_leaves_room_for_tool_owned_unix_sockets() {
+        let holder = "0123456789abcdef0123456789abcdef";
+        let tempdir = format!("{}/tmp", gate_runtime_root(holder));
+        let representative_tsx_socket = format!("{tempdir}/tsx-2000/57380.pipe");
+
+        assert_eq!(tempdir, "/company/run/gates/0123456789abcdef/tmp");
+        assert!(representative_tsx_socket.len() < 104);
+    }
 
     #[test]
     fn gate_session_wrapper_waits_when_setsid_forks() {
@@ -633,9 +684,152 @@ mod tests {
         org.ensure_actor("exec", "exec", "exec", "The Exec")
             .await
             .unwrap();
+        org.create_actor(
+            "fixture-direction",
+            "lead",
+            "Morgan Vale",
+            None,
+            "exec",
+            "owns the integrated acceptance outcome without producing it",
+        )
+        .await
+        .unwrap();
+        let team = org
+            .create_team(
+                "Integrated fixture",
+                "Prove one coherent route and independent parallel units",
+                "fixture-direction",
+                "exec",
+            )
+            .await
+            .unwrap();
         for actor in ["fixture-a", "fixture-b", "fixture-c"] {
             add_actor(&org, actor).await;
+            org.set_actor_team(
+                actor,
+                Some(team),
+                "fixture-direction",
+                "one accountable fixture team",
+            )
+            .await
+            .unwrap();
         }
+        for message in org.inbox(Some("fixture-direction")).await.unwrap() {
+            org.mark_read(message.id).await.unwrap();
+        }
+
+        // Four same-actor charged requests use independent identities. One
+        // corrupt terminal remains local while the other three reconcile.
+        let spend_dir = std::env::temp_dir().join(format!(
+            "restless-s30-integrated-spend-{}",
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(&spend_dir).unwrap();
+        let spend_store = restless_model_gateway::SpendStore::open(&spend_dir).unwrap();
+        let metered_work = uuid::Uuid::new_v4();
+        let make_record = |cost: u64, settlement| restless_model_gateway::SpendRecord {
+            request_id: uuid::Uuid::new_v4(),
+            company_id: company.clone(),
+            model: "litellm/gpt-5.6-terra".into(),
+            input_tokens: 100,
+            output_tokens: 20,
+            total_tokens: 120,
+            cached_input_tokens: Some(40),
+            cost_micro_usd: cost,
+            actor_id: "fixture-a".into(),
+            session_id: uuid::Uuid::new_v4().to_string(),
+            responsibility: "work:integrated-acceptance".into(),
+            work_id: Some(metered_work),
+            attempt_id: Some(uuid::Uuid::new_v4()),
+            settlement,
+            occurred_at: chrono::Utc::now(),
+        };
+        for cost in [7, 11, 13] {
+            spend_store
+                .record(&make_record(
+                    cost,
+                    restless_model_gateway::SpendSettlement::Accounted,
+                ))
+                .unwrap();
+        }
+        let unknown = make_record(0, restless_model_gateway::SpendSettlement::MeteringUnknown);
+        spend_store.record(&unknown).unwrap();
+        assert_eq!(spend_store.accounted_micro_usd(&company), 31);
+        assert_eq!(spend_store.records_for_company(&company).len(), 3);
+        assert_eq!(
+            spend_store.unknown_requests_for_company(&company)[0].request_id,
+            unknown.request_id
+        );
+        drop(spend_store);
+        std::fs::remove_dir_all(&spend_dir).unwrap();
+
+        // The integrated nominal arm retains the hierarchy while paying no
+        // lead narration: Exec commissions the sole worker, a deterministic
+        // gate passes, and clean terminal bookkeeping creates no wake.
+        let route_command = vec!["true".to_string()];
+        let route_gate = restless_orgintel::InitialWorkGate {
+            name: "integrated-nominal-pass",
+            command: &route_command,
+            stage: "cumulative",
+            timeout_seconds: 10,
+            resources: &[],
+        };
+        let route_work = org
+            .add_commissioned_work_with_edges_and_gates(
+                NewWork {
+                    owner_id: "fixture-a",
+                    title: "integrated coherent nominal route",
+                    outcome: "one exact passing candidate without supervisory narration",
+                    goal_id: None,
+                    priority: 1_000,
+                    expected_artifact: "",
+                    workspace: WorkspaceSpec::default(),
+                    attempt_limit: Some(1),
+                },
+                &[],
+                &[],
+                &[route_gate],
+                false,
+                None,
+                "exec",
+                ProducingTopology::CoherentSingleWorker,
+            )
+            .await
+            .unwrap();
+        let route_attempt = org
+            .claim_ready_work("integrated nominal")
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(route_attempt.work.id, route_work);
+        let route_gate_id = org.list_work_gates(route_work).await.unwrap()[0].id;
+        org.record_gate_run(NewGateRun {
+            gate_id: route_gate_id,
+            attempt_id: route_attempt.attempt_id,
+            exit_code: Some(0),
+            output_digest: "sha256:integrated-nominal",
+            output_excerpt: "pass",
+            passed: true,
+        })
+        .await
+        .unwrap();
+        org.finish_work_attempt(
+            route_attempt.attempt_id,
+            WorkAttemptState::Produced,
+            "integrated nominal route passed",
+        )
+        .await
+        .unwrap();
+        assert!(org
+            .flush_terminal_supervisor_notices(16)
+            .await
+            .unwrap()
+            .is_empty());
+        assert!(org
+            .inbox(Some("fixture-direction"))
+            .await
+            .unwrap()
+            .is_empty());
 
         // One real repository fixture carries the wrong-source, mixed-owner,
         // generated-cache, safe-feedback, promotion and immutable-review
@@ -654,6 +848,7 @@ mod tests {
             name: company_name.to_string(),
             mission: "Sprint 26 integrated fixture".into(),
             spend_ceiling_usd: SpendCeiling::from_micro_usd(0),
+            outcome_standard: Default::default(),
             model: "litellm/gpt-5.6-terra".into(),
             worker_runtime: crate::runtime::WorkerRuntime::Omp,
             reasoning_effort: crate::acp::DEFAULT_REASONING_EFFORT.into(),
@@ -1038,6 +1233,69 @@ mod tests {
         )
         .await
         .unwrap();
+        assert!(review.access_probed);
+        assert_eq!(review.content_digest, format!("git-tree:{candidate_tree}"));
+        assert!(review.file_count >= 3);
+        let review_alias = format!(
+            "/company/reviews/by-attempt/{}",
+            exact_workspace.attempt_id.simple()
+        );
+        assert_eq!(
+            command(
+                &container,
+                &format!(
+                    "set -eu; test -r {}/candidate.txt; test ! -w {}/candidate.txt; test ! -w {}; test \"$(readlink {})\" = {}; echo exact",
+                    review.workdir,
+                    review.workdir,
+                    review.workdir,
+                    review_alias,
+                    review.workdir,
+                )
+            )
+            .await,
+            "exact"
+        );
+        let mutation = tokio::process::Command::new("docker")
+            .args([
+                "exec",
+                "-u",
+                "company",
+                &container,
+                "sh",
+                "-c",
+                "printf mutation > \"$1/candidate.txt\"",
+                "review-mutation-probe",
+                &review.workdir,
+            ])
+            .output()
+            .await
+            .unwrap();
+        assert!(
+            !mutation.status.success(),
+            "the producing/reviewer OS identity cannot mutate published bytes"
+        );
+        root_command(
+            &container,
+            &format!("chmod 000 {}/candidate.txt", review.workdir),
+        )
+        .await;
+        let unreadable = probe_hardened_review_copy(
+            &container,
+            &review.workdir,
+            &review_alias,
+            &candidate_commit,
+            &candidate_tree,
+        )
+        .await;
+        assert!(
+            unreadable.is_err(),
+            "an unreadable declared file must stop before reviewer spend"
+        );
+        root_command(
+            &container,
+            &format!("chmod 0440 {}/candidate.txt", review.workdir),
+        )
+        .await;
         let review_manifest = serde_json::json!({
             "candidate_commit": candidate_commit,
             "candidate_tree": candidate_tree,
@@ -1091,11 +1349,11 @@ mod tests {
             Some(candidate_commit.as_str())
         );
         assert_eq!(after_cleanup.dirty_entries, 0);
-        command(
+        root_command(
             &container,
             &format!(
-                "set -eu; test ! -e {workdir}/.godot; test ! -e /company/run/attempts/{}; repo=/company/repos/{repo}; git -C \"$repo\" worktree remove --force {workdir}; git -C \"$repo\" worktree remove --force {}; rm -rf \"$repo\"",
-                exact_workspace.attempt_id, review.workdir
+                "set -eu; test ! -e {workdir}/.godot; test ! -e /company/run/attempts/{}; repo=/company/repos/{repo}; git -c safe.directory='*' -C \"$repo\" worktree remove --force {workdir}; git -c safe.directory='*' -C \"$repo\" worktree remove --force {}; rm -f {}; rm -rf \"$repo\"",
+                exact_workspace.attempt_id, review.workdir, review_alias
             ),
         )
         .await;
@@ -1333,6 +1591,126 @@ mod tests {
             command(
                 &container,
                 "test ! -e /company/run/gates/orphan-fixture/gate/process-group.pid; echo clean"
+            )
+            .await,
+            "clean"
+        );
+
+        let agent_marker = format!("/tmp/restless-agent-s30-{suffix}.sid");
+        let agent_runtime = format!("/company/run/agent-sessions/s30-{suffix}");
+        let started = tokio::process::Command::new("docker")
+            .args([
+                "exec",
+                "-d",
+                "-u",
+                "company",
+                &container,
+                "sh",
+                "-c",
+                "mkdir -p \"$2\"; exec setsid sh -c 'echo $$ > \"$1\"; exec sleep 300' agent-session \"$1\"",
+                "agent-session-launch",
+                &agent_marker,
+                &agent_runtime,
+            ])
+            .output()
+            .await
+            .unwrap();
+        assert!(started.status.success());
+        let mut agent_session = None;
+        for _ in 0..50 {
+            agent_session = crate::acp::read_session_id(&container, &agent_marker).await;
+            if agent_session.is_some() {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+        let agent_session = agent_session.expect("agent process wrote its exact session marker");
+        assert!(crate::acp::reap_session(&container, &agent_session).await >= 1);
+        crate::acp::verify_session_reaped(&container, &agent_session)
+            .await
+            .unwrap();
+        crate::acp::remove_and_verify_session_artifacts(
+            &container,
+            &[&agent_marker, &agent_runtime],
+        )
+        .await
+        .unwrap();
+
+        // Flush prior negative fixtures, then prove one late ambiguity is a
+        // single durable obligation across a fresh OrgIntel handle (the
+        // scheduler/daemon restart boundary).
+        let _ = org.flush_terminal_supervisor_notices(100).await.unwrap();
+        for message in org.inbox(Some("fixture-direction")).await.unwrap() {
+            org.mark_read(message.id).await.unwrap();
+        }
+        let ambiguity = org
+            .add_work(NewWork {
+                owner_id: "fixture-a",
+                title: "integrated late ambiguity",
+                outcome: "require one accountable judgement",
+                goal_id: None,
+                priority: 40,
+                expected_artifact: "",
+                workspace: WorkspaceSpec::default(),
+                attempt_limit: Some(1),
+            })
+            .await
+            .unwrap();
+        let ambiguity_attempt = org
+            .claim_ready_work("late ambiguity")
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(ambiguity_attempt.work.id, ambiguity);
+        org.finish_work_attempt(
+            ambiguity_attempt.attempt_id,
+            WorkAttemptState::Blocked,
+            "the exact owner contract is ambiguous",
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            org.flush_terminal_supervisor_notices(16)
+                .await
+                .unwrap()
+                .len(),
+            1
+        );
+        let reopened = OrgIntel::ensure(&database_url, &company).await.unwrap();
+        assert_eq!(
+            reopened
+                .inbox(Some("fixture-direction"))
+                .await
+                .unwrap()
+                .len(),
+            1,
+            "restart cannot lose the material judgement"
+        );
+
+        let attempts = org.list_work_attempts(None).await.unwrap();
+        for attempt in &attempts {
+            assert_eq!(
+                command(
+                    &container,
+                    &format!(
+                        "test ! -e /company/run/gates/{}; test ! -e /company/run/attempts/{}; echo clean",
+                        attempt.id, attempt.id
+                    )
+                )
+                .await,
+                "clean",
+                "Attempt {} retained transient Runtime residue",
+                attempt.id
+            );
+        }
+        assert!(org.list_live_runtime_resources().await.unwrap().is_empty());
+        assert_eq!(
+            root_command(
+                &container,
+                &format!(
+                    "test ! -e {}; test ! -L {}; test ! -e {}; echo clean",
+                    review.workdir, review_alias, review_alias
+                )
             )
             .await,
             "clean"

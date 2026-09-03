@@ -19,6 +19,7 @@ import {
 } from './attention';
 import { getCockpit, getCompanies, type CockpitView, type CompanyCatalogEntry } from './cockpit';
 import { getBrowserStatus, getCompany, type BrowserStatus, type CompanyView } from './company';
+import { getCompanyIdentity, type CompanyIdentitySnapshot } from './identity';
 import type { ThreadMessage } from './view';
 
 export type QuerySourceStatus = 'unknown' | 'live' | 'stale';
@@ -35,6 +36,7 @@ export const queryKeys = {
 	cockpit: (company: string) => ['cockpit', company] as const,
 	company: (company: string, probeCredentials: boolean) =>
 		['company', company, { probeCredentials }] as const,
+	identity: (company: string) => ['company-identity', company] as const,
 	conversation: (company: string, actor: string, workId?: string) =>
 		['conversation', company, actor, workId ?? null] as const,
 	browserStatus: (company: string) => ['browser-status', company] as const
@@ -247,6 +249,30 @@ export function companyQuery(companyId: string) {
 	};
 }
 
+export function identityQuery(companyId: string) {
+	const query = createQuery(() => ({
+		queryKey: queryKeys.identity(companyId),
+		queryFn: () => getCompanyIdentity(companyId),
+		staleTime: STALE_MS,
+		gcTime: RETAIN_MS,
+		refetchInterval: REFRESH_MS,
+		refetchIntervalInBackground: true,
+		retry: 1
+	}));
+	return {
+		get view() {
+			return (query.data as CompanyIdentitySnapshot | undefined) ?? null;
+		},
+		get status() {
+			return statusOf(query);
+		},
+		get failure() {
+			return (query.error as (Error & { status?: number }) | null) ?? null;
+		},
+		refresh: () => refresh(query)
+	};
+}
+
 export function browserStatusQuery(companyId: string) {
 	const query = createQuery(() => ({
 		queryKey: queryKeys.browserStatus(companyId),
@@ -420,7 +446,8 @@ export function conversationQuery(companyId: string, actorId: string, workId?: s
 			files: File[] = [],
 			contextPath?: string,
 			newFocus = false,
-			interrupt = false
+			interrupt = false,
+			outcomeStandard?: import('./company').OutcomeStandard
 		): Promise<MessageSendResult> {
 			const result = await sendActorMessage(
 				companyId,
@@ -430,7 +457,8 @@ export function conversationQuery(companyId: string, actorId: string, workId?: s
 				files,
 				contextPath,
 				newFocus,
-				interrupt
+				interrupt,
+				outcomeStandard
 			);
 			const sentAt = new Date();
 			pending = {

@@ -1,0 +1,638 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>Restless — Identity binding release package</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='12' fill='%23151914'/%3E%3Cpath d='M18 17h13c10 0 16 5 16 13 0 6-3 10-9 12l10 12H36L27 43v11h-9V17zm9 8v11h4c5 0 7-2 7-6s-2-5-7-5h-4z' fill='%23ff7a62'/%3E%3C/svg%3E">
+  <style>
+    :root {
+      --paper: #f3f0e8;
+      --sheet: #fffdf8;
+      --ink: #151914;
+      --muted: #5b625b;
+      --line: #c9cec5;
+      --signal: #e94f37;
+      --signal-dark: #a92d1b;
+      --green: #183f32;
+      --green-soft: #dce9df;
+      --amber: #8b4f00;
+      --amber-soft: #fae8c9;
+      --blue: #284b8f;
+      --max: 84rem;
+    }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      background: var(--paper);
+      color: var(--ink);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      font-size: 1rem;
+      line-height: 1.55;
+    }
+    a { color: inherit; text-underline-offset: .18em; }
+    a:hover { color: var(--signal-dark); }
+    a:focus-visible, button:focus-visible, [tabindex]:focus-visible {
+      outline: 3px solid var(--blue);
+      outline-offset: 4px;
+      border-radius: 2px;
+    }
+    .skip {
+      position: fixed;
+      z-index: 100;
+      left: 1rem;
+      top: .75rem;
+      transform: translateY(-200%);
+      background: var(--ink);
+      color: white;
+      padding: .7rem 1rem;
+    }
+    .skip:focus { transform: none; }
+    .masthead {
+      border-bottom: 1px solid var(--ink);
+      background: color-mix(in srgb, var(--paper) 94%, transparent);
+      position: sticky;
+      top: 0;
+      z-index: 20;
+      backdrop-filter: blur(12px);
+    }
+    .mast-inner {
+      width: min(var(--max), calc(100% - 2rem));
+      margin: auto;
+      min-height: 4.4rem;
+      display: grid;
+      grid-template-columns: auto 1fr auto;
+      align-items: center;
+      gap: 1.4rem;
+    }
+    .brand {
+      font-family: Georgia, "Times New Roman", serif;
+      font-size: 1.55rem;
+      font-weight: 700;
+      letter-spacing: -.04em;
+      text-decoration: none;
+    }
+    .brand-mark { color: var(--signal); }
+    .mast-label {
+      font-size: .72rem;
+      text-transform: uppercase;
+      letter-spacing: .14em;
+      color: var(--muted);
+      border-left: 1px solid var(--line);
+      padding-left: 1.4rem;
+    }
+    .mast-status {
+      display: inline-flex;
+      align-items: center;
+      gap: .55rem;
+      font-size: .74rem;
+      font-weight: 700;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+    }
+    .dot { width: .55rem; height: .55rem; border-radius: 50%; background: var(--amber); }
+    .hero {
+      width: min(var(--max), calc(100% - 2rem));
+      margin: 0 auto;
+      display: grid;
+      grid-template-columns: minmax(0, 1.35fr) minmax(18rem, .65fr);
+      gap: clamp(2rem, 7vw, 7rem);
+      padding: clamp(4.5rem, 10vw, 8.5rem) 0 4rem;
+      align-items: end;
+    }
+    .eyebrow, .channel-kicker {
+      margin: 0 0 1.1rem;
+      color: var(--signal-dark);
+      font-size: .72rem;
+      line-height: 1.2;
+      font-weight: 800;
+      letter-spacing: .15em;
+      text-transform: uppercase;
+    }
+    h1, h2, h3, p { margin-top: 0; }
+    h1 {
+      font-family: Georgia, "Times New Roman", serif;
+      font-size: clamp(3.4rem, 8vw, 7.6rem);
+      line-height: .9;
+      letter-spacing: -.065em;
+      max-width: 10ch;
+      margin-bottom: 1.6rem;
+      font-weight: 600;
+    }
+    .hero-deck {
+      font-family: Georgia, "Times New Roman", serif;
+      font-size: clamp(1.25rem, 2vw, 1.65rem);
+      line-height: 1.32;
+      max-width: 37rem;
+      margin-bottom: 0;
+    }
+    .scope-card {
+      border-top: 5px solid var(--signal);
+      background: var(--sheet);
+      padding: 1.4rem;
+      box-shadow: 7px 7px 0 var(--ink);
+    }
+    .scope-card h2 { font-size: .78rem; text-transform: uppercase; letter-spacing: .13em; margin-bottom: 1.2rem; }
+    .scope-card dl { margin: 0; }
+    .scope-card dl div { padding: .8rem 0; border-top: 1px solid var(--line); }
+    .scope-card dt { font-size: .7rem; color: var(--muted); text-transform: uppercase; letter-spacing: .11em; }
+    .scope-card dd { margin: .25rem 0 0; font-weight: 700; }
+    .scope-card .unknown { color: var(--amber); }
+    .scope-strip {
+      border-block: 1px solid var(--ink);
+      background: var(--ink);
+      color: white;
+    }
+    .scope-strip-inner {
+      width: min(var(--max), calc(100% - 2rem));
+      margin: auto;
+      padding: 1.4rem 0;
+      display: grid;
+      grid-template-columns: 1fr auto 1fr;
+      align-items: center;
+      gap: 1rem;
+    }
+    .scope-strip p { margin: 0; font-size: clamp(.95rem, 1.5vw, 1.15rem); }
+    .scope-strip p:first-child { text-align: right; }
+    .scope-strip strong { color: #ff8b73; }
+    .arrow { color: #ff8b73; font-size: 1.5rem; }
+    .channel-nav {
+      width: min(var(--max), calc(100% - 2rem));
+      margin: 0 auto;
+      padding: 2rem 0;
+      border-bottom: 1px solid var(--line);
+    }
+    .channel-nav h2 { font-size: .72rem; text-transform: uppercase; letter-spacing: .14em; color: var(--muted); }
+    .channel-nav ol { list-style: none; display: flex; gap: .55rem; flex-wrap: wrap; margin: 0; padding: 0; }
+    .channel-nav a {
+      display: inline-block;
+      padding: .45rem .75rem;
+      border: 1px solid var(--line);
+      background: var(--sheet);
+      font-size: .78rem;
+      font-weight: 700;
+      text-decoration: none;
+    }
+    .channel-nav a:hover { border-color: var(--signal); }
+    main { width: min(var(--max), calc(100% - 2rem)); margin: 0 auto; }
+    .channel {
+      display: grid;
+      grid-template-columns: 9rem minmax(0, 1fr);
+      gap: clamp(1.5rem, 5vw, 5rem);
+      padding: clamp(4rem, 8vw, 7rem) 0;
+      border-bottom: 1px solid var(--ink);
+      scroll-margin-top: 5rem;
+    }
+    .rail { position: relative; }
+    .rail-number {
+      display: block;
+      font-family: Georgia, serif;
+      color: var(--signal);
+      font-size: 3.8rem;
+      line-height: .8;
+      letter-spacing: -.08em;
+    }
+    .rail-label { display: block; font-size: .67rem; line-height: 1.2; text-transform: uppercase; letter-spacing: .14em; margin-top: 1rem; color: var(--muted); }
+    .channel-head { max-width: 60rem; margin-bottom: 2.2rem; }
+    .channel h2 {
+      font-family: Georgia, "Times New Roman", serif;
+      font-size: clamp(2.4rem, 5vw, 4.7rem);
+      line-height: .98;
+      letter-spacing: -.045em;
+      margin-bottom: 1rem;
+      font-weight: 600;
+    }
+    .channel-summary { max-width: 46rem; color: var(--muted); font-size: 1.05rem; }
+    .asset {
+      background: var(--sheet);
+      border: 1px solid var(--ink);
+      padding: clamp(1.4rem, 4vw, 3.2rem);
+      box-shadow: 8px 8px 0 color-mix(in srgb, var(--ink) 12%, transparent);
+      max-width: 62rem;
+    }
+    .asset-meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: .65rem 1.25rem;
+      align-items: center;
+      padding-bottom: 1rem;
+      margin-bottom: 1.8rem;
+      border-bottom: 1px solid var(--line);
+      font-size: .74rem;
+      text-transform: uppercase;
+      letter-spacing: .08em;
+      color: var(--muted);
+    }
+    .asset-meta strong { color: var(--ink); }
+    .pill { background: var(--green-soft); color: var(--green); padding: .25rem .5rem; font-weight: 800; }
+    .pill.warning { background: var(--amber-soft); color: var(--amber); }
+    .asset h3 { font-family: Georgia, serif; font-size: clamp(1.75rem, 3vw, 2.7rem); line-height: 1.08; letter-spacing: -.025em; }
+    .asset h4 { font-size: .78rem; text-transform: uppercase; letter-spacing: .12em; margin: 2rem 0 .6rem; }
+    .asset p, .asset li { max-width: 45rem; }
+    .asset p:last-child { margin-bottom: 0; }
+    .lede { font-size: 1.18rem; line-height: 1.45; }
+    .ui-state {
+      background: #f8f8f4;
+      border: 1px solid var(--line);
+      padding: 1.5rem;
+      margin: 1.5rem 0;
+    }
+    .ui-top { display: flex; justify-content: space-between; gap: 1rem; align-items: start; }
+    .ui-title { font-weight: 800; font-size: 1.15rem; }
+    .ui-sub { color: var(--muted); font-size: .88rem; }
+    .state-badge { flex: 0 0 auto; background: var(--amber-soft); color: var(--amber); font-size: .7rem; font-weight: 900; padding: .35rem .5rem; text-transform: uppercase; letter-spacing: .09em; }
+    .record-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1px; background: var(--line); border: 1px solid var(--line); margin-top: 1.4rem; }
+    .record-grid div { background: var(--sheet); padding: 1rem; min-width: 0; }
+    .record-grid small { display: block; color: var(--muted); text-transform: uppercase; letter-spacing: .09em; font-size: .65rem; }
+    .record-grid strong { display: block; margin-top: .35rem; overflow-wrap: anywhere; }
+    .proof-block { border-left: 5px solid var(--green); padding-left: 1.2rem; margin: 1.5rem 0; }
+    .proof-block p { margin: 0 0 .4rem; }
+    .proof-block small { color: var(--muted); }
+    .action-row { display: flex; gap: .7rem; flex-wrap: wrap; margin-top: 1.4rem; }
+    .buttonish { display: inline-block; border: 1px solid var(--ink); padding: .65rem .9rem; font-weight: 800; font-size: .78rem; }
+    .buttonish.disabled { color: var(--muted); border-color: var(--line); background: #ecece8; }
+    .landing-demo { background: var(--green); color: #f8f4e9; padding: clamp(1.5rem, 5vw, 4rem); }
+    .landing-demo h3 { max-width: 14ch; font-size: clamp(2.5rem, 5vw, 4.6rem); }
+    .landing-demo .lead { color: #c8d7ce; font-size: 1.15rem; max-width: 39rem; }
+    .mechanism { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1px; background: #7b9488; margin-top: 2.5rem; border: 1px solid #7b9488; }
+    .mechanism article { background: #214b3c; padding: 1.25rem; }
+    .mechanism b { color: #ff8b73; display: block; font-size: .72rem; letter-spacing: .12em; text-transform: uppercase; margin-bottom: .8rem; }
+    .mechanism p { margin: 0; font-size: .94rem; }
+    .landing-note { color: #c8d7ce; font-size: .76rem; margin: 1.4rem 0 0; }
+    .email-shell { max-width: 42rem; }
+    .email-field { display: grid; grid-template-columns: 5rem 1fr; gap: .7rem; border-bottom: 1px solid var(--line); padding: .55rem 0; font-size: .88rem; }
+    .email-field span:first-child { color: var(--muted); }
+    .letter { padding-top: 1.8rem; }
+    .newsletter-rule { width: 4rem; border: 0; border-top: 5px solid var(--signal); margin: 2rem 0; }
+    blockquote { margin: 1.5rem 0; border-left: 4px solid var(--signal); padding-left: 1rem; font-family: Georgia, serif; font-size: 1.25rem; }
+    .support-answer { border-top: 1px solid var(--ink); padding-top: 1.2rem; }
+    .transaction { max-width: 38rem; text-align: center; margin-inline: auto; }
+    .transaction .seal { width: 4rem; height: 4rem; border: 1px solid var(--green); border-radius: 50%; display: grid; place-items: center; margin: 0 auto 1.2rem; color: var(--green); font-size: 1.6rem; font-weight: 900; }
+    .transaction table { width: 100%; border-collapse: collapse; text-align: left; margin: 1.5rem 0; }
+    .transaction td { border-top: 1px solid var(--line); padding: .75rem .3rem; vertical-align: top; }
+    .transaction td:first-child { color: var(--muted); width: 42%; }
+    .blog { max-width: 47rem; }
+    .blog .dek { font-family: Georgia, serif; font-size: 1.35rem; color: var(--muted); }
+    .blog h4 { margin-top: 2.5rem; color: var(--signal-dark); }
+    .observation-list { background: #f2eee3; padding: 1.2rem 1.2rem 1.2rem 2.3rem; border: 1px solid var(--line); }
+    .observation-list li + li { margin-top: .8rem; }
+    .social-card { background: var(--ink); color: white; padding: clamp(1.5rem, 4vw, 3rem); max-width: 36rem; aspect-ratio: 1 / 1; display: flex; flex-direction: column; justify-content: space-between; }
+    .social-card .mini { color: #aeb5ad; font-size: .72rem; letter-spacing: .12em; text-transform: uppercase; }
+    .social-card .statement { font-family: Georgia, serif; font-size: clamp(2rem, 5vw, 4rem); line-height: .98; letter-spacing: -.04em; max-width: 10ch; }
+    .social-card .statement em { color: #ff7a62; font-style: normal; }
+    .visual-direction { margin-top: 1.5rem; padding-top: 1.2rem; border-top: 1px solid var(--line); }
+    .memo-head { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; background: #f0eee7; padding: 1rem; margin-bottom: 1.5rem; font-size: .83rem; }
+    .decision-table { width: 100%; border-collapse: collapse; margin: 1.2rem 0; }
+    .decision-table th, .decision-table td { padding: .8rem; border: 1px solid var(--line); text-align: left; vertical-align: top; }
+    .decision-table th { background: #f0eee7; font-size: .72rem; letter-spacing: .08em; text-transform: uppercase; }
+    .package-note {
+      width: min(var(--max), calc(100% - 2rem));
+      margin: 0 auto;
+      padding: 3rem 0;
+      display: grid;
+      grid-template-columns: 1fr 2fr;
+      gap: 3rem;
+    }
+    .package-note h2 { font-family: Georgia, serif; font-size: 2rem; }
+    .package-note p { max-width: 52rem; color: var(--muted); }
+    footer { background: var(--ink); color: white; }
+    .footer-inner { width: min(var(--max), calc(100% - 2rem)); margin: auto; padding: 2.5rem 0; display: flex; justify-content: space-between; gap: 2rem; }
+    footer p { margin: 0; color: #b7bdb6; font-size: .8rem; }
+    footer a { color: white; }
+    @media (max-width: 760px) {
+      html { scroll-behavior: auto; }
+      .mast-inner { grid-template-columns: auto 1fr; min-height: 3.8rem; }
+      .mast-label { display: none; }
+      .mast-status { justify-self: end; font-size: .64rem; }
+      .hero { grid-template-columns: 1fr; padding-top: 4rem; }
+      .scope-strip-inner { grid-template-columns: 1fr; gap: .6rem; }
+      .scope-strip p:first-child { text-align: left; }
+      .arrow { transform: rotate(90deg); transform-origin: center; width: 1.5rem; }
+      .channel { grid-template-columns: 1fr; gap: 1.5rem; }
+      .rail { display: flex; align-items: baseline; gap: .9rem; }
+      .rail-number { font-size: 2.5rem; }
+      .rail-label { margin-top: 0; }
+      .record-grid, .mechanism { grid-template-columns: 1fr; }
+      .asset { padding: 1.25rem; box-shadow: 5px 5px 0 color-mix(in srgb, var(--ink) 12%, transparent); }
+      .memo-head, .package-note { grid-template-columns: 1fr; gap: 1rem; }
+      .decision-table { display: block; overflow-x: auto; }
+      .footer-inner { flex-direction: column; }
+      .social-card { min-height: 25rem; aspect-ratio: auto; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { scroll-behavior: auto !important; transition: none !important; animation: none !important; }
+    }
+    @media print {
+      .masthead { position: static; }
+      .channel { break-before: page; }
+      .asset { box-shadow: none; }
+    }
+  </style>
+</head>
+<body>
+  <a class="skip" href="#package">Skip to release assets</a>
+  <header class="masthead">
+    <div class="mast-inner">
+      <a class="brand" href="#top" aria-label="Restless release package home">restless<span class="brand-mark">/</span></a>
+      <div class="mast-label">Identity binding · local release review</div>
+      <div class="mast-status"><span class="dot" aria-hidden="true"></span> Candidate · not released</div>
+    </div>
+  </header>
+
+  <div id="top" class="hero">
+    <div>
+      <p class="eyebrow">Release package · 01 September 2026</p>
+      <h1>Bind what you accept.</h1>
+      <p class="hero-deck">Restless binds each accepted company artifact to the exact identity release and evidence it used. Drafts remain drafts. Acceptance is the boundary.</p>
+    </div>
+    <aside class="scope-card" aria-labelledby="scope-title">
+      <h2 id="scope-title">Candidate truth card</h2>
+      <dl>
+        <div><dt>Binding applies to</dt><dd>Accepted company artifacts</dd></div>
+        <div><dt>Binding excludes</dt><dd>Every draft produced during Work</dd></div>
+        <div><dt>Follow-up applies to</dt><dd>Accepted artifacts repeating the broader claim</dd></div>
+        <div><dt>Released identity selector</dt><dd class="unknown">Not available on installed CLI</dd></div>
+      </dl>
+    </aside>
+  </div>
+
+  <section class="scope-strip" aria-label="Corrected scope">
+    <div class="scope-strip-inner">
+      <p>Old reading: bind <strong>every draft</strong></p>
+      <span class="arrow" aria-hidden="true">→</span>
+      <p>Correct scope: bind each <strong>accepted artifact</strong></p>
+    </div>
+  </section>
+
+  <nav class="channel-nav" aria-labelledby="nav-title">
+    <h2 id="nav-title">Nine standalone assets</h2>
+    <ol>
+      <li><a href="#ui">01 Product UI</a></li><li><a href="#landing">02 Landing</a></li>
+      <li><a href="#founder">03 Founder email</a></li><li><a href="#newsletter">04 Newsletter</a></li>
+      <li><a href="#support">05 Support</a></li><li><a href="#transactional">06 Transactional</a></li>
+      <li><a href="#blog">07 Blog</a></li><li><a href="#social">08 Social</a></li><li><a href="#memo">09 Memo</a></li>
+    </ol>
+  </nav>
+
+  <main id="package">
+    <section class="channel" id="ui" aria-labelledby="ui-title">
+      <aside class="rail"><span class="rail-number">01</span><span class="rail-label">Product UI<br>copy + state</span></aside>
+      <div>
+        <header class="channel-head">
+          <p class="channel-kicker">Acceptance is the trigger</p>
+          <h2 id="ui-title">The record says what is — and is not — bound.</h2>
+          <p class="channel-summary">Proposed product copy for an acceptance detail state. This is a copy specification, not a claim that the installed product already renders this screen.</p>
+        </header>
+        <article class="asset">
+          <div class="asset-meta"><strong>Product voice</strong><span>Calm, exact, operational</span><span class="pill warning">Proposed UI copy</span></div>
+          <div class="ui-state" aria-label="Proposed accepted artifact detail state">
+            <div class="ui-top">
+              <div><div class="ui-title">Release package</div><div class="ui-sub">Accepted company artifact · acceptance recorded</div></div>
+              <span class="state-badge">Binding pending</span>
+            </div>
+            <div class="record-grid">
+              <div><small>Artifact</small><strong>review-gallery.html</strong></div>
+              <div><small>Evidence</small><strong>SHA-256 recorded</strong></div>
+              <div><small>Identity release</small><strong>Not selected</strong></div>
+            </div>
+            <div class="proof-block">
+              <p><strong>No identity binding has been created.</strong></p>
+              <small>The installed Restless CLI does not expose an identity-release selector. The artifact can be reviewed, but its identity binding cannot be confirmed here.</small>
+            </div>
+            <div class="action-row" aria-label="Proposed actions">
+              <span class="buttonish disabled" aria-disabled="true">Accept with binding</span>
+              <span class="buttonish">Keep as draft</span>
+            </div>
+          </div>
+          <h4>Helper copy</h4>
+          <p>Bindings start at acceptance. Drafts produced during Work are not bound. If an accepted artifact repeats the older, broader claim, decide whether to retain, revise, or retire it.</p>
+          <h4>Error copy</h4>
+          <p><strong>Identity release unavailable.</strong> No binding was created. Keep this artifact in review until an exact identity release and its evidence can be selected.</p>
+        </article>
+      </div>
+    </section>
+
+    <section class="channel" id="landing" aria-labelledby="landing-title">
+      <aside class="rail"><span class="rail-number">02</span><span class="rail-label">Landing-page<br>section</span></aside>
+      <div>
+        <header class="channel-head">
+          <p class="channel-kicker">Concrete product proof</p>
+          <h2 id="landing-title">A promise with an inspectable boundary.</h2>
+          <p class="channel-summary">The section demonstrates the accepted-artifact mechanism without inventing a screenshot or pretending an unavailable identity selector exists.</p>
+        </header>
+        <article class="asset landing-demo">
+          <div class="asset-meta" style="border-color:#7b9488;color:#c8d7ce"><strong style="color:white">Landing page · release candidate</strong><span>Restless product team</span></div>
+          <h3>Know which identity stood behind the work you accepted.</h3>
+          <p class="lead">Restless keeps the acceptance record, artifact evidence, and identity release together. The binding follows the accepted artifact — not every draft that led to it.</p>
+          <div class="mechanism" aria-label="Three-part binding mechanism">
+            <article><b>01 · Accept</b><p>A company artifact crosses the explicit acceptance boundary.</p></article>
+            <article><b>02 · Record</b><p>The artifact is identified with its exact evidence rather than a mutable label.</p></article>
+            <article><b>03 · Bind</b><p>The accepted artifact points to the exact identity release it used.</p></article>
+          </div>
+          <p class="landing-note">Product-proof note for this candidate: artifact evidence and the canonical Work graph are observable on the installed CLI. The identity-release selector described here is not exposed by that installed surface, so this package does not claim a live end-to-end binding demonstration.</p>
+        </article>
+      </div>
+    </section>
+
+    <section class="channel" id="founder" aria-labelledby="founder-title">
+      <aside class="rail"><span class="rail-number">03</span><span class="rail-label">Founder<br>email</span></aside>
+      <div>
+        <header class="channel-head"><p class="channel-kicker">Direct correction</p><h2 id="founder-title">Say the consequential part first.</h2></header>
+        <article class="asset email-shell">
+          <div class="asset-meta"><strong>Leila Rowan · Co-founder</strong><span>Personal, accountable, spare</span><span class="pill">Standalone send draft</span></div>
+          <div class="email-field"><span>Subject</span><strong>A correction to how we described identity binding</strong></div>
+          <div class="email-field"><span>Preview</span><span>Bindings cover accepted artifacts, not every draft.</span></div>
+          <div class="letter">
+            <p>We described Restless’s identity binding too broadly.</p>
+            <p>Here is the accurate version: Restless binds each <strong>accepted company artifact</strong> to the exact identity release and evidence it used. It does not bind every draft produced while people and agents are working.</p>
+            <p>That distinction matters. Drafts are the path. Acceptance is the decision that makes an artifact part of the company’s record.</p>
+            <p>If you have an accepted artifact that repeats our broader wording, review it and choose one of three actions: retain it where the context is already accurate, revise the wording, or retire the artifact. Drafts do not need that review simply because they exist.</p>
+            <p>One limitation is still open on the release surface we inspected: the installed Restless CLI does not provide an identity-release selector. We are not treating an identity binding as verified until that exact release can be selected and observed.</p>
+            <p>We should have drawn the boundary this clearly the first time.</p>
+            <p>Leila</p>
+          </div>
+        </article>
+      </div>
+    </section>
+
+    <section class="channel" id="newsletter" aria-labelledby="newsletter-title">
+      <aside class="rail"><span class="rail-number">04</span><span class="rail-label">Newsletter<br>edition</span></aside>
+      <div>
+        <header class="channel-head"><p class="channel-kicker">A practical field note</p><h2 id="newsletter-title">The useful distinction: making versus keeping.</h2></header>
+        <article class="asset">
+          <div class="asset-meta"><strong>Mateo Singh · The Work Ledger</strong><span>Editorial, observant, practical</span><span class="pill">Issue draft</span></div>
+          <p class="eyebrow" style="margin-bottom:.7rem">Issue 18 · The acceptance line</p>
+          <h3>Most drafts should be allowed to disappear.</h3>
+          <p class="lede">A company needs strong evidence for what it keeps. It does not need to turn the whole messy route there into permanent identity baggage.</p>
+          <hr class="newsletter-rule">
+          <p>Restless’s identity binding has a specific edge: the accepted company artifact. Once an artifact is accepted, it is bound to the exact identity release and evidence it used. Before that point, the Work may contain options, failed versions, notes, and disposable drafts. Those are not all swept into the binding.</p>
+          <h4>Why the boundary earns its place</h4>
+          <p>If every draft carried the same weight as an accepted artifact, exploration would become false permanence. If nothing were bound, an accepted result could drift away from the identity and evidence that supported it. Acceptance separates those cases.</p>
+          <h4>What to review now</h4>
+          <p>Look only at accepted artifacts that repeat the broader “every draft” claim. For each one, choose retain, revise, or retire. Do not create a cleanup campaign for drafts that never crossed the acceptance line.</p>
+          <blockquote>Keep the record exact where the company acts. Let the workshop remain a workshop.</blockquote>
+          <p><strong>Open edge:</strong> our inspected CLI does not expose the identity-release selector, so this edition describes the intended binding scope but does not claim that a binding was completed in this release review.</p>
+        </article>
+      </div>
+    </section>
+
+    <section class="channel" id="support" aria-labelledby="support-title">
+      <aside class="rail"><span class="rail-number">05</span><span class="rail-label">Support<br>reply</span></aside>
+      <div>
+        <header class="channel-head"><p class="channel-kicker">Answer the customer’s decision</p><h2 id="support-title">No, you do not need to review every draft.</h2></header>
+        <article class="asset email-shell">
+          <div class="asset-meta"><strong>Priya Nwosu · Customer Support</strong><span>Warm, compact, procedural</span><span class="pill">Reply draft</span></div>
+          <div class="email-field"><span>Subject</span><strong>Re: Do we need to update old Work drafts?</strong></div>
+          <div class="letter support-answer">
+            <p>Hi Sam,</p>
+            <p>No — you do not need to review every draft created during Work.</p>
+            <p>The binding applies when a company artifact is accepted. At that point, Restless binds the accepted artifact to the exact identity release and evidence it used. Unaccepted drafts are outside that scope.</p>
+            <p>For your existing material, narrow the review to accepted artifacts that repeat the broader claim. Then choose:</p>
+            <ul>
+              <li><strong>Retain</strong> it if the surrounding context already makes the accepted-artifact boundary clear.</li>
+              <li><strong>Revise</strong> it if the wording implies that every draft is bound.</li>
+              <li><strong>Retire</strong> it if correction would leave it misleading or unnecessary.</li>
+            </ul>
+            <p>One caveat: the CLI version we inspected does not include an identity-release selector, so we cannot confirm a binding from that surface yet. That does not change which artifacts need review.</p>
+            <p>Best,<br>Priya</p>
+          </div>
+        </article>
+      </div>
+    </section>
+
+    <section class="channel" id="transactional" aria-labelledby="transactional-title">
+      <aside class="rail"><span class="rail-number">06</span><span class="rail-label">Transactional<br>email</span></aside>
+      <div>
+        <header class="channel-head"><p class="channel-kicker">State, consequence, next step</p><h2 id="transactional-title">Acceptance recorded. Binding not created.</h2></header>
+        <article class="asset transaction">
+          <div class="asset-meta" style="justify-content:center"><strong>Restless system</strong><span>Transactional state copy</span><span class="pill warning">Not sent</span></div>
+          <div class="seal" aria-hidden="true">!</div>
+          <h3>Your artifact was accepted without an identity binding</h3>
+          <p>The acceptance record exists, but no exact identity release was available to select. Restless did not create or infer a binding.</p>
+          <table aria-label="Acceptance details">
+            <tr><td>Artifact</td><td><strong>Release package</strong></td></tr>
+            <tr><td>State</td><td>Accepted · binding pending</td></tr>
+            <tr><td>Artifact evidence</td><td>Exact digest recorded</td></tr>
+            <tr><td>Identity release</td><td>Not selected</td></tr>
+          </table>
+          <p><strong>Next step:</strong> keep the artifact under review until the intended identity release can be selected and the resulting binding can be observed.</p>
+          <p style="font-size:.82rem;color:var(--muted)">Drafts created during the Work are not included. This notice concerns the accepted artifact only.</p>
+        </article>
+      </div>
+    </section>
+
+    <section class="channel" id="blog" aria-labelledby="blog-title">
+      <aside class="rail"><span class="rail-number">07</span><span class="rail-label">Standalone<br>Blog</span></aside>
+      <div>
+        <header class="channel-head"><p class="channel-kicker">Full reader-facing reasoning</p><h2 id="blog-title">Why identity binding begins at acceptance.</h2></header>
+        <article class="asset blog">
+          <div class="asset-meta"><strong>Amina Bell · Product Operations</strong><span>Analytical, grounded, candid</span><span class="pill">Complete article</span></div>
+          <h3>Why identity binding begins at acceptance</h3>
+          <p class="dek">Restless binds the result a company chooses to keep. It does not pretend every working draft carries the same standing.</p>
+          <p>Companies make decisions through unfinished material. A Work run may produce alternatives, rough notes, failed exports, repairs, and a final candidate. Treating all of those as accepted company artifacts would blur the difference between exploration and commitment.</p>
+          <p>The Restless boundary is acceptance. When a company accepts an artifact, Restless binds that artifact to the exact identity release and evidence it used. The artifact, identity release, and evidence can then be reasoned about as one accepted record. Drafts that never crossed that boundary are not covered simply because they were produced during Work.</p>
+          <h4>The correction</h4>
+          <p>Earlier wording could be read to mean that bindings covered every draft. That reading was too broad. The corrected scope is narrower and more useful:</p>
+          <ul>
+            <li>the subject is an <strong>accepted company artifact</strong>;</li>
+            <li>the binding points to the <strong>exact identity release</strong> and <strong>evidence</strong> used;</li>
+            <li>drafts produced during Work are outside the binding unless they later become accepted artifacts; and</li>
+            <li>only accepted artifacts that repeat the broader claim need a retain, revise, or retire decision.</li>
+          </ul>
+          <h4>What we could observe</h4>
+          <p>For this release review, we inspected the installed Restless command surface rather than filling gaps with assumptions. The CLI described Work as “the one canonical Work graph.” Its graph projection exposed the current Work, Attempt, deterministic gates, and linked evidence. The artifact command accepted an exact URI and optional digest for a specific Work and Attempt. Those are direct observations of how this package can be located and evidenced.</p>
+          <div class="observation-list" aria-label="Raw product observations">
+            <ol>
+              <li><strong>Work surface:</strong> the CLI exposes Work, Attempts, dependencies, gates, handoffs, reviews, and artifacts through a canonical graph.</li>
+              <li><strong>Artifact evidence:</strong> an artifact can be linked to a specific Work and Attempt with a URI, digest, label, and note.</li>
+              <li><strong>Effect boundary:</strong> consequential external commands use a separate governed effect surface with a class, purpose, and idempotency key.</li>
+              <li><strong>Receipt boundary:</strong> the receipts surface describes itself as the strongest evidence the system holds about what it did to the world.</li>
+              <li><strong>Capability gap:</strong> the installed CLI has no <code>identity</code> subcommand and exposes no identity-release selection command in its top-level help.</li>
+            </ol>
+          </div>
+          <p>That last observation matters. We can state the corrected scope because it is the release claim under review. We cannot claim that this package completed an identity binding, because the installed surface does not let us select or inspect an exact identity release. A missing command is not evidence that a binding happened somewhere else.</p>
+          <h4>What teams should do</h4>
+          <p>First, leave unaccepted drafts alone. Their existence does not trigger a binding review.</p>
+          <p>Second, find accepted artifacts that repeat the broader claim. Retain an artifact when its context already makes the accepted-artifact boundary clear. Revise it when a precise wording change preserves its use. Retire it when the old claim is central enough that the artifact would remain misleading.</p>
+          <p>Third, do not mark a binding complete until the exact identity release and the supporting evidence can be selected and observed together. The right response to an unavailable capability is a visible pending state, not a guessed success.</p>
+          <h4>Why this narrower promise is stronger</h4>
+          <p>The correction removes an inflated claim, but it does not weaken accountability. It puts accountability at the point where the company acts: acceptance. That is where identity and evidence need to remain attached, inspectable, and exact. The workshop can stay provisional. The accepted record cannot.</p>
+        </article>
+      </div>
+    </section>
+
+    <section class="channel" id="social" aria-labelledby="social-title">
+      <aside class="rail"><span class="rail-number">08</span><span class="rail-label">Social copy +<br>visual direction</span></aside>
+      <div>
+        <header class="channel-head"><p class="channel-kicker">One thought, no slogan stack</p><h2 id="social-title">A correction people can understand in one pass.</h2></header>
+        <article class="asset">
+          <div class="asset-meta"><strong>Jonah Park · Restless editorial</strong><span>Blunt, conversational, visual</span><span class="pill">Post draft</span></div>
+          <h3>Post copy</h3>
+          <p>Correction: Restless identity bindings cover accepted company artifacts — not every draft produced during Work.</p>
+          <p>An accepted artifact is bound to the exact identity release and evidence it used. If an accepted artifact repeats our broader wording, retain it, revise it, or retire it. Leave unaccepted drafts out of that review.</p>
+          <p>We have not verified an identity binding on the CLI surface inspected for this release because it does not expose an identity-release selector.</p>
+          <div class="social-card" role="img" aria-label="Visual card reading: The workshop is provisional. The accepted record is exact.">
+            <div class="mini">Restless · scope correction</div>
+            <div class="statement">The workshop is provisional. The <em>accepted record</em> is exact.</div>
+            <div class="mini">Accepted artifact → identity release + evidence</div>
+          </div>
+          <div class="visual-direction">
+            <h4>Visual direction</h4>
+            <p>Use a square, ink-black field with one warm-red correction mark. Set the distinction as editorial type, not a product screenshot: no unavailable control is implied. The bottom line carries the mechanism in text. Keep all copy inside a 10% safe area; the alt text repeats the full card message. No animation, metric, customer mark, face, or synthetic product chrome.</p>
+          </div>
+        </article>
+      </div>
+    </section>
+
+    <section class="channel" id="memo" aria-labelledby="memo-title">
+      <aside class="rail"><span class="rail-number">09</span><span class="rail-label">Internal<br>decision memo</span></aside>
+      <div>
+        <header class="channel-head"><p class="channel-kicker">Decision, not commentary</p><h2 id="memo-title">Adopt the correction. Hold the binding claim pending proof.</h2></header>
+        <article class="asset">
+          <div class="asset-meta"><strong>Rina Cho · Release Operations</strong><span>Decisive, risk-aware, operational</span><span class="pill">Internal draft</span></div>
+          <div class="memo-head"><div><strong>Decision owner</strong><br>Release direction</div><div><strong>Status</strong><br>Recommended · owner judgement pending</div><div><strong>Scope</strong><br>Nine-channel identity-binding correction</div><div><strong>External effect</strong><br>None authorised</div></div>
+          <h3>Decision</h3>
+          <p>Approve the corrected wording across the release package: Restless binds each accepted company artifact to the exact identity release and evidence it used. Bindings do not cover every draft produced during Work.</p>
+          <p>Do not approve any statement that this candidate has a completed identity binding. The installed CLI has no identity-release selector, so that outcome is not observable on the inspected surface.</p>
+          <h4>Required disposition</h4>
+          <table class="decision-table">
+            <thead><tr><th>Material</th><th>Decision</th><th>Reason</th></tr></thead>
+            <tbody>
+              <tr><td>Unaccepted drafts</td><td><strong>No action</strong></td><td>Outside the corrected binding scope.</td></tr>
+              <tr><td>Accepted artifact; context already precise</td><td><strong>Retain</strong></td><td>No misleading broader claim remains.</td></tr>
+              <tr><td>Accepted artifact; wording overbroad but repairable</td><td><strong>Revise</strong></td><td>Preserve value while correcting scope.</td></tr>
+              <tr><td>Accepted artifact; broader claim is central</td><td><strong>Retire</strong></td><td>Correction would not restore a reliable artifact.</td></tr>
+            </tbody>
+          </table>
+          <h4>Release conditions</h4>
+          <ol>
+            <li>Independent review finds no channel that broadens the claim back to every draft.</li>
+            <li>Each public asset states the accepted-artifact boundary without implying a verified live binding.</li>
+            <li>Any future “binding complete” state identifies the exact identity release and evidence.</li>
+            <li>Publication, sending, posting, or deployment remains a separately authorised external effect.</li>
+          </ol>
+          <h4>Residual unknown</h4>
+          <p>Where identity releases are created, versioned, and selected is not exposed by the installed command surface. Resolve that product capability gap before presenting end-to-end binding as available here.</p>
+        </article>
+      </div>
+    </section>
+  </main>
+
+  <aside class="package-note" aria-labelledby="direction-title">
+    <h2 id="direction-title">Why this visual system</h2>
+    <div>
+      <p>No attributable product design system, released identity contract, incumbent release package, customer proof, or product screenshot was present under <code>/company</code>. The gallery therefore uses an honest editorial record system: paper, correction red, evidence green, strict rules, and numbered channels. It supports comparison without fabricating product chrome.</p>
+      <p>The proposed product state is explicitly labelled as copy specification. The landing proof separates observable artifact/Work mechanics from the unavailable identity selector. All nine assets are complete in place; none sends the reader to a private file for its substance.</p>
+    </div>
+  </aside>
+
+  <footer>
+    <div class="footer-inner">
+      <p><strong>Restless identity binding release package</strong><br>Local review candidate · 01 September 2026</p>
+      <p><a href="#top">Back to top</a><br>Nothing in this package was published, sent, posted, or deployed.</p>
+    </div>
+  </footer>
+</body>
+</html>

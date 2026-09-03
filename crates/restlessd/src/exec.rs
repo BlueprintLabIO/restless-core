@@ -170,6 +170,9 @@ pub async fn wake(
             capabilities,
             &config.name,
             "exec",
+            "exec:portfolio",
+            None,
+            None,
         )
         .await
         {
@@ -314,10 +317,10 @@ pub async fn wake(
             }
         };
 
-        let failover_kind = (report.termination == Termination::Blocked)
+        let blocked_kind = (report.termination == Termination::Blocked)
             .then(|| health::block_kind_from_message(&report.reason))
-            .flatten()
-            .filter(|kind| health::is_provider_failover_kind(*kind));
+            .flatten();
+        let failover_kind = blocked_kind.filter(|kind| health::is_provider_failover_kind(*kind));
         if let Some(usage) = usage {
             record_usage(org, &auth, usage, failover_kind).await?;
         }
@@ -325,6 +328,29 @@ pub async fn wake(
         // recalculates from this outcome. Cooldown and failover bookkeeping
         // are not part of model-session admission.
         drop(metered_turn);
+        if blocked_kind == Some(health::BlockKind::Context) {
+            // Exec uses the same disposable hot-session contract as Staff.
+            // Retrying this locator deterministically resends the oversized
+            // provider history, so retain all durable company state and drop
+            // only the exact portfolio-session locator. The next wake then
+            // reconstructs from the bounded company snapshot.
+            acp::discard_session_locator(&container, &config.name, "exec", "portfolio").await?;
+            org.emit_event(
+                "model_context_reconstruction_scheduled",
+                Some("exec"),
+                serde_json::json!({
+                    "model": model,
+                    "responsibility": "portfolio",
+                    "reason": report.reason.chars().take(300).collect::<String>(),
+                }),
+            )
+            .await?;
+            prior_tool_calls.append(&mut report.tool_calls);
+            report.tool_calls = prior_tool_calls;
+            report.failovers = failovers;
+            record_outcome(org, &report).await?;
+            return Ok(report);
+        }
         if let Some(kind) = failover_kind {
             crate::model_gateway::record_cooldown(
                 authority,
@@ -393,12 +419,19 @@ async fn blocked_wake(org: &OrgIntel, config: &CompanyConfig, reason: &str) -> R
     Ok(report)
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the host-to-agent launch membrane keeps exact model and productive settlement identity explicit"
+)]
 pub(crate) async fn agent_auth_for_model(
     model: &str,
     effort: &str,
     capabilities: &crate::capability::CapabilityIssuer,
     company: &str,
     actor: &str,
+    responsibility: &str,
+    work_id: Option<uuid::Uuid>,
+    attempt_id: Option<uuid::Uuid>,
 ) -> Result<acp::AgentAuth> {
     let session_id = uuid::Uuid::new_v4().simple().to_string();
     let access = crate::model_gateway::client()?.auth_for(
@@ -407,6 +440,9 @@ pub(crate) async fn agent_auth_for_model(
         company,
         actor,
         &session_id,
+        responsibility,
+        work_id,
+        attempt_id,
     )?;
     Ok(acp::AgentAuth {
         model: model.to_string(),
@@ -580,6 +616,14 @@ async fn run_turn(
         // prose the parser then fails on, which is how a substrate failure
         // used to arrive dressed as an agent decision.
         health::Verdict::Ran => {
+            // Some OpenAI-compatible transports deliver an upstream refusal
+            // as the completed assistant message. Classify that explicit
+            // error envelope before asking the same unpaid session for a
+            // termination decision; otherwise Restless spends a second call
+            // and records the provider failure as model indecision.
+            if let Some(blocked) = health::classify_provider_error_content(&transcript.text) {
+                return Ok((report(Termination::Blocked, blocked.message(), None), usage));
+            }
             // The decision envelope is internal coordination, not the
             // owner-facing reply that the live activity dock previews.
             session.set_live_observer_enabled(false);
@@ -767,6 +811,7 @@ async fn gather_snapshot(
         company: config.name.clone(),
         operating_rules: crate::context::COMPANY_OPERATING_RULES.to_string(),
         mission: config.mission.clone(),
+        outcome_standard: config.outcome_standard,
         legal_identity: crate::legal::safe_projection(authority, &config.name).await?,
         current_plan,
         latest_journal,

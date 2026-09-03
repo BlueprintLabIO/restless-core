@@ -1,0 +1,245 @@
+{
+  "schema": "restless.release-package-receipt.v1",
+  "observed_at": "2026-09-01T09:51:10Z",
+  "company": "constitution_treatment_test",
+  "work": {
+    "id": "357270dd-d7bb-43f1-bfd1-727aeda37a87",
+    "revision": 3,
+    "attempt_id": "e28950e6-96a0-4765-8160-13652d24b0ef",
+    "input_fingerprint": "780877794aef7210dfce7e5af5144c13b01143260fad93cc30b327de2e4d7c65",
+    "repository": null,
+    "workspace": "/company"
+  },
+  "provenance_correction_work": {
+    "id": "d7f97876-5068-411f-bd00-0b8c85c270ee",
+    "revision": 1,
+    "attempt_id": "bf9ec28c-5422-44ee-a24b-61a8977a948f",
+    "input_fingerprint": "2f6cd680fcd86502d1f102260e027109dbb674074099f9a3a23a7f2b8b43690c",
+    "repository": null,
+    "workspace": "/company",
+    "scope": "Correct evaluation and receipt provenance only; gallery unchanged."
+  },
+  "actual_actors": [
+    {
+      "actor_id": "release-author",
+      "display": "Anika Rao",
+      "role": "clean-room-release-author",
+      "model": "litellm/gpt-5.6-sol",
+      "contribution": "Authored the package and applied the bounded revision; performed producer QA, not independent evaluation."
+    },
+    {
+      "actor_id": "identity-researcher",
+      "display": "Sofia Marin",
+      "role": "product-truth-researcher",
+      "model": "litellm/gpt-5.6-sol",
+      "contribution": "Produced bound capsule artifact 42ed0a43-5da2-4752-b1e7-205c9de2ccd4; operational identity is not a release byline."
+    },
+    {
+      "actor_id": "release-direction",
+      "display": "Mara Voss",
+      "role": "release-package-lead",
+      "model": "litellm/gpt-5.6-sol",
+      "contribution": "Issued bounded correction direction in message 18; no channel authorship inferred."
+    },
+    {
+      "actor_id": "package-critic",
+      "display": "Jon Bell",
+      "role": "independent-package-critic",
+      "model": "litellm/gpt-5.6-sol",
+      "contribution": "Returned independent changes_requested verdicts in messages 16 and 19; the second finding required removal of the unsupported chronology mechanism."
+    },
+    {
+      "actor_id": "evidence-editor",
+      "display": "Mina Shah",
+      "role": "provenance-record-editor",
+      "model": "litellm/gpt-5.6-sol",
+      "contribution": "Corrected the evaluation and receipt to separate the verified gallery identification, prior author claim and remaining chronology/influence unknown; did not change the gallery or independently review it."
+    }
+  ],
+  "model_observation": {
+    "configured_and_used_for_producer_attempt": "litellm/gpt-5.6-sol",
+    "configured_and_used_for_correction_attempt": "litellm/gpt-5.6-sol",
+    "worker_runtime": "omp",
+    "reasoning_effort": "high",
+    "qualifier": "Operational context only; not a marketing claim or general provider-availability proof."
+  },
+  "released_identity": {
+    "constitution_release_id": "55af2a58-3c5c-4720-a8dd-0e7b12b04dd2",
+    "author_contract_identifier": "clean_room_release_author",
+    "channel_contract": "blog",
+    "public_person_identity": null,
+    "founder_identity": null,
+    "use": "The contract identifier attributes the proposed Blog and internal memo. The founder email uses a role-level sender treatment outside its complete copy; no personal founder identity or biography is asserted."
+  },
+  "contracts": {
+    "truth": ["product.accepted_binding", "product.accountable_work", "product.correction", "product.correction_scope"],
+    "voice": "Plain, direct, consequence-first; Work-bound constitution release 55af2a58-3c5c-4720-a8dd-0e7b12b04dd2.",
+    "visual": "Calm operational surfaces, compact hierarchy and exact state; product evidence only.",
+    "culture": "Narrow or revise until native evidence is strong; never widen effect or owner authority.",
+    "effect": "No publication, deployment, sending, posting, contact, purchase or other consequential external effect."
+  },
+  "sources": [
+    {
+      "uri": "/company/org/release-reference-capsule.json",
+      "kind": "bound_input",
+      "observed_at_recorded_in_source": "2026-09-01T09:03:24Z",
+      "sha256": "29852bda2e8b43f4004381e2d4aca46d0119bb228967073aefb243f91bea0673"
+    },
+    {
+      "uri": "Company Constitution release 55af2a58-3c5c-4720-a8dd-0e7b12b04dd2",
+      "kind": "owner_released_work_bound_contract",
+      "truth_evidence": "s35-integrated-corpus@sha256:2279516e1403349b8618d33520ef58ccfb28ad53b3dff4518b54a6708c33548f"
+    },
+    {
+      "uri": "Work messages 14, 16, 18, 19 and 21",
+      "kind": "coordination_observation",
+      "use": "Author claim, independent changes_requested verdicts and bounded correction directions."
+    },
+    {
+      "uri": "Work d7f97876-5068-411f-bd00-0b8c85c270ee revision 1 Attempt bf9ec28c-5422-44ee-a24b-61a8977a948f",
+      "kind": "provenance_correction_assignment",
+      "use": "Exact correction scope, actor attribution and required claim/observation/unknown separation."
+    }
+  ],
+  "clean_room_chronology": {
+    "verified_observation": "Digest sha256:b29723925f5e3d051547984f3bf350251db8451f6cf326638aedc23a666d02ed identifies the gallery candidate.",
+    "author_claim": "The prior author stated that the gallery was completed before metadata exposure.",
+    "remaining_unknown": "Available records do not independently establish that chronology or absence of influence."
+  },
+  "review_passes": [
+    {
+      "actor": "package-critic",
+      "kind": "independent_native_review",
+      "independent": true,
+      "verdict": "changes_requested",
+      "message": 16,
+      "findings": [
+        "unsupported clean-room chronology",
+        "founder identity placeholder inside channel copy",
+        "unsupported first-person plural product UI voice"
+      ]
+    },
+    {
+      "actor": "package-critic",
+      "kind": "second_independent_review",
+      "independent": true,
+      "verdict": "changes_requested",
+      "message": 19,
+      "finding": "The preserved digest identifies the candidate but does not independently establish the claimed pre-exposure chronology."
+    },
+    {
+      "actor": "release-direction",
+      "kind": "revision_direction",
+      "independent": false,
+      "message": 18,
+      "result": "Correction restricted to the critic's three findings; no redesign."
+    },
+    {
+      "actor": "release-author",
+      "kind": "bounded_revision_and_producer_QA",
+      "independent": false,
+      "result": "All three requested corrections applied and scanned; package remains pending fresh independent review."
+    },
+    {
+      "actor": "restless-web-review",
+      "kind": "deterministic_native_capture",
+      "independent": false,
+      "result": "Corrected desktop, mobile and reduced-motion capture: zero failed pages, zero failed internal links, no document-level horizontal overflow, no off-viewport controls, no invisible authored content, no console errors and no page errors.",
+      "manifest_sha256": "1a45697598ac7ae377ecf2ba414db98cd21caa565ce923099f92144db3192bbe"
+    }
+    ,
+    {
+      "actor": "evidence-editor",
+      "kind": "bounded_provenance_correction",
+      "independent": false,
+      "work": "d7f97876-5068-411f-bd00-0b8c85c270ee",
+      "attempt": "bf9ec28c-5422-44ee-a24b-61a8977a948f",
+      "result": "Evaluation and receipt corrected; gallery digest verified unchanged; candidate remains pending fresh independent review."
+    }
+  ],
+  "reversals_and_corrections": [
+    {
+      "finding": "Chronology assertions exceeded deterministic evidence.",
+      "correction": "Limited the chronology account to three records only: verified candidate identification by digest, the author claim, and the remaining unknown. The digest is not treated as timing evidence."
+    },
+    {
+      "finding": "The provenance record did not use the critic-required exact separation of observation, claim and unknown.",
+      "correction": "Recorded only the digest-based candidate identification as a verified observation, the prior author's pre-exposure statement as an author claim, and chronology or absence of influence as unknown."
+    },
+    {
+      "finding": "Founder identity placeholder appeared inside channel copy.",
+      "correction": "Removed bracketed sender and signature placeholders. Complete email copy has no identity placeholder; Founder is a role-level sender treatment outside the copy."
+    },
+    {
+      "finding": "Proposed UI unavailable state used unsupported first-person plural voice.",
+      "correction": "Changed the line to neutral copy: The dependency record could not be loaded. Full standalone-asset scan found no standalone we or our token, bracketed instruction, TODO or template placeholder token. Transactional system copy remains neutral and product-named."
+    }
+  ],
+  "unknowns": [
+    "No owner-released founder or public person identity was found.",
+    "No admissible customer evidence, testimonial, case study or marketing metric was found.",
+    "No admissible exact product screenshot or current accepted-artifact demonstration was found.",
+    "Host-only owner surfaces were not observable from inside the company Runtime.",
+    "No independent verdict has yet been recorded for this corrected candidate.",
+    "The capsule inventory is local and Work-bound; it does not prove missing sources do not exist elsewhere."
+  ],
+  "spend_observation": {
+    "observed_status": "available",
+    "ceiling_usd": 25.0,
+    "accounted_usd": 10.2371,
+    "remaining_usd": 14.7629,
+    "current_actor_usd": 2.9553,
+    "observed_at_approximately": "2026-09-01T09:41Z",
+    "qualifier": "Time-bound internal accounting, not effect authority, product ROI or a release metric."
+  },
+  "context_observations": {
+    "supervised_service": "identity-review-gallery at http://127.0.0.1:4317/review-gallery.html",
+    "corrected_gallery_probe": "HTTP 200",
+    "browser_evidence": "/company/outputs/clean-room-evidence-357270dd-r2/manifest.json",
+    "owner_surfaces": "not_observed from inside Runtime"
+  },
+  "candidate": {
+    "status": "provenance-corrected; pending fresh independent review",
+    "review_target": "http://127.0.0.1:4317/review-gallery.html",
+    "gallery": {
+      "uri": "/company/outputs/identity-evaluation/review-gallery.html",
+      "sha256": "b29723925f5e3d051547984f3bf350251db8451f6cf326638aedc23a666d02ed"
+    },
+    "evaluation": {
+      "uri": "/company/outputs/identity-evaluation/evaluation.md",
+      "sha256": "810b2372f6586b8bf02e9dfda2d844c3a1e467e0c01dce3ffa543a5eb328f958"
+    },
+    "evidence_manifest": {
+      "uri": "/company/outputs/clean-room-evidence-357270dd-r2/manifest.json",
+      "sha256": "1a45697598ac7ae377ecf2ba414db98cd21caa565ce923099f92144db3192bbe"
+    },
+    "candidate_set": {
+      "sha256": "7a6e70a89bb8292719b49dd500d2ad4ff19eee245ac45c669c938728da90ed44b",
+      "method": "SHA-256 of the compact, key-sorted JSON array of the three ordered path/digest records below, including the trailing newline emitted by jq.",
+      "components": [
+        {
+          "path": "review-gallery.html",
+          "sha256": "b29723925f5e3d051547984f3bf350251db8451f6cf326638aedc23a666d02ed",
+          "digest_basis": "raw file bytes"
+        },
+        {
+          "path": "evaluation.md",
+          "sha256": "810b2372f6586b8bf02e9dfda2d844c3a1e467e0c01dce3ffa543a5eb328f958",
+          "digest_basis": "raw file bytes"
+        },
+        {
+          "path": "receipt.json",
+          "sha256": "25ed69d678feb61d191092696322c8605c37f0b093c6268ab9b9bd12592fdf4e",
+          "digest_basis": "compact, key-sorted JSON with candidate.candidate_set omitted, including trailing newline"
+        }
+      ]
+    },
+    "digest_scope": "Exact three-file candidate-set digest with an explicit self-reference-free receipt projection; evidence manifest remains separately recorded."
+  },
+  "external_effect_boundary": {
+    "performed": [],
+    "not_performed": ["publish", "deploy", "push", "send", "post", "contact", "purchase", "charge", "contract", "delete externally"],
+    "authority": "none for an external effect",
+    "completion_claim": "Corrected candidate prepared for fresh downstream independent criticism; not owner acceptance or publication approval."
+  }
+}

@@ -10,7 +10,15 @@ struct QualifiedOutcomeReview {
     outcome: String,
 }
 
-type SupervisorNoticeFact = (Uuid, Uuid, String, WorkStatus, i64, String);
+type SupervisorNoticeFact = (
+    Uuid,
+    Uuid,
+    String,
+    WorkAttemptState,
+    WorkStatus,
+    i64,
+    String,
+);
 
 fn looks_like_exact_git_commit(value: &str) -> bool {
     (7..=64).contains(&value.len()) && value.bytes().all(|byte| byte.is_ascii_hexdigit())
@@ -61,7 +69,7 @@ impl OrgIntel {
         let work = sqlx::query_as::<_, WorkRow>(
             "SELECT w.id, w.goal_id, w.owner_id, w.title, w.outcome, w.status, \
                     w.resolution, w.priority, w.expected_artifact, w.owner_review_required, \
-                    w.repo, w.base_ref, \
+                    w.producing_topology, w.commissioned_by, w.repo, w.base_ref, \
                     w.integration_branch, w.worktree, w.revision, w.attempt_limit, \
                     w.created_at, w.updated_at \
              FROM work w \
@@ -197,8 +205,8 @@ impl OrgIntel {
             effective_base_ref.as_deref().unwrap_or("")
         ));
         let feedback = sqlx::query_as::<_, MessageRow>(
-            "SELECT id, from_actor, to_actor, body, created_at, read_at FROM (\
-               SELECT m.id, m.from_actor, m.to_actor, m.body, m.created_at, m.read_at \
+            "SELECT id,from_actor,to_actor,body,outcome_standard,created_at,read_at FROM (\
+               SELECT m.id,m.from_actor,m.to_actor,m.body,m.outcome_standard,m.created_at,m.read_at \
                FROM work_feedback f JOIN messages m ON m.id=f.message_id \
                WHERE f.work_id=$1 ORDER BY m.id DESC LIMIT 100\
              ) recent ORDER BY id",
@@ -242,6 +250,22 @@ impl OrgIntel {
         .bind(work.id)
         .bind(work.revision)
         .fetch_one(&mut *tx)
+        .await?;
+        let previous_attempt = sqlx::query_as::<_, (WorkAttemptState, String)>(
+            "SELECT state, summary FROM work_attempts \
+             WHERE work_id=$1 AND revision=$2 \
+             ORDER BY attempt_no DESC LIMIT 1",
+        )
+        .bind(work.id)
+        .bind(work.revision)
+        .fetch_optional(&mut *tx)
+        .await?;
+        let review_targets = sqlx::query_scalar::<_, Uuid>(
+            "SELECT to_work_id FROM work_edges \
+             WHERE from_work_id=$1 AND kind='revises' ORDER BY to_work_id",
+        )
+        .bind(work.id)
+        .fetch_all(&mut *tx)
         .await?;
         let attempt_id = Uuid::new_v4();
         let session_id = Uuid::new_v4().to_string();
@@ -289,6 +313,7 @@ impl OrgIntel {
         tx.commit().await?;
         Ok(Some(ClaimedWork {
             work,
+            review_targets,
             effective_base_ref,
             attempt_id,
             attempt_no: i32::try_from(attempt_no).unwrap_or(i32::MAX),
@@ -296,6 +321,8 @@ impl OrgIntel {
             input_fingerprint,
             inputs,
             feedback,
+            previous_attempt_state: previous_attempt.as_ref().map(|(state, _)| *state),
+            previous_attempt_summary: previous_attempt.map(|(_, summary)| summary),
         }))
     }
 
@@ -716,6 +743,14 @@ impl OrgIntel {
         let followup_revision = effective == WorkAttemptState::Produced
             && !late_direct_feedback.is_empty()
             && qualified_outcome_review.is_none();
+        // A clean passing terminal result is observable state, not a reason to
+        // spend a lead turn. Qualified owner review already creates its own
+        // exact judgement obligation. Only an unresolved terminal exception
+        // enters the supervisor outbox here.
+        let material_supervisor_notice = matches!(
+            effective,
+            WorkAttemptState::Blocked | WorkAttemptState::Failed | WorkAttemptState::Abandoned
+        );
         sqlx::query(
             "UPDATE work_attempts SET state=$2, summary=$3, finished_at=now(), \
                     supervisor_notice_owed=$4, supervisor_notice_message_id=NULL \
@@ -724,7 +759,7 @@ impl OrgIntel {
         .bind(attempt_id)
         .bind(effective)
         .bind(&effective_summary)
-        .bind(!followup_revision)
+        .bind(material_supervisor_notice && !followup_revision)
         .execute(&mut *tx)
         .await?;
 
@@ -822,9 +857,12 @@ impl OrgIntel {
         Ok(effective)
     }
 
-    /// Flush terminal Attempt facts to their accountable leads. Completion
-    /// and this outbox bit commit together; message creation and clearing the
-    /// bit also commit together. Repeating after a crash is therefore safe.
+    /// Flush material terminal exceptions to their accountable leads. Clean
+    /// completion never enters this outbox. Exceptions from the same Work are
+    /// causally coalesced; unrelated Work remains separately reviewable.
+    /// Attempt completion and the outbox bit commit together, while message
+    /// creation and clearing the bit also commit together, so crash replay is
+    /// safe and exactly once.
     pub async fn flush_terminal_supervisor_notices(&self, limit: i64) -> Result<Vec<i64>> {
         if limit <= 0 {
             return Ok(Vec::new());
@@ -833,8 +871,8 @@ impl OrgIntel {
             .await?;
         let mut tx = self.pool.begin().await?;
         let rows = sqlx::query(
-            "SELECT attempt.id AS attempt_id, attempt.actor_id, work.id AS work_id, \
-                    work.status, work.revision, work.resolution, team.lead_actor_id \
+            "SELECT attempt.id AS attempt_id, attempt.actor_id, attempt.state AS attempt_state, \
+                    work.id AS work_id, work.status, work.revision, work.resolution, team.lead_actor_id \
              FROM work_attempts attempt \
              JOIN work ON work.id=attempt.work_id \
              JOIN actors work_owner ON work_owner.id=work.owner_id \
@@ -846,24 +884,37 @@ impl OrgIntel {
         .bind(limit)
         .fetch_all(&mut *tx)
         .await?;
-        let mut by_lead: std::collections::BTreeMap<String, Vec<SupervisorNoticeFact>> =
+        let mut by_cause: std::collections::BTreeMap<(String, Uuid), Vec<SupervisorNoticeFact>> =
             std::collections::BTreeMap::new();
         for row in rows {
-            by_lead.entry(row.get("lead_actor_id")).or_default().push((
-                row.get("attempt_id"),
-                row.get("work_id"),
-                row.get("actor_id"),
-                row.get("status"),
-                row.get("revision"),
-                row.get("resolution"),
-            ));
+            let work_id = row.get("work_id");
+            by_cause
+                .entry((row.get("lead_actor_id"), work_id))
+                .or_default()
+                .push((
+                    row.get("attempt_id"),
+                    work_id,
+                    row.get("actor_id"),
+                    row.get("attempt_state"),
+                    row.get("status"),
+                    row.get("revision"),
+                    row.get("resolution"),
+                ));
         }
-        let mut message_ids = Vec::with_capacity(by_lead.len());
-        for (lead_actor_id, notices) in by_lead {
+        let mut message_ids = Vec::with_capacity(by_cause.len());
+        for ((lead_actor_id, cause_work_id), notices) in by_cause {
             let body = notices
                 .iter()
                 .map(
-                    |(attempt_id, work_id, actor_id, status, revision, resolution)| {
+                    |(
+                        attempt_id,
+                        work_id,
+                        actor_id,
+                        attempt_state,
+                        status,
+                        revision,
+                        resolution,
+                    )| {
                         let status = match status {
                             WorkStatus::Proposed => "proposed",
                             WorkStatus::Active => "active",
@@ -871,15 +922,16 @@ impl OrgIntel {
                             WorkStatus::Completed => "completed",
                             WorkStatus::Abandoned => "abandoned",
                         };
+                        let attempt_state = attempt_state.as_str();
                         format!(
-                            "Work {work_id}, Attempt {attempt_id}, owner {actor_id}: status {status}, revision {revision}. Resolution: {resolution}"
+                            "Work {work_id}, Attempt {attempt_id}, producer {actor_id}: Attempt {attempt_state}, Work {status}, revision {revision}. Resolution: {resolution}"
                         )
                     },
                 )
                 .collect::<Vec<_>>()
                 .join("\n");
             let body = format!(
-                "Coalesced terminal Runtime observations ({} decision checkpoint{}):\n{body}",
+                "Material Runtime supervisor events for Work {cause_work_id} ({} exception{}):\n{body}",
                 notices.len(),
                 if notices.len() == 1 { "" } else { "s" },
             );
@@ -891,15 +943,11 @@ impl OrgIntel {
             .bind(&body)
             .fetch_one(&mut *tx)
             .await?;
-            // One canonical Work link preserves existing conversation
-            // semantics. The compact body carries every causally coalesced
-            // terminal fact and all Attempts point at this one wake.
-            let (_, first_work_id, ..) = &notices[0];
             sqlx::query(
                 "INSERT INTO work_feedback (work_id, message_id, linked_by) \
                  VALUES ($1,$2,'daemon')",
             )
-            .bind(first_work_id)
+            .bind(cause_work_id)
             .bind(message_id)
             .execute(&mut *tx)
             .await?;

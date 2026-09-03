@@ -40,6 +40,10 @@ pub(crate) struct LifecycleInput {
     /// publishing the artifact is a release/Fleet concern.
     #[serde(default)]
     pub(crate) reconcile: bool,
+    /// Host transport that delivered a wake-only schedule hint. It carries no
+    /// company or task payload and is accepted only on the local-owner socket.
+    #[serde(default)]
+    pub(crate) adapter: Option<String>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -131,6 +135,8 @@ pub(crate) struct OrgIntelInput {
     #[serde(default)]
     pub(crate) model: Option<String>,
     #[serde(default)]
+    pub(crate) producing_topology: Option<String>,
+    #[serde(default)]
     pub(crate) title: Option<String>,
     #[serde(default)]
     pub(crate) priority: Option<i16>,
@@ -153,11 +159,17 @@ pub(crate) struct OrgIntelInput {
     #[serde(default)]
     pub(crate) source_message_id: Option<i64>,
     #[serde(default)]
+    pub(crate) outcome_standard: Option<String>,
+    #[serde(default)]
+    pub(crate) outcome_standard_source: Option<String>,
+    #[serde(default)]
     pub(crate) requires: Vec<String>,
     #[serde(default)]
     pub(crate) revises: Vec<String>,
     #[serde(default)]
     pub(crate) gates: Vec<InitialWorkGateRequest>,
+    #[serde(default)]
+    pub(crate) constitution_contracts: Option<restless_orgintel::InitialConstitutionContracts>,
     #[serde(default)]
     pub(crate) kind: Option<String>,
     #[serde(default)]
@@ -189,7 +201,237 @@ pub(crate) struct OrgIntelInput {
     #[serde(default)]
     pub(crate) timezone: Option<String>,
     #[serde(default)]
+    pub(crate) missed_policy: Option<String>,
+    #[serde(default)]
+    pub(crate) catch_up_grace_seconds: Option<i64>,
+    #[serde(default)]
+    pub(crate) execution_requirement: Option<String>,
+    #[serde(default)]
+    pub(crate) retry_key: Option<String>,
+    #[serde(default)]
+    pub(crate) prior_message_id: Option<i64>,
+    #[serde(default)]
     pub(crate) include_fired: bool,
+    #[serde(default)]
+    pub(crate) identity_pillar: Option<String>,
+    #[serde(default)]
+    pub(crate) identity_kind: Option<String>,
+    #[serde(default)]
+    pub(crate) claim_key: Option<String>,
+    #[serde(default)]
+    pub(crate) statement: Option<String>,
+    #[serde(default)]
+    pub(crate) source: Option<String>,
+    #[serde(default)]
+    pub(crate) identity_authority: Option<String>,
+    #[serde(default)]
+    pub(crate) scope: Option<String>,
+    #[serde(default)]
+    pub(crate) evidence_locator: Option<String>,
+    #[serde(default)]
+    pub(crate) polarity: Option<String>,
+    #[serde(default)]
+    pub(crate) evidence_status: Option<String>,
+    #[serde(default)]
+    pub(crate) channel: Option<String>,
+    #[serde(default)]
+    pub(crate) audience: Option<String>,
+    #[serde(default)]
+    pub(crate) supersedes: Option<String>,
+    #[serde(default)]
+    pub(crate) exception_expires_at: Option<String>,
+    #[serde(default)]
+    pub(crate) exception_indefinite: bool,
+    #[serde(default)]
+    pub(crate) evidence_ids: Vec<String>,
+    #[serde(default)]
+    pub(crate) release_id: Option<String>,
+    #[serde(default)]
+    pub(crate) max_bytes: Option<usize>,
+    #[serde(default)]
+    pub(crate) voice_kind: Option<String>,
+    #[serde(default)]
+    pub(crate) named_author: Option<String>,
+    #[serde(default)]
+    pub(crate) voice_author: Option<String>,
+    #[serde(default)]
+    pub(crate) judgement_reason: Option<String>,
+    #[serde(default)]
+    pub(crate) voice_work_id: Option<String>,
+    #[serde(default)]
+    pub(crate) reader_situation: Option<String>,
+    #[serde(default)]
+    pub(crate) desired_understanding: Option<String>,
+    #[serde(default)]
+    pub(crate) desired_action: Option<String>,
+    #[serde(default)]
+    pub(crate) proof: Option<String>,
+    #[serde(default)]
+    pub(crate) consequence: Option<String>,
+    #[serde(default)]
+    pub(crate) artifact_ref_id: Option<String>,
+    #[serde(default)]
+    pub(crate) renderer: Option<String>,
+    #[serde(default)]
+    pub(crate) renderer_version: Option<String>,
+    #[serde(default)]
+    pub(crate) semantic_checks: Option<serde_json::Value>,
+    #[serde(default)]
+    pub(crate) render_evidence_id: Option<String>,
+    #[serde(default)]
+    pub(crate) review_verdict: Option<String>,
+    #[serde(default)]
+    pub(crate) factual_findings: Option<String>,
+    #[serde(default)]
+    pub(crate) abstraction_findings: Option<String>,
+    #[serde(default)]
+    pub(crate) repetition_findings: Option<String>,
+    #[serde(default)]
+    pub(crate) channel_findings: Option<String>,
+    #[serde(default)]
+    pub(crate) authorship_findings: Option<String>,
+    #[serde(default)]
+    pub(crate) concepts_removed: Option<String>,
+    #[serde(default)]
+    pub(crate) before_artifact_ref_id: Option<String>,
+    #[serde(default)]
+    pub(crate) after_artifact_ref_id: Option<String>,
+    #[serde(default)]
+    pub(crate) learning_kind: Option<String>,
+    #[serde(default)]
+    pub(crate) observation: Option<String>,
+    #[serde(default)]
+    pub(crate) motivating_decision: Option<String>,
+    #[serde(default)]
+    pub(crate) visual_kind: Option<String>,
+    #[serde(default)]
+    pub(crate) visual_work_id: Option<String>,
+    #[serde(default)]
+    pub(crate) visual_purpose: Option<String>,
+    #[serde(default)]
+    pub(crate) visual_rationale: Option<String>,
+    #[serde(default)]
+    pub(crate) accessibility_notes: Option<String>,
+    #[serde(default)]
+    pub(crate) reduced_motion_replacement: Option<String>,
+    #[serde(default)]
+    pub(crate) product_truth_locator: Option<String>,
+    #[serde(default)]
+    pub(crate) primitive_origin: Option<String>,
+    #[serde(default)]
+    pub(crate) primitive_licence: Option<String>,
+    #[serde(default)]
+    pub(crate) primitive_framework: Option<String>,
+    #[serde(default)]
+    pub(crate) primitive_dependencies: Option<serde_json::Value>,
+    #[serde(default)]
+    pub(crate) adaptation_status: Option<String>,
+    #[serde(default)]
+    pub(crate) semantic_role: Option<String>,
+    #[serde(default)]
+    pub(crate) visual_value: Option<String>,
+    #[serde(default)]
+    pub(crate) information_hierarchy: Option<String>,
+    #[serde(default)]
+    pub(crate) visual_density: Option<String>,
+    #[serde(default)]
+    pub(crate) imagery_role: Option<String>,
+    #[serde(default)]
+    pub(crate) motion_role: Option<String>,
+    #[serde(default)]
+    pub(crate) product_representation: Option<String>,
+    #[serde(default)]
+    pub(crate) requested_departure: Option<String>,
+    #[serde(default)]
+    pub(crate) visual_evidence_id: Option<String>,
+    #[serde(default)]
+    pub(crate) primitive_version: Option<String>,
+    #[serde(default)]
+    pub(crate) viewport_width: Option<i32>,
+    #[serde(default)]
+    pub(crate) viewport_height: Option<i32>,
+    #[serde(default)]
+    pub(crate) motion_state: Option<String>,
+    #[serde(default)]
+    pub(crate) control_render_evidence_id: Option<String>,
+    #[serde(default)]
+    pub(crate) visual_identity_findings: Option<String>,
+    #[serde(default)]
+    pub(crate) hierarchy_findings: Option<String>,
+    #[serde(default)]
+    pub(crate) density_findings: Option<String>,
+    #[serde(default)]
+    pub(crate) proof_findings: Option<String>,
+    #[serde(default)]
+    pub(crate) product_fidelity_findings: Option<String>,
+    #[serde(default)]
+    pub(crate) motion_findings: Option<String>,
+    #[serde(default)]
+    pub(crate) defect_findings: Option<String>,
+    #[serde(default)]
+    pub(crate) departure_decision: Option<String>,
+    #[serde(default)]
+    pub(crate) culture_kind: Option<String>,
+    #[serde(default)]
+    pub(crate) culture_case_kind: Option<String>,
+    #[serde(default)]
+    pub(crate) culture_situation: Option<String>,
+    #[serde(default)]
+    pub(crate) culture_actors: Option<String>,
+    #[serde(default)]
+    pub(crate) decision_authority: Option<String>,
+    #[serde(default)]
+    pub(crate) observed_conduct: Option<String>,
+    #[serde(default)]
+    pub(crate) observed_outcome: Option<String>,
+    #[serde(default)]
+    pub(crate) culture_confidence: Option<String>,
+    #[serde(default)]
+    pub(crate) counterexample: Option<String>,
+    #[serde(default)]
+    pub(crate) boundary_conditions: Option<String>,
+    #[serde(default)]
+    pub(crate) operational_implication: Option<String>,
+    #[serde(default)]
+    pub(crate) actor_scope: Option<String>,
+    #[serde(default)]
+    pub(crate) culture_work_id: Option<String>,
+    #[serde(default)]
+    pub(crate) culture_actor: Option<String>,
+    #[serde(default)]
+    pub(crate) actor_role: Option<String>,
+    #[serde(default)]
+    pub(crate) team_name: Option<String>,
+    #[serde(default)]
+    pub(crate) decision_boundary: Option<String>,
+    #[serde(default)]
+    pub(crate) culture_decision: Option<String>,
+    #[serde(default)]
+    pub(crate) culture_alternatives: Option<serde_json::Value>,
+    #[serde(default)]
+    pub(crate) culture_unknowns: Option<String>,
+    #[serde(default)]
+    pub(crate) correction_of: Option<String>,
+    #[serde(default)]
+    pub(crate) correction_account: Option<String>,
+    #[serde(default)]
+    pub(crate) customer_action: Option<String>,
+    #[serde(default)]
+    pub(crate) culture_case_record_id: Option<String>,
+    #[serde(default)]
+    pub(crate) conduct_findings: Option<String>,
+    #[serde(default)]
+    pub(crate) dissent_findings: Option<String>,
+    #[serde(default)]
+    pub(crate) uncertainty_findings: Option<String>,
+    #[serde(default)]
+    pub(crate) correction_findings: Option<String>,
+    #[serde(default)]
+    pub(crate) authority_findings: Option<String>,
+    #[serde(default)]
+    pub(crate) customer_or_hiring_findings: Option<String>,
+    #[serde(default)]
+    pub(crate) slogan_recitation_detected: bool,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -218,6 +460,44 @@ pub(crate) struct OwnerInput {
     pub(crate) uncertainty: Option<String>,
     #[serde(default)]
     pub(crate) deadline: Option<String>,
+}
+
+/// Inputs for the bounded published-service contract. These are intentionally
+/// not generic route, command, tunnel, environment, or provider fields.
+#[derive(Debug, Default, Deserialize)]
+pub(crate) struct PublicationInput {
+    #[serde(default)]
+    pub(crate) actor: Option<String>,
+    #[serde(default)]
+    pub(crate) source_artifact_ref_id: Option<String>,
+    #[serde(default)]
+    pub(crate) candidate_artifact_ref_id: Option<String>,
+    #[serde(default)]
+    pub(crate) service_manifest: Option<serde_json::Value>,
+    #[serde(default)]
+    pub(crate) publication_id: Option<String>,
+    #[serde(default)]
+    pub(crate) publication_audience: Option<String>,
+    #[serde(default)]
+    pub(crate) publication_expires_at: Option<String>,
+    #[serde(default)]
+    pub(crate) publication_start_deadline: Option<String>,
+    #[serde(default)]
+    pub(crate) cpu_millis: Option<u32>,
+    #[serde(default)]
+    pub(crate) memory_mib: Option<u32>,
+    #[serde(default)]
+    pub(crate) ephemeral_storage_mib: Option<u32>,
+    #[serde(default)]
+    pub(crate) max_connections: Option<u32>,
+    #[serde(default)]
+    pub(crate) idempotency_key: Option<String>,
+    #[serde(default)]
+    pub(crate) invitation_id: Option<String>,
+    #[serde(default)]
+    pub(crate) invitee: Option<String>,
+    #[serde(default)]
+    pub(crate) stop_reason: Option<String>,
 }
 
 /// The in-memory dispatch view after Request::decode has selected and checked
@@ -249,6 +529,8 @@ pub(crate) struct Request {
     pub(crate) orgintel: OrgIntelInput,
     #[serde(flatten)]
     pub(crate) owner: OwnerInput,
+    #[serde(flatten)]
+    pub(crate) publication: PublicationInput,
 }
 
 const ENVELOPE_FIELDS: &[&str] = &["cmd", "company", "principal", "session_capability"];
@@ -304,9 +586,33 @@ fn command_fields(command: &str) -> Option<&'static [&'static str]> {
     Some(match command {
         "company-list" | "status" | "doctor" | "company-show" | "credential-check"
         | "legal-show" | "legal-probe" | "finance-show" | "finance-balances" | "finance-probe"
-        | "orgintel-init" | "teams" | "spend" | "goals" | "work" | "work-graph"
+        | "orgintel-init" | "teams" | "spend" | "telemetry" | "goals" | "work" | "work-graph"
         | "clear-poison" | "attention" | "browser-status" | "browser-release" | "watch"
-        | "connected-tools" => &[],
+        | "connected-tools" | "identity-show" | "publish-list" => &[],
+        "schedule-wake" => &["adapter"],
+        "publish-candidate" => &["actor", "source_artifact_ref_id", "service_manifest"],
+        "publish-request" => &[
+            "actor",
+            "candidate_artifact_ref_id",
+            "publication_audience",
+            "publication_expires_at",
+            "publication_start_deadline",
+            "cpu_millis",
+            "memory_mib",
+            "ephemeral_storage_mib",
+            "max_connections",
+            "idempotency_key",
+        ],
+        "publish-authorize" | "publish-observe" | "publish-reconcile" => &["publication_id"],
+        "publish-invite" => &[
+            "publication_id",
+            "invitation_id",
+            "invitee",
+            "publication_expires_at",
+        ],
+        "publish-revoke" => &["invitation_id"],
+        "publish-stop" => &["publication_id", "stop_reason"],
+        "publish-show" => &["publication_id"],
         "up" => &["from", "from_company", "reconcile"],
         "down" => &["destroy"],
         "company-create"
@@ -326,7 +632,15 @@ fn command_fields(command: &str) -> Option<&'static [&'static str]> {
         "actor-create" => &["as_actor", "role", "name", "actor", "reason", "model"],
         "actor-model" => &["as_actor", "model", "actor", "reason"],
         "actor-retire" => &["as_actor", "actor", "reason"],
-        "team-create" => &["name", "to", "body", "actor"],
+        "team-create" => &[
+            "name",
+            "to",
+            "body",
+            "actor",
+            "outcome_standard",
+            "outcome_standard_source",
+            "source_message_id",
+        ],
         "team-update" => &["name", "new_name", "body", "actor", "reason"],
         "team-assign" => &["as_actor", "name", "actor", "reason"],
         "team-lead" => &["name", "to", "actor", "reason"],
@@ -351,6 +665,7 @@ fn command_fields(command: &str) -> Option<&'static [&'static str]> {
             "title",
             "body",
             "model",
+            "producing_topology",
             "goal",
             "priority",
             "expected_artifact",
@@ -364,6 +679,7 @@ fn command_fields(command: &str) -> Option<&'static [&'static str]> {
             "requires",
             "revises",
             "gates",
+            "constitution_contracts",
             "as_actor",
         ],
         "work-edge" => &["from", "to", "kind", "action", "as_actor", "reason"],
@@ -398,6 +714,7 @@ fn command_fields(command: &str) -> Option<&'static [&'static str]> {
             "resume_when",
             "actor",
         ],
+        "work-artifact-retire" => &["id", "reason", "actor"],
         "work-handoff-refresh" => &["id", "as_actor", "action", "prepared", "resume_when"],
         "work-handoff-prepare-brief" => &[
             "id",
@@ -418,15 +735,30 @@ fn command_fields(command: &str) -> Option<&'static [&'static str]> {
         "message" => &["from", "to", "id", "body"],
         "events" => &["limit"],
         "schedule-list" => &["as_actor", "include_fired"],
+        "schedule-history" => &["id", "limit"],
+        "schedule-recover" => &["id", "fire_at", "as_actor", "from", "reason"],
+        "schedule-retry-recovery" => &[
+            "id",
+            "fire_at",
+            "as_actor",
+            "from",
+            "reason",
+            "retry_key",
+            "prior_message_id",
+        ],
         "schedule-add" => &[
             "as_actor",
             "fire_at",
             "recurrence",
             "local_time",
             "timezone",
+            "missed_policy",
+            "catch_up_grace_seconds",
+            "execution_requirement",
             "reason",
             "id",
         ],
+        "schedule-policy" => &["id", "as_actor", "missed_policy", "catch_up_grace_seconds"],
         "schedule-cancel" => &["id", "as_actor", "reason"],
         "approve" | "revoke" | "decline" => &["party"],
         "browser-request" => &["id"],
@@ -459,6 +791,227 @@ fn command_fields(command: &str) -> Option<&'static [&'static str]> {
             "actor",
         ],
         "connected-tool-disable" => &["tool_name", "actor"],
+        "identity-evidence-add" => &[
+            "identity_pillar",
+            "identity_kind",
+            "claim_key",
+            "statement",
+            "actor",
+            "source",
+            "identity_authority",
+            "scope",
+            "evidence_locator",
+            "polarity",
+            "evidence_status",
+            "channel",
+            "audience",
+            "supersedes",
+            "exception_expires_at",
+            "exception_indefinite",
+        ],
+        "identity-propose" => &["actor", "reason", "evidence_ids"],
+        "identity-brief" => &[
+            "actor",
+            "release_id",
+            "body",
+            "channel",
+            "audience",
+            "max_bytes",
+        ],
+        "voice-evidence-add" => &[
+            "voice_kind",
+            "claim_key",
+            "statement",
+            "actor",
+            "named_author",
+            "source",
+            "identity_authority",
+            "scope",
+            "evidence_locator",
+            "judgement_reason",
+            "polarity",
+            "channel",
+            "audience",
+            "supersedes",
+        ],
+        "voice-bind" => &[
+            "voice_work_id",
+            "channel",
+            "actor",
+            "voice_author",
+            "audience",
+            "reader_situation",
+            "desired_understanding",
+            "desired_action",
+            "proof",
+            "consequence",
+        ],
+        "voice-brief" => &["voice_work_id", "max_bytes", "actor"],
+        "voice-render" => &[
+            "artifact_ref_id",
+            "channel",
+            "renderer",
+            "renderer_version",
+            "semantic_checks",
+            "actor",
+        ],
+        "voice-review" => &[
+            "render_evidence_id",
+            "review_verdict",
+            "factual_findings",
+            "abstraction_findings",
+            "repetition_findings",
+            "channel_findings",
+            "authorship_findings",
+            "concepts_removed",
+            "actor",
+        ],
+        "voice-learn" => &[
+            "before_artifact_ref_id",
+            "after_artifact_ref_id",
+            "learning_kind",
+            "claim_key",
+            "observation",
+            "motivating_decision",
+            "scope",
+            "source",
+            "evidence_locator",
+            "named_author",
+            "channel",
+            "audience",
+            "actor",
+        ],
+        "visual-evidence-add" => &[
+            "visual_kind",
+            "claim_key",
+            "statement",
+            "actor",
+            "source",
+            "identity_authority",
+            "scope",
+            "evidence_locator",
+            "visual_purpose",
+            "visual_rationale",
+            "accessibility_notes",
+            "channel",
+            "reduced_motion_replacement",
+            "product_truth_locator",
+            "primitive_origin",
+            "primitive_licence",
+            "primitive_framework",
+            "primitive_dependencies",
+            "adaptation_status",
+            "semantic_role",
+            "visual_value",
+            "polarity",
+        ],
+        "visual-bind" => &[
+            "visual_work_id",
+            "channel",
+            "actor",
+            "audience",
+            "body",
+            "information_hierarchy",
+            "proof",
+            "visual_density",
+            "imagery_role",
+            "motion_role",
+            "product_representation",
+            "product_truth_locator",
+            "requested_departure",
+        ],
+        "visual-brief" => &["visual_work_id", "max_bytes", "actor"],
+        "visual-use" => &[
+            "visual_work_id",
+            "visual_evidence_id",
+            "primitive_version",
+            "visual_purpose",
+            "actor",
+        ],
+        "visual-render" => &[
+            "visual_work_id",
+            "artifact_ref_id",
+            "channel",
+            "renderer",
+            "renderer_version",
+            "viewport_width",
+            "viewport_height",
+            "motion_state",
+            "semantic_checks",
+            "actor",
+        ],
+        "visual-review" => &[
+            "render_evidence_id",
+            "control_render_evidence_id",
+            "review_verdict",
+            "visual_identity_findings",
+            "hierarchy_findings",
+            "density_findings",
+            "proof_findings",
+            "product_fidelity_findings",
+            "motion_findings",
+            "defect_findings",
+            "departure_decision",
+            "actor",
+        ],
+        "culture-evidence-add" => &[
+            "culture_kind",
+            "culture_case_kind",
+            "claim_key",
+            "statement",
+            "actor",
+            "source",
+            "identity_authority",
+            "scope",
+            "evidence_locator",
+            "culture_situation",
+            "consequence",
+            "culture_actors",
+            "decision_authority",
+            "observed_conduct",
+            "observed_outcome",
+            "culture_confidence",
+            "counterexample",
+            "boundary_conditions",
+            "operational_implication",
+            "actor_scope",
+        ],
+        "culture-bind" => &[
+            "culture_work_id",
+            "culture_case_kind",
+            "culture_actor",
+            "actor_role",
+            "team_name",
+            "consequence",
+            "decision_boundary",
+            "actor",
+        ],
+        "culture-brief" => &["culture_work_id", "max_bytes", "actor"],
+        "culture-case" => &[
+            "culture_work_id",
+            "artifact_ref_id",
+            "culture_case_kind",
+            "culture_decision",
+            "culture_alternatives",
+            "culture_unknowns",
+            "correction_of",
+            "correction_account",
+            "customer_action",
+            "semantic_checks",
+            "actor",
+        ],
+        "culture-review" => &[
+            "culture_case_record_id",
+            "review_verdict",
+            "conduct_findings",
+            "dissent_findings",
+            "uncertainty_findings",
+            "correction_findings",
+            "authority_findings",
+            "customer_or_hiring_findings",
+            "slogan_recitation_detected",
+            "actor",
+        ],
         _ => return None,
     })
 }
@@ -500,6 +1053,13 @@ pub(crate) const OWNER_ONLY: &[&str] = &[
     "finance-freeze",
     "finance-connect-airwallex",
     "work-review",
+    "voice-learn",
+    "publish-authorize",
+    "publish-invite",
+    "publish-revoke",
+    "publish-stop",
+    "publish-reconcile",
+    "schedule-wake",
 ];
 
 pub(crate) fn authorize(principal: Principal, cmd: &str) -> std::result::Result<Principal, String> {
@@ -629,11 +1189,52 @@ mod tests {
                 "body":"a current evidence-linked outcome",
                 "expected_artifact":"native ReviewTarget",
                 "owner_review":true,
+                "producing_topology":"coherent-single-worker",
+                "constitution_contracts":{
+                    "voice":{
+                        "channel":"blog",
+                        "author":"Founder",
+                        "audience":"operators",
+                        "reader_situation":"judging an unfamiliar system",
+                        "desired_understanding":"what changes in their work",
+                        "desired_action":"review the product proof",
+                        "proof":"one exact operating example",
+                        "consequence":"less manual coordination"
+                    }
+                },
                 "gates":[{"name":"review-target-live-probe","command":["test","-s","report.html"]}]
             }"#,
         )
         .expect("decode explicit owner-review Work contract");
         assert!(request.orgintel.owner_review);
+        assert_eq!(
+            request.orgintel.producing_topology.as_deref(),
+            Some("coherent-single-worker")
+        );
+        assert_eq!(
+            request
+                .orgintel
+                .constitution_contracts
+                .as_ref()
+                .and_then(|contracts| contracts.voice.as_ref())
+                .map(|contract| contract.channel),
+            Some(restless_orgintel::VoiceChannel::Blog)
+        );
+        assert!(
+            Request::decode(
+                r#"{
+                    "cmd":"work-add",
+                    "company":"review_test",
+                    "actor":"research-analyst",
+                    "role":"research",
+                    "title":"Mistyped contract",
+                    "body":"must fail before Work exists",
+                    "constitution_contracts":{"voice":{"channe":"blog"}}
+                }"#
+            )
+            .is_err(),
+            "unknown constitution fields must not silently erase lead intent"
+        );
         assert!(
             Request::decode(
                 r#"{
@@ -722,6 +1323,7 @@ mod tests {
             "work-handoff-escalate",
             "receipts",
             "spend",
+            "telemetry",
             "spend-correct",
             "goals",
             "goal-add",
@@ -733,6 +1335,7 @@ mod tests {
             "work-add",
             "work-edge",
             "work-artifact",
+            "work-artifact-retire",
             "work-gate",
             "work-gate-retire",
             "work-handoff",

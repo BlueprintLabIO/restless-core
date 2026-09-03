@@ -1,0 +1,298 @@
+{
+  "schema": "restless.release-reference-capsule.v1",
+  "observed_at": "2026-09-01T09:03:24Z",
+  "scope": {
+    "purpose": "Clean-room factual reset input for a fresh nine-channel release author; this is reference data, not release copy or a verdict on a design.",
+    "work_id": "aef3e11d-e9a2-4c5d-848c-a8daea997d00",
+    "attempt_id": "6737d71c-2382-498b-b06d-ee4ebabf4cb7",
+    "input_fingerprint": "56720e0c78eeea131d0fdff2d618abecf554d93abe59b227c0ddcea60ac46172",
+    "excluded_material": "The rejected gallery, its prose, screenshots, composition, producer rationale, evaluations and receipts were not opened or reused. Only the three outcome-level rejection observations authorized by this Work are retained."
+  },
+  "epistemic_terms": {
+    "claim": "An assertion by a person, actor, tool/provider or document.",
+    "observation": "A result recorded through an attributable method at a stated time.",
+    "evidence": "Material supporting or challenging a claim.",
+    "accepted_fact": "A claim the company has accepted as true and may act on; acceptance is not inferred from command success."
+  },
+  "ordered_sources": [
+    {
+      "rank": 1,
+      "authority": "owner-released, Work-bound Company Constitution truth pillar",
+      "path_or_command": "Company Constitution release 55af2a58-3c5c-4720-a8dd-0e7b12b04dd2; truth evidence s35-integrated-corpus@sha256:2279516e1403349b8618d33520ef58ccfb28ad53b3dff4518b54a6708c33548f; attachment observation in `restless events -c constitution_treatment_test --limit 20`, event 66",
+      "observation": "Three truth facts were attached to this exact Work. Runtime context reports truth pillar available with 3 included and 0 omitted evidence items. Voice, visual and culture pillars are unavailable for this Work.",
+      "use": "Authoritative product facts and explicit omissions only. The release ID is a constitution release, not evidence of a public company persona, founder, channel author or customer."
+    },
+    {
+      "rank": 2,
+      "authority": "company mission",
+      "path_or_command": "/company/mission.md (also matched by `restless company show -c constitution_treatment_test`)",
+      "observation": "The mission requires an exceptional, internally coherent nine-channel release package; exact evidence, authorship, uncertainty and effect boundaries; and forbids publishing, deploying, sending, contacting, purchasing or any other external effect.",
+      "use": "Outcome and effect boundary, not product capability or brand voice."
+    },
+    {
+      "rank": 3,
+      "authority": "authority-owned legal identity observation",
+      "path_or_command": "`restless legal show -c constitution_treatment_test` at 2026-09-01T09:03Z",
+      "observation": "Returned `{\"profile\":null,\"source\":\"authority\"}`. `restless legal --help` confirms legal identity tooling exists and `show` is the safe current profile observation surface.",
+      "use": "Deterministic evidence that no safe legal profile is currently available through the installed identity surface. This is not permission to invent a substitute."
+    },
+    {
+      "rank": 4,
+      "authority": "installed Restless read-only command surface",
+      "path_or_command": "`restless --help`; `restless work --help`; `restless work artifact --help`; `restless browser --help`; `restless status --help`",
+      "observation": "The installed CLI exposes canonical Work inspection, Attempt/evidence projection, artifact linking with work and attempt identifiers, owner attention/judgement surfaces, browser health/controller coordination and governed external effects. Help proves the command surface exists; it does not prove a business outcome or an unprobed workflow.",
+      "use": "Fresh terminal excerpts may evidence only the command surface actually shown. Capability names must not be expanded into outcome claims."
+    },
+    {
+      "rank": 5,
+      "authority": "deterministic coordination projection",
+      "path_or_command": "`restless work graph` at 2026-09-01T09:03Z",
+      "observation": "The graph linked artifacts to exact work_id and attempt_id values and recorded artifact state, digest, creator and evidence relationships. The current capsule Attempt is running with no upstream artifacts. Previously linked package artifacts are superseded and belong to abandoned Work, so they are excluded from this capsule.",
+      "use": "Evidence of current coordination record shape only. It does not demonstrate an accepted artifact's identity binding, a product UI, or publication."
+    },
+    {
+      "rank": 6,
+      "authority": "deterministic actor roster",
+      "path_or_command": "`restless people -c constitution_treatment_test` at 2026-09-01T09:03Z",
+      "observation": "The roster reports system/owner/exec plus four staff actors. The current actor is identity-researcher, role product-truth-researcher, display Sofia Marin, model litellm/gpt-5.6-sol, session_running true.",
+      "use": "Operational attribution only. Roster display names and roles are not public bylines, founder identities, testimonials, customer identities or approved channel voices."
+    },
+    {
+      "rank": 7,
+      "authority": "deterministic spend observation",
+      "path_or_command": "`restless spend -c constitution_treatment_test` at 2026-09-01T09:03Z",
+      "observation": "Status available; ceiling USD 25.00; accounted USD 4.2021; remaining USD 20.7979. By-actor observations: release-producer 1.9758, release-direction 1.1776, release-critic 0.6430, exec 0.3156, identity-researcher 0.0902; all reported against litellm/gpt-5.6-sol.",
+      "use": "Internal operating observation only, time-bound and not a marketing metric, customer result or quality score."
+    },
+    {
+      "rank": 8,
+      "authority": "live substrate probes",
+      "path_or_command": "`restless status -c constitution_treatment_test`; `restless doctor -c constitution_treatment_test`; `restless browser status`; `command -v restless git omp node pnpm`",
+      "observation": "Status reported the company Running. Doctor reported coordinator and storage available but overall degraded because supervisor services were empty and reconciliation was required; host-only owner surfaces were not observed. Browser status reported Chromium, desktop, automation and web transport available, controller unclaimed. Executables resolved to /usr/local/bin/restless, /usr/bin/git, /usr/local/bin/omp, /usr/local/bin/node and /usr/local/bin/pnpm.",
+      "use": "Substrate state at probe time only. Installed executables and browser availability do not prove a product screen, customer-visible experience or effect authority."
+    },
+    {
+      "rank": 9,
+      "authority": "canonical company configuration",
+      "path_or_command": "`restless company show -c constitution_treatment_test` at 2026-09-01T09:03Z",
+      "observation": "Configured model litellm/gpt-5.6-sol, worker_runtime omp, reasoning_effort high, spend ceiling 25, no approved parties and one credential reference for model.inference.litellm.",
+      "use": "Configuration observation only; configuration is not provider acceptance or authority."
+    },
+    {
+      "rank": 10,
+      "authority": "configured secret-reference check",
+      "path_or_command": "`restless credential check -c constitution_treatment_test` at 2026-09-01T09:03Z",
+      "observation": "The model.inference.litellm reference env:GPT_API_KEY was present.",
+      "use": "Reference presence only, not secret disclosure, provider acceptance, model availability, effect authority or successful inference."
+    },
+    {
+      "rank": 11,
+      "authority": "local allowed-source inventory",
+      "path_or_command": "Read-only directory and file inspection of /company, /company/org, /company/knowledge, /company/projects, /company/repos and /company/mission.md",
+      "observation": "Knowledge, projects and repos were empty. Org contained only an exec journal/current plan plus this new capsule location. A rejected output area and browser-output area existed but were excluded and not opened. No admissible product source repository, legal profile, customer corpus, brand voice contract, visual contract or product screenshot source was found.",
+      "use": "Absence within the inspected local scope; not a claim that no such source exists anywhere."
+    }
+  ],
+  "authoritative_facts": [
+    {
+      "id": "product.accepted_binding",
+      "type": "accepted_fact",
+      "claim": "Each accepted company artifact binds to the exact identity release, author, channel and evidence it used; drafts remain drafts.",
+      "observation": "Delivered in the Work-bound constitution truth pillar with included evidence 3/3 and no omission in that pillar.",
+      "evidence": "s35-integrated-corpus@sha256:2279516e1403349b8618d33520ef58ccfb28ad53b3dff4518b54a6708c33548f",
+      "acceptance_basis": "Owner-released Company Constitution release 55af2a58-3c5c-4720-a8dd-0e7b12b04dd2."
+    },
+    {
+      "id": "product.accountable_work",
+      "type": "accepted_fact",
+      "claim": "Restless runs accountable company work and returns the evidence needed for an owner decision.",
+      "observation": "Delivered in the same Work-bound constitution truth pillar.",
+      "evidence": "s35-integrated-corpus@sha256:2279516e1403349b8618d33520ef58ccfb28ad53b3dff4518b54a6708c33548f",
+      "acceptance_basis": "Owner-released Company Constitution release 55af2a58-3c5c-4720-a8dd-0e7b12b04dd2."
+    },
+    {
+      "id": "product.correction",
+      "type": "accepted_fact",
+      "claim": "When a company fact changes, Restless shows the exact accepted artifacts that depend on it and asks the owner to retain, revise or retire them; nothing is rewritten automatically.",
+      "observation": "Delivered in the same Work-bound constitution truth pillar.",
+      "evidence": "s35-integrated-corpus@sha256:2279516e1403349b8618d33520ef58ccfb28ad53b3dff4518b54a6708c33548f",
+      "acceptance_basis": "Owner-released Company Constitution release 55af2a58-3c5c-4720-a8dd-0e7b12b04dd2."
+    },
+    {
+      "id": "product.correction_scope",
+      "type": "accepted_fact_for_this_work",
+      "claim": "Bindings cover accepted artifacts, not every draft produced during Work; only accepted artifacts repeating the broader changed claim require a retain, revise or retire decision.",
+      "observation": "Provided verbatim as the deterministic factual source in the trusted Work assignment, consistent with product.accepted_binding and product.correction.",
+      "evidence": "Work aef3e11d-e9a2-4c5d-848c-a8daea997d00 revision 1, input fingerprint 56720e0c78eeea131d0fdff2d618abecf554d93abe59b227c0ddcea60ac46172.",
+      "acceptance_basis": "Trusted OrgIntel decision bound to this Attempt; use only at the stated scope."
+    }
+  ],
+  "product_proof_allowed": [
+    {
+      "proof": "Exact factual copy of the four authoritative facts above with their source IDs/digests.",
+      "condition": "Do not turn a fact statement into a claim that a specific unobserved screen or customer outcome was seen."
+    },
+    {
+      "proof": "Fresh, verbatim terminal excerpts from the read-only probes listed in ordered_sources, including command and observation time.",
+      "condition": "Crop only for length, preserve meaning and label command acceptance as command-surface evidence rather than business outcome."
+    },
+    {
+      "proof": "A source-labelled explanatory diagram or abstract sequence: accepted artifact -> exact identity release/author/channel/evidence binding; changed fact -> exact dependent accepted artifacts -> owner decision retain/revise/retire; no automatic rewrite.",
+      "condition": "Label `Explanatory model — not a captured Restless product screen`. Do not mimic a real UI or invent field values."
+    },
+    {
+      "proof": "Deterministic coordination metadata from this Work, such as exact work_id/attempt_id linkage, only as an operational example.",
+      "condition": "Do not describe current superseded or draft artifacts as accepted, identity-bound, published or customer-visible."
+    }
+  ],
+  "product_proof_forbidden": [
+    "Any screenshot, mockup or reconstruction presented as an observed Restless product screen; no admissible product screenshots or exact product UI states were found.",
+    "The rejected gallery, its screenshots, prose, composition, producer rationale, evaluation, receipt or any derivative treatment.",
+    "Claims that every draft is identity-bound or enters correction review; the accepted scope is accepted artifacts, and only accepted artifacts repeating the broader changed claim require the decision.",
+    "Claims that Restless automatically rewrites, updates, republishes, retains, revises or retires artifacts; the owner is asked to decide and nothing is rewritten automatically.",
+    "Claims that command exit, artifact linkage, browser availability, a configured credential or a running container proves publication, customer delivery, product UI behavior or provider acceptance.",
+    "Invented names, metrics, customers, testimonials, logos, quotes, product records, timestamps, evidence values, quality scores, review verdicts or before/after outcomes."
+  ],
+  "voice_and_authorship_sources": {
+    "company_voice": {
+      "status": "not_found",
+      "evidence": "Work-bound Company Constitution says Company Voice unavailable; attempt context event 66 reports no Work-bound voice contract."
+    },
+    "operating_culture": {
+      "status": "not_found",
+      "evidence": "Work-bound Company Constitution says Operating Culture unavailable; do not infer personality or generic values."
+    },
+    "owner_released_identity": {
+      "status": "not_found_for_public_or_channel_use",
+      "evidence": "`restless legal show -c constitution_treatment_test` returned profile null. Constitution release 55af2a58-3c5c-4720-a8dd-0e7b12b04dd2 is owner-released governance truth but does not supply a public company/persona identity."
+    },
+    "founder_identity": {
+      "status": "not_found",
+      "evidence": "No founder source in the mission, Work-bound constitution, safe legal profile or allowed local source inventory."
+    },
+    "named_authors": {
+      "status": "not_found_for_release_authorship",
+      "evidence": "Runtime actor display names exist for operational attribution only; no owner-released byline or channel-author authority was found."
+    },
+    "customer_evidence": {
+      "status": "not_found",
+      "evidence": "No admissible customer corpus, quote, testimonial, case study or customer identity was found."
+    },
+    "allowed_authorship": "Use no named public author or first-person persona. Attribute factual reference material to the cited company source. If a channel requires a byline, leave an explicit owner-released-author placeholder outside publishable copy."
+  },
+  "channel_identity_constraints": [
+    "No channel may imply a founder, executive, customer, reviewer or named author without a new cited owner-released source.",
+    "Do not convert operational actor names (including Sofia Marin, Mara Voss, Ilya Chen or Nadia Okafor) into public identities, bylines, quotes or personas.",
+    "First-person singular copy is disallowed because no authorized speaker was found. First-person plural house voice is also unsupported; prefer neutral factual language until a voice contract is bound.",
+    "A channel-specific tone, personality, visual identity or cultural posture cannot be invented from the mission or product facts.",
+    "Keep placeholders visibly non-publishable and out of final channel copy; unresolved identity is an input gap, not creative latitude.",
+    "Cross-channel consistency cannot widen authority: every factual claim retains its source, and every proposed diagram remains labelled non-UI explanatory material."
+  ],
+  "unknowns": {
+    "owner_released_identity": "Not found: safe legal profile is null and no public identity contract is Work-bound.",
+    "founder_identity": "Not found.",
+    "named_release_authors": "Not found.",
+    "customer_evidence": "Not found.",
+    "marketing_metrics": "Not found. Internal spend is observed but is not a marketing/product-performance metric.",
+    "product_screenshots": "No admissible screenshot found. Rejected browser-output material exists but was excluded and not inspected.",
+    "exact_product_ui_states": "Not found or probed. Browser availability and CLI help are not product UI-state evidence.",
+    "company_voice": "Unavailable for this Work.",
+    "visual_language": "Unavailable for this Work.",
+    "operating_culture": "Unavailable for this Work.",
+    "accepted_artifact_demo": "No admissible, current accepted artifact was found that can visually demonstrate identity binding or correction behavior.",
+    "provider_acceptance": "Not established; credential-reference presence is not provider acceptance.",
+    "host_owner_surfaces": "Not observed by doctor from inside the company runtime.",
+    "runtime_health": "Doctor reported degraded because supervisor services were empty and reconciliation was required, although lifecycle status was Running.",
+    "external_existence": "This capsule records only inspected local/Work-bound sources and does not claim missing sources do not exist elsewhere."
+  },
+  "prohibited_inferences": [
+    "Do not infer capabilities from command names, installed binaries, configured credentials, model names or browser availability.",
+    "Do not infer provider acceptance from `credential check` or a prior model session.",
+    "Do not infer accepted-artifact semantics from drafts, produced Attempts, linked artifacts or superseded records.",
+    "Do not infer public authorship, founder status, employment claims or channel authority from the internal actor roster.",
+    "Do not infer customer adoption, satisfaction, conversion, time savings, revenue, reliability or scale; no customer or metric source was found.",
+    "Do not infer an exact product layout, visual style, field label, screen state or interaction from the abstract facts.",
+    "Do not present producer QA as independent evaluation or as an independent review verdict.",
+    "Do not treat an explanatory diagram as a screenshot or imply that a command succeeded in the world beyond its observed output.",
+    "Do not infer effect authority from the mission, a role, an approved command surface or component composition."
+  ],
+  "exact_factual_source": {
+    "required_statement": "Restless binds each accepted company artifact to the exact identity release, author, channel and evidence it used; drafts remain drafts. Bindings cover accepted artifacts, not every draft produced during Work. When a company fact changes, Restless shows the exact accepted artifacts that depend on it and asks the owner to retain, revise or retire them; nothing is rewritten automatically. Only accepted artifacts repeating the broader changed claim require that retain, revise or retire decision.",
+    "short_form": "Accepted artifacts retain exact identity, author, channel and evidence provenance. Drafts do not enter that accepted-artifact binding. If a fact changes, the owner sees the dependent accepted artifacts that repeat the broader claim and decides retain, revise or retire; Restless does not rewrite them automatically.",
+    "source_chain": [
+      "product.accepted_binding",
+      "product.correction",
+      "product.correction_scope"
+    ],
+    "copy_rule": "The short form is proposed explanatory wording, not a quotation from a customer or product UI. Preserve all scope qualifiers if adapted."
+  },
+  "effect_boundaries": {
+    "ordinary_read_only_work_performed": [
+      "Read allowed local sources and command help.",
+      "Ran read-only status, doctor, legal profile, roster, spend, Work graph, events, configuration, credential-reference and executable probes.",
+      "Created this local JSON reference artifact."
+    ],
+    "forbidden_without_separate_authority": [
+      "Publish, deploy, push, send, contact, purchase, charge, delete externally, contract or create another meaningful external consequence.",
+      "Use `restless effect` merely to probe an ordinary read-only surface; no external effect was run.",
+      "Claim provider or recipient outcome from command acceptance."
+    ],
+    "authority_state": "No approved parties were configured. This Work and the Company Constitution cannot approve an external effect.",
+    "reconciliation_rule": "If a later authorized effect occurs, tool/provider acceptance is evidence only; reconcile against provider state before claiming the business outcome."
+  },
+  "available_actor/model/spend/context_observations": {
+    "actors": {
+      "current": {
+        "actor_id": "identity-researcher",
+        "display": "Sofia Marin",
+        "role": "product-truth-researcher",
+        "model": "litellm/gpt-5.6-sol",
+        "session_running_at_observation": true
+      },
+      "other_operational_actors": [
+        "exec",
+        "release-direction",
+        "release-producer",
+        "release-critic"
+      ],
+      "constraint": "These are internal operational attributions, not release authors or public voices."
+    },
+    "model": {
+      "company_configured": "litellm/gpt-5.6-sol",
+      "worker_runtime": "omp",
+      "reasoning_effort": "high",
+      "current_attempt_event": "event 68 recorded model litellm/gpt-5.6-sol and high effort; event 69 recorded a fresh, non-reconstructed, non-resumed model session.",
+      "constraint": "Configured/recorded use is not a marketing claim about model quality or provider availability."
+    },
+    "spend": {
+      "observed_status": "available",
+      "ceiling_usd": 25.0,
+      "accounted_usd": 4.2021,
+      "remaining_usd": 20.7979,
+      "observed_by_actor_usd": {
+        "release-producer": 1.9758,
+        "release-direction": 1.1776,
+        "release-critic": 0.643,
+        "exec": 0.3156,
+        "identity-researcher": 0.0902
+      },
+      "constraint": "Time-bound internal accounting, not product ROI or a release metric."
+    },
+    "context": {
+      "constitution_release_id": "55af2a58-3c5c-4720-a8dd-0e7b12b04dd2",
+      "constitution_brief_digest": "9474089bd69466ee9f53d54f4ad71417a74704150b16ec77abdf9f7adbe52d90",
+      "truth_pillar_status": "available; 3 included evidence, 0 omitted",
+      "voice_pillar_status": "unavailable: no Work-bound contract",
+      "visual_pillar_status": "unavailable: no Work-bound contract",
+      "culture_pillar_status": "unavailable: no Work-bound posture",
+      "upstream_artifact_versions": [],
+      "repository": null,
+      "bound_workspace": "/company",
+      "context_recovery": false,
+      "lead_conversation_attached": false,
+      "full_team_transcript_attached": false,
+      "unrelated_actor_messages_attached": false
+    }
+  },
+  "fresh_author_brief": "Start from the four source-backed facts, not the rejected candidate. Explain accepted-artifact provenance and owner-controlled correction in neutral factual language. Use only fresh verbatim read-only terminal evidence or clearly labelled non-UI explanatory diagrams. There is no admissible product screenshot, exact UI state, customer evidence, metric, founder, owner-released public identity, named channel author, company voice, visual language or culture posture. Do not invent any of them, do not turn internal actor names into bylines, and do not present producer QA as independent evaluation. Keep drafts distinct from accepted artifacts, keep the broader-claim qualifier, state that nothing is rewritten automatically, preserve citations and uncertainty, and perform no external effect."
+}

@@ -8,8 +8,10 @@ export interface CompanySourceObservation {
 	detail?: string;
 }
 
+export type OutcomeStandard = 'fast' | 'thorough' | 'exceptional' | 'frontier';
+
 export interface CompanyView {
-	company: { id: string; name: string };
+	company: { id: string; name: string; outcome_standard: OutcomeStandard };
 	sources: Record<'authority' | 'orgintel' | 'runtime', CompanySourceObservation>;
 	charter: {
 		purpose: string;
@@ -78,7 +80,40 @@ export interface CompanyResource {
 	observed_at: string;
 	detail?: string;
 	metadata?: Record<string, unknown>;
+	launch?: ArtifactLaunchDescriptor;
 }
+
+export type ArtifactLaunchShape = 'embedded_web' | 'native_client' | 'company_computer';
+
+export interface ArtifactLaunchDescriptor {
+	contract_version: 'artifact-launch.v1';
+	shape: ArtifactLaunchShape;
+	availability:
+		| 'ready'
+		| 'preparing'
+		| 'mac_must_remain_awake'
+		| 'requires_always_on_runner'
+		| 'unavailable'
+		| 'expired'
+		| 'stopped';
+	detail: string;
+	open_endpoint: string;
+	artifact_digest?: string;
+	candidate_digest?: string;
+	work_id?: string;
+	attempt_id?: string;
+	audience?: string;
+	expires_at?: string;
+	platform?: string;
+	publication_id?: string;
+	runtime_generation?: string;
+}
+
+export type ArtifactOpenOutcome =
+	| { kind: 'embedded'; href: string; expires_at: string; reused: boolean }
+	| { kind: 'native'; state: string; handle: string; expires_at: string; reused: boolean }
+	| { kind: 'company_computer'; href: string }
+	| { kind: 'external'; href: string; reason: string };
 
 export interface CompanyExternalAction {
 	id: string;
@@ -186,6 +221,21 @@ export async function getCompany(company: string, probeCredentials = false): Pro
 	);
 }
 
+export async function openCompanyResource(
+	company: string,
+	resource: CompanyResource
+): Promise<ArtifactOpenOutcome> {
+	if (!resource.launch || resource.launch.availability !== 'ready') {
+		throw new Error(resource.launch?.detail ?? 'This resource cannot be opened.');
+	}
+	return ownerResponse<ArtifactOpenOutcome>(
+		await fetch(resource.launch.open_endpoint, {
+			method: 'POST',
+			credentials: 'same-origin'
+		})
+	);
+}
+
 export async function recoverCompany(
 	company: string,
 	action: RecoveryAction
@@ -210,6 +260,20 @@ export async function reviseCompanyCharter(
 			method: 'POST',
 			headers: { 'content-type': 'application/json' },
 			body: JSON.stringify({ markdown, base_revision: baseRevision }),
+			credentials: 'same-origin'
+		})
+	);
+}
+
+export async function setCompanyOutcomeStandard(
+	company: string,
+	standard: OutcomeStandard
+): Promise<CompanyView> {
+	return ownerResponse<CompanyView>(
+		await fetch(`/api/companies/${encodeURIComponent(company)}/company/outcome-standard`, {
+			method: 'POST',
+			headers: { 'content-type': 'application/json' },
+			body: JSON.stringify({ standard }),
 			credentials: 'same-origin'
 		})
 	);

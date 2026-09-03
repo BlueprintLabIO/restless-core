@@ -291,6 +291,10 @@ pub struct CompanyConfig {
     /// Per-company model spend ceiling in USD (T2). The fuse, not governance.
     #[serde(default = "default_ceiling")]
     pub spend_ceiling_usd: SpendCeiling,
+    /// Standing owner promise for newly commissioned outcomes. This selects
+    /// ambition, not authority, topology, model, or a spend allocation.
+    #[serde(default)]
+    pub outcome_standard: restless_orgintel::OutcomeStandard,
     /// Provider-qualified model the agent runs on, e.g. `zai/glm-5.2`.
     /// Required: there is no sensible default provider, and the adapter-model
     /// indirection this replaced (`company-general-v1` → a gateway route)
@@ -530,11 +534,17 @@ pub(crate) fn validate_company_name(name: &str) -> Result<()> {
 }
 
 pub fn container_name(company: &str) -> String {
-    format!("restless-co-{company}")
+    match std::env::var("RESTLESS_RESOURCE_NAMESPACE") {
+        Ok(namespace) if !namespace.is_empty() => format!("restless-{namespace}-co-{company}"),
+        _ => format!("restless-co-{company}"),
+    }
 }
 
 pub fn volume_name(company: &str) -> String {
-    format!("restless-vol-{company}")
+    match std::env::var("RESTLESS_RESOURCE_NAMESPACE") {
+        Ok(namespace) if !namespace.is_empty() => format!("restless-{namespace}-vol-{company}"),
+        _ => format!("restless-vol-{company}"),
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -679,7 +689,20 @@ pub async fn up(config: &CompanyConfig, reconcile: bool) -> Result<String> {
         }
         ContainerStatus::Absent => {
             let volume = volume_name(company);
-            run_ok(&["volume", "create", &volume]).await?;
+            let profile = std::env::var("RESTLESS_PROFILE").unwrap_or_else(|_| "stable".into());
+            let namespace = std::env::var("RESTLESS_RESOURCE_NAMESPACE").unwrap_or_default();
+            let profile_label = format!("io.restless.profile={profile}");
+            let namespace_label = format!("io.restless.namespace={namespace}");
+            run_ok(&[
+                "volume",
+                "create",
+                "--label",
+                &profile_label,
+                "--label",
+                &namespace_label,
+                &volume,
+            ])
+            .await?;
             let name = container_name(company);
             let cpus = resource_bound("RESTLESS_COMPANY_CPUS", DEFAULT_CPUS);
             let memory = resource_bound("RESTLESS_COMPANY_MEMORY", DEFAULT_MEMORY);
@@ -706,6 +729,10 @@ pub async fn up(config: &CompanyConfig, reconcile: bool) -> Result<String> {
             let coordinator_env = format!("RESTLESS_COORDINATOR={}", crate::runtime_coordinator()?);
             let volume_mount = format!("{volume}:/company");
             args.extend([
+                "--label",
+                &profile_label,
+                "--label",
+                &namespace_label,
                 "-e",
                 &company_env,
                 "-e",
@@ -1683,7 +1710,7 @@ fn digest_source(root: &Path) -> Result<String> {
     for relative in ["Cargo.toml", "Cargo.lock", "crates", "infra/company-image"] {
         collect_files(&root.join(relative), &mut files)?;
     }
-    files.sort();
+    sort_source_files(root, &mut files);
     let mut digest = Sha256::new();
     for path in files {
         let relative = path.strip_prefix(root).unwrap_or(&path);
@@ -1695,6 +1722,14 @@ fn digest_source(root: &Path) -> Result<String> {
         digest.update([0]);
     }
     Ok(format!("{:x}", digest.finalize()))
+}
+
+fn sort_source_files(root: &Path, files: &mut [PathBuf]) {
+    files.sort_by(|left, right| {
+        let left = left.strip_prefix(root).unwrap_or(left).to_string_lossy();
+        let right = right.strip_prefix(root).unwrap_or(right).to_string_lossy();
+        left.as_bytes().cmp(right.as_bytes())
+    });
 }
 
 fn collect_files(path: &Path, files: &mut Vec<PathBuf>) -> Result<()> {
@@ -1751,6 +1786,7 @@ pub async fn down(company: &str) -> Result<String> {
 /// how you get a clean-looking run with a hidden variable in it.
 pub async fn destroy(
     root: &Path,
+    database_url: &str,
     company: &str,
     org: &restless_orgintel::OrgIntel,
     spend: &crate::spend::SpendLedger,
@@ -1775,10 +1811,14 @@ pub async fn destroy(
         removed.push("volume");
     }
 
-    // `drop_schema` has existed unused since sprint 01 and was nearly deleted
-    // in the sprint-02 purge. Ephemeral companies are why it exists.
-    org.drop_schema().await.context("drop orgintel schema")?;
-    removed.push("schema");
+    // A cell is a database and role, not only a schema. Closing the shared
+    // pool first makes `down --destroy` a real clean-room reset rather than a
+    // success message over a hidden database that survives into the next run.
+    org.close().await;
+    crate::cell::destroy_database(root, database_url, company)
+        .await
+        .context("drop OrgIntel cell database, role and credential")?;
+    removed.push("cell");
 
     // The spool is ONE shared file, not one per company (`spend.jsonl`), so
     // this cannot be a file deletion — an earlier version of this function
@@ -1993,9 +2033,30 @@ pub fn state_root() -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::{
-        is_immutable_image_digest, resolve_company_image, resolve_resource_bound, COMPANY_IMAGE,
-        DEFAULT_CPUS, DEFAULT_MEMORY, DEFAULT_PIDS_LIMIT,
+        is_immutable_image_digest, resolve_company_image, resolve_resource_bound,
+        sort_source_files, COMPANY_IMAGE, DEFAULT_CPUS, DEFAULT_MEMORY, DEFAULT_PIDS_LIMIT,
     };
+
+    #[test]
+    fn source_digest_uses_portable_relative_byte_order() {
+        let root = std::path::Path::new("/source");
+        let mut files = vec![
+            root.join("crates/restless/src/main.rs"),
+            root.join("crates/restless-model-gateway/src/lib.rs"),
+            root.join("crates/restlessd/src/staff.rs"),
+            root.join("crates/restlessd/src/staff/context.rs"),
+        ];
+        sort_source_files(root, &mut files);
+        assert_eq!(
+            files,
+            vec![
+                root.join("crates/restless-model-gateway/src/lib.rs"),
+                root.join("crates/restless/src/main.rs"),
+                root.join("crates/restlessd/src/staff.rs"),
+                root.join("crates/restlessd/src/staff/context.rs"),
+            ]
+        );
+    }
 
     #[test]
     fn hosted_runtime_reference_accepts_only_an_exact_oci_digest() {
@@ -2112,6 +2173,37 @@ model = "moonshot/kimi-k3"
         assert_eq!(config.spend_ceiling_usd.micro_usd(), 1_000_001);
         let rendered = toml::to_string(&config).unwrap();
         assert!(rendered.contains("spend_ceiling_usd = \"1.000001\""));
+    }
+
+    #[test]
+    fn legacy_company_inherits_exceptional_and_explicit_standard_round_trips() {
+        let legacy: CompanyConfig = toml::from_str(
+            r#"name = "standard_test"
+mission = "test"
+model = "moonshot/kimi-k3"
+"#,
+        )
+        .unwrap();
+        assert_eq!(
+            legacy.outcome_standard,
+            restless_orgintel::OutcomeStandard::Exceptional
+        );
+
+        let explicit: CompanyConfig = toml::from_str(
+            r#"name = "standard_test"
+mission = "test"
+model = "moonshot/kimi-k3"
+outcome_standard = "frontier"
+"#,
+        )
+        .unwrap();
+        assert_eq!(
+            explicit.outcome_standard,
+            restless_orgintel::OutcomeStandard::Frontier
+        );
+        assert!(toml::to_string(&explicit)
+            .unwrap()
+            .contains("outcome_standard = \"frontier\""));
     }
 
     #[test]
@@ -2240,6 +2332,7 @@ reasoning_effort = "high"
             name: "archive_contract_test".into(),
             mission: "Preserve me".into(),
             spend_ceiling_usd: SpendCeiling::from_micro_usd(5_000_000),
+            outcome_standard: Default::default(),
             model: "moonshot/kimi-k3".into(),
             worker_runtime: crate::runtime::WorkerRuntime::Omp,
             reasoning_effort: crate::acp::DEFAULT_REASONING_EFFORT.into(),

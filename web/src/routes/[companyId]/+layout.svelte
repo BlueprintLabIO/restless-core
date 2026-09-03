@@ -8,6 +8,7 @@
 		attentionQuery,
 		cockpitQuery,
 		companiesQuery,
+		companyQuery,
 		conversationQuery
 	} from '$lib/model/queries.svelte';
 	import { actorCanReceive } from '$lib/model/cockpit';
@@ -27,6 +28,13 @@
 	const attention = $derived(attentionQuery(companyId));
 	const cockpitProjection = $derived(cockpitQuery(companyId));
 	const cockpit = $derived(cockpitProjection.view);
+	const companyProjection = $derived(companyQuery(companyId));
+	const companyDefaultStandard = $derived(
+		companyProjection.view?.company.outcome_standard ??
+			cockpit?.company.outcome_standard ??
+			'exceptional'
+	);
+	$effect(() => companyProjection.attach());
 
 	const companyName = $derived(attention.view?.company.name ?? '');
 	const liveNeedsYou = $derived(attention.view?.items ?? []);
@@ -89,11 +97,19 @@
 		files: File[],
 		includeContext: boolean,
 		newFocus: boolean,
-		interrupt: boolean
+		interrupt: boolean,
+		outcomeStandard?: import('$lib/model/company').OutcomeStandard
 	): Promise<{ error?: string; notice?: string }> {
 		try {
 			const contextPath = includeContext ? cockpitContextPath(companyId, page.url) : undefined;
-			const result = await railConversation.send(text, files, contextPath, newFocus, interrupt);
+			const result = await railConversation.send(
+				text,
+				files,
+				contextPath,
+				newFocus,
+				interrupt,
+				outcomeStandard
+			);
 			if (interrupt && result.interrupted) {
 				return { notice: `${railActorName} was interrupted and your new direction is queued.` };
 			}
@@ -209,6 +225,7 @@
 		{companyId}
 		membershipRole="owner"
 		connected={railConnected}
+		defaultOutcomeStandard={companyDefaultStandard}
 		contextLabel={currentContext}
 		focusAfterMessageId={railConversation.focusAfterMessageId}
 		focusStartedAt={railConversation.focusStartedAt}

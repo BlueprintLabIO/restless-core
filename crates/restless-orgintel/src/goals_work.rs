@@ -4,6 +4,26 @@
 
 use super::*;
 
+struct WorkCreationPolicy<'a> {
+    owner_review_required: bool,
+    external_source: Option<(i64, &'a str)>,
+    producing_topology: ProducingTopology,
+    commissioned_by: Option<&'a str>,
+    constitution_contracts: Option<&'a InitialConstitutionContracts>,
+}
+
+impl Default for WorkCreationPolicy<'_> {
+    fn default() -> Self {
+        Self {
+            owner_review_required: false,
+            external_source: None,
+            producing_topology: ProducingTopology::CoherentSingleWorker,
+            commissioned_by: None,
+            constitution_contracts: None,
+        }
+    }
+}
+
 impl OrgIntel {
     // ---- goals ----
 
@@ -145,8 +165,77 @@ impl OrgIntel {
         revises: &[Uuid],
         gates: &[InitialWorkGate<'_>],
     ) -> Result<Uuid> {
-        self.add_work_inner(work, requires, revises, gates, false, None)
-            .await
+        self.add_work_inner(
+            work,
+            requires,
+            revises,
+            gates,
+            WorkCreationPolicy::default(),
+        )
+        .await
+    }
+
+    /// Record the exact commissioning actor and producing route. The daemon
+    /// owns the organisational admission check; this transaction preserves
+    /// the accepted decision beside the Work it created.
+    #[allow(clippy::too_many_arguments)]
+    pub async fn add_commissioned_work_with_edges_and_gates(
+        &self,
+        work: NewWork<'_>,
+        requires: &[Uuid],
+        revises: &[Uuid],
+        gates: &[InitialWorkGate<'_>],
+        owner_review_required: bool,
+        source_message_id: Option<i64>,
+        commissioned_by: &str,
+        producing_topology: ProducingTopology,
+    ) -> Result<Uuid> {
+        self.add_work_inner(
+            work,
+            requires,
+            revises,
+            gates,
+            WorkCreationPolicy {
+                owner_review_required,
+                external_source: source_message_id.map(|id| (id, commissioned_by)),
+                producing_topology,
+                commissioned_by: Some(commissioned_by),
+                constitution_contracts: None,
+            },
+        )
+        .await
+    }
+
+    /// Commission Work with its selected Voice, Visual and Culture situation
+    /// in the same transaction. The scheduler sees the Work only after every
+    /// supplied contract and the current identity release are bound.
+    #[allow(clippy::too_many_arguments)]
+    pub async fn add_commissioned_work_with_constitution(
+        &self,
+        work: NewWork<'_>,
+        requires: &[Uuid],
+        revises: &[Uuid],
+        gates: &[InitialWorkGate<'_>],
+        owner_review_required: bool,
+        source_message_id: Option<i64>,
+        commissioned_by: &str,
+        producing_topology: ProducingTopology,
+        constitution_contracts: &InitialConstitutionContracts,
+    ) -> Result<Uuid> {
+        self.add_work_inner(
+            work,
+            requires,
+            revises,
+            gates,
+            WorkCreationPolicy {
+                owner_review_required,
+                external_source: source_message_id.map(|id| (id, commissioned_by)),
+                producing_topology,
+                commissioned_by: Some(commissioned_by),
+                constitution_contracts: Some(constitution_contracts),
+            },
+        )
+        .await
     }
 
     /// Commission worker-owned Work from one external organisational message.
@@ -169,8 +258,13 @@ impl OrgIntel {
             requires,
             revises,
             gates,
-            owner_review_required,
-            Some((source_message_id, commissioned_by)),
+            WorkCreationPolicy {
+                owner_review_required,
+                external_source: Some((source_message_id, commissioned_by)),
+                producing_topology: ProducingTopology::CoherentSingleWorker,
+                commissioned_by: Some(commissioned_by),
+                constitution_contracts: None,
+            },
         )
         .await
     }
@@ -186,8 +280,17 @@ impl OrgIntel {
         revises: &[Uuid],
         gates: &[InitialWorkGate<'_>],
     ) -> Result<Uuid> {
-        self.add_work_inner(work, requires, revises, gates, true, None)
-            .await
+        self.add_work_inner(
+            work,
+            requires,
+            revises,
+            gates,
+            WorkCreationPolicy {
+                owner_review_required: true,
+                ..WorkCreationPolicy::default()
+            },
+        )
+        .await
     }
 
     async fn add_work_inner(
@@ -196,9 +299,15 @@ impl OrgIntel {
         requires: &[Uuid],
         revises: &[Uuid],
         gates: &[InitialWorkGate<'_>],
-        owner_review_required: bool,
-        external_source: Option<(i64, &str)>,
+        policy: WorkCreationPolicy<'_>,
     ) -> Result<Uuid> {
+        let WorkCreationPolicy {
+            owner_review_required,
+            external_source,
+            producing_topology,
+            commissioned_by,
+            constitution_contracts,
+        } = policy;
         if work.title.trim().is_empty() || work.outcome.trim().is_empty() {
             return Err(OrgIntelError::InvalidWork(
                 "Work needs a title and outcome contract".into(),
@@ -257,6 +366,29 @@ impl OrgIntel {
             return Err(OrgIntelError::InvalidWork(format!(
                 "Work owner {:?} is not an existing active actor; inspect People and commission one durable specialist if none fits",
                 work.owner_id
+            )));
+        }
+        let accountable_lead: Option<String> = sqlx::query_scalar(
+            "SELECT team.lead_actor_id FROM actors owner \
+             JOIN teams team ON team.id=owner.team_id AND team.disbanded_at IS NULL \
+             WHERE owner.id=$1 AND owner.retired_at IS NULL",
+        )
+        .bind(work.owner_id)
+        .fetch_optional(&mut *tx)
+        .await?;
+        let commissioned_by = commissioned_by
+            .map(str::to_string)
+            .or_else(|| accountable_lead.clone())
+            .unwrap_or_else(|| work.owner_id.to_string());
+        let commissioner_exists: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM actors WHERE id=$1 AND retired_at IS NULL)",
+        )
+        .bind(&commissioned_by)
+        .fetch_one(&mut *tx)
+        .await?;
+        if !commissioner_exists {
+            return Err(OrgIntelError::InvalidWork(format!(
+                "Work commissioner {commissioned_by:?} is not an existing active actor"
             )));
         }
         if let Some((_message_id, commissioned_by)) = external_source {
@@ -391,8 +523,9 @@ impl OrgIntel {
         sqlx::query(
             "INSERT INTO work \
              (id, goal_id, owner_id, title, outcome, priority, expected_artifact, \
-              owner_review_required, repo, base_ref, integration_branch, worktree, attempt_limit) \
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)",
+              owner_review_required, producing_topology, commissioned_by, repo, base_ref, \
+              integration_branch, worktree, attempt_limit) \
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)",
         )
         .bind(id)
         .bind(work.goal_id)
@@ -402,6 +535,8 @@ impl OrgIntel {
         .bind(work.priority)
         .bind(work.expected_artifact)
         .bind(owner_review_required)
+        .bind(producing_topology)
+        .bind(&commissioned_by)
         .bind(work.workspace.repo)
         .bind(work.workspace.base_ref)
         .bind(work.workspace.integration_branch)
@@ -409,6 +544,127 @@ impl OrgIntel {
         .bind(work.attempt_limit)
         .execute(&mut *tx)
         .await?;
+
+        // Bind the identity release at commissioning time, not first
+        // execution. A queued Work item must not silently adopt a release that
+        // appeared after its accountable lead defined the outcome.
+        let identity_release: Option<Uuid> = sqlx::query_scalar(
+            "SELECT release_id FROM company_identity_current_release WHERE singleton=TRUE",
+        )
+        .fetch_optional(&mut *tx)
+        .await?;
+        if let Some(release_id) = identity_release {
+            sqlx::query(
+                "INSERT INTO company_identity_work_bindings (work_id,release_id) VALUES ($1,$2)",
+            )
+            .bind(id)
+            .bind(release_id)
+            .execute(&mut *tx)
+            .await?;
+        }
+
+        let has_constitution_contract = constitution_contracts.is_some_and(|contracts| {
+            contracts.voice.is_some() || contracts.visual.is_some() || contracts.culture.is_some()
+        });
+        if has_constitution_contract && identity_release.is_none() {
+            return Err(OrgIntelError::InvalidWork(
+                "Company Constitution contracts need an owner-released identity".into(),
+            ));
+        }
+        if has_constitution_contract && accountable_lead.as_deref() != Some(&commissioned_by) {
+            return Err(OrgIntelError::InvalidWork(
+                "only the accountable lead may select initial Company Constitution contracts"
+                    .into(),
+            ));
+        }
+        if let (Some(release_id), Some(contracts)) = (identity_release, constitution_contracts) {
+            if let Some(voice) = &contracts.voice {
+                for (label, value) in [
+                    ("author", voice.author.as_str()),
+                    ("audience", voice.audience.as_str()),
+                    ("reader situation", voice.reader_situation.as_str()),
+                    (
+                        "desired understanding",
+                        voice.desired_understanding.as_str(),
+                    ),
+                    ("desired action", voice.desired_action.as_str()),
+                    ("proof", voice.proof.as_str()),
+                    ("consequence", voice.consequence.as_str()),
+                ] {
+                    super::voice::voice_nonempty(label, value)?;
+                }
+                let canonical = format!(
+                    "work={id}\nrelease={release_id}\nchannel={}\nauthor={}\nbound_by={}\naudience={}\nreader={}\nunderstanding={}\naction={}\nproof={}\nconsequence={}\n",
+                    super::voice::channel_name(voice.channel),
+                    voice.author.trim(),
+                    commissioned_by.trim(),
+                    voice.audience.trim(),
+                    voice.reader_situation.trim(),
+                    voice.desired_understanding.trim(),
+                    voice.desired_action.trim(),
+                    voice.proof.trim(),
+                    voice.consequence.trim(),
+                );
+                let digest = format!("{:x}", Sha256::digest(canonical.as_bytes()));
+                sqlx::query("INSERT INTO company_voice_work_contracts (work_id,release_id,channel,author,bound_by,audience,reader_situation,desired_understanding,desired_action,proof,consequence,contract_digest) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)")
+                    .bind(id).bind(release_id).bind(voice.channel).bind(voice.author.trim())
+                    .bind(commissioned_by.trim()).bind(voice.audience.trim())
+                    .bind(voice.reader_situation.trim()).bind(voice.desired_understanding.trim())
+                    .bind(voice.desired_action.trim()).bind(voice.proof.trim())
+                    .bind(voice.consequence.trim()).bind(digest).execute(&mut *tx).await?;
+            }
+            if let Some(visual) = &contracts.visual {
+                for (label, value) in [
+                    ("audience", visual.audience.as_str()),
+                    ("outcome", visual.outcome.as_str()),
+                    (
+                        "information hierarchy",
+                        visual.information_hierarchy.as_str(),
+                    ),
+                    ("proof", visual.proof.as_str()),
+                    ("density", visual.density.as_str()),
+                    ("imagery role", visual.imagery_role.as_str()),
+                    ("motion role", visual.motion_role.as_str()),
+                ] {
+                    super::visual::required(label, value)?;
+                }
+                if visual.product_representation == VisualRepresentation::ExactProduct {
+                    super::visual::required(
+                        "product truth locator",
+                        visual.product_truth_locator.as_deref().unwrap_or(""),
+                    )?;
+                }
+                let canonical = format!("work={id}\nrelease={release_id}\nchannel={}\nbound_by={}\naudience={}\noutcome={}\nhierarchy={}\nproof={}\ndensity={}\nimagery={}\nmotion={}\nrepresentation={:?}\nproduct_truth={}\ndeparture={}\n", super::visual::channel_name(visual.channel), commissioned_by.trim(), visual.audience.trim(), visual.outcome.trim(), visual.information_hierarchy.trim(), visual.proof.trim(), visual.density.trim(), visual.imagery_role.trim(), visual.motion_role.trim(), visual.product_representation, visual.product_truth_locator.as_deref().unwrap_or("").trim(), visual.requested_departure.as_deref().unwrap_or("").trim());
+                let digest = format!("{:x}", Sha256::digest(canonical.as_bytes()));
+                sqlx::query("INSERT INTO company_visual_work_contracts (work_id,release_id,channel,bound_by,audience,outcome,information_hierarchy,proof,density,imagery_role,motion_role,product_representation,product_truth_locator,requested_departure,contract_digest) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)")
+                    .bind(id).bind(release_id).bind(visual.channel).bind(commissioned_by.trim())
+                    .bind(visual.audience.trim()).bind(visual.outcome.trim())
+                    .bind(visual.information_hierarchy.trim()).bind(visual.proof.trim())
+                    .bind(visual.density.trim()).bind(visual.imagery_role.trim())
+                    .bind(visual.motion_role.trim()).bind(visual.product_representation)
+                    .bind(visual.product_truth_locator.as_deref().map(str::trim))
+                    .bind(visual.requested_departure.as_deref().map(str::trim))
+                    .bind(digest).execute(&mut *tx).await?;
+            }
+            if let Some(culture) = &contracts.culture {
+                for (label, value) in [
+                    ("actor", culture.actor.as_str()),
+                    ("actor role", culture.actor_role.as_str()),
+                    ("team", culture.team.as_str()),
+                    ("consequence", culture.consequence.as_str()),
+                    ("decision boundary", culture.decision_boundary.as_str()),
+                ] {
+                    super::culture::nonempty(label, value)?;
+                }
+                let canonical = format!("work={id}\nrelease={release_id}\ncase={}\nactor={}\nrole={}\nteam={}\nconsequence={}\nboundary={}\nbound_by={}\n", super::culture::case_name(culture.case_kind), culture.actor.trim(), culture.actor_role.trim(), culture.team.trim(), culture.consequence.trim(), culture.decision_boundary.trim(), commissioned_by.trim());
+                let digest = format!("{:x}", Sha256::digest(canonical.as_bytes()));
+                sqlx::query("INSERT INTO company_culture_work_contracts (work_id,release_id,case_kind,actor,actor_role,team,consequence,decision_boundary,bound_by,contract_digest) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)")
+                    .bind(id).bind(release_id).bind(culture.case_kind).bind(culture.actor.trim())
+                    .bind(culture.actor_role.trim()).bind(culture.team.trim())
+                    .bind(culture.consequence.trim()).bind(culture.decision_boundary.trim())
+                    .bind(commissioned_by.trim()).bind(digest).execute(&mut *tx).await?;
+            }
+        }
         for (kind, target) in initial_edges {
             let (from, to) = match kind {
                 WorkEdgeKind::Requires => (target, id),
@@ -471,6 +727,17 @@ impl OrgIntel {
             .execute(&mut *tx)
             .await?;
         }
+        sqlx::query("INSERT INTO events (kind,actor_id,body) VALUES ('work_commissioned',$1,$2)")
+            .bind(&commissioned_by)
+            .bind(serde_json::json!({
+                "work_id": id,
+                "producer_actor_id": work.owner_id,
+                "accountable_lead_id": accountable_lead,
+                "commissioned_by": commissioned_by,
+                "producing_topology": producing_topology,
+            }))
+            .execute(&mut *tx)
+            .await?;
         tx.commit().await?;
         Ok(id)
     }
@@ -478,7 +745,7 @@ impl OrgIntel {
     pub async fn list_work(&self) -> Result<Vec<WorkRow>> {
         Ok(sqlx::query_as(
             "SELECT id, goal_id, owner_id, title, outcome, status, resolution, priority, \
-             expected_artifact, owner_review_required, repo, base_ref, integration_branch, worktree, revision, \
+             expected_artifact, owner_review_required, producing_topology, commissioned_by, repo, base_ref, integration_branch, worktree, revision, \
              attempt_limit, created_at, updated_at FROM work \
              ORDER BY priority DESC, created_at",
         )
@@ -489,7 +756,7 @@ impl OrgIntel {
     pub async fn get_work(&self, id: Uuid) -> Result<Option<WorkRow>> {
         Ok(sqlx::query_as(
             "SELECT id, goal_id, owner_id, title, outcome, status, resolution, priority, \
-             expected_artifact, owner_review_required, repo, base_ref, integration_branch, worktree, revision, \
+             expected_artifact, owner_review_required, producing_topology, commissioned_by, repo, base_ref, integration_branch, worktree, revision, \
              attempt_limit, created_at, updated_at FROM work WHERE id = $1",
         )
         .bind(id)

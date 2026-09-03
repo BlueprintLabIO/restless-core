@@ -1,0 +1,46 @@
+{
+  "checkedAt": "2026-09-01T08:57:17.083Z",
+  "method": "Playwright Chromium, native keyboard input, 1440x1000, reduced-motion emulation",
+  "url": "http://127.0.0.1:8777/review-gallery.html",
+  "firstFocus": {
+    "text": "Skip to release assets",
+    "href": "#package",
+    "outlineStyle": "solid",
+    "outlineWidth": "3px",
+    "outlineColor": "rgb(40, 75, 143)"
+  },
+  "skipResult": {
+    "hash": "#package",
+    "targetExists": true
+  },
+  "navFocus": {
+    "outlineStyle": "solid",
+    "outlineWidth": "3px",
+    "outlineColor": "rgb(40, 75, 143)"
+  },
+  "fragmentResult": {
+    "hash": "#blog",
+    "heading": "Why identity binding begins at acceptance."
+  },
+  "deterministic": {
+    "horizontalOverflow": false,
+    "animationCount": 0,
+    "reducedMotion": true,
+    "fragmentLinks": [
+      "#package",
+      "#top",
+      "#ui",
+      "#landing",
+      "#founder",
+      "#newsletter",
+      "#support",
+      "#transactional",
+      "#blog",
+      "#social",
+      "#memo",
+      "#top"
+    ],
+    "missingFragments": []
+  },
+  "consoleErrors": []
+}

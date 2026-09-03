@@ -2706,6 +2706,43 @@
 	min-width: 0;
 	display: flex;
 	align-items: center;
+	gap: 4px;
+}
+
+.bridge-root .outcome-standard-control {
+	display: flex;
+	align-items: center;
+	gap: 5px;
+	min-width: 0;
+	padding: 3px 5px;
+	border: 1px solid transparent;
+	border-radius: var(--radius-control);
+	color: var(--text-tertiary);
+	font: 500 var(--t-label) var(--font-mono);
+}
+
+.bridge-root .outcome-standard-control > span {
+	position: absolute;
+	width: 1px;
+	height: 1px;
+	overflow: hidden;
+	clip: rect(0 0 0 0);
+}
+
+.bridge-root .outcome-standard-control select {
+	min-width: 0;
+	max-width: 132px;
+	border: 0;
+	background: transparent;
+	color: var(--intent-work);
+	font: inherit;
+	cursor: pointer;
+}
+
+.bridge-root .outcome-standard-control:focus-within,
+.bridge-root .outcome-standard-control:hover {
+	border-color: var(--border-strong);
+	background: rgba(255, 255, 255, 0.62);
 }
 
 .bridge-root .exec-context-chip {

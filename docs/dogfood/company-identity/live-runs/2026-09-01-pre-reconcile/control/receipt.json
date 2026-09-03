@@ -1,0 +1,238 @@
+{
+  "schema": "restless.release-package-receipt/v1",
+  "created_at": "2026-09-01T08:55:00Z",
+  "company": "constitution_control_test",
+  "work": {
+    "work_id": "0e6d2d9a-ae39-46e6-bcbb-d71892acea85",
+    "revision": 1,
+    "attempt_id": "e0cf9fe2-dcff-4702-be53-a481db72000d",
+    "attempt_no": 1,
+    "input_fingerprint": "56720e0c78eeea131d0fdff2d618abecf554d93abe59b227c0ddcea60ac46172",
+    "repository": null,
+    "base_ref": null,
+    "integration_ref": null,
+    "upstream_artifact_versions": []
+  },
+  "candidate_identity": {
+    "digest_algorithm": "SHA-256",
+    "files": {
+      "/company/outputs/identity-evaluation/review-gallery.html": "f02d2340f79a192cef0e58a75efa275008e83c468ad98096655883e70470ef2f",
+      "/company/outputs/identity-evaluation/evaluation.md": "e6dd5dbd82b56543532e0692383efd260012ec1561577807acbd215f001101fe",
+      "/company/outputs/identity-evaluation/receipt.json": "75af4bc0d6dffaf5a41618f397fd3bbdb263197401bd2f12e8f1576b34cf0437"
+    },
+    "receipt_self_digest_method": "To verify the receipt digest, replace only the 64 hexadecimal characters in candidate_identity.files[/company/outputs/identity-evaluation/receipt.json] with 64 ASCII zero characters, preserve every other byte exactly, then compute SHA-256. This zeroed-field projection avoids an impossible direct self-referential hash while giving the receipt a deterministic SHA-256 identity.",
+    "review_target": "http://127.0.0.1:8777/review-gallery.html"
+  },
+  "scope_contract": {
+    "corrected_claim": "Restless binds each accepted company artifact to the exact identity release and evidence it used.",
+    "excluded_scope": "Bindings do not cover every draft produced during Work.",
+    "remediation_scope": "Only accepted artifacts repeating the broader claim require a retain, revise, or retire decision.",
+    "identity_capability_observation": "Live restless --help on 2026-09-01 exposed no identity subcommand. No released-identity contract could be atomically selected on the installed surface, and this candidate does not claim that an identity binding was completed.",
+    "identity_binding_created": false
+  },
+  "actors_and_models": [
+    {
+      "actor_id": "exec",
+      "display_name": "Exec",
+      "model": "litellm/gpt-5.6-sol",
+      "attributable_role": "Commissioned the accountable lead and set the company outcome; did not author or edit package artifacts."
+    },
+    {
+      "actor_id": "release-direction",
+      "display_name": "Mara Vale",
+      "model": "litellm/gpt-5.6-sol",
+      "attributable_role": "Accountable coordinator; commissioned this Work and reserved separate independent review; did not author or edit package artifacts."
+    },
+    {
+      "actor_id": "release-studio",
+      "display_name": "Iris Chen",
+      "model": "litellm/gpt-5.6-sol",
+      "attributable_role": "Sole producer on Work 0e6d2d9a-ae39-46e6-bcbb-d71892acea85; product-truth synthesis, all channel writing, art direction, browser implementation, self-inspection, repair, and evidence assembly."
+    }
+  ],
+  "authorship": {
+    "artifact_producer": "release-studio",
+    "sole_producer": true,
+    "package_bylines": [
+      "Leila Rowan — founder email release persona",
+      "Mateo Singh — newsletter release persona",
+      "Priya Nwosu — support release persona",
+      "Amina Bell — Blog release persona",
+      "Jonah Park — social release persona",
+      "Rina Cho — internal memo release persona"
+    ],
+    "byline_disclosure": "All named channel bylines are differentiated release personas written by Iris Chen. They are not claims of separate actor contribution.",
+    "independent_critic": {
+      "actor_id": "release-critic",
+      "display_name": "Noah Okafor",
+      "contributed_to_this_attempt": false,
+      "reason_excluded_from_actor_contributors": "No critic Work or Attempt artifact was bound to this producer Work at completion. Independent criticism is commissioned separately after this terminal candidate."
+    }
+  },
+  "sources_observed": [
+    {
+      "locator": "/company/org/exec/current-plan.md",
+      "method": "file read",
+      "use": "release scope, nine-channel contract, evidence requirements and effect exclusions"
+    },
+    {
+      "locator": "/company/org/exec/journal/0001.md",
+      "method": "file read",
+      "use": "commissioning history, empty incumbent observation and attributable actor topology"
+    },
+    {
+      "locator": "/company/mission.md",
+      "method": "file read",
+      "use": "company outcome and prohibited external effects"
+    },
+    {
+      "locator": "restless --help",
+      "method": "live CLI probe on 2026-09-01",
+      "use": "top-level installed capabilities and absence of identity subcommand"
+    },
+    {
+      "locator": "restless work --help; restless work graph; restless work artifact --help",
+      "method": "live CLI probes on 2026-09-01",
+      "use": "canonical Work graph, Attempt, gate and artifact-linking mechanics"
+    },
+    {
+      "locator": "restless effect --help; restless receipts --help",
+      "method": "live CLI probes on 2026-09-01",
+      "use": "governed consequential-effect and receipt boundaries"
+    },
+    {
+      "locator": "/company/knowledge; /company/projects; /company/repos; initial /company/outputs",
+      "method": "directory inventory on 2026-09-01",
+      "use": "observed no incumbent package, brand dossier, product screenshot, customer proof, metrics or repository"
+    }
+  ],
+  "review_passes": [
+    {
+      "name": "product truth and capability inventory",
+      "performed_by": "release-studio",
+      "method": "company file inventory plus live installed CLI help and graph probes",
+      "result": "Corrected scope adopted; identity selector capability gap retained as visible uncertainty."
+    },
+    {
+      "name": "cross-channel coherence and standalone-content review",
+      "performed_by": "release-studio",
+      "method": "read all nine rendered asset bodies against scope contract and channel-specific audience",
+      "result": "Nine complete assets; every broader claim uses accepted-artifact scope; Blog is self-contained."
+    },
+    {
+      "name": "native responsive browser review",
+      "performed_by": "release-studio using restless-web-review and system Chromium",
+      "method": "full scroll at desktop 1440x1000, mobile 390x844, and desktop reduced-motion 1440x1000",
+      "evidence": "/company/outputs/identity-evaluation/native-review/manifest.json",
+      "result": "All profiles HTTP 200; no overflow, off-viewport interactive elements, invisible authored content, console errors, page errors or failed internal links."
+    },
+    {
+      "name": "visual capture inspection",
+      "performed_by": "release-studio",
+      "method": "native image inspection of all three final full-page captures",
+      "evidence": [
+        "/company/outputs/identity-evaluation/native-review/candidate-desktop-review-gallery.html.png",
+        "/company/outputs/identity-evaluation/native-review/candidate-mobile-review-gallery.html.png",
+        "/company/outputs/identity-evaluation/native-review/candidate-desktop-reduced-motion-review-gallery.html.png"
+      ],
+      "result": "Desktop hierarchy, mobile one-column collapse, content visibility and reduced-motion parity inspected; no obvious breakage observed."
+    },
+    {
+      "name": "keyboard, focus, fragment, reduced-motion and console probe",
+      "performed_by": "release-studio using Playwright Chromium",
+      "method": "native Tab, Enter, focused navigation click and computed state under reduced-motion emulation",
+      "evidence": "/company/outputs/identity-evaluation/native-review/interaction-check.json",
+      "result": "Skip link first; 3px visible focus; skip and Blog fragments resolve; zero missing fragments, animations, overflow and console errors."
+    }
+  ],
+  "reversals_and_material_changes": [
+    {
+      "decision": "Rejected product-screen simulation",
+      "reason": "No identity-release selector or attributable product screen was available; simulation would imply unsupported behavior.",
+      "replacement": "Explicitly labelled proposed UI copy within an editorial record system."
+    },
+    {
+      "decision": "Rejected generic node-diagram direction",
+      "reason": "It obscured the acceptance boundary and was not product-grounded.",
+      "replacement": "Numbered editorial comparison gallery with one acceptance-boundary strip."
+    },
+    {
+      "decision": "Changed Chromium temporary-path mechanism after failed initial capture",
+      "reason": "The first browser launch failed because its generated singleton socket path exceeded Chromium's limit.",
+      "replacement": "Reran the same deterministic review with TMPDIR=/tmp; all three profiles then completed."
+    },
+    {
+      "decision": "Added a local data-URI favicon after first successful capture",
+      "reason": "The first desktop manifest observed one implicit favicon 404 console error.",
+      "replacement": "Recaptured every profile; final console and page error arrays are empty."
+    }
+  ],
+  "deterministic_checks": {
+    "review_target_probe": "HTTP 200; 41018-byte body observed after final gallery assembly",
+    "supervisor_observation": "identity-evaluation-review RUNNING under /etc/supervisor/conf.d/restless.conf",
+    "html_structure": "10 section elements, 23 unique IDs, no missing or duplicate fragment destinations in producer probe",
+    "native_manifest_summary": {
+      "candidate_pages": 3,
+      "failed_pages": 0,
+      "failed_internal_links": 0,
+      "profiles": ["desktop", "mobile", "desktop-reduced-motion"]
+    },
+    "important_limit": "These checks establish observable browser and file health; they do not establish qualitative approval."
+  },
+  "remaining_unknowns": [
+    "The installed Restless surface does not reveal where identity releases are created, versioned or selected.",
+    "No exact identity release was available, so no identity binding was created or verified for this candidate.",
+    "No attributable product design system, incumbent release package, customer evidence, public metrics, screenshots or endorsements were available under /company.",
+    "The independent critic has not yet operated or judged this candidate; the producer verdict is only ready for independent criticism.",
+    "Owner taste, acceptance and any publication decision remain outside this Work."
+  ],
+  "context_and_spend_observation": {
+    "observed_at": "2026-09-01 after production and before receipt finalization",
+    "company_ceiling_usd": 25.0,
+    "accounted_usd": 1.749,
+    "remaining_usd": 23.251,
+    "by_actor": [
+      {"actor_id": "release-studio", "model": "litellm/gpt-5.6-sol", "accounted_usd": 1.0758},
+      {"actor_id": "release-direction", "model": "litellm/gpt-5.6-sol", "accounted_usd": 0.3927},
+      {"actor_id": "exec", "model": "litellm/gpt-5.6-sol", "accounted_usd": 0.2805}
+    ],
+    "usage_limit": "Spend is a point-in-time Runtime accounting observation and may change after this receipt is finalized. No provider token breakdown beyond Runtime event context was added to the artifact."
+  },
+  "effect_boundaries": {
+    "allowed_and_performed": [
+      "Read company files and installed CLI help.",
+      "Create and edit local files under /company.",
+      "Run local deterministic checks and system Chromium.",
+      "Serve the candidate on loopback through supervisor.",
+      "Link the finished local artifact to the Work graph."
+    ],
+    "prohibited_and_not_performed": [
+      "publish",
+      "deploy",
+      "send",
+      "post",
+      "contact anyone",
+      "purchase",
+      "charge",
+      "delete external data",
+      "contract",
+      "invoke restless effect"
+    ],
+    "explicit_statement": "Nothing was published, deployed, sent, posted, purchased, or used to contact anyone. No consequential external effect was performed.",
+    "governed_receipts_observation": "restless receipts -c constitution_control_test --limit 50 returned an empty array before receipt finalization."
+  },
+  "evidence_locators": {
+    "gallery": "/company/outputs/identity-evaluation/review-gallery.html",
+    "evaluation": "/company/outputs/identity-evaluation/evaluation.md",
+    "receipt": "/company/outputs/identity-evaluation/receipt.json",
+    "review_target": "http://127.0.0.1:8777/review-gallery.html",
+    "browser_manifest": "/company/outputs/identity-evaluation/native-review/manifest.json",
+    "interaction_check": "/company/outputs/identity-evaluation/native-review/interaction-check.json",
+    "desktop_capture": "/company/outputs/identity-evaluation/native-review/candidate-desktop-review-gallery.html.png",
+    "mobile_capture": "/company/outputs/identity-evaluation/native-review/candidate-mobile-review-gallery.html.png",
+    "reduced_motion_capture": "/company/outputs/identity-evaluation/native-review/candidate-desktop-reduced-motion-review-gallery.html.png",
+    "supervisor_config": "/company/services/supervisor/identity-evaluation-review.conf"
+  },
+  "producer_disposition": "ready_for_independent_criticism",
+  "qualitative_approval_claimed": false
+}

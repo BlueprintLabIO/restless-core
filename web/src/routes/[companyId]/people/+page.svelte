@@ -351,6 +351,18 @@
 					<small title={`Actor ${selected.actor_id}`}
 						>{roleLabel(selected.role)} · {selected.actor_id}</small
 					>
+					{#if selectedTeam}
+						<small
+							class="team-standard"
+							title={`Selected via ${selectedTeam.outcome_standard_source.replaceAll('_', ' ')}`}
+						>
+							{selectedTeam.outcome_standard[0].toUpperCase() +
+								selectedTeam.outcome_standard.slice(1)} · {selectedTeam.frontier_phase.replaceAll(
+								'_',
+								' '
+							)}
+						</small>
+					{/if}
 				</div>
 				{#if canSend && visibleMessages.length}
 					<ConversationHistoryTools
@@ -628,6 +640,10 @@
 		border-top: 1px solid var(--border);
 		font-size: var(--t-label);
 		color: var(--text-tertiary);
+	}
+
+	.team-standard {
+		color: var(--intent-work) !important;
 	}
 
 	.contact-route {

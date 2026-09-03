@@ -1,0 +1,152 @@
+{
+  "corpus": "s35-company-constitution",
+  "frozen_at": "2026-08-31T22:30:00Z",
+  "publication_authority": false,
+  "product_change": {
+    "fact": "Restless binds each accepted company artifact to the exact identity release and evidence it used.",
+    "correction": "Bindings cover accepted artifacts, not every draft produced during Work.",
+    "expected_stale_dependency": "Only accepted artifacts repeating the broader claim require a retain, revise or retire decision."
+  },
+  "company_a": {
+    "name": "Restless",
+    "identity": {
+      "truth": "Runs accountable company work and returns evidence for an owner decision.",
+      "voice": "Plain, direct and consequence-first; name the person, action and proof.",
+      "visual": "Compact operational surfaces, exact product state, motion only for real transitions.",
+      "culture": "Narrow scope before accepting visibly unfinished work."
+    },
+    "assets": [
+      {
+        "id": "product-ui",
+        "channel": "product_ui",
+        "audience": "owner reviewing completed Work",
+        "author": "Product lead",
+        "native_environment": "Restless cockpit",
+        "truth_dependency": "accepted artifact binding",
+        "effect_boundary": "May display evidence; cannot approve or publish the artifact.",
+        "headline": "Ready for your decision",
+        "body": "The landing page passed its native checks. Review the exact build and decide whether to accept it."
+      },
+      {
+        "id": "landing-page",
+        "channel": "landing_page",
+        "audience": "company owner with an important outcome",
+        "author": "Company voice",
+        "native_environment": "Astro and native browser",
+        "truth_dependency": "accountable work plus returned evidence",
+        "effect_boundary": "Preview only; deployment needs separate authority.",
+        "headline": "Give the work a clear outcome. Get a decision back.",
+        "body": "Restless assembles the team, runs the work and keeps the evidence attached—so you can judge the result without managing every step."
+      },
+      {
+        "id": "founder-email",
+        "channel": "founder_email",
+        "audience": "existing design partner",
+        "author": "Founder",
+        "native_environment": "plain email",
+        "truth_dependency": "accepted artifacts bind exact identity evidence",
+        "effect_boundary": "Draft only; sending needs outreach authority.",
+        "headline": "A quieter way to keep company work honest",
+        "body": "I wanted to stop reconstructing why a team made a decision. Restless now keeps the exact company facts and design evidence attached to every accepted artifact. If a fact changes later, it shows the affected work instead of rewriting history."
+      },
+      {
+        "id": "newsletter",
+        "channel": "newsletter",
+        "audience": "operators following product development",
+        "author": "Editorial lead",
+        "native_environment": "responsive HTML email",
+        "truth_dependency": "accepted artifacts only",
+        "effect_boundary": "Rendered edition only; list delivery remains separate.",
+        "headline": "What changed: identity now travels with the work",
+        "body": "An accepted page, email or product state now records the release, author, channel and evidence behind it. Drafts stay drafts. Corrections produce a short, exact list of affected artifacts."
+      },
+      {
+        "id": "support",
+        "channel": "support",
+        "audience": "customer asking whether old work changes automatically",
+        "author": "Support lead",
+        "native_environment": "support reply",
+        "truth_dependency": "migration is an explicit owner decision",
+        "effect_boundary": "Proposed reply; customer contact needs support authority.",
+        "headline": "Your earlier artifact will not change on its own",
+        "body": "The original version stays intact. Restless shows which fact changed and why this artifact may need review. You choose whether to keep, revise or retire it."
+      },
+      {
+        "id": "transactional",
+        "channel": "transactional_email",
+        "audience": "owner who promoted an identity correction",
+        "author": "Restless product",
+        "native_environment": "transactional email",
+        "truth_dependency": "one successor release and exact drift findings",
+        "effect_boundary": "Template preview; delivery requires the existing notification effect.",
+        "headline": "Identity correction recorded",
+        "body": "Release 2 is now current. One accepted artifact depends on the corrected fact and needs your decision. Nothing was edited or published automatically."
+      },
+      {
+        "id": "blog",
+        "channel": "blog",
+        "audience": "technical and product leaders",
+        "author": "Product systems writer",
+        "native_environment": "standalone web article",
+        "truth_dependency": "versioned identity release and immutable binding",
+        "effect_boundary": "Standalone draft; it contains all context but is not published.",
+        "headline": "A brand guide cannot tell you which old claim became wrong",
+        "body": "Most identity systems stop at advice: use these colours, prefer these words, act according to these values. The hard problem starts after the advice changes. A useful system must remember which exact artifact relied on which exact fact—and leave the decision to change that artifact with its owner."
+      },
+      {
+        "id": "social",
+        "channel": "social",
+        "audience": "builders of agentic companies",
+        "author": "Founder",
+        "native_environment": "social card and copy",
+        "truth_dependency": "corrections do not rewrite history",
+        "effect_boundary": "Preview only; posting requires outreach authority.",
+        "headline": "Your company changed. Your history did not.",
+        "body": "Restless can now show which accepted artifacts depend on a corrected company fact—then ask whether to keep, revise or retire each one."
+      },
+      {
+        "id": "internal-memo",
+        "channel": "internal_memo",
+        "audience": "accountable leads",
+        "author": "Operating lead",
+        "native_environment": "company decision record",
+        "truth_dependency": "constitution cannot widen effect authority",
+        "effect_boundary": "Decision guidance only; Work and effect controls remain authoritative.",
+        "headline": "Use identity evidence; do not turn it into permission",
+        "body": "The constitution can block a contradictory claim and show a relevant way of working. It cannot send, deploy, pay, contact a customer or overrule an accountable owner. When a pillar is unavailable, name the gap instead of inventing a default."
+      }
+    ]
+  },
+  "company_b": {
+    "name": "Harbour Ledger",
+    "identity": {
+      "truth": "Gives marine crews an offline maintenance record.",
+      "voice": "Calm, terse and specific, like a practical vessel log.",
+      "visual": "Spacious paper-like records, marine blue ink, no ornamental motion.",
+      "culture": "Stop and document uncertainty before safety-critical maintenance decisions."
+    },
+    "held_back_examples": [
+      "The record is on this device. Sync can wait until you are ashore.",
+      "Inspection incomplete. Keep the pump out of service and name the missing check.",
+      "A quiet logbook surface with generous rows and no animated status theatre."
+    ],
+    "forbidden_transfer": [
+      "accountable company work",
+      "owner attention",
+      "evidence returns judgement",
+      "Restless mint glow",
+      "motion-led state theatre"
+    ]
+  },
+  "evaluation": {
+    "blinded": true,
+    "separate_dimensions": [
+      "truth",
+      "channel fitness",
+      "named authorship",
+      "visual fidelity",
+      "observed conduct"
+    ],
+    "scalar_identity_score": false
+  }
+}

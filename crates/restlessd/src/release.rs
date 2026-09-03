@@ -20,7 +20,7 @@ pub(crate) const API_CONTRACT_VERSION: u32 = 1;
 
 /// The highest OrgIntel migration this build carries. Asserted against the
 /// migrations directory by a test, so it cannot drift silently.
-pub(crate) const SCHEMA_VERSION: u32 = 21;
+pub(crate) const SCHEMA_VERSION: u32 = 34;
 
 /// What a `/health` probe returns.
 ///

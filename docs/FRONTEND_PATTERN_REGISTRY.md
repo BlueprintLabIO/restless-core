@@ -85,3 +85,37 @@ Reduced-motion observation:
 Desktop/mobile evidence:
 Elements removed during final restraint pass:
 ```
+
+## Sprint 38 adoption — owner artifact launcher
+
+Pattern ID: `artifact-launch-rail`
+
+Outcome/route: `web/src/routes/[companyId]/company/resources/+page.svelte`
+
+Native semantic source: Bridge Light `pane-machine`, `physical-control` and the existing resource
+evidence table.
+
+Beautiful UI reference: [Task Rows and Records Table](https://www.beautifului.dev/), inspected 3
+September 2026. The calm one-row identity/state/action rhythm informed the launch rail; no source code
+was copied.
+
+Cult UI reference: [Expandable Screen](https://www.cult-ui.com/docs/components/expandable-screen),
+repository commit `3b855612fb524cb042cc91b65f0cd575057471cc`, MIT. The useful mechanism was a
+single explicit trigger revealing a larger usable surface. Restless reimplemented only that state
+transition in native Svelte; it rejected the full-screen morph, scroll lock, React and Framer Motion.
+
+Svelte source-first reference: [Interactive Hover Button](https://sv-animations.vercel.app/magic/docs/components/interactive-hover-button)
+and its public registry source, inspected 3 September 2026. The duplicated hover label, expanding dot
+and hover-only transformation were rejected. Restless retained its existing keyboard-visible,
+pressed-state `physical-control`, so no dependency or inaccessible hover behavior entered the bundle.
+
+Keyboard/touch observation: Open is a native button; unavailable states use `disabled`; the viewer has
+a named close button; Company Computer uses normal navigation.
+
+Reduced-motion observation: no ambient or layout animation was imported. Existing press motion is
+removed by the product-wide reduced-motion rules.
+
+Desktop/mobile evidence: pending final rendered acceptance in Sprint 38 T6.
+
+Elements removed during final restraint pass: app-store card grid, duplicated provider metadata,
+full-screen morph, gradient/glow decoration, hover-only copy replacement and automatic iframe load.

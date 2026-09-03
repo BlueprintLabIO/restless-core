@@ -1,8 +1,8 @@
 //! Sprint 26 exact execution substrate scenarios against scratch Postgres.
 
 use restless_orgintel::{
-    NewArtifactRef, NewGateRunEvidence, NewWork, NewWorkGate, OrgIntel, WorkAttemptState,
-    WorkspaceSpec,
+    NewArtifactRef, NewGateRun, NewGateRunEvidence, NewWork, NewWorkGate, OrgIntel,
+    ProducingTopology, WorkAttemptState, WorkspaceSpec,
 };
 
 async fn company() -> Option<OrgIntel> {
@@ -52,6 +52,92 @@ async fn staff(org: &OrgIntel, id: &str) {
     org.set_actor_team(id, Some(team.id), "build-direction", "assigned")
         .await
         .unwrap();
+}
+
+#[tokio::test]
+async fn exec_records_one_unambiguous_worker_under_an_accountable_lead() {
+    let Some(org) = company().await else { return };
+    staff(&org, "builder-a").await;
+    for message in org.inbox(Some("build-direction")).await.unwrap() {
+        org.mark_read(message.id).await.unwrap();
+    }
+    let gate_command = vec!["true".to_string()];
+    let gate = restless_orgintel::InitialWorkGate {
+        name: "exact-pass",
+        command: &gate_command,
+        stage: "cumulative",
+        timeout_seconds: 10,
+        resources: &[],
+    };
+    let work_id = org
+        .add_commissioned_work_with_edges_and_gates(
+            NewWork {
+                owner_id: "builder-a",
+                title: "Produce the coherent candidate",
+                outcome: "one gate-passing candidate",
+                goal_id: None,
+                priority: 10,
+                expected_artifact: "",
+                workspace: WorkspaceSpec::default(),
+                attempt_limit: Some(1),
+            },
+            &[],
+            &[],
+            &[gate],
+            false,
+            None,
+            "exec",
+            ProducingTopology::CoherentSingleWorker,
+        )
+        .await
+        .unwrap();
+    let work = org.get_work(work_id).await.unwrap().unwrap();
+    assert_eq!(work.owner_id, "builder-a");
+    assert_eq!(work.commissioned_by, "exec");
+    assert_eq!(
+        work.producing_topology,
+        ProducingTopology::CoherentSingleWorker
+    );
+    let commission = org
+        .list_events(20)
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|event| event.kind == "work_commissioned")
+        .unwrap();
+    assert_eq!(commission.actor_id.as_deref(), Some("exec"));
+    assert_eq!(
+        commission.body["accountable_lead_id"],
+        serde_json::json!("build-direction")
+    );
+
+    let attempt = org.claim_ready_work("exact route").await.unwrap().unwrap();
+    assert_eq!(attempt.work.id, work_id);
+    let gate_id = org.list_work_gates(work_id).await.unwrap()[0].id;
+    org.record_gate_run(NewGateRun {
+        gate_id,
+        attempt_id: attempt.attempt_id,
+        exit_code: Some(0),
+        output_digest: "sha256:exact-pass",
+        output_excerpt: "pass",
+        passed: true,
+    })
+    .await
+    .unwrap();
+    org.finish_work_attempt(
+        attempt.attempt_id,
+        WorkAttemptState::Produced,
+        "exact candidate passed",
+    )
+    .await
+    .unwrap();
+    assert!(org
+        .flush_terminal_supervisor_notices(100)
+        .await
+        .unwrap()
+        .is_empty());
+    assert!(org.inbox(Some("build-direction")).await.unwrap().is_empty());
+    org.drop_schema().await.unwrap();
 }
 
 #[tokio::test]
@@ -218,29 +304,36 @@ async fn coordinates_leases_gate_cache_and_feedback_are_exact() {
 }
 
 #[tokio::test]
-async fn terminal_facts_for_one_lead_coalesce_into_one_wake() {
+async fn nominal_completion_is_silent_and_material_failures_coalesce_by_work() {
     let Some(org) = company().await else { return };
     staff(&org, "builder-a").await;
-    staff(&org, "builder-b").await;
     for message in org.inbox(Some("build-direction")).await.unwrap() {
         org.mark_read(message.id).await.unwrap();
     }
-    for (owner, priority) in [("builder-a", 2), ("builder-b", 1)] {
-        org.add_work(NewWork {
-            owner_id: owner,
-            title: owner,
-            outcome: "finish",
+    let nominal = org
+        .add_work(NewWork {
+            owner_id: "builder-a",
+            title: "nominal candidate",
+            outcome: "finish with an exact passing gate",
             goal_id: None,
-            priority,
+            priority: 2,
             expected_artifact: "",
             workspace: WorkspaceSpec::default(),
             attempt_limit: Some(1),
         })
         .await
         .unwrap();
-    }
-    let a = org.claim_ready_work("a").await.unwrap().unwrap();
-    let b = org.claim_ready_work("b").await.unwrap().unwrap();
+    let nominal_gate = org
+        .add_work_gate(NewWorkGate {
+            work_id: nominal,
+            name: "nominal-pass",
+            cwd: "@attempt",
+            command: &["true".into()],
+            created_by: "build-direction",
+        })
+        .await
+        .unwrap();
+    let attempt = org.claim_ready_work("nominal").await.unwrap().unwrap();
     for index in 0..100 {
         let uri = format!("/company/run/progress/{index}");
         let digest = format!("sha256:{index:064x}");
@@ -249,8 +342,8 @@ async fn terminal_facts_for_one_lead_coalesce_into_one_wake() {
             uri: &uri,
             note: "nonterminal observable progress",
             created_by: "builder-a",
-            work_id: Some(a.work.id),
-            attempt_id: Some(a.attempt_id),
+            work_id: Some(attempt.work.id),
+            attempt_id: Some(attempt.attempt_id),
             digest: Some(&digest),
             source_commit: None,
             runtime_generation: None,
@@ -265,22 +358,31 @@ async fn terminal_facts_for_one_lead_coalesce_into_one_wake() {
         .unwrap()
         .is_empty());
     assert!(org.inbox(Some("build-direction")).await.unwrap().is_empty());
-    org.finish_work_attempt(a.attempt_id, WorkAttemptState::Produced, "a done")
-        .await
-        .unwrap();
-    org.finish_work_attempt(b.attempt_id, WorkAttemptState::Produced, "b done")
-        .await
-        .unwrap();
-    let messages = org.flush_terminal_supervisor_notices(100).await.unwrap();
-    assert_eq!(messages.len(), 1);
-    let inbox = org.inbox(Some("build-direction")).await.unwrap();
-    assert_eq!(inbox.len(), 1);
-    assert!(inbox[0].body.contains("2 decision checkpoints"));
-    assert!(org
-        .flush_terminal_supervisor_notices(100)
-        .await
-        .unwrap()
-        .is_empty());
+    org.record_gate_run(NewGateRun {
+        gate_id: nominal_gate,
+        attempt_id: attempt.attempt_id,
+        exit_code: Some(0),
+        output_digest: "sha256:nominal-pass",
+        output_excerpt: "pass",
+        passed: true,
+    })
+    .await
+    .unwrap();
+    org.finish_work_attempt(
+        attempt.attempt_id,
+        WorkAttemptState::Produced,
+        "nominal candidate passed",
+    )
+    .await
+    .unwrap();
+    assert!(
+        org.flush_terminal_supervisor_notices(100)
+            .await
+            .unwrap()
+            .is_empty(),
+        "a clean passing completion is observable without a lead wake"
+    );
+    assert!(org.inbox(Some("build-direction")).await.unwrap().is_empty());
 
     let blocker = org
         .add_work(NewWork {
@@ -291,16 +393,31 @@ async fn terminal_facts_for_one_lead_coalesce_into_one_wake() {
             priority: 3,
             expected_artifact: "",
             workspace: WorkspaceSpec::default(),
-            attempt_limit: Some(1),
+            attempt_limit: Some(2),
         })
         .await
         .unwrap();
-    let blocked = org.claim_ready_work("blocker").await.unwrap().unwrap();
-    assert_eq!(blocked.work.id, blocker);
+    let first_blocked = org.claim_ready_work("blocker one").await.unwrap().unwrap();
+    assert_eq!(first_blocked.work.id, blocker);
     org.finish_work_attempt(
-        blocked.attempt_id,
+        first_blocked.attempt_id,
         WorkAttemptState::Blocked,
-        "requires an accountable choice",
+        "contract ambiguity in one gate episode",
+    )
+    .await
+    .unwrap();
+    org.resume_work(
+        blocker,
+        "build-direction",
+        "the lead clarified the contract but the same gate episode must be observed once more",
+    )
+    .await
+    .unwrap();
+    let second_blocked = org.claim_ready_work("blocker two").await.unwrap().unwrap();
+    org.finish_work_attempt(
+        second_blocked.attempt_id,
+        WorkAttemptState::Failed,
+        "clarified gate still failed",
     )
     .await
     .unwrap();
@@ -310,8 +427,156 @@ async fn terminal_facts_for_one_lead_coalesce_into_one_wake() {
             .unwrap()
             .len(),
         1,
-        "a genuine blocker becomes one prompt decision wake"
+        "two material terminals from one Work coalesce into one decision wake"
     );
-    assert_eq!(org.inbox(Some("build-direction")).await.unwrap().len(), 2);
+    let inbox = org.inbox(Some("build-direction")).await.unwrap();
+    assert_eq!(inbox.len(), 1);
+    assert!(inbox[0]
+        .body
+        .starts_with("Material Runtime supervisor events for Work "));
+    assert!(inbox[0].body.contains("2 exceptions"));
+    assert!(
+        org.flush_terminal_supervisor_notices(100)
+            .await
+            .unwrap()
+            .is_empty(),
+        "repeated delivery is exactly once"
+    );
     org.drop_schema().await.unwrap();
+}
+
+#[tokio::test]
+async fn every_material_boundary_routes_one_durable_prompt_to_the_accountable_lead() {
+    let Some(org) = company().await else { return };
+    staff(&org, "builder-a").await;
+    staff(&org, "builder-b").await;
+    org.ensure_actor("owner", "owner", "owner", "The Owner")
+        .await
+        .unwrap();
+    for message in org.inbox(Some("build-direction")).await.unwrap() {
+        org.mark_read(message.id).await.unwrap();
+    }
+    let work = org
+        .add_work(NewWork {
+            owner_id: "builder-a",
+            title: "material-boundary fixture",
+            outcome: "keep one producer while the lead settles judgement",
+            goal_id: None,
+            priority: 10,
+            expected_artifact: "",
+            workspace: WorkspaceSpec::default(),
+            attempt_limit: Some(2),
+        })
+        .await
+        .unwrap();
+    let attempt = org
+        .claim_ready_work("material boundary")
+        .await
+        .unwrap()
+        .unwrap();
+
+    org.finish_work_attempt(
+        attempt.attempt_id,
+        WorkAttemptState::Blocked,
+        "the contract is ambiguous and needs supervisory interpretation",
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        org.flush_terminal_supervisor_notices(16)
+            .await
+            .unwrap()
+            .len(),
+        1
+    );
+    let ambiguity = org.inbox(Some("build-direction")).await.unwrap();
+    assert_eq!(ambiguity.len(), 1, "ambiguity creates one prompt wake fact");
+    org.mark_read(ambiguity[0].id).await.unwrap();
+
+    org.send_work_message(
+        "builder-a",
+        "build-direction",
+        work,
+        "Effect authority requested: sending the candidate externally crosses the approved boundary.",
+    )
+    .await
+    .unwrap();
+    let effect = org.inbox(Some("build-direction")).await.unwrap();
+    assert_eq!(
+        effect.len(),
+        1,
+        "effect authority creates one lead obligation"
+    );
+    org.mark_read(effect[0].id).await.unwrap();
+
+    org.send_work_message(
+        "builder-b",
+        "build-direction",
+        work,
+        "Cross-worker conflict: my interface evidence contradicts builder-a's current assumption.",
+    )
+    .await
+    .unwrap();
+    let conflict = org.inbox(Some("build-direction")).await.unwrap();
+    assert_eq!(
+        conflict.len(),
+        1,
+        "cross-worker conflict creates one lead obligation"
+    );
+    org.mark_read(conflict[0].id).await.unwrap();
+
+    org.resume_work(
+        work,
+        "build-direction",
+        "the accountable lead resolved the ambiguity for the correction fixture",
+    )
+    .await
+    .unwrap();
+    let resumed = org
+        .claim_ready_work("owner correction")
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(resumed.work.id, work);
+
+    let owner_feedback = org
+        .send_work_message(
+            "owner",
+            "builder-a",
+            work,
+            "Owner correction: preserve the smaller declared outcome.",
+        )
+        .await
+        .unwrap();
+    assert!(org
+        .message_is_work_attempt_input(owner_feedback)
+        .await
+        .unwrap());
+    let correction = org.inbox(Some("build-direction")).await.unwrap();
+    assert_eq!(
+        correction.len(),
+        1,
+        "owner correction creates one control notice"
+    );
+    assert!(correction[0].body.contains("Material owner correction"));
+
+    let schema = org.schema().to_string();
+    drop(org);
+    let database_url = std::env::var("RESTLESS_TEST_DATABASE_URL").unwrap();
+    let restarted = OrgIntel::ensure(&database_url, &schema).await.unwrap();
+    assert_eq!(
+        restarted
+            .inbox(Some("build-direction"))
+            .await
+            .unwrap()
+            .len(),
+        1,
+        "an offline daemon cannot lose an unread material obligation"
+    );
+    assert!(restarted
+        .flush_terminal_supervisor_notices(16)
+        .await
+        .unwrap()
+        .is_empty());
+    restarted.drop_schema().await.unwrap();
 }

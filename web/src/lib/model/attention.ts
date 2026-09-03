@@ -1,5 +1,6 @@
 import type { AttentionItem, DecisionContinuation } from './view';
 import type { WorkGraphSnapshot } from './generated/orgintel';
+import type { OutcomeStandard } from './company';
 import type {
 	AgentActivityState,
 	ConversationInterruptResponse,
@@ -35,6 +36,7 @@ export interface MessageSendResult {
 	interrupted: boolean;
 	contextAttached: boolean;
 	contextOmitted: boolean;
+	requestedOutcomeStandard?: OutcomeStandard | null;
 	focus?: {
 		afterMessageId: number;
 		startedAt: string | null;
@@ -309,7 +311,8 @@ export async function sendActorMessage(
 	files: File[] = [],
 	contextPath?: string,
 	newFocus = false,
-	interrupt = false
+	interrupt = false,
+	outcomeStandard?: OutcomeStandard
 ): Promise<MessageSendResult> {
 	const form = new FormData();
 	form.set('body', body);
@@ -317,6 +320,7 @@ export async function sendActorMessage(
 	if (contextPath) form.set('context_path', contextPath);
 	if (newFocus) form.set('new_focus', 'true');
 	if (interrupt) form.set('interrupt', 'true');
+	if (outcomeStandard) form.set('outcome_standard', outcomeStandard);
 	for (const file of files) form.append('attachments', file, file.name);
 	const response = await fetch(
 		`/api/companies/${encodeURIComponent(company)}/actors/${encodeURIComponent(actor)}/conversation`,
@@ -333,6 +337,7 @@ export async function sendActorMessage(
 		interrupted: result.interrupted ?? false,
 		contextAttached: result.context_attached ?? false,
 		contextOmitted: result.context_omitted ?? false,
+		requestedOutcomeStandard: result.requested_outcome_standard,
 		focus: result.focus
 			? {
 					afterMessageId: result.focus.after_message_id,

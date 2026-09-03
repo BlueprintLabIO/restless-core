@@ -1435,36 +1435,32 @@ where
 
     let owned_session = read_session_id(container, &session_marker).await;
     let _ = child.kill().await;
-    if let Some(session_id) = owned_session {
+    let process_cleanup = if let Some(session_id) = owned_session {
         let _ = reap_session(container, &session_id).await;
+        verify_session_reaped(container, &session_id).await
     } else {
-        tracing::warn!(container, marker = %session_marker, "agent session ownership marker missing; declining broad process cleanup");
-    }
-    let _ = tokio::process::Command::new("docker")
-        .args(["exec", container, "unlink", &session_marker])
-        .output()
-        .await;
-    let _ = tokio::process::Command::new("docker")
-        .args(["exec", container, "unlink", &system_prompt_path])
-        .output()
-        .await;
-    let _ = tokio::process::Command::new("docker")
-        .args([
-            "exec",
-            "-u",
-            "root",
-            container,
-            "rm",
-            "-rf",
-            &session_runtime,
-        ])
-        .output()
-        .await;
+        Err(anyhow::anyhow!(
+            "agent session ownership marker {session_marker} is missing; broad process cleanup was refused"
+        ))
+    };
+    let artifact_cleanup = remove_and_verify_session_artifacts(
+        container,
+        &[&session_marker, &system_prompt_path, &session_runtime],
+    )
+    .await;
     if let Ok(mut slot) = failure.lock() {
         if let Some(error) = slot.take() {
+            if let Err(cleanup) = process_cleanup.and(artifact_cleanup) {
+                tracing::error!(
+                    container,
+                    "agent failed and terminal cleanup also failed: {cleanup:#}"
+                );
+            }
             return Err(error);
         }
     }
+    process_cleanup?;
+    artifact_cleanup?;
     Ok(result?)
 }
 
@@ -1473,7 +1469,7 @@ where
 /// tools still start in `/company`, which silently reopens the source
 /// worktree mutation path Sprint 14 is closing.
 pub(crate) fn agent_exec_prefix(workdir: &str) -> Vec<String> {
-    [
+    let mut args = [
         "exec".to_string(),
         "-i".to_string(),
         "-u".to_string(),
@@ -1485,7 +1481,18 @@ pub(crate) fn agent_exec_prefix(workdir: &str) -> Vec<String> {
         "-e".to_string(),
         "NO_BROWSER=1".to_string(),
     ]
-    .to_vec()
+    .to_vec();
+    if workdir.starts_with("/company/reviews/") {
+        for value in [
+            "GIT_CONFIG_COUNT=1".to_string(),
+            "GIT_CONFIG_KEY_0=safe.directory".to_string(),
+            format!("GIT_CONFIG_VALUE_0={workdir}"),
+        ] {
+            args.push("-e".to_string());
+            args.push(value);
+        }
+    }
+    args
 }
 
 /// Read and validate the Linux session id written by this turn's wrapper.
@@ -1503,6 +1510,57 @@ pub(crate) async fn read_session_id(container: &str, marker: &str) -> Option<Str
         && !session_id.is_empty()
         && session_id.bytes().all(|byte| byte.is_ascii_digit()))
     .then_some(session_id)
+}
+
+pub(crate) async fn remove_and_verify_session_artifacts(
+    container: &str,
+    paths: &[&str],
+) -> Result<()> {
+    let mut args = [
+        "exec",
+        "-u",
+        "root",
+        container,
+        "sh",
+        "-c",
+        "set -eu; for path in \"$@\"; do rm -rf \"$path\"; done; for path in \"$@\"; do test ! -e \"$path\"; test ! -L \"$path\"; done",
+        "session-artifact-cleanup",
+    ]
+    .into_iter()
+    .map(str::to_string)
+    .collect::<Vec<_>>();
+    args.extend(paths.iter().map(|path| (*path).to_string()));
+    let output = tokio::process::Command::new("docker")
+        .args(args)
+        .output()
+        .await
+        .context("clean exact agent session artifacts")?;
+    if !output.status.success() {
+        anyhow::bail!(
+            "clean exact agent session artifacts: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        );
+    }
+    Ok(())
+}
+
+pub(crate) async fn verify_session_reaped(container: &str, session_id: &str) -> Result<()> {
+    let output = tokio::process::Command::new("docker")
+        .args(["exec", container, "ps", "-eo", "pid=,sid="])
+        .output()
+        .await
+        .context("verify exact agent process session cleanup")?;
+    if !output.status.success() {
+        anyhow::bail!("could not observe agent process sessions after cleanup");
+    }
+    let residue = pids_in_session(&String::from_utf8_lossy(&output.stdout), session_id);
+    if !residue.is_empty() {
+        anyhow::bail!(
+            "agent session {session_id} retained {} processes after cleanup",
+            residue.len()
+        );
+    }
+    Ok(())
 }
 
 /// Kill whatever this turn's Linux session started and left behind.
@@ -1722,6 +1780,9 @@ mod tests {
                         &provider,
                         &model,
                         crate::model_gateway::ModelBilling::Subscription.as_str(),
+                        &responsibility,
+                        None,
+                        None,
                     )
                     .unwrap(),
                 gateway_url: "http://host.docker.internal:7790".into(),

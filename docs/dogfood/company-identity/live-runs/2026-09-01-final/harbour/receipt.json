@@ -1,0 +1,111 @@
+{
+  "candidate": {
+    "path": "/company/outputs/identity-transfer/review-gallery.html",
+    "sha256": "38c6b6ee2008dead0f544cf93ee6b7bdfa678868cf88b081b0b32a3480b9d9ae",
+    "review_target_url": "http://127.0.0.1:4317/review-gallery.html",
+    "review_target_identity": {
+      "artifact_ref_id": "64075278-5a63-4313-b2fb-dfeb049607fa",
+      "critic_work_id": "1100f020-239b-41e4-bb13-28e839a9f087",
+      "critic_attempt_id": "a38468da-bb7f-49e8-8447-abbd916b7e53",
+      "source_review_target_artifact_ref_id": "38fcaaac-6295-4550-a3eb-d6dcbc38aa62",
+      "producer_work_id": "86a2c8f1-3b50-430f-99e8-0954006a4d34",
+      "producer_attempt_id": "fdd7c0a9-150e-4d36-97c1-9f3c56b711bd",
+      "service": "harbour-gallery",
+      "service_supervision": "autorestart=true",
+      "runtime_generation": null
+    }
+  },
+  "actors": {
+    "lead": "harbour-release",
+    "producer": "harbour-craft",
+    "critic": "harbour-critic"
+  },
+  "models": {
+    "lead": "litellm/gpt-5.6-sol",
+    "producer": "litellm/gpt-5.6-sol",
+    "critic": "litellm/gpt-5.6-sol"
+  },
+  "identity_release": "05c395dd-e8e8-4b70-aba5-d21e3d965215",
+  "evidence_ids": [
+    "027f4f52-5262-4fa8-bca9-df63ffabb9f8",
+    "867e5327-e116-4c9b-87ad-61fccea15b9b",
+    "28671e9a-42a1-4226-8dab-fccfe9458ad4",
+    "55535e27-c603-41c4-bc40-6d111a521d79"
+  ],
+  "contracts": {
+    "truth": {
+      "evidence_id": "027f4f52-5262-4fa8-bca9-df63ffabb9f8",
+      "commitment": "Harbour Ledger gives marine crews an offline maintenance record."
+    },
+    "voice": {
+      "work_contract_digest": "54c7fb277943d51e086a5273b468664f24673130e9cd31607809ed8d5c47f3db",
+      "commitment": "Calm, terse, specific vessel-log voice; concise evidence-backed independent judgement."
+    },
+    "visual": {
+      "work_contract_digest": "d490c03b17093c75ca3feee9686daf9d2ce01b514889457473ad55f6c1b9ad64",
+      "commitment": "Spacious paper-like records, marine-blue ink, responsive containment, visible keyboard access, and no ornamental motion."
+    },
+    "culture": {
+      "work_contract_digest": "7ddbc3178a69b053b7b58f64890f61d81d457720fe5db4c705c56a797ca0e8bb",
+      "commitment": "Keep equipment out of service, name the missing check, document uncertainty, and reserve resume authority for the accountable maintenance lead."
+    },
+    "effect_boundary": {
+      "commitment": "No publication, deployment, sending, posting, contact, purchase, or other external effect."
+    }
+  },
+  "review_passes": [
+    {
+      "pass": 1,
+      "candidate_sha256": "38c6b6ee2008dead0f544cf93ee6b7bdfa678868cf88b081b0b32a3480b9d9ae",
+      "review_target_artifact_ref_id": "64075278-5a63-4313-b2fb-dfeb049607fa",
+      "source_review_target_artifact_ref_id": "38fcaaac-6295-4550-a3eb-d6dcbc38aa62",
+      "inspected_at": "2026-09-01T09:58:06Z",
+      "profiles": [
+        "Chromium 1440x1000 no-preference",
+        "Chromium 390x844 no-preference",
+        "Chromium 1440x1000 prefers-reduced-motion",
+        "Chromium 390x844 prefers-reduced-motion keyboard"
+      ],
+      "live_probe_observed": {
+        "http_status": 200,
+        "content_length": 21209,
+        "served_sha256_matches_candidate": true,
+        "service_state": "RUNNING"
+      },
+      "verdict": "accepted",
+      "consequential_gaps": []
+    }
+  ],
+  "reversals": [],
+  "unknowns": [
+    "No physical mobile device was tested; mobile profiles used Chromium viewport emulation.",
+    "Firefox, Safari/WebKit, screen reader, voice control, Windows High Contrast, 200% zoom, print output, and slow-device behavior were not tested.",
+    "No incumbent or external maturity reference was supplied for comparative visual calibration.",
+    "Future service uptime is not guaranteed by the critic's point-in-time probe; the Runtime's post-process live gate remains authoritative."
+  ],
+  "context_spend_observations": {
+    "fresh_context": true,
+    "producer_rationale_solicited": false,
+    "producer_rationale_relied_on": false,
+    "inputs_used": [
+      "owner-released constitution brief and identity release",
+      "exact live candidate and source",
+      "bound deterministic capture manifest and native audit",
+      "fresh critic browser captures and keyboard operation"
+    ],
+    "large_native_artifacts_kept_out_of_receipt": true,
+    "token_count_observed": null,
+    "note": "No trustworthy per-input token meter was available, so no numeric context-spend claim is made."
+  },
+  "external_effects": {
+    "boundary": "No publish, deploy, send, post, contact, purchase, or other external effect.",
+    "observed_compliance": true,
+    "actions_observed": [
+      "Read company files and coordination state.",
+      "Operated the loopback ReviewTarget in system Chromium.",
+      "Wrote only the required local evaluation and receipt deliverables."
+    ],
+    "external_effects_performed": []
+  },
+  "verdict": "accepted"
+}

@@ -1,0 +1,11 @@
+{
+  "contract_version": "published-service.v1",
+  "publication_id": "publication-0123456789abcdef01234567",
+  "candidate_digest": "sha256:1798ee48c5401ec163b7f0c15874812c15acebb6dbc7703228b0d54edd56fb91",
+  "provider_process_absent": true,
+  "route_absent": true,
+  "invitation_material_absent": true,
+  "resource_lease_released": true,
+  "temporary_files_absent": true,
+  "cleaned_at": "2026-09-02T01:00:00Z"
+}

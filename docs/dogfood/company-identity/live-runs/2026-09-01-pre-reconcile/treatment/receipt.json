@@ -1,0 +1,232 @@
+{
+  "schema": "restless.identity-release-package-receipt/v1",
+  "recorded_at": "2026-09-01T08:58:30Z",
+  "work": {
+    "work_id": "1e610e30-5dc6-4c4d-9e26-e503d3019e39",
+    "revision": 2,
+    "attempt": 1,
+    "attempt_uuid": "8693fcf9-10a1-4ab9-b030-ef52aa68e10b",
+    "input_fingerprint": "cec331fc4370732ae23fc375fcf86c4e948eab3bdb88a33f0e8f6ad3788a977a",
+    "repository": null,
+    "base_ref": null
+  },
+  "candidate": {
+    "path": "/company/outputs/identity-evaluation/review-gallery.html",
+    "sha256": "556e10247bbac3e3c121e5c23c3690aba6fa31bb96408151d2723b647b738998",
+    "review_url": "http://127.0.0.1:4173/review-gallery.html",
+    "supersedes_sha256": "485f22be447efae662cb1a88bdf87d01cf03ce742a7379e24380bcb2bb6ef3e8",
+    "service": {
+      "name": "identity-evaluation-gallery",
+      "supervisor_config": "/company/services/supervisor/identity-evaluation-gallery.conf",
+      "observed_status": "RUNNING",
+      "probe_result": "HTTP 200"
+    },
+    "deliverables": [
+      "product copy/state specification explicitly labeled as proposed",
+      "landing-page section with locally observed command and constitution proof",
+      "founder draft with voice and sender identity pending",
+      "newsletter draft with publication voice and byline pending",
+      "support draft with sender identity pending",
+      "transactional draft with sender, count and destination pending",
+      "standalone Blog draft with publication identity pending",
+      "social drafts with account identity pending and editorial evidence-card direction",
+      "internal decision memo recording independent changes requested"
+    ]
+  },
+  "supporting_evidence": {
+    "evaluation": "/company/outputs/identity-evaluation/evaluation.md",
+    "receipt": "/company/outputs/identity-evaluation/receipt.json",
+    "browser_manifest": {
+      "path": "/company/outputs/identity-evaluation-browser/manifest.json",
+      "sha256": "88ffca0fdcfd596bc005a9aa74e74c5675bebbfac556c6eb9ec9d983dde3681a"
+    },
+    "browser_profiles": ["desktop", "mobile", "desktop-reduced-motion"]
+  },
+  "actors": [
+    {
+      "actor_id": "release-producer",
+      "display_name": "Ilya Chen",
+      "display_name_source": "Work-bound actor context",
+      "role": "cross-channel-release-producer",
+      "model": "litellm/gpt-5.6-sol",
+      "contribution": "Produced and repaired the package; ran producer QA and wrote this receipt.",
+      "independent_reviewer": false
+    },
+    {
+      "actor_id": "release-critic",
+      "display_name": null,
+      "role": "independent release critic",
+      "model": "litellm/gpt-5.6-sol",
+      "model_source": "Runtime spend observation",
+      "contribution": "Returned changes_requested on the superseded candidate, identifying invented product proof, false blindness language and unsourced voices/authorship.",
+      "independent_reviewer": true
+    },
+    {
+      "actor_id": "release-direction",
+      "display_name": null,
+      "role": "accountable coordinator",
+      "model": "litellm/gpt-5.6-sol",
+      "contribution": "Issued the exact root-repair direction for revision 2.",
+      "independent_reviewer": false
+    },
+    {
+      "actor_id": "exec",
+      "display_name": null,
+      "role": "company Exec",
+      "model": "litellm/gpt-5.6-sol",
+      "contribution": "Commissioned the company outcome; did not produce or review this revision.",
+      "independent_reviewer": false
+    }
+  ],
+  "review_passes": [
+    {
+      "id": "superseded-producer-qa",
+      "candidate_sha256": "485f22be447efae662cb1a88bdf87d01cf03ce742a7379e24380bcb2bb6ef3e8",
+      "reviewer": "release-producer",
+      "classification": "producer QA/self-review",
+      "independent": false,
+      "result": "producer claimed ready; later contradicted by independent review",
+      "repairs_found": ["mobile navigation overflow", "favicon 404"]
+    },
+    {
+      "id": "independent-critic-pass",
+      "candidate_sha256": "485f22be447efae662cb1a88bdf87d01cf03ce742a7379e24380bcb2bb6ef3e8",
+      "reviewer": "release-critic",
+      "classification": "independent browser-native review",
+      "independent": true,
+      "result": "changes_requested",
+      "defects": [
+        "Invented UI was presented as product proof.",
+        "Producer QA overclaimed blindness.",
+        "Identity-dependent channel assets lacked sourced voices and authorship."
+      ]
+    },
+    {
+      "id": "revision-2-producer-qa",
+      "candidate_sha256": "556e10247bbac3e3c121e5c23c3690aba6fa31bb96408151d2723b647b738998",
+      "reviewer": "release-producer",
+      "classification": "producer QA/self-review",
+      "independent": false,
+      "result": "ready to return to successor critic; no independent acceptance claimed",
+      "browser_observations": {
+        "profiles": ["desktop", "mobile", "desktop-reduced-motion"],
+        "http_200": true,
+        "navigation_errors": 0,
+        "horizontal_overflow_profiles": 0,
+        "off_viewport_interactive_profiles": 0,
+        "invisible_authored_content_profiles": 0,
+        "console_error_profiles": 0,
+        "page_error_profiles": 0,
+        "failed_internal_links": 0
+      }
+    }
+  ],
+  "reversals": [
+    {
+      "from": "Realistic affected-artifact UI with invented artifact, hash, count and controls.",
+      "to": "Explicit proposed copy/state specification with no functioning controls or invented product records.",
+      "reason": "No native identity interface or production record was observed."
+    },
+    {
+      "from": "Landing pseudo-screenshot used as product proof.",
+      "to": "Observed constitution release, Work artifact command contract and installed CLI capability gap.",
+      "reason": "Product proof must come from attributable observations."
+    },
+    {
+      "from": "Producer inspection described as blinded in substance.",
+      "to": "Producer QA/self-review; independent critic changes_requested recorded separately.",
+      "reason": "A producer cannot independently blind itself to its own candidate."
+    },
+    {
+      "from": "Named support signature and Blog byline; invented social handle; under-specified founder/newsletter identity.",
+      "to": "Explicit role drafts with voice, byline, sender or account identity pending.",
+      "reason": "No owner-released source identities or channel voices were observed."
+    },
+    {
+      "from": "Transactional example count and destination route.",
+      "to": "Observed-count and destination placeholders.",
+      "reason": "No production event, route, count or delivery behavior was observed."
+    },
+    {
+      "from": "Bindings implied for every artifact and broad associated-work review.",
+      "to": "Accepted artifacts only; only those repeating the broader changed claim enter review.",
+      "reason": "Owner-released product truth defines the narrower boundary."
+    }
+  ],
+  "evidence_sources": [
+    {
+      "type": "owner_released_constitution",
+      "release": "55af2a58-3c5c-4720-a8dd-0e7b12b04dd2",
+      "evidence": "s35-integrated-corpus@sha256:2279516e1403349b8618d33520ef58ccfb28ad53b3dff4518b54a6708c33548f",
+      "supports": [
+        "accepted artifact binding to exact identity release, author, channel and evidence",
+        "accountable work returns evidence for an owner decision",
+        "changed facts surface exact affected accepted artifacts for retain, revise or retire without automatic rewriting"
+      ]
+    },
+    {
+      "type": "live_cli_probe",
+      "method": "restless --help",
+      "observed": "Work, receipts and owner-governance surfaces are listed; no identity subcommand is listed.",
+      "does_not_prove": "Absence of underlying identity behavior or future capability."
+    },
+    {
+      "type": "live_command_contract_probe",
+      "method": "restless work artifact --help",
+      "observed": "The command requires Work, Attempt, kind and URI and accepts digest, source commit, label and note."
+    },
+    {
+      "type": "live_browser_probe",
+      "method": "restless-web-review against exact loopback candidate",
+      "manifest": "/company/outputs/identity-evaluation-browser/manifest.json",
+      "observed": "Three successful post-repair profile captures with deterministic rendering observations.",
+      "does_not_prove": "Independent acceptance, taste approval, product release status or publication authority."
+    },
+    {
+      "type": "runtime_spend_observation",
+      "method": "restless spend -c constitution_treatment_test",
+      "observed_at": "2026-09-01T08:58:00Z",
+      "accounted_usd": 3.1001,
+      "ceiling_usd": 25.0,
+      "remaining_usd": 21.8999,
+      "by_actor": [
+        {"actor": "release-producer", "model": "litellm/gpt-5.6-sol", "spent_usd": 1.4962},
+        {"actor": "release-direction", "model": "litellm/gpt-5.6-sol", "spent_usd": 0.8489},
+        {"actor": "release-critic", "model": "litellm/gpt-5.6-sol", "spent_usd": 0.4394},
+        {"actor": "exec", "model": "litellm/gpt-5.6-sol", "spent_usd": 0.3156}
+      ],
+      "scope_note": "Company Runtime snapshot, not per-artifact cost attribution."
+    }
+  ],
+  "identity_and_voice_status": {
+    "founder": "not observed; voice and sender identity pending",
+    "newsletter": "publication title, voice and byline not observed",
+    "support": "sender identity and support authority not observed",
+    "transactional": "sender identity, real event count, route and delivery behavior not observed",
+    "blog": "publication author identity and source voice not observed",
+    "social": "account identity, source voice and destination not observed",
+    "internal_actor_ids": "release-producer and release-direction are Work-bound Runtime identities; not presented as public channel authors"
+  },
+  "remaining_unknowns": [
+    "Successor independent critic verdict on revised digest 556e1024…8998.",
+    "Official Company Voice, Visual Language and Operating Culture.",
+    "Native identity interface, production identity release and completed correction behavior.",
+    "Founder, publication, support, transactional and social identity releases.",
+    "Customer deployment, real affected-artifact counts, metrics and outcomes.",
+    "Model context-window size, Attempt token count and per-artifact model cost."
+  ],
+  "effect_boundary": {
+    "ordinary_local_actions": [
+      "read Work-bound and installed local sources",
+      "write company-local files",
+      "run loopback supervised service",
+      "operate local Chromium review tooling"
+    ],
+    "not_authorised": [
+      "publish", "deploy", "send", "post", "contact", "purchase", "cause another consequential external effect"
+    ],
+    "external_effects_attempted": [],
+    "external_effects_observed": []
+  },
+  "completion_claim": "Revision 2 repairs the three independent changes-requested defects and is ready for successor independent criticism. No later independent acceptance or publication authority is claimed."
+}

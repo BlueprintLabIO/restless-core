@@ -1,0 +1,11 @@
+{
+  "contract_version": "published-service.v1",
+  "image": "registry.example/restless/swift-arrival:latest",
+  "profile": "https-websocket-demo",
+  "internal_port": 8080,
+  "readiness": {
+    "kind": "http",
+    "path": "/health",
+    "websocket_path": "/ws"
+  }
+}

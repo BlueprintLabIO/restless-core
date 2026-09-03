@@ -422,6 +422,51 @@ Examples:
 
 This stream supports UI, debugging and organisational awareness. It is not a constitutional ledger and may be compacted, repaired or regenerated.
 
+### Company Identity constitution
+
+OrgIntel owns one recoverable Company Identity source boundary for expression work. It does not own
+the company mandate and it does not grant external-effect authority.
+
+The Restless product company's current owner-approved truth, public position, architectural evidence,
+negative examples and landing-page expression are recorded in
+[`docs/company-identity/restless-company-truth.md`](docs/company-identity/restless-company-truth.md).
+
+One immutable identity release names four distinct evidence families:
+
+- **Truth:** facts, beliefs, observations, examples, guidance and bounded exceptions keep their
+  different epistemic meaning. A conflicting accepted fact blocks only dependent expression.
+- **Voice:** human passages, channel observations, named-author evidence and negative examples are
+  selected for an explicit reader, author, proof and consequence.
+- **Visual language:** tokens, composition rules, product representation, motion patterns and exact
+  primitive versions are reviewed in their native renderer. Registry availability never implies use.
+- **Culture:** observed conduct under a named situation and consequence includes counterexamples,
+  uncertainty and authority boundaries. It is neither a personality model nor an employee score.
+
+An owner promotion creates one successor release with an exact change account. Work binds once to the
+current release in the same commissioning transaction, so queued Work cannot silently adopt a later
+release. For identity-bearing Work, the accountable lead may select relevant Voice, Visual and Culture
+situations in that same transaction; the scheduler cannot launch Staff against a half-bound contract.
+The runtime compiles one deterministic, byte-bounded constitution brief for that Work;
+each pillar retains its own provenance, conflicts, omissions and explicit unavailable state. Teams do
+not manually concatenate pillar prompts and the compiler never invents a substitute house style.
+
+An accepted artifact version may bind immutably to its release, channel, audience, named author,
+producer, accountable lead, company voice, exact evidence dependencies and native review evidence.
+This extends the existing artifact reference; it creates no second artifact lifecycle.
+
+Owner or customer evidence and exercised outcomes may create an attributed proposal. Generated
+repetition, evaluator taste, model majority and mere frequency cannot promote policy. A later release
+computes concrete, pillar-specific drift against exact dependencies. The owner may retain, revise or
+retire an affected artifact; no drift computation edits, publishes or removes it automatically.
+
+The owner surface stays quiet: current release, material proposals, consequential drift and required
+judgements are visible; routine compliant production does not create Attention. No consistency score,
+free-form constitution prompt, CMS, universal preference engine or continuous self-training loop exists.
+
+Work, Attempt, artifact, Authority and effect lifecycles remain authoritative. Identity context can
+constrain an expression or expose a contradiction; it cannot approve publication, outreach, customer
+contact, deployment, payment or any other external effect.
+
 ## 4.5 Replaceable intelligence modules
 
 The stable coordination core should not contain every theory of management. Higher-order behaviour should be modular and replaceable:

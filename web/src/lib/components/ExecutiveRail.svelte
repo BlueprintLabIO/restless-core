@@ -15,6 +15,7 @@
 	import MatrixGlyph, { GLYPHS } from '$lib/primitives/MatrixGlyph.svelte';
 	import SemanticMark from '$lib/primitives/SemanticMark.svelte';
 	import type { ActiveAgentTurn } from '$lib/model/queries.svelte';
+	import type { OutcomeStandard } from '$lib/model/company';
 	import { mergeAdjacentAgentMessages, type ThreadMessage } from '$lib/model/view';
 
 	let {
@@ -25,6 +26,7 @@
 		companyId,
 		membershipRole,
 		connected = false,
+		defaultOutcomeStandard = 'exceptional',
 		contextLabel = 'Current screen',
 		focusAfterMessageId = 0,
 		focusStartedAt = null,
@@ -47,6 +49,7 @@
 		 * available. Runtime/provider administration stays outside the owner cockpit.
 		 */
 		connected?: boolean;
+		defaultOutcomeStandard?: OutcomeStandard;
 		contextLabel?: string;
 		focusAfterMessageId?: number;
 		focusStartedAt?: string | null;
@@ -59,7 +62,8 @@
 					files: File[],
 					includeContext: boolean,
 					newFocus: boolean,
-					interrupt: boolean
+					interrupt: boolean,
+					outcomeStandard?: OutcomeStandard
 			  ) => Promise<{ error?: string; notice?: string }>)
 			| null;
 		review?: {
@@ -135,6 +139,7 @@
 	let pendingFocusAfterMessageId = $state(0);
 	let handledNewFocusRequest = 0;
 	let composerFocusKey = $state(0);
+	let outcomeStandardOverride = $state<OutcomeStandard | ''>('');
 
 	const activeFocusAfterMessageId = $derived(
 		newFocusPending ? pendingFocusAfterMessageId : focusAfterMessageId
@@ -253,12 +258,20 @@
 		const files = composerFiles;
 		composer = '';
 		try {
-			const outcome = await onask(text, files, includeContext, newFocusPending, !!turn);
+			const outcome = await onask(
+				text,
+				files,
+				includeContext,
+				newFocusPending,
+				!!turn,
+				outcomeStandardOverride || undefined
+			);
 			if (outcome.error) {
 				composer = sent;
 				askError = outcome.error;
 			} else {
 				composerFiles = [];
+				outcomeStandardOverride = '';
 				newFocusPending = false;
 				askNotice = outcome.notice ?? '';
 			}
@@ -434,6 +447,22 @@
 						{#snippet controls()}
 							{#if !review && !workContext}
 								<div class="exec-context-line">
+									<label
+										class="outcome-standard-control"
+										title="Choose the outcome ambition for this request; unchanged inherits company policy"
+									>
+										<span>Outcome standard</span>
+										<select bind:value={outcomeStandardOverride} aria-label="Outcome standard">
+											<option value=""
+												>{defaultOutcomeStandard[0].toUpperCase() + defaultOutcomeStandard.slice(1)} ·
+												inherited</option
+											>
+											<option value="fast">Fast</option>
+											<option value="thorough">Thorough</option>
+											<option value="exceptional">Exceptional</option>
+											<option value="frontier">Frontier</option>
+										</select>
+									</label>
 									<button
 										type="button"
 										class="exec-context-chip"

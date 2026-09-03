@@ -1,0 +1,48 @@
+{
+  "version": 1,
+  "frozen_at": "2026-08-31T00:00:00Z",
+  "evaluation_blinding": "candidate rationale and component counts hidden",
+  "product_truth": {
+    "source": "Restless owner cockpit",
+    "version": "product@sha256:ground-truth",
+    "state": "accountable Work with evidence returned for owner decision",
+    "lesson": "calm operational density, exact state language, mint reserved for agency and decision",
+    "non_transferable": "navigation chrome and dense tables are not copied into every public composition"
+  },
+  "references": [
+    {
+      "source": "Cult UI motion primitives",
+      "license": "MIT; exact local adaptation must retain provenance",
+      "captured_at": "2026-08-31T00:00:00Z",
+      "lesson": "material and motion can make state change tangible",
+      "non_transferable": "a primitive is not a mandate, template or quality score"
+    },
+    {
+      "source": "accepted Restless clean-room landing page",
+      "license": "company-owned",
+      "captured_at": "2026-08-31T00:00:00Z",
+      "lesson": "simple value-first copy and product-native typography outperform academic explanation",
+      "non_transferable": "one landing layout cannot become the email, product and social layout"
+    }
+  ],
+  "shared_grammar": {
+    "typography": "IBM Plex Sans and Mono; large plain value statement; operational annotations",
+    "composition": "one outcome, visible mechanism, adjacent proof, decisive action",
+    "colour": "quiet ink and paper; mint marks agency or accepted state; warm colour only for scoped social departure",
+    "motion": "reveals causal progress; complete at-rest replacement under reduced motion",
+    "product_representation": "exact current UI or visibly abstract; no uncanny pseudo-interface"
+  },
+  "targets": [
+    {"channel":"landing_page","native_constraints":["wide","390px","keyboard","reduced motion"],"control":"restrained product loop","effect_candidate":"liquid causal field"},
+    {"channel":"email","native_constraints":["600px","320px","static fallback","plain text"],"control":"typographic status header","effect_candidate":"unsupported browser material"},
+    {"channel":"product","native_constraints":["focus","state transition","recovery","text fit"],"control":"exact product decision panel","effect_candidate":"decorative ambient panel"},
+    {"channel":"social","native_constraints":["standalone","safe crop","static"],"control":"one proof card","effect_candidate":"multi-effect announcement collage"}
+  ],
+  "anti_examples": [
+    {"name":"goofy blob proof","reason":"abstract material pretends to be product evidence"},
+    {"name":"tiny diagram theatre","reason":"labels become illegible and communicate architecture instead of value"},
+    {"name":"component-count flex","reason":"novelty competes with hierarchy and proof"},
+    {"name":"one template everywhere","reason":"same composition ignores native channel constraints"}
+  ],
+  "decision": "The restrained control wins wherever an effect does not improve state, meaning or emphasis."
+}

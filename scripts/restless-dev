@@ -15,6 +15,20 @@ while [ -L "$STACK_SCRIPT_PATH" ]; do
 done
 STACK_SCRIPT_DIR="$(cd "$(dirname "$STACK_SCRIPT_PATH")" && pwd)"
 STACK_REPO_ROOT="$(cd "${STACK_SCRIPT_DIR}/.." && pwd)"
+# A development checkout is a named appliance profile, never an accidental
+# client of the founder's stable singleton. The namespace and offset are
+# deterministic for this checkout so restarts reconnect to their own state,
+# while two checkouts cannot share ports, databases, containers or volumes.
+STACK_REPO_CHECKSUM="$(printf '%s' "$STACK_REPO_ROOT" | cksum | awk '{print $1}')"
+STACK_NAMESPACE="${RESTLESS_RESOURCE_NAMESPACE:-dev${STACK_REPO_CHECKSUM}}"
+STACK_OFFSET="${RESTLESS_PORT_OFFSET:-$((1000 + STACK_REPO_CHECKSUM % 18000))}"
+STACK_STATE_ROOT="${RESTLESS_HOME:-${HOME}/.restless-dev/${STACK_NAMESPACE}}"
+export RESTLESS_PROFILE="dev"
+export RESTLESS_RESOURCE_NAMESPACE="$STACK_NAMESPACE"
+export RESTLESS_PORT_OFFSET="$STACK_OFFSET"
+export RESTLESS_HOME="$STACK_STATE_ROOT"
+STACK_COMPANY_IMAGE="${RESTLESS_COMPANY_IMAGE:-restless-company-image:${STACK_NAMESPACE}}"
+export RESTLESS_COMPANY_IMAGE="$STACK_COMPANY_IMAGE"
 if [ "${1:-}" = "-h" ] || [ "${1:-}" = "--help" ] || [ "${1:-}" = "help" ]; then
   STACK_ACTION="help"
   STACK_COMPANY="aris"
@@ -33,10 +47,11 @@ else
   STACK_COMPANY="${1:-aris}"
   STACK_RECONCILE="${2:-}"
 fi
-STACK_OWNER_URL="${RESTLESS_OWNER_URL:-http://127.0.0.1:7788}"
-STACK_WEB_PORT="${RESTLESS_WEB_PORT:-5173}"
+STACK_OWNER_URL="${RESTLESS_OWNER_URL:-http://127.0.0.1:$((7788 + STACK_OFFSET))}"
+STACK_WEB_PORT="${RESTLESS_WEB_PORT:-$((5173 + STACK_OFFSET))}"
 STACK_WEB_URL="http://127.0.0.1:${STACK_WEB_PORT}"
-STACK_TARGET_DIR="${STACK_REPO_ROOT}/target"
+export RESTLESS_OWNER_URL="$STACK_OWNER_URL"
+STACK_TARGET_DIR="${RESTLESS_DEV_TARGET_DIR:-${STACK_REPO_ROOT}/target-dev}"
 STACK_DAEMON_PID=""
 STACK_WEB_PID=""
 
@@ -49,6 +64,9 @@ usage:
 dev owns the foreground daemon and Vite processes it starts. Ctrl-C stops
 those host processes, while the company's persistent container and volume stay up.
 doctor is read-only and exits non-zero when any boundary is unavailable.
+
+Every checkout uses an explicit dev profile. The chosen state root, resource
+namespace and port offset are printed before any mutation.
 EOF
 }
 
@@ -146,6 +164,7 @@ cleanup_children() {
 }
 
 dev() {
+  local company_created=""
   case "$STACK_RECONCILE" in
     ""|--reconcile) ;;
     *) usage >&2; exit 2 ;;
@@ -158,6 +177,10 @@ dev() {
   require_command npm
   check_disk_headroom
   [ "$STACK_FAILURES" -eq 0 ] || return 1
+
+  printf 'PROFILE  dev\nROOT     %s\nNAMESPACE %s\nOFFSET   %s\nIMAGE    %s\n' \
+    "$RESTLESS_HOME" "$RESTLESS_RESOURCE_NAMESPACE" "$RESTLESS_PORT_OFFSET" \
+    "$RESTLESS_COMPANY_IMAGE"
 
   cargo build --quiet --manifest-path "${STACK_REPO_ROOT}/Cargo.toml" \
     --target-dir "$STACK_TARGET_DIR" -p restlessd -p restless
@@ -179,11 +202,30 @@ dev() {
         | shasum -a 256 \
         | awk '{print $1}'
     )"
+    local api_contract assertion_contract schema_version
+    api_contract="$(sed -n 's/.*API_CONTRACT_VERSION: u32 = \([0-9]*\);.*/\1/p' "${STACK_REPO_ROOT}/crates/restlessd/src/release.rs")"
+    assertion_contract="$(sed -n 's/.*ASSERTION_CONTRACT_VERSION: u32 = \([0-9]*\);.*/\1/p' "${STACK_REPO_ROOT}/crates/restlessd/src/entry.rs")"
+    schema_version="$(sed -n 's/.*SCHEMA_VERSION: u32 = \([0-9]*\);.*/\1/p' "${STACK_REPO_ROOT}/crates/restlessd/src/release.rs")"
     docker build --quiet \
       --file "${STACK_REPO_ROOT}/infra/company-image/Dockerfile" \
-      --tag restless-company-image:latest \
+      --tag "$RESTLESS_COMPANY_IMAGE" \
       --label "io.restless.source-digest=${source_digest}" \
+      --build-arg RESTLESS_CORE_VERSION=0.0.0-dev \
+      --build-arg "RESTLESS_SOURCE_REVISION=dev-${source_digest}" \
+      --build-arg "RESTLESS_API_CONTRACT_VERSION=${api_contract}" \
+      --build-arg "RESTLESS_ASSERTION_CONTRACT_VERSION=${assertion_contract}" \
+      --build-arg "RESTLESS_SCHEMA_VERSION=${schema_version}" \
       "$STACK_REPO_ROOT" >/dev/null
+  elif ! docker image inspect "$RESTLESS_COMPANY_IMAGE" >/dev/null 2>&1; then
+    # Snapshot the current stable development image into this checkout's
+    # namespace. Future dev rebuilds can no longer mutate the image selected by
+    # the stable appliance or by a different checkout.
+    if docker image inspect restless-company-image:latest >/dev/null 2>&1; then
+      docker tag restless-company-image:latest "$RESTLESS_COMPANY_IMAGE"
+    else
+      printf 'No Runtime image exists for this checkout. Rerun with --reconcile.\n' >&2
+      return 1
+    fi
   fi
 
   if [ "$(http_status "${STACK_WEB_URL}/${STACK_COMPANY}")" = "200" ]; then
@@ -204,6 +246,35 @@ dev() {
     STACK_DAEMON_PID=$!
     wait_for_gateway || {
       printf 'Owner gateway did not become ready. See the daemon output above.\n' >&2
+      return 1
+    }
+  fi
+
+  if [ ! -f "${RESTLESS_HOME}/companies/${STACK_COMPANY}.toml" ]; then
+    local company_file
+    company_file="$(mktemp "${TMPDIR:-/tmp}/restless-dev-company.XXXXXX")"
+    printf 'name = "%s"\nmission = "Develop and verify Restless safely in this isolated checkout."\nmodel = "%s"\nreasoning_effort = "high"\n\n[credentials]\n"model.inference" = "%s"\n' \
+      "$STACK_COMPANY" "${RESTLESS_DEV_MODEL:-zai/glm-5.3}" \
+      "${RESTLESS_DEV_CREDENTIAL_REFERENCE:-env:ZAI_API_KEY}" >"$company_file"
+    if ! "${STACK_TARGET_DIR}/debug/restless" company create --from-file "$company_file"; then
+      rm -f "$company_file"
+      return 1
+    fi
+    rm -f "$company_file"
+    company_created="yes"
+  fi
+
+  # The daemon freezes its admitted model routes at boot. A first-run company
+  # created through the canonical API therefore gets one immediate supervised
+  # restart before any Runtime is started; otherwise the fresh profile would
+  # look healthy while its new company could not think until the next day.
+  if [ "$company_created" = "yes" ] && [ -n "$STACK_DAEMON_PID" ]; then
+    kill "$STACK_DAEMON_PID"
+    wait "$STACK_DAEMON_PID" || true
+    (cd "$STACK_REPO_ROOT" && exec "${STACK_TARGET_DIR}/debug/restlessd") &
+    STACK_DAEMON_PID=$!
+    wait_for_gateway || {
+      printf 'Owner gateway did not return after first-company admission.\n' >&2
       return 1
     }
   fi

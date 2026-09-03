@@ -1,0 +1,112 @@
+{
+  "sprint": 35,
+  "run_date": "2026-09-01",
+  "scope": "company constitution integration and held-back transfer",
+  "publication_or_external_effect": false,
+  "corpus": {
+    "path": "docs/dogfood/company-identity/s35-integrated-corpus.json",
+    "sha256": "2279516e1403349b8618d33520ef58ccfb28ad53b3dff4518b54a6708c33548f",
+    "company_a_assets": 9,
+    "held_back_company": "Harbour Ledger"
+  },
+  "live_database": {
+    "test": "company_constitution",
+    "passed": true,
+    "proved": [
+      "deterministic bounded four-pillar compilation",
+      "immutable exact artifact binding",
+      "one-fact concrete drift",
+      "owner-only migration",
+      "immutable owner migration decision",
+      "commissioning-time identity release binding",
+      "atomic lead-selected voice, visual and culture contracts",
+      "model-majority learning rejection",
+      "explicit unavailable pillars",
+      "second-company isolation"
+    ]
+  },
+  "initial_matched_pair": {
+    "status": "invalid_treatment_retained_as_failure_evidence",
+    "model": "litellm/gpt-5.6-sol",
+    "reasoning": "high",
+    "input": "byte-identical",
+    "control": {
+      "spend_usd": 2.2215,
+      "package_completed": true,
+      "independent_critic_commissioned": false
+    },
+    "treatment": {
+      "critic_rejections": 2,
+      "truth_bound": true,
+      "voice_bound": false,
+      "visual_bound": false,
+      "culture_bound": false,
+      "invalidity_reason": "stale Runtime image lacked the identity CLI and silently under-bound treatment"
+    },
+    "causal_uplift_claimed": false
+  },
+  "reconciled_restless_treatment": {
+    "status": "independently_accepted",
+    "company": "constitution_treatment_test",
+    "identity_release_id": "55af2a58-3c5c-4720-a8dd-0e7b12b04dd2",
+    "constitution_bytes": 9306,
+    "pillars": {
+      "truth": "available",
+      "voice": "available",
+      "visual": "available",
+      "culture": "available"
+    },
+    "omitted_evidence": 0,
+    "final_critic_work_id": "2e717690-dae8-4b9b-89f6-b11fca3a62b5",
+    "gallery": {
+      "path": "docs/dogfood/company-identity/live-runs/2026-09-01-final/treatment/review-gallery.html",
+      "sha256": "b29723925f5e3d051547984f3bf350251db8451f6cf326638aedc23a666d02ed"
+    },
+    "spend_usd": 15.7489,
+    "external_effects": 0
+  },
+  "held_back_transfer": {
+    "status": "independently_accepted_and_owner_accepted",
+    "company": "harbour_ledger_transfer_test",
+    "identity_release_id": "05c395dd-e8e8-4b70-aba5-d21e3d965215",
+    "authority_bytes": 1692,
+    "evidence_count": 4,
+    "gallery": {
+      "path": "docs/dogfood/company-identity/live-runs/2026-09-01-final/harbour/review-gallery.html",
+      "sha256": "38c6b6ee2008dead0f544cf93ee6b7bdfa678868cf88b081b0b32a3480b9d9ae"
+    },
+    "spend_usd": 4.3965,
+    "restless_identity_leakage_found": false,
+    "external_effects": 0
+  },
+  "defects_found_and_repaired": [
+    "artifact re-binding compared only constitution digest and silently accepted changed authorship or channel metadata",
+    "runtime manually concatenated four identity prompt paths",
+    "migration 0027 had been edited after application; restored its shipped checksum and moved bound_by forward into migration 0030",
+    "conflicting migration-decision replay silently returned the original decision",
+    "identity release and specialised pillar contracts were not reachable atomically from real lead commissioning",
+    "OpenAI credit refusal delivered as assistant content was misreported as model indecision",
+    "stale Runtime image omitted the identity CLI and allowed an under-bound treatment",
+    "lead guidance treated relevant specialised contracts as advisory",
+    "preparation Work could complete without commissioning a known successor",
+    "local image release metadata and schema version diverged from source",
+    "shell and Rust source-digest path ordering differed",
+    "placeholder company repository coordinates blocked repo-less Work"
+  ],
+  "owner_interactions": {
+    "restless_routine_compliance_attention": 0,
+    "harbour_irreducible_outcome_review": 1
+  },
+  "purge": {
+    "status": "complete",
+    "durable_evidence_retained": true,
+    "removed": [
+      "three isolated Docker containers",
+      "three isolated Docker volumes",
+      "isolated Restless test home",
+      "isolated model broker profile and bearer token",
+      "isolated model gateway profile and bearer token",
+      "transient browser and model homes inside the test volumes"
+    ]
+  }
+}

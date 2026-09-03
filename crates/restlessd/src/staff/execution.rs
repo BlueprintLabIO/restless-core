@@ -79,6 +79,9 @@ pub(super) async fn run_staff_with_failover(run: StaffRun) -> Result<StaffOutcom
             &run.capabilities,
             &run.company,
             &run.actor,
+            &run.responsibility,
+            run.work_id,
+            run.attempt_id,
         )
         .await
         {
@@ -900,6 +903,9 @@ mod live_product_tests {
                     &provider,
                     model,
                     billing.as_str(),
+                    "test:staff-session",
+                    None,
+                    None,
                 )
                 .unwrap(),
             gateway_url: std::env::var("RESTLESS_S17_PRODUCT_GATEWAY_URL").unwrap_or_else(|_| {
@@ -1045,6 +1051,9 @@ mod live_product_tests {
             root: root.clone(),
             capabilities: crate::capability::CapabilityIssuer::open(&root).unwrap(),
             spend: crate::spend::SpendLedger::open(&root).unwrap(),
+            publication: crate::publication::PublicationManager::new(&root, authority.clone())
+                .unwrap(),
+            launch: crate::launch::LaunchBroker::new(&root).unwrap(),
             authority: authority.clone(),
             orgintel: crate::OrgIntelRegistry {
                 database_url: database_url.clone(),
@@ -1056,6 +1065,7 @@ mod live_product_tests {
             in_flight: std::sync::Arc::new(std::sync::Mutex::new(
                 crate::schedule::WakeClaims::default(),
             )),
+            schedule_wake: std::sync::Arc::new(tokio::sync::Notify::new()),
         });
         let live_config = crate::runtime::CompanyConfig::load(&root, &company).unwrap();
         assert!(
@@ -1577,6 +1587,9 @@ mod live_product_tests {
             root: root.clone(),
             capabilities: crate::capability::CapabilityIssuer::open(&root).unwrap(),
             spend: crate::spend::SpendLedger::open(&root).unwrap(),
+            publication: crate::publication::PublicationManager::new(&root, authority.clone())
+                .unwrap(),
+            launch: crate::launch::LaunchBroker::new(&root).unwrap(),
             authority,
             orgintel: crate::OrgIntelRegistry {
                 database_url: database_url.clone(),
@@ -1588,6 +1601,7 @@ mod live_product_tests {
             in_flight: std::sync::Arc::new(std::sync::Mutex::new(
                 crate::schedule::WakeClaims::default(),
             )),
+            schedule_wake: std::sync::Arc::new(tokio::sync::Notify::new()),
         });
         let listener = tokio::net::TcpListener::bind("0.0.0.0:0").await.unwrap();
         let port = listener.local_addr().unwrap().port();

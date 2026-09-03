@@ -1,0 +1,1469 @@
+{
+  "schema": "restless.web-review/v2",
+  "generatedAt": "2026-09-01T09:43:28.280Z",
+  "candidate": {
+    "baseUrl": "http://127.0.0.1:4317/",
+    "routes": [
+      "/review-gallery.html"
+    ]
+  },
+  "reference": null,
+  "method": {
+    "browser": "system Chromium through Playwright",
+    "scrollExercise": true,
+    "fontsAwaited": true,
+    "computedDesignEvidence": true,
+    "acceptanceVerdict": "none; deterministic observations only",
+    "profiles": [
+      {
+        "name": "desktop",
+        "viewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "reducedMotion": "no-preference"
+      },
+      {
+        "name": "mobile",
+        "viewport": {
+          "width": 390,
+          "height": 844
+        },
+        "reducedMotion": "no-preference"
+      },
+      {
+        "name": "desktop-reduced-motion",
+        "viewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "reducedMotion": "reduce"
+      }
+    ]
+  },
+  "pages": [
+    {
+      "target": "candidate",
+      "profile": "desktop",
+      "route": "/review-gallery.html",
+      "screenshot": "candidate-desktop-review-gallery.html.png",
+      "navigationError": null,
+      "observation": {
+        "status": 200,
+        "title": "Restless identity binding — nine-channel review gallery",
+        "url": "http://127.0.0.1:4317/review-gallery.html",
+        "viewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "document": {
+          "width": 1440,
+          "height": 10374,
+          "bodyTextCharacters": 15113
+        },
+        "horizontalOverflow": false,
+        "overflowElements": [],
+        "offViewportInteractive": [],
+        "invisibleAuthoredContent": [],
+        "headings": [
+          {
+            "level": "h1",
+            "text": "A changed fact should not quietly change your company’s word."
+          },
+          {
+            "level": "h2",
+            "text": "Product user-interface copy"
+          },
+          {
+            "level": "h3",
+            "text": "Know which company facts your accepted work depends on."
+          },
+          {
+            "level": "h2",
+            "text": "Landing-page section"
+          },
+          {
+            "level": "h3",
+            "text": "When the fact changes, the owner keeps the decision."
+          },
+          {
+            "level": "h2",
+            "text": "Founder email"
+          },
+          {
+            "level": "h3",
+            "text": "Your accepted work should keep its history."
+          },
+          {
+            "level": "h2",
+            "text": "Newsletter edition"
+          },
+          {
+            "level": "h3",
+            "text": "The correction is a decision."
+          },
+          {
+            "level": "h2",
+            "text": "Support reply"
+          },
+          {
+            "level": "h2",
+            "text": "Transactional email"
+          },
+          {
+            "level": "h3",
+            "text": "A changed fact affects an accepted artifact"
+          },
+          {
+            "level": "h2",
+            "text": "Blog"
+          },
+          {
+            "level": "h3",
+            "text": "What should happen when a company fact changes?"
+          },
+          {
+            "level": "h2",
+            "text": "Social copy + visual direction"
+          },
+          {
+            "level": "h3",
+            "text": "The fact changed.The decision stays visible."
+          },
+          {
+            "level": "h2",
+            "text": "Internal decision memo"
+          },
+          {
+            "level": "h3",
+            "text": "Recommend native independent review, not publication."
+          },
+          {
+            "level": "h2",
+            "text": "Review the artifact, then review the record."
+          }
+        ],
+        "links": [
+          {
+            "text": "01Product UI copy",
+            "href": "http://127.0.0.1:4317/review-gallery.html#ui",
+            "visible": true
+          },
+          {
+            "text": "02Landing section",
+            "href": "http://127.0.0.1:4317/review-gallery.html#landing",
+            "visible": true
+          },
+          {
+            "text": "03Founder email",
+            "href": "http://127.0.0.1:4317/review-gallery.html#founder",
+            "visible": true
+          },
+          {
+            "text": "04Newsletter",
+            "href": "http://127.0.0.1:4317/review-gallery.html#newsletter",
+            "visible": true
+          },
+          {
+            "text": "05Support reply",
+            "href": "http://127.0.0.1:4317/review-gallery.html#support",
+            "visible": true
+          },
+          {
+            "text": "06Transactional email",
+            "href": "http://127.0.0.1:4317/review-gallery.html#transactional",
+            "visible": true
+          },
+          {
+            "text": "07Blog",
+            "href": "http://127.0.0.1:4317/review-gallery.html#blog",
+            "visible": true
+          },
+          {
+            "text": "08Social + visual",
+            "href": "http://127.0.0.1:4317/review-gallery.html#social",
+            "visible": true
+          },
+          {
+            "text": "09Decision memo",
+            "href": "http://127.0.0.1:4317/review-gallery.html#memo",
+            "visible": true
+          },
+          {
+            "text": "Producer evaluation",
+            "href": "http://127.0.0.1:4317/evaluation.md",
+            "visible": true
+          },
+          {
+            "text": "Machine-readable receipt",
+            "href": "http://127.0.0.1:4317/receipt.json",
+            "visible": true
+          }
+        ],
+        "footer": {
+          "present": false,
+          "visible": false,
+          "textCharacters": 0
+        },
+        "design": {
+          "root": {
+            "fontFamily": "Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif",
+            "fontSize": "15px",
+            "lineHeight": "23.25px",
+            "color": "rgb(23, 32, 28)",
+            "backgroundColor": "rgb(238, 240, 237)"
+          },
+          "typography": [
+            {
+              "value": "Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif | 15px | 400 | 23.25px | normal",
+              "count": 154
+            },
+            {
+              "value": "Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif | 15px | 700 | 23.25px | normal",
+              "count": 27
+            },
+            {
+              "value": "Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif | 13px | 400 | 20.15px | normal",
+              "count": 22
+            },
+            {
+              "value": "ui-monospace, SFMono-Regular, Menlo, monospace | 11px | 400 | 16.5px | normal",
+              "count": 17
+            },
+            {
+              "value": "ui-monospace, SFMono-Regular, Menlo, monospace | 11px | 400 | normal | normal",
+              "count": 15
+            },
+            {
+              "value": "ui-monospace, SFMono-Regular, Menlo, monospace | 11px | 700 | 14.3px | 1.32px",
+              "count": 14
+            },
+            {
+              "value": "ui-monospace, SFMono-Regular, Menlo, monospace | 10px | 700 | normal | 0.6px",
+              "count": 13
+            },
+            {
+              "value": "ui-monospace, SFMono-Regular, Menlo, monospace | 11px | 700 | 16.5px | normal",
+              "count": 13
+            },
+            {
+              "value": "Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif | 16px | 400 | 24.8px | normal",
+              "count": 9
+            },
+            {
+              "value": "Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif | 24px | 700 | 37.2px | -0.72px",
+              "count": 9
+            },
+            {
+              "value": "ui-monospace, SFMono-Regular, Menlo, monospace | 30px | 800 | 30px | normal",
+              "count": 9
+            },
+            {
+              "value": "ui-monospace, SFMono-Regular, Menlo, monospace | 11px | 700 | normal | normal",
+              "count": 7
+            },
+            {
+              "value": "Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif | 17px | 400 | 26.35px | normal",
+              "count": 5
+            },
+            {
+              "value": "Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif | 24px | 700 | 37.2px | -0.6px",
+              "count": 5
+            },
+            {
+              "value": "ui-monospace, SFMono-Regular, Menlo, monospace | 10px | 400 | normal | normal",
+              "count": 5
+            },
+            {
+              "value": "ui-monospace, SFMono-Regular, Menlo, monospace | 10px | 700 | normal | normal",
+              "count": 4
+            }
+          ],
+          "palette": {
+            "text": [
+              {
+                "value": "rgb(23, 32, 28)",
+                "count": 244
+              },
+              {
+                "value": "rgb(93, 105, 98)",
+                "count": 37
+              },
+              {
+                "value": "rgb(255, 255, 255)",
+                "count": 12
+              },
+              {
+                "value": "rgb(140, 152, 145)",
+                "count": 9
+              },
+              {
+                "value": "rgb(142, 183, 165)",
+                "count": 9
+              },
+              {
+                "value": "rgb(220, 232, 226)",
+                "count": 9
+              },
+              {
+                "value": "rgb(245, 250, 247)",
+                "count": 8
+              },
+              {
+                "value": "rgb(220, 231, 225)",
+                "count": 7
+              },
+              {
+                "value": "rgb(185, 222, 207)",
+                "count": 5
+              },
+              {
+                "value": "rgb(238, 247, 242)",
+                "count": 3
+              },
+              {
+                "value": "rgb(244, 248, 245)",
+                "count": 3
+              },
+              {
+                "value": "rgb(169, 208, 190)",
+                "count": 2
+              },
+              {
+                "value": "rgb(197, 231, 216)",
+                "count": 2
+              },
+              {
+                "value": "rgb(101, 113, 105)",
+                "count": 1
+              },
+              {
+                "value": "rgb(158, 181, 170)",
+                "count": 1
+              },
+              {
+                "value": "rgb(158, 192, 177)",
+                "count": 1
+              }
+            ],
+            "background": [
+              {
+                "value": "rgb(251, 252, 249)",
+                "count": 17
+              },
+              {
+                "value": "rgb(255, 255, 255)",
+                "count": 16
+              },
+              {
+                "value": "rgb(32, 74, 62)",
+                "count": 5
+              },
+              {
+                "value": "rgb(21, 60, 49)",
+                "count": 3
+              },
+              {
+                "value": "rgb(216, 238, 228)",
+                "count": 3
+              },
+              {
+                "value": "rgb(244, 230, 191)",
+                "count": 3
+              },
+              {
+                "value": "rgb(219, 231, 244)",
+                "count": 2
+              },
+              {
+                "value": "rgb(23, 62, 51)",
+                "count": 2
+              },
+              {
+                "value": "rgba(255, 255, 255, 0.55)",
+                "count": 2
+              },
+              {
+                "value": "rgb(21, 37, 31)",
+                "count": 1
+              },
+              {
+                "value": "rgb(228, 232, 228)",
+                "count": 1
+              },
+              {
+                "value": "rgb(233, 237, 233)",
+                "count": 1
+              },
+              {
+                "value": "rgb(233, 238, 234)",
+                "count": 1
+              },
+              {
+                "value": "rgb(24, 63, 52)",
+                "count": 1
+              },
+              {
+                "value": "rgb(244, 246, 243)",
+                "count": 1
+              },
+              {
+                "value": "rgba(255, 255, 255, 0.72)",
+                "count": 1
+              }
+            ],
+            "border": [
+              {
+                "value": "rgb(23, 32, 28)",
+                "count": 202
+              },
+              {
+                "value": "rgb(93, 105, 98)",
+                "count": 37
+              },
+              {
+                "value": "rgb(203, 209, 204)",
+                "count": 35
+              },
+              {
+                "value": "rgb(140, 152, 145)",
+                "count": 9
+              },
+              {
+                "value": "rgb(142, 183, 165)",
+                "count": 9
+              },
+              {
+                "value": "rgb(220, 232, 226)",
+                "count": 9
+              },
+              {
+                "value": "rgb(255, 255, 255)",
+                "count": 9
+              },
+              {
+                "value": "rgb(220, 231, 225)",
+                "count": 7
+              },
+              {
+                "value": "rgb(185, 222, 207)",
+                "count": 5
+              },
+              {
+                "value": "rgb(85, 118, 106)",
+                "count": 5
+              },
+              {
+                "value": "rgb(217, 189, 112)",
+                "count": 3
+              },
+              {
+                "value": "rgb(238, 247, 242)",
+                "count": 3
+              },
+              {
+                "value": "rgb(244, 248, 245)",
+                "count": 3
+              },
+              {
+                "value": "rgb(245, 250, 247)",
+                "count": 3
+              },
+              {
+                "value": "rgb(114, 148, 134)",
+                "count": 2
+              },
+              {
+                "value": "rgb(154, 194, 175)",
+                "count": 2
+              }
+            ]
+          },
+          "geometry": {
+            "borderRadii": [
+              {
+                "value": "999px",
+                "count": 13
+              },
+              {
+                "value": "50%",
+                "count": 1
+              }
+            ],
+            "backdropFilteredElements": 361
+          },
+          "motion": {
+            "animations": [],
+            "transitions": []
+          },
+          "readingSurfaces": [],
+          "graphics": {
+            "svg": 0,
+            "canvas": 0,
+            "images": 0,
+            "video": 0,
+            "authoredVisuals": 0
+          }
+        },
+        "consoleErrors": [],
+        "pageErrors": []
+      }
+    },
+    {
+      "target": "candidate",
+      "profile": "mobile",
+      "route": "/review-gallery.html",
+      "screenshot": "candidate-mobile-review-gallery.html.png",
+      "navigationError": null,
+      "observation": {
+        "status": 200,
+        "title": "Restless identity binding — nine-channel review gallery",
+        "url": "http://127.0.0.1:4317/review-gallery.html",
+        "viewport": {
+          "width": 390,
+          "height": 844
+        },
+        "document": {
+          "width": 391,
+          "height": 17268,
+          "bodyTextCharacters": 15041
+        },
+        "horizontalOverflow": false,
+        "overflowElements": [
+          {
+            "selector": "div.ui-grid > div.ui-main > div.state-tabs > span",
+            "text": "Decision recorded",
+            "left": 355,
+            "right": 490
+          },
+          {
+            "selector": "div.ui-grid > div.ui-main > div.state-tabs > span",
+            "text": "Unavailable",
+            "left": 496,
+            "right": 590
+          }
+        ],
+        "offViewportInteractive": [],
+        "invisibleAuthoredContent": [],
+        "headings": [
+          {
+            "level": "h1",
+            "text": "A changed fact should not quietly change your company’s word."
+          },
+          {
+            "level": "h2",
+            "text": "Product user-interface copy"
+          },
+          {
+            "level": "h3",
+            "text": "Know which company facts your accepted work depends on."
+          },
+          {
+            "level": "h2",
+            "text": "Landing-page section"
+          },
+          {
+            "level": "h3",
+            "text": "When the fact changes, the owner keeps the decision."
+          },
+          {
+            "level": "h2",
+            "text": "Founder email"
+          },
+          {
+            "level": "h3",
+            "text": "Your accepted work should keep its history."
+          },
+          {
+            "level": "h2",
+            "text": "Newsletter edition"
+          },
+          {
+            "level": "h3",
+            "text": "The correction is a decision."
+          },
+          {
+            "level": "h2",
+            "text": "Support reply"
+          },
+          {
+            "level": "h2",
+            "text": "Transactional email"
+          },
+          {
+            "level": "h3",
+            "text": "A changed fact affects an accepted artifact"
+          },
+          {
+            "level": "h2",
+            "text": "Blog"
+          },
+          {
+            "level": "h3",
+            "text": "What should happen when a company fact changes?"
+          },
+          {
+            "level": "h2",
+            "text": "Social copy + visual direction"
+          },
+          {
+            "level": "h3",
+            "text": "The fact changed.The decision stays visible."
+          },
+          {
+            "level": "h2",
+            "text": "Internal decision memo"
+          },
+          {
+            "level": "h3",
+            "text": "Recommend native independent review, not publication."
+          },
+          {
+            "level": "h2",
+            "text": "Review the artifact, then review the record."
+          }
+        ],
+        "links": [
+          {
+            "text": "01Product UI copy",
+            "href": "http://127.0.0.1:4317/review-gallery.html#ui",
+            "visible": true
+          },
+          {
+            "text": "02Landing section",
+            "href": "http://127.0.0.1:4317/review-gallery.html#landing",
+            "visible": true
+          },
+          {
+            "text": "03Founder email",
+            "href": "http://127.0.0.1:4317/review-gallery.html#founder",
+            "visible": true
+          },
+          {
+            "text": "04Newsletter",
+            "href": "http://127.0.0.1:4317/review-gallery.html#newsletter",
+            "visible": true
+          },
+          {
+            "text": "05Support reply",
+            "href": "http://127.0.0.1:4317/review-gallery.html#support",
+            "visible": true
+          },
+          {
+            "text": "06Transactional email",
+            "href": "http://127.0.0.1:4317/review-gallery.html#transactional",
+            "visible": true
+          },
+          {
+            "text": "07Blog",
+            "href": "http://127.0.0.1:4317/review-gallery.html#blog",
+            "visible": true
+          },
+          {
+            "text": "08Social + visual",
+            "href": "http://127.0.0.1:4317/review-gallery.html#social",
+            "visible": true
+          },
+          {
+            "text": "09Decision memo",
+            "href": "http://127.0.0.1:4317/review-gallery.html#memo",
+            "visible": true
+          },
+          {
+            "text": "Producer evaluation",
+            "href": "http://127.0.0.1:4317/evaluation.md",
+            "visible": true
+          },
+          {
+            "text": "Machine-readable receipt",
+            "href": "http://127.0.0.1:4317/receipt.json",
+            "visible": true
+          }
+        ],
+        "footer": {
+          "present": false,
+          "visible": false,
+          "textCharacters": 0
+        },
+        "design": {
+          "root": {
+            "fontFamily": "Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif",
+            "fontSize": "15px",
+            "lineHeight": "23.25px",
+            "color": "rgb(23, 32, 28)",
+            "backgroundColor": "rgb(238, 240, 237)"
+          },
+          "typography": [
+            {
+              "value": "Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif | 15px | 400 | 23.25px | normal",
+              "count": 149
+            },
+            {
+              "value": "Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif | 15px | 700 | 23.25px | normal",
+              "count": 27
+            },
+            {
+              "value": "Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif | 13px | 400 | 20.15px | normal",
+              "count": 22
+            },
+            {
+              "value": "ui-monospace, SFMono-Regular, Menlo, monospace | 11px | 400 | 16.5px | normal",
+              "count": 17
+            },
+            {
+              "value": "ui-monospace, SFMono-Regular, Menlo, monospace | 11px | 400 | normal | normal",
+              "count": 15
+            },
+            {
+              "value": "ui-monospace, SFMono-Regular, Menlo, monospace | 11px | 700 | 14.3px | 1.32px",
+              "count": 14
+            },
+            {
+              "value": "ui-monospace, SFMono-Regular, Menlo, monospace | 10px | 700 | normal | 0.6px",
+              "count": 13
+            },
+            {
+              "value": "ui-monospace, SFMono-Regular, Menlo, monospace | 11px | 700 | 16.5px | normal",
+              "count": 13
+            },
+            {
+              "value": "Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif | 16px | 400 | 24.8px | normal",
+              "count": 9
+            },
+            {
+              "value": "Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif | 24px | 700 | 37.2px | -0.72px",
+              "count": 9
+            },
+            {
+              "value": "ui-monospace, SFMono-Regular, Menlo, monospace | 30px | 800 | 30px | normal",
+              "count": 9
+            },
+            {
+              "value": "ui-monospace, SFMono-Regular, Menlo, monospace | 11px | 700 | normal | normal",
+              "count": 7
+            },
+            {
+              "value": "Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif | 17px | 400 | 26.35px | normal",
+              "count": 5
+            },
+            {
+              "value": "Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif | 24px | 700 | 37.2px | -0.6px",
+              "count": 5
+            },
+            {
+              "value": "ui-monospace, SFMono-Regular, Menlo, monospace | 10px | 400 | normal | normal",
+              "count": 5
+            },
+            {
+              "value": "ui-monospace, SFMono-Regular, Menlo, monospace | 12px | 700 | 18.6px | normal",
+              "count": 4
+            }
+          ],
+          "palette": {
+            "text": [
+              {
+                "value": "rgb(23, 32, 28)",
+                "count": 235
+              },
+              {
+                "value": "rgb(93, 105, 98)",
+                "count": 37
+              },
+              {
+                "value": "rgb(255, 255, 255)",
+                "count": 12
+              },
+              {
+                "value": "rgb(140, 152, 145)",
+                "count": 9
+              },
+              {
+                "value": "rgb(142, 183, 165)",
+                "count": 9
+              },
+              {
+                "value": "rgb(220, 232, 226)",
+                "count": 9
+              },
+              {
+                "value": "rgb(245, 250, 247)",
+                "count": 8
+              },
+              {
+                "value": "rgb(220, 231, 225)",
+                "count": 7
+              },
+              {
+                "value": "rgb(185, 222, 207)",
+                "count": 5
+              },
+              {
+                "value": "rgb(238, 247, 242)",
+                "count": 3
+              },
+              {
+                "value": "rgb(244, 248, 245)",
+                "count": 3
+              },
+              {
+                "value": "rgb(169, 208, 190)",
+                "count": 2
+              },
+              {
+                "value": "rgb(197, 231, 216)",
+                "count": 2
+              },
+              {
+                "value": "rgb(101, 113, 105)",
+                "count": 1
+              },
+              {
+                "value": "rgb(158, 181, 170)",
+                "count": 1
+              },
+              {
+                "value": "rgb(158, 192, 177)",
+                "count": 1
+              }
+            ],
+            "background": [
+              {
+                "value": "rgb(251, 252, 249)",
+                "count": 17
+              },
+              {
+                "value": "rgb(255, 255, 255)",
+                "count": 15
+              },
+              {
+                "value": "rgb(32, 74, 62)",
+                "count": 5
+              },
+              {
+                "value": "rgb(21, 60, 49)",
+                "count": 3
+              },
+              {
+                "value": "rgb(216, 238, 228)",
+                "count": 3
+              },
+              {
+                "value": "rgb(244, 230, 191)",
+                "count": 3
+              },
+              {
+                "value": "rgb(219, 231, 244)",
+                "count": 2
+              },
+              {
+                "value": "rgb(23, 62, 51)",
+                "count": 2
+              },
+              {
+                "value": "rgba(255, 255, 255, 0.55)",
+                "count": 2
+              },
+              {
+                "value": "rgb(21, 37, 31)",
+                "count": 1
+              },
+              {
+                "value": "rgb(233, 238, 234)",
+                "count": 1
+              },
+              {
+                "value": "rgb(24, 63, 52)",
+                "count": 1
+              },
+              {
+                "value": "rgb(244, 246, 243)",
+                "count": 1
+              },
+              {
+                "value": "rgba(255, 255, 255, 0.72)",
+                "count": 1
+              }
+            ],
+            "border": [
+              {
+                "value": "rgb(23, 32, 28)",
+                "count": 193
+              },
+              {
+                "value": "rgb(93, 105, 98)",
+                "count": 37
+              },
+              {
+                "value": "rgb(203, 209, 204)",
+                "count": 35
+              },
+              {
+                "value": "rgb(140, 152, 145)",
+                "count": 9
+              },
+              {
+                "value": "rgb(142, 183, 165)",
+                "count": 9
+              },
+              {
+                "value": "rgb(220, 232, 226)",
+                "count": 9
+              },
+              {
+                "value": "rgb(255, 255, 255)",
+                "count": 9
+              },
+              {
+                "value": "rgb(220, 231, 225)",
+                "count": 7
+              },
+              {
+                "value": "rgb(185, 222, 207)",
+                "count": 5
+              },
+              {
+                "value": "rgb(85, 118, 106)",
+                "count": 5
+              },
+              {
+                "value": "rgb(217, 189, 112)",
+                "count": 3
+              },
+              {
+                "value": "rgb(238, 247, 242)",
+                "count": 3
+              },
+              {
+                "value": "rgb(244, 248, 245)",
+                "count": 3
+              },
+              {
+                "value": "rgb(245, 250, 247)",
+                "count": 3
+              },
+              {
+                "value": "rgb(114, 148, 134)",
+                "count": 2
+              },
+              {
+                "value": "rgb(154, 194, 175)",
+                "count": 2
+              }
+            ]
+          },
+          "geometry": {
+            "borderRadii": [
+              {
+                "value": "999px",
+                "count": 13
+              },
+              {
+                "value": "50%",
+                "count": 1
+              }
+            ],
+            "backdropFilteredElements": 352
+          },
+          "motion": {
+            "animations": [],
+            "transitions": []
+          },
+          "readingSurfaces": [],
+          "graphics": {
+            "svg": 0,
+            "canvas": 0,
+            "images": 0,
+            "video": 0,
+            "authoredVisuals": 0
+          }
+        },
+        "consoleErrors": [],
+        "pageErrors": []
+      }
+    },
+    {
+      "target": "candidate",
+      "profile": "desktop-reduced-motion",
+      "route": "/review-gallery.html",
+      "screenshot": "candidate-desktop-reduced-motion-review-gallery.html.png",
+      "navigationError": null,
+      "observation": {
+        "status": 200,
+        "title": "Restless identity binding — nine-channel review gallery",
+        "url": "http://127.0.0.1:4317/review-gallery.html",
+        "viewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "document": {
+          "width": 1440,
+          "height": 10374,
+          "bodyTextCharacters": 15113
+        },
+        "horizontalOverflow": false,
+        "overflowElements": [],
+        "offViewportInteractive": [],
+        "invisibleAuthoredContent": [],
+        "headings": [
+          {
+            "level": "h1",
+            "text": "A changed fact should not quietly change your company’s word."
+          },
+          {
+            "level": "h2",
+            "text": "Product user-interface copy"
+          },
+          {
+            "level": "h3",
+            "text": "Know which company facts your accepted work depends on."
+          },
+          {
+            "level": "h2",
+            "text": "Landing-page section"
+          },
+          {
+            "level": "h3",
+            "text": "When the fact changes, the owner keeps the decision."
+          },
+          {
+            "level": "h2",
+            "text": "Founder email"
+          },
+          {
+            "level": "h3",
+            "text": "Your accepted work should keep its history."
+          },
+          {
+            "level": "h2",
+            "text": "Newsletter edition"
+          },
+          {
+            "level": "h3",
+            "text": "The correction is a decision."
+          },
+          {
+            "level": "h2",
+            "text": "Support reply"
+          },
+          {
+            "level": "h2",
+            "text": "Transactional email"
+          },
+          {
+            "level": "h3",
+            "text": "A changed fact affects an accepted artifact"
+          },
+          {
+            "level": "h2",
+            "text": "Blog"
+          },
+          {
+            "level": "h3",
+            "text": "What should happen when a company fact changes?"
+          },
+          {
+            "level": "h2",
+            "text": "Social copy + visual direction"
+          },
+          {
+            "level": "h3",
+            "text": "The fact changed.The decision stays visible."
+          },
+          {
+            "level": "h2",
+            "text": "Internal decision memo"
+          },
+          {
+            "level": "h3",
+            "text": "Recommend native independent review, not publication."
+          },
+          {
+            "level": "h2",
+            "text": "Review the artifact, then review the record."
+          }
+        ],
+        "links": [
+          {
+            "text": "01Product UI copy",
+            "href": "http://127.0.0.1:4317/review-gallery.html#ui",
+            "visible": true
+          },
+          {
+            "text": "02Landing section",
+            "href": "http://127.0.0.1:4317/review-gallery.html#landing",
+            "visible": true
+          },
+          {
+            "text": "03Founder email",
+            "href": "http://127.0.0.1:4317/review-gallery.html#founder",
+            "visible": true
+          },
+          {
+            "text": "04Newsletter",
+            "href": "http://127.0.0.1:4317/review-gallery.html#newsletter",
+            "visible": true
+          },
+          {
+            "text": "05Support reply",
+            "href": "http://127.0.0.1:4317/review-gallery.html#support",
+            "visible": true
+          },
+          {
+            "text": "06Transactional email",
+            "href": "http://127.0.0.1:4317/review-gallery.html#transactional",
+            "visible": true
+          },
+          {
+            "text": "07Blog",
+            "href": "http://127.0.0.1:4317/review-gallery.html#blog",
+            "visible": true
+          },
+          {
+            "text": "08Social + visual",
+            "href": "http://127.0.0.1:4317/review-gallery.html#social",
+            "visible": true
+          },
+          {
+            "text": "09Decision memo",
+            "href": "http://127.0.0.1:4317/review-gallery.html#memo",
+            "visible": true
+          },
+          {
+            "text": "Producer evaluation",
+            "href": "http://127.0.0.1:4317/evaluation.md",
+            "visible": true
+          },
+          {
+            "text": "Machine-readable receipt",
+            "href": "http://127.0.0.1:4317/receipt.json",
+            "visible": true
+          }
+        ],
+        "footer": {
+          "present": false,
+          "visible": false,
+          "textCharacters": 0
+        },
+        "design": {
+          "root": {
+            "fontFamily": "Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif",
+            "fontSize": "15px",
+            "lineHeight": "23.25px",
+            "color": "rgb(23, 32, 28)",
+            "backgroundColor": "rgb(238, 240, 237)"
+          },
+          "typography": [
+            {
+              "value": "Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif | 15px | 400 | 23.25px | normal",
+              "count": 154
+            },
+            {
+              "value": "Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif | 15px | 700 | 23.25px | normal",
+              "count": 27
+            },
+            {
+              "value": "Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif | 13px | 400 | 20.15px | normal",
+              "count": 22
+            },
+            {
+              "value": "ui-monospace, SFMono-Regular, Menlo, monospace | 11px | 400 | 16.5px | normal",
+              "count": 17
+            },
+            {
+              "value": "ui-monospace, SFMono-Regular, Menlo, monospace | 11px | 400 | normal | normal",
+              "count": 15
+            },
+            {
+              "value": "ui-monospace, SFMono-Regular, Menlo, monospace | 11px | 700 | 14.3px | 1.32px",
+              "count": 14
+            },
+            {
+              "value": "ui-monospace, SFMono-Regular, Menlo, monospace | 10px | 700 | normal | 0.6px",
+              "count": 13
+            },
+            {
+              "value": "ui-monospace, SFMono-Regular, Menlo, monospace | 11px | 700 | 16.5px | normal",
+              "count": 13
+            },
+            {
+              "value": "Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif | 16px | 400 | 24.8px | normal",
+              "count": 9
+            },
+            {
+              "value": "Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif | 24px | 700 | 37.2px | -0.72px",
+              "count": 9
+            },
+            {
+              "value": "ui-monospace, SFMono-Regular, Menlo, monospace | 30px | 800 | 30px | normal",
+              "count": 9
+            },
+            {
+              "value": "ui-monospace, SFMono-Regular, Menlo, monospace | 11px | 700 | normal | normal",
+              "count": 7
+            },
+            {
+              "value": "Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif | 17px | 400 | 26.35px | normal",
+              "count": 5
+            },
+            {
+              "value": "Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif | 24px | 700 | 37.2px | -0.6px",
+              "count": 5
+            },
+            {
+              "value": "ui-monospace, SFMono-Regular, Menlo, monospace | 10px | 400 | normal | normal",
+              "count": 5
+            },
+            {
+              "value": "ui-monospace, SFMono-Regular, Menlo, monospace | 10px | 700 | normal | normal",
+              "count": 4
+            }
+          ],
+          "palette": {
+            "text": [
+              {
+                "value": "rgb(23, 32, 28)",
+                "count": 244
+              },
+              {
+                "value": "rgb(93, 105, 98)",
+                "count": 37
+              },
+              {
+                "value": "rgb(255, 255, 255)",
+                "count": 12
+              },
+              {
+                "value": "rgb(140, 152, 145)",
+                "count": 9
+              },
+              {
+                "value": "rgb(142, 183, 165)",
+                "count": 9
+              },
+              {
+                "value": "rgb(220, 232, 226)",
+                "count": 9
+              },
+              {
+                "value": "rgb(245, 250, 247)",
+                "count": 8
+              },
+              {
+                "value": "rgb(220, 231, 225)",
+                "count": 7
+              },
+              {
+                "value": "rgb(185, 222, 207)",
+                "count": 5
+              },
+              {
+                "value": "rgb(238, 247, 242)",
+                "count": 3
+              },
+              {
+                "value": "rgb(244, 248, 245)",
+                "count": 3
+              },
+              {
+                "value": "rgb(169, 208, 190)",
+                "count": 2
+              },
+              {
+                "value": "rgb(197, 231, 216)",
+                "count": 2
+              },
+              {
+                "value": "rgb(101, 113, 105)",
+                "count": 1
+              },
+              {
+                "value": "rgb(158, 181, 170)",
+                "count": 1
+              },
+              {
+                "value": "rgb(158, 192, 177)",
+                "count": 1
+              }
+            ],
+            "background": [
+              {
+                "value": "rgb(251, 252, 249)",
+                "count": 17
+              },
+              {
+                "value": "rgb(255, 255, 255)",
+                "count": 16
+              },
+              {
+                "value": "rgb(32, 74, 62)",
+                "count": 5
+              },
+              {
+                "value": "rgb(21, 60, 49)",
+                "count": 3
+              },
+              {
+                "value": "rgb(216, 238, 228)",
+                "count": 3
+              },
+              {
+                "value": "rgb(244, 230, 191)",
+                "count": 3
+              },
+              {
+                "value": "rgb(219, 231, 244)",
+                "count": 2
+              },
+              {
+                "value": "rgb(23, 62, 51)",
+                "count": 2
+              },
+              {
+                "value": "rgba(255, 255, 255, 0.55)",
+                "count": 2
+              },
+              {
+                "value": "rgb(21, 37, 31)",
+                "count": 1
+              },
+              {
+                "value": "rgb(228, 232, 228)",
+                "count": 1
+              },
+              {
+                "value": "rgb(233, 237, 233)",
+                "count": 1
+              },
+              {
+                "value": "rgb(233, 238, 234)",
+                "count": 1
+              },
+              {
+                "value": "rgb(24, 63, 52)",
+                "count": 1
+              },
+              {
+                "value": "rgb(244, 246, 243)",
+                "count": 1
+              },
+              {
+                "value": "rgba(255, 255, 255, 0.72)",
+                "count": 1
+              }
+            ],
+            "border": [
+              {
+                "value": "rgb(23, 32, 28)",
+                "count": 202
+              },
+              {
+                "value": "rgb(93, 105, 98)",
+                "count": 37
+              },
+              {
+                "value": "rgb(203, 209, 204)",
+                "count": 35
+              },
+              {
+                "value": "rgb(140, 152, 145)",
+                "count": 9
+              },
+              {
+                "value": "rgb(142, 183, 165)",
+                "count": 9
+              },
+              {
+                "value": "rgb(220, 232, 226)",
+                "count": 9
+              },
+              {
+                "value": "rgb(255, 255, 255)",
+                "count": 9
+              },
+              {
+                "value": "rgb(220, 231, 225)",
+                "count": 7
+              },
+              {
+                "value": "rgb(185, 222, 207)",
+                "count": 5
+              },
+              {
+                "value": "rgb(85, 118, 106)",
+                "count": 5
+              },
+              {
+                "value": "rgb(217, 189, 112)",
+                "count": 3
+              },
+              {
+                "value": "rgb(238, 247, 242)",
+                "count": 3
+              },
+              {
+                "value": "rgb(244, 248, 245)",
+                "count": 3
+              },
+              {
+                "value": "rgb(245, 250, 247)",
+                "count": 3
+              },
+              {
+                "value": "rgb(114, 148, 134)",
+                "count": 2
+              },
+              {
+                "value": "rgb(154, 194, 175)",
+                "count": 2
+              }
+            ]
+          },
+          "geometry": {
+            "borderRadii": [
+              {
+                "value": "999px",
+                "count": 13
+              },
+              {
+                "value": "50%",
+                "count": 1
+              }
+            ],
+            "backdropFilteredElements": 361
+          },
+          "motion": {
+            "animations": [],
+            "transitions": []
+          },
+          "readingSurfaces": [],
+          "graphics": {
+            "svg": 0,
+            "canvas": 0,
+            "images": 0,
+            "video": 0,
+            "authoredVisuals": 0
+          }
+        },
+        "consoleErrors": [],
+        "pageErrors": []
+      }
+    }
+  ],
+  "internalLinks": [
+    {
+      "url": "http://127.0.0.1:4317/review-gallery.html",
+      "status": 200,
+      "ok": true
+    },
+    {
+      "url": "http://127.0.0.1:4317/evaluation.md",
+      "status": 200,
+      "ok": true
+    },
+    {
+      "url": "http://127.0.0.1:4317/receipt.json",
+      "status": 200,
+      "ok": true
+    }
+  ]
+}

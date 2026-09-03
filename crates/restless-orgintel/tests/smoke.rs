@@ -1326,6 +1326,7 @@ async fn evidence_findings_complete_without_review_power_and_formal_review_still
         .unwrap()
         .unwrap();
     assert_eq!(critic_attempt.work.id, critic);
+    assert_eq!(critic_attempt.review_targets, vec![producer]);
     assert!(critic_attempt
         .inputs
         .iter()

@@ -1,0 +1,1420 @@
+{
+  "schema": "restless.web-review/v2",
+  "generatedAt": "2026-09-01T08:58:15.491Z",
+  "candidate": {
+    "baseUrl": "http://127.0.0.1:4173/",
+    "routes": [
+      "/review-gallery.html"
+    ]
+  },
+  "reference": null,
+  "method": {
+    "browser": "system Chromium through Playwright",
+    "scrollExercise": true,
+    "fontsAwaited": true,
+    "computedDesignEvidence": true,
+    "acceptanceVerdict": "none; deterministic observations only",
+    "profiles": [
+      {
+        "name": "desktop",
+        "viewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "reducedMotion": "no-preference"
+      },
+      {
+        "name": "mobile",
+        "viewport": {
+          "width": 390,
+          "height": 844
+        },
+        "reducedMotion": "no-preference"
+      },
+      {
+        "name": "desktop-reduced-motion",
+        "viewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "reducedMotion": "reduce"
+      }
+    ]
+  },
+  "pages": [
+    {
+      "target": "candidate",
+      "profile": "desktop",
+      "route": "/review-gallery.html",
+      "screenshot": "candidate-desktop-review-gallery.html.png",
+      "navigationError": null,
+      "observation": {
+        "status": 200,
+        "title": "Restless identity binding — nine-channel release review",
+        "url": "http://127.0.0.1:4173/review-gallery.html",
+        "viewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "document": {
+          "width": 1440,
+          "height": 12796,
+          "bodyTextCharacters": 17623
+        },
+        "horizontalOverflow": false,
+        "overflowElements": [],
+        "offViewportInteractive": [],
+        "invisibleAuthoredContent": [],
+        "headings": [
+          {
+            "level": "h1",
+            "text": "The work can change. Its basis shouldn’t disappear."
+          },
+          {
+            "level": "h2",
+            "text": "Product copy/state specification"
+          },
+          {
+            "level": "h3",
+            "text": "Accepted work needs a decision"
+          },
+          {
+            "level": "h2",
+            "text": "Landing-page section"
+          },
+          {
+            "level": "h3",
+            "text": "Know which accepted work still rests on an old fact."
+          },
+          {
+            "level": "h2",
+            "text": "Founder email"
+          },
+          {
+            "level": "h3",
+            "text": "We built a decision point where silent drift used to be."
+          },
+          {
+            "level": "h2",
+            "text": "Newsletter edition"
+          },
+          {
+            "level": "h3",
+            "text": "Decisions, not drift"
+          },
+          {
+            "level": "h2",
+            "text": "Support reply"
+          },
+          {
+            "level": "h3",
+            "text": "Hi [recipient name],"
+          },
+          {
+            "level": "h2",
+            "text": "Transactional email"
+          },
+          {
+            "level": "h3",
+            "text": "Accepted work needs your decision."
+          },
+          {
+            "level": "h2",
+            "text": "Standalone Blog"
+          },
+          {
+            "level": "h3",
+            "text": "Accepted work needs a memory of what made it true"
+          },
+          {
+            "level": "h2",
+            "text": "Social copy + visual direction"
+          },
+          {
+            "level": "h2",
+            "text": "Internal decision memo"
+          },
+          {
+            "level": "h3",
+            "text": "Return the repaired package to independent criticism. Do not publish it."
+          }
+        ],
+        "links": [
+          {
+            "text": "Skip to deliverables",
+            "href": "http://127.0.0.1:4173/review-gallery.html#content",
+            "visible": true
+          },
+          {
+            "text": "01 UI",
+            "href": "http://127.0.0.1:4173/review-gallery.html#ui",
+            "visible": true
+          },
+          {
+            "text": "02 Landing",
+            "href": "http://127.0.0.1:4173/review-gallery.html#landing",
+            "visible": true
+          },
+          {
+            "text": "03 Founder",
+            "href": "http://127.0.0.1:4173/review-gallery.html#founder",
+            "visible": true
+          },
+          {
+            "text": "04 Newsletter",
+            "href": "http://127.0.0.1:4173/review-gallery.html#newsletter",
+            "visible": true
+          },
+          {
+            "text": "05 Support",
+            "href": "http://127.0.0.1:4173/review-gallery.html#support",
+            "visible": true
+          },
+          {
+            "text": "06 Transactional",
+            "href": "http://127.0.0.1:4173/review-gallery.html#transactional",
+            "visible": true
+          },
+          {
+            "text": "07 Blog",
+            "href": "http://127.0.0.1:4173/review-gallery.html#blog",
+            "visible": true
+          },
+          {
+            "text": "08 Social",
+            "href": "http://127.0.0.1:4173/review-gallery.html#social",
+            "visible": true
+          },
+          {
+            "text": "09 Memo",
+            "href": "http://127.0.0.1:4173/review-gallery.html#memo",
+            "visible": true
+          },
+          {
+            "text": "Review the proposed copy states",
+            "href": "http://127.0.0.1:4173/review-gallery.html#ui",
+            "visible": true
+          }
+        ],
+        "footer": {
+          "present": true,
+          "visible": true,
+          "textCharacters": 420
+        },
+        "design": {
+          "root": {
+            "fontFamily": "Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif",
+            "fontSize": "16px",
+            "lineHeight": "24.8px",
+            "color": "rgb(21, 36, 31)",
+            "backgroundColor": "rgb(243, 240, 232)"
+          },
+          "typography": [
+            {
+              "value": "Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif | 16px | 400 | 24.8px | normal",
+              "count": 101
+            },
+            {
+              "value": "Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif | 13.76px | 400 | 21.328px | normal",
+              "count": 28
+            },
+            {
+              "value": "Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif | 16px | 700 | 24.8px | normal",
+              "count": 28
+            },
+            {
+              "value": "Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif | 12.8px | 400 | 19.84px | normal",
+              "count": 18
+            },
+            {
+              "value": "Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif | 16.64px | 400 | 25.792px | normal",
+              "count": 16
+            },
+            {
+              "value": "Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif | 12.48px | 400 | 19.344px | normal",
+              "count": 13
+            },
+            {
+              "value": "Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif | 12.16px | 400 | 18.848px | normal",
+              "count": 11
+            },
+            {
+              "value": "\"Iowan Old Style\", Charter, \"Bitstream Charter\", Georgia, serif | 70.4px | 400 | 70.4px | normal",
+              "count": 9
+            },
+            {
+              "value": "Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif | 11.52px | 800 | 17.856px | 1.3824px",
+              "count": 8
+            },
+            {
+              "value": "Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif | 13.92px | 400 | 21.576px | normal",
+              "count": 7
+            },
+            {
+              "value": "\"Iowan Old Style\", Charter, \"Bitstream Charter\", Georgia, serif | 24px | 700 | 37.2px | normal",
+              "count": 6
+            },
+            {
+              "value": "Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif | 12.48px | 700 | 19.344px | normal",
+              "count": 6
+            },
+            {
+              "value": "Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif | 12.8px | 700 | 19.84px | normal",
+              "count": 6
+            },
+            {
+              "value": "Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif | 14.4px | 400 | 22.32px | normal",
+              "count": 6
+            },
+            {
+              "value": "Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif | 14.4px | 700 | 22.32px | normal",
+              "count": 6
+            },
+            {
+              "value": "Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif | 13.28px | 400 | 20.584px | normal",
+              "count": 5
+            }
+          ],
+          "palette": {
+            "text": [
+              {
+                "value": "rgb(21, 36, 31)",
+                "count": 259
+              },
+              {
+                "value": "rgb(88, 100, 95)",
+                "count": 59
+              },
+              {
+                "value": "rgb(23, 98, 74)",
+                "count": 16
+              },
+              {
+                "value": "rgb(239, 245, 241)",
+                "count": 10
+              },
+              {
+                "value": "rgb(255, 255, 255)",
+                "count": 7
+              },
+              {
+                "value": "rgb(164, 73, 31)",
+                "count": 3
+              },
+              {
+                "value": "rgb(189, 201, 195)",
+                "count": 3
+              },
+              {
+                "value": "rgb(143, 208, 182)",
+                "count": 2
+              },
+              {
+                "value": "rgb(52, 67, 61)",
+                "count": 1
+              }
+            ],
+            "background": [
+              {
+                "value": "rgb(255, 253, 247)",
+                "count": 16
+              },
+              {
+                "value": "rgb(255, 255, 255)",
+                "count": 13
+              },
+              {
+                "value": "rgb(21, 36, 31)",
+                "count": 4
+              },
+              {
+                "value": "rgb(23, 98, 74)",
+                "count": 2
+              },
+              {
+                "value": "rgb(241, 243, 241)",
+                "count": 2
+              },
+              {
+                "value": "rgb(245, 227, 215)",
+                "count": 2
+              },
+              {
+                "value": "rgb(164, 73, 31)",
+                "count": 1
+              },
+              {
+                "value": "rgb(220, 235, 227)",
+                "count": 1
+              },
+              {
+                "value": "rgb(232, 233, 228)",
+                "count": 1
+              },
+              {
+                "value": "rgb(242, 244, 240)",
+                "count": 1
+              },
+              {
+                "value": "rgb(246, 248, 247)",
+                "count": 1
+              },
+              {
+                "value": "rgb(247, 249, 246)",
+                "count": 1
+              },
+              {
+                "value": "rgb(255, 247, 241)",
+                "count": 1
+              },
+              {
+                "value": "rgba(243, 240, 232, 0.94)",
+                "count": 1
+              }
+            ],
+            "border": [
+              {
+                "value": "rgb(21, 36, 31)",
+                "count": 228
+              },
+              {
+                "value": "rgb(88, 100, 95)",
+                "count": 58
+              },
+              {
+                "value": "rgb(203, 209, 200)",
+                "count": 23
+              },
+              {
+                "value": "rgb(23, 98, 74)",
+                "count": 16
+              },
+              {
+                "value": "rgb(213, 212, 204)",
+                "count": 9
+              },
+              {
+                "value": "rgb(239, 245, 241)",
+                "count": 8
+              },
+              {
+                "value": "rgb(255, 255, 255)",
+                "count": 7
+              },
+              {
+                "value": "rgb(164, 73, 31)",
+                "count": 3
+              },
+              {
+                "value": "rgb(189, 201, 195)",
+                "count": 3
+              },
+              {
+                "value": "rgb(143, 208, 182)",
+                "count": 2
+              },
+              {
+                "value": "rgb(232, 195, 175)",
+                "count": 1
+              },
+              {
+                "value": "rgb(52, 67, 61)",
+                "count": 1
+              },
+              {
+                "value": "rgb(82, 96, 90)",
+                "count": 1
+              }
+            ]
+          },
+          "geometry": {
+            "borderRadii": [
+              {
+                "value": "999px",
+                "count": 11
+              },
+              {
+                "value": "4px",
+                "count": 9
+              },
+              {
+                "value": "3px",
+                "count": 2
+              },
+              {
+                "value": "50%",
+                "count": 2
+              }
+            ],
+            "backdropFilteredElements": 360
+          },
+          "motion": {
+            "animations": [],
+            "transitions": []
+          },
+          "readingSurfaces": [
+            {
+              "selector": "main > section.deliverable > article.surface.app > div.appbody",
+              "width": 878,
+              "maxWidth": "none",
+              "marginLeft": "0px",
+              "fontFamily": "Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif",
+              "fontSize": "16px",
+              "lineHeight": "24.8px",
+              "textCharacters": 949
+            },
+            {
+              "selector": "main > section.deliverable > article.surface > div.emailbody",
+              "width": 790,
+              "maxWidth": "790px",
+              "marginLeft": "0px",
+              "fontFamily": "Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif",
+              "fontSize": "16px",
+              "lineHeight": "24.8px",
+              "textCharacters": 1184
+            },
+            {
+              "selector": "main > section.deliverable > article.surface > div.pad.prose",
+              "width": 730,
+              "maxWidth": "730px",
+              "marginLeft": "0px",
+              "fontFamily": "Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif",
+              "fontSize": "16px",
+              "lineHeight": "24.8px",
+              "textCharacters": 3644
+            }
+          ],
+          "graphics": {
+            "svg": 0,
+            "canvas": 0,
+            "images": 0,
+            "video": 0,
+            "authoredVisuals": 0
+          }
+        },
+        "consoleErrors": [],
+        "pageErrors": []
+      }
+    },
+    {
+      "target": "candidate",
+      "profile": "mobile",
+      "route": "/review-gallery.html",
+      "screenshot": "candidate-mobile-review-gallery.html.png",
+      "navigationError": null,
+      "observation": {
+        "status": 200,
+        "title": "Restless identity binding — nine-channel release review",
+        "url": "http://127.0.0.1:4173/review-gallery.html",
+        "viewport": {
+          "width": 390,
+          "height": 844
+        },
+        "document": {
+          "width": 390,
+          "height": 20592,
+          "bodyTextCharacters": 17591
+        },
+        "horizontalOverflow": false,
+        "overflowElements": [],
+        "offViewportInteractive": [],
+        "invisibleAuthoredContent": [],
+        "headings": [
+          {
+            "level": "h1",
+            "text": "The work can change. Its basis shouldn’t disappear."
+          },
+          {
+            "level": "h2",
+            "text": "Product copy/state specification"
+          },
+          {
+            "level": "h3",
+            "text": "Accepted work needs a decision"
+          },
+          {
+            "level": "h2",
+            "text": "Landing-page section"
+          },
+          {
+            "level": "h3",
+            "text": "Know which accepted work still rests on an old fact."
+          },
+          {
+            "level": "h2",
+            "text": "Founder email"
+          },
+          {
+            "level": "h3",
+            "text": "We built a decision point where silent drift used to be."
+          },
+          {
+            "level": "h2",
+            "text": "Newsletter edition"
+          },
+          {
+            "level": "h3",
+            "text": "Decisions, not drift"
+          },
+          {
+            "level": "h2",
+            "text": "Support reply"
+          },
+          {
+            "level": "h3",
+            "text": "Hi [recipient name],"
+          },
+          {
+            "level": "h2",
+            "text": "Transactional email"
+          },
+          {
+            "level": "h3",
+            "text": "Accepted work needs your decision."
+          },
+          {
+            "level": "h2",
+            "text": "Standalone Blog"
+          },
+          {
+            "level": "h3",
+            "text": "Accepted work needs a memory of what made it true"
+          },
+          {
+            "level": "h2",
+            "text": "Social copy + visual direction"
+          },
+          {
+            "level": "h2",
+            "text": "Internal decision memo"
+          },
+          {
+            "level": "h3",
+            "text": "Return the repaired package to independent criticism. Do not publish it."
+          }
+        ],
+        "links": [
+          {
+            "text": "Skip to deliverables",
+            "href": "http://127.0.0.1:4173/review-gallery.html#content",
+            "visible": true
+          },
+          {
+            "text": "01 UI",
+            "href": "http://127.0.0.1:4173/review-gallery.html#ui",
+            "visible": true
+          },
+          {
+            "text": "02 Landing",
+            "href": "http://127.0.0.1:4173/review-gallery.html#landing",
+            "visible": true
+          },
+          {
+            "text": "03 Founder",
+            "href": "http://127.0.0.1:4173/review-gallery.html#founder",
+            "visible": true
+          },
+          {
+            "text": "04 Newsletter",
+            "href": "http://127.0.0.1:4173/review-gallery.html#newsletter",
+            "visible": true
+          },
+          {
+            "text": "05 Support",
+            "href": "http://127.0.0.1:4173/review-gallery.html#support",
+            "visible": true
+          },
+          {
+            "text": "06 Transactional",
+            "href": "http://127.0.0.1:4173/review-gallery.html#transactional",
+            "visible": true
+          },
+          {
+            "text": "07 Blog",
+            "href": "http://127.0.0.1:4173/review-gallery.html#blog",
+            "visible": true
+          },
+          {
+            "text": "08 Social",
+            "href": "http://127.0.0.1:4173/review-gallery.html#social",
+            "visible": true
+          },
+          {
+            "text": "09 Memo",
+            "href": "http://127.0.0.1:4173/review-gallery.html#memo",
+            "visible": true
+          },
+          {
+            "text": "Review the proposed copy states",
+            "href": "http://127.0.0.1:4173/review-gallery.html#ui",
+            "visible": true
+          }
+        ],
+        "footer": {
+          "present": true,
+          "visible": true,
+          "textCharacters": 420
+        },
+        "design": {
+          "root": {
+            "fontFamily": "Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif",
+            "fontSize": "16px",
+            "lineHeight": "24.8px",
+            "color": "rgb(21, 36, 31)",
+            "backgroundColor": "rgb(243, 240, 232)"
+          },
+          "typography": [
+            {
+              "value": "Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif | 16px | 400 | 24.8px | normal",
+              "count": 101
+            },
+            {
+              "value": "Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif | 13.76px | 400 | 21.328px | normal",
+              "count": 28
+            },
+            {
+              "value": "Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif | 16px | 700 | 24.8px | normal",
+              "count": 28
+            },
+            {
+              "value": "Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif | 12.8px | 400 | 19.84px | normal",
+              "count": 18
+            },
+            {
+              "value": "Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif | 16.64px | 400 | 25.792px | normal",
+              "count": 16
+            },
+            {
+              "value": "Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif | 12.48px | 400 | 19.344px | normal",
+              "count": 12
+            },
+            {
+              "value": "Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif | 12.16px | 400 | 18.848px | normal",
+              "count": 11
+            },
+            {
+              "value": "\"Iowan Old Style\", Charter, \"Bitstream Charter\", Georgia, serif | 54.4px | 400 | 54.4px | normal",
+              "count": 9
+            },
+            {
+              "value": "Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif | 11.52px | 800 | 17.856px | 1.3824px",
+              "count": 8
+            },
+            {
+              "value": "Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif | 13.92px | 400 | 21.576px | normal",
+              "count": 7
+            },
+            {
+              "value": "\"Iowan Old Style\", Charter, \"Bitstream Charter\", Georgia, serif | 24px | 700 | 37.2px | normal",
+              "count": 6
+            },
+            {
+              "value": "Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif | 12.48px | 700 | 19.344px | normal",
+              "count": 6
+            },
+            {
+              "value": "Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif | 12.8px | 700 | 19.84px | normal",
+              "count": 6
+            },
+            {
+              "value": "Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif | 14.4px | 400 | 22.32px | normal",
+              "count": 6
+            },
+            {
+              "value": "Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif | 14.4px | 700 | 22.32px | normal",
+              "count": 6
+            },
+            {
+              "value": "Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif | 13.28px | 400 | 20.584px | normal",
+              "count": 5
+            }
+          ],
+          "palette": {
+            "text": [
+              {
+                "value": "rgb(21, 36, 31)",
+                "count": 259
+              },
+              {
+                "value": "rgb(88, 100, 95)",
+                "count": 58
+              },
+              {
+                "value": "rgb(23, 98, 74)",
+                "count": 16
+              },
+              {
+                "value": "rgb(239, 245, 241)",
+                "count": 10
+              },
+              {
+                "value": "rgb(255, 255, 255)",
+                "count": 7
+              },
+              {
+                "value": "rgb(164, 73, 31)",
+                "count": 3
+              },
+              {
+                "value": "rgb(189, 201, 195)",
+                "count": 3
+              },
+              {
+                "value": "rgb(143, 208, 182)",
+                "count": 2
+              },
+              {
+                "value": "rgb(52, 67, 61)",
+                "count": 1
+              }
+            ],
+            "background": [
+              {
+                "value": "rgb(255, 253, 247)",
+                "count": 16
+              },
+              {
+                "value": "rgb(255, 255, 255)",
+                "count": 13
+              },
+              {
+                "value": "rgb(21, 36, 31)",
+                "count": 4
+              },
+              {
+                "value": "rgb(23, 98, 74)",
+                "count": 2
+              },
+              {
+                "value": "rgb(241, 243, 241)",
+                "count": 2
+              },
+              {
+                "value": "rgb(245, 227, 215)",
+                "count": 2
+              },
+              {
+                "value": "rgb(164, 73, 31)",
+                "count": 1
+              },
+              {
+                "value": "rgb(220, 235, 227)",
+                "count": 1
+              },
+              {
+                "value": "rgb(232, 233, 228)",
+                "count": 1
+              },
+              {
+                "value": "rgb(242, 244, 240)",
+                "count": 1
+              },
+              {
+                "value": "rgb(246, 248, 247)",
+                "count": 1
+              },
+              {
+                "value": "rgb(247, 249, 246)",
+                "count": 1
+              },
+              {
+                "value": "rgb(255, 247, 241)",
+                "count": 1
+              },
+              {
+                "value": "rgba(243, 240, 232, 0.94)",
+                "count": 1
+              }
+            ],
+            "border": [
+              {
+                "value": "rgb(21, 36, 31)",
+                "count": 227
+              },
+              {
+                "value": "rgb(88, 100, 95)",
+                "count": 57
+              },
+              {
+                "value": "rgb(203, 209, 200)",
+                "count": 24
+              },
+              {
+                "value": "rgb(23, 98, 74)",
+                "count": 16
+              },
+              {
+                "value": "rgb(213, 212, 204)",
+                "count": 9
+              },
+              {
+                "value": "rgb(239, 245, 241)",
+                "count": 8
+              },
+              {
+                "value": "rgb(255, 255, 255)",
+                "count": 7
+              },
+              {
+                "value": "rgb(164, 73, 31)",
+                "count": 3
+              },
+              {
+                "value": "rgb(189, 201, 195)",
+                "count": 3
+              },
+              {
+                "value": "rgb(143, 208, 182)",
+                "count": 2
+              },
+              {
+                "value": "rgb(232, 195, 175)",
+                "count": 1
+              },
+              {
+                "value": "rgb(52, 67, 61)",
+                "count": 1
+              },
+              {
+                "value": "rgb(82, 96, 90)",
+                "count": 1
+              }
+            ]
+          },
+          "geometry": {
+            "borderRadii": [
+              {
+                "value": "999px",
+                "count": 11
+              },
+              {
+                "value": "4px",
+                "count": 9
+              },
+              {
+                "value": "3px",
+                "count": 2
+              },
+              {
+                "value": "50%",
+                "count": 2
+              }
+            ],
+            "backdropFilteredElements": 359
+          },
+          "motion": {
+            "animations": [],
+            "transitions": []
+          },
+          "readingSurfaces": [
+            {
+              "selector": "main > section.deliverable > article.surface.app > div.appbody",
+              "width": 356,
+              "maxWidth": "none",
+              "marginLeft": "0px",
+              "fontFamily": "Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif",
+              "fontSize": "16px",
+              "lineHeight": "24.8px",
+              "textCharacters": 949
+            },
+            {
+              "selector": "main > section.deliverable > article.surface > div.emailbody",
+              "width": 356,
+              "maxWidth": "790px",
+              "marginLeft": "0px",
+              "fontFamily": "Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif",
+              "fontSize": "16px",
+              "lineHeight": "24.8px",
+              "textCharacters": 1184
+            },
+            {
+              "selector": "main > section.deliverable > article.surface > div.pad.prose",
+              "width": 356,
+              "maxWidth": "730px",
+              "marginLeft": "0px",
+              "fontFamily": "Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif",
+              "fontSize": "16px",
+              "lineHeight": "24.8px",
+              "textCharacters": 3644
+            }
+          ],
+          "graphics": {
+            "svg": 0,
+            "canvas": 0,
+            "images": 0,
+            "video": 0,
+            "authoredVisuals": 0
+          }
+        },
+        "consoleErrors": [],
+        "pageErrors": []
+      }
+    },
+    {
+      "target": "candidate",
+      "profile": "desktop-reduced-motion",
+      "route": "/review-gallery.html",
+      "screenshot": "candidate-desktop-reduced-motion-review-gallery.html.png",
+      "navigationError": null,
+      "observation": {
+        "status": 200,
+        "title": "Restless identity binding — nine-channel release review",
+        "url": "http://127.0.0.1:4173/review-gallery.html",
+        "viewport": {
+          "width": 1440,
+          "height": 1000
+        },
+        "document": {
+          "width": 1440,
+          "height": 12796,
+          "bodyTextCharacters": 17623
+        },
+        "horizontalOverflow": false,
+        "overflowElements": [],
+        "offViewportInteractive": [],
+        "invisibleAuthoredContent": [],
+        "headings": [
+          {
+            "level": "h1",
+            "text": "The work can change. Its basis shouldn’t disappear."
+          },
+          {
+            "level": "h2",
+            "text": "Product copy/state specification"
+          },
+          {
+            "level": "h3",
+            "text": "Accepted work needs a decision"
+          },
+          {
+            "level": "h2",
+            "text": "Landing-page section"
+          },
+          {
+            "level": "h3",
+            "text": "Know which accepted work still rests on an old fact."
+          },
+          {
+            "level": "h2",
+            "text": "Founder email"
+          },
+          {
+            "level": "h3",
+            "text": "We built a decision point where silent drift used to be."
+          },
+          {
+            "level": "h2",
+            "text": "Newsletter edition"
+          },
+          {
+            "level": "h3",
+            "text": "Decisions, not drift"
+          },
+          {
+            "level": "h2",
+            "text": "Support reply"
+          },
+          {
+            "level": "h3",
+            "text": "Hi [recipient name],"
+          },
+          {
+            "level": "h2",
+            "text": "Transactional email"
+          },
+          {
+            "level": "h3",
+            "text": "Accepted work needs your decision."
+          },
+          {
+            "level": "h2",
+            "text": "Standalone Blog"
+          },
+          {
+            "level": "h3",
+            "text": "Accepted work needs a memory of what made it true"
+          },
+          {
+            "level": "h2",
+            "text": "Social copy + visual direction"
+          },
+          {
+            "level": "h2",
+            "text": "Internal decision memo"
+          },
+          {
+            "level": "h3",
+            "text": "Return the repaired package to independent criticism. Do not publish it."
+          }
+        ],
+        "links": [
+          {
+            "text": "Skip to deliverables",
+            "href": "http://127.0.0.1:4173/review-gallery.html#content",
+            "visible": true
+          },
+          {
+            "text": "01 UI",
+            "href": "http://127.0.0.1:4173/review-gallery.html#ui",
+            "visible": true
+          },
+          {
+            "text": "02 Landing",
+            "href": "http://127.0.0.1:4173/review-gallery.html#landing",
+            "visible": true
+          },
+          {
+            "text": "03 Founder",
+            "href": "http://127.0.0.1:4173/review-gallery.html#founder",
+            "visible": true
+          },
+          {
+            "text": "04 Newsletter",
+            "href": "http://127.0.0.1:4173/review-gallery.html#newsletter",
+            "visible": true
+          },
+          {
+            "text": "05 Support",
+            "href": "http://127.0.0.1:4173/review-gallery.html#support",
+            "visible": true
+          },
+          {
+            "text": "06 Transactional",
+            "href": "http://127.0.0.1:4173/review-gallery.html#transactional",
+            "visible": true
+          },
+          {
+            "text": "07 Blog",
+            "href": "http://127.0.0.1:4173/review-gallery.html#blog",
+            "visible": true
+          },
+          {
+            "text": "08 Social",
+            "href": "http://127.0.0.1:4173/review-gallery.html#social",
+            "visible": true
+          },
+          {
+            "text": "09 Memo",
+            "href": "http://127.0.0.1:4173/review-gallery.html#memo",
+            "visible": true
+          },
+          {
+            "text": "Review the proposed copy states",
+            "href": "http://127.0.0.1:4173/review-gallery.html#ui",
+            "visible": true
+          }
+        ],
+        "footer": {
+          "present": true,
+          "visible": true,
+          "textCharacters": 420
+        },
+        "design": {
+          "root": {
+            "fontFamily": "Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif",
+            "fontSize": "16px",
+            "lineHeight": "24.8px",
+            "color": "rgb(21, 36, 31)",
+            "backgroundColor": "rgb(243, 240, 232)"
+          },
+          "typography": [
+            {
+              "value": "Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif | 16px | 400 | 24.8px | normal",
+              "count": 101
+            },
+            {
+              "value": "Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif | 13.76px | 400 | 21.328px | normal",
+              "count": 28
+            },
+            {
+              "value": "Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif | 16px | 700 | 24.8px | normal",
+              "count": 28
+            },
+            {
+              "value": "Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif | 12.8px | 400 | 19.84px | normal",
+              "count": 18
+            },
+            {
+              "value": "Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif | 16.64px | 400 | 25.792px | normal",
+              "count": 16
+            },
+            {
+              "value": "Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif | 12.48px | 400 | 19.344px | normal",
+              "count": 13
+            },
+            {
+              "value": "Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif | 12.16px | 400 | 18.848px | normal",
+              "count": 11
+            },
+            {
+              "value": "\"Iowan Old Style\", Charter, \"Bitstream Charter\", Georgia, serif | 70.4px | 400 | 70.4px | normal",
+              "count": 9
+            },
+            {
+              "value": "Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif | 11.52px | 800 | 17.856px | 1.3824px",
+              "count": 8
+            },
+            {
+              "value": "Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif | 13.92px | 400 | 21.576px | normal",
+              "count": 7
+            },
+            {
+              "value": "\"Iowan Old Style\", Charter, \"Bitstream Charter\", Georgia, serif | 24px | 700 | 37.2px | normal",
+              "count": 6
+            },
+            {
+              "value": "Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif | 12.48px | 700 | 19.344px | normal",
+              "count": 6
+            },
+            {
+              "value": "Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif | 12.8px | 700 | 19.84px | normal",
+              "count": 6
+            },
+            {
+              "value": "Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif | 14.4px | 400 | 22.32px | normal",
+              "count": 6
+            },
+            {
+              "value": "Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif | 14.4px | 700 | 22.32px | normal",
+              "count": 6
+            },
+            {
+              "value": "Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif | 13.28px | 400 | 20.584px | normal",
+              "count": 5
+            }
+          ],
+          "palette": {
+            "text": [
+              {
+                "value": "rgb(21, 36, 31)",
+                "count": 259
+              },
+              {
+                "value": "rgb(88, 100, 95)",
+                "count": 59
+              },
+              {
+                "value": "rgb(23, 98, 74)",
+                "count": 16
+              },
+              {
+                "value": "rgb(239, 245, 241)",
+                "count": 10
+              },
+              {
+                "value": "rgb(255, 255, 255)",
+                "count": 7
+              },
+              {
+                "value": "rgb(164, 73, 31)",
+                "count": 3
+              },
+              {
+                "value": "rgb(189, 201, 195)",
+                "count": 3
+              },
+              {
+                "value": "rgb(143, 208, 182)",
+                "count": 2
+              },
+              {
+                "value": "rgb(52, 67, 61)",
+                "count": 1
+              }
+            ],
+            "background": [
+              {
+                "value": "rgb(255, 253, 247)",
+                "count": 16
+              },
+              {
+                "value": "rgb(255, 255, 255)",
+                "count": 13
+              },
+              {
+                "value": "rgb(21, 36, 31)",
+                "count": 4
+              },
+              {
+                "value": "rgb(23, 98, 74)",
+                "count": 2
+              },
+              {
+                "value": "rgb(241, 243, 241)",
+                "count": 2
+              },
+              {
+                "value": "rgb(245, 227, 215)",
+                "count": 2
+              },
+              {
+                "value": "rgb(164, 73, 31)",
+                "count": 1
+              },
+              {
+                "value": "rgb(220, 235, 227)",
+                "count": 1
+              },
+              {
+                "value": "rgb(232, 233, 228)",
+                "count": 1
+              },
+              {
+                "value": "rgb(242, 244, 240)",
+                "count": 1
+              },
+              {
+                "value": "rgb(246, 248, 247)",
+                "count": 1
+              },
+              {
+                "value": "rgb(247, 249, 246)",
+                "count": 1
+              },
+              {
+                "value": "rgb(255, 247, 241)",
+                "count": 1
+              },
+              {
+                "value": "rgba(243, 240, 232, 0.94)",
+                "count": 1
+              }
+            ],
+            "border": [
+              {
+                "value": "rgb(21, 36, 31)",
+                "count": 228
+              },
+              {
+                "value": "rgb(88, 100, 95)",
+                "count": 58
+              },
+              {
+                "value": "rgb(203, 209, 200)",
+                "count": 23
+              },
+              {
+                "value": "rgb(23, 98, 74)",
+                "count": 16
+              },
+              {
+                "value": "rgb(213, 212, 204)",
+                "count": 9
+              },
+              {
+                "value": "rgb(239, 245, 241)",
+                "count": 8
+              },
+              {
+                "value": "rgb(255, 255, 255)",
+                "count": 7
+              },
+              {
+                "value": "rgb(164, 73, 31)",
+                "count": 3
+              },
+              {
+                "value": "rgb(189, 201, 195)",
+                "count": 3
+              },
+              {
+                "value": "rgb(143, 208, 182)",
+                "count": 2
+              },
+              {
+                "value": "rgb(232, 195, 175)",
+                "count": 1
+              },
+              {
+                "value": "rgb(52, 67, 61)",
+                "count": 1
+              },
+              {
+                "value": "rgb(82, 96, 90)",
+                "count": 1
+              }
+            ]
+          },
+          "geometry": {
+            "borderRadii": [
+              {
+                "value": "999px",
+                "count": 11
+              },
+              {
+                "value": "4px",
+                "count": 9
+              },
+              {
+                "value": "3px",
+                "count": 2
+              },
+              {
+                "value": "50%",
+                "count": 2
+              }
+            ],
+            "backdropFilteredElements": 360
+          },
+          "motion": {
+            "animations": [],
+            "transitions": [
+              {
+                "value": "1e-05s",
+                "count": 360
+              }
+            ]
+          },
+          "readingSurfaces": [
+            {
+              "selector": "main > section.deliverable > article.surface.app > div.appbody",
+              "width": 878,
+              "maxWidth": "none",
+              "marginLeft": "0px",
+              "fontFamily": "Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif",
+              "fontSize": "16px",
+              "lineHeight": "24.8px",
+              "textCharacters": 949
+            },
+            {
+              "selector": "main > section.deliverable > article.surface > div.emailbody",
+              "width": 790,
+              "maxWidth": "790px",
+              "marginLeft": "0px",
+              "fontFamily": "Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif",
+              "fontSize": "16px",
+              "lineHeight": "24.8px",
+              "textCharacters": 1184
+            },
+            {
+              "selector": "main > section.deliverable > article.surface > div.pad.prose",
+              "width": 730,
+              "maxWidth": "730px",
+              "marginLeft": "0px",
+              "fontFamily": "Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif",
+              "fontSize": "16px",
+              "lineHeight": "24.8px",
+              "textCharacters": 3644
+            }
+          ],
+          "graphics": {
+            "svg": 0,
+            "canvas": 0,
+            "images": 0,
+            "video": 0,
+            "authoredVisuals": 0
+          }
+        },
+        "consoleErrors": [],
+        "pageErrors": []
+      }
+    }
+  ],
+  "internalLinks": [
+    {
+      "url": "http://127.0.0.1:4173/review-gallery.html",
+      "status": 200,
+      "ok": true
+    }
+  ]
+}

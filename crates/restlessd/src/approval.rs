@@ -417,6 +417,7 @@ mod tests {
             name: "aris".to_string(),
             mission: String::new(),
             spend_ceiling_usd: crate::runtime::SpendCeiling::from_micro_usd(30_000_000),
+            outcome_standard: Default::default(),
             model: "moonshot/kimi-k3".to_string(),
             worker_runtime: crate::runtime::WorkerRuntime::Omp,
             reasoning_effort: crate::acp::DEFAULT_REASONING_EFFORT.to_string(),

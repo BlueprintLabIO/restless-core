@@ -1,0 +1,21 @@
+{
+  "version": "s32-v1",
+  "frozen_at": "2026-08-31",
+  "fact_packet": [
+    {
+      "claim_key": "product.promise",
+      "statement": "Restless runs company work and returns evidence-backed decisions to the owner.",
+      "source": "founder product decision",
+      "authority": "owner",
+      "locator": "docs/identity/product-promise.md"
+    }
+  ],
+  "channels": [
+    {"channel":"newsletter","author":"founder","reader":"an owner following what the team learned","plain_control":"We learned that finished work matters more than visible agent activity.","ai_heavy_negative":"Operational intelligence compounds through an autonomous fabric of accountable outcomes.","failure":"abstract noun chain with no observation or consequence"},
+    {"channel":"founder_email","author":"founder","reader":"a customer deciding whether to try Restless","plain_control":"You give Restless an outcome. It runs the work and brings the decision back to you.","ai_heavy_negative":"We are thrilled to announce a paradigm shift in the future of work.","failure":"institutional throat-clearing and unsupported prestige claim"},
+    {"channel":"support","author":"support lead","reader":"a user whose run stopped","plain_control":"Your run stopped before it produced a result. We kept the work and will retry from the last verified step.","ai_heavy_negative":"We understand your frustration and are committed to delivering a seamless experience.","failure":"generic empathy without known state or next action"},
+    {"channel":"transactional_email","author":"operations","reader":"an owner whose decision is required","plain_control":"Your approval is needed. Restless will not send the message until you approve the recipient and content.","ai_heavy_negative":"Action required: unlock the next phase of your autonomous workflow journey.","failure":"status and consequence hidden behind promotional language"},
+    {"channel":"product_ui","author":"product","reader":"a user recovering an interrupted run","plain_control":"Reply interrupted. Retry from the last verified step.","ai_heavy_negative":"Something magical hit a snag. Let’s get you back in flow.","failure":"unstable terminology and no precise recovery path"},
+    {"channel":"blog","author":"founder","reader":"a technically curious owner","plain_control":"Most agent demos optimise for visible activity. In our runs, the useful measure was whether complete work returned with evidence and a decision.","ai_heavy_negative":"In an era of unprecedented transformation, agentic systems are redefining the very fabric of organisational intelligence.","failure":"non-standalone trend opening with no raw observation"}
+  ]
+}
