@@ -17,8 +17,9 @@
 		error = '',
 		notice = null,
 		companyHref = (company: CompanyCatalogEntry) => `/${company.id}`,
-		onarchive,
-		onrestore,
+		manageHref = null,
+		onarchive = null,
+		onrestore = null,
 		onopen = null,
 		onchanged = null,
 		ownerLabel = 'Owner',
@@ -30,8 +31,9 @@
 		error?: string;
 		notice?: ProductNotice | null;
 		companyHref?: (company: CompanyCatalogEntry) => string;
-		onarchive: (company: CompanyCatalogEntry) => Promise<void>;
-		onrestore: (company: CompanyCatalogEntry) => Promise<void>;
+		manageHref?: ((company: CompanyCatalogEntry) => string) | null;
+		onarchive?: ((company: CompanyCatalogEntry) => Promise<void>) | null;
+		onrestore?: ((company: CompanyCatalogEntry) => Promise<void>) | null;
 		onopen?: ((company: CompanyCatalogEntry) => void | Promise<void>) | null;
 		onchanged?: (() => void | Promise<void>) | null;
 		ownerLabel?: string;
@@ -78,7 +80,14 @@
 		{/if}
 		{#if loaded}
 			<div class="tb-right">
-				<OwnerMenu {companies} {onarchive} {onrestore} {onchanged} label={ownerLabel} />
+				<OwnerMenu
+					{companies}
+					{manageHref}
+					{onarchive}
+					{onrestore}
+					{onchanged}
+					label={ownerLabel}
+				/>
 			</div>
 		{/if}
 	</header>

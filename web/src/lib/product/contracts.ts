@@ -44,6 +44,7 @@ export type ProductNotice = {
  * shared UI never imports a Cloud database client or a self-hosted daemon. */
 export interface CompanyPortfolioPlatform {
 	companyHref(company: CompanyCatalogEntry): string;
-	archive(company: CompanyCatalogEntry): Promise<void>;
-	restore(company: CompanyCatalogEntry): Promise<void>;
+	manageHref?(company: CompanyCatalogEntry): string;
+	archive?(company: CompanyCatalogEntry): Promise<void>;
+	restore?(company: CompanyCatalogEntry): Promise<void>;
 }

@@ -4,15 +4,17 @@
 	let {
 		companies,
 		currentCompanyId = null,
-		onarchive,
-		onrestore,
+		manageHref = null,
+		onarchive = null,
+		onrestore = null,
 		onchanged = null,
 		label = 'Owner'
 	}: {
 		companies: CompanyCatalogEntry[];
 		currentCompanyId?: string | null;
-		onarchive: (company: CompanyCatalogEntry) => Promise<void>;
-		onrestore: (company: CompanyCatalogEntry) => Promise<void>;
+		manageHref?: ((company: CompanyCatalogEntry) => string) | null;
+		onarchive?: ((company: CompanyCatalogEntry) => Promise<void>) | null;
+		onrestore?: ((company: CompanyCatalogEntry) => Promise<void>) | null;
 		onchanged?: (() => void | Promise<void>) | null;
 		label?: string;
 	} = $props();
@@ -41,8 +43,8 @@
 		confirmCompany = null;
 		error = '';
 		try {
-			if (company.lifecycle_status === 'archived') await onrestore(company);
-			else await onarchive(company);
+			if (company.lifecycle_status === 'archived') await onrestore?.(company);
+			else await onarchive?.(company);
 			if (company.id === currentCompanyId && company.lifecycle_status === 'active') {
 				window.location.assign('/');
 				return;
@@ -69,7 +71,8 @@
 			{#each activeCompanies as company (company.id)}
 				<div class="owner-company-row">
 					<span><strong>{company.name}</strong><small>{company.runtime_status}</small></span>
-					{#if canManage(company)}<button
+					{#if manageHref}<a class="owner-company-manage" href={manageHref(company)}>Manage</a
+					>{:else if canManage(company) && onarchive}<button
 						type="button"
 						title="Archive this company while keeping its files and history"
 						disabled={busyCompany !== null}
@@ -86,7 +89,8 @@
 			{#each archivedCompanies as company (company.id)}
 				<div class="owner-company-row archived">
 					<span><strong>{company.name}</strong><small>Archived</small></span>
-					{#if canManage(company)}<button
+					{#if manageHref}<a class="owner-company-manage" href={manageHref(company)}>Manage</a
+					>{:else if canManage(company) && onrestore}<button
 						type="button"
 						title="Restore this archived company"
 						disabled={busyCompany !== null}
@@ -240,6 +244,17 @@
 			background-color var(--motion-state) var(--ease-standard),
 			color var(--motion-state) var(--ease-standard),
 			box-shadow var(--motion-state) var(--ease-standard);
+	}
+
+	.owner-company-manage {
+		padding: 6px 8px;
+		border: 1px solid var(--border);
+		border-radius: var(--radius-control);
+		background: rgba(255, 255, 255, 0.7);
+		box-shadow: var(--bevel-subtle);
+		font: 600 var(--t-label) var(--font-mono);
+		color: var(--text-secondary);
+		text-decoration: none;
 	}
 
 	.owner-company-row button {
