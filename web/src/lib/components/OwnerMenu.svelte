@@ -27,6 +27,8 @@
 	const archivedCompanies = $derived(
 		companies.filter((company) => company.lifecycle_status === 'archived')
 	);
+	const canManage = (company: CompanyCatalogEntry) =>
+		company.role === undefined || company.role === 'owner' || company.role === 'admin';
 
 	async function changeLifecycle(company: CompanyCatalogEntry) {
 		if (busyCompany) return;
@@ -67,7 +69,7 @@
 			{#each activeCompanies as company (company.id)}
 				<div class="owner-company-row">
 					<span><strong>{company.name}</strong><small>{company.runtime_status}</small></span>
-					<button
+					{#if canManage(company)}<button
 						type="button"
 						title="Archive this company while keeping its files and history"
 						disabled={busyCompany !== null}
@@ -78,20 +80,20 @@
 							: confirmCompany === company.id
 								? 'Archive now'
 								: 'Archive'}
-					</button>
+					</button>{:else}<small>Member</small>{/if}
 				</div>
 			{/each}
 			{#each archivedCompanies as company (company.id)}
 				<div class="owner-company-row archived">
 					<span><strong>{company.name}</strong><small>Archived</small></span>
-					<button
+					{#if canManage(company)}<button
 						type="button"
 						title="Restore this archived company"
 						disabled={busyCompany !== null}
 						onclick={() => changeLifecycle(company)}
 					>
 						{busyCompany === company.id ? 'Restoring…' : 'Restore'}
-					</button>
+					</button>{:else}<small>Member</small>{/if}
 				</div>
 			{/each}
 			{#if companies.length === 0}

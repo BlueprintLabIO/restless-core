@@ -1,4 +1,5 @@
 <script lang="ts">
+	import type { Snippet } from 'svelte';
 	import { PRODUCT_NAME } from '../brand/brand';
 	import OwnerMenu from './OwnerMenu.svelte';
 	import MatrixGlyph, { GLYPHS } from '../primitives/MatrixGlyph.svelte';
@@ -18,8 +19,10 @@
 		companyHref = (company: CompanyCatalogEntry) => `/${company.id}`,
 		onarchive,
 		onrestore,
+		onopen = null,
 		onchanged = null,
-		ownerLabel = 'Owner'
+		ownerLabel = 'Owner',
+		actions = null
 	}: {
 		companies: CompanyCatalogEntry[];
 		projections: Record<string, PortfolioProjection>;
@@ -29,8 +32,10 @@
 		companyHref?: (company: CompanyCatalogEntry) => string;
 		onarchive: (company: CompanyCatalogEntry) => Promise<void>;
 		onrestore: (company: CompanyCatalogEntry) => Promise<void>;
+		onopen?: ((company: CompanyCatalogEntry) => void | Promise<void>) | null;
 		onchanged?: (() => void | Promise<void>) | null;
 		ownerLabel?: string;
+		actions?: Snippet | null;
 	} = $props();
 	const activeCompanies = $derived(
 		companies.filter((company) => company.lifecycle_status === 'active')
@@ -88,6 +93,7 @@
 			{/if}
 			<header class="portfolio-head">
 				<h1>Companies</h1>
+				{#if actions}<div class="portfolio-actions">{@render actions()}</div>{/if}
 			</header>
 
 			{#if error}<div class="portfolio-error">{error}</div>{/if}
@@ -115,6 +121,12 @@
 								<a
 									class="portfolio-company-row runtime-{company.runtime_status}"
 									href={companyHref(company)}
+									data-sveltekit-preload-data={onopen ? 'off' : undefined}
+									onclick={(event) => {
+										if (!onopen) return;
+										event.preventDefault();
+										void onopen(company);
+									}}
 									aria-label={attentionLabel(company)}
 								>
 									<span class="portfolio-company-cell">
