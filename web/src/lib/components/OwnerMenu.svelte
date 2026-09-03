@@ -1,14 +1,20 @@
 <script lang="ts">
-	import { archiveCompany, restoreCompany, type CompanyCatalogEntry } from '$lib/model/cockpit';
+	import type { CompanyCatalogEntry } from '../product/contracts';
 
 	let {
 		companies,
 		currentCompanyId = null,
-		onchanged = null
+		onarchive,
+		onrestore,
+		onchanged = null,
+		label = 'Owner'
 	}: {
 		companies: CompanyCatalogEntry[];
 		currentCompanyId?: string | null;
+		onarchive: (company: CompanyCatalogEntry) => Promise<void>;
+		onrestore: (company: CompanyCatalogEntry) => Promise<void>;
 		onchanged?: (() => void | Promise<void>) | null;
+		label?: string;
 	} = $props();
 
 	let menu = $state<HTMLDetailsElement>();
@@ -33,8 +39,8 @@
 		confirmCompany = null;
 		error = '';
 		try {
-			if (company.lifecycle_status === 'archived') await restoreCompany(company.id);
-			else await archiveCompany(company.id);
+			if (company.lifecycle_status === 'archived') await onrestore(company);
+			else await onarchive(company);
 			if (company.id === currentCompanyId && company.lifecycle_status === 'active') {
 				window.location.assign('/');
 				return;
@@ -50,7 +56,7 @@
 
 <details class="owner-menu" bind:this={menu}>
 	<summary aria-label="Open owner settings">
-		<span>Owner</span><span class="owner-chevron" aria-hidden="true">⌄</span>
+		<span>{label}</span><span class="owner-chevron" aria-hidden="true">⌄</span>
 	</summary>
 	<div class="owner-menu-panel">
 		<header>

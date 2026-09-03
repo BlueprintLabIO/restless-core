@@ -18,6 +18,8 @@ import {
 	type MessageSendResult
 } from './attention';
 import { getCockpit, getCompanies, type CockpitView, type CompanyCatalogEntry } from './cockpit';
+import type { PortfolioProjection } from '../product/contracts';
+export type { PortfolioProjection } from '../product/contracts';
 import { getBrowserStatus, getCompany, type BrowserStatus, type CompanyView } from './company';
 import { getCompanyIdentity, type CompanyIdentitySnapshot } from './identity';
 import type { ThreadMessage } from './view';
@@ -102,13 +104,6 @@ export function companiesQuery() {
 		refresh: () => refresh(query)
 	};
 }
-
-export type PortfolioProjection = {
-	attentionCount: number | null;
-	nextProof: string | null;
-	nextProofDetail: string;
-	spendAccounted: number | null;
-};
 
 export type PortfolioView = {
 	companies: CompanyCatalogEntry[];
