@@ -10,10 +10,10 @@ use std::time::Duration;
 use chrono::Utc;
 use futures_util::{SinkExt as _, StreamExt as _};
 use restlessd::runtime_agent::{
-    enter_runtime_agent_security_context, run_company_security_probe, run_file_worker_stdio,
-    run_process_worker, run_runtime_agent_security_self_test,
-    verify_runtime_agent_security_context, RuntimeAgent, RuntimeAgentConfig, RuntimeAgentError,
-    RuntimeCapabilityStore, RuntimeRequestSequence,
+    enter_runtime_agent_security_context, install_runtime_agent_tls_crypto_provider,
+    run_company_security_probe, run_file_worker_stdio, run_process_worker,
+    run_runtime_agent_security_self_test, verify_runtime_agent_security_context, RuntimeAgent,
+    RuntimeAgentConfig, RuntimeAgentError, RuntimeCapabilityStore, RuntimeRequestSequence,
 };
 use restlessd::runtime_agent_protocol::{
     RuntimeAgentToPlane, RuntimeCapabilityRenewalConfirmed, RuntimeEventEnvelope,
@@ -32,6 +32,8 @@ const INBOUND_LIVENESS_TIMEOUT: Duration = Duration::from_secs(75);
 const MAX_RECONNECT_DELAY: Duration = Duration::from_secs(30);
 
 fn main() {
+    install_runtime_agent_tls_crypto_provider();
+
     let mut arguments = std::env::args().skip(1);
     match arguments.next().as_deref() {
         Some("--file-worker") if arguments.next().is_none() => {

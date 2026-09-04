@@ -78,6 +78,13 @@ pub const EFFECT_UID: u32 = 2_001;
 pub const RUNTIME_AGENT_UID: u32 = 2_002;
 pub const RUNTIME_AGENT_GID: u32 = 2_002;
 
+/// Select the Runtime Agent's TLS implementation explicitly. The workspace
+/// enables both Rustls crypto backends through independent clients, so feature
+/// unification cannot safely choose a process-wide default for us.
+pub fn install_runtime_agent_tls_crypto_provider() {
+    let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
+}
+
 /// Enter the Linux credential-custody identity before constructing a Tokio
 /// runtime (Linux credentials and capabilities are per-thread kernel state).
 /// The container grants root only the small bounding set needed by init; this
@@ -3464,6 +3471,12 @@ mod tests {
     use super::*;
     use std::collections::BTreeMap;
     use std::os::unix::fs::symlink;
+
+    #[test]
+    fn runtime_agent_installs_a_process_tls_provider() {
+        install_runtime_agent_tls_crypto_provider();
+        assert!(rustls::crypto::CryptoProvider::get_default().is_some());
+    }
 
     struct Fixture {
         root: PathBuf,
