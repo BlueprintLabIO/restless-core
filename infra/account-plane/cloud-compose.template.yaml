@@ -10,7 +10,7 @@ services:
       POSTGRES_PASSWORD: ${RESTLESS_PLANE_DATABASE_PASSWORD}
       POSTGRES_INITDB_ARGS: --auth-host=scram-sha-256
     volumes:
-      - plane-database:/var/lib/postgresql/data
+      - plane-database:/var/lib/postgresql
     healthcheck:
       test: [CMD-SHELL, "pg_isready -U restless -d restless"]
       interval: 5s

@@ -118,7 +118,7 @@ export function assertOwnerPlaneComposeTemplate(template) {
     "healthcheck:",
     "volumes:",
     "plane-state:/state",
-    "plane-database:/var/lib/postgresql/data",
+    "plane-database:/var/lib/postgresql",
     "RESTLESS_ENTRY_MODE: network",
     "RESTLESS_RUNTIME_BOOTSTRAP_TOKEN_FILE: /run/secrets/runtime_bootstrap_token",
     "environment: RESTLESS_RUNTIME_BOOTSTRAP_TOKEN",

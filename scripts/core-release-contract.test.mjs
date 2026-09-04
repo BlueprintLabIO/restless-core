@@ -267,7 +267,7 @@ test("owner-plane Compose is provider-complete, hardened and digest-only after r
     template.replace("postgres@sha256:4", "postgres:latest"),
     template.replace("      RESTLESS_ENTRY_MODE: network\n", ""),
     template.replace("      - plane-state:/state\n", ""),
-    template.replace("      - plane-database:/var/lib/postgresql/data\n", ""),
+    template.replace("      - plane-database:/var/lib/postgresql\n", ""),
     template.replace(
       "{{FLEET_ENTRY_JWKS_URL}}",
       "https://fleet.example.test/jwks",
