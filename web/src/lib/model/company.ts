@@ -9,6 +9,7 @@ export interface CompanySourceObservation {
 }
 
 export type OutcomeStandard = 'fast' | 'thorough' | 'exceptional' | 'frontier';
+export type AgentHarness = 'restless-managed' | 'codex' | 'claude-agent';
 
 export interface CompanyView {
 	company: { id: string; name: string; outcome_standard: OutcomeStandard };
@@ -49,6 +50,11 @@ export interface CompanyView {
 		};
 		money_envelopes: MoneyEnvelope[];
 	};
+	harnesses: {
+		coordination: AgentHarness;
+		worker: AgentHarness;
+		options: AgentHarnessOption[];
+	};
 	resources: {
 		status: string;
 		items: CompanyResource[];
@@ -64,6 +70,19 @@ export interface CompanyView {
 	};
 	attention_href: string;
 	refreshed_at: string;
+}
+
+export interface AgentHarnessOption {
+	id: AgentHarness;
+	label: string;
+	transport: string;
+	expected_build: string;
+	observed_build?: string;
+	native_agent_build?: string;
+	status: 'ready' | 'not_ready' | 'incompatible';
+	detail: string;
+	authentication: string;
+	limitations: string[];
 }
 
 export interface CompanyLimitStatement {
@@ -161,6 +180,16 @@ export interface RuntimeDoctor {
 	volume_exists: boolean;
 	volume_mounted: boolean;
 	reconciliation: 'current' | 'required' | 'unknown';
+	release?: {
+		core_version: string;
+		source_revision: string;
+		api_contract_version: number;
+		assertion_contract_version: number;
+		schema_version: number;
+		harnesses: Record<string, string>;
+		harness_agents: Record<string, string>;
+		harness_dependencies: Record<string, string>;
+	};
 	coordination?: { status: string; detail?: string };
 	supervisor?: { status: string; services: Array<{ name: string; state: string }> };
 	browser?: {
@@ -274,6 +303,24 @@ export async function setCompanyOutcomeStandard(
 			method: 'POST',
 			headers: { 'content-type': 'application/json' },
 			body: JSON.stringify({ standard }),
+			credentials: 'same-origin'
+		})
+	);
+}
+
+export async function setCompanyHarnesses(
+	company: string,
+	coordinationHarness: AgentHarness,
+	workerHarness: AgentHarness
+): Promise<CompanyView> {
+	return ownerResponse<CompanyView>(
+		await fetch(`/api/companies/${encodeURIComponent(company)}/company/harnesses`, {
+			method: 'POST',
+			headers: { 'content-type': 'application/json' },
+			body: JSON.stringify({
+				coordination_harness: coordinationHarness,
+				worker_harness: workerHarness
+			}),
 			credentials: 'same-origin'
 		})
 	);

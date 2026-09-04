@@ -674,7 +674,13 @@ pub async fn project(
                 },
                 AttentionAction {
                     id: "chat-lead".into(),
-                    label: "Talk with lead".into(),
+                    label: format!(
+                        "Work through this with {}",
+                        responsible_actor
+                            .as_ref()
+                            .map(|actor| actor.display.as_str())
+                            .unwrap_or("the responsible lead")
+                    ),
                     role: "conversation",
                     consequence: "Opens a Work-scoped conversation without deciding the review."
                         .into(),
@@ -708,7 +714,13 @@ pub async fn project(
         if !outcome_review && responsible_actor.is_some() {
             actions.push(AttentionAction {
                 id: "chat-lead".into(),
-                label: "Talk with lead".into(),
+                label: format!(
+                    "Work through this with {}",
+                    responsible_actor
+                        .as_ref()
+                        .map(|actor| actor.display.as_str())
+                        .unwrap_or("the responsible lead")
+                ),
                 role: "conversation",
                 consequence: "Opens the source-linked conversation without resolving this handoff."
                     .into(),

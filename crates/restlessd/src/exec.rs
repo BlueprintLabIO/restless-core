@@ -13,7 +13,7 @@ use serde::Serialize;
 use std::collections::HashSet;
 use tokio_util::sync::CancellationToken;
 
-use crate::acp::{self, AgentSession};
+use crate::acp;
 use crate::context::{self, ContextSnapshot};
 use crate::health;
 use crate::runtime::{self, CompanyConfig};
@@ -263,45 +263,82 @@ pub async fn wake(
             None,
         )
         .await?;
-        let controls = acp::AgentControls::company_actor(package.system_prompt.clone())?
-            .with_mcp_servers(mcp_servers);
-        let outcome = acp::with_agent(
-            &container,
-            &auth,
-            "/company",
-            "exec",
-            "portfolio",
-            controls,
-            observer.clone(),
-            {
-                let company = config.name.clone();
-                let model = model.clone();
-                let cancellation = cancellation.clone();
-                let session_org = org.clone();
-                move |session| {
-                    Box::pin(async move {
-                        session_org
-                            .emit_event(
-                                "model_session_ready",
-                                Some("exec"),
-                                session.readiness_observation(),
-                            )
-                            .await?;
-                        run_turn(
-                            session,
-                            &turn_context,
-                            &company,
-                            &model,
-                            remaining,
-                            metered,
-                            &cancellation,
-                        )
-                        .await
-                    })
-                }
-            },
-        )
-        .await;
+        let harness = config.coordination_harness;
+        let outcome = match harness {
+            crate::runtime::AgentHarness::RestlessManaged
+            | crate::runtime::AgentHarness::ClaudeAgent => {
+                let controls = acp::AgentControls::company_actor(package.system_prompt.clone())?
+                    .with_mcp_servers(mcp_servers);
+                acp::with_agent(
+                    &container,
+                    harness,
+                    &auth,
+                    "/company",
+                    "exec",
+                    "portfolio",
+                    controls,
+                    observer.clone(),
+                    {
+                        let company = config.name.clone();
+                        let model = model.clone();
+                        let cancellation = cancellation.clone();
+                        let session_org = org.clone();
+                        let turn_context = turn_context.clone();
+                        move |session| {
+                            Box::pin(async move {
+                                run_ready_exec_session(
+                                    session,
+                                    &session_org,
+                                    &turn_context,
+                                    &company,
+                                    &model,
+                                    remaining,
+                                    metered,
+                                    &cancellation,
+                                )
+                                .await
+                            })
+                        }
+                    },
+                )
+                .await
+            }
+            crate::runtime::AgentHarness::Codex => {
+                crate::codex::with_agent(
+                    &container,
+                    &auth,
+                    "/company",
+                    "exec",
+                    "portfolio",
+                    &package.system_prompt,
+                    mcp_servers,
+                    observer.clone(),
+                    {
+                        let company = config.name.clone();
+                        let model = model.clone();
+                        let cancellation = cancellation.clone();
+                        let session_org = org.clone();
+                        let turn_context = turn_context.clone();
+                        move |session| {
+                            Box::pin(async move {
+                                run_ready_exec_session(
+                                    session,
+                                    &session_org,
+                                    &turn_context,
+                                    &company,
+                                    &model,
+                                    remaining,
+                                    metered,
+                                    &cancellation,
+                                )
+                                .await
+                            })
+                        }
+                    },
+                )
+                .await
+            }
+        };
 
         // The turn itself was already classified inside `run_turn`, once, by
         // the one function entitled to do it. Failures around session opening
@@ -334,7 +371,28 @@ pub async fn wake(
             // provider history, so retain all durable company state and drop
             // only the exact portfolio-session locator. The next wake then
             // reconstructs from the bounded company snapshot.
-            acp::discard_session_locator(&container, &config.name, "exec", "portfolio").await?;
+            match harness {
+                crate::runtime::AgentHarness::RestlessManaged
+                | crate::runtime::AgentHarness::ClaudeAgent => {
+                    acp::discard_session_locator(
+                        &container,
+                        harness,
+                        &config.name,
+                        "exec",
+                        "portfolio",
+                    )
+                    .await?;
+                }
+                crate::runtime::AgentHarness::Codex => {
+                    crate::codex::discard_session_locator(
+                        &container,
+                        &config.name,
+                        "exec",
+                        "portfolio",
+                    )
+                    .await?;
+                }
+            }
             org.emit_event(
                 "model_context_reconstruction_scheduled",
                 Some("exec"),
@@ -550,8 +608,183 @@ async fn record_usage(
 
 /// The full turn inside one ACP session: work prompt, then the termination
 /// decision as a second prompt on the same session (it has full context).
+trait ExecutiveSession: Sync {
+    fn readiness_observation(&self) -> serde_json::Value;
+    fn set_live_observer_enabled(&self, enabled: bool);
+    fn prompt_exec<'a>(
+        &'a self,
+        text: &'a str,
+        enforce_spend_budget: bool,
+        remaining_budget_usd: f64,
+        cancellation: &'a CancellationToken,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = acp::TurnEnd> + Send + 'a>>;
+    fn prompt_once<'a>(
+        &'a self,
+        text: &'a str,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<acp::TurnTranscript>> + Send + 'a>>;
+    fn cancel<'a>(
+        &'a self,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<()>> + Send + 'a>>;
+}
+
+impl ExecutiveSession for acp::AgentSession {
+    fn readiness_observation(&self) -> serde_json::Value {
+        acp::AgentSession::readiness_observation(self)
+    }
+
+    fn set_live_observer_enabled(&self, enabled: bool) {
+        acp::AgentSession::set_live_observer_enabled(self, enabled);
+    }
+
+    fn prompt_exec<'a>(
+        &'a self,
+        text: &'a str,
+        enforce_spend_budget: bool,
+        remaining_budget_usd: f64,
+        cancellation: &'a CancellationToken,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = acp::TurnEnd> + Send + 'a>> {
+        Box::pin(acp::AgentSession::prompt_live(
+            self,
+            text,
+            move |usage| {
+                enforce_spend_budget
+                    && usage
+                        .cost_usd
+                        .is_some_and(|cost| cost >= remaining_budget_usd)
+            },
+            cancellation,
+        ))
+    }
+
+    fn prompt_once<'a>(
+        &'a self,
+        text: &'a str,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<acp::TurnTranscript>> + Send + 'a>>
+    {
+        Box::pin(async move {
+            acp::AgentSession::prompt(self, text).await?;
+            Ok(acp::AgentSession::take_transcript(self))
+        })
+    }
+
+    fn cancel<'a>(
+        &'a self,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<()>> + Send + 'a>> {
+        Box::pin(acp::AgentSession::cancel(self))
+    }
+}
+
+impl ExecutiveSession for crate::codex::CodexSession {
+    fn readiness_observation(&self) -> serde_json::Value {
+        crate::codex::CodexSession::readiness_observation(self)
+    }
+
+    fn set_live_observer_enabled(&self, enabled: bool) {
+        crate::codex::CodexSession::set_live_observer_enabled(self, enabled);
+    }
+
+    fn prompt_exec<'a>(
+        &'a self,
+        text: &'a str,
+        enforce_spend_budget: bool,
+        remaining_budget_usd: f64,
+        cancellation: &'a CancellationToken,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = acp::TurnEnd> + Send + 'a>> {
+        Box::pin(crate::codex::CodexSession::prompt_live(
+            self,
+            text,
+            enforce_spend_budget,
+            remaining_budget_usd,
+            cancellation,
+        ))
+    }
+
+    fn prompt_once<'a>(
+        &'a self,
+        text: &'a str,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<acp::TurnTranscript>> + Send + 'a>>
+    {
+        Box::pin(async move {
+            match crate::codex::CodexSession::prompt_live(
+                self,
+                text,
+                false,
+                f64::MAX,
+                &CancellationToken::new(),
+            )
+            .await
+            {
+                acp::TurnEnd::Completed { transcript } => Ok(transcript),
+                end => anyhow::bail!("Codex postflight did not complete: {:?}", end),
+            }
+        })
+    }
+
+    fn cancel<'a>(
+        &'a self,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<()>> + Send + 'a>> {
+        Box::pin(crate::codex::CodexSession::cancel(self))
+    }
+}
+
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the durable Exec launch observation and charged turn share one exact boundary"
+)]
+async fn run_ready_exec_session(
+    session: &dyn ExecutiveSession,
+    org: &restless_orgintel::OrgIntel,
+    turn_context: &str,
+    company: &str,
+    model: &str,
+    remaining_budget_usd: f64,
+    enforce_spend_budget: bool,
+    cancellation: &CancellationToken,
+) -> Result<(WakeReport, Option<acp::TurnUsage>)> {
+    let readiness = session.readiness_observation();
+    let launch_id = acp::required_readiness_text(&readiness, "launch_id")?;
+    let harness = acp::required_readiness_text(&readiness, "harness")?;
+    let harness_build = acp::required_readiness_text(&readiness, "harness_build")?;
+    let transport = acp::required_readiness_text(&readiness, "transport")?;
+    let ready_model = acp::required_readiness_text(&readiness, "model")?;
+    let configured_effort = acp::required_readiness_text(&readiness, "configured_effort")?;
+    let provider_session_id = acp::required_readiness_text(&readiness, "session_id")?;
+    let resumed = acp::required_readiness_bool(&readiness, "resumed")?;
+    let reconstructed = acp::required_readiness_bool(&readiness, "reconstructed")?;
+    org.record_agent_session(restless_orgintel::NewAgentSession {
+        launch_id,
+        actor_id: "exec",
+        responsibility: "portfolio",
+        work_id: None,
+        attempt_id: None,
+        harness,
+        harness_build,
+        transport,
+        model: ready_model,
+        configured_effort,
+        provider_session_id,
+        capabilities: &readiness,
+        resumed,
+        reconstructed,
+    })
+    .await?;
+    org.emit_event("model_session_ready", Some("exec"), readiness)
+        .await?;
+    session.set_live_observer_enabled(true);
+    run_turn(
+        session,
+        turn_context,
+        company,
+        model,
+        remaining_budget_usd,
+        enforce_spend_budget,
+        cancellation,
+    )
+    .await
+}
+
 async fn run_turn(
-    session: &AgentSession,
+    session: &dyn ExecutiveSession,
     context: &str,
     company: &str,
     model: &str,
@@ -565,14 +798,10 @@ async fn run_turn(
     // guess about whether the model is "stuck or just thinking", which is
     // judgement and not the daemon's.
     let end = session
-        .prompt_live(
+        .prompt_exec(
             context,
-            move |usage| {
-                enforce_spend_budget
-                    && usage
-                        .cost_usd
-                        .is_some_and(|cost| cost >= remaining_budget_usd)
-            },
+            enforce_spend_budget,
+            remaining_budget_usd,
             cancellation,
         )
         .await;
@@ -664,7 +893,7 @@ pub(crate) const TERMINATION_PROMPT: &str =
 /// JSON records Continue plus a bounded substrate retry. Only a parsed model
 /// decision or a classified provider refusal may produce another state.
 async fn termination_decision(
-    session: &AgentSession,
+    session: &dyn ExecutiveSession,
     cancellation: &CancellationToken,
 ) -> TerminationDecision {
     for attempt in 0..2 {
@@ -673,7 +902,7 @@ async fn termination_decision(
                 let _ = session.cancel().await;
                 return retry_termination("the owner interrupted the turn to send new direction");
             }
-            prompted = tokio::time::timeout(TERMINATION_TIMEOUT, session.prompt(TERMINATION_PROMPT)) => prompted,
+            prompted = tokio::time::timeout(TERMINATION_TIMEOUT, session.prompt_once(TERMINATION_PROMPT)) => prompted,
         };
         let Ok(prompted) = prompted else {
             let _ = session.cancel().await;
@@ -686,13 +915,15 @@ async fn termination_decision(
                 TERMINATION_TIMEOUT.as_secs()
             ));
         };
-        if let Err(error) = prompted {
-            tracing::warn!(%error, "termination decision transport failed; preserving work turn");
-            return retry_termination(format!(
-                "termination decision transport failed after the work turn: {error:#}"
-            ));
-        }
-        let transcript = session.take_transcript();
+        let transcript = match prompted {
+            Ok(transcript) => transcript,
+            Err(error) => {
+                tracing::warn!(%error, "termination decision transport failed; preserving work turn");
+                return retry_termination(format!(
+                    "termination decision transport failed after the work turn: {error:#}"
+                ));
+            }
+        };
         match parse_termination(&transcript.text) {
             Some(parsed) => return parsed,
             None => {

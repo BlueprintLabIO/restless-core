@@ -126,6 +126,9 @@ hard green requirement.
 - [`sprint-38.md`](./sprint-38.md) — draft for founder alignment: installs one stable local Restless
   appliance, separates daily use from development, recovers schedules through OS-native wake signals
   plus durable misfire policy, and opens web, native and streamed artifacts from one owner surface.
+- [`sprint-39.md`](./sprint-39.md) — implemented release candidate: extends existing Attention into a
+  work-through conversation with accountable leadership and implements Restless Managed, Codex and
+  Claude Agent at one controlled runtime boundary. Provider-backed three-harness qualification remains.
 
 Sprint 26 is the completed first stage of the
 [Harness → NPC → benchmark programme](../../experiment/HARNESS_NPC_BENCHMARK_PROGRAMME.md). EXP-16 and

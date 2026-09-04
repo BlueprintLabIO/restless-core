@@ -329,7 +329,12 @@ export interface ActiveAgentTurn {
  * is no client Map, second transcript cache, timer or synthetic completion
  * state: a completed event simply invalidates its OrgIntel query.
  */
-export function conversationQuery(companyId: string, actorId: string, workId?: string) {
+export function conversationQuery(
+	companyId: string,
+	actorId: string,
+	workId?: string,
+	attentionId?: string
+) {
 	const client = useQueryClient();
 	const key = queryKeys.conversation(companyId, actorId, workId);
 	const query = createQuery(() => ({
@@ -458,7 +463,8 @@ export function conversationQuery(companyId: string, actorId: string, workId?: s
 				contextPath,
 				newFocus,
 				interrupt,
-				outcomeStandard
+				outcomeStandard,
+				attentionId
 			);
 			const sentAt = new Date();
 			pending = {

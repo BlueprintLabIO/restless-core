@@ -87,7 +87,12 @@
 
 	{#if loaded}
 		<main class="portfolio-main">
-			{#if appliance?.state === 'degraded'}
+			{#if appliance?.state === 'draining'}
+				<div class="appliance-notice" role="status">
+					<span>Work admission is paused.</span>
+					<p>{appliance.repair}</p>
+				</div>
+			{:else if appliance?.state === 'degraded'}
 				<div class="appliance-notice" role="status">
 					<span>Schedule wake needs repair.</span>
 					<p>{appliance.repair}</p>

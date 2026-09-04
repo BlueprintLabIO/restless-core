@@ -66,13 +66,14 @@
 	);
 	const reviewEvidence = $derived(focusedReview?.evidence ?? []);
 	const focusedComputerId = $derived(page.url.searchParams.get('computer'));
+	const focusedConversationId = $derived(page.url.searchParams.get('conversation'));
 	const baseHref = $derived(`/${companyId}`);
 	const requestingActor = $derived(
 		focusItem?.responsibleActor?.id ?? focusItem?.runtimeAttach?.requestingActor ?? ''
 	);
 	const leadConversation = $derived(
 		requestingActor && focusItem
-			? conversationQuery(companyId, requestingActor, focusItem.workId)
+			? conversationQuery(companyId, requestingActor, focusItem.workId, focusItem.id)
 			: null
 	);
 	$effect(() => leadConversation?.attach());
@@ -90,18 +91,40 @@
 		`/api/companies/${encodeURIComponent(companyId)}/attachments/${encodeURIComponent(attachment.uploadId)}`;
 
 	$effect(() => {
-		const item = items.find((candidate) => candidate.id === focusedComputerId) ?? null;
-		if (!focusedComputerId) {
+		const focusId = focusedComputerId ?? focusedConversationId;
+		if (!focusId) {
 			focusAttachKey = '';
 			focusItem = null;
 			desktopUrl = '';
 			controller = 'observer';
 			return;
 		}
-		if (!item || !clientId) return;
-		const key = `${item.id}:${item.runtimeAttach?.generation ?? 'none'}`;
+		const item = items.find((candidate) => candidate.id === focusId) ?? null;
+		if (!item) {
+			if (loaded) {
+				focusAttachKey = '';
+				focusItem = null;
+				desktopUrl = '';
+				controller = 'observer';
+			}
+			return;
+		}
+		const discussionOnly = !focusedComputerId;
+		if (!discussionOnly && !clientId) return;
+		const key = discussionOnly
+			? `conversation:${item.id}`
+			: `computer:${item.id}:${item.runtimeAttach?.generation ?? 'none'}`;
 		if (focusAttachKey === key) return;
 		focusAttachKey = key;
+		if (discussionOnly) {
+			focusItem = item;
+			controller = 'observer';
+			conversationError = '';
+			messageDraft = '';
+			messageFiles = [];
+			desktopUrl = '';
+			return;
+		}
 		void attachPreparedComputer(item);
 	});
 
@@ -521,8 +544,9 @@
 				<button
 					class="btn small"
 					type="button"
-					title="Leaves the prepared computer without resolving the handoff."
-					onclick={closePreparedComputer}>Leave computer</button
+					title="Leaves this work-through view without resolving the handoff."
+					onclick={closePreparedComputer}
+					>Leave {focusedComputerId ? 'computer' : 'discussion'}</button
 				>
 			</div>
 		</header>
@@ -574,7 +598,7 @@
 							<Composer
 								bind:value={messageDraft}
 								bind:files={messageFiles}
-								actionLabel={conversationTurn ? 'Interrupt & send' : 'Send'}
+								actionLabel={conversationTurn ? 'Queue direction' : 'Send'}
 								disabled={sendingMessage}
 								placeholder={conversationTurn
 									? `Interrupt ${requestingActorName} with new direction…`
@@ -816,7 +840,7 @@
 							{@const chatAction = actionFor(item, 'chat-lead')}
 							<div class="action-choice quiet-choice">
 								<button class="btn small" type="button" onclick={() => talkToLead(item)}>
-									Talk to {item.responsibleActor.display}
+									{chatAction?.label ?? `Work through this with ${item.responsibleActor.display}`}
 								</button>
 								{#if chatAction}{@render actionMeaning(chatAction)}{/if}
 							</div>
@@ -835,7 +859,7 @@
 							{@const chatAction = actionFor(item, 'chat-lead')}
 							<div class="action-choice quiet-choice">
 								<button class="btn small" type="button" onclick={() => talkToLead(item)}>
-									Talk to {item.responsibleActor.display}
+									{chatAction?.label ?? `Work through this with ${item.responsibleActor.display}`}
 								</button>
 								{#if chatAction}{@render actionMeaning(chatAction)}{/if}
 							</div>

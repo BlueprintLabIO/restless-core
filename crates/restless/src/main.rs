@@ -372,6 +372,9 @@ enum ApplianceCommand {
         /// endpoints into the stable appliance's private credential file.
         #[arg(long)]
         environment: Option<PathBuf>,
+        /// Permit replacement when the running release cannot prove it is idle.
+        #[arg(long)]
+        force: bool,
     },
     /// Stage and activate a new release, rolling back if readiness fails.
     Upgrade {
@@ -382,22 +385,39 @@ enum ApplianceCommand {
         /// Refresh the private, filtered stable environment from this dotenv file.
         #[arg(long)]
         environment: Option<PathBuf>,
+        /// Permit interruption after the bounded drain period. Use only after inspecting active work.
+        #[arg(long)]
+        force: bool,
     },
     /// Activate the previous known-good release.
-    Rollback,
+    Rollback {
+        #[arg(long)]
+        force: bool,
+    },
     /// Inspect service definitions, lock ownership and owner readiness.
     Status,
     /// Bootstrap or restart the installed user services.
-    Start,
+    Start {
+        #[arg(long)]
+        force: bool,
+    },
     /// Stop the installed user services without touching company state.
-    Stop,
+    Stop {
+        #[arg(long)]
+        force: bool,
+    },
     /// Deliver one bounded schedule-reconciliation hint to the running daemon.
     WakeDue {
         #[arg(long, default_value = "manual")]
         adapter: String,
     },
     /// Remove services and owned machine caches while retaining company data.
-    Uninstall,
+    Uninstall {
+        #[arg(long)]
+        force: bool,
+    },
+    /// Re-open work admission after an interrupted lifecycle operation.
+    Resume,
 }
 
 #[derive(Subcommand)]
@@ -1501,7 +1521,8 @@ enum CompanyCommand {
         company: Option<String>,
     },
     /// Set one deterministic configuration key: mission, model, model_failover
-    /// (a comma-separated ordered list), worker_runtime, reasoning_effort,
+    /// (a comma-separated ordered list), coordination_harness, worker_harness,
+    /// reasoning_effort,
     /// spend_ceiling_usd, or credentials.<binding>. Name is immutable.
     Set {
         #[arg(long, short = 'c', env = "RESTLESS_COMPANY")]
@@ -1829,6 +1850,7 @@ fn main() -> Result<()> {
                 daemon,
                 cockpit,
                 environment,
+                force,
             } => {
                 println!(
                     "{}",
@@ -1837,6 +1859,7 @@ fn main() -> Result<()> {
                         cockpit,
                         environment,
                         false,
+                        force,
                     )?)?
                 );
                 Ok(())
@@ -1845,6 +1868,7 @@ fn main() -> Result<()> {
                 daemon,
                 cockpit,
                 environment,
+                force,
             } => {
                 println!(
                     "{}",
@@ -1853,24 +1877,34 @@ fn main() -> Result<()> {
                         cockpit,
                         environment,
                         true,
+                        force,
                     )?)?
                 );
                 Ok(())
             }
-            ApplianceCommand::Rollback => {
-                println!("{}", serde_json::to_string_pretty(&appliance::rollback()?)?);
+            ApplianceCommand::Rollback { force } => {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&appliance::rollback(force)?)?
+                );
                 Ok(())
             }
             ApplianceCommand::Status => {
                 println!("{}", serde_json::to_string_pretty(&appliance::status()?)?);
                 Ok(())
             }
-            ApplianceCommand::Start => {
-                println!("{}", serde_json::to_string_pretty(&appliance::start()?)?);
+            ApplianceCommand::Start { force } => {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&appliance::start(force)?)?
+                );
                 Ok(())
             }
-            ApplianceCommand::Stop => {
-                println!("{}", serde_json::to_string_pretty(&appliance::stop()?)?);
+            ApplianceCommand::Stop { force } => {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&appliance::stop(force)?)?
+                );
                 Ok(())
             }
             ApplianceCommand::WakeDue { adapter } => {
@@ -1883,11 +1917,15 @@ fn main() -> Result<()> {
                 }));
                 print_response(&request_once(&request.to_string())?)
             }
-            ApplianceCommand::Uninstall => {
+            ApplianceCommand::Uninstall { force } => {
                 println!(
                     "{}",
-                    serde_json::to_string_pretty(&appliance::uninstall()?)?
+                    serde_json::to_string_pretty(&appliance::uninstall(force)?)?
                 );
+                Ok(())
+            }
+            ApplianceCommand::Resume => {
+                println!("{}", serde_json::to_string_pretty(&appliance::resume()?)?);
                 Ok(())
             }
         },
@@ -4019,7 +4057,7 @@ mod tests {
                     "actions": [
                         { "id": "accept-review", "label": "Accept outcome", "consequence": "Completes Work." },
                         { "id": "request-revision", "label": "Request changes", "consequence": "Starts revision." },
-                        { "id": "chat-lead", "label": "Talk with lead", "consequence": "Opens conversation." }
+                        { "id": "chat-lead", "label": "Work through this with Avery", "consequence": "Opens conversation." }
                     ]
                 }
             ]

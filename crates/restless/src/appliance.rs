@@ -6,8 +6,9 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs::{File, OpenOptions};
-use std::io::{Read, Write};
+use std::io::{BufRead, BufReader, Read, Write};
 use std::os::unix::fs::{symlink, PermissionsExt};
+use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
@@ -151,6 +152,7 @@ pub struct StatusReport {
     pub active_binary: bool,
     pub socket_present: bool,
     pub owner_health: Option<u16>,
+    pub draining: bool,
     pub state: &'static str,
     pub repair: Option<String>,
 }
@@ -163,13 +165,68 @@ struct RecoveryState {
     recorded_at_unix_seconds: u64,
 }
 
+#[derive(Debug, Deserialize)]
+struct ControlError {
+    message: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct ControlResponse {
+    ok: bool,
+    data: Option<serde_json::Value>,
+    error: Option<ControlError>,
+}
+
+#[derive(Debug, Deserialize)]
+struct DrainStatus {
+    idle: bool,
+    active_requests: usize,
+    exec_wakes: Vec<String>,
+    staff: Vec<String>,
+    native_clients: Vec<String>,
+}
+
+struct DrainGuard {
+    state_root: PathBuf,
+    armed: bool,
+}
+
+impl DrainGuard {
+    fn new(state_root: &Path) -> Self {
+        Self {
+            state_root: state_root.to_path_buf(),
+            armed: true,
+        }
+    }
+
+    fn resume(mut self) -> Result<()> {
+        self.armed = false;
+        resume_appliance(&self.state_root)
+    }
+
+    fn clear_without_daemon(mut self) -> Result<()> {
+        self.armed = false;
+        contract::clear_drain_marker(&self.state_root)
+    }
+}
+
+impl Drop for DrainGuard {
+    fn drop(&mut self) {
+        if self.armed {
+            let _ = resume_appliance(&self.state_root);
+        }
+    }
+}
+
 pub fn install(
     daemon: Option<PathBuf>,
     cockpit: Option<PathBuf>,
     environment: Option<PathBuf>,
     upgrading: bool,
+    force: bool,
 ) -> Result<InstallReport> {
     ensure_macos()?;
+    ensure_stable_profile()?;
     let layout = Layout::discover()?;
     let candidate = Candidate::discover(daemon, cockpit)?;
     let release = candidate.release_id()?;
@@ -199,6 +256,11 @@ pub fn install(
         return Err(error);
     }
 
+    // Close work admission only after every read-only candidate check passes.
+    // The persistent marker makes the closed gate survive the daemon handoff;
+    // a failed activation resumes whichever known-good process is reachable.
+    let drain = begin_appliance_drain(&layout, force)?;
+
     if let Some(ref current) = previous_target {
         atomic_symlink(current, &layout.previous)?;
     }
@@ -211,7 +273,7 @@ pub fn install(
     let ready = wait_ready(&layout, Duration::from_secs(30));
     if ready {
         clear_recovery_state(&layout)?;
-        return Ok(InstallReport {
+        let report = InstallReport {
             release,
             previous_release: previous_target
                 .and_then(|path| path.file_name().map(|v| v.to_string_lossy().into_owned())),
@@ -220,7 +282,9 @@ pub fn install(
             wake_service: MACOS_WAKE_LABEL.into(),
             ready: true,
             rolled_back: false,
-        });
+        };
+        drain.resume()?;
+        return Ok(report);
     }
 
     if upgrading {
@@ -235,6 +299,7 @@ pub fn install(
                     &release,
                     "candidate and last-known-good release both failed readiness",
                 )?;
+                let _ = drain.resume();
                 bail!("new release failed readiness and the previous release did not recover; inspect ~/.restless/logs/restlessd.log");
             }
             write_recovery_state(
@@ -243,7 +308,7 @@ pub fn install(
                 &release,
                 "candidate failed readiness; last-known-good release was restored",
             )?;
-            return Ok(InstallReport {
+            let report = InstallReport {
                 release,
                 previous_release: previous
                     .file_name()
@@ -253,7 +318,9 @@ pub fn install(
                 wake_service: MACOS_WAKE_LABEL.into(),
                 ready: false,
                 rolled_back: true,
-            });
+            };
+            drain.resume()?;
+            return Ok(report);
         }
     }
     write_recovery_state(
@@ -262,7 +329,119 @@ pub fn install(
         &release,
         "installed service did not become ready and no last-known-good release was available",
     )?;
+    let _ = drain.resume();
     bail!("installed service did not become ready within 30 seconds; inspect ~/.restless/logs/restlessd.log")
+}
+
+fn begin_appliance_drain(layout: &Layout, force: bool) -> Result<DrainGuard> {
+    let guard = DrainGuard::new(&layout.state_root);
+    let started = Instant::now();
+    let mut last = match request_appliance_control(&layout.state_root, "appliance-drain") {
+        Ok(status) => Some(status),
+        Err(error) => {
+            let live = stable_singleton_candidates(layout)?;
+            if !live.is_empty() && !force {
+                bail!(
+                    "the running stable appliance cannot prove a drain-safe handoff: {error:#}; wait for it to become reachable or retry with --force only after verifying no useful work is active"
+                );
+            }
+            contract::write_drain_marker(&layout.state_root)?;
+            if !live.is_empty() {
+                eprintln!(
+                    "warning: forcing replacement of a stable daemon that could not report active work"
+                );
+            }
+            None
+        }
+    };
+
+    while let Some(status) = last {
+        if status.idle {
+            return Ok(guard);
+        }
+        if started.elapsed() >= Duration::from_secs(30) {
+            if force {
+                eprintln!(
+                    "warning: forcing replacement with active work: {}",
+                    render_drain_activity(&status)
+                );
+                return Ok(guard);
+            }
+            bail!(
+                "stable appliance still has active work after 30 seconds: {}; no process was interrupted (retry later, or use --force only to accept interruption)",
+                render_drain_activity(&status)
+            );
+        }
+        std::thread::sleep(Duration::from_millis(100));
+        last = match request_appliance_control(&layout.state_root, "appliance-drain") {
+            Ok(status) => Some(status),
+            Err(error) if force => {
+                eprintln!("warning: lost drain status before forced replacement: {error:#}");
+                return Ok(guard);
+            }
+            Err(error) => return Err(error).context("observe stable appliance drain"),
+        };
+    }
+    Ok(guard)
+}
+
+fn request_appliance_control(state_root: &Path, command: &str) -> Result<DrainStatus> {
+    let socket = state_root.join("restlessd.sock");
+    let mut stream = UnixStream::connect(&socket)
+        .with_context(|| format!("connect stable appliance socket {}", socket.display()))?;
+    stream.set_read_timeout(Some(Duration::from_secs(2)))?;
+    stream.set_write_timeout(Some(Duration::from_secs(2)))?;
+    writeln!(stream, "{}", serde_json::json!({ "cmd": command }))?;
+    let mut response = String::new();
+    BufReader::new(stream).read_line(&mut response)?;
+    let response: ControlResponse = serde_json::from_str(response.trim())
+        .with_context(|| format!("decode {command} response"))?;
+    if !response.ok {
+        bail!(
+            "{}",
+            response
+                .error
+                .map(|error| error.message)
+                .unwrap_or_else(|| format!("{command} was refused"))
+        );
+    }
+    serde_json::from_value(
+        response
+            .data
+            .context("appliance control returned no status")?,
+    )
+    .with_context(|| format!("decode {command} status"))
+}
+
+fn render_drain_activity(status: &DrainStatus) -> String {
+    format!(
+        "{} request(s), exec={:?}, staff={:?}, native={:?}",
+        status.active_requests, status.exec_wakes, status.staff, status.native_clients
+    )
+}
+
+fn resume_appliance(state_root: &Path) -> Result<()> {
+    let started = Instant::now();
+    loop {
+        match request_appliance_control(state_root, "appliance-resume") {
+            Ok(_) => return Ok(()),
+            Err(error) => {
+                let lock = state_root.join("machine/plane.lock");
+                let daemon_expected = contract::singleton_lock_is_held(&lock).unwrap_or(false)
+                    || service_loaded(MACOS_PLANE_LABEL);
+                if !daemon_expected {
+                    contract::clear_drain_marker(state_root)?;
+                    return Ok(());
+                }
+                if started.elapsed() >= Duration::from_secs(5) {
+                    return Err(error).context(
+                        "the appliance remains safely drained; run `restless appliance resume` after repairing its service",
+                    );
+                }
+                std::thread::sleep(Duration::from_millis(100));
+            }
+        }
+    }
 }
 
 fn import_environment(layout: &Layout, source: &Path) -> Result<()> {
@@ -366,12 +545,17 @@ fn collect_environment_references(
     }
 }
 
-pub fn rollback() -> Result<InstallReport> {
+pub fn rollback(force: bool) -> Result<InstallReport> {
     ensure_macos()?;
+    ensure_stable_profile()?;
     let layout = Layout::discover()?;
     let previous = std::fs::read_link(&layout.previous)
         .context("no previous Restless release is available")?;
     let current = read_link_name(&layout.current);
+    let paths = layout.release_paths(&previous);
+    contract::validate_service_definition(&contract::launchd_plane_plist(&paths)?)?;
+    contract::validate_service_definition(&contract::launchd_wake_plist(&paths)?)?;
+    let drain = begin_appliance_drain(&layout, force)?;
     atomic_symlink(&previous, &layout.current)?;
     write_service_definitions(&layout, &previous)?;
     restart_services(&layout)?;
@@ -381,10 +565,11 @@ pub fn rollback() -> Result<InstallReport> {
             write_service_definitions(&layout, &current)?;
             restart_services(&layout)?;
         }
+        let _ = drain.resume();
         bail!("previous release failed readiness; restored the prior activation pointer")
     }
     clear_recovery_state(&layout)?;
-    Ok(InstallReport {
+    let report = InstallReport {
         release: previous
             .file_name()
             .map(|v| v.to_string_lossy().into_owned())
@@ -396,7 +581,9 @@ pub fn rollback() -> Result<InstallReport> {
         wake_service: MACOS_WAKE_LABEL.into(),
         ready: true,
         rolled_back: true,
-    })
+    };
+    drain.resume()?;
+    Ok(report)
 }
 
 fn write_service_definitions(layout: &Layout, release: &Path) -> Result<()> {
@@ -411,6 +598,7 @@ fn write_service_definitions(layout: &Layout, release: &Path) -> Result<()> {
 }
 
 pub fn status() -> Result<StatusReport> {
+    ensure_stable_profile()?;
     let layout = Layout::discover()?;
     let plane_loaded = service_loaded(MACOS_PLANE_LABEL);
     let wake_loaded = service_loaded(MACOS_WAKE_LABEL);
@@ -422,6 +610,7 @@ pub fn status() -> Result<StatusReport> {
     let owner_health = owner_health_status();
     let plane_definition = layout.plane_plist().is_file();
     let wake_definition = layout.wake_plist().is_file();
+    let draining = contract::drain_marker_exists(&layout.state_root);
     let recovery = read_recovery_state(&layout);
     let (state, repair) = if let Some(recovery) = recovery {
         let state = if recovery.state == "crash_loop" {
@@ -432,9 +621,22 @@ pub fn status() -> Result<StatusReport> {
         (
             state,
             Some(format!(
-                "{}; inspect the service log, then retry or run `restless appliance rollback`",
-                recovery.detail
+                "{}; inspect the service log, then retry or run `restless appliance rollback`{}",
+                recovery.detail,
+                if draining {
+                    "; the work gate is still closed, so run `restless appliance resume` after recovery"
+                } else {
+                    ""
+                }
             )),
+        )
+    } else if draining {
+        (
+            "draining",
+            Some(
+                "finish or abandon the lifecycle operation, then run `restless appliance resume`"
+                    .into(),
+            ),
         )
     } else if owner_health == Some(200)
         && lock_pid_alive
@@ -477,34 +679,54 @@ pub fn status() -> Result<StatusReport> {
         active_binary,
         socket_present: layout.state_root.join("restlessd.sock").exists(),
         owner_health,
+        draining,
         state,
         repair,
     })
 }
 
-pub fn start() -> Result<StatusReport> {
+pub fn start(force: bool) -> Result<StatusReport> {
     ensure_macos()?;
+    ensure_stable_profile()?;
     let layout = Layout::discover()?;
     if !layout.plane_plist().is_file() || !layout.wake_plist().is_file() {
         bail!("Restless is not installed; run `restless appliance install`");
     }
+    let current = status()?;
+    if current.state == "ready" {
+        return Ok(current);
+    }
+    let drain = begin_appliance_drain(&layout, force)?;
     restart_services(&layout)?;
-    let _ = wait_ready(&layout, Duration::from_secs(30));
+    if !wait_ready(&layout, Duration::from_secs(30)) {
+        let _ = drain.resume();
+        bail!("stable appliance did not become ready within 30 seconds; inspect ~/.restless/logs/restlessd.log");
+    }
+    drain.resume()?;
     status()
 }
 
-pub fn stop() -> Result<StatusReport> {
+pub fn stop(force: bool) -> Result<StatusReport> {
     ensure_macos()?;
-    bootout(MACOS_WAKE_LABEL);
-    bootout(MACOS_PLANE_LABEL);
-    status()
-}
-
-pub fn uninstall() -> Result<StatusReport> {
-    ensure_macos()?;
+    ensure_stable_profile()?;
     let layout = Layout::discover()?;
+    let drain = begin_appliance_drain(&layout, force)?;
     bootout(MACOS_WAKE_LABEL);
     bootout(MACOS_PLANE_LABEL);
+    release_previous_singleton(&layout)?;
+    drain.clear_without_daemon()?;
+    status()
+}
+
+pub fn uninstall(force: bool) -> Result<StatusReport> {
+    ensure_macos()?;
+    ensure_stable_profile()?;
+    let layout = Layout::discover()?;
+    let drain = begin_appliance_drain(&layout, force)?;
+    bootout(MACOS_WAKE_LABEL);
+    bootout(MACOS_PLANE_LABEL);
+    release_previous_singleton(&layout)?;
+    drain.clear_without_daemon()?;
     remove_if_owned_definition(&layout.wake_plist(), MACOS_WAKE_LABEL)?;
     remove_if_owned_definition(&layout.plane_plist(), MACOS_PLANE_LABEL)?;
     remove_if_owned_symlink(&layout.bin_link, &layout.install_root)?;
@@ -524,6 +746,14 @@ pub fn uninstall() -> Result<StatusReport> {
         }
     }
     // Company configs, cells, Authority and OrgIntel are intentionally retained.
+    status()
+}
+
+pub fn resume() -> Result<StatusReport> {
+    ensure_macos()?;
+    ensure_stable_profile()?;
+    let layout = Layout::discover()?;
+    resume_appliance(&layout.state_root)?;
     status()
 }
 
@@ -603,13 +833,7 @@ fn restart_services(layout: &Layout) -> Result<()> {
 }
 
 fn release_previous_singleton(layout: &Layout) -> Result<()> {
-    let lock = layout.state_root.join("machine/plane.lock");
-    let mut candidates = BTreeSet::new();
-    if contract::singleton_lock_is_held(&lock)? {
-        let pid = read_lock_pid(&lock).context("live singleton lock has no diagnostic pid")?;
-        candidates.insert(pid);
-    }
-    candidates.extend(stable_listener_pids()?);
+    let mut candidates = stable_singleton_candidates(layout)?;
     candidates.retain(|pid| process_alive(*pid));
     if candidates.is_empty() {
         return Ok(());
@@ -627,6 +851,18 @@ fn release_previous_singleton(layout: &Layout) -> Result<()> {
         bail!("stable port or lock is owned by unrecognised pid {pid}; refusing to signal it");
     }
     terminate_and_wait(pid)
+}
+
+fn stable_singleton_candidates(layout: &Layout) -> Result<BTreeSet<u32>> {
+    let lock = layout.state_root.join("machine/plane.lock");
+    let mut candidates = BTreeSet::new();
+    if contract::singleton_lock_is_held(&lock)? {
+        let pid = read_lock_pid(&lock).context("live singleton lock has no diagnostic pid")?;
+        candidates.insert(pid);
+    }
+    candidates.extend(stable_listener_pids()?);
+    candidates.retain(|pid| process_alive(*pid));
+    Ok(candidates)
 }
 
 fn stable_listener_pids() -> Result<BTreeSet<u32>> {
@@ -1024,6 +1260,17 @@ fn absolute(path: &Path) -> Result<PathBuf> {
 fn ensure_macos() -> Result<()> {
     if !cfg!(target_os = "macos") {
         bail!("live appliance installation is currently counted on macOS; use the generated systemd contract on Linux");
+    }
+    Ok(())
+}
+
+fn ensure_stable_profile() -> Result<()> {
+    let profile = MachineProfile::from_env()?;
+    if profile.kind != contract::ProfileKind::Stable {
+        bail!(
+            "appliance lifecycle commands require RESTLESS_PROFILE=stable; {} resources are isolated and must be managed by their own development/test runner",
+            profile.kind.as_str()
+        );
     }
     Ok(())
 }

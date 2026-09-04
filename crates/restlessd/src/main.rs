@@ -238,12 +238,48 @@ pub(crate) struct Daemon {
     /// Reconnectable live projections for agent turns. Completed messages,
     /// Work, and Attempts remain OrgIntel truth; this state is ephemeral.
     pub(crate) activities: activity::AgentActivityStreams,
+    /// Crash-safe admission barrier for appliance replacement. The marker is
+    /// host lifecycle state; live Work remains in the registries below and in
+    /// OrgIntel rather than being copied into this gate.
+    pub(crate) lifecycle: restlessd::appliance::LifecycleGate,
     /// One wake at a time per company, however the wake was requested —
     /// the scheduler (T6) and the owner-typed socket path share this set.
     pub(crate) in_flight: schedule::InFlight,
     /// Wake-only hints from launchd/systemd or the owner. The durable schedule
     /// ledger decides whether anything is due; this signal carries no work.
     pub(crate) schedule_wake: std::sync::Arc<tokio::sync::Notify>,
+}
+
+#[derive(Serialize)]
+struct ApplianceDrainStatus {
+    draining: bool,
+    idle: bool,
+    active_requests: usize,
+    exec_wakes: Vec<String>,
+    staff: Vec<String>,
+    native_clients: Vec<String>,
+}
+
+fn appliance_drain_status(daemon: &Daemon) -> ApplianceDrainStatus {
+    let active_requests = daemon.lifecycle.active();
+    let exec_wakes = daemon
+        .in_flight
+        .lock()
+        .map(|claims| claims.active_companies())
+        .unwrap_or_else(|_| vec!["registry-unavailable".into()]);
+    let staff = daemon.staff.running_staff();
+    let native_clients = daemon.launch.active_native_resources();
+    ApplianceDrainStatus {
+        draining: daemon.lifecycle.is_draining(),
+        idle: active_requests == 0
+            && exec_wakes.is_empty()
+            && staff.is_empty()
+            && native_clients.is_empty(),
+        active_requests,
+        exec_wakes,
+        staff,
+        native_clients,
+    }
 }
 
 /// A Runtime is only ready for coordination after the host-issued bridge grant
@@ -504,6 +540,9 @@ async fn main() -> Result<()> {
         },
         staff: staff::StaffRegistry::default(),
         activities: activity::AgentActivityStreams::default(),
+        lifecycle: restlessd::appliance::LifecycleGate::new(
+            restlessd::appliance::drain_marker_exists(&root),
+        ),
         in_flight: std::sync::Arc::new(std::sync::Mutex::new(schedule::WakeClaims::default())),
         schedule_wake: std::sync::Arc::new(tokio::sync::Notify::new()),
     });
@@ -840,6 +879,26 @@ where
             watch_events(&mut write, daemon, request.company.as_deref()).await?;
             continue;
         }
+        let _lifecycle_lease = if matches!(
+            request.cmd.as_str(),
+            "appliance-drain" | "appliance-resume"
+        ) {
+            None
+        } else {
+            match daemon.lifecycle.try_enter() {
+                Some(lease) => Some(lease),
+                None => {
+                    let response = Response::err_kind(
+                        "draining",
+                        "the stable appliance is draining for replacement; retry after activation or resume it explicitly",
+                    );
+                    let mut out = serde_json::to_string(&response)?;
+                    out.push('\n');
+                    write.write_all(out.as_bytes()).await?;
+                    continue;
+                }
+            }
+        };
         let response = dispatch(request, daemon, principal).await;
         let mut out = serde_json::to_string(&response)?;
         out.push('\n');
@@ -1079,6 +1138,21 @@ fn parse_culture_case(
 }
 
 async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Response {
+    if request.cmd == "appliance-drain" {
+        daemon.lifecycle.begin_drain();
+        if let Err(error) = restlessd::appliance::write_drain_marker(&daemon.root) {
+            daemon.lifecycle.resume();
+            return Response::err(format!("persist appliance drain barrier: {error:#}"));
+        }
+        return Response::ok_serialized(appliance_drain_status(daemon));
+    }
+    if request.cmd == "appliance-resume" {
+        if let Err(error) = restlessd::appliance::clear_drain_marker(&daemon.root) {
+            return Response::err(format!("clear appliance drain barrier: {error:#}"));
+        }
+        daemon.lifecycle.resume();
+        return Response::ok_serialized(appliance_drain_status(daemon));
+    }
     // The company catalogue exists above any one company. Keep it explicit
     // instead of inventing a fake global company.
     if request.cmd == "company-list" {
@@ -1574,17 +1648,27 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
                             config.model = value.to_string();
                             Ok(())
                         }
+                        "coordination_harness" => runtime::AgentHarness::parse_canonical(value)
+                            .ok_or_else(|| anyhow::anyhow!(
+                                "coordination_harness must be restless-managed, codex, or claude-agent"
+                            ))
+                            .map(|harness| config.coordination_harness = harness),
+                        "worker_harness" => runtime::AgentHarness::parse_canonical(value)
+                            .ok_or_else(|| anyhow::anyhow!(
+                                "worker_harness must be restless-managed, codex, or claude-agent"
+                            ))
+                            .map(|harness| config.worker_harness = harness),
                         "worker_runtime" => match value.trim() {
                             "omp" => {
-                                config.worker_runtime = runtime::WorkerRuntime::Omp;
+                                config.worker_harness = runtime::AgentHarness::RestlessManaged;
                                 Ok(())
                             }
                             "codex" => {
-                                config.worker_runtime = runtime::WorkerRuntime::Codex;
+                                config.worker_harness = runtime::AgentHarness::Codex;
                                 Ok(())
                             }
                             _ => Err(anyhow::anyhow!(
-                                "worker_runtime must be omp or codex"
+                                "legacy worker_runtime must be omp or codex; use worker_harness for canonical values"
                             )),
                         },
                         "reasoning_effort" => {
@@ -1612,7 +1696,7 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
                             Ok(())
                         }
                         _ => Err(anyhow::anyhow!(
-                            "unknown company key {key:?}; use mission, model, model_failover, worker_runtime, reasoning_effort, spend_ceiling_usd, outcome_standard, or credentials.<binding>"
+                            "unknown company key {key:?}; use mission, model, model_failover, coordination_harness, worker_harness, reasoning_effort, spend_ceiling_usd, outcome_standard, or credentials.<binding>"
                         )),
                     };
                     match result.and_then(|()| runtime::CompanyConfig::save(&daemon.root, &config))
@@ -2984,8 +3068,15 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
                     return Response::err("work-artifact needs UUID work and attempt");
                 };
                 match daemon.orgintel.get(company).await {
-                    Ok(org) => match org
-                        .link_work_artifact(restless_orgintel::NewArtifactRef {
+                    Ok(org) => {
+                        // Runtime generation is host-observed provenance. A
+                        // caller may name a file and digest, but cannot omit or
+                        // forge which persistent computer produced it.
+                        let runtime_generation = runtime::generation(company)
+                            .await
+                            .ok()
+                            .flatten();
+                        match org.link_work_artifact(restless_orgintel::NewArtifactRef {
                             kind,
                             uri,
                             note: request.common.body.as_deref().unwrap_or(""),
@@ -2994,13 +3085,14 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
                             attempt_id: Some(attempt_id),
                             digest: request.orgintel.digest.as_deref(),
                             source_commit: request.orgintel.source_commit.as_deref(),
-                            runtime_generation: None,
+                            runtime_generation: runtime_generation.as_deref(),
                             label: request.orgintel.label.as_deref().unwrap_or("output"),
                         })
                         .await
-                    {
-                        Ok(id) => Response::ok(serde_json::json!({ "artifact_ref_id": id })),
-                        Err(error) => Response::err(format!("{error:#}")),
+                        {
+                            Ok(id) => Response::ok(serde_json::json!({ "artifact_ref_id": id })),
+                            Err(error) => Response::err(format!("{error:#}")),
+                        }
                     },
                     Err(error) => Response::err(format!("{error:#}")),
                 }

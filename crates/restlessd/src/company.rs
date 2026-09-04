@@ -53,6 +53,7 @@ pub(crate) struct CompanyView {
     sources: Sources,
     charter: Charter,
     limits: Limits,
+    harnesses: HarnessSettings,
     resources: Resources,
     external_actions: ExternalActions,
     computer: CompanyComputer,
@@ -164,6 +165,29 @@ struct SpendLimit {
 struct Resources {
     status: &'static str,
     items: Vec<ResourceRow>,
+}
+
+#[derive(Debug, Serialize)]
+struct HarnessSettings {
+    coordination: runtime::AgentHarness,
+    worker: runtime::AgentHarness,
+    options: Vec<HarnessOption>,
+}
+
+#[derive(Debug, Serialize)]
+struct HarnessOption {
+    id: runtime::AgentHarness,
+    label: &'static str,
+    transport: &'static str,
+    expected_build: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    observed_build: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    native_agent_build: Option<String>,
+    status: &'static str,
+    detail: String,
+    authentication: &'static str,
+    limitations: Vec<&'static str>,
 }
 
 #[derive(Debug, Serialize)]
@@ -416,6 +440,7 @@ pub(crate) async fn project(
         probe_credentials,
     )
     .await;
+    let harnesses = harness_settings(config, runtime_doctor.as_ref());
     let external_actions = actions(authority.as_ref());
     let company_doctor = company_doctor(
         authority_source.clone(),
@@ -450,6 +475,7 @@ pub(crate) async fn project(
             current_direction_status: orgintel_source.status,
         },
         limits,
+        harnesses,
         resources,
         external_actions,
         computer: CompanyComputer {
@@ -459,6 +485,120 @@ pub(crate) async fn project(
         },
         attention_href: format!("/{}/attention", config.name),
         refreshed_at: observed_at,
+    }
+}
+
+fn harness_settings(
+    config: &runtime::CompanyConfig,
+    doctor: Option<&runtime::RuntimeDoctor>,
+) -> HarnessSettings {
+    let coordination_available = doctor
+        .and_then(|doctor| doctor.coordination.as_ref())
+        .is_some_and(|coordination| coordination.status == "available");
+    let unstartable = crate::model_gateway::unstartable_reason(&config.name);
+    let options = [
+        runtime::AgentHarness::RestlessManaged,
+        runtime::AgentHarness::Codex,
+        runtime::AgentHarness::ClaudeAgent,
+    ]
+    .into_iter()
+    .map(|harness| {
+        let expected_build = harness.build();
+        let observed_build = doctor
+            .and_then(|doctor| doctor.release.as_ref())
+            .and_then(|release| release.harnesses.get(harness.as_str()))
+            .cloned();
+        let expected_native_agent = harness.native_agent_build();
+        let observed_native_agent = expected_native_agent.and_then(|_| {
+            doctor
+                .and_then(|doctor| doctor.release.as_ref())
+                .and_then(|release| release.harness_agents.get(harness.as_str()))
+                .cloned()
+        });
+        let package_matches = observed_build.as_deref() == Some(expected_build)
+            && expected_native_agent
+                .is_none_or(|expected| observed_native_agent.as_deref() == Some(expected));
+        let mut candidate = config.clone();
+        candidate.coordination_harness = harness;
+        candidate.worker_harness = harness;
+        let incompatibility = candidate
+            .validate_harness_models()
+            .err()
+            .map(|error| error.to_string());
+        let (status, detail) = if let Some(reason) = incompatibility {
+            (
+                "incompatible",
+                format!("The current model/effort policy is incompatible: {reason}"),
+            )
+        } else if !package_matches {
+            (
+                "not_ready",
+                match observed_build.as_deref() {
+                    Some(observed) => format!(
+                        "Runtime reported {observed}; this release requires {expected_build}. Reconcile the Company computer."
+                    ),
+                    None => "The pinned build was not observed from the running Company computer. Start or reconcile it before selecting this harness.".into(),
+                },
+            )
+        } else if let Some(reason) = unstartable.as_deref() {
+            ("not_ready", format!("Provider access is not ready: {reason}"))
+        } else if !coordination_available {
+            (
+                "not_ready",
+                "The Runtime coordination path is not ready; start or reconcile the Company computer."
+                    .into(),
+            )
+        } else {
+            (
+                "ready",
+                "Pinned build, model policy, provider admission, and Runtime coordination are ready."
+                    .into(),
+            )
+        };
+        let (label, transport, authentication, limitations) = match harness {
+            runtime::AgentHarness::RestlessManaged => (
+                "Restless Managed",
+                "ACP",
+                "Host-managed provider route; Runtime receives only a scoped session capability.",
+                vec!["Input submitted during a running turn is queued for the next turn."],
+            ),
+            runtime::AgentHarness::Codex => (
+                "Codex",
+                "Native App Server",
+                "Host OpenAI-compatible route; Runtime receives only a scoped session capability.",
+                vec![
+                    "Optional native events appear only when the App Server reports them.",
+                    "Input submitted during a running turn is queued unless native acknowledgement is observed.",
+                ],
+            ),
+            runtime::AgentHarness::ClaudeAgent => (
+                "Claude Agent",
+                "ACP",
+                "Host Anthropic API key through the scoped relay; Claude subscription login is unsupported.",
+                vec![
+                    "API authentication only; claude.ai subscription login is not supported.",
+                    "Input submitted during a running turn is queued for the next turn.",
+                ],
+            ),
+        };
+        HarnessOption {
+            id: harness,
+            label,
+            transport,
+            expected_build,
+            observed_build,
+            native_agent_build: observed_native_agent,
+            status,
+            detail,
+            authentication,
+            limitations,
+        }
+    })
+    .collect();
+    HarnessSettings {
+        coordination: config.coordination_harness,
+        worker: config.worker_harness,
+        options,
     }
 }
 
@@ -559,7 +699,8 @@ async fn resources(
         }).or_else(|| Some("Configured model route; this read does not spend tokens to claim that generation works.".into())),
         metadata: Some(serde_json::json!({
             "fallbacks": config.model_failover,
-            "worker_runtime": config.worker_runtime,
+            "coordination_harness": config.coordination_harness,
+            "worker_harness": config.worker_harness,
             "reasoning_effort": config.reasoning_effort,
         })),
         launch: None,
@@ -1606,6 +1747,7 @@ mod tests {
             image_source_digest: None,
             reconciliation,
             action: None,
+            release: None,
             coordination: coordination.map(|status| runtime::CoordinationDoctor {
                 status: status.into(),
                 detail: (status != "available").then(|| "coordination detail".into()),
@@ -1667,6 +1809,69 @@ mod tests {
             )),
             vec![RecoveryAction::Reconcile]
         );
+    }
+
+    #[test]
+    fn harness_settings_report_observed_builds_and_model_compatibility() {
+        let config: runtime::CompanyConfig = toml::from_str(
+            r#"name = "company_test"
+model = "moonshot/kimi-k3"
+"#,
+        )
+        .unwrap();
+        let mut runtime_doctor = doctor(
+            runtime::ContainerStatus::Running,
+            runtime::ReconciliationStatus::Current,
+            Some("available"),
+            Some("available"),
+            Some("available"),
+        );
+        runtime_doctor.release = Some(runtime::RuntimeReleaseIdentity {
+            core_version: "0.0.0-test".into(),
+            source_revision: "test-revision".into(),
+            api_contract_version: 1,
+            assertion_contract_version: 1,
+            schema_version: crate::release::SCHEMA_VERSION,
+            harnesses: [
+                ("restless-managed".into(), "omp-18.0.10".into()),
+                ("codex".into(), "codex-cli-0.151.0".into()),
+                ("claude-agent".into(), "claude-agent-acp-0.73.0".into()),
+            ]
+            .into_iter()
+            .collect(),
+            harness_agents: [("claude-agent".into(), "claude-code-2.1.257".into())]
+                .into_iter()
+                .collect(),
+            harness_dependencies: [("claude-agent-sdk".into(), "0.3.257".into())]
+                .into_iter()
+                .collect(),
+        });
+
+        let settings = harness_settings(&config, Some(&runtime_doctor));
+        assert_eq!(
+            settings.coordination,
+            runtime::AgentHarness::RestlessManaged
+        );
+        assert_eq!(settings.worker, runtime::AgentHarness::RestlessManaged);
+        let managed = settings
+            .options
+            .iter()
+            .find(|option| option.id == runtime::AgentHarness::RestlessManaged)
+            .unwrap();
+        assert_eq!(managed.status, "ready");
+        assert_eq!(managed.observed_build.as_deref(), Some("omp-18.0.10"));
+        for harness in [
+            runtime::AgentHarness::Codex,
+            runtime::AgentHarness::ClaudeAgent,
+        ] {
+            let option = settings
+                .options
+                .iter()
+                .find(|option| option.id == harness)
+                .unwrap();
+            assert_eq!(option.status, "incompatible");
+            assert!(option.detail.contains("current model/effort policy"));
+        }
     }
 
     #[test]

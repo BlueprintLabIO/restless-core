@@ -272,13 +272,51 @@ impl<'de> Deserialize<'de> for SpendCeiling {
 /// One company's identity and configuration, as a file — not a table (sprint
 /// spec, kernel slice). Lives at `$RESTLESS_HOME/companies/<name>.toml`.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum WorkerRuntime {
-    /// Mature OMP/ACP transport retained as the compatible default.
+#[serde(rename_all = "kebab-case")]
+pub enum AgentHarness {
+    /// Restless' managed ACP harness, retained as the compatible default.
+    #[serde(alias = "omp", alias = "restless_managed")]
     #[default]
-    Omp,
+    RestlessManaged,
     /// First-party Codex app-server transport for productive Staff Attempts.
     Codex,
+    /// Certified Claude Code ACP adapter shipped in the company image.
+    #[serde(alias = "claude_agent")]
+    ClaudeAgent,
+}
+
+impl AgentHarness {
+    pub(crate) const fn as_str(self) -> &'static str {
+        match self {
+            Self::RestlessManaged => "restless-managed",
+            Self::Codex => "codex",
+            Self::ClaudeAgent => "claude-agent",
+        }
+    }
+
+    pub(crate) fn parse_canonical(value: &str) -> Option<Self> {
+        match value.trim() {
+            "restless-managed" => Some(Self::RestlessManaged),
+            "codex" => Some(Self::Codex),
+            "claude-agent" => Some(Self::ClaudeAgent),
+            _ => None,
+        }
+    }
+
+    pub(crate) const fn build(self) -> &'static str {
+        match self {
+            Self::RestlessManaged => "omp-18.0.10",
+            Self::Codex => "codex-cli-0.151.0",
+            Self::ClaudeAgent => "claude-agent-acp-0.73.0",
+        }
+    }
+
+    pub(crate) const fn native_agent_build(self) -> Option<&'static str> {
+        match self {
+            Self::ClaudeAgent => Some("claude-code-2.1.257"),
+            Self::RestlessManaged | Self::Codex => None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -300,11 +338,13 @@ pub struct CompanyConfig {
     /// indirection this replaced (`company-general-v1` → a gateway route)
     /// was vestigial once agents named providers directly.
     pub model: String,
-    /// Cognitive transport for productive Staff Attempts. Exec and
-    /// non-producing lead conversations remain on the mature coordination
-    /// transport; this field changes the worker, not the organisation.
+    /// Certified harness used by Exec and non-producing lead conversations.
     #[serde(default)]
-    pub worker_runtime: WorkerRuntime,
+    pub coordination_harness: AgentHarness,
+    /// Certified harness used by productive Staff Attempts. The legacy
+    /// `worker_runtime` key is accepted during migration but never emitted.
+    #[serde(default, alias = "worker_runtime")]
+    pub worker_harness: AgentHarness,
     /// Exact provider-supported reasoning effort for every actor launch.
     #[serde(default = "default_reasoning_effort")]
     pub reasoning_effort: String,
@@ -365,6 +405,7 @@ impl CompanyConfig {
             );
         }
         config.model_candidates()?;
+        config.validate_harness_models()?;
         if !valid_reasoning_effort(&config.reasoning_effort) {
             bail!("unsupported reasoning effort {:?}", config.reasoning_effort);
         }
@@ -382,6 +423,7 @@ impl CompanyConfig {
     pub fn save(root: &Path, config: &Self) -> Result<()> {
         validate_company_name(&config.name)?;
         config.model_candidates()?;
+        config.validate_harness_models()?;
         if !valid_reasoning_effort(&config.reasoning_effort) {
             bail!("unsupported reasoning effort {:?}", config.reasoning_effort);
         }
@@ -430,6 +472,52 @@ impl CompanyConfig {
             candidates.push(model);
         }
         Ok(candidates)
+    }
+
+    pub(crate) fn validate_harness_models(&self) -> Result<()> {
+        let models = self.model_candidates()?;
+        for harness in [self.coordination_harness, self.worker_harness] {
+            let required_provider = match harness {
+                AgentHarness::RestlessManaged => continue,
+                AgentHarness::Codex => "litellm",
+                AgentHarness::ClaudeAgent => "anthropic",
+            };
+            if let Some(model) = models
+                .iter()
+                .find(|model| !model.starts_with(&format!("{required_provider}/")))
+            {
+                bail!(
+                    "{} harness requires every configured model to use provider {required_provider}; got {model}",
+                    harness.as_str()
+                );
+            }
+            if let Some(model) = models.iter().find(|model| match harness {
+                AgentHarness::Codex => {
+                    !crate::model_gateway::responses_model_has_pinned_tariff(model)
+                }
+                AgentHarness::ClaudeAgent => {
+                    !crate::model_gateway::anthropic_model_has_pinned_tariff(model)
+                }
+                AgentHarness::RestlessManaged => false,
+            }) {
+                bail!(
+                    "{} harness has no pinned metering tariff for configured model {model}",
+                    harness.as_str()
+                );
+            }
+            if harness == AgentHarness::ClaudeAgent
+                && !matches!(
+                    self.reasoning_effort.as_str(),
+                    "low" | "medium" | "high" | "max"
+                )
+            {
+                bail!(
+                    "Claude Agent reasoning_effort must be low, medium, high, or max; got {:?}",
+                    self.reasoning_effort
+                );
+            }
+        }
+        Ok(())
     }
 }
 
@@ -581,11 +669,33 @@ pub struct RuntimeDoctor {
     pub reconciliation: ReconciliationStatus,
     pub action: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub release: Option<RuntimeReleaseIdentity>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub coordination: Option<CoordinationDoctor>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub supervisor: Option<SupervisorDoctor>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub browser: Option<BrowserDoctor>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RuntimeReleaseIdentity {
+    pub core_version: String,
+    pub source_revision: String,
+    pub api_contract_version: u32,
+    pub assertion_contract_version: u32,
+    pub schema_version: u32,
+    pub harnesses: std::collections::BTreeMap<String, String>,
+    #[serde(default)]
+    pub harness_agents: std::collections::BTreeMap<String, String>,
+    #[serde(default)]
+    pub harness_dependencies: std::collections::BTreeMap<String, String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct RuntimeReleaseHealth {
+    status: String,
+    release: RuntimeReleaseIdentity,
 }
 
 /// Observation of the Runtime's bounded, authenticated coordination path.
@@ -866,14 +976,15 @@ pub async fn doctor(company: &str) -> Result<RuntimeDoctor> {
         ReconciliationStatus::Unknown
     };
 
-    let (coordination, supervisor, browser) = if container == ContainerStatus::Running {
+    let (release, coordination, supervisor, browser) = if container == ContainerStatus::Running {
         (
+            release_identity_doctor(company).await,
             Some(coordination_doctor(company).await),
             Some(supervisor_doctor(company).await),
             Some(browser_doctor(company).await),
         )
     } else {
-        (None, None, None)
+        (None, None, None, None)
     };
     let coordination_requires_reconcile = container == ContainerStatus::Running
         && coordination
@@ -895,10 +1006,38 @@ pub async fn doctor(company: &str) -> Result<RuntimeDoctor> {
         action: (reconciliation != ReconciliationStatus::Current
             || coordination_requires_reconcile)
             .then(|| format!("restless up -c {company} --reconcile")),
+        release,
         coordination,
         supervisor,
         browser,
     })
+}
+
+async fn release_identity_doctor(company: &str) -> Option<RuntimeReleaseIdentity> {
+    let name = container_name(company);
+    let probe = tokio::time::timeout(
+        Duration::from_secs(3),
+        docker(&[
+            "exec",
+            "-u",
+            "company",
+            &name,
+            "curl",
+            "--fail",
+            "--silent",
+            "--max-time",
+            "2",
+            "http://127.0.0.1:7789/health",
+        ]),
+    )
+    .await
+    .ok()?
+    .ok()?;
+    if !probe.status.success() || probe.stdout.len() > 64 * 1024 {
+        return None;
+    }
+    let health: RuntimeReleaseHealth = serde_json::from_slice(&probe.stdout).ok()?;
+    (health.status == "ok").then_some(health.release)
 }
 
 /// The container id is the V0 Runtime generation: it changes when the
@@ -2144,7 +2283,7 @@ mod tests {
         is_runtime_review_file_target, move_active_config_to_archive,
         move_archived_config_to_active, normalize_expired_browser_control, resolve_review_file,
         review_file_media_type, runtime_http_target, runtime_review_file_root,
-        runtime_review_text_path, CompanyConfig, SpendCeiling, WorkerRuntime,
+        runtime_review_text_path, AgentHarness, CompanyConfig, SpendCeiling,
     };
 
     #[test]
@@ -2254,14 +2393,26 @@ model_failover = ["anthropic/claude-haiku-4-5", "zai/glm-5"]
     }
 
     #[test]
-    fn worker_transport_and_reasoning_are_explicit_with_compatible_defaults() {
+    fn harnesses_and_reasoning_are_explicit_with_compatible_defaults() {
+        assert_eq!(
+            AgentHarness::parse_canonical("restless-managed"),
+            Some(AgentHarness::RestlessManaged)
+        );
+        assert_eq!(
+            AgentHarness::parse_canonical("claude-agent"),
+            Some(AgentHarness::ClaudeAgent)
+        );
+        assert!(AgentHarness::parse_canonical("omp").is_none());
+        assert!(AgentHarness::parse_canonical("claude_agent").is_none());
+
         let legacy: CompanyConfig = toml::from_str(
             r#"name = "legacy_test"
 model = "moonshot/kimi-k3"
 "#,
         )
         .unwrap();
-        assert_eq!(legacy.worker_runtime, WorkerRuntime::Omp);
+        assert_eq!(legacy.coordination_harness, AgentHarness::RestlessManaged);
+        assert_eq!(legacy.worker_harness, AgentHarness::RestlessManaged);
         assert_eq!(legacy.reasoning_effort, "medium");
 
         let codex: CompanyConfig = toml::from_str(
@@ -2272,8 +2423,48 @@ reasoning_effort = "high"
 "#,
         )
         .unwrap();
-        assert_eq!(codex.worker_runtime, WorkerRuntime::Codex);
+        assert_eq!(codex.coordination_harness, AgentHarness::RestlessManaged);
+        assert_eq!(codex.worker_harness, AgentHarness::Codex);
         assert_eq!(codex.reasoning_effort, "high");
+        codex.validate_harness_models().unwrap();
+
+        let rendered = toml::to_string(&codex).unwrap();
+        assert!(rendered.contains("worker_harness = \"codex\""));
+        assert!(!rendered.contains("worker_runtime"));
+
+        let mut unknown_codex_tariff = codex.clone();
+        unknown_codex_tariff.model = "litellm/gpt-5.7-unpriced".into();
+        assert!(unknown_codex_tariff
+            .validate_harness_models()
+            .unwrap_err()
+            .to_string()
+            .contains("no pinned metering tariff"));
+
+        let mut claude: CompanyConfig = toml::from_str(
+            r#"name = "claude_test"
+model = "anthropic/claude-sonnet-4-6"
+coordination_harness = "claude-agent"
+worker_harness = "claude_agent"
+"#,
+        )
+        .unwrap();
+        assert_eq!(claude.coordination_harness, AgentHarness::ClaudeAgent);
+        assert_eq!(claude.worker_harness, AgentHarness::ClaudeAgent);
+        claude.validate_harness_models().unwrap();
+
+        claude.model = "anthropic/claude-sonnet-future".into();
+        assert!(claude
+            .validate_harness_models()
+            .unwrap_err()
+            .to_string()
+            .contains("no pinned metering tariff"));
+        claude.model = "anthropic/claude-sonnet-4-6".into();
+        claude.reasoning_effort = "xhigh".into();
+        assert!(claude
+            .validate_harness_models()
+            .unwrap_err()
+            .to_string()
+            .contains("reasoning_effort"));
     }
 
     #[test]
@@ -2334,7 +2525,8 @@ reasoning_effort = "high"
             spend_ceiling_usd: SpendCeiling::from_micro_usd(5_000_000),
             outcome_standard: Default::default(),
             model: "moonshot/kimi-k3".into(),
-            worker_runtime: crate::runtime::WorkerRuntime::Omp,
+            coordination_harness: AgentHarness::RestlessManaged,
+            worker_harness: crate::runtime::AgentHarness::RestlessManaged,
             reasoning_effort: crate::acp::DEFAULT_REASONING_EFFORT.into(),
             model_failover: Vec::new(),
             credentials: std::collections::BTreeMap::new(),

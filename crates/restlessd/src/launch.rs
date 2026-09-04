@@ -201,12 +201,35 @@ impl LaunchBroker {
         })
     }
 
+    pub(crate) fn active_native_resources(&self) -> Vec<String> {
+        let mut resources = self
+            .sessions
+            .lock()
+            .map(|sessions| {
+                sessions
+                    .values()
+                    .filter(|session| {
+                        matches!(session.kind, SessionKind::Native)
+                            && session.expires_at > Utc::now()
+                    })
+                    .map(|session| format!("{}/{}", session.company, session.resource_id))
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_else(|_| vec!["registry-unavailable".into()]);
+        resources.sort();
+        resources.dedup();
+        resources
+    }
+
     pub(crate) async fn open(
         &self,
         daemon: &Daemon,
         company: &str,
         resource_id: &str,
     ) -> Result<OpenOutcome> {
+        let _lifecycle_lease = daemon.lifecycle.try_enter().context(
+            "the stable appliance is draining for replacement; retry Open after activation",
+        )?;
         self.prune_expired();
         if resource_id == "company-computer" {
             if runtime::status(company).await? != runtime::ContainerStatus::Running {

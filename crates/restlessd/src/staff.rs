@@ -174,6 +174,20 @@ impl StaffRegistry {
             .unwrap_or_default()
     }
 
+    pub fn running_staff(&self) -> Vec<String> {
+        self.running
+            .lock()
+            .map(|running| {
+                let mut actors = running
+                    .keys()
+                    .map(|(company, actor)| format!("{company}/{actor}"))
+                    .collect::<Vec<_>>();
+                actors.sort();
+                actors
+            })
+            .unwrap_or_else(|_| vec!["registry-unavailable".into()])
+    }
+
     /// Request a bounded interruption of one supervised actor. The live ACP
     /// turn observes this token and returns its durable state to the next
     /// wake instead of letting two conversations overlap.
@@ -427,7 +441,7 @@ pub async fn dispatch_claimed_work(
     let registry = registry.clone();
     let spend = spend.clone();
     let spend_ceiling = config.spend_ceiling_usd;
-    let worker_runtime = config.worker_runtime;
+    let worker_harness = config.worker_harness;
     let reasoning_effort = config.reasoning_effort.clone();
     let authority = authority.clone();
     let capabilities = capabilities.clone();
@@ -455,7 +469,7 @@ pub async fn dispatch_claimed_work(
             org: org.clone(),
             spend,
             spend_ceiling,
-            worker_runtime,
+            worker_harness,
             reasoning_effort,
             authority,
             capabilities,

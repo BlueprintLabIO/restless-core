@@ -545,6 +545,7 @@ pub async fn dispatch_actor_conversation(
     let registry = runtime.registry.clone();
     let spend = runtime.spend.clone();
     let spend_ceiling = config.spend_ceiling_usd;
+    let coordination_harness = config.coordination_harness;
     let reasoning_effort = config.reasoning_effort.clone();
     let authority = runtime.authority.clone();
     let capabilities = runtime.capabilities.clone();
@@ -577,7 +578,7 @@ pub async fn dispatch_actor_conversation(
             org: org.clone(),
             spend,
             spend_ceiling,
-            worker_runtime: crate::runtime::WorkerRuntime::Omp,
+            worker_harness: coordination_harness,
             reasoning_effort,
             authority,
             capabilities,

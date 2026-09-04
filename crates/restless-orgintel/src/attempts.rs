@@ -341,6 +341,66 @@ impl OrgIntel {
         Ok(())
     }
 
+    pub async fn record_agent_session(&self, session: NewAgentSession<'_>) -> Result<()> {
+        let mut tx = self.pool.begin().await?;
+        sqlx::query(
+            "INSERT INTO agent_sessions \
+             (launch_id,actor_id,responsibility,work_id,attempt_id,harness,harness_build,transport,model,configured_effort,provider_session_id,capabilities,resumed,reconstructed) \
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) \
+             ON CONFLICT (launch_id) DO NOTHING",
+        )
+        .bind(session.launch_id)
+        .bind(session.actor_id)
+        .bind(session.responsibility)
+        .bind(session.work_id)
+        .bind(session.attempt_id)
+        .bind(session.harness)
+        .bind(session.harness_build)
+        .bind(session.transport)
+        .bind(session.model)
+        .bind(session.configured_effort)
+        .bind(session.provider_session_id)
+        .bind(session.capabilities)
+        .bind(session.resumed)
+        .bind(session.reconstructed)
+        .execute(&mut *tx)
+        .await?;
+        if let Some(attempt_id) = session.attempt_id {
+            sqlx::query(
+                "UPDATE work_attempts SET harness=$2,harness_build=$3,harness_transport=$4,harness_capabilities=$5 \
+                 WHERE id=$1 AND state='running'",
+            )
+            .bind(attempt_id)
+            .bind(session.harness)
+            .bind(session.harness_build)
+            .bind(session.transport)
+            .bind(session.capabilities)
+            .execute(&mut *tx)
+            .await?;
+        }
+        tx.commit().await?;
+        Ok(())
+    }
+
+    /// Read the durable launch observations used to audit which certified
+    /// harness actually ran. Configuration expresses intent; this history is
+    /// the evidence for both coordination and productive sessions.
+    pub async fn list_agent_sessions(
+        &self,
+        work_id: Option<Uuid>,
+        limit: i64,
+    ) -> Result<Vec<AgentSessionRow>> {
+        Ok(sqlx::query_as(
+            "SELECT launch_id,actor_id,responsibility,work_id,attempt_id,harness,harness_build,transport,model,configured_effort,provider_session_id,capabilities,resumed,reconstructed,started_at \
+             FROM agent_sessions WHERE ($1::uuid IS NULL OR work_id=$1) \
+             ORDER BY started_at DESC,launch_id DESC LIMIT $2",
+        )
+        .bind(work_id)
+        .bind(limit.clamp(1, 1_000))
+        .fetch_all(&self.pool)
+        .await?)
+    }
+
     pub async fn list_work_attempts(&self, work_id: Option<Uuid>) -> Result<Vec<WorkAttemptRow>> {
         Ok(sqlx::query_as(
             "SELECT id, work_id, revision, attempt_no, actor_id, session_id, state, trigger, \
@@ -349,7 +409,8 @@ impl OrgIntel {
                     terminal_status_digest, terminal_dirty_entries, terminal_observed_at, \
                     gate_set_digest, environment_fingerprint, materialized_at, \
                     interrupt_requested_at, interrupt_requested_by, interrupt_reason, \
-                    feedback_checkpoint_cursor, model, started_at, finished_at, summary \
+                    feedback_checkpoint_cursor, model, harness, harness_build, harness_transport, \
+                    harness_capabilities, started_at, finished_at, summary \
              FROM work_attempts WHERE ($1::uuid IS NULL OR work_id = $1) \
              ORDER BY started_at, id",
         )

@@ -353,7 +353,8 @@ impl OrgIntel {
                     terminal_status_digest, terminal_dirty_entries, terminal_observed_at, \
                     gate_set_digest, environment_fingerprint, materialized_at, \
                     interrupt_requested_at, interrupt_requested_by, interrupt_reason, \
-                    feedback_checkpoint_cursor, model, started_at, finished_at, summary \
+                    feedback_checkpoint_cursor, model, harness, harness_build, harness_transport, \
+                    harness_capabilities, started_at, finished_at, summary \
              FROM work_attempts ORDER BY started_at, id",
         )
         .fetch_all(&mut *tx)

@@ -17,7 +17,7 @@ COPY Cargo.toml Cargo.lock ./
 COPY crates ./crates
 RUN cargo build --release -p restless
 
-FROM node:24-bookworm-slim
+FROM node:24-bookworm-slim AS runtime-harnesses
 
 ENV DEBIAN_FRONTEND=noninteractive
 
@@ -56,7 +56,7 @@ ARG RESTLESS_CORE_VERSION=0.0.0
 ARG RESTLESS_SOURCE_REVISION=unknown
 ARG RESTLESS_API_CONTRACT_VERSION=1
 ARG RESTLESS_ASSERTION_CONTRACT_VERSION=1
-ARG RESTLESS_SCHEMA_VERSION=33
+ARG RESTLESS_SCHEMA_VERSION=35
 ENV RESTLESS_CORE_VERSION=${RESTLESS_CORE_VERSION} \
     RESTLESS_SOURCE_REVISION=${RESTLESS_SOURCE_REVISION} \
     RESTLESS_API_CONTRACT_VERSION=${RESTLESS_API_CONTRACT_VERSION} \
@@ -86,6 +86,30 @@ ARG CODEX_CLI_VERSION=0.151.0
 RUN npm install -g "@openai/codex@${CODEX_CLI_VERSION}" \
     && test "$(codex --version)" = "codex-cli ${CODEX_CLI_VERSION}" \
     && npm cache clean --force
+
+# Certified Claude Code ACP transport. The adapter pins its Agent SDK and the
+# bundled native Claude Code binary; Runtime sessions still receive only a
+# short-lived Restless model capability, never the host Anthropic API key.
+ARG CLAUDE_AGENT_ACP_VERSION=0.73.0
+ARG CLAUDE_AGENT_ACP_INTEGRITY="sha512-xKnGIntdBbr2dDS2NEsVGdjoLH62EaWjfYlp/U7TYdxUJzERlApe2gliYW3rVFTeWGjG0dUyPszhG9TWhsqGlA=="
+ARG CLAUDE_AGENT_SDK_VERSION=0.3.257
+ARG CLAUDE_CODE_BUILD_VERSION=2.1.257
+RUN archive="$(npm pack "@agentclientprotocol/claude-agent-acp@${CLAUDE_AGENT_ACP_VERSION}" --silent --pack-destination /tmp)" \
+    && test "$(node -e 'const {createHash}=require("node:crypto"); const {readFileSync}=require("node:fs"); process.stdout.write("sha512-"+createHash("sha512").update(readFileSync(process.argv[1])).digest("base64"))' "/tmp/${archive}")" = "${CLAUDE_AGENT_ACP_INTEGRITY}" \
+    && npm install -g "/tmp/${archive}" \
+    && adapter_root="$(npm root -g)/@agentclientprotocol/claude-agent-acp" \
+    && test "$(node -p 'require(process.argv[1]).version' "${adapter_root}/package.json")" = "${CLAUDE_AGENT_ACP_VERSION}" \
+    && test "$(node -p 'require(process.argv[1]).version' "${adapter_root}/node_modules/@anthropic-ai/claude-agent-sdk/package.json")" = "${CLAUDE_AGENT_SDK_VERSION}" \
+    && test "$(node -p 'require(process.argv[1]).version' "${adapter_root}/node_modules/@anthropic-ai/claude-agent-sdk/manifest.json")" = "${CLAUDE_CODE_BUILD_VERSION}" \
+    && rm -f "/tmp/${archive}" \
+    && npm cache clean --force
+ENV RESTLESS_CLAUDE_AGENT_ACP_BUILD="claude-agent-acp-${CLAUDE_AGENT_ACP_VERSION}" \
+    RESTLESS_CLAUDE_CODE_BUILD="claude-code-${CLAUDE_CODE_BUILD_VERSION}" \
+    RESTLESS_CLAUDE_AGENT_SDK_BUILD="${CLAUDE_AGENT_SDK_VERSION}"
+
+# Named at this boundary so release verification can prove the complete
+# harness toolchain without redownloading unrelated large authoring runtimes.
+FROM runtime-harnesses AS company-runtime
 
 # S04-T2. pnpm, pinned, installed system-wide.
 #

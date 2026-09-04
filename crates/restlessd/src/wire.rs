@@ -584,11 +584,12 @@ impl Request {
 /// the already-existing fields that cross its concrete domain boundary.
 fn command_fields(command: &str) -> Option<&'static [&'static str]> {
     Some(match command {
-        "company-list" | "status" | "doctor" | "company-show" | "credential-check"
-        | "legal-show" | "legal-probe" | "finance-show" | "finance-balances" | "finance-probe"
-        | "orgintel-init" | "teams" | "spend" | "telemetry" | "goals" | "work" | "work-graph"
-        | "clear-poison" | "attention" | "browser-status" | "browser-release" | "watch"
-        | "connected-tools" | "identity-show" | "publish-list" => &[],
+        "appliance-drain" | "appliance-resume" | "company-list" | "status" | "doctor"
+        | "company-show" | "credential-check" | "legal-show" | "legal-probe" | "finance-show"
+        | "finance-balances" | "finance-probe" | "orgintel-init" | "teams" | "spend"
+        | "telemetry" | "goals" | "work" | "work-graph" | "clear-poison" | "attention"
+        | "browser-status" | "browser-release" | "watch" | "connected-tools" | "identity-show"
+        | "publish-list" => &[],
         "schedule-wake" => &["adapter"],
         "publish-candidate" => &["actor", "source_artifact_ref_id", "service_manifest"],
         "publish-request" => &[
@@ -1060,6 +1061,8 @@ pub(crate) const OWNER_ONLY: &[&str] = &[
     "publish-stop",
     "publish-reconcile",
     "schedule-wake",
+    "appliance-drain",
+    "appliance-resume",
 ];
 
 pub(crate) fn authorize(principal: Principal, cmd: &str) -> std::result::Result<Principal, String> {

@@ -1,9 +1,89 @@
 //! Sprint 26 exact execution substrate scenarios against scratch Postgres.
 
 use restless_orgintel::{
-    NewArtifactRef, NewGateRun, NewGateRunEvidence, NewWork, NewWorkGate, OrgIntel,
-    ProducingTopology, WorkAttemptState, WorkspaceSpec,
+    NewAgentSession, NewArtifactRef, NewGateRun, NewGateRunEvidence, NewWork, NewWorkGate,
+    OrgIntel, ProducingTopology, WorkAttemptState, WorkspaceSpec,
 };
+
+#[tokio::test]
+async fn agent_launch_identity_is_durable_and_updates_the_running_attempt() {
+    let Some(org) = company().await else { return };
+    staff(&org, "builder-a").await;
+    let work_id = org
+        .add_work(NewWork {
+            owner_id: "builder-a",
+            title: "Record the certified harness",
+            outcome: "one attributable launch",
+            goal_id: None,
+            priority: 10,
+            expected_artifact: "",
+            workspace: WorkspaceSpec::default(),
+            attempt_limit: Some(1),
+        })
+        .await
+        .unwrap();
+    let attempt = org
+        .claim_ready_work("harness identity")
+        .await
+        .unwrap()
+        .unwrap();
+    let capabilities = serde_json::json!({
+        "harness": "claude-agent",
+        "harness_build": "claude-agent-acp-0.73.0",
+        "transport": "acp-stdio-v1",
+        "exact_model_selected": true
+    });
+    let session = NewAgentSession {
+        launch_id: "launch-claude-1",
+        actor_id: "builder-a",
+        responsibility: "work:certified-harness",
+        work_id: Some(work_id),
+        attempt_id: Some(attempt.attempt_id),
+        harness: "claude-agent",
+        harness_build: "claude-agent-acp-0.73.0",
+        transport: "acp-stdio-v1",
+        model: "anthropic/claude-sonnet-4-6",
+        configured_effort: "high",
+        provider_session_id: "provider-session-1",
+        capabilities: &capabilities,
+        resumed: false,
+        reconstructed: true,
+    };
+    org.record_agent_session(session).await.unwrap();
+    // A retry of the readiness observation is idempotent.
+    org.record_agent_session(NewAgentSession {
+        launch_id: "launch-claude-1",
+        actor_id: "builder-a",
+        responsibility: "work:certified-harness",
+        work_id: Some(work_id),
+        attempt_id: Some(attempt.attempt_id),
+        harness: "claude-agent",
+        harness_build: "claude-agent-acp-0.73.0",
+        transport: "acp-stdio-v1",
+        model: "anthropic/claude-sonnet-4-6",
+        configured_effort: "high",
+        provider_session_id: "provider-session-1",
+        capabilities: &capabilities,
+        resumed: false,
+        reconstructed: true,
+    })
+    .await
+    .unwrap();
+
+    let sessions = org.list_agent_sessions(Some(work_id), 10).await.unwrap();
+    assert_eq!(sessions.len(), 1);
+    assert_eq!(sessions[0].harness, "claude-agent");
+    assert_eq!(sessions[0].configured_effort, "high");
+    assert_eq!(sessions[0].capabilities, capabilities);
+    let attempts = org.list_work_attempts(Some(work_id)).await.unwrap();
+    assert_eq!(attempts[0].harness.as_deref(), Some("claude-agent"));
+    assert_eq!(
+        attempts[0].harness_build.as_deref(),
+        Some("claude-agent-acp-0.73.0")
+    );
+    assert_eq!(attempts[0].harness_capabilities, Some(capabilities));
+    org.drop_schema().await.unwrap();
+}
 
 async fn company() -> Option<OrgIntel> {
     let Ok(url) = std::env::var("RESTLESS_TEST_DATABASE_URL") else {

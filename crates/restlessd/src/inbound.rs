@@ -602,7 +602,8 @@ mod tests {
                 spend_ceiling_usd: crate::runtime::SpendCeiling::from_micro_usd(0),
                 outcome_standard: Default::default(),
                 model: "moonshot/kimi-k3".into(),
-                worker_runtime: crate::runtime::WorkerRuntime::Omp,
+                coordination_harness: crate::runtime::AgentHarness::RestlessManaged,
+                worker_harness: crate::runtime::AgentHarness::RestlessManaged,
                 reasoning_effort: crate::acp::DEFAULT_REASONING_EFFORT.into(),
                 model_failover: Vec::new(),
                 credentials: std::collections::BTreeMap::new(),
@@ -800,6 +801,7 @@ mod tests {
             },
             staff: crate::staff::StaffRegistry::default(),
             activities: crate::activity::AgentActivityStreams::default(),
+            lifecycle: restlessd::appliance::LifecycleGate::default(),
             in_flight: Arc::new(std::sync::Mutex::new(crate::schedule::WakeClaims::default())),
             schedule_wake: Arc::new(tokio::sync::Notify::new()),
         });
@@ -977,6 +979,7 @@ mod tests {
             },
             staff: crate::staff::StaffRegistry::default(),
             activities: crate::activity::AgentActivityStreams::default(),
+            lifecycle: restlessd::appliance::LifecycleGate::default(),
             in_flight: std::sync::Arc::new(std::sync::Mutex::new(
                 crate::schedule::WakeClaims::default(),
             )),
@@ -1083,6 +1086,7 @@ mod tests {
             },
             staff: crate::staff::StaffRegistry::default(),
             activities: crate::activity::AgentActivityStreams::default(),
+            lifecycle: restlessd::appliance::LifecycleGate::default(),
             in_flight: std::sync::Arc::new(std::sync::Mutex::new(
                 crate::schedule::WakeClaims::default(),
             )),

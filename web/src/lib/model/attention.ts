@@ -312,11 +312,13 @@ export async function sendActorMessage(
 	contextPath?: string,
 	newFocus = false,
 	interrupt = false,
-	outcomeStandard?: OutcomeStandard
+	outcomeStandard?: OutcomeStandard,
+	attentionId?: string
 ): Promise<MessageSendResult> {
 	const form = new FormData();
 	form.set('body', body);
 	if (workId) form.set('work_id', workId);
+	if (attentionId) form.set('attention_id', attentionId);
 	if (contextPath) form.set('context_path', contextPath);
 	if (newFocus) form.set('new_focus', 'true');
 	if (interrupt) form.set('interrupt', 'true');

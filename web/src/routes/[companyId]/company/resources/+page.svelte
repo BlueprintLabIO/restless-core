@@ -2,7 +2,12 @@
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import InfoTip from '$lib/components/InfoTip.svelte';
-	import { openCompanyResource, type CompanyResource } from '$lib/model/company';
+	import {
+		openCompanyResource,
+		setCompanyHarnesses,
+		type AgentHarness,
+		type CompanyResource
+	} from '$lib/model/company';
 	import { companyQuery } from '$lib/model/queries.svelte';
 
 	const companyId = $derived(page.params.companyId ?? 'aris');
@@ -15,6 +20,26 @@
 	let launchError = $state<string | null>(null);
 	let embedded = $state<{ href: string; label: string } | null>(null);
 	let nativeNotice = $state<string | null>(null);
+	let coordinationHarness = $state<AgentHarness>('restless-managed');
+	let workerHarness = $state<AgentHarness>('restless-managed');
+	let observedHarnessPolicy = $state('');
+	let savingHarnesses = $state(false);
+	let harnessError = $state<string | null>(null);
+	const harnessPolicyDirty = $derived(
+		view !== null &&
+			(coordinationHarness !== view.harnesses.coordination ||
+				workerHarness !== view.harnesses.worker)
+	);
+
+	$effect(() => {
+		if (!view) return;
+		const policy = `${view.harnesses.coordination}:${view.harnesses.worker}`;
+		if (policy !== observedHarnessPolicy && !savingHarnesses) {
+			coordinationHarness = view.harnesses.coordination;
+			workerHarness = view.harnesses.worker;
+			observedHarnessPolicy = policy;
+		}
+	});
 
 	function when(value: string): string {
 		return new Date(value).toLocaleString(undefined, {
@@ -59,6 +84,23 @@
 			opening = null;
 		}
 	}
+
+	async function saveHarnessPolicy(event: SubmitEvent) {
+		event.preventDefault();
+		if (!harnessPolicyDirty || savingHarnesses) return;
+		savingHarnesses = true;
+		harnessError = null;
+		try {
+			const updated = await setCompanyHarnesses(companyId, coordinationHarness, workerHarness);
+			observedHarnessPolicy = `${updated.harnesses.coordination}:${updated.harnesses.worker}`;
+			source.accept(updated);
+		} catch (error) {
+			harnessError =
+				error instanceof Error ? error.message : 'The harness policy could not be saved.';
+		} finally {
+			savingHarnesses = false;
+		}
+	}
 </script>
 
 <svelte:head><title>Resources & access — {view?.company.name ?? companyId}</title></svelte:head>
@@ -74,6 +116,63 @@
 		</div>
 	</header>
 	{#if view}
+		<section class="harness-policy" aria-labelledby="harness-policy-title">
+			<div class="harness-policy-heading">
+				<div>
+					<h2 id="harness-policy-title">Agent harness policy</h2>
+					<p>Advanced defaults for new sessions. Existing sessions keep their recorded harness.</p>
+				</div>
+			</div>
+			<form class="harness-selectors" onsubmit={saveHarnessPolicy}>
+				<label>
+					<span>Coordination harness</span>
+					<small>Exec and producing-lead owner conversations</small>
+					<select bind:value={coordinationHarness}>
+						{#each view.harnesses.options as option (option.id)}
+							<option value={option.id}>{option.label} · {words(option.status)}</option>
+						{/each}
+					</select>
+				</label>
+				<label>
+					<span>Worker harness</span>
+					<small>Productive Staff Attempts</small>
+					<select bind:value={workerHarness}>
+						{#each view.harnesses.options as option (option.id)}
+							<option value={option.id}>{option.label} · {words(option.status)}</option>
+						{/each}
+					</select>
+				</label>
+				<button type="submit" disabled={!harnessPolicyDirty || savingHarnesses}>
+					{savingHarnesses ? 'Saving…' : 'Save defaults'}
+				</button>
+			</form>
+			{#if harnessError}<p class="harness-error" role="alert">{harnessError}</p>{/if}
+			<div class="harness-status-grid">
+				{#each view.harnesses.options as option (option.id)}
+					<article class="harness-status">
+						<div class="harness-identity">
+							<strong>{option.label}</strong><span>{option.transport}</span>
+						</div>
+						<div class="harness-build">
+							<span>Installed build</span><code>{option.observed_build ?? 'Not observed'}</code>
+							<small>Required: {option.expected_build}</small>
+						</div>
+						<span class="state-chip state-{option.status}">{words(option.status)}</span>
+						<p class="harness-detail">{option.detail}</p>
+						<details>
+							<summary>Authentication and limitations</summary>
+							<p>{option.authentication}</p>
+							{#if option.native_agent_build}<p>
+									Native agent: <code>{option.native_agent_build}</code>
+								</p>{/if}
+							<ul>
+								{#each option.limitations as limitation}<li>{limitation}</li>{/each}
+							</ul>
+						</details>
+					</article>
+				{/each}
+			</div>
+		</section>
 		{#if view.resources.status === 'unavailable'}
 			<p class="source-unavailable">
 				Authority and Runtime are unavailable. Resources are unknown, not empty.
@@ -118,7 +217,9 @@
 						</div>
 					{/each}
 				</div>
-				{#if launchError}<p class="launch-message launch-message-error" role="alert">{launchError}</p>{/if}
+				{#if launchError}<p class="launch-message launch-message-error" role="alert">
+						{launchError}
+					</p>{/if}
 				{#if nativeNotice}<p class="launch-message" role="status">{nativeNotice}</p>{/if}
 				{#if embedded}
 					<div class="launch-viewport">
@@ -172,6 +273,160 @@
 </div>
 
 <style>
+	.harness-policy {
+		margin-block: var(--space-6) calc(var(--space-6) * 1.5);
+		padding: var(--space-5) var(--space-6);
+		background: var(--surface-pane);
+		border: 1px solid var(--company-edge-soft);
+		border-radius: var(--radius-pane);
+		box-shadow: var(--company-surface-shadow);
+	}
+
+	.harness-policy-heading,
+	.harness-selectors {
+		display: flex;
+		align-items: flex-start;
+		justify-content: space-between;
+		gap: var(--space-4);
+	}
+
+	.harness-policy-heading h2,
+	.harness-policy-heading p,
+	.harness-status p {
+		margin: 0;
+	}
+
+	.harness-policy-heading h2 {
+		font-size: var(--t-head);
+	}
+
+	.harness-policy-heading p,
+	.harness-status p,
+	.harness-selectors small {
+		margin-top: var(--space-1);
+		color: var(--text-tertiary);
+	}
+
+	.harness-selectors {
+		align-items: end;
+		margin-top: var(--space-5);
+	}
+
+	.harness-selectors label {
+		display: grid;
+		flex: 1 1 0;
+		gap: var(--space-1);
+		font-weight: 650;
+	}
+
+	.harness-selectors small {
+		min-height: 2.4em;
+		font-weight: 400;
+	}
+
+	.harness-selectors select,
+	.harness-selectors button {
+		min-height: 40px;
+		border: 1px solid var(--control-edge);
+		border-radius: var(--radius-control);
+		font: inherit;
+	}
+
+	.harness-selectors select {
+		width: 100%;
+		padding-inline: var(--space-3);
+		background: var(--surface-pane);
+		color: var(--ink);
+	}
+
+	.harness-selectors button {
+		flex: none;
+		padding-inline: var(--space-4);
+		background: var(--ink);
+		color: var(--text-inverse);
+	}
+
+	.harness-selectors button:disabled {
+		background: var(--surface-alt);
+		color: var(--text-tertiary);
+		cursor: not-allowed;
+	}
+
+	.harness-error {
+		margin: var(--space-3) 0 0;
+		color: var(--state-danger);
+	}
+
+	.harness-status-grid {
+		display: grid;
+		margin-top: var(--space-5);
+		border-block: 1px solid var(--company-edge-soft);
+	}
+
+	.harness-status {
+		display: grid;
+		grid-template-columns: minmax(145px, 0.6fr) minmax(190px, 0.8fr) auto minmax(260px, 1.5fr);
+		align-items: center;
+		gap: var(--space-4);
+		padding-block: var(--space-3);
+		border-bottom: 1px solid var(--company-edge-soft);
+	}
+
+	.harness-status:last-child {
+		border-bottom: 0;
+	}
+
+	.harness-identity,
+	.harness-build {
+		display: grid;
+		gap: var(--space-1);
+	}
+
+	.harness-identity span,
+	.harness-build span,
+	.harness-build small {
+		color: var(--text-tertiary);
+		font-size: var(--t-label);
+	}
+
+	.harness-build code {
+		font-family: var(--font-mono);
+		font-size: var(--t-label);
+		overflow-wrap: anywhere;
+	}
+
+	.harness-detail {
+		max-width: 64ch;
+	}
+
+	.harness-status .state-ready {
+		border-color: color-mix(in srgb, var(--state-success) 26%, var(--company-edge-soft));
+		color: var(--state-success);
+	}
+
+	.harness-status .state-not_ready {
+		border-color: color-mix(in srgb, var(--company-amber) 24%, var(--company-edge-soft));
+		color: var(--company-amber);
+	}
+
+	.harness-status .state-incompatible {
+		border-color: color-mix(in srgb, var(--state-danger) 24%, var(--company-edge-soft));
+		color: var(--state-danger);
+	}
+
+	.harness-status details p,
+	.harness-status ul {
+		margin: var(--space-2) 0 0;
+	}
+
+	.harness-status ul {
+		padding-left: var(--space-4);
+	}
+
+	.harness-status details {
+		grid-column: 1 / -1;
+	}
+
 	.launch-surface {
 		margin-block: var(--space-6) calc(var(--space-6) * 1.5);
 		background: var(--surface-pane);
@@ -312,6 +567,34 @@
 	}
 
 	@media (max-width: 820px) {
+		.harness-policy {
+			padding-inline: var(--space-4);
+		}
+
+		.harness-selectors,
+		.harness-policy-heading {
+			align-items: stretch;
+			flex-direction: column;
+		}
+
+		.harness-status-grid {
+			border-block: 0;
+		}
+
+		.harness-status {
+			grid-template-columns: 1fr auto;
+		}
+
+		.harness-build,
+		.harness-detail,
+		.harness-status details {
+			grid-column: 1 / -1;
+		}
+
+		.harness-selectors button {
+			width: 100%;
+		}
+
 		.launch-heading,
 		.launch-row {
 			padding-inline: var(--space-4);

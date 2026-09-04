@@ -99,6 +99,59 @@ function providerBaseUrl(raw) {
   return url.toString().replace(/\/$/, '');
 }
 
+function mcpConfigArgs(rawServers) {
+  if (rawServers == null) return { args: [], contract: [] };
+  if (!Array.isArray(rawServers)) throw new Error('mcp_servers must be an array');
+  const args = [];
+  const contract = [];
+  for (const raw of rawServers) {
+    if (!raw || typeof raw !== 'object') throw new Error('MCP server contract must be an object');
+    const name = requireString(raw.name, 'MCP server name');
+    if (!/^[A-Za-z0-9_-]{1,64}$/.test(name)) throw new Error(`invalid MCP server name ${name}`);
+    const prefix = `mcp_servers.${name}`;
+    if (raw.transport === 'stdio') {
+      const command = requireString(raw.command, `MCP ${name} command`);
+      const serverArgs = Array.isArray(raw.args) && raw.args.every((value) => typeof value === 'string')
+        ? raw.args
+        : (() => { throw new Error(`MCP ${name} args must be strings`); })();
+      const envVars = Array.isArray(raw.env_vars) && raw.env_vars.every((value) => /^[A-Za-z_][A-Za-z0-9_]*$/.test(value))
+        ? raw.env_vars
+        : (() => { throw new Error(`MCP ${name} env_vars are invalid`); })();
+      for (const variable of envVars) {
+        if (!(variable in process.env)) throw new Error(`MCP ${name} is missing scoped environment ${variable}`);
+      }
+      args.push('-c', `${prefix}.command=${JSON.stringify(command)}`);
+      args.push('-c', `${prefix}.args=${JSON.stringify(serverArgs)}`);
+      args.push('-c', `${prefix}.env_vars=${JSON.stringify(envVars)}`);
+      contract.push({ name, transport: 'stdio', command, args: serverArgs, env_vars: envVars });
+    } else if (raw.transport === 'http') {
+      const url = new URL(requireString(raw.url, `MCP ${name} URL`));
+      if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password) {
+        throw new Error(`MCP ${name} URL must be credential-free HTTP(S)`);
+      }
+      const headers = raw.env_http_headers ?? {};
+      if (!headers || typeof headers !== 'object' || Array.isArray(headers)) {
+        throw new Error(`MCP ${name} env_http_headers must be an object`);
+      }
+      const entries = Object.entries(headers);
+      for (const [header, variable] of entries) {
+        if (!header || typeof variable !== 'string' || !/^[A-Za-z_][A-Za-z0-9_]*$/.test(variable)) {
+          throw new Error(`MCP ${name} header environment mapping is invalid`);
+        }
+        if (!(variable in process.env)) throw new Error(`MCP ${name} is missing scoped header ${variable}`);
+      }
+      const inlineHeaders = `{${entries.map(([header, variable]) => `${JSON.stringify(header)} = ${JSON.stringify(variable)}`).join(', ')}}`;
+      args.push('-c', `${prefix}.url=${JSON.stringify(url.toString())}`);
+      if (entries.length > 0) args.push('-c', `${prefix}.env_http_headers=${inlineHeaders}`);
+      contract.push({ name, transport: 'http', url: url.toString(), env_http_headers: headers });
+    } else {
+      throw new Error(`MCP ${name} has unsupported transport ${raw.transport}`);
+    }
+    args.push('-c', `${prefix}.required=true`);
+  }
+  return { args, contract };
+}
+
 function request(method, params) {
   if (!appInput || appInput.destroyed) {
     return Promise.reject(new Error('Codex app-server stdin is unavailable'));
@@ -317,6 +370,7 @@ async function launch(operation) {
     throw new Error(`missing scoped ${MODEL_CAPABILITY_ENV}`);
   }
   const codexHome = requireString(process.env.CODEX_HOME, 'CODEX_HOME');
+  const mcp = mcpConfigArgs(operation.mcp_servers);
   const disabledFeatureArgs = DISABLED_CODEX_FEATURES.flatMap((feature) => ['--disable', feature]);
   const args = [
     'app-server', '--stdio', '--strict-config', ...disabledFeatureArgs,
@@ -329,6 +383,7 @@ async function launch(operation) {
     '-c', 'model_providers.restless.stream_max_retries=0',
     '-c', 'model_providers.restless.stream_idle_timeout_ms=900000',
     '-c', `model_reasoning_effort=${JSON.stringify(effort)}`,
+    ...mcp.args,
   ];
   const appServerEnv = {
     ...process.env,
@@ -378,6 +433,7 @@ async function launch(operation) {
     sandbox_observed: result.sandboxPolicy ?? result.sandbox ?? null,
     network_policy_observed: 'host-model-relay-only-v1',
     disabled_features_observed: DISABLED_CODEX_FEATURES,
+    mcp_contract_digest: createHash('sha256').update(JSON.stringify(mcp.contract)).digest('hex'),
     runner_digest: createHash('sha256').update(readFileSync(new URL(import.meta.url))).digest('hex'),
   };
   if (observed.model_observed !== model || observed.provider_observed !== 'restless') {

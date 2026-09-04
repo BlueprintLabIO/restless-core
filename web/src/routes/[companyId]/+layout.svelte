@@ -49,7 +49,7 @@
 	const focusedAttention = $derived(focusedReview ?? focusedConversation);
 	const railActorId = $derived(focusedAttention?.responsibleActor?.id ?? 'exec');
 	const railConversation = $derived(
-		conversationQuery(companyId, railActorId, focusedAttention?.workId)
+		conversationQuery(companyId, railActorId, focusedAttention?.workId, focusedAttention?.id)
 	);
 	const railActorName = $derived(
 		railActorId === 'exec'
@@ -110,8 +110,12 @@
 				interrupt,
 				outcomeStandard
 			);
-			if (interrupt && result.interrupted) {
-				return { notice: `${railActorName} was interrupted and your new direction is queued.` };
+			if (interrupt) {
+				return {
+					notice: result.interrupted
+						? `The current turn was interrupted; your direction is queued for ${railActorName}.`
+						: `The turn ended before interruption; your direction is queued for ${railActorName}.`
+				};
 			}
 			return includeContext && (!contextPath || result.contextOmitted)
 				? { notice: 'Message sent without the current-screen link.' }

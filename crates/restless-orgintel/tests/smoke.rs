@@ -773,7 +773,10 @@ async fn company_schema_round_trip() {
     assert_eq!(same_schedule, recurring_schedule);
     assert_eq!(same_fire, first_fire);
     assert!(!created_again);
-    assert_eq!(org.claim_due_schedules().await.unwrap().len(), 1);
+    assert!(
+        org.claim_due_schedules().await.unwrap().is_empty(),
+        "the default one-day catch-up window must not replay a ten-day-old weekday occurrence"
+    );
     assert!(org.claim_due_schedules().await.unwrap().is_empty());
     let recurring = org
         .list_schedules(Some("delivery-build"), false)
@@ -785,7 +788,8 @@ async fn company_schema_round_trip() {
     assert_eq!(recurring.recurrence.as_deref(), Some("weekdays"));
     assert_eq!(recurring.timezone.as_deref(), Some("Australia/Sydney"));
     assert!(recurring.fire_at > Utc::now());
-    assert!(recurring.last_fired_at.is_some());
+    assert!(recurring.last_fired_at.is_none());
+    assert!(recurring.last_missed_at.is_some());
     assert!(org
         .cancel_schedule(
             recurring_schedule,

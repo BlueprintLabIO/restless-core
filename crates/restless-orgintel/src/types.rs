@@ -419,9 +419,51 @@ pub struct WorkAttemptRow {
     pub interrupt_reason: Option<String>,
     pub feedback_checkpoint_cursor: i64,
     pub model: Option<String>,
+    pub harness: Option<String>,
+    pub harness_build: Option<String>,
+    pub harness_transport: Option<String>,
+    #[ts(type = "unknown")]
+    pub harness_capabilities: Option<serde_json::Value>,
     pub started_at: DateTime<Utc>,
     pub finished_at: Option<DateTime<Utc>>,
     pub summary: String,
+}
+
+pub struct NewAgentSession<'a> {
+    pub launch_id: &'a str,
+    pub actor_id: &'a str,
+    pub responsibility: &'a str,
+    pub work_id: Option<Uuid>,
+    pub attempt_id: Option<Uuid>,
+    pub harness: &'a str,
+    pub harness_build: &'a str,
+    pub transport: &'a str,
+    pub model: &'a str,
+    pub configured_effort: &'a str,
+    pub provider_session_id: &'a str,
+    pub capabilities: &'a serde_json::Value,
+    pub resumed: bool,
+    pub reconstructed: bool,
+}
+
+#[derive(Debug, Clone, Serialize, sqlx::FromRow, ts_rs::TS)]
+pub struct AgentSessionRow {
+    pub launch_id: String,
+    pub actor_id: String,
+    pub responsibility: String,
+    pub work_id: Option<Uuid>,
+    pub attempt_id: Option<Uuid>,
+    pub harness: String,
+    pub harness_build: String,
+    pub transport: String,
+    pub model: String,
+    pub configured_effort: String,
+    pub provider_session_id: String,
+    #[ts(type = "unknown")]
+    pub capabilities: serde_json::Value,
+    pub resumed: bool,
+    pub reconstructed: bool,
+    pub started_at: DateTime<Utc>,
 }
 
 #[derive(Debug, Clone, Serialize, sqlx::FromRow, ts_rs::TS)]

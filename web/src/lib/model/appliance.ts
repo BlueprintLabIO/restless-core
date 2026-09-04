@@ -1,6 +1,7 @@
 export interface ApplianceStatus {
 	profile: 'stable' | 'dev' | 'test';
-	state: 'ready' | 'degraded' | 'development' | 'test';
+	state: 'ready' | 'degraded' | 'draining' | 'development' | 'test';
+	draining: boolean;
 	model_gateway: 'ready' | 'starting';
 	schedule_transport: 'launchd' | 'systemd' | 'in_process' | 'unavailable';
 	last_schedule_wake: { adapter?: string; observed_at?: string } | null;

@@ -35,7 +35,7 @@ pub(super) struct StaffRun {
     pub(super) org: restless_orgintel::OrgIntel,
     pub(super) spend: SpendLedger,
     pub(super) spend_ceiling: crate::runtime::SpendCeiling,
-    pub(super) worker_runtime: crate::runtime::WorkerRuntime,
+    pub(super) worker_harness: crate::runtime::AgentHarness,
     pub(super) reasoning_effort: String,
     pub(super) authority: crate::authority::AuthorityStore,
     pub(super) capabilities: crate::capability::CapabilityIssuer,
@@ -163,6 +163,7 @@ pub(super) async fn run_staff_with_failover(run: StaffRun) -> Result<StaffOutcom
             company: run.company.clone(),
             actor: run.actor.clone(),
             responsibility: run.responsibility.clone(),
+            work_id: run.work_id,
             attempt_id: run.attempt_id,
             org: run.org.clone(),
             name: run.name.clone(),
@@ -174,7 +175,7 @@ pub(super) async fn run_staff_with_failover(run: StaffRun) -> Result<StaffOutcom
             enforce_spend_budget: billing == crate::model_gateway::ModelBilling::MeteredApi,
             conversation: run.conversation,
             accountable_lead: run.accountable_lead,
-            worker_runtime: run.worker_runtime,
+            worker_harness: run.worker_harness,
             mcp_servers: mcp_servers.clone(),
             observer: run.observer.clone(),
             cancellation: run.cancellation.clone(),
@@ -212,9 +213,19 @@ pub(super) async fn run_staff_with_failover(run: StaffRun) -> Result<StaffOutcom
             // the same oversized history. Drop only this responsibility's
             // locator; the addressed message, Work graph, files and evidence
             // stay durable and form the next wake's compact reconstruction.
-            match run.worker_runtime {
-                crate::runtime::WorkerRuntime::Omp => {
+            match run.worker_harness {
+                crate::runtime::AgentHarness::RestlessManaged => {
                     acp::discard_session_locator(
+                        &run.container,
+                        run.worker_harness,
+                        &run.company,
+                        &run.actor,
+                        &run.responsibility,
+                    )
+                    .await?;
+                }
+                crate::runtime::AgentHarness::Codex => {
+                    crate::codex::discard_session_locator(
                         &run.container,
                         &run.company,
                         &run.actor,
@@ -222,9 +233,10 @@ pub(super) async fn run_staff_with_failover(run: StaffRun) -> Result<StaffOutcom
                     )
                     .await?;
                 }
-                crate::runtime::WorkerRuntime::Codex => {
-                    crate::codex::discard_session_locator(
+                crate::runtime::AgentHarness::ClaudeAgent => {
+                    acp::discard_session_locator(
                         &run.container,
+                        run.worker_harness,
                         &run.company,
                         &run.actor,
                         &run.responsibility,
@@ -410,6 +422,7 @@ struct StaffBrief {
     company: String,
     actor: String,
     responsibility: String,
+    work_id: Option<uuid::Uuid>,
     attempt_id: Option<uuid::Uuid>,
     org: restless_orgintel::OrgIntel,
     name: String,
@@ -434,7 +447,7 @@ struct StaffBrief {
     /// brief rather than inventing a second runtime class.
     conversation: bool,
     accountable_lead: bool,
-    worker_runtime: crate::runtime::WorkerRuntime,
+    worker_harness: crate::runtime::AgentHarness,
     mcp_servers: Vec<agent_client_protocol::schema::v1::McpServer>,
     observer: Option<acp::SessionObserver>,
     cancellation: CancellationToken,
@@ -575,6 +588,8 @@ impl CognitiveSession for crate::codex::CodexSession {
 struct StaffDrive {
     event_actor: String,
     org: restless_orgintel::OrgIntel,
+    work_id: Option<uuid::Uuid>,
+    responsibility: String,
     turn_prompt: String,
     attempt_id: Option<uuid::Uuid>,
     remaining_budget_usd: f64,
@@ -590,12 +605,36 @@ impl StaffDrive {
         session: &dyn CognitiveSession,
     ) -> Result<(Termination, String, Vec<acp::TurnUsage>, Option<u64>)> {
         session.set_live_observer_enabled(true);
+        let readiness = session.readiness_observation();
+        let launch_id = acp::required_readiness_text(&readiness, "launch_id")?;
+        let harness = acp::required_readiness_text(&readiness, "harness")?;
+        let harness_build = acp::required_readiness_text(&readiness, "harness_build")?;
+        let transport = acp::required_readiness_text(&readiness, "transport")?;
+        let model = acp::required_readiness_text(&readiness, "model")?;
+        let configured_effort = acp::required_readiness_text(&readiness, "configured_effort")?;
+        let provider_session_id = acp::required_readiness_text(&readiness, "session_id")?;
+        let resumed = acp::required_readiness_bool(&readiness, "resumed")?;
+        let reconstructed = acp::required_readiness_bool(&readiness, "reconstructed")?;
         self.org
-            .emit_event(
-                "model_session_ready",
-                Some(&self.event_actor),
-                session.readiness_observation(),
-            )
+            .record_agent_session(restless_orgintel::NewAgentSession {
+                launch_id,
+                actor_id: &self.event_actor,
+                responsibility: &self.responsibility,
+                work_id: self.work_id,
+                attempt_id: self.attempt_id,
+                harness,
+                harness_build,
+                transport,
+                model,
+                configured_effort,
+                provider_session_id,
+                capabilities: &readiness,
+                resumed,
+                reconstructed,
+            })
+            .await?;
+        self.org
+            .emit_event("model_session_ready", Some(&self.event_actor), readiness)
             .await?;
         let mut next = self.turn_prompt;
         let mut spent: Vec<acp::TurnUsage> = Vec::new();
@@ -749,6 +788,7 @@ async fn run_staff(
         company,
         actor,
         responsibility,
+        work_id,
         attempt_id,
         org,
         name,
@@ -760,7 +800,7 @@ async fn run_staff(
         enforce_spend_budget,
         conversation,
         accountable_lead,
-        worker_runtime,
+        worker_harness,
         mcp_servers,
         observer,
         cancellation,
@@ -790,6 +830,8 @@ async fn run_staff(
     let drive = StaffDrive {
         event_actor: actor.clone(),
         org,
+        work_id,
+        responsibility: responsibility.clone(),
         turn_prompt,
         attempt_id,
         remaining_budget_usd,
@@ -798,8 +840,9 @@ async fn run_staff(
         termination_prompt: termination_prompt(accountable_lead),
         cancellation,
     };
-    match worker_runtime {
-        crate::runtime::WorkerRuntime::Omp => {
+    match worker_harness {
+        crate::runtime::AgentHarness::RestlessManaged
+        | crate::runtime::AgentHarness::ClaudeAgent => {
             let controls =
                 acp::AgentControls::company_actor(system_prompt)?.with_mcp_servers(mcp_servers);
             let controls = if conversation {
@@ -809,6 +852,7 @@ async fn run_staff(
             };
             acp::with_agent(
                 &container,
+                worker_harness,
                 &auth,
                 &workdir,
                 &actor,
@@ -819,13 +863,7 @@ async fn run_staff(
             )
             .await
         }
-        crate::runtime::WorkerRuntime::Codex => {
-            if conversation {
-                bail!("Codex worker runtime is restricted to productive Staff Attempts");
-            }
-            if !mcp_servers.is_empty() {
-                bail!("Codex worker runtime cannot yet preserve connected-tool parity");
-            }
+        crate::runtime::AgentHarness::Codex => {
             crate::codex::with_agent(
                 &container,
                 &auth,
@@ -833,6 +871,7 @@ async fn run_staff(
                 &actor,
                 &responsibility,
                 &system_prompt,
+                mcp_servers,
                 observer,
                 move |session| Box::pin(drive.run(session)),
             )
@@ -966,12 +1005,12 @@ mod live_product_tests {
         assert!(runtime_company.ends_with("_test"));
         let model = std::env::var("RESTLESS_S17_PRODUCT_TEST_MODEL")
             .unwrap_or_else(|_| "zai/glm-5.3".to_string());
-        let worker_runtime = match std::env::var("RESTLESS_S17_PRODUCT_TEST_WORKER_RUNTIME")
+        let worker_harness = match std::env::var("RESTLESS_S17_PRODUCT_TEST_WORKER_RUNTIME")
             .unwrap_or_else(|_| "omp".to_string())
             .as_str()
         {
-            "omp" => crate::runtime::WorkerRuntime::Omp,
-            "codex" => crate::runtime::WorkerRuntime::Codex,
+            "omp" => crate::runtime::AgentHarness::RestlessManaged,
+            "codex" => crate::runtime::AgentHarness::Codex,
             value => panic!("unsupported RESTLESS_S17_PRODUCT_TEST_WORKER_RUNTIME {value}"),
         };
         let database_url = std::env::var("RESTLESS_TEST_DATABASE_URL")
@@ -1062,6 +1101,7 @@ mod live_product_tests {
             },
             staff: crate::staff::StaffRegistry::default(),
             activities: crate::activity::AgentActivityStreams::default(),
+            lifecycle: restlessd::appliance::LifecycleGate::default(),
             in_flight: std::sync::Arc::new(std::sync::Mutex::new(
                 crate::schedule::WakeClaims::default(),
             )),
@@ -1241,6 +1281,7 @@ mod live_product_tests {
             company: company.clone(),
             actor: "customer-writer".into(),
             responsibility: format!("work:{work_id}"),
+            work_id: None,
             attempt_id: Some(attempt_id),
             org: org.clone(),
             name: "Mira Chen".into(),
@@ -1252,7 +1293,7 @@ mod live_product_tests {
             enforce_spend_budget: true,
             conversation: false,
             accountable_lead: false,
-            worker_runtime,
+            worker_harness,
             mcp_servers: Vec::new(),
             observer: None,
             cancellation: CancellationToken::new(),
@@ -1317,6 +1358,7 @@ mod live_product_tests {
             company: company.clone(),
             actor: "customer-direction".into(),
             responsibility: format!("team:{team}"),
+            work_id: None,
             attempt_id: None,
             org: org.clone(),
             name: "Avery Holt".into(),
@@ -1328,7 +1370,7 @@ mod live_product_tests {
             enforce_spend_budget: true,
             conversation: true,
             accountable_lead: true,
-            worker_runtime: crate::runtime::WorkerRuntime::Omp,
+            worker_harness: crate::runtime::AgentHarness::RestlessManaged,
             mcp_servers: Vec::new(),
             observer: None,
             cancellation: CancellationToken::new(),
@@ -1382,7 +1424,7 @@ mod live_product_tests {
                 "company": company,
                 "runtime_company": runtime_company,
                 "model": model,
-                "worker_runtime": worker_runtime,
+                "worker_harness": worker_harness,
                 "work_id": work_id,
                 "attempt_id": attempt_id,
                 "attempt_state": attempt.state,
@@ -1598,6 +1640,7 @@ mod live_product_tests {
             },
             staff: crate::staff::StaffRegistry::default(),
             activities: crate::activity::AgentActivityStreams::default(),
+            lifecycle: restlessd::appliance::LifecycleGate::default(),
             in_flight: std::sync::Arc::new(std::sync::Mutex::new(
                 crate::schedule::WakeClaims::default(),
             )),
@@ -1672,6 +1715,7 @@ mod live_product_tests {
             company: company.clone(),
             actor: "exec".into(),
             responsibility: format!("benchmark-delegation:{task_digest}"),
+            work_id: None,
             attempt_id: None,
             org: org.clone(),
             name: "The Exec".into(),
@@ -1685,7 +1729,7 @@ mod live_product_tests {
             enforce_spend_budget: true,
             conversation: true,
             accountable_lead: false,
-            worker_runtime: crate::runtime::WorkerRuntime::Omp,
+            worker_harness: crate::runtime::AgentHarness::RestlessManaged,
             mcp_servers: Vec::new(),
             observer: None,
             cancellation: CancellationToken::new(),
@@ -1715,6 +1759,7 @@ mod live_product_tests {
             company: company.clone(),
             actor: "experiment-direction".into(),
             responsibility: format!("team:{team}"),
+            work_id: None,
             attempt_id: None,
             org: org.clone(),
             name: "Morgan Lee".into(),
@@ -1728,7 +1773,7 @@ mod live_product_tests {
             enforce_spend_budget: true,
             conversation: true,
             accountable_lead: true,
-            worker_runtime: crate::runtime::WorkerRuntime::Omp,
+            worker_harness: crate::runtime::AgentHarness::RestlessManaged,
             mcp_servers: Vec::new(),
             observer: None,
             cancellation: CancellationToken::new(),
@@ -1796,6 +1841,7 @@ mod live_product_tests {
             company: company.clone(),
             actor: "experiment-maker".into(),
             responsibility: format!("work:{work_id}"),
+            work_id: None,
             attempt_id: Some(attempt_id),
             org: org.clone(),
             name: "Sam Rivera".into(),
@@ -1809,7 +1855,7 @@ mod live_product_tests {
             enforce_spend_budget: true,
             conversation: false,
             accountable_lead: false,
-            worker_runtime: crate::runtime::WorkerRuntime::Codex,
+            worker_harness: crate::runtime::AgentHarness::Codex,
             mcp_servers: Vec::new(),
             observer: None,
             cancellation: CancellationToken::new(),
@@ -1838,6 +1884,7 @@ mod live_product_tests {
                 company: company.clone(),
                 actor: "experiment-direction".into(),
                 responsibility: format!("team:{team}"),
+                work_id: None,
                 attempt_id: None,
                 org: org.clone(),
                 name: "Morgan Lee".into(),
@@ -1851,7 +1898,7 @@ mod live_product_tests {
                 enforce_spend_budget: true,
                 conversation: true,
                 accountable_lead: true,
-                worker_runtime: crate::runtime::WorkerRuntime::Omp,
+                worker_harness: crate::runtime::AgentHarness::RestlessManaged,
                 mcp_servers: Vec::new(),
                 observer: None,
                 cancellation: CancellationToken::new(),
@@ -1869,6 +1916,7 @@ mod live_product_tests {
                 company: company.clone(),
                 actor: "experiment-maker".into(),
                 responsibility: format!("work:{work_id}"),
+                work_id: None,
                 attempt_id: Some(attempt_id),
                 org: org.clone(),
                 name: "Sam Rivera".into(),
@@ -1882,7 +1930,7 @@ mod live_product_tests {
                 enforce_spend_budget: true,
                 conversation: false,
                 accountable_lead: false,
-                worker_runtime: crate::runtime::WorkerRuntime::Codex,
+                worker_harness: crate::runtime::AgentHarness::Codex,
                 mcp_servers: Vec::new(),
                 observer: None,
                 cancellation: CancellationToken::new(),
@@ -1900,6 +1948,7 @@ mod live_product_tests {
                 company: company.clone(),
                 actor: "experiment-maker".into(),
                 responsibility: format!("work:{work_id}"),
+                work_id: None,
                 attempt_id: Some(attempt_id),
                 org: org.clone(),
                 name: "Sam Rivera".into(),
@@ -1913,7 +1962,7 @@ mod live_product_tests {
                 enforce_spend_budget: true,
                 conversation: false,
                 accountable_lead: false,
-                worker_runtime: crate::runtime::WorkerRuntime::Codex,
+                worker_harness: crate::runtime::AgentHarness::Codex,
                 mcp_servers: Vec::new(),
                 observer: None,
                 cancellation: CancellationToken::new(),
@@ -1937,6 +1986,7 @@ mod live_product_tests {
                 company: company.clone(),
                 actor: "experiment-maker".into(),
                 responsibility: format!("work:{work_id}"),
+                work_id: None,
                 attempt_id: Some(attempt_id),
                 org: org.clone(),
                 name: "Sam Rivera".into(),
@@ -1950,7 +2000,7 @@ mod live_product_tests {
                 enforce_spend_budget: true,
                 conversation: false,
                 accountable_lead: false,
-                worker_runtime: crate::runtime::WorkerRuntime::Codex,
+                worker_harness: crate::runtime::AgentHarness::Codex,
                 mcp_servers: Vec::new(),
                 observer: None,
                 cancellation: cancellation.clone(),
@@ -2017,6 +2067,7 @@ mod live_product_tests {
                 company: company.clone(),
                 actor: "experiment-maker".into(),
                 responsibility: format!("work:{work_id}"),
+                work_id: None,
                 attempt_id: Some(attempt_id),
                 org: org.clone(),
                 name: "Sam Rivera".into(),
@@ -2030,7 +2081,7 @@ mod live_product_tests {
                 enforce_spend_budget: true,
                 conversation: false,
                 accountable_lead: false,
-                worker_runtime: crate::runtime::WorkerRuntime::Codex,
+                worker_harness: crate::runtime::AgentHarness::Codex,
                 mcp_servers: Vec::new(),
                 observer: None,
                 cancellation: CancellationToken::new(),
@@ -2081,6 +2132,7 @@ mod live_product_tests {
             company: company.clone(),
             actor: "experiment-direction".into(),
             responsibility: format!("team:{team}"),
+            work_id: None,
             attempt_id: None,
             org: org.clone(),
             name: "Morgan Lee".into(),
@@ -2092,7 +2144,7 @@ mod live_product_tests {
             enforce_spend_budget: true,
             conversation: true,
             accountable_lead: true,
-            worker_runtime: crate::runtime::WorkerRuntime::Omp,
+            worker_harness: crate::runtime::AgentHarness::RestlessManaged,
             mcp_servers: Vec::new(),
             observer: None,
             cancellation: CancellationToken::new(),

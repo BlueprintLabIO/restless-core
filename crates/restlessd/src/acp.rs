@@ -106,6 +106,10 @@ pub struct AgentAuth {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct SessionLocator {
     version: u8,
+    #[serde(default)]
+    harness: crate::runtime::AgentHarness,
+    #[serde(default)]
+    harness_build: String,
     company: String,
     actor: String,
     responsibility: String,
@@ -123,21 +127,32 @@ fn default_reasoning_effort_owned() -> String {
     DEFAULT_REASONING_EFFORT.to_string()
 }
 
-fn session_locator_path(company: &str, actor: &str, responsibility: &str) -> String {
+fn session_locator_path(
+    harness: crate::runtime::AgentHarness,
+    company: &str,
+    actor: &str,
+    responsibility: &str,
+) -> Result<String> {
+    let profile = AcpProfile::new(harness)?;
     let digest = format!(
         "{:x}",
-        Sha256::digest(format!("{company}\0{actor}\0{responsibility}").as_bytes())
+        Sha256::digest(
+            format!("{}\0{company}\0{actor}\0{responsibility}", harness.as_str()).as_bytes()
+        )
     );
-    format!("{AGENT_CONFIG_DIR}/sessions/{digest}.json")
+    Ok(format!("{}/sessions/{digest}.json", profile.config_dir()))
 }
 
 fn validate_session_locator(
     locator: &SessionLocator,
+    profile: AcpProfile,
     company: &str,
     actor: &str,
     responsibility: &str,
 ) -> Result<()> {
-    if locator.version != 1
+    if locator.version != 2
+        || locator.harness != profile.harness
+        || locator.harness_build != profile.build()
         || locator.company != company
         || locator.actor != actor
         || locator.responsibility != responsibility
@@ -151,12 +166,15 @@ fn validate_session_locator(
 
 fn session_locator_is_reusable(
     locator: &SessionLocator,
+    profile: AcpProfile,
     cwd: &str,
     model: &str,
     effort: &str,
     load_session_available: bool,
 ) -> bool {
-    locator.cwd == cwd
+    locator.harness == profile.harness
+        && locator.harness_build == profile.build()
+        && locator.cwd == cwd
         && locator.model == model
         && locator.effort == effort
         && load_session_available
@@ -164,6 +182,118 @@ fn session_locator_is_reusable(
 
 pub(crate) const AGENT_CONFIG_DIR: &str = "/company/home/.restless/omp-agent";
 const OMP_RUNTIME_CONFIG: &str = "/company/home/.restless/omp-agent/restless-runtime.yml";
+const CLAUDE_AGENT_CONFIG_DIR: &str = "/company/home/.restless/claude-agent";
+const CLAUDE_AGENT_TOOLS: &[&str] = &["Read", "Write", "Edit", "Bash", "Glob", "Grep"];
+
+#[derive(Debug, Clone, Copy)]
+struct AcpProfile {
+    harness: crate::runtime::AgentHarness,
+}
+
+impl AcpProfile {
+    fn new(harness: crate::runtime::AgentHarness) -> Result<Self> {
+        match harness {
+            crate::runtime::AgentHarness::RestlessManaged
+            | crate::runtime::AgentHarness::ClaudeAgent => Ok(Self { harness }),
+            crate::runtime::AgentHarness::Codex => {
+                anyhow::bail!("Codex uses its native App Server transport, not ACP")
+            }
+        }
+    }
+
+    const fn config_dir(self) -> &'static str {
+        match self.harness {
+            crate::runtime::AgentHarness::RestlessManaged => AGENT_CONFIG_DIR,
+            crate::runtime::AgentHarness::ClaudeAgent => CLAUDE_AGENT_CONFIG_DIR,
+            crate::runtime::AgentHarness::Codex => unreachable!(),
+        }
+    }
+
+    const fn build(self) -> &'static str {
+        self.harness.build()
+    }
+
+    const fn transport(self) -> &'static str {
+        "acp-stdio-v1"
+    }
+
+    const fn tariff_version(self) -> Option<&'static str> {
+        match self.harness {
+            crate::runtime::AgentHarness::ClaudeAgent => {
+                Some(crate::model_gateway::ANTHROPIC_TARIFF_VERSION)
+            }
+            crate::runtime::AgentHarness::RestlessManaged => None,
+            crate::runtime::AgentHarness::Codex => unreachable!(),
+        }
+    }
+
+    const fn native_agent_build(self) -> Option<&'static str> {
+        self.harness.native_agent_build()
+    }
+
+    fn native_tools(self) -> Vec<&'static str> {
+        match self.harness {
+            crate::runtime::AgentHarness::RestlessManaged => OMP_AGENT_TOOLS.split(',').collect(),
+            crate::runtime::AgentHarness::ClaudeAgent => CLAUDE_AGENT_TOOLS.to_vec(),
+            crate::runtime::AgentHarness::Codex => unreachable!(),
+        }
+    }
+
+    fn session_model(self, provider_model: &str) -> Result<String> {
+        match self.harness {
+            crate::runtime::AgentHarness::RestlessManaged => Ok(provider_model.to_string()),
+            crate::runtime::AgentHarness::ClaudeAgent => provider_model
+                .strip_prefix("anthropic/")
+                .filter(|model| !model.is_empty())
+                .map(str::to_string)
+                .with_context(|| {
+                    format!(
+                        "Claude Agent requires an anthropic/<model> route, got {provider_model}"
+                    )
+                }),
+            crate::runtime::AgentHarness::Codex => unreachable!(),
+        }
+    }
+
+    fn command_args(self, model: &str, effort: &str, system_prompt: &str) -> Vec<String> {
+        match self.harness {
+            crate::runtime::AgentHarness::RestlessManaged => {
+                omp_agent_command_args(model, effort, system_prompt)
+            }
+            crate::runtime::AgentHarness::ClaudeAgent => vec!["claude-agent-acp".to_string()],
+            crate::runtime::AgentHarness::Codex => unreachable!(),
+        }
+    }
+
+    fn session_meta(
+        self,
+        system_prompt: &str,
+        session_model: &str,
+    ) -> Option<serde_json::Map<String, serde_json::Value>> {
+        if self.harness != crate::runtime::AgentHarness::ClaudeAgent {
+            return None;
+        }
+        serde_json::json!({
+            "systemPrompt": system_prompt,
+            "claudeCode": {
+                "options": {
+                    "settingSources": [],
+                    "settings": {
+                        "availableModels": [session_model],
+                        "enabledPlugins": {},
+                        "hooks": {}
+                    },
+                    "tools": CLAUDE_AGENT_TOOLS,
+                    "disallowedTools": [
+                        "Agent", "Task", "Skill", "WebSearch", "WebFetch", "AskUserQuestion"
+                    ]
+                }
+            }
+        })
+        .as_object()
+        .cloned()
+    }
+}
 
 /// OMP owns model and runtime selection as top-level flags. Its `acp`
 /// subcommand exposes no flags, so placing these arguments after `acp` starts
@@ -251,6 +381,38 @@ fn model_config_is_selected(
                     if select.current_value.to_string() == expected_value
             )
     })
+}
+
+fn exact_named_config_selection(
+    options: &[SessionConfigOption],
+    config_id: &str,
+    requested_value: &str,
+) -> Result<(String, String)> {
+    let option = options
+        .iter()
+        .find(|option| option.id.to_string() == config_id)
+        .with_context(|| {
+            format!("ACP agent did not advertise required {config_id} session option")
+        })?;
+    let SessionConfigKind::Select(select) = &option.kind else {
+        anyhow::bail!("ACP {config_id} session option is not a select option");
+    };
+    let present = match &select.options {
+        SessionConfigSelectOptions::Ungrouped(values) => values
+            .iter()
+            .any(|value| value.value.to_string() == requested_value),
+        SessionConfigSelectOptions::Grouped(groups) => groups
+            .iter()
+            .flat_map(|group| group.options.iter())
+            .any(|value| value.value.to_string() == requested_value),
+        _ => false,
+    };
+    if !present {
+        anyhow::bail!(
+            "ACP agent {config_id} selector did not advertise exact requested value {requested_value}"
+        );
+    }
+    Ok((option.id.to_string(), requested_value.to_string()))
 }
 
 /// User-relevant pieces of a live ACP turn. The completed OrgIntel message is
@@ -442,11 +604,12 @@ async fn persist_session_locator(
 /// as too large; retrying the same locator can never make that request smaller.
 pub(crate) async fn discard_session_locator(
     container: &str,
+    harness: crate::runtime::AgentHarness,
     company: &str,
     actor: &str,
     responsibility: &str,
 ) -> Result<()> {
-    let path = session_locator_path(company, actor, responsibility);
+    let path = session_locator_path(harness, company, actor, responsibility)?;
     let output = tokio::process::Command::new("docker")
         .args([
             "exec",
@@ -478,7 +641,12 @@ pub(crate) async fn discard_session_locator(
 /// Native OMP tools are fixed by this launch's argv; this read-only call proves
 /// that the same launch id can reach the coordination plane through the
 /// Runtime-installed CLI. It does not consume or mark inbox state.
-async fn prove_tool_contract(container: &str, auth: &AgentAuth, actor: &str) -> Result<String> {
+async fn prove_tool_contract(
+    container: &str,
+    profile: AcpProfile,
+    auth: &AgentAuth,
+    actor: &str,
+) -> Result<String> {
     let mut args = vec![
         "exec".to_string(),
         "-u".to_string(),
@@ -515,28 +683,63 @@ async fn prove_tool_contract(container: &str, auth: &AgentAuth, actor: &str) -> 
     Ok(format!(
         "{:x}",
         Sha256::digest(
-            format!("native:{OMP_AGENT_TOOLS}\0coordination:restless-people\0actor:{actor}")
-                .as_bytes()
+            format!(
+                "harness:{}\0native:{}\0coordination:restless-people\0actor:{actor}",
+                profile.harness.as_str(),
+                profile.native_tools().join(",")
+            )
+            .as_bytes()
         )
     ))
 }
 
-/// Install the provider's credential-free OMP route in a Restless-owned agent
-/// directory. This never touches the company's general-purpose ~/.omp config
+fn claude_agent_settings(session_model: &str) -> Result<String> {
+    Ok(serde_json::to_string_pretty(&serde_json::json!({
+        "availableModels": [session_model],
+        "enabledPlugins": {},
+        "hooks": {},
+        "permissions": {
+            "defaultMode": "default",
+            "allow": [],
+            "deny": [],
+            "ask": []
+        }
+    }))?)
+}
+
+/// Install the selected harness's credential-free policy in a Restless-owned
+/// directory. This never touches a company's general-purpose harness config
 /// and never writes a capability or provider key to the volume.
-pub(crate) async fn prepare_agent_runtime(container: &str, auth: &AgentAuth) -> Result<()> {
-    let config = crate::model_gateway::models_config(
-        &auth.model,
-        &auth.gateway_url,
-        &auth.gateway_token_env,
-    )?;
-    write_private_container_file(
-        container,
-        &format!("{AGENT_CONFIG_DIR}/models.yml"),
-        &config,
-    )
-    .await?;
-    write_private_container_file(container, OMP_RUNTIME_CONFIG, RESTLESS_OMP_CONFIG).await?;
+pub(crate) async fn prepare_agent_runtime(
+    container: &str,
+    harness: crate::runtime::AgentHarness,
+    auth: &AgentAuth,
+) -> Result<()> {
+    let profile = AcpProfile::new(harness)?;
+    profile.session_model(&auth.model)?;
+    if harness == crate::runtime::AgentHarness::RestlessManaged {
+        let config = crate::model_gateway::models_config(
+            &auth.model,
+            &auth.gateway_url,
+            &auth.gateway_token_env,
+        )?;
+        write_private_container_file(
+            container,
+            &format!("{AGENT_CONFIG_DIR}/models.yml"),
+            &config,
+        )
+        .await?;
+        write_private_container_file(container, OMP_RUNTIME_CONFIG, RESTLESS_OMP_CONFIG).await?;
+    } else {
+        let model = profile.session_model(&auth.model)?;
+        let settings = claude_agent_settings(&model)?;
+        write_private_container_file(
+            container,
+            &format!("{}/settings.json", profile.config_dir()),
+            &settings,
+        )
+        .await?;
+    }
     Ok(())
 }
 
@@ -717,12 +920,34 @@ pub struct AgentSession {
     observer: Option<SessionObserver>,
     live_observer_enabled: Arc<AtomicBool>,
     pub launch_id: String,
+    pub harness: crate::runtime::AgentHarness,
+    pub harness_build: String,
+    pub transport: String,
     pub model: String,
     pub effort: String,
     pub resumed: bool,
     pub reconstructed: bool,
     pub reconstruction_reason: Option<String>,
     pub tool_contract_digest: String,
+    pub capabilities: serde_json::Value,
+}
+
+pub(crate) fn required_readiness_text<'a>(
+    readiness: &'a serde_json::Value,
+    field: &str,
+) -> Result<&'a str> {
+    readiness
+        .get(field)
+        .and_then(serde_json::Value::as_str)
+        .filter(|value| !value.is_empty())
+        .with_context(|| format!("agent readiness omitted required {field}"))
+}
+
+pub(crate) fn required_readiness_bool(readiness: &serde_json::Value, field: &str) -> Result<bool> {
+    readiness
+        .get(field)
+        .and_then(serde_json::Value::as_bool)
+        .with_context(|| format!("agent readiness omitted required {field}"))
 }
 
 /// Silence with nothing running: the agent is wedged.
@@ -823,6 +1048,9 @@ impl AgentSession {
     pub fn readiness_observation(&self) -> serde_json::Value {
         serde_json::json!({
             "launch_id": self.launch_id,
+            "harness": self.harness,
+            "harness_build": self.harness_build,
+            "transport": self.transport,
             "model": self.model,
             "configured_effort": self.effort,
             "session_id": self.session_id.to_string(),
@@ -830,6 +1058,7 @@ impl AgentSession {
             "reconstructed": self.reconstructed,
             "reconstruction_reason": self.reconstruction_reason,
             "tool_contract_digest": self.tool_contract_digest,
+            "capabilities": self.capabilities,
             "fresh_process_capability": true,
         })
     }
@@ -977,6 +1206,7 @@ impl AgentSession {
 )]
 pub async fn with_agent<F, T>(
     container: &str,
+    harness: crate::runtime::AgentHarness,
     auth: &AgentAuth,
     workdir: &str,
     actor: &str,
@@ -995,11 +1225,14 @@ where
     if responsibility.trim().is_empty() {
         anyhow::bail!("ACP session responsibility scope must not be empty");
     }
-    prepare_agent_runtime(container, auth).await?;
-    let locator_path = session_locator_path(&auth.company, actor, responsibility);
+    let profile = AcpProfile::new(harness)?;
+    prepare_agent_runtime(container, harness, auth).await?;
+    let session_model = profile.session_model(&auth.model)?;
+    let session_meta = profile.session_meta(&controls.system_prompt, &session_model);
+    let locator_path = session_locator_path(harness, &auth.company, actor, responsibility)?;
     let prior_locator = read_session_locator(container, &locator_path).await?;
     if let Some(locator) = &prior_locator {
-        validate_session_locator(locator, &auth.company, actor, responsibility)?;
+        validate_session_locator(locator, profile, &auth.company, actor, responsibility)?;
     }
     // Every docker-exec process is a Linux session leader. Record this turn's
     // session id inside the container so cleanup can reap only its process
@@ -1037,6 +1270,16 @@ where
     // which surfaced as "No model selected".
     let mut args = agent_exec_prefix(workdir);
     args.push("-e".to_string());
+    args.push(match profile.harness {
+        crate::runtime::AgentHarness::RestlessManaged => {
+            format!("PI_CODING_AGENT_DIR={AGENT_CONFIG_DIR}")
+        }
+        crate::runtime::AgentHarness::ClaudeAgent => {
+            format!("CLAUDE_CONFIG_DIR={CLAUDE_AGENT_CONFIG_DIR}")
+        }
+        crate::runtime::AgentHarness::Codex => unreachable!(),
+    });
+    args.push("-e".to_string());
     args.push(format!("RESTLESS_ACTOR={actor}"));
     if controls.team_coordination_wake {
         args.push("-e".to_string());
@@ -1054,7 +1297,19 @@ where
     // `docker exec -e NAME` copies NAME from the docker client's environment.
     // Passing NAME=VALUE in argv would expose the scoped model capability to
     // host process listings during session bootstrap.
-    args.push(auth.gateway_token_env.clone());
+    if harness == crate::runtime::AgentHarness::ClaudeAgent {
+        args.push("ANTHROPIC_AUTH_TOKEN".to_string());
+        for value in [
+            format!("ANTHROPIC_BASE_URL={}", auth.gateway_url),
+            "ANTHROPIC_API_KEY=".to_string(),
+            "CLAUDE_CODE_OAUTH_TOKEN=".to_string(),
+        ] {
+            args.push("-e".to_string());
+            args.push(value);
+        }
+    } else {
+        args.push(auth.gateway_token_env.clone());
+    }
     args.extend(
         [
             container,
@@ -1071,14 +1326,11 @@ where
         .iter()
         .map(|arg| (*arg).to_string()),
     );
-    args.extend(omp_agent_command_args(
-        &auth.model,
-        &auth.effort,
-        &system_prompt_path,
-    ));
+    args.extend(profile.command_args(&auth.model, &auth.effort, &system_prompt_path));
     let spawned = tokio::process::Command::new("docker")
         .env(&auth.coordination_token_env, &auth.coordination_token)
         .env(&auth.gateway_token_env, &auth.gateway_token)
+        .env("ANTHROPIC_AUTH_TOKEN", &auth.gateway_token)
         .args(&args)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -1112,8 +1364,12 @@ where
     let observer_enabled = Arc::clone(&live_observer_enabled);
     let workdir = workdir.to_string();
     let mcp_servers = controls.mcp_servers;
+    let mcp_server_count = mcp_servers.len();
     let responsibility = responsibility.to_string();
     let launch_auth = auth.clone();
+    let launch_profile = profile;
+    let launch_session_model = session_model;
+    let launch_session_meta = session_meta;
     let launch_container = container.to_string();
     let launch_actor = actor.to_string();
     let launch_id_for_session = launch_id.clone();
@@ -1230,6 +1486,20 @@ where
                     .block_task()
                     .await
                     .context("acp initialize")?;
+                if launch_profile.harness == crate::runtime::AgentHarness::ClaudeAgent {
+                    let info = initialized.agent_info.as_ref().context(
+                        "Claude Agent ACP initialize omitted its adapter build identity",
+                    )?;
+                    if info.name != "@agentclientprotocol/claude-agent-acp"
+                        || info.version != "0.73.0"
+                    {
+                        anyhow::bail!(
+                            "Claude Agent ACP build mismatch: observed {} v{}, required @agentclientprotocol/claude-agent-acp v0.73.0",
+                            info.name,
+                            info.version
+                        );
+                    }
+                }
                 let agent_name = initialized
                     .agent_info
                     .as_ref()
@@ -1248,6 +1518,7 @@ where
                         Some(prior)
                             if session_locator_is_reusable(
                                 &prior,
+                                launch_profile,
                                 &workdir,
                                 &launch_auth.model,
                                 &launch_auth.effort,
@@ -1258,7 +1529,8 @@ where
                             match cx
                                 .send_request(
                                     LoadSessionRequest::new(prior_id.clone(), workdir.clone())
-                                        .mcp_servers(mcp_servers.clone()),
+                                        .mcp_servers(mcp_servers.clone())
+                                        .meta(launch_session_meta.clone()),
                                 )
                                 .block_task()
                                 .await
@@ -1275,7 +1547,8 @@ where
                                     let session = cx
                                         .send_request(
                                             NewSessionRequest::new(workdir.clone())
-                                                .mcp_servers(mcp_servers.clone()),
+                                                .mcp_servers(mcp_servers.clone())
+                                                .meta(launch_session_meta.clone()),
                                         )
                                         .block_task()
                                         .await
@@ -1313,7 +1586,8 @@ where
                             let session = cx
                                 .send_request(
                                     NewSessionRequest::new(workdir.clone())
-                                        .mcp_servers(mcp_servers.clone()),
+                                        .mcp_servers(mcp_servers.clone())
+                                        .meta(launch_session_meta.clone()),
                                 )
                                 .block_task()
                                 .await
@@ -1331,7 +1605,8 @@ where
                             let session = cx
                                 .send_request(
                                     NewSessionRequest::new(workdir.clone())
-                                        .mcp_servers(mcp_servers.clone()),
+                                        .mcp_servers(mcp_servers.clone())
+                                        .meta(launch_session_meta.clone()),
                                 )
                                 .block_task()
                                 .await
@@ -1348,7 +1623,7 @@ where
                     };
 
                 let (model_config_id, model_value) =
-                    exact_model_config_selection(&config_options, &launch_auth.model)
+                    exact_model_config_selection(&config_options, &launch_session_model)
                         .context("select exact ACP session model")?;
                 let configured = cx
                     .send_request(SetSessionConfigOptionRequest::new(
@@ -1369,9 +1644,58 @@ where
                         launch_auth.model
                     );
                 }
+                let mut confirmed_options = configured.config_options;
+                if launch_profile.harness == crate::runtime::AgentHarness::ClaudeAgent {
+                    let (effort_id, effort_value) = exact_named_config_selection(
+                        &confirmed_options,
+                        "effort",
+                        &launch_auth.effort,
+                    )
+                    .context("select exact Claude Agent effort")?;
+                    confirmed_options = cx
+                        .send_request(SetSessionConfigOptionRequest::new(
+                            session_id.clone(),
+                            effort_id.clone(),
+                            effort_value.as_str(),
+                        ))
+                        .block_task()
+                        .await
+                        .context("acp session/set_config_option for exact effort")?
+                        .config_options;
+                    if !model_config_is_selected(
+                        &confirmed_options,
+                        &effort_id,
+                        &effort_value,
+                    ) {
+                        anyhow::bail!("Claude Agent did not confirm exact selected effort");
+                    }
+
+                    // The adapter consults project settings while constructing a
+                    // session. Reasserting the ordinary permission mode before
+                    // the first prompt prevents a hostile project default from
+                    // turning into ambient bypass or plan-only behavior.
+                    let (mode_id, mode_value) =
+                        exact_named_config_selection(&confirmed_options, "mode", "default")
+                            .context("select isolated Claude Agent permission mode")?;
+                    confirmed_options = cx
+                        .send_request(SetSessionConfigOptionRequest::new(
+                            session_id.clone(),
+                            mode_id.clone(),
+                            mode_value.as_str(),
+                        ))
+                        .block_task()
+                        .await
+                        .context("acp session/set_config_option for isolated mode")?
+                        .config_options;
+                    if !model_config_is_selected(&confirmed_options, &mode_id, &mode_value) {
+                        anyhow::bail!("Claude Agent did not confirm isolated permission mode");
+                    }
+                }
 
                 let locator = SessionLocator {
-                    version: 1,
+                    version: 2,
+                    harness: launch_profile.harness,
+                    harness_build: launch_profile.build().to_string(),
                     company: launch_auth.company.clone(),
                     actor: launch_actor.clone(),
                     responsibility: responsibility.clone(),
@@ -1390,8 +1714,23 @@ where
                 if let Ok(mut current) = transcript.lock() {
                     current.session_cost_baseline_usd = baseline_cost;
                 }
-                let tool_contract_digest =
-                    prove_tool_contract(&launch_container, &launch_auth, &launch_actor).await?;
+                let tool_contract_digest = prove_tool_contract(
+                    &launch_container,
+                    launch_profile,
+                    &launch_auth,
+                    &launch_actor,
+                )
+                .await?;
+                let capabilities = serde_json::json!({
+                    "native_tools": launch_profile.native_tools(),
+                    "native_agent_build": launch_profile.native_agent_build(),
+                    "mcp_server_count": mcp_server_count,
+                    "session_load": initialized.agent_capabilities.load_session,
+                    "model_selection": "exact",
+                    "effort_selection": if launch_profile.harness == crate::runtime::AgentHarness::ClaudeAgent { "exact_acp" } else { "exact_process_flag" },
+                    "permission_mode": if launch_profile.harness == crate::runtime::AgentHarness::ClaudeAgent { "default_reasserted" } else { "runtime_sandbox" },
+                    "tariff_version": launch_profile.tariff_version(),
+                });
                 capture_notifications.store(true, Ordering::Release);
                 tracing::info!(
                     actor = %launch_actor,
@@ -1411,12 +1750,16 @@ where
                     observer,
                     live_observer_enabled,
                     launch_id: launch_id_for_session,
+                    harness: launch_profile.harness,
+                    harness_build: launch_profile.build().to_string(),
+                    transport: launch_profile.transport().to_string(),
                     model: launch_auth.model.clone(),
                     effort: launch_auth.effort.clone(),
                     resumed,
                     reconstructed,
                     reconstruction_reason,
                     tool_contract_digest,
+                    capabilities,
                 };
                 drive(&agent).await
             };
@@ -1443,6 +1786,11 @@ where
             "agent session ownership marker {session_marker} is missing; broad process cleanup was refused"
         ))
     };
+    let secret_cleanup = async {
+        purge_exact_secret_residue(container, profile.config_dir(), &auth.gateway_token).await?;
+        purge_exact_secret_residue(container, profile.config_dir(), &auth.coordination_token).await
+    }
+    .await;
     let artifact_cleanup = remove_and_verify_session_artifacts(
         container,
         &[&session_marker, &system_prompt_path, &session_runtime],
@@ -1450,7 +1798,7 @@ where
     .await;
     if let Ok(mut slot) = failure.lock() {
         if let Some(error) = slot.take() {
-            if let Err(cleanup) = process_cleanup.and(artifact_cleanup) {
+            if let Err(cleanup) = process_cleanup.and(secret_cleanup).and(artifact_cleanup) {
                 tracing::error!(
                     container,
                     "agent failed and terminal cleanup also failed: {cleanup:#}"
@@ -1460,6 +1808,7 @@ where
         }
     }
     process_cleanup?;
+    secret_cleanup?;
     artifact_cleanup?;
     Ok(result?)
 }
@@ -1476,8 +1825,6 @@ pub(crate) fn agent_exec_prefix(workdir: &str) -> Vec<String> {
         "company".to_string(),
         "-w".to_string(),
         workdir.to_string(),
-        "-e".to_string(),
-        format!("PI_CODING_AGENT_DIR={AGENT_CONFIG_DIR}"),
         "-e".to_string(),
         "NO_BROWSER=1".to_string(),
     ]
@@ -1540,6 +1887,41 @@ pub(crate) async fn remove_and_verify_session_artifacts(
             "clean exact agent session artifacts: {}",
             String::from_utf8_lossy(&output.stderr).trim()
         );
+    }
+    Ok(())
+}
+
+/// Scrub any profile file that captured one exact short-lived capability and
+/// verify the value is absent before the launch is considered cleaned up.
+/// The secret travels in docker-exec's environment, never its argv.
+pub(crate) async fn purge_exact_secret_residue(
+    container: &str,
+    profile_root: &str,
+    secret: &str,
+) -> Result<()> {
+    if secret.is_empty() {
+        anyhow::bail!("refusing to purge an empty capability value");
+    }
+    let output = tokio::process::Command::new("docker")
+        .env("RESTLESS_PURGE_SECRET", secret)
+        .args([
+            "exec",
+            "-u",
+            "company",
+            "-e",
+            "RESTLESS_PURGE_SECRET",
+            container,
+            "sh",
+            "-c",
+            "set -eu; root=$1; test -d \"$root\" || exit 0; find \"$root\" -type f -size -4194304c -exec sh -c 'for file do if grep -qF -- \"$RESTLESS_PURGE_SECRET\" \"$file\"; then : > \"$file\"; fi; done' sh {} +; ! grep -RIlF -- \"$RESTLESS_PURGE_SECRET\" \"$root\" >/dev/null 2>&1",
+            "restless-purge-capability",
+            profile_root,
+        ])
+        .output()
+        .await
+        .context("purge agent capability residue")?;
+    if !output.status.success() {
+        anyhow::bail!("agent profile retained a scoped capability after cleanup");
     }
     Ok(())
 }
@@ -1670,11 +2052,12 @@ mod tests {
     };
 
     use super::{
-        agent_exec_prefix, exact_model_config_selection, model_config_is_selected,
-        omp_agent_command_args, persist_session_locator, pids_in_session, read_session_locator,
-        session_cost_delta, session_locator_is_reusable, session_locator_path,
-        validate_session_locator, with_agent, AgentAuth, AgentControls, SessionLocator,
-        DEFAULT_REASONING_EFFORT, OMP_AGENT_TOOLS, RESTLESS_OMP_CONFIG,
+        agent_exec_prefix, claude_agent_settings, exact_model_config_selection,
+        exact_named_config_selection, model_config_is_selected, omp_agent_command_args,
+        persist_session_locator, pids_in_session, read_session_locator, session_cost_delta,
+        session_locator_is_reusable, session_locator_path, validate_session_locator, with_agent,
+        AcpProfile, AgentAuth, AgentControls, SessionLocator, DEFAULT_REASONING_EFFORT,
+        OMP_AGENT_TOOLS, RESTLESS_OMP_CONFIG,
     };
 
     #[test]
@@ -1688,7 +2071,9 @@ mod tests {
     #[test]
     fn provider_sessions_are_scoped_to_one_actor_and_responsibility() {
         let locator = SessionLocator {
-            version: 1,
+            version: 2,
+            harness: crate::runtime::AgentHarness::RestlessManaged,
+            harness_build: "omp-18.0.10".into(),
             company: "acme_test".into(),
             actor: "account-reply-writer".into(),
             responsibility: "work:abc".into(),
@@ -1698,10 +2083,18 @@ mod tests {
             session_id: "session-1".into(),
             cumulative_cost_usd: Some(0.2),
         };
-        validate_session_locator(&locator, "acme_test", "account-reply-writer", "work:abc")
-            .unwrap();
+        let profile = AcpProfile::new(crate::runtime::AgentHarness::RestlessManaged).unwrap();
+        validate_session_locator(
+            &locator,
+            profile,
+            "acme_test",
+            "account-reply-writer",
+            "work:abc",
+        )
+        .unwrap();
         assert!(session_locator_is_reusable(
             &locator,
+            profile,
             "/company/worktrees/work-abc-r1",
             "zai/glm-5.3",
             DEFAULT_REASONING_EFFORT,
@@ -1710,6 +2103,7 @@ mod tests {
         assert!(
             !session_locator_is_reusable(
                 &locator,
+                profile,
                 "/company/worktrees/work-abc-r2",
                 "zai/glm-5.3",
                 DEFAULT_REASONING_EFFORT,
@@ -1717,19 +2111,37 @@ mod tests {
             ),
             "a new revision worktree reconstructs rather than crashing or loading stale context"
         );
-        assert!(
-            validate_session_locator(&locator, "acme_test", "other-writer", "work:abc",).is_err()
-        );
         assert!(validate_session_locator(
             &locator,
+            profile,
+            "acme_test",
+            "other-writer",
+            "work:abc",
+        )
+        .is_err());
+        assert!(validate_session_locator(
+            &locator,
+            profile,
             "acme_test",
             "account-reply-writer",
             "work:def",
         )
         .is_err());
         assert_ne!(
-            session_locator_path("acme_test", "account-reply-writer", "work:abc"),
-            session_locator_path("acme_test", "account-reply-writer", "work:def")
+            session_locator_path(
+                crate::runtime::AgentHarness::RestlessManaged,
+                "acme_test",
+                "account-reply-writer",
+                "work:abc"
+            )
+            .unwrap(),
+            session_locator_path(
+                crate::runtime::AgentHarness::RestlessManaged,
+                "acme_test",
+                "account-reply-writer",
+                "work:def"
+            )
+            .unwrap()
         );
     }
 
@@ -1793,6 +2205,7 @@ mod tests {
         let first_auth = make_auth();
         let first = with_agent(
             &container,
+            crate::runtime::AgentHarness::RestlessManaged,
             &first_auth,
             workdir,
             actor,
@@ -1834,6 +2247,7 @@ mod tests {
         );
         let second = with_agent(
             &container,
+            crate::runtime::AgentHarness::RestlessManaged,
             &second_auth,
             workdir,
             actor,
@@ -1870,7 +2284,13 @@ mod tests {
             .and_then(|usage| usage.cost_usd)
             .is_none_or(|cost| cost >= 0.0));
 
-        let path = session_locator_path(&company, actor, &responsibility);
+        let path = session_locator_path(
+            crate::runtime::AgentHarness::RestlessManaged,
+            &company,
+            actor,
+            &responsibility,
+        )
+        .unwrap();
         let mut broken = read_session_locator(&container, &path)
             .await
             .unwrap()
@@ -1882,6 +2302,7 @@ mod tests {
         let third_auth = make_auth();
         let third = with_agent(
             &container,
+            crate::runtime::AgentHarness::RestlessManaged,
             &third_auth,
             workdir,
             actor,
@@ -1927,6 +2348,7 @@ mod tests {
         let called = productive_prompt_reached.clone();
         let invalid = with_agent(
             &container,
+            crate::runtime::AgentHarness::RestlessManaged,
             &invalid_auth,
             workdir,
             actor,
@@ -1949,6 +2371,7 @@ mod tests {
         let repaired_auth = make_auth();
         let repaired = with_agent(
             &container,
+            crate::runtime::AgentHarness::RestlessManaged,
             &repaired_auth,
             workdir,
             actor,
@@ -2035,6 +2458,131 @@ mod tests {
                 "{flag} must be parsed as an OMP global flag before `acp`"
             );
         }
+    }
+
+    #[test]
+    fn claude_profile_is_isolated_exact_and_policy_bound() {
+        let profile = AcpProfile::new(crate::runtime::AgentHarness::ClaudeAgent).unwrap();
+        assert_eq!(profile.config_dir(), "/company/home/.restless/claude-agent");
+        assert_eq!(profile.build(), "claude-agent-acp-0.73.0");
+        assert_eq!(profile.native_agent_build(), Some("claude-code-2.1.257"));
+        assert_eq!(profile.transport(), "acp-stdio-v1");
+        assert_eq!(
+            profile
+                .session_model("anthropic/claude-sonnet-4-6")
+                .unwrap(),
+            "claude-sonnet-4-6"
+        );
+        assert!(profile.session_model("litellm/gpt-5.6-sol").is_err());
+        assert_eq!(
+            profile.command_args("ignored", "high", "ignored"),
+            ["claude-agent-acp"]
+        );
+        assert_eq!(
+            profile.native_tools(),
+            ["Read", "Write", "Edit", "Bash", "Glob", "Grep"]
+        );
+
+        let meta = serde_json::Value::Object(
+            profile
+                .session_meta("Restless policy", "claude-sonnet-4-6")
+                .unwrap(),
+        );
+        assert_eq!(meta["systemPrompt"], "Restless policy");
+        assert_eq!(
+            meta["claudeCode"]["options"]["settingSources"],
+            serde_json::json!([])
+        );
+        assert_eq!(
+            meta["claudeCode"]["options"]["settings"]["availableModels"],
+            serde_json::json!(["claude-sonnet-4-6"])
+        );
+        assert_eq!(
+            meta["claudeCode"]["options"]["tools"],
+            serde_json::json!(["Read", "Write", "Edit", "Bash", "Glob", "Grep"])
+        );
+        let settings: serde_json::Value =
+            serde_json::from_str(&claude_agent_settings("claude-sonnet-4-6").unwrap()).unwrap();
+        assert_eq!(
+            settings["availableModels"],
+            serde_json::json!(["claude-sonnet-4-6"])
+        );
+        assert_eq!(settings["enabledPlugins"], serde_json::json!({}));
+        assert_eq!(settings["hooks"], serde_json::json!({}));
+        assert_eq!(settings["permissions"]["defaultMode"], "default");
+        assert_eq!(settings["permissions"]["allow"], serde_json::json!([]));
+        let disallowed = meta["claudeCode"]["options"]["disallowedTools"]
+            .as_array()
+            .unwrap();
+        for name in [
+            "Agent",
+            "Task",
+            "Skill",
+            "WebSearch",
+            "WebFetch",
+            "AskUserQuestion",
+        ] {
+            assert!(disallowed.contains(&serde_json::Value::String(name.into())));
+        }
+    }
+
+    #[test]
+    fn claude_profile_rejects_cross_harness_session_reuse() {
+        let locator = SessionLocator {
+            version: 2,
+            harness: crate::runtime::AgentHarness::RestlessManaged,
+            harness_build: "omp-18.0.10".into(),
+            company: "acme_test".into(),
+            actor: "lead".into(),
+            responsibility: "work:abc".into(),
+            cwd: "/company/worktrees/work-abc-r1".into(),
+            model: "anthropic/claude-sonnet-4-6".into(),
+            effort: "high".into(),
+            session_id: "session-1".into(),
+            cumulative_cost_usd: None,
+        };
+        let claude = AcpProfile::new(crate::runtime::AgentHarness::ClaudeAgent).unwrap();
+        assert!(!session_locator_is_reusable(
+            &locator,
+            claude,
+            "/company/worktrees/work-abc-r1",
+            "anthropic/claude-sonnet-4-6",
+            "high",
+            true,
+        ));
+    }
+
+    #[test]
+    fn claude_required_session_options_are_exact_selects() {
+        let options = vec![
+            SessionConfigOption::select(
+                "effort",
+                "Effort",
+                "medium",
+                vec![
+                    SessionConfigSelectOption::new("medium", "Medium"),
+                    SessionConfigSelectOption::new("high", "High"),
+                ],
+            ),
+            SessionConfigOption::select(
+                "mode",
+                "Permission mode",
+                "plan",
+                vec![
+                    SessionConfigSelectOption::new("default", "Default"),
+                    SessionConfigSelectOption::new("plan", "Plan"),
+                ],
+            ),
+        ];
+        assert_eq!(
+            exact_named_config_selection(&options, "effort", "high").unwrap(),
+            ("effort".into(), "high".into())
+        );
+        assert_eq!(
+            exact_named_config_selection(&options, "mode", "default").unwrap(),
+            ("mode".into(), "default".into())
+        );
+        assert!(exact_named_config_selection(&options, "effort", "ultra").is_err());
     }
 
     #[test]

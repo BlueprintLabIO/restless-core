@@ -63,6 +63,12 @@ impl WakeClaims {
         self.active.contains_key(company)
     }
 
+    pub(crate) fn active_companies(&self) -> Vec<String> {
+        let mut companies = self.active.keys().cloned().collect::<Vec<_>>();
+        companies.sort();
+        companies
+    }
+
     fn queue(&mut self, company: &str, reason: &str) {
         self.pending.insert(company.to_string(), reason.to_string());
     }
@@ -366,6 +372,12 @@ async fn scan_all_companies(daemon: &Arc<Daemon>, in_flight: &InFlight) {
 }
 
 async fn scan_company(daemon: &Arc<Daemon>, in_flight: &InFlight, company: &str) {
+    // Hold one admission lease across observation, claim and dispatch. A
+    // replacement therefore sees either this scan or the actor it launched,
+    // never a false idle gap between them.
+    let Some(_lifecycle_lease) = daemon.lifecycle.try_enter() else {
+        return;
+    };
     if !matches!(runtime::status(company).await, Ok(ContainerStatus::Running)) {
         return;
     }
@@ -747,6 +759,9 @@ pub(crate) async fn run_exec_turn(
 
 /// Fire a free-form Exec conversation. It never owns or mutates Work.
 async fn fire_exec(daemon: &Arc<Daemon>, in_flight: &InFlight, company: &str, reason: &str) {
+    let Some(_lifecycle_lease) = daemon.lifecycle.try_enter() else {
+        return;
+    };
     if daemon.staff.is_actor_running(company, "exec") {
         in_flight
             .lock()
@@ -800,6 +815,9 @@ async fn fire_exec(daemon: &Arc<Daemon>, in_flight: &InFlight, company: &str, re
 }
 
 async fn fire_pending(daemon: &Arc<Daemon>, in_flight: &InFlight) {
+    if daemon.lifecycle.is_draining() {
+        return;
+    }
     let ready = in_flight.lock().expect("in-flight guard").take_ready();
     for (company, reason) in ready {
         fire_exec(daemon, in_flight, &company, &reason).await;

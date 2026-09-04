@@ -41,6 +41,7 @@ const RELAY_RUNTIME_URL: &str = "http://host.docker.internal:7790";
 const MODEL_CAPABILITY_ENV: &str = "RESTLESS_MODEL_CAPABILITY";
 const DISABLED_LOCAL_DISCOVERY_URL: &str = "http://127.0.0.1:1/v1";
 pub(crate) const RESPONSES_TARIFF_VERSION: &str = "omp-18.0.10-gpt-5.6-2026-08-30";
+pub(crate) const ANTHROPIC_TARIFF_VERSION: &str = "anthropic-list-2026-05-12";
 
 #[derive(Debug, Clone)]
 struct GatewayEndpoints {
@@ -664,6 +665,7 @@ pub async fn start(
     )
     .await?;
     let responses_routes = direct_responses_routes(&provider_credentials)?;
+    let anthropic_routes = direct_anthropic_routes(&provider_credentials)?;
     let providers = provider_credentials
         .into_iter()
         .map(|(provider, credential)| (provider, credential.billing()))
@@ -677,6 +679,7 @@ pub async fn start(
             upstream_token: gateway_token,
             upstream_url: endpoints.gateway_host_url,
             responses_routes,
+            anthropic_routes,
             http: reqwest::Client::builder()
                 .timeout(Duration::from_secs(15 * 60))
                 .build()
@@ -941,11 +944,18 @@ struct RelayState {
     upstream_token: String,
     upstream_url: String,
     responses_routes: BTreeMap<String, DirectResponsesRoute>,
+    anthropic_routes: BTreeMap<String, DirectAnthropicRoute>,
     http: reqwest::Client,
 }
 
 #[derive(Clone)]
 struct DirectResponsesRoute {
+    base_url: String,
+    api_key: String,
+}
+
+#[derive(Clone)]
+struct DirectAnthropicRoute {
     base_url: String,
     api_key: String,
 }
@@ -981,6 +991,38 @@ fn direct_responses_routes(
     Ok(routes)
 }
 
+fn direct_anthropic_routes(
+    credentials: &BTreeMap<String, ProviderCredential>,
+) -> Result<BTreeMap<String, DirectAnthropicRoute>> {
+    let mut routes = BTreeMap::new();
+    if let Some(ProviderCredential::ApiKey(api_key)) = credentials.get("anthropic") {
+        let mut url = reqwest::Url::parse(
+            &std::env::var("RESTLESS_ANTHROPIC_BASE_URL")
+                .unwrap_or_else(|_| "https://api.anthropic.com/v1".to_string()),
+        )
+        .context("parse RESTLESS_ANTHROPIC_BASE_URL for the Anthropic relay")?;
+        if !matches!(url.scheme(), "http" | "https")
+            || !url.username().is_empty()
+            || url.password().is_some()
+            || url.query().is_some()
+            || url.fragment().is_some()
+        {
+            bail!("RESTLESS_ANTHROPIC_BASE_URL is not a credential-free HTTP(S) origin/path");
+        }
+        if url.path() == "/" || url.path().is_empty() {
+            url.set_path("/v1");
+        }
+        routes.insert(
+            "anthropic".to_string(),
+            DirectAnthropicRoute {
+                base_url: url.as_str().trim_end_matches('/').to_string(),
+                api_key: api_key.clone(),
+            },
+        );
+    }
+    Ok(routes)
+}
+
 async fn start_runtime_relay(
     state: RelayState,
     relay_bind: &str,
@@ -992,6 +1034,11 @@ async fn start_runtime_relay(
         .route("/v1/models", get(relay_models))
         .route("/v1/pi/stream", post(relay_pi_stream))
         .route("/v1/responses", post(relay_responses))
+        .route("/v1/messages", post(relay_anthropic_messages))
+        .route(
+            "/v1/messages/count_tokens",
+            post(relay_anthropic_count_tokens),
+        )
         .layer(DefaultBodyLimit::max(2 * 1024 * 1024))
         .with_state(state);
     Ok(tokio::spawn(async move {
@@ -1335,6 +1382,289 @@ async fn relay_responses(
         .unwrap_or_else(|_| relay_error(StatusCode::BAD_GATEWAY, "could not relay model stream"))
 }
 
+/// Relay Anthropic's native Messages stream for the certified Claude Agent
+/// adapter. The company process authenticates with its exact-model Restless
+/// capability; only this host-side hop can replace it with the provider key.
+async fn relay_anthropic_messages(
+    State(state): State<RelayState>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response<Body> {
+    let token = match bearer_capability(&headers) {
+        Ok(token) => token,
+        Err(error) => return relay_error(StatusCode::UNAUTHORIZED, &error),
+    };
+    let grant = match state.capabilities.verify_model(token) {
+        Ok(grant) => grant,
+        Err(error) => {
+            return relay_error(
+                StatusCode::UNAUTHORIZED,
+                &format!("invalid model capability: {error:#}"),
+            )
+        }
+    };
+    let (provider, model_id) = match split_model(&grant.model) {
+        Ok(parts) => parts,
+        Err(error) => return relay_error(StatusCode::UNAUTHORIZED, &format!("{error:#}")),
+    };
+    if provider != "anthropic" {
+        return relay_error(
+            StatusCode::FORBIDDEN,
+            "Anthropic Messages requires an anthropic model capability",
+        );
+    }
+    let mut request = match serde_json::from_slice::<serde_json::Value>(&body) {
+        Ok(request) => request,
+        Err(_) => return relay_error(StatusCode::BAD_REQUEST, "model request body is not JSON"),
+    };
+    let requested = match request.get("model").and_then(serde_json::Value::as_str) {
+        Some(model) if !model.is_empty() => model,
+        _ => return relay_error(StatusCode::BAD_REQUEST, "Messages request has no model"),
+    };
+    if requested != model_id && requested != grant.model {
+        return relay_error(
+            StatusCode::FORBIDDEN,
+            "model capability does not permit this exact model",
+        );
+    }
+    if request.get("stream").and_then(serde_json::Value::as_bool) != Some(true) {
+        return relay_error(
+            StatusCode::BAD_REQUEST,
+            "Runtime Messages requests must stream for terminal accounting",
+        );
+    }
+    let request_contract = request.to_string();
+    if request_contract.contains("\"ttl\":\"1h\"")
+        || request.get("speed").and_then(serde_json::Value::as_str) == Some("fast")
+        || request
+            .get("inference_geo")
+            .and_then(serde_json::Value::as_str)
+            .is_some_and(|geo| geo != "global")
+    {
+        return relay_error(
+            StatusCode::BAD_REQUEST,
+            "Anthropic request uses an unpriced cache, speed, or inference-region tier",
+        );
+    }
+    request["model"] = serde_json::Value::String(model_id.to_string());
+    if anthropic_tariff_micro_usd(model_id, 0, 0, 0, 0).is_none() {
+        return relay_error(
+            StatusCode::BAD_REQUEST,
+            "exact Anthropic tariff is not pinned for this model",
+        );
+    }
+    if grant.billing != "metered_api" {
+        return relay_error(
+            StatusCode::UNAUTHORIZED,
+            "Claude Agent requires an API-key-backed metered Anthropic route",
+        );
+    }
+    let config = match CompanyConfig::load(&state.root, &grant.company) {
+        Ok(config) => config,
+        Err(_) => {
+            return relay_error(
+                StatusCode::FORBIDDEN,
+                "model capability company is unavailable",
+            )
+        }
+    };
+    let budget = state.spend.budget_state(&config);
+    if !budget.is_available() {
+        return relay_error(
+            StatusCode::PAYMENT_REQUIRED,
+            &budget.owner_message(&config.name),
+        );
+    }
+    let Some(route) = state.anthropic_routes.get(provider) else {
+        return relay_error(
+            StatusCode::BAD_REQUEST,
+            "provider has no admitted Anthropic Messages contract",
+        );
+    };
+    let encoded = match serde_json::to_vec(&request) {
+        Ok(encoded) => encoded,
+        Err(_) => return relay_error(StatusCode::BAD_REQUEST, "could not encode model request"),
+    };
+    let mut upstream_request = state
+        .http
+        .post(format!("{}/messages", route.base_url))
+        .header("x-api-key", &route.api_key)
+        .header(CONTENT_TYPE, "application/json")
+        .body(encoded);
+    for name in ["anthropic-version", "anthropic-beta", "accept"] {
+        if let Some(value) = headers.get(name) {
+            upstream_request = upstream_request.header(name, value);
+        }
+    }
+    let upstream = match upstream_request.send().await {
+        Ok(response) => response,
+        Err(error) => {
+            tracing::warn!(company = %grant.company, actor = %grant.actor, "Anthropic relay upstream transport: {error}");
+            return relay_error(
+                StatusCode::BAD_GATEWAY,
+                "host Anthropic gateway is unavailable",
+            );
+        }
+    };
+    if !upstream.status().is_success() {
+        let status = upstream.status();
+        tracing::warn!(
+            company = %grant.company,
+            actor = %grant.actor,
+            upstream_status = %status,
+            "host Anthropic gateway refused Runtime request"
+        );
+        return relay_error(status, "host Anthropic gateway refused the model request");
+    }
+
+    let status = upstream.status();
+    let upstream_headers = upstream.headers().clone();
+    let request_id = uuid::Uuid::new_v4();
+    let stream = MeteredStream::new_anthropic(
+        upstream.bytes_stream(),
+        state.spend.meter(),
+        MeteredRequest {
+            request_id,
+            company: grant.company,
+            actor: grant.actor,
+            session: grant.session,
+            responsibility: grant.responsibility,
+            work_id: grant.work_id,
+            attempt_id: grant.attempt_id,
+            model: grant.model,
+            billing: ModelBilling::MeteredApi,
+        },
+    );
+    let (stream, _drain) = detach_metered_stream(stream);
+    let mut response = Response::builder()
+        .status(status)
+        .header("x-restless-request-id", request_id.to_string());
+    for name in [CONTENT_TYPE, CACHE_CONTROL] {
+        if let Some(value) = upstream_headers.get(&name) {
+            response = response.header(name, value);
+        }
+    }
+    response
+        .body(Body::from_stream(stream))
+        .unwrap_or_else(|_| relay_error(StatusCode::BAD_GATEWAY, "could not relay model stream"))
+}
+
+/// Relay Anthropic's free token-count operation through the same exact-model
+/// credential boundary as Messages. No spend record is written because the
+/// provider does not charge for this endpoint, but the company process still
+/// never receives the host API key or authority to select another model.
+async fn relay_anthropic_count_tokens(
+    State(state): State<RelayState>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response<Body> {
+    let token = match bearer_capability(&headers) {
+        Ok(token) => token,
+        Err(error) => return relay_error(StatusCode::UNAUTHORIZED, &error),
+    };
+    let grant = match state.capabilities.verify_model(token) {
+        Ok(grant) => grant,
+        Err(error) => {
+            return relay_error(
+                StatusCode::UNAUTHORIZED,
+                &format!("invalid model capability: {error:#}"),
+            )
+        }
+    };
+    let (provider, model_id) = match split_model(&grant.model) {
+        Ok(parts) => parts,
+        Err(error) => return relay_error(StatusCode::UNAUTHORIZED, &format!("{error:#}")),
+    };
+    if provider != "anthropic" {
+        return relay_error(
+            StatusCode::FORBIDDEN,
+            "Anthropic token counting requires an anthropic model capability",
+        );
+    }
+    if grant.billing != "metered_api" {
+        return relay_error(
+            StatusCode::UNAUTHORIZED,
+            "Claude Agent requires an API-key-backed metered Anthropic route",
+        );
+    }
+    let mut request = match serde_json::from_slice::<serde_json::Value>(&body) {
+        Ok(request) => request,
+        Err(_) => return relay_error(StatusCode::BAD_REQUEST, "token-count body is not JSON"),
+    };
+    let requested = match request.get("model").and_then(serde_json::Value::as_str) {
+        Some(model) if !model.is_empty() => model,
+        _ => return relay_error(StatusCode::BAD_REQUEST, "token-count request has no model"),
+    };
+    if requested != model_id && requested != grant.model {
+        return relay_error(
+            StatusCode::FORBIDDEN,
+            "model capability does not permit this exact model",
+        );
+    }
+    if anthropic_tariff_micro_usd(model_id, 0, 0, 0, 0).is_none() {
+        return relay_error(
+            StatusCode::BAD_REQUEST,
+            "exact Anthropic tariff is not pinned for this model",
+        );
+    }
+    request["model"] = serde_json::Value::String(model_id.to_string());
+    let Some(route) = state.anthropic_routes.get(provider) else {
+        return relay_error(
+            StatusCode::BAD_REQUEST,
+            "provider has no admitted Anthropic Messages contract",
+        );
+    };
+    let encoded = match serde_json::to_vec(&request) {
+        Ok(encoded) => encoded,
+        Err(_) => return relay_error(StatusCode::BAD_REQUEST, "could not encode token count"),
+    };
+    let mut upstream_request = state
+        .http
+        .post(format!("{}/messages/count_tokens", route.base_url))
+        .header("x-api-key", &route.api_key)
+        .header(CONTENT_TYPE, "application/json")
+        .body(encoded);
+    for name in ["anthropic-version", "anthropic-beta", "accept"] {
+        if let Some(value) = headers.get(name) {
+            upstream_request = upstream_request.header(name, value);
+        }
+    }
+    let upstream = match upstream_request.send().await {
+        Ok(response) => response,
+        Err(error) => {
+            tracing::warn!(company = %grant.company, actor = %grant.actor, "Anthropic token-count transport: {error}");
+            return relay_error(
+                StatusCode::BAD_GATEWAY,
+                "host Anthropic gateway is unavailable",
+            );
+        }
+    };
+    let status = upstream.status();
+    let content_type = upstream.headers().get(CONTENT_TYPE).cloned();
+    let bytes = match upstream.bytes().await {
+        Ok(bytes) if bytes.len() <= 64 * 1024 => bytes,
+        Ok(_) => {
+            return relay_error(
+                StatusCode::BAD_GATEWAY,
+                "Anthropic token-count response exceeded the relay limit",
+            )
+        }
+        Err(_) => {
+            return relay_error(
+                StatusCode::BAD_GATEWAY,
+                "could not read Anthropic token-count response",
+            )
+        }
+    };
+    let mut response = Response::builder().status(status);
+    if let Some(content_type) = content_type {
+        response = response.header(CONTENT_TYPE, content_type);
+    }
+    response
+        .body(Body::from(bytes))
+        .unwrap_or_else(|_| relay_error(StatusCode::BAD_GATEWAY, "could not relay token count"))
+}
+
 fn detach_metered_stream(
     mut upstream: MeteredStream,
 ) -> (
@@ -1442,6 +1772,15 @@ impl MeteredRequest {
 enum MeteringProtocol {
     PiNative,
     OpenAiResponses,
+    AnthropicMessages,
+}
+
+#[derive(Default)]
+struct AnthropicUsage {
+    input_tokens: u64,
+    output_tokens: u64,
+    cache_creation_input_tokens: u64,
+    cache_read_input_tokens: u64,
 }
 
 /// The relay forwards chunks unchanged but observes enough pi-native SSE to
@@ -1457,6 +1796,7 @@ struct MeteredStream {
     request: MeteredRequest,
     protocol: MeteringProtocol,
     frame_buffer: Vec<u8>,
+    anthropic_usage: AnthropicUsage,
     settled: bool,
     failed: bool,
 }
@@ -1472,6 +1812,7 @@ impl MeteredStream {
             request,
             protocol: MeteringProtocol::PiNative,
             frame_buffer: Vec::new(),
+            anthropic_usage: AnthropicUsage::default(),
             settled: false,
             failed: false,
         }
@@ -1487,6 +1828,23 @@ impl MeteredStream {
             request,
             protocol: MeteringProtocol::OpenAiResponses,
             frame_buffer: Vec::new(),
+            anthropic_usage: AnthropicUsage::default(),
+            settled: false,
+            failed: false,
+        }
+    }
+
+    fn new_anthropic<S>(inner: S, meter: crate::spend::TurnMeter, request: MeteredRequest) -> Self
+    where
+        S: Stream<Item = std::result::Result<Bytes, reqwest::Error>> + Send + 'static,
+    {
+        Self {
+            inner: Box::pin(inner),
+            meter,
+            request,
+            protocol: MeteringProtocol::AnthropicMessages,
+            frame_buffer: Vec::new(),
+            anthropic_usage: AnthropicUsage::default(),
             settled: false,
             failed: false,
         }
@@ -1575,7 +1933,84 @@ impl MeteredStream {
                     _ => {}
                 }
             }
+            MeteringProtocol::AnthropicMessages => {
+                match event.get("type").and_then(serde_json::Value::as_str) {
+                    Some("message_start") => {
+                        if let Some(usage) = event.pointer("/message/usage") {
+                            self.observe_anthropic_usage(usage);
+                        }
+                    }
+                    Some("message_delta") => {
+                        if let Some(usage) = event.get("usage") {
+                            self.observe_anthropic_usage(usage);
+                        }
+                    }
+                    Some("message_stop") => self.record_anthropic_terminal(),
+                    Some("error") => self.failed = true,
+                    _ => {}
+                }
+            }
         }
+    }
+
+    fn observe_anthropic_usage(&mut self, usage: &serde_json::Value) {
+        for (field, target) in [
+            ("input_tokens", &mut self.anthropic_usage.input_tokens),
+            ("output_tokens", &mut self.anthropic_usage.output_tokens),
+            (
+                "cache_creation_input_tokens",
+                &mut self.anthropic_usage.cache_creation_input_tokens,
+            ),
+            (
+                "cache_read_input_tokens",
+                &mut self.anthropic_usage.cache_read_input_tokens,
+            ),
+        ] {
+            if let Some(value) = usage.get(field).and_then(serde_json::Value::as_u64) {
+                *target = value;
+            }
+        }
+    }
+
+    fn record_anthropic_terminal(&mut self) {
+        if self.settled || self.failed {
+            return;
+        }
+        let usage = &self.anthropic_usage;
+        let Some(micro_usd) = split_model(&self.request.model)
+            .ok()
+            .and_then(|(_, model)| {
+                anthropic_tariff_micro_usd(
+                    model,
+                    usage.input_tokens,
+                    usage.output_tokens,
+                    usage.cache_creation_input_tokens,
+                    usage.cache_read_input_tokens,
+                )
+            })
+        else {
+            self.failed = true;
+            return;
+        };
+        let total = usage
+            .input_tokens
+            .saturating_add(usage.output_tokens)
+            .saturating_add(usage.cache_creation_input_tokens)
+            .saturating_add(usage.cache_read_input_tokens);
+        self.meter.record_exact(
+            self.request.spend_record(
+                usage
+                    .input_tokens
+                    .saturating_add(usage.cache_creation_input_tokens)
+                    .saturating_add(usage.cache_read_input_tokens),
+                usage.output_tokens,
+                total,
+                Some(usage.cache_read_input_tokens),
+                micro_usd,
+                restless_model_gateway::SpendSettlement::Accounted,
+            ),
+        );
+        self.settled = true;
     }
 
     fn record_terminal_usage(&mut self, usage: Option<&serde_json::Value>) {
@@ -1818,6 +2253,44 @@ fn response_tariff_micro_usd(
     hundredth_micro_usd.checked_add(99).map(|value| value / 100)
 }
 
+pub(crate) fn responses_model_has_pinned_tariff(provider_model: &str) -> bool {
+    provider_model
+        .strip_prefix("litellm/")
+        .is_some_and(|model| response_tariff_micro_usd(model, 0, 0, 0).is_some())
+}
+
+/// Standard global Claude API tariff. Rates are hundredths of a micro-USD
+/// per token so cache-read fractions remain exact before the final upward
+/// quantisation into the ledger's whole-micro-USD unit. The relay rejects 1h
+/// cache writes, fast mode and non-global inference before this is used.
+fn anthropic_tariff_micro_usd(
+    model: &str,
+    input_tokens: u64,
+    output_tokens: u64,
+    cache_creation_input_tokens: u64,
+    cache_read_input_tokens: u64,
+) -> Option<u64> {
+    let (input_rate, output_rate, cache_write_rate, cache_read_rate): (u64, u64, u64, u64) =
+        match model {
+            "claude-opus-4-6" => (500, 2_500, 625, 50),
+            "claude-sonnet-4-6" | "claude-sonnet-4-5-20250929" => (300, 1_500, 375, 30),
+            "claude-haiku-4-5" | "claude-haiku-4-5-20251001" => (100, 500, 125, 10),
+            _ => return None,
+        };
+    let hundredth_micro_usd = input_tokens
+        .checked_mul(input_rate)?
+        .checked_add(output_tokens.checked_mul(output_rate)?)?
+        .checked_add(cache_creation_input_tokens.checked_mul(cache_write_rate)?)?
+        .checked_add(cache_read_input_tokens.checked_mul(cache_read_rate)?)?;
+    hundredth_micro_usd.checked_add(99).map(|value| value / 100)
+}
+
+pub(crate) fn anthropic_model_has_pinned_tariff(provider_model: &str) -> bool {
+    provider_model
+        .strip_prefix("anthropic/")
+        .is_some_and(|model| anthropic_tariff_micro_usd(model, 0, 0, 0, 0).is_some())
+}
+
 pub fn client() -> Result<&'static ClientConfig> {
     CLIENT
         .get()
@@ -2003,6 +2476,20 @@ fn admit(
                     "no usable host credential for model {}; set credentials.model.inference.{primary_provider}",
                     config.model
                 ),
+            );
+            continue;
+        }
+        if [config.coordination_harness, config.worker_harness]
+            .contains(&crate::runtime::AgentHarness::ClaudeAgent)
+            && !matches!(
+                credentials.get("anthropic"),
+                Some(ProviderCredential::ApiKey(_))
+            )
+        {
+            unstartable.insert(
+                config.name.clone(),
+                "Claude Agent requires an API-key-backed credentials.model.inference.anthropic route; subscription OAuth is not imported into the Runtime"
+                    .to_string(),
             );
             continue;
         }
@@ -2204,7 +2691,8 @@ mod tests {
                 spend_ceiling_usd: crate::runtime::SpendCeiling::from_micro_usd(2),
                 outcome_standard: Default::default(),
                 model: "moonshot/kimi-k3".into(),
-                worker_runtime: crate::runtime::WorkerRuntime::Omp,
+                coordination_harness: crate::runtime::AgentHarness::RestlessManaged,
+                worker_harness: crate::runtime::AgentHarness::RestlessManaged,
                 reasoning_effort: crate::acp::DEFAULT_REASONING_EFFORT.into(),
                 model_failover: Vec::new(),
                 credentials: BTreeMap::new(),
@@ -2231,6 +2719,7 @@ mod tests {
             upstream_token: "host-only-root-bearer".into(),
             upstream_url: OMP_GATEWAY_HOST_URL.into(),
             responses_routes: BTreeMap::new(),
+            anthropic_routes: BTreeMap::new(),
             http: reqwest::Client::new(),
         };
         (capabilities, spend, state)
@@ -2432,7 +2921,8 @@ mod tests {
             spend_ceiling_usd: crate::runtime::SpendCeiling::from_micro_usd(2),
             outcome_standard: Default::default(),
             model: "litellm/gpt-5.6-sol".into(),
-            worker_runtime: crate::runtime::WorkerRuntime::Omp,
+            coordination_harness: crate::runtime::AgentHarness::RestlessManaged,
+            worker_harness: crate::runtime::AgentHarness::RestlessManaged,
             reasoning_effort: crate::acp::DEFAULT_REASONING_EFFORT.into(),
             model_failover: vec!["zai/glm-5.3-flash".into()],
             credentials: BTreeMap::new(),
@@ -2456,7 +2946,8 @@ mod tests {
             spend_ceiling_usd: crate::runtime::SpendCeiling::from_micro_usd(2),
             outcome_standard: Default::default(),
             model: model.into(),
-            worker_runtime: crate::runtime::WorkerRuntime::Omp,
+            coordination_harness: crate::runtime::AgentHarness::RestlessManaged,
+            worker_harness: crate::runtime::AgentHarness::RestlessManaged,
             reasoning_effort: crate::acp::DEFAULT_REASONING_EFFORT.into(),
             model_failover: failover,
             credentials: BTreeMap::new(),
@@ -2500,6 +2991,32 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec!["healthy_test"]
         );
+    }
+
+    #[test]
+    fn claude_agent_admission_requires_a_host_api_key_not_subscription_oauth() {
+        let config = CompanyConfig {
+            name: "claude_test".into(),
+            mission: String::new(),
+            spend_ceiling_usd: crate::runtime::SpendCeiling::from_micro_usd(2),
+            outcome_standard: Default::default(),
+            model: "anthropic/claude-sonnet-4-6".into(),
+            coordination_harness: crate::runtime::AgentHarness::ClaudeAgent,
+            worker_harness: crate::runtime::AgentHarness::ClaudeAgent,
+            reasoning_effort: "high".into(),
+            model_failover: Vec::new(),
+            credentials: BTreeMap::new(),
+            approved_parties: Vec::new(),
+        };
+        let oauth = BTreeMap::from([("anthropic".into(), ProviderCredential::OmpOauth)]);
+        let rejected = admit(std::slice::from_ref(&config), &oauth).unwrap();
+        assert!(rejected.unstartable["claude_test"].contains("API-key-backed"));
+
+        let api_key = BTreeMap::from([(
+            "anthropic".into(),
+            ProviderCredential::ApiKey("host-only".into()),
+        )]);
+        assert!(admit(&[config], &api_key).unwrap().unstartable.is_empty());
     }
 
     #[test]
@@ -2952,6 +3469,120 @@ mod tests {
     }
 
     #[test]
+    fn anthropic_tariff_is_exact_cache_aware_and_conservative() {
+        assert_eq!(
+            anthropic_tariff_micro_usd("claude-sonnet-4-6", 1_000, 100, 50, 200),
+            Some(4_748),
+            "standard input, output, five-minute cache writes and cache reads use the pinned global tariff"
+        );
+        assert_eq!(
+            anthropic_tariff_micro_usd("claude-haiku-4-5", 0, 0, 0, 1),
+            Some(1),
+            "a positive sub-micro-dollar cache-read charge rounds upward"
+        );
+        assert!(anthropic_tariff_micro_usd("claude-sonnet-5", 1, 1, 0, 0).is_none());
+    }
+
+    #[test]
+    fn anthropic_terminal_records_pinned_cost_and_tokens_once() {
+        let root = test_root();
+        let (_issuer, ledger, _state) = test_relay_state(&root);
+        let start = serde_json::json!({
+            "type": "message_start",
+            "message": {
+                "usage": {
+                    "input_tokens": 1_000,
+                    "output_tokens": 0,
+                    "cache_creation_input_tokens": 50,
+                    "cache_read_input_tokens": 200
+                }
+            }
+        });
+        let delta = serde_json::json!({
+            "type": "message_delta",
+            "usage": { "output_tokens": 100 }
+        });
+        let stop = serde_json::json!({ "type": "message_stop" });
+        {
+            let inner = futures_util::stream::empty::<std::result::Result<Bytes, reqwest::Error>>();
+            let mut stream = MeteredStream::new_anthropic(
+                inner,
+                ledger.meter(),
+                metered_request(
+                    "acme_test",
+                    "claude-worker",
+                    "messages-session",
+                    "anthropic/claude-sonnet-4-6",
+                ),
+            );
+            stream.observe(&Bytes::from(format!("data: {start}\n\n")));
+            stream.observe(&Bytes::from(format!("data: {delta}\n\n")));
+            stream.observe(&Bytes::from(format!("data: {stop}\n\n")));
+            stream.observe(&Bytes::from(format!("data: {stop}\n\n")));
+        }
+        let spool =
+            std::fs::read_to_string(root.join("cells/acme_test/spend/spend.jsonl")).unwrap();
+        let records = spool
+            .lines()
+            .map(|line| serde_json::from_str::<serde_json::Value>(line).unwrap())
+            .collect::<Vec<_>>();
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0]["inputTokens"], 1_250);
+        assert_eq!(records[0]["outputTokens"], 100);
+        assert_eq!(records[0]["totalTokens"], 1_350);
+        assert_eq!(records[0]["cachedInputTokens"], 200);
+        assert_eq!(records[0]["costMicroUsd"], 4_748);
+
+        drop(ledger);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn anthropic_relay_enforces_exact_model_and_streaming_before_forwarding() {
+        let root = test_root();
+        let (issuer, ledger, state) = test_relay_state(&root);
+        let token = issuer
+            .issue_model_session(
+                "acme_test",
+                "claude-worker",
+                "messages-session",
+                "anthropic",
+                "anthropic/claude-sonnet-4-6",
+                "metered_api",
+                "work:delivery",
+                None,
+                None,
+            )
+            .unwrap();
+        let wrong_model = relay_anthropic_messages(
+            State(state.clone()),
+            bearer_headers(&token),
+            Bytes::from_static(br#"{"model":"claude-opus-4-6","stream":true}"#),
+        )
+        .await;
+        assert_eq!(wrong_model.status(), StatusCode::FORBIDDEN);
+
+        let non_streaming = relay_anthropic_messages(
+            State(state.clone()),
+            bearer_headers(&token),
+            Bytes::from_static(br#"{"model":"claude-sonnet-4-6","stream":false}"#),
+        )
+        .await;
+        assert_eq!(non_streaming.status(), StatusCode::BAD_REQUEST);
+
+        let wrong_count_model = relay_anthropic_count_tokens(
+            State(state),
+            bearer_headers(&token),
+            Bytes::from_static(br#"{"model":"claude-opus-4-6","messages":[]}"#),
+        )
+        .await;
+        assert_eq!(wrong_count_model.status(), StatusCode::FORBIDDEN);
+
+        drop(ledger);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn responses_terminal_records_pinned_cost_and_tokens_once() {
         let root = test_root();
         let (_issuer, ledger, _state) = test_relay_state(&root);
@@ -3075,7 +3706,8 @@ mod tests {
             spend_ceiling_usd: crate::runtime::SpendCeiling::from_micro_usd(10_000_000),
             outcome_standard: Default::default(),
             model: "moonshot/kimi-k3".into(),
-            worker_runtime: crate::runtime::WorkerRuntime::Omp,
+            coordination_harness: crate::runtime::AgentHarness::RestlessManaged,
+            worker_harness: crate::runtime::AgentHarness::RestlessManaged,
             reasoning_effort: crate::acp::DEFAULT_REASONING_EFFORT.into(),
             model_failover: vec!["anthropic/claude-sonnet-4-5".into()],
             credentials: BTreeMap::new(),
@@ -3148,7 +3780,8 @@ mod tests {
             spend_ceiling_usd: crate::runtime::SpendCeiling::from_micro_usd(10_000_000),
             outcome_standard: Default::default(),
             model: "openai-codex/gpt-5.6-sol".into(),
-            worker_runtime: crate::runtime::WorkerRuntime::Omp,
+            coordination_harness: crate::runtime::AgentHarness::RestlessManaged,
+            worker_harness: crate::runtime::AgentHarness::RestlessManaged,
             reasoning_effort: crate::acp::DEFAULT_REASONING_EFFORT.into(),
             model_failover: vec!["anthropic/claude-sonnet-4-6".into()],
             credentials: BTreeMap::new(),

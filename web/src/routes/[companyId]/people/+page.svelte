@@ -426,7 +426,7 @@
 					<Composer
 						bind:value={composer}
 						bind:files={composerFiles}
-						actionLabel={turn ? 'Interrupt & send' : 'Send'}
+						actionLabel={turn ? 'Queue direction' : 'Send'}
 						disabled={sending}
 						minlength={1}
 						placeholder={turn

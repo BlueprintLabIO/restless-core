@@ -7,18 +7,132 @@
 use std::fs::{File, OpenOptions};
 use std::io::{Seek, SeekFrom, Write};
 use std::path::{Component, Path, PathBuf};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::Arc;
 
 use anyhow::{bail, Context, Result};
 use fs2::FileExt;
 use serde::{Deserialize, Serialize};
 
 pub const PROFILE_ENVIRONMENT_RELATIVE: &str = "credentials/environment.json";
+pub const APPLIANCE_DRAIN_RELATIVE: &str = "machine/appliance-draining.json";
 
 pub const MACOS_PLANE_LABEL: &str = "io.restless.plane";
 pub const MACOS_WAKE_LABEL: &str = "io.restless.wake-due";
 pub const SYSTEMD_PLANE_UNIT: &str = "restless-plane.service";
 pub const SYSTEMD_WAKE_SERVICE: &str = "restless-wake-due.service";
 pub const SYSTEMD_WAKE_TIMER: &str = "restless-wake-due.timer";
+
+/// Admission barrier used while replacing the stable daemon. A request either
+/// enters before the drain and is counted, or observes the closed gate; the
+/// second admission check closes the race between those two operations.
+#[derive(Clone)]
+pub struct LifecycleGate {
+    accepting: Arc<AtomicBool>,
+    active: Arc<AtomicUsize>,
+}
+
+impl LifecycleGate {
+    pub fn new(draining: bool) -> Self {
+        Self {
+            accepting: Arc::new(AtomicBool::new(!draining)),
+            active: Arc::new(AtomicUsize::new(0)),
+        }
+    }
+
+    pub fn try_enter(&self) -> Option<LifecycleLease> {
+        if !self.accepting.load(Ordering::SeqCst) {
+            return None;
+        }
+        self.active.fetch_add(1, Ordering::SeqCst);
+        if !self.accepting.load(Ordering::SeqCst) {
+            self.active.fetch_sub(1, Ordering::SeqCst);
+            return None;
+        }
+        Some(LifecycleLease { gate: self.clone() })
+    }
+
+    pub fn begin_drain(&self) {
+        self.accepting.store(false, Ordering::SeqCst);
+    }
+
+    pub fn resume(&self) {
+        self.accepting.store(true, Ordering::SeqCst);
+    }
+
+    pub fn is_draining(&self) -> bool {
+        !self.accepting.load(Ordering::SeqCst)
+    }
+
+    pub fn active(&self) -> usize {
+        self.active.load(Ordering::SeqCst)
+    }
+}
+
+impl Default for LifecycleGate {
+    fn default() -> Self {
+        Self::new(false)
+    }
+}
+
+pub struct LifecycleLease {
+    gate: LifecycleGate,
+}
+
+impl Drop for LifecycleLease {
+    fn drop(&mut self) {
+        self.gate.active.fetch_sub(1, Ordering::SeqCst);
+    }
+}
+
+#[derive(Serialize)]
+struct DrainMarker {
+    pid: u32,
+    recorded_at_unix_seconds: u64,
+}
+
+pub fn drain_marker_exists(state_root: &Path) -> bool {
+    state_root.join(APPLIANCE_DRAIN_RELATIVE).is_file()
+}
+
+pub fn write_drain_marker(state_root: &Path) -> Result<()> {
+    let path = state_root.join(APPLIANCE_DRAIN_RELATIVE);
+    let parent = path.parent().expect("drain marker has a parent");
+    std::fs::create_dir_all(parent)?;
+    let temporary = parent.join(format!(".appliance-draining-{}.json", std::process::id()));
+    if temporary.exists() {
+        std::fs::remove_file(&temporary)?;
+    }
+    let marker = DrainMarker {
+        pid: std::process::id(),
+        recorded_at_unix_seconds: std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs(),
+    };
+    let mut file = OpenOptions::new()
+        .create_new(true)
+        .write(true)
+        .open(&temporary)?;
+    file.write_all(&serde_json::to_vec_pretty(&marker)?)?;
+    file.sync_all()?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&temporary, std::fs::Permissions::from_mode(0o600))?;
+    }
+    std::fs::rename(&temporary, &path)?;
+    Ok(())
+}
+
+pub fn clear_drain_marker(state_root: &Path) -> Result<()> {
+    let path = state_root.join(APPLIANCE_DRAIN_RELATIVE);
+    match std::fs::remove_file(&path) {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(error).with_context(|| format!("remove {}", path.display())),
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -57,10 +171,10 @@ impl MachineProfile {
             Some(other) => bail!("unknown RESTLESS_PROFILE {other:?}; expected stable|dev|test"),
         };
         let home = std::env::var("HOME").context("HOME is not set")?;
-        let default_root = PathBuf::from(home).join(".restless");
+        let default_root = absolute_clean_path(&PathBuf::from(home).join(".restless"))?;
         let state_root = match std::env::var_os("RESTLESS_HOME") {
             Some(value) => absolute_clean_path(&PathBuf::from(value))?,
-            None if kind == ProfileKind::Stable => default_root,
+            None if kind == ProfileKind::Stable => default_root.clone(),
             None => bail!(
                 "RESTLESS_PROFILE={} requires an explicit RESTLESS_HOME",
                 kind.as_str()
@@ -78,6 +192,12 @@ impl MachineProfile {
             resource_namespace,
         };
         profile.validate()?;
+        if profile.kind == ProfileKind::Stable && profile.state_root != default_root {
+            bail!(
+                "the stable profile requires the canonical per-user state root {}",
+                default_root.display()
+            );
+        }
         Ok(profile)
     }
 
@@ -486,6 +606,7 @@ fn systemd_arg(path: &Path) -> Result<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::os::unix::fs::PermissionsExt;
 
     fn paths(root: &Path) -> ServicePaths {
         ServicePaths {
@@ -570,5 +691,36 @@ mod tests {
             resource_namespace: "ambiguous".into(),
         };
         assert!(invalid.validate().is_err());
+    }
+
+    #[test]
+    fn drain_gate_counts_entered_work_and_refuses_new_work() {
+        let gate = LifecycleGate::default();
+        let first = gate.try_enter().expect("open gate");
+        assert_eq!(gate.active(), 1);
+        gate.begin_drain();
+        assert!(gate.is_draining());
+        assert!(gate.try_enter().is_none());
+        drop(first);
+        assert_eq!(gate.active(), 0);
+        gate.resume();
+        assert!(gate.try_enter().is_some());
+    }
+
+    #[test]
+    fn drain_marker_survives_replacement_and_clears_exactly() {
+        let root = std::env::temp_dir().join(format!("restless-drain-{}", uuid::Uuid::new_v4()));
+        write_drain_marker(&root).unwrap();
+        assert!(drain_marker_exists(&root));
+        let mode = std::fs::metadata(root.join(APPLIANCE_DRAIN_RELATIVE))
+            .unwrap()
+            .permissions()
+            .mode()
+            & 0o777;
+        assert_eq!(mode, 0o600);
+        clear_drain_marker(&root).unwrap();
+        clear_drain_marker(&root).unwrap();
+        assert!(!drain_marker_exists(&root));
+        std::fs::remove_dir_all(root).ok();
     }
 }

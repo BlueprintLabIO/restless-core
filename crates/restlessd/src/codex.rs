@@ -5,10 +5,12 @@
 //! scoped capabilities, hot-session custody, observations and cancellation;
 //! it does not add planning or semantic rescue.
 
+use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use agent_client_protocol::schema::v1::McpServer;
 use anyhow::{bail, Context as _, Result};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest as _, Sha256};
@@ -39,6 +41,106 @@ struct SessionLocator {
     effort: String,
     thread_id: String,
     runner_digest: String,
+    mcp_contract_digest: String,
+}
+
+fn valid_env_name(name: &str) -> bool {
+    !name.is_empty()
+        && name.bytes().enumerate().all(|(index, byte)| {
+            if index == 0 {
+                byte.is_ascii_alphabetic() || byte == b'_'
+            } else {
+                byte.is_ascii_alphanumeric() || byte == b'_'
+            }
+        })
+}
+
+fn valid_mcp_name(name: &str) -> bool {
+    !name.is_empty()
+        && name.len() <= 64
+        && name
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-'))
+}
+
+fn insert_runtime_env(env: &mut BTreeMap<String, String>, name: &str, value: &str) -> Result<()> {
+    if !valid_env_name(name) {
+        bail!("Codex MCP environment name {name:?} is invalid");
+    }
+    if let Some(existing) = env.get(name) {
+        if existing != value {
+            bail!("Codex MCP servers assign conflicting values to environment {name}");
+        }
+    } else {
+        env.insert(name.to_string(), value.to_string());
+    }
+    Ok(())
+}
+
+fn codex_mcp_contract(
+    servers: &[McpServer],
+) -> Result<(Vec<serde_json::Value>, BTreeMap<String, String>, String)> {
+    let mut contract = Vec::with_capacity(servers.len());
+    let mut runtime_env = BTreeMap::new();
+    for (server_index, server) in servers.iter().enumerate() {
+        match server {
+            McpServer::Stdio(server) => {
+                if !valid_mcp_name(&server.name) {
+                    bail!("Codex MCP server name {:?} is invalid", server.name);
+                }
+                let mut env_vars = Vec::with_capacity(server.env.len());
+                for variable in &server.env {
+                    insert_runtime_env(&mut runtime_env, &variable.name, &variable.value)?;
+                    env_vars.push(variable.name.clone());
+                }
+                contract.push(serde_json::json!({
+                    "name": server.name,
+                    "transport": "stdio",
+                    "command": server.command,
+                    "args": server.args,
+                    "env_vars": env_vars,
+                }));
+            }
+            McpServer::Http(server) => {
+                if !valid_mcp_name(&server.name) {
+                    bail!("Codex MCP server name {:?} is invalid", server.name);
+                }
+                let mut env_http_headers = BTreeMap::new();
+                for (header_index, header) in server.headers.iter().enumerate() {
+                    let env_name = format!("RESTLESS_MCP_HEADER_{server_index}_{header_index}");
+                    insert_runtime_env(&mut runtime_env, &env_name, &header.value)?;
+                    env_http_headers.insert(header.name.clone(), env_name);
+                }
+                contract.push(serde_json::json!({
+                    "name": server.name,
+                    "transport": "http",
+                    "url": server.url,
+                    "env_http_headers": env_http_headers,
+                }));
+            }
+            McpServer::Sse(server) => {
+                if !valid_mcp_name(&server.name) {
+                    bail!("Codex MCP server name {:?} is invalid", server.name);
+                }
+                let mut env_http_headers = BTreeMap::new();
+                for (header_index, header) in server.headers.iter().enumerate() {
+                    let env_name = format!("RESTLESS_MCP_HEADER_{server_index}_{header_index}");
+                    insert_runtime_env(&mut runtime_env, &env_name, &header.value)?;
+                    env_http_headers.insert(header.name.clone(), env_name);
+                }
+                contract.push(serde_json::json!({
+                    "name": server.name,
+                    "transport": "http",
+                    "url": server.url,
+                    "env_http_headers": env_http_headers,
+                }));
+            }
+            _ => bail!("Codex does not support this experimental ACP MCP transport"),
+        }
+    }
+    let encoded = serde_json::to_vec(&contract).context("encode Codex MCP launch contract")?;
+    let digest = format!("{:x}", Sha256::digest(encoded));
+    Ok((contract, runtime_env, digest))
 }
 
 fn scope_digest(company: &str, actor: &str, responsibility: &str) -> String {
@@ -204,13 +306,16 @@ pub(crate) struct CodexSession {
     pub(crate) reconstruction_reason: Option<String>,
     pub(crate) runner_digest: String,
     pub(crate) tool_contract_digest: String,
+    pub(crate) mcp_contract_digest: String,
     pub(crate) observed: serde_json::Value,
 }
 
 impl CodexSession {
     pub(crate) fn readiness_observation(&self) -> serde_json::Value {
         serde_json::json!({
-            "transport": "codex_app_server",
+            "harness": "codex",
+            "harness_build": crate::runtime::AgentHarness::Codex.build(),
+            "transport": "codex-app-server-v1",
             "launch_id": self.launch_id,
             "model": self.model,
             "configured_effort": self.effort,
@@ -220,6 +325,7 @@ impl CodexSession {
             "reconstruction_reason": self.reconstruction_reason,
             "runner_digest": self.runner_digest,
             "tool_contract_digest": self.tool_contract_digest,
+            "mcp_contract_digest": self.mcp_contract_digest,
             "responses_tariff_version": crate::model_gateway::RESPONSES_TARIFF_VERSION,
             "observed": self.observed,
             "fresh_process_capability": true,
@@ -228,6 +334,17 @@ impl CodexSession {
 
     pub(crate) fn set_live_observer_enabled(&self, enabled: bool) {
         self.live_observer_enabled.store(enabled, Ordering::Release);
+    }
+
+    pub(crate) async fn cancel(&self) -> Result<()> {
+        send_operation(
+            &self.stdin,
+            serde_json::json!({
+                "op": "interrupt",
+                "request_id": uuid::Uuid::new_v4().simple().to_string(),
+            }),
+        )
+        .await
     }
 
     fn observe(&self, event: LiveSessionEvent) {
@@ -394,6 +511,7 @@ pub(crate) async fn with_agent<F, T>(
     actor: &str,
     responsibility: &str,
     system_prompt: &str,
+    mcp_servers: Vec<McpServer>,
     observer: Option<SessionObserver>,
     drive: F,
 ) -> Result<T>
@@ -410,11 +528,12 @@ where
     if auth.gateway_token_env != MODEL_CAPABILITY_ENV {
         bail!("Codex runner requires the scoped Restless model capability");
     }
+    let (mcp_contract, mcp_runtime_env, mcp_contract_digest) = codex_mcp_contract(&mcp_servers)?;
     let locator_path = locator_path(&auth.company, actor, responsibility);
     let codex_home = home_path(&auth.company, actor, responsibility);
     let prior = read_locator(container, &locator_path).await?;
     if let Some(locator) = &prior {
-        if locator.version != 1
+        if locator.version != 2
             || locator.company != auth.company
             || locator.actor != actor
             || locator.responsibility != responsibility
@@ -423,7 +542,10 @@ where
         }
     }
     let reusable = prior.as_ref().is_some_and(|locator| {
-        locator.cwd == workdir && locator.model == auth.model && locator.effort == auth.effort
+        locator.cwd == workdir
+            && locator.model == auth.model
+            && locator.effort == auth.effort
+            && locator.mcp_contract_digest == mcp_contract_digest
     });
     let reconstructed = prior.is_some() && !reusable;
     let reconstruction_reason = reconstructed.then(|| {
@@ -474,6 +596,10 @@ where
     args.push(auth.coordination_token_env.clone());
     args.push("-e".to_string());
     args.push(auth.gateway_token_env.clone());
+    for name in mcp_runtime_env.keys() {
+        args.push("-e".to_string());
+        args.push(name.clone());
+    }
     args.extend([
         container.to_string(),
         "sh".to_string(),
@@ -486,6 +612,7 @@ where
     let mut child = Command::new("docker")
         .env(&auth.coordination_token_env, &auth.coordination_token)
         .env(&auth.gateway_token_env, &auth.gateway_token)
+        .envs(&mcp_runtime_env)
         .args(args)
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
@@ -526,6 +653,7 @@ where
             "provider_base_url": auth.gateway_url,
             "developer_instructions": system_prompt,
             "thread_id": prior_thread,
+            "mcp_servers": mcp_contract,
         }),
     )
     .await?;
@@ -553,7 +681,7 @@ where
         .context("Codex readiness omitted runner digest")?
         .to_string();
     let locator = SessionLocator {
-        version: 1,
+        version: 2,
         company: auth.company.clone(),
         actor: actor.to_string(),
         responsibility: responsibility.to_string(),
@@ -562,6 +690,7 @@ where
         effort: auth.effort.clone(),
         thread_id: thread_id.clone(),
         runner_digest: runner_digest.clone(),
+        mcp_contract_digest: mcp_contract_digest.clone(),
     };
     persist_locator(container, &locator_path, &locator).await?;
     let tool_contract_digest = prove_tool_contract(container, auth, actor).await?;
@@ -582,6 +711,7 @@ where
         reconstruction_reason,
         runner_digest,
         tool_contract_digest,
+        mcp_contract_digest,
         observed,
     };
     let result = drive(&session).await;
@@ -596,6 +726,12 @@ where
             "Codex session marker {session_marker} is missing; broad process cleanup was refused"
         ))
     };
+    let secret_cleanup = async {
+        crate::acp::purge_exact_secret_residue(container, &codex_home, &auth.gateway_token).await?;
+        crate::acp::purge_exact_secret_residue(container, &codex_home, &auth.coordination_token)
+            .await
+    }
+    .await;
     let artifact_cleanup = crate::acp::remove_and_verify_session_artifacts(
         container,
         &[&session_marker, &session_runtime],
@@ -604,11 +740,12 @@ where
     match result {
         Ok(value) => {
             process_cleanup?;
+            secret_cleanup?;
             artifact_cleanup?;
             Ok(value)
         }
         Err(error) => {
-            if let Err(cleanup) = process_cleanup.and(artifact_cleanup) {
+            if let Err(cleanup) = process_cleanup.and(secret_cleanup).and(artifact_cleanup) {
                 tracing::error!(
                     container,
                     "Codex failed and terminal cleanup also failed: {cleanup:#}"
@@ -622,6 +759,9 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use agent_client_protocol::schema::v1::{
+        EnvVariable, HttpHeader, McpServerHttp, McpServerStdio,
+    };
 
     #[test]
     fn responsibility_scope_is_stable_and_distinct() {
@@ -645,5 +785,46 @@ mod tests {
             event_type(&serde_json::json!({"type":"turn_completed"})),
             "turn_completed"
         );
+    }
+
+    #[test]
+    fn mcp_launch_contract_carries_only_environment_names_not_secret_values() {
+        let stdio_secret = "stdio-secret-that-must-not-serialize";
+        let header_secret = "header-secret-that-must-not-serialize";
+        let servers = vec![
+            McpServer::Stdio(
+                McpServerStdio::new("github", "/opt/restless/bin/mcp-remote")
+                    .args(vec!["https://mcp.example.test".into()])
+                    .env(vec![EnvVariable::new("RESTLESS_TOOL_TOKEN", stdio_secret)]),
+            ),
+            McpServer::Http(
+                McpServerHttp::new("linear", "https://mcp.example.test/v1")
+                    .headers(vec![HttpHeader::new("Authorization", header_secret)]),
+            ),
+        ];
+        let (contract, runtime_env, digest) = codex_mcp_contract(&servers).unwrap();
+        let encoded = serde_json::to_string(&contract).unwrap();
+        assert!(!encoded.contains(stdio_secret));
+        assert!(!encoded.contains(header_secret));
+        assert!(encoded.contains("RESTLESS_TOOL_TOKEN"));
+        assert!(encoded.contains("RESTLESS_MCP_HEADER_1_0"));
+        assert_eq!(runtime_env["RESTLESS_TOOL_TOKEN"], stdio_secret);
+        assert_eq!(runtime_env["RESTLESS_MCP_HEADER_1_0"], header_secret);
+        assert_eq!(digest.len(), 64);
+    }
+
+    #[test]
+    fn mcp_contract_rejects_conflicting_environment_authority() {
+        let servers = vec![
+            McpServer::Stdio(
+                McpServerStdio::new("one", "/bin/one")
+                    .env(vec![EnvVariable::new("SHARED_TOKEN", "one")]),
+            ),
+            McpServer::Stdio(
+                McpServerStdio::new("two", "/bin/two")
+                    .env(vec![EnvVariable::new("SHARED_TOKEN", "two")]),
+            ),
+        ];
+        assert!(codex_mcp_contract(&servers).is_err());
     }
 }

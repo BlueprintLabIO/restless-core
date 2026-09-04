@@ -151,8 +151,13 @@ impl OrgIntel {
         }
         let id = Uuid::new_v4();
         let mut tx = self.pool.begin().await?;
+        // Misfire policies apply only to recurring schedules. Keep one-shot
+        // rows inside the durable schedule constraint without implying a
+        // catch-up window that is never consulted for them.
         sqlx::query(
-            "INSERT INTO schedules (id, actor_id, work_id, reason, fire_at) VALUES ($1,$2,$3,$4,$5)",
+            "INSERT INTO schedules \
+             (id, actor_id, work_id, reason, fire_at, missed_policy, catch_up_grace_seconds) \
+             VALUES ($1,$2,$3,$4,$5,'skip',NULL)",
         )
         .bind(id)
         .bind(actor_id)
