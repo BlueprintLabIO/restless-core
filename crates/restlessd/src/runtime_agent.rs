@@ -2299,6 +2299,8 @@ impl RuntimeFilesystem {
                     temporary_name: format!(".runtime-upload-{write_id}.tmp"),
                     device: 0,
                     inode: 0,
+                    change_time_seconds: 0,
+                    change_time_nanoseconds: 0,
                 };
                 validate_upload_declaration(&requested)?;
                 let state_path = upload_state_path(&self.upload_state_root, write_id);
@@ -2329,7 +2331,7 @@ impl RuntimeFilesystem {
                 data_base64,
             } => {
                 let state = load_upload_state(&self.upload_state_root, write_id)?;
-                match self
+                let advanced = match self
                     .execute_worker(FileWorkerRequest::UploadChunk {
                         state,
                         offset,
@@ -2337,11 +2339,14 @@ impl RuntimeFilesystem {
                     })
                     .await?
                 {
-                    FileWorkerResponse::File(response @ FileResponse::UploadChunkAccepted(_)) => {
-                        Ok(response)
-                    }
-                    _ => Err(RuntimeAgentError::Internal),
-                }
+                    FileWorkerResponse::UploadAdvanced(advanced) => advanced,
+                    _ => return Err(RuntimeAgentError::Internal),
+                };
+                persist_json(
+                    &upload_state_path(&self.upload_state_root, write_id),
+                    &advanced.state,
+                )?;
+                Ok(FileResponse::UploadChunkAccepted(advanced.progress))
             }
             FileRequest::UploadCommit { write_id } => {
                 let state = load_upload_state(&self.upload_state_root, write_id)?;
@@ -2455,6 +2460,7 @@ enum FileWorkerRequest {
 enum FileWorkerResponse {
     File(FileResponse),
     UploadPrepared(PreparedUpload),
+    UploadAdvanced(AdvancedUpload),
 }
 
 #[cfg(target_os = "linux")]
@@ -2610,9 +2616,8 @@ fn execute_file_worker_request(
             state,
             offset,
             data_base64,
-        } => write_upload_chunk(company_root, &state, offset, data_base64)
-            .map(FileResponse::UploadChunkAccepted)
-            .map(FileWorkerResponse::File),
+        } => write_upload_chunk(company_root, state, offset, data_base64)
+            .map(FileWorkerResponse::UploadAdvanced),
         FileWorkerRequest::UploadCommit(state) => commit_upload(company_root, &state)
             .map(FileResponse::Written)
             .map(FileWorkerResponse::File),
@@ -2873,6 +2878,8 @@ struct UploadState {
     temporary_name: String,
     device: u64,
     inode: u64,
+    change_time_seconds: i64,
+    change_time_nanoseconds: i64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -2880,6 +2887,13 @@ struct UploadState {
 struct PreparedUpload {
     state: UploadState,
     upload: RuntimeFileUpload,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct AdvancedUpload {
+    state: UploadState,
+    progress: RuntimeFileUploadProgress,
 }
 
 fn validate_upload_declaration(state: &UploadState) -> Result<(), RuntimeAgentError> {
@@ -2948,6 +2962,8 @@ fn prepare_upload(
     if state.device == 0 && state.inode == 0 {
         state.device = metadata.dev();
         state.inode = metadata.ino();
+        state.change_time_seconds = metadata.ctime();
+        state.change_time_nanoseconds = metadata.ctime_nsec();
     }
     validate_upload_temp(&metadata, &state, true)?;
     verify_upload_path_identity(&parent, &state, &metadata)?;
@@ -2960,10 +2976,10 @@ fn prepare_upload(
 
 fn write_upload_chunk(
     company_root: &Path,
-    state: &UploadState,
+    mut state: UploadState,
     offset: u64,
     data_base64: String,
-) -> Result<RuntimeFileUploadProgress, RuntimeAgentError> {
+) -> Result<AdvancedUpload, RuntimeAgentError> {
     let data = decode_chunk(&data_base64)?;
     let (root, relative) = open_runtime_path(company_root, &state.path)?;
     let (parent, _) = open_parent(&root, &relative)?;
@@ -2973,19 +2989,27 @@ fn write_upload_chunk(
         .open_with(&state.temporary_name, &options)
         .map_err(RuntimeAgentError::file)?;
     let metadata = file.metadata().map_err(RuntimeAgentError::file)?;
-    validate_upload_temp(&metadata, state, true)?;
+    validate_upload_temp(&metadata, &state, true)?;
     if metadata.len() != offset || offset.saturating_add(data.len() as u64) > state.exact_size {
         return Err(RuntimeAgentError::Conflict);
     }
     file.write_all(&data).map_err(RuntimeAgentError::file)?;
     file.sync_data().map_err(RuntimeAgentError::file)?;
     let after = file.metadata().map_err(RuntimeAgentError::file)?;
-    validate_upload_temp(&after, state, true)?;
-    verify_upload_path_identity(&parent, state, &after)?;
-    Ok(RuntimeFileUploadProgress {
-        write_id: state.write_id,
-        accepted_bytes: data.len() as u32,
-        next_offset: offset + data.len() as u64,
+    validate_upload_identity(&after, &state)?;
+    if after.mode() & 0o777 != 0o600 || after.len() > state.exact_size {
+        return Err(RuntimeAgentError::Conflict);
+    }
+    verify_upload_path_identity(&parent, &state, &after)?;
+    state.change_time_seconds = after.ctime();
+    state.change_time_nanoseconds = after.ctime_nsec();
+    Ok(AdvancedUpload {
+        progress: RuntimeFileUploadProgress {
+            write_id: state.write_id,
+            accepted_bytes: data.len() as u32,
+            next_offset: offset + data.len() as u64,
+        },
+        state,
     })
 }
 
@@ -3074,12 +3098,29 @@ fn validate_upload_temp(
     state: &UploadState,
     exact_identity: bool,
 ) -> Result<(), RuntimeAgentError> {
+    validate_upload_identity(metadata, state)?;
+    if metadata.mode() & 0o777 != 0o600
+        || metadata.len() > state.exact_size
+        || (exact_identity
+            && (metadata.dev() != state.device
+                || metadata.ino() != state.inode
+                || metadata.ctime() != state.change_time_seconds
+                || metadata.ctime_nsec() != state.change_time_nanoseconds))
+    {
+        return Err(RuntimeAgentError::Conflict);
+    }
+    Ok(())
+}
+
+fn validate_upload_identity(
+    metadata: &Metadata,
+    state: &UploadState,
+) -> Result<(), RuntimeAgentError> {
     if !metadata.is_file()
         || metadata.uid() != geteuid().as_raw()
-        || metadata.mode() & 0o777 != 0o600
         || metadata.nlink() != 1
-        || metadata.len() > state.exact_size
-        || (exact_identity && (metadata.dev() != state.device || metadata.ino() != state.inode))
+        || metadata.dev() != state.device
+        || metadata.ino() != state.inode
     {
         return Err(RuntimeAgentError::Conflict);
     }
