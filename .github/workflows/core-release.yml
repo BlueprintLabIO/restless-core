@@ -1,0 +1,180 @@
+name: Release immutable Core
+
+on:
+  push:
+    tags: ["restless-core-release-*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+  id-token: write
+  attestations: write
+
+concurrency:
+  group: core-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+        with:
+          toolchain: 1.93.0
+          components: rustfmt
+
+      - name: Install and verify Core source
+        run: |
+          npm --prefix web ci
+          npm --prefix web run check
+          npm --prefix web run check:artifact
+          node --test scripts/core-release-contract.test.mjs
+          docker compose -p restless-plane-contract -f infra/account-plane/cloud-compose.template.yaml config --no-interpolate --quiet
+          cargo fmt --all -- --check
+          cargo test --workspace
+          cargo check --workspace --all-targets
+
+      - name: Build canonical Core UI once
+        run: npm --prefix web run build
+
+      - name: Verify UI bytes and read source-owned release metadata
+        id: metadata
+        env:
+          SOURCE_REVISION: ${{ github.sha }}
+        run: node scripts/create-core-release-manifest.mjs --github-output
+
+      - name: Derive registry image names
+        id: images
+        shell: bash
+        run: |
+          owner="${GITHUB_REPOSITORY_OWNER,,}"
+          test -n "$owner"
+          {
+            echo "ui=ghcr.io/${owner}/restless-core-ui"
+            echo "account=ghcr.io/${owner}/restless-core-account-plane"
+            echo "runtime=ghcr.io/${owner}/restless-core-company-runtime"
+          } >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push Core UI carrier
+        id: ui
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: .
+          file: infra/core-ui-artifact/Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.images.outputs.ui }}:${{ github.sha }}
+          labels: |
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            io.restless.core.ui-artifact=${{ steps.metadata.outputs.ui_artifact_digest }}
+            io.restless.core.ui-route-manifest=${{ steps.metadata.outputs.ui_route_manifest_digest }}
+          provenance: mode=max
+          sbom: true
+
+      - name: Build and push Core account plane
+        id: account
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: .
+          file: infra/account-plane/Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.images.outputs.account }}:${{ github.sha }}
+          build-args: SOURCE_REVISION=${{ github.sha }}
+          labels: |
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            io.restless.core.ui-artifact=${{ steps.metadata.outputs.ui_artifact_digest }}
+            io.restless.core.ui-route-manifest=${{ steps.metadata.outputs.ui_route_manifest_digest }}
+            io.restless.core.product-contract=${{ steps.metadata.outputs.product_contract_version }}
+            io.restless.core.capability-contract=${{ steps.metadata.outputs.capability_contract_version }}
+          provenance: mode=max
+          sbom: true
+
+      - name: Build and push Core company runtime
+        id: runtime
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: .
+          file: infra/company-image/Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.images.outputs.runtime }}:${{ github.sha }}
+          build-args: |
+            RESTLESS_CORE_VERSION=${{ steps.metadata.outputs.core_version }}
+            RESTLESS_SOURCE_REVISION=${{ github.sha }}
+            RESTLESS_API_CONTRACT_VERSION=${{ steps.metadata.outputs.api_contract_version }}
+            RESTLESS_ASSERTION_CONTRACT_VERSION=${{ steps.metadata.outputs.identity_assertion_contract_version }}
+            RESTLESS_SCHEMA_VERSION=${{ steps.metadata.outputs.schema_version }}
+          labels: |
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            io.restless.core.product-contract=${{ steps.metadata.outputs.product_contract_version }}
+            io.restless.core.capability-contract=${{ steps.metadata.outputs.capability_contract_version }}
+          provenance: mode=max
+          sbom: true
+
+      - name: Attest Core UI carrier
+        uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3
+        with:
+          subject-name: ${{ steps.images.outputs.ui }}
+          subject-digest: ${{ steps.ui.outputs.digest }}
+          push-to-registry: true
+
+      - name: Attest Core account plane
+        uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3
+        with:
+          subject-name: ${{ steps.images.outputs.account }}
+          subject-digest: ${{ steps.account.outputs.digest }}
+          push-to-registry: true
+
+      - name: Attest Core company runtime
+        uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3
+        with:
+          subject-name: ${{ steps.images.outputs.runtime }}
+          subject-digest: ${{ steps.runtime.outputs.digest }}
+          push-to-registry: true
+
+      - name: Create and verify Core release manifest
+        env:
+          SOURCE_REVISION: ${{ github.sha }}
+          CORE_UI_IMAGE: ${{ steps.images.outputs.ui }}@${{ steps.ui.outputs.digest }}
+          CORE_ACCOUNT_PLANE_IMAGE: ${{ steps.images.outputs.account }}@${{ steps.account.outputs.digest }}
+          CORE_COMPANY_RUNTIME_IMAGE: ${{ steps.images.outputs.runtime }}@${{ steps.runtime.outputs.digest }}
+        run: |
+          node scripts/create-core-release-manifest.mjs
+          node scripts/create-core-release-manifest.mjs --verify core-release-manifest.json
+          sha256sum core-release-manifest.json > core-release-manifest.sha256
+          test "$(sha256sum infra/account-plane/cloud-compose.template.yaml | cut -d ' ' -f1)" = "${{ steps.metadata.outputs.owner_plane_compose_sha256 }}"
+          sha256sum infra/account-plane/cloud-compose.template.yaml > owner-plane-compose.sha256
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: restless-core-release-${{ github.sha }}
+          path: |
+            core-release-manifest.json
+            core-release-manifest.sha256
+            infra/account-plane/cloud-compose.template.yaml
+            owner-plane-compose.sha256
+            web/build/core-ui-manifest.json
+          if-no-files-found: error
+          retention-days: 90

@@ -1,3 +1,6 @@
+/** Bumped only when the canonical product projections change incompatibly. */
+export const PRODUCT_CONTRACT_VERSION = 1 as const;
+
 export type CompanyRuntimeStatus =
 	| 'pending'
 	| 'provisioning'

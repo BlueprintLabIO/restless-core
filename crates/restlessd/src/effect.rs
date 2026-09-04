@@ -7,16 +7,20 @@
 
 use std::collections::BTreeMap;
 use std::path::Path;
-use std::process::Stdio;
+use std::sync::Arc;
 
 use anyhow::{bail, Context as _, Result};
 use chrono::{DateTime, Utc};
 use serde::Serialize;
 use sha2::{Digest as _, Sha256};
-use tokio::io::AsyncWriteExt;
+use tokio::io::{AsyncRead, AsyncReadExt as _, AsyncWriteExt as _};
 use uuid::Uuid;
 
 use crate::runtime::CompanyConfig;
+use restlessd::runtime_transport::{
+    CompanyPath, RuntimeEffectPhase, RuntimeEnvironment, RuntimeProcess, RuntimeProcessAuthority,
+    RuntimeProcessSpec, RuntimeTransport,
+};
 
 /// Effect children are the only runtime processes that receive live secret
 /// values. Serialising them prevents one actor-selected effect command from
@@ -31,7 +35,74 @@ static EFFECT_CHILD_SERIAL: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_n
 /// overlap an unsupervised child under the shared effect UID. Authority intent
 /// remains `unknown`; killing a local process does not infer the external
 /// result.
-pub async fn sweep_orphans(root: &Path) {
+pub async fn sweep_orphans(root: &Path, runtime_transport: &Arc<dyn RuntimeTransport>) {
+    let backend = restlessd::hosted_runtime::RuntimeBackendKind::from_entry_mode(
+        std::env::var("RESTLESS_ENTRY_MODE").ok().as_deref(),
+    );
+    match backend {
+        Ok(restlessd::hosted_runtime::RuntimeBackendKind::LocalDocker) => {
+            sweep_local_orphans(root).await
+        }
+        Ok(restlessd::hosted_runtime::RuntimeBackendKind::HostedRuntimeBridge) => {
+            sweep_transport_orphans(root, runtime_transport).await
+        }
+        Err(error) => tracing::error!(%error, "cannot select governed-effect recovery backend"),
+    }
+}
+
+async fn sweep_transport_orphans(root: &Path, runtime_transport: &Arc<dyn RuntimeTransport>) {
+    let Ok(entries) = std::fs::read_dir(root.join("companies")) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.extension().and_then(|ext| ext.to_str()) != Some("toml") {
+            continue;
+        }
+        let Some(company) = path.file_stem().and_then(|stem| stem.to_str()) else {
+            continue;
+        };
+        let activity = match runtime_transport.activity(company).await {
+            Ok(activity) => activity,
+            Err(error) => {
+                tracing::warn!(company, %error, "could not observe orphaned governed effects");
+                continue;
+            }
+        };
+        for process in activity.active_processes {
+            let RuntimeProcessAuthority::GovernedEffect {
+                phase, staging_id, ..
+            } = &process.authority
+            else {
+                continue;
+            };
+            let mut recovery = process.authority.clone();
+            if let RuntimeProcessAuthority::GovernedEffect { phase: target, .. } = &mut recovery {
+                *target = if phase.uses_effect_identity() {
+                    RuntimeEffectPhase::RecoverEffectProcess
+                } else {
+                    RuntimeEffectPhase::RecoverCompanyProcess
+                };
+            }
+            if let Err(error) =
+                terminate_runtime_pid(runtime_transport.as_ref(), &recovery, process.pid).await
+            {
+                tracing::warn!(company, process = %process.process_id, %error, "failed to reap orphaned governed effect");
+            }
+            if let RuntimeProcessAuthority::GovernedEffect { phase, .. } = &mut recovery {
+                *phase = RuntimeEffectPhase::RecoverEffectProcess;
+            }
+            let staging = staging_path(*staging_id);
+            if let Err(error) =
+                cleanup_staging(runtime_transport.as_ref(), &recovery, &staging).await
+            {
+                tracing::warn!(company, path = %staging, %error, "failed to clean orphaned governed-effect staging");
+            }
+        }
+    }
+}
+
+async fn sweep_local_orphans(root: &Path) {
     let Ok(entries) = std::fs::read_dir(root.join("companies")) else {
         return;
     };
@@ -149,7 +220,7 @@ pub async fn sweep_orphans(root: &Path) {
                 tracing::warn!(company, path = %candidate, "refusing unexpected governed-effect staging path");
                 continue;
             }
-            if let Err(error) = cleanup_staging(&container, &candidate).await {
+            if let Err(error) = cleanup_local_staging(&container, &candidate).await {
                 tracing::warn!(company, path = %candidate, %error, "failed to clean orphaned governed-effect staging");
             }
         }
@@ -185,6 +256,7 @@ pub struct EffectEnvironment<'a> {
     pub config: &'a CompanyConfig,
     pub authority: &'a crate::authority::AuthorityStore,
     pub org: Option<&'a restless_orgintel::OrgIntel>,
+    pub runtime_transport: &'a Arc<dyn RuntimeTransport>,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -204,6 +276,7 @@ pub async fn request_effect(
         config,
         authority,
         org,
+        runtime_transport,
     } = environment;
     if key.trim().is_empty() {
         bail!("effect needs an idempotency key");
@@ -245,7 +318,9 @@ pub async fn request_effect(
         bail!("finance credential bindings terminate in the host-side Authority adapter");
     }
     if crate::runtime::is_test_company(&config.name) && !secret_bindings.is_empty() {
-        bail!("test companies cannot receive live secret bindings; install a fake CLI for the scenario");
+        bail!(
+            "test companies cannot receive live secret bindings; install a fake CLI for the scenario"
+        );
     }
 
     let party = party
@@ -347,11 +422,42 @@ pub async fn request_effect(
         .map(execution_no)
         .unwrap_or(0)
         .saturating_add(1);
-    // Artifact preparation cannot affect the outside world and happens
-    // before the durable intent. A bad or unreadable attachment therefore
-    // fails cleanly instead of manufacturing an "unknown external outcome".
-    let container = crate::runtime::container_name(&config.name);
-    let (child_argv, staging_dir) = stage_declared_artifacts(&container, &argv, &artifacts).await?;
+    // Preparation is durably attributed but remains distinct from external
+    // intent: a staging failure must not manufacture an unknown-world result.
+    let staging_id = Uuid::new_v4();
+    let preparation_id = authority
+        .emit(
+            &config.name,
+            "effect_preparation",
+            Some(actor),
+            serde_json::json!({
+                "actor": actor,
+                "effect_class": effect_class,
+                "idempotency_key": key,
+                "execution_no": execution_no,
+                "staging_id": staging_id,
+                "command_digest": command_digest,
+            }),
+        )
+        .await?;
+    let preparation_authority = RuntimeProcessAuthority::GovernedEffect {
+        company: config.name.clone(),
+        actor: actor.to_owned(),
+        effect_class: effect_class.to_owned(),
+        authority_id: preparation_id,
+        idempotency_key: key.to_owned(),
+        execution_no,
+        staging_id,
+        phase: RuntimeEffectPhase::WorkspaceAccess,
+    };
+    ensure_effect_workspace_access(runtime_transport.as_ref(), &preparation_authority).await?;
+    let (child_argv, staging_dir) = stage_declared_artifacts(
+        runtime_transport.as_ref(),
+        &preparation_authority,
+        &argv,
+        &artifacts,
+    )
+    .await?;
     let intent = serde_json::json!({
         "idempotency_key": key,
         "execution_no": execution_no,
@@ -361,34 +467,65 @@ pub async fn request_effect(
         "purpose": purpose,
         "artifacts": artifacts,
         "command": command_document,
+        "staging_id": staging_id,
         "started_at": Utc::now(),
     });
-    match authority
+    let intent_id = match authority
         .claim_effect_intent(&config.name, actor, intent)
         .await
     {
-        Ok(true) => {}
-        Ok(false) => {
+        Ok(Some(intent_id)) => intent_id,
+        Ok(None) => {
             if let Some(staging_dir) = staging_dir.as_deref() {
-                cleanup_staging(&container, staging_dir).await?;
+                cleanup_staging(
+                    runtime_transport.as_ref(),
+                    &preparation_authority,
+                    staging_dir,
+                )
+                .await?;
             }
-            bail!("effect {key:?} execution {execution_no} is already in flight or awaiting reconciliation");
+            bail!(
+                "effect {key:?} execution {execution_no} is already in flight or awaiting reconciliation"
+            );
         }
         Err(error) => {
             if let Some(staging_dir) = staging_dir.as_deref() {
-                let _ = cleanup_staging(&container, staging_dir).await;
+                let _ = cleanup_staging(
+                    runtime_transport.as_ref(),
+                    &preparation_authority,
+                    staging_dir,
+                )
+                .await;
             }
             return Err(error);
         }
+    };
+    let mut execution_authority = preparation_authority;
+    if let RuntimeProcessAuthority::GovernedEffect {
+        authority_id,
+        phase,
+        ..
+    } = &mut execution_authority
+    {
+        *authority_id = intent_id;
+        *phase = RuntimeEffectPhase::Execute;
     }
-    let output = run_child(&container, cwd, child_argv, staging_dir, &secrets).await?;
+    let output = run_child(
+        runtime_transport.as_ref(),
+        &execution_authority,
+        cwd,
+        child_argv,
+        staging_dir,
+        &secrets,
+    )
+    .await?;
     let stdout = redact(&String::from_utf8_lossy(&output.stdout), secrets.values());
     let stderr = redact(&String::from_utf8_lossy(&output.stderr), secrets.values());
     let parsed_stdout = serde_json::from_str(stdout.trim())
         .unwrap_or_else(|_| serde_json::Value::String(stdout.chars().take(10_000).collect()));
     let outcome = serde_json::json!({
-        "status": if output.status.success() { "succeeded" } else { "failed" },
-        "exit_code": output.status.code(),
+        "status": if output.success() { "succeeded" } else { "failed" },
+        "exit_code": output.exit_code,
         "stdout": parsed_stdout,
         "stderr": stderr.chars().take(4_000).collect::<String>(),
     });
@@ -403,7 +540,7 @@ pub async fn request_effect(
         artifacts,
         party: party.clone(),
         outcome,
-        success: output.status.success(),
+        success: output.success(),
         actor: actor.to_string(),
         idempotency_key: key.to_string(),
         execution_no,
@@ -580,49 +717,22 @@ pub async fn reconcile_unknown(
 }
 
 async fn run_child(
-    container: &str,
+    runtime_transport: &dyn RuntimeTransport,
+    authority: &RuntimeProcessAuthority,
     cwd: &str,
     child_argv: Vec<String>,
     staging_dir: Option<String>,
     secrets: &BTreeMap<String, String>,
-) -> Result<std::process::Output> {
+) -> Result<EffectOutput> {
     let _serial = EFFECT_CHILD_SERIAL.lock().await;
-    let output = async {
-        ensure_effect_workspace_access(container).await?;
-        let mut child = tokio::process::Command::new("docker")
-            .args([
-                "exec",
-                "-i",
-                "-u",
-                "2001:2000",
-                "-w",
-                cwd,
-                container,
-                "restless",
-                "effect-child",
-            ])
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-            .context("start governed runtime command")?;
-        let envelope =
-            serde_json::to_vec(&serde_json::json!({ "argv": child_argv, "env": secrets }))?;
-        child
-            .stdin
-            .as_mut()
-            .context("governed child stdin")?
-            .write_all(&envelope)
-            .await?;
-        drop(child.stdin.take());
-        child
-            .wait_with_output()
-            .await
-            .context("wait for governed runtime command")
-    }
-    .await;
+    let environment = secrets
+        .iter()
+        .map(|(name, value)| RuntimeEnvironment::secret(name.clone(), value.clone()))
+        .collect();
+    let output =
+        run_runtime_process(runtime_transport, authority, cwd, child_argv, environment).await;
     if let Some(staging_dir) = staging_dir {
-        if let Err(error) = cleanup_staging(container, &staging_dir).await {
+        if let Err(error) = cleanup_staging(runtime_transport, authority, &staging_dir).await {
             if output.is_ok() {
                 tracing::warn!(%error, %staging_dir, "governed artifact staging cleanup failed after child completion");
             }
@@ -636,88 +746,45 @@ async fn run_child(
 /// (UID 2001) while sharing productive files through the company group (GID
 /// 2000). New turns use umask 007; this bounded one-time migration repairs
 /// files that already exist in a long-lived company computer.
-async fn ensure_effect_workspace_access(container: &str) -> Result<()> {
-    const MARKER: &str = "/company/run/.effect-group-access-v1";
-    const PRODUCTIVE_ROOTS: &[&str] = &[
-        "/company/repos",
-        "/company/worktrees",
-        "/company/workspaces",
-        "/company/projects",
-        "/company/outputs",
-        "/company/downloads",
-    ];
-
-    let marker = tokio::process::Command::new("docker")
-        .args(["exec", "-u", "0:0", container, "test", "-f", MARKER])
-        .output()
-        .await
-        .context("probe governed-effect workspace migration")?;
-    if marker.status.success() {
-        return Ok(());
-    }
-    if marker.status.code() != Some(1) {
-        bail!(
-            "cannot inspect governed-effect workspace migration: {}",
-            String::from_utf8_lossy(&marker.stderr).trim()
-        );
-    }
-
-    for root in PRODUCTIVE_ROOTS {
-        let exists = tokio::process::Command::new("docker")
-            .args(["exec", "-u", "0:0", container, "test", "-e", root])
-            .output()
-            .await
-            .with_context(|| format!("inspect productive runtime path {root}"))?;
-        if exists.status.code() == Some(1) {
-            continue;
-        }
-        if !exists.status.success() {
-            bail!(
-                "cannot inspect productive runtime path {root:?}: {}",
-                String::from_utf8_lossy(&exists.stderr).trim()
-            );
-        }
-        let shared = tokio::process::Command::new("docker")
-            .args([
-                "exec", "-u", "0:0", container, "chmod", "-R", "g+rwX", "--", root,
-            ])
-            .output()
-            .await
-            .with_context(|| format!("share productive runtime path {root} with effect UID"))?;
-        if !shared.status.success() {
-            bail!(
-                "cannot share productive runtime path {root:?} with effect UID: {}",
-                String::from_utf8_lossy(&shared.stderr).trim()
-            );
-        }
-    }
-
-    let marked = tokio::process::Command::new("docker")
-        .args([
-            "exec",
-            "-u",
-            "0:0",
-            container,
-            "install",
-            "-o",
-            "2000",
-            "-g",
-            "2000",
-            "-m",
-            "0660",
-            "/dev/null",
-            MARKER,
-        ])
-        .output()
-        .await
-        .context("record governed-effect workspace migration")?;
-    if !marked.status.success() {
-        bail!(
-            "cannot record governed-effect workspace migration: {}",
-            String::from_utf8_lossy(&marked.stderr).trim()
-        );
-    }
-    Ok(())
+async fn ensure_effect_workspace_access(
+    runtime_transport: &dyn RuntimeTransport,
+    authority: &RuntimeProcessAuthority,
+) -> Result<()> {
+    const SCRIPT: &str = r#"
+marker=/company/run/.effect-group-access-v1
+test -f "$marker" && exit 0
+for root do
+  test ! -e "$root" || chmod -R g+rwX -- "$root"
+done
+(umask 117; : > "$marker")
+chmod 0660 "$marker"
+"#;
+    let mut workspace_authority = authority.clone();
+    set_effect_phase(
+        &mut workspace_authority,
+        RuntimeEffectPhase::WorkspaceAccess,
+    )?;
+    let output = run_runtime_process(
+        runtime_transport,
+        &workspace_authority,
+        "/company",
+        vec![
+            "sh".into(),
+            "-c".into(),
+            SCRIPT.into(),
+            "effect-workspace-access".into(),
+            "/company/repos".into(),
+            "/company/worktrees".into(),
+            "/company/workspaces".into(),
+            "/company/projects".into(),
+            "/company/outputs".into(),
+            "/company/downloads".into(),
+        ],
+        Vec::new(),
+    )
+    .await
+    .context("prepare governed-effect workspace access")?;
+    require_success(output, "prepare governed-effect workspace access")
 }
 
 /// Copy only declared local artifacts that appear as exact argv values into a
@@ -725,7 +792,8 @@ async fn ensure_effect_workspace_access(container: &str) -> Result<()> {
 /// receipt retains the original paths; only the child envelope sees staging
 /// paths. URLs and descriptive artifact references are not copied.
 async fn stage_declared_artifacts(
-    container: &str,
+    runtime_transport: &dyn RuntimeTransport,
+    authority: &RuntimeProcessAuthority,
     argv: &[String],
     artifacts: &[String],
 ) -> Result<(Vec<String>, Option<String>)> {
@@ -737,34 +805,29 @@ async fn stage_declared_artifacts(
         return Ok((argv.to_vec(), None));
     }
 
-    let nonce = Uuid::new_v4().simple().to_string();
-    let staging_root = format!("/tmp/restless-effect-stage-{nonce}");
-    let staging_dir = format!("/tmp/restless-effect/{nonce}");
-    let created = tokio::process::Command::new("docker")
-        .args([
-            "exec",
-            "-u",
-            "0:0",
-            container,
-            "install",
-            "-d",
-            "-o",
-            "2000",
-            "-g",
-            "2000",
-            "-m",
-            "0700",
-            &staging_root,
-        ])
-        .output()
-        .await
-        .context("create governed artifact staging directory")?;
-    if !created.status.success() {
-        bail!(
-            "cannot create governed artifact staging directory: {}",
-            String::from_utf8_lossy(&created.stderr).trim()
-        );
-    }
+    let staging_id = match authority {
+        RuntimeProcessAuthority::GovernedEffect { staging_id, .. } => *staging_id,
+        _ => bail!("artifact staging requires governed-effect authority"),
+    };
+    let staging_dir = staging_path(staging_id);
+    let mut staging_authority = authority.clone();
+    set_effect_phase(&mut staging_authority, RuntimeEffectPhase::ArtifactStage)?;
+    let created = run_runtime_process(
+        runtime_transport,
+        &staging_authority,
+        "/company",
+        vec![
+            "install".into(),
+            "-d".into(),
+            "-m".into(),
+            "0700".into(),
+            staging_dir.clone(),
+        ],
+        Vec::new(),
+    )
+    .await
+    .context("create governed artifact staging directory")?;
+    require_success(created, "create governed artifact staging directory")?;
 
     let staged = async {
         let mut rewritten = argv.to_vec();
@@ -773,89 +836,73 @@ async fn stage_declared_artifacts(
                 .file_name()
                 .and_then(|name| name.to_str())
                 .context("declared local artifact has no UTF-8 filename")?;
-            let item_dir = format!("{staging_root}/{index}");
+            let item_dir = format!("{staging_dir}/{index}");
             let destination = format!("{item_dir}/{filename}");
-            let output = tokio::process::Command::new("docker")
-                .args([
-                    "exec",
-                    "-u",
-                    "2000:2000",
-                    container,
-                    "install",
-                    "-D",
-                    "-m",
-                    "0400",
-                    source,
-                    &destination,
-                ])
-                .output()
-                .await
-                .with_context(|| format!("stage declared artifact {source:?}"))?;
-            if !output.status.success() {
-                bail!(
-                    "cannot stage declared artifact {source:?}: {}",
-                    String::from_utf8_lossy(&output.stderr).trim()
-                );
-            }
+            let output = run_runtime_process(
+                runtime_transport,
+                &staging_authority,
+                "/company",
+                vec![
+                    "install".into(),
+                    "-D".into(),
+                    "-m".into(),
+                    "0400".into(),
+                    (*source).clone(),
+                    destination,
+                ],
+                Vec::new(),
+            )
+            .await
+            .with_context(|| format!("stage declared artifact {source:?}"))?;
+            require_success(output, &format!("stage declared artifact {source:?}"))?;
             for value in &mut rewritten {
                 if value == *source {
                     *value = format!("{staging_dir}/{index}/{filename}");
                 }
             }
         }
-        let ownership = tokio::process::Command::new("docker")
-            .args([
-                "exec",
-                "-u",
-                "0:0",
-                container,
-                "chown",
-                "-R",
-                "2001:2000",
-                &staging_root,
-            ])
-            .output()
-            .await
-            .context("seal governed artifact staging ownership")?;
-        if !ownership.status.success() {
-            bail!(
-                "cannot seal governed artifact staging ownership: {}",
-                String::from_utf8_lossy(&ownership.stderr).trim()
-            );
-        }
-        let moved = tokio::process::Command::new("docker")
-            .args([
-                "exec",
-                "-u",
-                "0:0",
-                container,
-                "mv",
-                "--",
-                &staging_root,
-                &staging_dir,
-            ])
-            .output()
-            .await
-            .context("seal governed artifact staging directory")?;
-        if !moved.status.success() {
-            bail!(
-                "cannot seal governed artifact staging directory: {}",
-                String::from_utf8_lossy(&moved.stderr).trim()
-            );
-        }
         Ok::<_, anyhow::Error>(rewritten)
     }
     .await;
 
     if let Err(error) = &staged {
-        let _ = cleanup_staging(container, &staging_root).await;
-        let _ = cleanup_staging(container, &staging_dir).await;
+        let _ = cleanup_staging(runtime_transport, &staging_authority, &staging_dir).await;
         return Err(anyhow::anyhow!("{error:#}"));
     }
     Ok((staged?, Some(staging_dir)))
 }
 
-async fn cleanup_staging(container: &str, path: &str) -> Result<()> {
+async fn cleanup_staging(
+    runtime_transport: &dyn RuntimeTransport,
+    authority: &RuntimeProcessAuthority,
+    path: &str,
+) -> Result<()> {
+    if !valid_staging_path(path) {
+        bail!("refusing to clean unexpected governed staging path {path:?}");
+    }
+    let mut cleanup_authority = authority.clone();
+    if !matches!(
+        cleanup_authority,
+        RuntimeProcessAuthority::GovernedEffect {
+            phase: RuntimeEffectPhase::RecoverEffectProcess,
+            ..
+        }
+    ) {
+        set_effect_phase(&mut cleanup_authority, RuntimeEffectPhase::ArtifactCleanup)?;
+    }
+    let output = run_runtime_process(
+        runtime_transport,
+        &cleanup_authority,
+        "/company",
+        vec!["rm".into(), "-rf".into(), "--".into(), path.into()],
+        Vec::new(),
+    )
+    .await
+    .context("clean governed artifact staging directory")?;
+    require_success(output, "clean governed artifact staging directory")
+}
+
+async fn cleanup_local_staging(container: &str, path: &str) -> Result<()> {
     if !valid_staging_path(path) {
         bail!("refusing to clean unexpected governed staging path {path:?}");
     }
@@ -871,6 +918,125 @@ async fn cleanup_staging(container: &str, path: &str) -> Result<()> {
         );
     }
     Ok(())
+}
+
+#[derive(Debug)]
+struct EffectOutput {
+    exit_code: Option<i32>,
+    signal: Option<i32>,
+    stdout: Vec<u8>,
+    stderr: Vec<u8>,
+}
+
+impl EffectOutput {
+    fn success(&self) -> bool {
+        self.exit_code == Some(0) && self.signal.is_none()
+    }
+}
+
+async fn read_runtime_output(mut source: impl AsyncRead + Unpin) -> std::io::Result<Vec<u8>> {
+    let mut output = Vec::new();
+    source.read_to_end(&mut output).await?;
+    Ok(output)
+}
+
+async fn run_runtime_process(
+    runtime_transport: &dyn RuntimeTransport,
+    authority: &RuntimeProcessAuthority,
+    cwd: &str,
+    mut argv: Vec<String>,
+    environment: Vec<RuntimeEnvironment>,
+) -> Result<EffectOutput> {
+    let executable = argv
+        .first()
+        .cloned()
+        .context("effect Runtime command is empty")?;
+    argv.remove(0);
+    let RuntimeProcess {
+        mut stdin,
+        stdout,
+        stderr,
+        control,
+        ..
+    } = runtime_transport
+        .start_process(RuntimeProcessSpec {
+            operation_id: Uuid::new_v4(),
+            authority: authority.clone(),
+            executable,
+            arguments: argv,
+            working_directory: CompanyPath::parse(cwd.to_owned())
+                .map_err(|error| anyhow::anyhow!(error))?,
+            environment,
+            deadline: Utc::now() + chrono::Duration::hours(23),
+        })
+        .await
+        .map_err(|error| anyhow::anyhow!(error))?;
+    stdin
+        .shutdown()
+        .await
+        .context("close effect Runtime input")?;
+    let stdout = tokio::spawn(read_runtime_output(stdout));
+    let stderr = tokio::spawn(read_runtime_output(stderr));
+    let exit = control
+        .wait()
+        .await
+        .map_err(|error| anyhow::anyhow!(error))?;
+    Ok(EffectOutput {
+        exit_code: exit.code,
+        signal: exit.signal,
+        stdout: stdout.await.context("join effect stdout")??,
+        stderr: stderr.await.context("join effect stderr")??,
+    })
+}
+
+async fn terminate_runtime_pid(
+    runtime_transport: &dyn RuntimeTransport,
+    authority: &RuntimeProcessAuthority,
+    pid: u32,
+) -> Result<()> {
+    if pid <= 1 {
+        bail!("refusing invalid governed-effect Runtime PID");
+    }
+    let output = run_runtime_process(
+        runtime_transport,
+        authority,
+        "/company",
+        vec![
+            "sh".into(),
+            "-c".into(),
+            "kill -TERM \"$1\" 2>/dev/null || true; sleep 0.1; kill -KILL \"$1\" 2>/dev/null || true".into(),
+            "effect-orphan-recovery".into(),
+            pid.to_string(),
+        ],
+        Vec::new(),
+    )
+    .await?;
+    require_success(output, "terminate orphaned governed effect")
+}
+
+fn require_success(output: EffectOutput, operation: &str) -> Result<()> {
+    if output.success() {
+        return Ok(());
+    }
+    bail!(
+        "{operation}: {}",
+        String::from_utf8_lossy(&output.stderr).trim()
+    )
+}
+
+fn set_effect_phase(
+    authority: &mut RuntimeProcessAuthority,
+    phase: RuntimeEffectPhase,
+) -> Result<()> {
+    let RuntimeProcessAuthority::GovernedEffect { phase: target, .. } = authority else {
+        bail!("governed effect process requires exact effect authority");
+    };
+    *target = phase;
+    Ok(())
+}
+
+fn staging_path(staging_id: Uuid) -> String {
+    format!("/tmp/restless-effect/{}", staging_id.simple())
 }
 
 fn valid_staging_path(path: &str) -> bool {
@@ -986,6 +1152,310 @@ mod tests {
     use super::*;
     use std::io::Write as _;
     use std::process::{Command, Stdio};
+    use std::sync::Mutex;
+
+    use restlessd::runtime_transport::{
+        RuntimeActiveProcess, RuntimeActivity, RuntimeDirectoryEntry, RuntimeDuplex,
+        RuntimeFileMetadata, RuntimeProcessControl, RuntimeProcessExit, RuntimeReadiness,
+        RuntimeService, RuntimeTransportError,
+    };
+
+    #[derive(Default)]
+    struct NetworkEffectTransport {
+        specifications: Mutex<Vec<RuntimeProcessSpec>>,
+        active_processes: Mutex<Vec<RuntimeActiveProcess>>,
+    }
+
+    struct CompletedProcess;
+
+    #[async_trait::async_trait]
+    impl RuntimeProcessControl for CompletedProcess {
+        async fn signal(
+            &self,
+            _signal: restlessd::runtime_transport::RuntimeSignal,
+        ) -> Result<(), RuntimeTransportError> {
+            Ok(())
+        }
+
+        async fn wait(&self) -> Result<RuntimeProcessExit, RuntimeTransportError> {
+            Ok(RuntimeProcessExit {
+                code: Some(0),
+                signal: None,
+                finished_at: Utc::now(),
+            })
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl RuntimeTransport for NetworkEffectTransport {
+        async fn readiness(
+            &self,
+            _company: &str,
+        ) -> Result<RuntimeReadiness, RuntimeTransportError> {
+            Err(RuntimeTransportError::Unavailable)
+        }
+
+        async fn start_process(
+            &self,
+            specification: RuntimeProcessSpec,
+        ) -> Result<RuntimeProcess, RuntimeTransportError> {
+            specification.validate(Utc::now())?;
+            let output = if matches!(
+                &specification.authority,
+                RuntimeProcessAuthority::GovernedEffect {
+                    phase: RuntimeEffectPhase::Execute,
+                    ..
+                }
+            ) {
+                specification
+                    .environment
+                    .first()
+                    .map(|value| value.value.clone())
+                    .unwrap_or_default()
+            } else {
+                String::new()
+            };
+            self.specifications.lock().unwrap().push(specification);
+            let (stdin, mut stdin_reader) = tokio::io::duplex(1024);
+            tokio::spawn(async move {
+                let mut body = Vec::new();
+                let _ = stdin_reader.read_to_end(&mut body).await;
+            });
+            let (mut stdout_writer, stdout) = tokio::io::duplex(1024);
+            let (mut stderr_writer, stderr) = tokio::io::duplex(1024);
+            let stderr_output = output.clone();
+            tokio::spawn(async move {
+                let _ = stdout_writer.write_all(output.as_bytes()).await;
+            });
+            tokio::spawn(async move {
+                let _ = stderr_writer.write_all(stderr_output.as_bytes()).await;
+            });
+            Ok(RuntimeProcess {
+                process_id: Uuid::new_v4(),
+                pid: 42,
+                stdin: Box::pin(stdin),
+                stdout: Box::pin(stdout),
+                stderr: Box::pin(stderr),
+                control: Box::new(CompletedProcess),
+            })
+        }
+
+        async fn stat(
+            &self,
+            _company: &str,
+            _path: &CompanyPath,
+        ) -> Result<RuntimeFileMetadata, RuntimeTransportError> {
+            Err(RuntimeTransportError::NotFound)
+        }
+
+        async fn list(
+            &self,
+            _company: &str,
+            _path: &CompanyPath,
+        ) -> Result<Vec<RuntimeDirectoryEntry>, RuntimeTransportError> {
+            Err(RuntimeTransportError::NotFound)
+        }
+
+        async fn read(
+            &self,
+            _company: &str,
+            _path: &CompanyPath,
+            _maximum_bytes: usize,
+        ) -> Result<Vec<u8>, RuntimeTransportError> {
+            Err(RuntimeTransportError::NotFound)
+        }
+
+        async fn atomic_write(
+            &self,
+            _company: &str,
+            _operation_id: Uuid,
+            _path: &CompanyPath,
+            _contents: &[u8],
+            _mode: u32,
+        ) -> Result<(), RuntimeTransportError> {
+            Err(RuntimeTransportError::Unavailable)
+        }
+
+        async fn rename(
+            &self,
+            _company: &str,
+            _operation_id: Uuid,
+            _source: &CompanyPath,
+            _destination: &CompanyPath,
+        ) -> Result<(), RuntimeTransportError> {
+            Err(RuntimeTransportError::Unavailable)
+        }
+
+        async fn digest(
+            &self,
+            _company: &str,
+            _path: &CompanyPath,
+        ) -> Result<[u8; 32], RuntimeTransportError> {
+            Err(RuntimeTransportError::Unavailable)
+        }
+
+        async fn open_service(
+            &self,
+            _company: &str,
+            _operation_id: Uuid,
+            _service: RuntimeService,
+            _idle_timeout: std::time::Duration,
+        ) -> Result<RuntimeDuplex, RuntimeTransportError> {
+            Err(RuntimeTransportError::Unavailable)
+        }
+
+        async fn activity(&self, _company: &str) -> Result<RuntimeActivity, RuntimeTransportError> {
+            Ok(RuntimeActivity {
+                observed_at: Utc::now(),
+                active_processes: self.active_processes.lock().unwrap().clone(),
+                open_service_streams: 0,
+            })
+        }
+    }
+
+    fn effect_authority(phase: RuntimeEffectPhase) -> RuntimeProcessAuthority {
+        RuntimeProcessAuthority::GovernedEffect {
+            company: "company".into(),
+            actor: "exec".into(),
+            effect_class: "customer-contact.email".into(),
+            authority_id: 71,
+            idempotency_key: "welcome-1".into(),
+            execution_no: 1,
+            staging_id: Uuid::new_v4(),
+            phase,
+        }
+    }
+
+    #[tokio::test]
+    async fn network_effect_path_uses_transport_for_staging_execution_cleanup_and_redacts() {
+        let transport = NetworkEffectTransport::default();
+        let authority = effect_authority(RuntimeEffectPhase::WorkspaceAccess);
+        ensure_effect_workspace_access(&transport, &authority)
+            .await
+            .unwrap();
+        let artifact = "/company/outputs/proposal.pdf".to_owned();
+        let (argv, staging) = stage_declared_artifacts(
+            &transport,
+            &authority,
+            &["sender".into(), artifact.clone()],
+            std::slice::from_ref(&artifact),
+        )
+        .await
+        .unwrap();
+        assert_ne!(argv[1], artifact);
+        let secrets = BTreeMap::from([("PROVIDER_TOKEN".into(), "custody-sentinel".into())]);
+        let mut execute_authority = authority;
+        set_effect_phase(&mut execute_authority, RuntimeEffectPhase::Execute).unwrap();
+        let output = run_child(
+            &transport,
+            &execute_authority,
+            "/company",
+            argv,
+            staging,
+            &secrets,
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            redact(&String::from_utf8_lossy(&output.stdout), secrets.values()),
+            "[REDACTED]"
+        );
+        assert_eq!(
+            redact(&String::from_utf8_lossy(&output.stderr), secrets.values()),
+            "[REDACTED]"
+        );
+
+        let specifications = transport.specifications.lock().unwrap();
+        let phases = specifications
+            .iter()
+            .filter_map(|specification| match &specification.authority {
+                RuntimeProcessAuthority::GovernedEffect { phase, .. } => Some(*phase),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(
+            phases,
+            vec![
+                RuntimeEffectPhase::WorkspaceAccess,
+                RuntimeEffectPhase::ArtifactStage,
+                RuntimeEffectPhase::ArtifactStage,
+                RuntimeEffectPhase::Execute,
+                RuntimeEffectPhase::ArtifactCleanup,
+            ]
+        );
+        assert!(specifications.iter().all(|specification| {
+            specification.executable != "docker"
+                && !specification
+                    .arguments
+                    .iter()
+                    .any(|value| value == "docker")
+        }));
+        let execution = specifications
+            .iter()
+            .find(|specification| {
+                matches!(
+                    &specification.authority,
+                    RuntimeProcessAuthority::GovernedEffect {
+                        phase: RuntimeEffectPhase::Execute,
+                        ..
+                    }
+                )
+            })
+            .unwrap();
+        let debug = format!("{:?}", execution.environment);
+        assert!(debug.contains("[REDACTED]"));
+        assert!(!debug.contains("custody-sentinel"));
+        assert!(execution
+            .environment
+            .iter()
+            .all(|variable| variable.sensitive));
+    }
+
+    #[tokio::test]
+    async fn network_orphan_recovery_targets_only_exact_governed_effect_authority() {
+        let transport = Arc::new(NetworkEffectTransport::default());
+        let authority = effect_authority(RuntimeEffectPhase::Execute);
+        transport
+            .active_processes
+            .lock()
+            .unwrap()
+            .push(RuntimeActiveProcess {
+                process_id: Uuid::new_v4(),
+                pid: 4242,
+                authority: authority.clone(),
+                started_at: Utc::now(),
+            });
+        let root = std::env::temp_dir().join(format!("restless-effect-sweep-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(root.join("companies")).unwrap();
+        std::fs::write(root.join("companies/company.toml"), "name = \"company\"\n").unwrap();
+        let erased: Arc<dyn RuntimeTransport> = transport.clone();
+
+        sweep_transport_orphans(&root, &erased).await;
+
+        let specifications = transport.specifications.lock().unwrap();
+        assert_eq!(specifications.len(), 2);
+        assert!(specifications.iter().all(|specification| matches!(
+            &specification.authority,
+            RuntimeProcessAuthority::GovernedEffect {
+                authority_id: 71,
+                phase: RuntimeEffectPhase::RecoverEffectProcess,
+                ..
+            }
+        )));
+        assert_eq!(
+            specifications[0].arguments.last().map(String::as_str),
+            Some("4242")
+        );
+        assert!(specifications.iter().all(|specification| {
+            specification.executable != "docker"
+                && !specification
+                    .arguments
+                    .iter()
+                    .any(|argument| argument == "docker")
+        }));
+        drop(specifications);
+        std::fs::remove_dir_all(root).unwrap();
+    }
 
     #[test]
     fn governance_identifiers_and_paths_are_bounded() {

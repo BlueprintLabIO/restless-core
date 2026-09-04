@@ -798,6 +798,9 @@ mod tests {
                 root: root.clone(),
                 handles: std::sync::Mutex::new(std::collections::HashMap::new()),
             },
+            runtime_transport: Arc::new(
+                restlessd::runtime_transport::RuntimeTransportSlot::default(),
+            ),
             staff: crate::staff::StaffRegistry::default(),
             activities: crate::activity::AgentActivityStreams::default(),
             in_flight: Arc::new(std::sync::Mutex::new(crate::schedule::WakeClaims::default())),
@@ -975,6 +978,9 @@ mod tests {
                 root: root.clone(),
                 handles: std::sync::Mutex::new(std::collections::HashMap::new()),
             },
+            runtime_transport: std::sync::Arc::new(
+                restlessd::runtime_transport::RuntimeTransportSlot::default(),
+            ),
             staff: crate::staff::StaffRegistry::default(),
             activities: crate::activity::AgentActivityStreams::default(),
             in_flight: std::sync::Arc::new(std::sync::Mutex::new(
@@ -1081,6 +1087,9 @@ mod tests {
                 root: root.clone(),
                 handles: std::sync::Mutex::new(std::collections::HashMap::new()),
             },
+            runtime_transport: std::sync::Arc::new(
+                restlessd::runtime_transport::RuntimeTransportSlot::default(),
+            ),
             staff: crate::staff::StaffRegistry::default(),
             activities: crate::activity::AgentActivityStreams::default(),
             in_flight: std::sync::Arc::new(std::sync::Mutex::new(

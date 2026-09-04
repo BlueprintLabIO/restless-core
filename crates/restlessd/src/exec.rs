@@ -9,6 +9,9 @@
 
 use anyhow::{Context, Result};
 use restless_orgintel::OrgIntel;
+use restlessd::runtime_transport::{
+    CompanyPath, RuntimeFileKind, RuntimeProcessAuthority, RuntimeTransport, RuntimeTransportError,
+};
 use serde::Serialize;
 use std::collections::HashSet;
 use tokio_util::sync::CancellationToken;
@@ -16,7 +19,7 @@ use tokio_util::sync::CancellationToken;
 use crate::acp::{self, AgentSession};
 use crate::context::{self, ContextSnapshot};
 use crate::health;
-use crate::runtime::{self, CompanyConfig};
+use crate::runtime::CompanyConfig;
 use crate::spend::SpendLedger;
 
 /// Bound on the end-of-turn ask: the answer is one line of JSON, so a
@@ -27,6 +30,7 @@ use crate::spend::SpendLedger;
 /// above exists to bound.
 const TERMINATION_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2 * 60);
 const CONTINUE_WAKE_DELAY_SECONDS: u32 = 60;
+const EXEC_CONTINUITY_FILE_LIMIT: usize = 256 * 1024;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -89,6 +93,7 @@ pub(crate) struct TerminationDecision {
 )]
 pub async fn wake(
     config: &CompanyConfig,
+    runtime_transport: &std::sync::Arc<dyn RuntimeTransport>,
     spend: &SpendLedger,
     authority: &crate::authority::AuthorityStore,
     capabilities: &crate::capability::CapabilityIssuer,
@@ -97,7 +102,6 @@ pub async fn wake(
     observer: Option<acp::SessionObserver>,
     cancellation: &CancellationToken,
 ) -> Result<WakeReport> {
-    let container = runtime::container_name(&config.name);
     // Exec conversation is free-form. Machine work is created and claimed
     // through OrgIntel's Work graph, never inferred from this wake.
     org.ensure_actor_with_model("exec", "exec", "exec", "The Exec", Some(&config.model))
@@ -113,7 +117,7 @@ pub async fn wake(
     // must not be woken. Nothing below this line is free — context assembly
     // reads the volume and the turn spends money — so the cheap deterministic
     // checks come first (F2, F3, F12).
-    if let Some(blocked) = health::preflight(&config.name).await? {
+    if let Some(blocked) = health::preflight(runtime_transport.as_ref(), &config.name).await? {
         return blocked_wake(org, config, &blocked.message()).await;
     }
     let initial_budget = spend.budget_state(config);
@@ -122,7 +126,7 @@ pub async fn wake(
     // digest lands in the wake event so the Exec's worldview is auditable.
     let spent_usd = spend.spent_usd(&config.name);
     let snapshot = gather_snapshot(
-        &container,
+        runtime_transport.as_ref(),
         org,
         authority,
         config,
@@ -157,12 +161,13 @@ pub async fn wake(
         // an explicit organisational change. The exact provider attempted is
         // recorded below; failover must not silently make a fallback model
         // the Exec's durable preference.
-        org.emit_event(
-            "model_attempt",
-            Some("exec"),
-            serde_json::json!({ "model": model, "configured_effort": config.reasoning_effort, "attempt": index + 1 }),
-        )
-        .await?;
+        let model_attempt_event_id = org
+            .emit_event(
+                "model_attempt",
+                Some("exec"),
+                serde_json::json!({ "model": model, "configured_effort": config.reasoning_effort, "attempt": index + 1 }),
+            )
+            .await?;
 
         let auth = match agent_auth_for_model(
             model,
@@ -265,8 +270,16 @@ pub async fn wake(
         .await?;
         let controls = acp::AgentControls::company_actor(package.system_prompt.clone())?
             .with_mcp_servers(mcp_servers);
+        let process_authority = RuntimeProcessAuthority::AuthorityEvent {
+            company: config.name.clone(),
+            actor: "exec".into(),
+            responsibility: "portfolio".into(),
+            event_id: model_attempt_event_id,
+            session_id: auth.session_id.clone(),
+        };
         let outcome = acp::with_agent(
-            &container,
+            std::sync::Arc::clone(runtime_transport),
+            process_authority.clone(),
             &auth,
             "/company",
             "exec",
@@ -334,7 +347,14 @@ pub async fn wake(
             // provider history, so retain all durable company state and drop
             // only the exact portfolio-session locator. The next wake then
             // reconstructs from the bounded company snapshot.
-            acp::discard_session_locator(&container, &config.name, "exec", "portfolio").await?;
+            acp::discard_session_locator_from_runtime(
+                runtime_transport.as_ref(),
+                &process_authority,
+                &config.name,
+                "exec",
+                "portfolio",
+            )
+            .await?;
             org.emit_event(
                 "model_context_reconstruction_scheduled",
                 Some("exec"),
@@ -771,7 +791,7 @@ fn retry_termination(reason: impl Into<String>) -> TerminationDecision {
 /// `context::assemble` is pure). Files win over memory — this is all the
 /// continuity the Exec gets, so it is all here.
 async fn gather_snapshot(
-    container: &str,
+    runtime_transport: &dyn RuntimeTransport,
     org: &OrgIntel,
     authority: &crate::authority::AuthorityStore,
     config: &CompanyConfig,
@@ -779,8 +799,13 @@ async fn gather_snapshot(
     spent_usd: f64,
     remaining_usd: Option<f64>,
 ) -> Result<ContextSnapshot> {
-    let current_plan = read_company_file(container, "/company/org/exec/current-plan.md").await?;
-    let latest_journal = latest_journal_entry(container).await?;
+    let current_plan = read_company_file(
+        runtime_transport,
+        &config.name,
+        "/company/org/exec/current-plan.md",
+    )
+    .await?;
+    let latest_journal = latest_journal_entry(runtime_transport, &config.name).await?;
     let work = org.list_work().await?;
     let open: Vec<_> = work
         .into_iter()
@@ -891,39 +916,319 @@ pub(crate) async fn record_interrupted_outcome(
     record_outcome(org, &report).await
 }
 
-async fn read_company_file(container: &str, path: &str) -> Result<String> {
-    let output = exec_output(container, &format!("cat {path} 2>/dev/null || true")).await?;
-    Ok(output)
+async fn read_company_file(
+    runtime_transport: &dyn RuntimeTransport,
+    company: &str,
+    path: &str,
+) -> Result<String> {
+    let path = CompanyPath::parse(path.to_owned()).map_err(|error| anyhow::anyhow!(error))?;
+    let contents = match runtime_transport
+        .read(company, &path, EXEC_CONTINUITY_FILE_LIMIT + 1)
+        .await
+    {
+        Ok(contents) => contents,
+        Err(RuntimeTransportError::NotFound) => return Ok(String::new()),
+        Err(error) => {
+            return Err(anyhow::anyhow!(error))
+                .with_context(|| format!("read Exec continuity file {}", path.as_str()));
+        }
+    };
+    if contents.len() > EXEC_CONTINUITY_FILE_LIMIT {
+        anyhow::bail!(
+            "Exec continuity file {} exceeds the {}-byte context bound",
+            path.as_str(),
+            EXEC_CONTINUITY_FILE_LIMIT
+        );
+    }
+    String::from_utf8(contents)
+        .with_context(|| format!("Exec continuity file {} is not UTF-8", path.as_str()))
 }
 
 /// The most recent journal entry's filename and content, for rehydration.
-async fn latest_journal_entry(container: &str) -> Result<Option<String>> {
-    let output = exec_output(
-        container,
-        "cd /company/org/exec/journal 2>/dev/null && ls | sort | tail -1 | xargs -r sh -c 'echo \"== $0 ==\"; cat \"$0\"' || true",
-    )
-    .await?;
-    Ok(if output.trim().is_empty() {
-        None
-    } else {
-        Some(output)
-    })
-}
-
-async fn exec_output(container: &str, shell: &str) -> Result<String> {
-    let output = tokio::process::Command::new("docker")
-        .args(["exec", "-u", "company", container, "sh", "-c", shell])
-        .output()
+async fn latest_journal_entry(
+    runtime_transport: &dyn RuntimeTransport,
+    company: &str,
+) -> Result<Option<String>> {
+    const JOURNAL_ROOT: &str = "/company/org/exec/journal";
+    let journal_root = CompanyPath::parse(JOURNAL_ROOT).map_err(|error| anyhow::anyhow!(error))?;
+    let mut entries = match runtime_transport.list(company, &journal_root).await {
+        Ok(entries) => entries,
+        Err(RuntimeTransportError::NotFound) => return Ok(None),
+        Err(error) => {
+            return Err(anyhow::anyhow!(error)).context("list Exec continuity journal");
+        }
+    };
+    entries.retain(|entry| entry.metadata.kind == RuntimeFileKind::File);
+    entries.sort_by(|left, right| left.name.as_bytes().cmp(right.name.as_bytes()));
+    let Some(latest) = entries.pop() else {
+        return Ok(None);
+    };
+    let path = CompanyPath::parse(format!("{JOURNAL_ROOT}/{}", latest.name))
+        .map_err(|error| anyhow::anyhow!(error))
+        .context("validate latest Exec journal path")?;
+    let contents = match runtime_transport
+        .read(company, &path, EXEC_CONTINUITY_FILE_LIMIT + 1)
         .await
-        .context("docker exec")?;
-    Ok(String::from_utf8_lossy(&output.stdout).to_string())
+    {
+        Ok(contents) => contents,
+        Err(RuntimeTransportError::NotFound) => return Ok(None),
+        Err(error) => {
+            return Err(anyhow::anyhow!(error)).context("read latest Exec continuity journal");
+        }
+    };
+    if contents.len() > EXEC_CONTINUITY_FILE_LIMIT {
+        anyhow::bail!(
+            "Exec journal file {} exceeds the {}-byte context bound",
+            path.as_str(),
+            EXEC_CONTINUITY_FILE_LIMIT
+        );
+    }
+    let contents = String::from_utf8(contents)
+        .with_context(|| format!("Exec journal file {} is not UTF-8", path.as_str()))?;
+    Ok(Some(format!("== {} ==\n{contents}", latest.name)))
 }
 
-/// Run a shell command with piped stdin (file contents never touch the
-/// command line, so no escaping games).
 #[cfg(test)]
 mod tests {
     use super::*;
+    use async_trait::async_trait;
+    use chrono::Utc;
+    use restlessd::runtime_transport::{
+        RuntimeActivity, RuntimeComponentCheck, RuntimeComponentStatus, RuntimeDirectoryEntry,
+        RuntimeDuplex, RuntimeFileMetadata, RuntimeProcess, RuntimeProcessControl,
+        RuntimeProcessExit, RuntimeProcessSpec, RuntimeReadiness, RuntimeService, RuntimeSignal,
+    };
+    use std::sync::Mutex;
+
+    struct CompletedProbe;
+
+    #[async_trait]
+    impl RuntimeProcessControl for CompletedProbe {
+        async fn signal(&self, _signal: RuntimeSignal) -> Result<(), RuntimeTransportError> {
+            Ok(())
+        }
+
+        async fn wait(&self) -> Result<RuntimeProcessExit, RuntimeTransportError> {
+            Ok(RuntimeProcessExit {
+                code: Some(0),
+                signal: None,
+                finished_at: Utc::now(),
+            })
+        }
+    }
+
+    struct NetworkExecTransport {
+        journal_entries: Vec<String>,
+        process_specs: Mutex<Vec<RuntimeProcessSpec>>,
+    }
+
+    impl NetworkExecTransport {
+        fn healthy() -> Self {
+            Self {
+                journal_entries: vec!["0001.md".into(), "0010.md".into()],
+                process_specs: Mutex::new(Vec::new()),
+            }
+        }
+
+        fn journal_metadata() -> RuntimeFileMetadata {
+            RuntimeFileMetadata {
+                kind: RuntimeFileKind::File,
+                size: 32,
+                modified_at: Utc::now(),
+                mode: 0o600,
+            }
+        }
+    }
+
+    #[async_trait]
+    impl RuntimeTransport for NetworkExecTransport {
+        async fn readiness(
+            &self,
+            company: &str,
+        ) -> Result<RuntimeReadiness, RuntimeTransportError> {
+            assert_eq!(company, "hosted_test");
+            Ok(RuntimeReadiness {
+                runtime_id: "runtime-hosted-test".into(),
+                runtime_generation: 7,
+                runtime_image: "registry.example/runtime@sha256:test".into(),
+                source_revision: "revision".into(),
+                volume_name: "volume-hosted-test".into(),
+                observed_at: Utc::now(),
+                components: vec![
+                    RuntimeComponentCheck {
+                        name: "runtime_agent".into(),
+                        status: RuntimeComponentStatus::Ready,
+                    },
+                    RuntimeComponentCheck {
+                        name: "persistent_volume".into(),
+                        status: RuntimeComponentStatus::Ready,
+                    },
+                    RuntimeComponentCheck {
+                        name: "process_execution".into(),
+                        status: RuntimeComponentStatus::Ready,
+                    },
+                ],
+            })
+        }
+
+        async fn start_process(
+            &self,
+            specification: RuntimeProcessSpec,
+        ) -> Result<RuntimeProcess, RuntimeTransportError> {
+            self.process_specs
+                .lock()
+                .expect("process specifications")
+                .push(specification);
+            let filesystem = "Filesystem 1024-blocks Used Available Capacity Mounted on\n/dev/runtime 8388608 1024 8387584 1% /company\n";
+            Ok(RuntimeProcess {
+                process_id: uuid::Uuid::new_v4(),
+                pid: 42,
+                stdin: Box::pin(tokio::io::sink()),
+                stdout: Box::pin(std::io::Cursor::new(filesystem.as_bytes().to_vec())),
+                stderr: Box::pin(tokio::io::empty()),
+                control: Box::new(CompletedProbe),
+            })
+        }
+
+        async fn stat(
+            &self,
+            _company: &str,
+            _path: &CompanyPath,
+        ) -> Result<RuntimeFileMetadata, RuntimeTransportError> {
+            Err(RuntimeTransportError::Unavailable)
+        }
+
+        async fn list(
+            &self,
+            company: &str,
+            path: &CompanyPath,
+        ) -> Result<Vec<RuntimeDirectoryEntry>, RuntimeTransportError> {
+            assert_eq!(company, "hosted_test");
+            assert_eq!(path.as_str(), "/company/org/exec/journal");
+            Ok(self
+                .journal_entries
+                .iter()
+                .map(|name| RuntimeDirectoryEntry {
+                    name: name.clone(),
+                    metadata: Self::journal_metadata(),
+                })
+                .collect())
+        }
+
+        async fn read(
+            &self,
+            company: &str,
+            path: &CompanyPath,
+            maximum_bytes: usize,
+        ) -> Result<Vec<u8>, RuntimeTransportError> {
+            assert_eq!(company, "hosted_test");
+            assert_eq!(maximum_bytes, EXEC_CONTINUITY_FILE_LIMIT + 1);
+            match path.as_str() {
+                "/company/org/exec/current-plan.md" => Ok(b"# Current plan\nShip it.\n".to_vec()),
+                "/company/org/exec/journal/0010.md" => Ok(b"Owner input reached Exec.\n".to_vec()),
+                _ => Err(RuntimeTransportError::NotFound),
+            }
+        }
+
+        async fn atomic_write(
+            &self,
+            _company: &str,
+            _operation_id: uuid::Uuid,
+            _path: &CompanyPath,
+            _contents: &[u8],
+            _mode: u32,
+        ) -> Result<(), RuntimeTransportError> {
+            Err(RuntimeTransportError::Unavailable)
+        }
+
+        async fn rename(
+            &self,
+            _company: &str,
+            _operation_id: uuid::Uuid,
+            _source: &CompanyPath,
+            _destination: &CompanyPath,
+        ) -> Result<(), RuntimeTransportError> {
+            Err(RuntimeTransportError::Unavailable)
+        }
+
+        async fn digest(
+            &self,
+            _company: &str,
+            _path: &CompanyPath,
+        ) -> Result<[u8; 32], RuntimeTransportError> {
+            Err(RuntimeTransportError::Unavailable)
+        }
+
+        async fn open_service(
+            &self,
+            _company: &str,
+            _operation_id: uuid::Uuid,
+            _service: RuntimeService,
+            _idle_timeout: std::time::Duration,
+        ) -> Result<RuntimeDuplex, RuntimeTransportError> {
+            Err(RuntimeTransportError::Unavailable)
+        }
+
+        async fn activity(&self, _company: &str) -> Result<RuntimeActivity, RuntimeTransportError> {
+            Err(RuntimeTransportError::Unavailable)
+        }
+    }
+
+    #[tokio::test]
+    async fn a_network_runtime_carries_exec_preflight_and_continuity_without_host_docker() {
+        assert!(restlessd::hosted_runtime::require_local_docker(Some("network")).is_err());
+        let transport = NetworkExecTransport::healthy();
+
+        assert!(health::preflight(&transport, "hosted_test")
+            .await
+            .unwrap()
+            .is_none());
+        assert_eq!(
+            read_company_file(
+                &transport,
+                "hosted_test",
+                "/company/org/exec/current-plan.md"
+            )
+            .await
+            .unwrap(),
+            "# Current plan\nShip it.\n"
+        );
+        assert_eq!(
+            latest_journal_entry(&transport, "hosted_test")
+                .await
+                .unwrap()
+                .as_deref(),
+            Some("== 0010.md ==\nOwner input reached Exec.\n")
+        );
+
+        let specifications = transport
+            .process_specs
+            .lock()
+            .expect("process specifications");
+        assert_eq!(specifications.len(), 1);
+        let probe = &specifications[0];
+        assert_eq!(probe.executable, "df");
+        assert_eq!(probe.arguments, ["-Pk", "/company"]);
+        assert_eq!(probe.working_directory.as_str(), "/company");
+        assert!(matches!(
+            &probe.authority,
+            RuntimeProcessAuthority::InfrastructureProbe { company, probe }
+                if company == "hosted_test" && probe == "exec-preflight-disk"
+        ));
+    }
+
+    #[tokio::test]
+    async fn a_runtime_journal_name_cannot_escape_the_company_path() {
+        let transport = NetworkExecTransport {
+            journal_entries: vec!["../../outside.md".into()],
+            process_specs: Mutex::new(Vec::new()),
+        };
+        assert!(latest_journal_entry(&transport, "hosted_test")
+            .await
+            .unwrap_err()
+            .to_string()
+            .contains("validate latest Exec journal path"));
+    }
 
     /// Observed in Aris wake 0018: the model said the wake directive was
     /// "done" while also naming owner-gated commercial work, and the daemon

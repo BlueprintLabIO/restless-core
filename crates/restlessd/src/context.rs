@@ -148,8 +148,10 @@ pub fn assemble(snapshot: &ContextSnapshot) -> ContextPackage {
                 brief.recommendation,
                 brief.no_action,
             ),
-            _ => "\n  owner brief: absent — if owner attention remains, prepare it before escalating"
-                .to_string(),
+            _ => {
+                "\n  owner brief: absent — if owner attention remains, prepare it before escalating"
+                    .to_string()
+            }
         };
         judgements.push_str(&format!(
             "- handoff {} on Work {} from {}: {}\n  prepared: {}\n  resume when: {}{}\n",
@@ -337,7 +339,9 @@ pub fn assemble(snapshot: &ContextSnapshot) -> ContextPackage {
             .legal_identity
             .as_ref()
             .map(serde_json::Value::to_string)
-            .unwrap_or_else(|| "(not configured — do not infer legal identity from the runtime name)".into()),
+            .unwrap_or_else(|| {
+                "(not configured — do not infer legal identity from the runtime name)".into()
+            }),
         ledger = snapshot.effect_ledger.trim(),
         signals = signals,
         budget = match snapshot.budget_remaining_usd {

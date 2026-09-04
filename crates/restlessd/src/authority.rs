@@ -17,6 +17,7 @@ use sqlx::{PgPool, Row as _};
 use uuid::Uuid;
 
 pub const GOVERNANCE_KINDS: &[&str] = &[
+    "effect_preparation",
     "effect_intent",
     "effect",
     "inbound_effect",
@@ -267,6 +268,22 @@ impl AuthorityStore {
         .execute(&pool)
         .await
         .context("create model cooldowns")?;
+        // Network-entry assertions are credentials. Their one-use identity
+        // belongs in the account plane's durable Authority store so a daemon
+        // restart or concurrent replica cannot admit the same assertion a
+        // second time. This table contains no browser session or company
+        // content, only the random assertion identifier and bounded expiry.
+        sqlx::query(
+            "CREATE TABLE IF NOT EXISTS restless_authority.entry_assertion_replays (\
+               jti UUID PRIMARY KEY, \
+               expires_at TIMESTAMPTZ NOT NULL, \
+               consumed_at TIMESTAMPTZ NOT NULL DEFAULT now(), \
+               CHECK (expires_at > consumed_at - interval '5 seconds')\
+             )",
+        )
+        .execute(&mut *bootstrap)
+        .await
+        .context("create entry assertion replay store")?;
         crate::legal::ensure_schema(&pool).await?;
         crate::finance::ensure_schema(&pool).await?;
         crate::airwallex::ensure_schema(&pool).await?;
@@ -280,6 +297,43 @@ impl AuthorityStore {
 
     pub(crate) fn pool(&self) -> &PgPool {
         &self.pool
+    }
+
+    /// Atomically consume a Fleet entry assertion identity once.
+    ///
+    /// Expired rows are opportunistically removed in the same transaction;
+    /// correctness comes from the primary key and `ON CONFLICT`, not cleanup.
+    pub(crate) async fn consume_entry_assertion(
+        &self,
+        jti: Uuid,
+        expires_at: DateTime<Utc>,
+        now: DateTime<Utc>,
+    ) -> Result<bool> {
+        if jti.is_nil() || expires_at <= now {
+            anyhow::bail!("entry assertion replay identity or expiry is invalid");
+        }
+        let mut transaction = self.pool.begin().await?;
+        sqlx::query(
+            "DELETE FROM restless_authority.entry_assertion_replays WHERE expires_at <= $1",
+        )
+        .bind(now)
+        .execute(&mut *transaction)
+        .await
+        .context("expire consumed entry assertions")?;
+        let inserted = sqlx::query(
+            "INSERT INTO restless_authority.entry_assertion_replays (jti, expires_at, consumed_at) \
+             VALUES ($1, $2, $3) ON CONFLICT (jti) DO NOTHING",
+        )
+        .bind(jti)
+        .bind(expires_at)
+        .bind(now)
+        .execute(&mut *transaction)
+        .await
+        .context("consume entry assertion identity")?
+        .rows_affected()
+            == 1;
+        transaction.commit().await?;
+        Ok(inserted)
     }
 
     pub async fn set_model_cooldown(
@@ -395,7 +449,7 @@ impl AuthorityStore {
         company: &str,
         actor: &str,
         body: serde_json::Value,
-    ) -> Result<bool> {
+    ) -> Result<Option<i64>> {
         let inserted = sqlx::query_scalar::<_, i64>(
             "INSERT INTO restless_authority.records (company, kind, actor_id, body) \
              VALUES ($1, 'effect_intent', $2, $3) \
@@ -407,7 +461,7 @@ impl AuthorityStore {
         .fetch_optional(&self.pool)
         .await
         .with_context(|| format!("claim effect execution for {company}"))?;
-        Ok(inserted.is_some())
+        Ok(inserted)
     }
 
     pub async fn records_of_kind(&self, company: &str, kind: &str) -> Result<Vec<AuthorityRecord>> {
@@ -847,5 +901,48 @@ mod mandate_tests {
         assert!(validate_mandate("  \n").is_err());
         assert!(validate_mandate("valid\0invalid").is_err());
         assert!(validate_mandate(&"a".repeat(MAX_MANDATE_BYTES + 1)).is_err());
+    }
+}
+
+#[cfg(test)]
+mod entry_replay_tests {
+    use super::*;
+
+    #[tokio::test]
+    #[ignore = "requires RESTLESS_TEST_DATABASE_URL pointing to an isolated PostgreSQL database"]
+    async fn entry_assertion_replay_is_atomic_and_survives_reconnect() {
+        let database_url = std::env::var("RESTLESS_TEST_DATABASE_URL")
+            .expect("RESTLESS_TEST_DATABASE_URL must name an isolated PostgreSQL database");
+        let first = AuthorityStore::connect(&database_url).await.unwrap();
+        let second = AuthorityStore::connect(&database_url).await.unwrap();
+        let jti = Uuid::new_v4();
+        let now = Utc::now();
+        let expires_at = now + chrono::Duration::minutes(5);
+
+        let (left, right) = tokio::join!(
+            first.consume_entry_assertion(jti, expires_at, now),
+            second.consume_entry_assertion(jti, expires_at, now),
+        );
+        assert_ne!(
+            left.unwrap(),
+            right.unwrap(),
+            "exactly one race may consume"
+        );
+
+        drop(first);
+        drop(second);
+        let reopened = AuthorityStore::connect(&database_url).await.unwrap();
+        assert!(
+            !reopened
+                .consume_entry_assertion(jti, expires_at, Utc::now())
+                .await
+                .unwrap(),
+            "the same JTI must remain consumed after reconnect"
+        );
+        sqlx::query("DELETE FROM restless_authority.entry_assertion_replays WHERE jti = $1")
+            .bind(jti)
+            .execute(reopened.pool())
+            .await
+            .unwrap();
     }
 }

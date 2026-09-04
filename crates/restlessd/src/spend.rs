@@ -186,9 +186,9 @@ impl ModelBudgetState {
         let accounted = self.accounted_micro_usd() as f64 / 1_000_000.0;
         let ceiling = self.ceiling_micro_usd() as f64 / 1_000_000.0;
         match self {
-            Self::Available { .. } => format!(
-                "{company} has ${accounted:.2} accounted against its ${ceiling:.2} ceiling"
-            ),
+            Self::Available { .. } => {
+                format!("{company} has ${accounted:.2} accounted against its ${ceiling:.2} ceiling")
+            }
             Self::Exhausted { .. } => format!(
                 "{company} has spent ${accounted:.2} of its ${ceiling:.2} ceiling; the owner must raise it before charged work continues"
             ),

@@ -8,6 +8,7 @@ use std::collections::HashSet;
 
 use anyhow::{Context as _, Result};
 use restless_orgintel::{MessageRow, WorkAttemptState, WorkStatus};
+use restlessd::runtime_transport::RuntimeTransport;
 
 use crate::activity::AgentActivityStreams;
 use crate::exec::Termination;
@@ -103,6 +104,7 @@ fn team_task_prompt(
 /// without manufacturing a Work Attempt for conversation. The trigger is a
 /// deterministic owed condition; the response and repair remain judgement.
 pub struct ConversationRuntime<'a> {
+    pub runtime_transport: &'a std::sync::Arc<dyn RuntimeTransport>,
     pub spend: &'a SpendLedger,
     pub authority: &'a crate::authority::AuthorityStore,
     pub capabilities: &'a crate::capability::CapabilityIssuer,
@@ -143,7 +145,7 @@ async fn completed_attempt_review_workspace(
         Ok(Some(work)) => work,
         Ok(None) => return unavailable_review_workspace("the linked Work no longer exists"),
         Err(error) => {
-            return unavailable_review_workspace(format!("could not read Work: {error:#}"))
+            return unavailable_review_workspace(format!("could not read Work: {error:#}"));
         }
     };
     if !matches!(work.status, WorkStatus::Completed | WorkStatus::Blocked) {
@@ -161,7 +163,9 @@ async fn completed_attempt_review_workspace(
     let attempts = match org.list_work_attempts(Some(work.id)).await {
         Ok(attempts) => attempts,
         Err(error) => {
-            return unavailable_review_workspace(format!("could not read Work Attempts: {error:#}"))
+            return unavailable_review_workspace(format!(
+                "could not read Work Attempts: {error:#}"
+            ));
         }
     };
     let Some(attempt) = attempts.iter().rev().find(|attempt| {
@@ -187,13 +191,15 @@ async fn completed_attempt_review_workspace(
         Err(error) => {
             return unavailable_review_workspace(format!(
                 "could not read the Attempt terminal observation: {error:#}"
-            ))
+            ));
         }
     };
     let artifacts = match org.list_artifact_refs(Some(work.id)).await {
         Ok(artifacts) => artifacts,
         Err(error) => {
-            return unavailable_review_workspace(format!("could not read Work evidence: {error:#}"))
+            return unavailable_review_workspace(format!(
+                "could not read Work evidence: {error:#}"
+            ));
         }
     };
     let source_commit = terminal_commit.or_else(|| {
@@ -548,6 +554,7 @@ pub async fn dispatch_actor_conversation(
     let reasoning_effort = config.reasoning_effort.clone();
     let authority = runtime.authority.clone();
     let capabilities = runtime.capabilities.clone();
+    let runtime_transport = std::sync::Arc::clone(runtime.runtime_transport);
     let spine = format!(
         "\n# The company you work for\n{}\n\n# Why you woke\n{}\n{}\n",
         config.mission.trim(),
@@ -562,6 +569,7 @@ pub async fn dispatch_actor_conversation(
     tokio::spawn(async move {
         let outcome = run_staff_with_failover(StaffRun {
             container,
+            runtime_transport,
             workdir: conversation_workspace.workdir,
             company: company.clone(),
             actor: actor.clone(),

@@ -1,0 +1,87 @@
+name: restless-plane-{{PLANE_ID}}
+
+services:
+  plane-database:
+    image: postgres@sha256:4ef4dbc939d61acea57712655ddb4b4ab27419c913f94cca0cd57cb3ea3c2280
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: restless
+      POSTGRES_USER: restless
+      POSTGRES_PASSWORD: ${RESTLESS_PLANE_DATABASE_PASSWORD}
+      POSTGRES_INITDB_ARGS: --auth-host=scram-sha-256
+    volumes:
+      - plane-database:/var/lib/postgresql/data
+    healthcheck:
+      test: [CMD-SHELL, "pg_isready -U restless -d restless"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+    security_opt:
+      - no-new-privileges:true
+    networks: [database]
+
+  account-plane:
+    image: "{{ACCOUNT_PLANE_IMAGE}}"
+    restart: unless-stopped
+    environment:
+      RESTLESS_PROFILE: stable
+      RESTLESS_HOME: /state/restless
+      RESTLESS_OWNER_ADDR: 0.0.0.0:7788
+      RESTLESS_ENTRY_MODE: network
+      RESTLESS_ENTRY_ISSUER: "{{FLEET_ENTRY_ISSUER}}"
+      RESTLESS_ENTRY_JWKS_URL: "{{FLEET_ENTRY_JWKS_URL}}"
+      RESTLESS_ENTRY_OWNER_ID: "{{OWNER_ID}}"
+      RESTLESS_ENTRY_PLANE_ID: "{{PLANE_ID}}"
+      RESTLESS_ENTRY_HOST: "{{HOSTNAME}}"
+      RESTLESS_DESIRED_REVISION: "{{DESIRED_REVISION}}"
+      RESTLESS_ACCOUNT_PLANE_IMAGE: "{{ACCOUNT_PLANE_IMAGE}}"
+      RESTLESS_COMPANY_IMAGE: "{{COMPANY_RUNTIME_IMAGE}}"
+      RESTLESS_RELEASE_MANIFEST_DIGEST: "{{CORE_RELEASE_MANIFEST_DIGEST}}"
+      RESTLESS_RUNTIME_BOOTSTRAP_TOKEN_FILE: /run/secrets/runtime_bootstrap_token
+      RESTLESS_PLANE_DATABASE_URL: ${RESTLESS_PLANE_DATABASE_URL}
+      RESTLESS_PLANE_READINESS_TOKEN: ${RESTLESS_PLANE_READINESS_TOKEN}
+      RESTLESS_CELL_READINESS_TOKEN: ${RESTLESS_CELL_READINESS_TOKEN}
+      RESTLESS_ACTIVITY_TOKEN: ${RESTLESS_ACTIVITY_TOKEN}
+      RESTLESS_DELETION_TOKEN: ${RESTLESS_DELETION_TOKEN}
+      RESTLESS_HOSTED_MODEL_CREDENTIAL_REFERENCE: ${RESTLESS_HOSTED_MODEL_CREDENTIAL_REFERENCE}
+      RESTLESS_HOSTED_MODEL_RELAY_URL: ${RESTLESS_HOSTED_MODEL_RELAY_URL}
+      RESTLESS_HOSTED_MODEL_RELAY_TOKEN: ${RESTLESS_HOSTED_MODEL_RELAY_TOKEN}
+      GPT_BASE_URL: ${GPT_BASE_URL}
+    expose: ["7788"]
+    volumes:
+      - plane-state:/state
+    secrets:
+      - source: runtime_bootstrap_token
+        target: runtime_bootstrap_token
+        mode: 0400
+    read_only: true
+    tmpfs:
+      - /tmp:size=256m,mode=1777
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    depends_on:
+      plane-database:
+        condition: service_healthy
+    healthcheck:
+      test: [CMD, curl, -fsS, http://127.0.0.1:7788/health]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+    networks: [database, public-proxy]
+
+volumes:
+  plane-state:
+  plane-database:
+
+secrets:
+  runtime_bootstrap_token:
+    environment: RESTLESS_RUNTIME_BOOTSTRAP_TOKEN
+
+networks:
+  database:
+    internal: true
+  public-proxy:
+    name: ${RESTLESS_PUBLIC_PROXY_NETWORK}
+    external: true

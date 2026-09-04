@@ -114,7 +114,7 @@ impl CapabilityIssuer {
                     }
                     Err(error) => {
                         return Err(error)
-                            .with_context(|| format!("create capability key {}", path.display()))
+                            .with_context(|| format!("create capability key {}", path.display()));
                     }
                 }
             }

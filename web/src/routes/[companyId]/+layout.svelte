@@ -37,6 +37,9 @@
 	$effect(() => companyProjection.attach());
 
 	const companyName = $derived(attention.view?.company.name ?? '');
+	const membershipRole = $derived(
+		companies.find((company) => company.id === companyId)?.role ?? 'member'
+	);
 	const liveNeedsYou = $derived(attention.view?.items ?? []);
 	const focusedReviewId = $derived(page.url.searchParams.get('review'));
 	const focusedReview = $derived(
@@ -223,7 +226,7 @@
 		participantRole={railActorRole}
 		turn={railConversation.activeTurn}
 		{companyId}
-		membershipRole="owner"
+		{membershipRole}
 		connected={railConnected}
 		defaultOutcomeStandard={companyDefaultStandard}
 		contextLabel={currentContext}

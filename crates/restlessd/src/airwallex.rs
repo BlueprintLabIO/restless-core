@@ -494,7 +494,9 @@ fn validate_connection(input: &ConnectionInput) -> Result<()> {
             .iter()
             .any(|scope| scope.starts_with("Beneficiaries:") || scope.contains("Admin"))
     {
-        bail!("Airwallex submit key needs Transfers read/write and must not carry Beneficiary or admin scope");
+        bail!(
+            "Airwallex submit key needs Transfers read/write and must not carry Beneficiary or admin scope"
+        );
     }
     if input.approval_workflow_observed && input.observed_at.is_none() {
         bail!("an observed approval workflow needs an observation time");

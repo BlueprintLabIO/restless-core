@@ -31,9 +31,15 @@ use agent_client_protocol::{
     Agent, ByteStreams, Client, ConnectionTo,
 };
 use anyhow::{Context, Result};
+use chrono::{Duration as ChronoDuration, Utc};
+use restlessd::runtime_transport::{
+    CompanyPath, RuntimeEnvironment, RuntimeProcess, RuntimeProcessAuthority,
+    RuntimeProcessControl, RuntimeProcessExit, RuntimeProcessSpec, RuntimeSignal, RuntimeTransport,
+    RuntimeTransportError,
+};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest as _, Sha256};
-use tokio::io::AsyncWriteExt as _;
+use tokio::io::{AsyncRead, AsyncReadExt as _, AsyncWriteExt as _};
 use tokio_util::compat::{TokioAsyncReadCompatExt as _, TokioAsyncWriteCompatExt as _};
 use tokio_util::sync::CancellationToken;
 
@@ -354,6 +360,8 @@ pub(crate) async fn write_private_container_file(
     path: &str,
     contents: &str,
 ) -> Result<()> {
+    restlessd::hosted_runtime::require_local_docker_from_environment()
+        .map_err(|error| anyhow::anyhow!(error))?;
     let mut child = tokio::process::Command::new("docker")
         .args([
             "exec",
@@ -393,6 +401,7 @@ pub(crate) async fn write_private_container_file(
     Ok(())
 }
 
+#[cfg(test)]
 async fn read_session_locator(container: &str, path: &str) -> Result<Option<SessionLocator>> {
     let output = tokio::process::Command::new("docker")
         .args([
@@ -427,6 +436,7 @@ async fn read_session_locator(container: &str, path: &str) -> Result<Option<Sess
     )?))
 }
 
+#[cfg(test)]
 async fn persist_session_locator(
     container: &str,
     path: &str,
@@ -436,81 +446,271 @@ async fn persist_session_locator(
     write_private_container_file(container, path, &body).await
 }
 
-/// Forget only the hot provider session for one exact actor responsibility.
-/// Durable company files, messages, Work and evidence remain the reconstruction
-/// source. This is used when the provider rejects accumulated session history
-/// as too large; retrying the same locator can never make that request smaller.
-pub(crate) async fn discard_session_locator(
-    container: &str,
+const RUNTIME_COMMAND_OUTPUT_LIMIT: usize = 64 * 1024;
+const RUNTIME_FILE_READ_LIMIT: usize = 256 * 1024;
+const RUNTIME_PROCESS_DEADLINE_HOURS: i64 = 23;
+
+struct CapturedRuntimeOutput {
+    bytes: Vec<u8>,
+    truncated: bool,
+}
+
+struct RuntimeCommandOutput {
+    stdout: CapturedRuntimeOutput,
+    stderr: CapturedRuntimeOutput,
+    exit: RuntimeProcessExit,
+}
+
+impl RuntimeCommandOutput {
+    fn require_success(self, action: &str) -> Result<Self> {
+        if self.exit.code == Some(0) && self.exit.signal.is_none() {
+            return Ok(self);
+        }
+        let stderr = String::from_utf8_lossy(&self.stderr.bytes);
+        let suffix = self
+            .stderr
+            .truncated
+            .then_some(" [truncated]")
+            .unwrap_or("");
+        anyhow::bail!(
+            "{action} failed (code {:?}, signal {:?}): {}{}",
+            self.exit.code,
+            self.exit.signal,
+            stderr.trim(),
+            suffix,
+        )
+    }
+}
+
+fn runtime_path(path: &str) -> Result<CompanyPath> {
+    CompanyPath::parse(path.to_owned())
+        .map_err(|error| anyhow::anyhow!(error))
+        .with_context(|| format!("validate company Runtime path {path}"))
+}
+
+async fn capture_runtime_output<R>(mut source: R) -> std::io::Result<CapturedRuntimeOutput>
+where
+    R: AsyncRead + Unpin,
+{
+    let mut bytes = Vec::new();
+    let mut truncated = false;
+    let mut buffer = [0_u8; 8192];
+    loop {
+        let read = source.read(&mut buffer).await?;
+        if read == 0 {
+            break;
+        }
+        let remaining = RUNTIME_COMMAND_OUTPUT_LIMIT.saturating_sub(bytes.len());
+        if remaining > 0 {
+            bytes.extend_from_slice(&buffer[..read.min(remaining)]);
+        }
+        truncated |= read > remaining;
+    }
+    Ok(CapturedRuntimeOutput { bytes, truncated })
+}
+
+async fn run_runtime_command(
+    transport: &dyn RuntimeTransport,
+    authority: &RuntimeProcessAuthority,
+    executable: &str,
+    arguments: Vec<String>,
+    working_directory: CompanyPath,
+    environment: Vec<RuntimeEnvironment>,
+) -> Result<RuntimeCommandOutput> {
+    let RuntimeProcess {
+        mut stdin,
+        stdout,
+        stderr,
+        control,
+        ..
+    } = transport
+        .start_process(RuntimeProcessSpec {
+            operation_id: uuid::Uuid::new_v4(),
+            authority: authority.clone(),
+            executable: executable.to_owned(),
+            arguments,
+            working_directory,
+            environment,
+            deadline: Utc::now() + ChronoDuration::minutes(5),
+        })
+        .await
+        .map_err(|error| anyhow::anyhow!(error))
+        .with_context(|| format!("start governed Runtime command {executable}"))?;
+    let input = stdin.shutdown();
+    let (input, stdout, stderr, exit) = tokio::join!(
+        input,
+        capture_runtime_output(stdout),
+        capture_runtime_output(stderr),
+        control.wait(),
+    );
+    input.context("close governed Runtime command input")?;
+    Ok(RuntimeCommandOutput {
+        stdout: stdout.context("read governed Runtime command output")?,
+        stderr: stderr.context("read governed Runtime command error output")?,
+        exit: exit.map_err(|error| anyhow::anyhow!(error))?,
+    })
+}
+
+async fn ensure_runtime_directories(
+    transport: &dyn RuntimeTransport,
+    authority: &RuntimeProcessAuthority,
+    paths: &[&str],
+) -> Result<()> {
+    let mut arguments = vec!["-p".to_owned(), "--".to_owned()];
+    arguments.extend(paths.iter().map(|path| (*path).to_owned()));
+    run_runtime_command(
+        transport,
+        authority,
+        "mkdir",
+        arguments,
+        runtime_path("/company")?,
+        Vec::new(),
+    )
+    .await?
+    .require_success("prepare external agent directories")?;
+    Ok(())
+}
+
+async fn write_private_runtime_file(
+    transport: &dyn RuntimeTransport,
+    company: &str,
+    path: &str,
+    contents: &[u8],
+) -> Result<()> {
+    transport
+        .atomic_write(
+            company,
+            uuid::Uuid::new_v4(),
+            &runtime_path(path)?,
+            contents,
+            0o600,
+        )
+        .await
+        .map_err(|error| anyhow::anyhow!(error))
+        .with_context(|| format!("write private Runtime file {path}"))
+}
+
+async fn read_session_locator_from_runtime(
+    transport: &dyn RuntimeTransport,
+    company: &str,
+    path: &str,
+) -> Result<Option<SessionLocator>> {
+    let body = match transport
+        .read(company, &runtime_path(path)?, RUNTIME_FILE_READ_LIMIT)
+        .await
+    {
+        Ok(body) => body,
+        Err(RuntimeTransportError::NotFound) => return Ok(None),
+        Err(error) => {
+            return Err(anyhow::anyhow!(error))
+                .with_context(|| format!("read ACP session locator {path}"));
+        }
+    };
+    if body.iter().all(u8::is_ascii_whitespace) {
+        return Ok(None);
+    }
+    serde_json::from_slice(&body)
+        .with_context(|| format!("parse ACP session locator {path}"))
+        .map(Some)
+}
+
+async fn persist_session_locator_to_runtime(
+    transport: &dyn RuntimeTransport,
+    company: &str,
+    path: &str,
+    locator: &SessionLocator,
+) -> Result<()> {
+    let body = serde_json::to_vec(locator).context("encode ACP session locator")?;
+    write_private_runtime_file(transport, company, path, &body).await
+}
+
+pub(crate) async fn discard_session_locator_from_runtime(
+    transport: &dyn RuntimeTransport,
+    authority: &RuntimeProcessAuthority,
     company: &str,
     actor: &str,
     responsibility: &str,
 ) -> Result<()> {
     let path = session_locator_path(company, actor, responsibility);
-    let output = tokio::process::Command::new("docker")
-        .args([
-            "exec",
-            "-u",
-            "company",
-            container,
-            "sh",
-            "-c",
-            "test ! -e \"$1\" || unlink \"$1\"",
-            "restless-discard-session",
-            path.as_str(),
-        ])
-        .output()
-        .await
-        .with_context(|| format!("discard ACP session locator {path}"))?;
-    if !output.status.success() {
-        anyhow::bail!(
-            "discard ACP session locator {path} failed: {}",
-            String::from_utf8_lossy(&output.stderr)
-                .chars()
-                .take(300)
-                .collect::<String>()
-        );
-    }
+    run_runtime_command(
+        transport,
+        authority,
+        "rm",
+        vec!["-f".into(), "--".into(), path],
+        runtime_path("/company")?,
+        Vec::new(),
+    )
+    .await?
+    .require_success("discard ACP session locator")?;
     Ok(())
 }
 
-/// Probe the exact short-lived coordination capability before model spend.
-/// Native OMP tools are fixed by this launch's argv; this read-only call proves
-/// that the same launch id can reach the coordination plane through the
-/// Runtime-installed CLI. It does not consume or mark inbox state.
-async fn prove_tool_contract(container: &str, auth: &AgentAuth, actor: &str) -> Result<String> {
-    let mut args = vec![
-        "exec".to_string(),
-        "-u".to_string(),
-        "company".to_string(),
-        "-e".to_string(),
-        auth.coordination_token_env.clone(),
-        "-e".to_string(),
-        format!("RESTLESS_ACTOR={actor}"),
-    ];
-    args.push("-e".to_string());
-    args.push(format!("RESTLESS_COORDINATOR={}", runtime_coordinator()?));
-    args.extend([
-        container.to_string(),
-        "restless".to_string(),
-        "people".to_string(),
-        "-c".to_string(),
-        auth.company.clone(),
-    ]);
-    let output = tokio::process::Command::new("docker")
-        .env(&auth.coordination_token_env, &auth.coordination_token)
-        .args(args)
-        .output()
-        .await
-        .context("probe actor coordination tool contract")?;
-    if !output.status.success() {
-        anyhow::bail!(
-            "session-specific coordination readiness failed before prompt: {}",
-            String::from_utf8_lossy(&output.stderr)
-                .chars()
-                .take(500)
-                .collect::<String>()
-        );
+async fn prepare_agent_runtime_via_transport(
+    transport: &dyn RuntimeTransport,
+    authority: &RuntimeProcessAuthority,
+    auth: &AgentAuth,
+    session_runtime: &str,
+) -> Result<()> {
+    let cache = format!("{session_runtime}/cache");
+    let temporary = format!("{session_runtime}/tmp");
+    let sessions = format!("{AGENT_CONFIG_DIR}/sessions");
+    ensure_runtime_directories(
+        transport,
+        authority,
+        &[
+            AGENT_CONFIG_DIR,
+            &sessions,
+            session_runtime,
+            &cache,
+            &temporary,
+        ],
+    )
+    .await?;
+    let config = crate::model_gateway::models_config(
+        &auth.model,
+        &auth.gateway_url,
+        &auth.gateway_token_env,
+    )?;
+    write_private_runtime_file(
+        transport,
+        &auth.company,
+        &format!("{AGENT_CONFIG_DIR}/models.yml"),
+        config.as_bytes(),
+    )
+    .await?;
+    write_private_runtime_file(
+        transport,
+        &auth.company,
+        OMP_RUNTIME_CONFIG,
+        RESTLESS_OMP_CONFIG.as_bytes(),
+    )
+    .await
+}
+
+async fn prove_tool_contract_via_transport(
+    transport: &dyn RuntimeTransport,
+    authority: &RuntimeProcessAuthority,
+    auth: &AgentAuth,
+    actor: &str,
+) -> Result<String> {
+    let output = run_runtime_command(
+        transport,
+        authority,
+        "restless",
+        vec!["people".into(), "-c".into(), auth.company.clone()],
+        runtime_path("/company")?,
+        vec![
+            RuntimeEnvironment::secret(
+                auth.coordination_token_env.clone(),
+                auth.coordination_token.clone(),
+            ),
+            RuntimeEnvironment::public("RESTLESS_COORDINATOR", runtime_coordinator()?),
+        ],
+    )
+    .await?
+    .require_success("session-specific coordination readiness before prompt")?;
+    if output.stdout.truncated {
+        anyhow::bail!("coordination readiness output exceeded its bounded capture");
     }
     Ok(format!(
         "{:x}",
@@ -521,22 +721,83 @@ async fn prove_tool_contract(container: &str, auth: &AgentAuth, actor: &str) -> 
     ))
 }
 
-/// Install the provider's credential-free OMP route in a Restless-owned agent
-/// directory. This never touches the company's general-purpose ~/.omp config
-/// and never writes a capability or provider key to the volume.
-pub(crate) async fn prepare_agent_runtime(container: &str, auth: &AgentAuth) -> Result<()> {
-    let config = crate::model_gateway::models_config(
-        &auth.model,
-        &auth.gateway_url,
-        &auth.gateway_token_env,
-    )?;
-    write_private_container_file(
-        container,
-        &format!("{AGENT_CONFIG_DIR}/models.yml"),
-        &config,
+fn agent_runtime_environment(
+    auth: &AgentAuth,
+    workdir: &str,
+    session_runtime: &str,
+    team_coordination_wake: bool,
+) -> Result<Vec<RuntimeEnvironment>> {
+    let mut environment = vec![
+        RuntimeEnvironment::public("PI_CODING_AGENT_DIR", AGENT_CONFIG_DIR),
+        RuntimeEnvironment::public("NO_BROWSER", "1"),
+        RuntimeEnvironment::public("RESTLESS_COORDINATOR", runtime_coordinator()?),
+        RuntimeEnvironment::public("XDG_CACHE_HOME", format!("{session_runtime}/cache")),
+        RuntimeEnvironment::public("TMPDIR", format!("{session_runtime}/tmp")),
+        RuntimeEnvironment::secret(
+            auth.coordination_token_env.clone(),
+            auth.coordination_token.clone(),
+        ),
+        RuntimeEnvironment::secret(auth.gateway_token_env.clone(), auth.gateway_token.clone()),
+    ];
+    if team_coordination_wake {
+        environment.push(RuntimeEnvironment::public(
+            "RESTLESS_COORDINATION_WAKE",
+            "1",
+        ));
+    }
+    if workdir.starts_with("/company/reviews/") {
+        environment.extend([
+            RuntimeEnvironment::public("GIT_CONFIG_COUNT", "1"),
+            RuntimeEnvironment::public("GIT_CONFIG_KEY_0", "safe.directory"),
+            RuntimeEnvironment::public("GIT_CONFIG_VALUE_0", workdir),
+        ]);
+    }
+    Ok(environment)
+}
+
+async fn stop_runtime_process(control: &dyn RuntimeProcessControl) -> Result<RuntimeProcessExit> {
+    if let Ok(exit) =
+        tokio::time::timeout(std::time::Duration::from_millis(250), control.wait()).await
+    {
+        return exit.map_err(|error| anyhow::anyhow!(error));
+    }
+    match control.signal(RuntimeSignal::Terminate).await {
+        Ok(()) | Err(RuntimeTransportError::NotFound) => {}
+        Err(error) => tracing::warn!(%error, "could not terminate completed ACP Runtime process"),
+    }
+    if let Ok(exit) = tokio::time::timeout(std::time::Duration::from_secs(10), control.wait()).await
+    {
+        return exit.map_err(|error| anyhow::anyhow!(error));
+    }
+    match control.signal(RuntimeSignal::Kill).await {
+        Ok(()) | Err(RuntimeTransportError::NotFound) => {}
+        Err(error) => {
+            return Err(anyhow::anyhow!(error)).context("kill wedged ACP Runtime process");
+        }
+    }
+    tokio::time::timeout(std::time::Duration::from_secs(5), control.wait())
+        .await
+        .context("ACP Runtime process did not exit after kill")?
+        .map_err(|error| anyhow::anyhow!(error))
+}
+
+async fn remove_runtime_session_artifacts(
+    transport: &dyn RuntimeTransport,
+    authority: &RuntimeProcessAuthority,
+    paths: &[String],
+) -> Result<()> {
+    let mut arguments = vec!["-rf".to_owned(), "--".to_owned()];
+    arguments.extend(paths.iter().cloned());
+    run_runtime_command(
+        transport,
+        authority,
+        "rm",
+        arguments,
+        runtime_path("/company")?,
+        Vec::new(),
     )
-    .await?;
-    write_private_container_file(container, OMP_RUNTIME_CONFIG, RESTLESS_OMP_CONFIG).await?;
+    .await?
+    .require_success("clean exact ACP Runtime session artifacts")?;
     Ok(())
 }
 
@@ -971,12 +1232,53 @@ impl AgentSession {
 /// process env, so the CLI the agent shells out to knows who is reporting
 /// (T10); RESTLESS_COMPANY and the coordinator address come from the
 /// container's own env.
+fn validate_agent_process_authority(
+    authority: &RuntimeProcessAuthority,
+    auth: &AgentAuth,
+    actor: &str,
+    responsibility: &str,
+) -> Result<()> {
+    authority
+        .validate()
+        .map_err(|error| anyhow::anyhow!(error))?;
+    let exact_scope = match authority {
+        RuntimeProcessAuthority::Attempt {
+            company,
+            actor: authority_actor,
+            responsibility: authority_responsibility,
+            session_id,
+            ..
+        }
+        | RuntimeProcessAuthority::AuthorityEvent {
+            company,
+            actor: authority_actor,
+            responsibility: authority_responsibility,
+            session_id,
+            ..
+        } => {
+            company == &auth.company
+                && authority_actor == actor
+                && authority_responsibility == responsibility
+                && session_id == &auth.session_id
+        }
+        RuntimeProcessAuthority::GovernedEffect { .. }
+        | RuntimeProcessAuthority::InfrastructureProbe { .. } => false,
+    };
+    if !exact_scope {
+        anyhow::bail!(
+            "ACP Runtime authority does not match the authenticated company, actor, responsibility and session"
+        );
+    }
+    Ok(())
+}
+
 #[expect(
     clippy::too_many_arguments,
     reason = "the ACP launch boundary keeps identity, responsibility, authority and observation explicit"
 )]
 pub async fn with_agent<F, T>(
-    container: &str,
+    transport: Arc<dyn RuntimeTransport>,
+    authority: RuntimeProcessAuthority,
     auth: &AgentAuth,
     workdir: &str,
     actor: &str,
@@ -995,109 +1297,64 @@ where
     if responsibility.trim().is_empty() {
         anyhow::bail!("ACP session responsibility scope must not be empty");
     }
-    prepare_agent_runtime(container, auth).await?;
+    validate_agent_process_authority(&authority, auth, actor, responsibility)?;
+    let launch_id = auth.session_id.clone();
+    let session_runtime = format!("/company/run/agent-sessions/{launch_id}");
+    prepare_agent_runtime_via_transport(transport.as_ref(), &authority, auth, &session_runtime)
+        .await?;
     let locator_path = session_locator_path(&auth.company, actor, responsibility);
-    let prior_locator = read_session_locator(container, &locator_path).await?;
+    let prior_locator =
+        read_session_locator_from_runtime(transport.as_ref(), &auth.company, &locator_path).await?;
     if let Some(locator) = &prior_locator {
         validate_session_locator(locator, &auth.company, actor, responsibility)?;
     }
-    // Every docker-exec process is a Linux session leader. Record this turn's
-    // session id inside the container so cleanup can reap only its process
-    // tree. A before/after PID diff is not ownership: a staff turn may start
-    // while the Exec is running, and the Exec must never kill it on exit.
-    let launch_id = auth.session_id.clone();
-    let session_marker = format!("/tmp/restless-agent-{launch_id}.sid");
-    let system_prompt_path = format!("/tmp/restless-agent-{launch_id}.system.md");
-    let session_runtime = format!("/company/run/agent-sessions/{launch_id}");
-    let runtime_dirs = tokio::process::Command::new("docker")
-        .args([
-            "exec",
-            "-u",
-            "company",
-            container,
-            "mkdir",
-            "-p",
-            &format!("{session_runtime}/cache"),
-            &format!("{session_runtime}/tmp"),
-        ])
-        .output()
-        .await
-        .context("prepare external agent cache directories")?;
-    if !runtime_dirs.status.success() {
-        anyhow::bail!(
-            "prepare external agent cache directories: {}",
-            String::from_utf8_lossy(&runtime_dirs.stderr)
-        );
-    }
-    write_private_container_file(container, &system_prompt_path, &controls.system_prompt).await?;
-    // docker exec takes its -e flags BEFORE the container name; anything after
-    // it belongs to the command. Build the vector explicitly rather than
-    // chaining .args() and hoping the order is right — appending the base-URL
-    // override after the container silently handed it to omp as an argument,
-    // which surfaced as "No model selected".
-    let mut args = agent_exec_prefix(workdir);
-    args.push("-e".to_string());
-    args.push(format!("RESTLESS_ACTOR={actor}"));
-    if controls.team_coordination_wake {
-        args.push("-e".to_string());
-        args.push("RESTLESS_COORDINATION_WAKE=1".to_string());
-    }
-    args.push("-e".to_string());
-    args.push(format!("RESTLESS_COORDINATOR={}", runtime_coordinator()?));
-    args.push("-e".to_string());
-    args.push(format!("XDG_CACHE_HOME={session_runtime}/cache"));
-    args.push("-e".to_string());
-    args.push(format!("TMPDIR={session_runtime}/tmp"));
-    args.push("-e".to_string());
-    args.push(auth.coordination_token_env.clone());
-    args.push("-e".to_string());
-    // `docker exec -e NAME` copies NAME from the docker client's environment.
-    // Passing NAME=VALUE in argv would expose the scoped model capability to
-    // host process listings during session bootstrap.
-    args.push(auth.gateway_token_env.clone());
-    args.extend(
-        [
-            container,
-            "sh",
-            "-c",
-            // Productive files stay private to the company group, whose only
-            // other member is the isolated governed-effect UID. A 077 umask
-            // made Git metadata unreadable to the exact CLI process that had
-            // been authorised to publish it.
-            "umask 007; printf '%s\\n' \"$$\" > \"$1\"; shift; exec \"$@\"",
-            "restless-agent",
-            session_marker.as_str(),
-        ]
-        .iter()
-        .map(|arg| (*arg).to_string()),
-    );
-    args.extend(omp_agent_command_args(
-        &auth.model,
-        &auth.effort,
+    let AgentControls {
+        system_prompt,
+        mcp_servers,
+        team_coordination_wake,
+    } = controls;
+    let system_prompt_path = format!("{session_runtime}/system.md");
+    write_private_runtime_file(
+        transport.as_ref(),
+        &auth.company,
         &system_prompt_path,
-    ));
-    let spawned = tokio::process::Command::new("docker")
-        .env(&auth.coordination_token_env, &auth.coordination_token)
-        .env(&auth.gateway_token_env, &auth.gateway_token)
-        .args(&args)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .kill_on_drop(true)
-        .spawn();
-    let mut child = match spawned {
-        Ok(child) => child,
+        system_prompt.as_bytes(),
+    )
+    .await?;
+    let arguments = omp_agent_command_args(&auth.model, &auth.effort, &system_prompt_path);
+    let environment =
+        agent_runtime_environment(auth, workdir, &session_runtime, team_coordination_wake)?;
+    let spawned = transport
+        .start_process(RuntimeProcessSpec {
+            operation_id: uuid::Uuid::new_v4(),
+            authority: authority.clone(),
+            executable: "omp".into(),
+            arguments,
+            working_directory: runtime_path(workdir)?,
+            environment,
+            deadline: Utc::now() + ChronoDuration::hours(RUNTIME_PROCESS_DEADLINE_HOURS),
+        })
+        .await;
+    let RuntimeProcess {
+        stdin,
+        stdout,
+        stderr,
+        control,
+        ..
+    } = match spawned {
+        Ok(process) => process,
         Err(error) => {
-            let _ = tokio::process::Command::new("docker")
-                .args(["exec", container, "unlink", &system_prompt_path])
-                .output()
-                .await;
-            return Err(error).context("spawn ACP agent in container");
+            let _ = remove_runtime_session_artifacts(
+                transport.as_ref(),
+                &authority,
+                std::slice::from_ref(&session_runtime),
+            )
+            .await;
+            return Err(anyhow::anyhow!(error)).context("spawn ACP agent in company Runtime");
         }
     };
-    let stdin = child.stdin.take().expect("piped stdin");
-    let stdout = child.stdout.take().expect("piped stdout");
-    let transport = ByteStreams::new(stdin.compat_write(), stdout.compat());
+    let stderr_task = tokio::spawn(capture_runtime_output(stderr));
+    let acp_transport = ByteStreams::new(stdin.compat_write(), stdout.compat());
 
     let transcript = Arc::new(Mutex::new(TurnTranscript::default()));
     let sink = Arc::clone(&transcript);
@@ -1105,16 +1362,17 @@ where
     let notification_capture = Arc::clone(&capture_notifications);
     let live_locator = Arc::new(Mutex::new(None::<SessionLocator>));
     let notification_locator = Arc::clone(&live_locator);
-    let notification_container = container.to_string();
+    let notification_transport = Arc::clone(&transport);
+    let notification_company = auth.company.clone();
     let notification_locator_path = locator_path.clone();
     let event_observer = observer.clone();
     let live_observer_enabled = Arc::new(AtomicBool::new(true));
     let observer_enabled = Arc::clone(&live_observer_enabled);
     let workdir = workdir.to_string();
-    let mcp_servers = controls.mcp_servers;
     let responsibility = responsibility.to_string();
     let launch_auth = auth.clone();
-    let launch_container = container.to_string();
+    let launch_transport = Arc::clone(&transport);
+    let launch_authority = authority.clone();
     let launch_actor = actor.to_string();
     let launch_id_for_session = launch_id.clone();
     let session_locator_path = locator_path.clone();
@@ -1132,7 +1390,8 @@ where
                 let observer_enabled = Arc::clone(&observer_enabled);
                 let capture_notifications = Arc::clone(&notification_capture);
                 let live_locator = Arc::clone(&notification_locator);
-                let locator_container = notification_container.clone();
+                let locator_transport = Arc::clone(&notification_transport);
+                let locator_company = notification_company.clone();
                 let locator_path = notification_locator_path.clone();
                 async move {
                     // session/load may replay historical notifications to
@@ -1174,8 +1433,9 @@ where
                             None
                         };
                         if let Some(locator) = updated {
-                            if let Err(error) = persist_session_locator(
-                                &locator_container,
+                            if let Err(error) = persist_session_locator_to_runtime(
+                                locator_transport.as_ref(),
+                                &locator_company,
                                 &locator_path,
                                 &locator,
                             )
@@ -1216,7 +1476,7 @@ where
             },
             acp::on_receive_request!(),
         )
-        .connect_with(transport, async move |cx: ConnectionTo<Agent>| {
+        .connect_with(acp_transport, async move |cx: ConnectionTo<Agent>| {
             let step = async {
                 // Client capabilities are left at their defaults, and that is
                 // load-bearing: advertising `fs.writeTextFile` tells the agent
@@ -1381,17 +1641,27 @@ where
                     session_id: session_id.to_string(),
                     cumulative_cost_usd: baseline_cost,
                 };
-                persist_session_locator(&launch_container, &session_locator_path, &locator)
-                    .await
-                    .context("persist ACP session scope before prompt")?;
+                persist_session_locator_to_runtime(
+                    launch_transport.as_ref(),
+                    &launch_auth.company,
+                    &session_locator_path,
+                    &locator,
+                )
+                .await
+                .context("persist ACP session scope before prompt")?;
                 if let Ok(mut active) = live_locator.lock() {
                     *active = Some(locator);
                 }
                 if let Ok(mut current) = transcript.lock() {
                     current.session_cost_baseline_usd = baseline_cost;
                 }
-                let tool_contract_digest =
-                    prove_tool_contract(&launch_container, &launch_auth, &launch_actor).await?;
+                let tool_contract_digest = prove_tool_contract_via_transport(
+                    launch_transport.as_ref(),
+                    &launch_authority,
+                    &launch_auth,
+                    &launch_actor,
+                )
+                .await?;
                 capture_notifications.store(true, Ordering::Release);
                 tracing::info!(
                     actor = %launch_actor,
@@ -1433,27 +1703,27 @@ where
         })
         .await;
 
-    let owned_session = read_session_id(container, &session_marker).await;
-    let _ = child.kill().await;
-    let process_cleanup = if let Some(session_id) = owned_session {
-        let _ = reap_session(container, &session_id).await;
-        verify_session_reaped(container, &session_id).await
-    } else {
-        Err(anyhow::anyhow!(
-            "agent session ownership marker {session_marker} is missing; broad process cleanup was refused"
-        ))
-    };
-    let artifact_cleanup = remove_and_verify_session_artifacts(
-        container,
-        &[&session_marker, &system_prompt_path, &session_runtime],
+    let process_cleanup = stop_runtime_process(control.as_ref()).await.map(|_| ());
+    let stderr = stderr_task
+        .await
+        .context("join ACP Runtime stderr drain")?
+        .context("read ACP Runtime stderr")?;
+    let artifact_cleanup = remove_runtime_session_artifacts(
+        transport.as_ref(),
+        &authority,
+        std::slice::from_ref(&session_runtime),
     )
     .await;
     if let Ok(mut slot) = failure.lock() {
         if let Some(error) = slot.take() {
             if let Err(cleanup) = process_cleanup.and(artifact_cleanup) {
-                tracing::error!(
-                    container,
-                    "agent failed and terminal cleanup also failed: {cleanup:#}"
+                tracing::error!("agent failed and terminal cleanup also failed: {cleanup:#}");
+            }
+            if !stderr.bytes.is_empty() {
+                tracing::warn!(
+                    stderr = %String::from_utf8_lossy(&stderr.bytes),
+                    truncated = stderr.truncated,
+                    "ACP Runtime process reported error output"
                 );
             }
             return Err(error);
@@ -1497,6 +1767,9 @@ pub(crate) fn agent_exec_prefix(workdir: &str) -> Vec<String> {
 
 /// Read and validate the Linux session id written by this turn's wrapper.
 pub(crate) async fn read_session_id(container: &str, marker: &str) -> Option<String> {
+    if restlessd::hosted_runtime::require_local_docker_from_environment().is_err() {
+        return None;
+    }
     let Ok(output) = tokio::process::Command::new("docker")
         .args(["exec", container, "cat", marker])
         .output()
@@ -1516,6 +1789,8 @@ pub(crate) async fn remove_and_verify_session_artifacts(
     container: &str,
     paths: &[&str],
 ) -> Result<()> {
+    restlessd::hosted_runtime::require_local_docker_from_environment()
+        .map_err(|error| anyhow::anyhow!(error))?;
     let mut args = [
         "exec",
         "-u",
@@ -1545,6 +1820,8 @@ pub(crate) async fn remove_and_verify_session_artifacts(
 }
 
 pub(crate) async fn verify_session_reaped(container: &str, session_id: &str) -> Result<()> {
+    restlessd::hosted_runtime::require_local_docker_from_environment()
+        .map_err(|error| anyhow::anyhow!(error))?;
     let output = tokio::process::Command::new("docker")
         .args(["exec", container, "ps", "-eo", "pid=,sid="])
         .output()
@@ -1579,6 +1856,9 @@ pub(crate) async fn verify_session_reaped(container: &str, session_id: &str) -> 
 /// and that is the tripwire for revisiting this — no company has wanted one
 /// yet (§16.1, observe before modelling).
 pub(crate) async fn reap_session(container: &str, session_id: &str) -> usize {
+    if restlessd::hosted_runtime::require_local_docker_from_environment().is_err() {
+        return 0;
+    }
     let Ok(output) = tokio::process::Command::new("docker")
         .args(["exec", container, "ps", "-eo", "pid=,sid="])
         .output()
@@ -1609,6 +1889,9 @@ pub(crate) async fn reap_session(container: &str, session_id: &str) -> usize {
 /// ownership record; a process-name search is incomplete (`omp` replaced
 /// `codex-acp`) and can claim unrelated work.
 pub(crate) async fn reap_orphan_sessions(container: &str) -> usize {
+    if restlessd::hosted_runtime::require_local_docker_from_environment().is_err() {
+        return 0;
+    }
     let Ok(output) = tokio::process::Command::new("docker")
         .args([
             "exec",
@@ -1673,9 +1956,69 @@ mod tests {
         agent_exec_prefix, exact_model_config_selection, model_config_is_selected,
         omp_agent_command_args, persist_session_locator, pids_in_session, read_session_locator,
         session_cost_delta, session_locator_is_reusable, session_locator_path,
-        validate_session_locator, with_agent, AgentAuth, AgentControls, SessionLocator,
+        validate_agent_process_authority, validate_session_locator, with_agent, AgentAuth,
+        AgentControls, RuntimeProcessAuthority, RuntimeTransport, SessionLocator,
         DEFAULT_REASONING_EFFORT, OMP_AGENT_TOOLS, RESTLESS_OMP_CONFIG,
     };
+
+    #[test]
+    fn productive_acp_process_requires_exact_authenticated_runtime_authority() {
+        let work_id = uuid::Uuid::new_v4();
+        let attempt_id = uuid::Uuid::new_v4();
+        let auth = AgentAuth {
+            model: "provider/model".into(),
+            effort: DEFAULT_REASONING_EFFORT.into(),
+            company: "authority_test".into(),
+            session_id: "session-1".into(),
+            coordination_token_env: "RESTLESS_SESSION_CAPABILITY".into(),
+            coordination_token: "coordination-secret".into(),
+            gateway_token_env: "RESTLESS_MODEL_CAPABILITY".into(),
+            gateway_token: "model-secret".into(),
+            gateway_url: "https://authority.example.test/internal/model".into(),
+            billing: crate::model_gateway::ModelBilling::Subscription,
+        };
+        let exact = RuntimeProcessAuthority::Attempt {
+            company: auth.company.clone(),
+            actor: "writer".into(),
+            responsibility: format!("work:{work_id}"),
+            work_id,
+            attempt_id,
+            session_id: auth.session_id.clone(),
+        };
+        assert!(validate_agent_process_authority(
+            &exact,
+            &auth,
+            "writer",
+            &format!("work:{work_id}")
+        )
+        .is_ok());
+
+        let wrong_actor = RuntimeProcessAuthority::Attempt {
+            company: auth.company.clone(),
+            actor: "other".into(),
+            responsibility: format!("work:{work_id}"),
+            work_id,
+            attempt_id,
+            session_id: auth.session_id.clone(),
+        };
+        assert!(validate_agent_process_authority(
+            &wrong_actor,
+            &auth,
+            "writer",
+            &format!("work:{work_id}")
+        )
+        .is_err());
+        assert!(validate_agent_process_authority(
+            &RuntimeProcessAuthority::InfrastructureProbe {
+                company: auth.company.clone(),
+                probe: "productive-work".into(),
+            },
+            &auth,
+            "writer",
+            &format!("work:{work_id}")
+        )
+        .is_err());
+    }
 
     #[test]
     fn resumed_usage_is_a_per_wake_delta_and_counter_regression_is_unknown() {
@@ -1756,6 +2099,15 @@ mod tests {
             });
         let capabilities = crate::capability::CapabilityIssuer::open(&root).unwrap();
         let container = crate::runtime::container_name(&company);
+        let runtime_transport: std::sync::Arc<dyn RuntimeTransport> = std::sync::Arc::new(
+            restlessd::local_runtime_transport::LocalDockerRuntimeTransport::from_environment()
+                .unwrap(),
+        );
+        let authority_event_id = std::env::var("RESTLESS_ACP_SESSION_TEST_EVENT_ID")
+            .expect("set RESTLESS_ACP_SESSION_TEST_EVENT_ID to a persisted OrgIntel event")
+            .parse::<i64>()
+            .expect("RESTLESS_ACP_SESSION_TEST_EVENT_ID must be a positive integer");
+        assert!(authority_event_id > 0);
         let actor = "exec";
         let run_id = uuid::Uuid::new_v4().simple().to_string();
         let responsibility = format!("evaluation:s17-session-continuity:{run_id}");
@@ -1792,7 +2144,14 @@ mod tests {
         let marker = format!("S17-{}", uuid::Uuid::new_v4().simple());
         let first_auth = make_auth();
         let first = with_agent(
-            &container,
+            std::sync::Arc::clone(&runtime_transport),
+            RuntimeProcessAuthority::AuthorityEvent {
+                company: company.clone(),
+                actor: actor.into(),
+                responsibility: responsibility.clone(),
+                event_id: authority_event_id,
+                session_id: first_auth.session_id.clone(),
+            },
             &first_auth,
             workdir,
             actor,
@@ -1833,7 +2192,14 @@ mod tests {
             second_auth.coordination_token
         );
         let second = with_agent(
-            &container,
+            std::sync::Arc::clone(&runtime_transport),
+            RuntimeProcessAuthority::AuthorityEvent {
+                company: company.clone(),
+                actor: actor.into(),
+                responsibility: responsibility.clone(),
+                event_id: authority_event_id,
+                session_id: second_auth.session_id.clone(),
+            },
             &second_auth,
             workdir,
             actor,
@@ -1881,7 +2247,14 @@ mod tests {
             .unwrap();
         let third_auth = make_auth();
         let third = with_agent(
-            &container,
+            std::sync::Arc::clone(&runtime_transport),
+            RuntimeProcessAuthority::AuthorityEvent {
+                company: company.clone(),
+                actor: actor.into(),
+                responsibility: responsibility.clone(),
+                event_id: authority_event_id,
+                session_id: third_auth.session_id.clone(),
+            },
             &third_auth,
             workdir,
             actor,
@@ -1926,7 +2299,14 @@ mod tests {
             std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
         let called = productive_prompt_reached.clone();
         let invalid = with_agent(
-            &container,
+            std::sync::Arc::clone(&runtime_transport),
+            RuntimeProcessAuthority::AuthorityEvent {
+                company: company.clone(),
+                actor: actor.into(),
+                responsibility: readiness_responsibility.clone(),
+                event_id: authority_event_id,
+                session_id: invalid_auth.session_id.clone(),
+            },
             &invalid_auth,
             workdir,
             actor,
@@ -1948,7 +2328,14 @@ mod tests {
 
         let repaired_auth = make_auth();
         let repaired = with_agent(
-            &container,
+            std::sync::Arc::clone(&runtime_transport),
+            RuntimeProcessAuthority::AuthorityEvent {
+                company: company.clone(),
+                actor: actor.into(),
+                responsibility: readiness_responsibility.clone(),
+                event_id: authority_event_id,
+                session_id: repaired_auth.session_id.clone(),
+            },
             &repaired_auth,
             workdir,
             actor,

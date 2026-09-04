@@ -8,7 +8,7 @@
 //! Environment defaults (so agents can just type `restless work list`):
 //!   RESTLESS_COMPANY      — whose coordination state to touch
 //!   RESTLESS_ACTOR        — who "message send" is from
-//!   RESTLESS_COORDINATOR  — host:port; when set, TCP instead of unix socket
+//!   RESTLESS_COORDINATOR  — local host:port or hosted wss:// coordination URL
 //!   RESTLESS_OWNER_URL    — loopback owner gateway used by `chat` and probed by `doctor`
 //!   RESTLESS_COCKPIT_URL  — optional dev cockpit origin probed by `doctor`
 
@@ -23,6 +23,9 @@ use std::time::Duration;
 
 use anyhow::{anyhow, bail, Context, Result};
 use clap::{Parser, Subcommand};
+
+const HOSTED_COORDINATION_PATH: &str = "/internal/v1/coordination";
+const MAX_COORDINATION_FRAME_BYTES: usize = 1024 * 1024;
 
 #[derive(Parser)]
 #[command(name = "restless", about = "Restless owner surface")]
@@ -3789,6 +3792,7 @@ fn watch(line: &str) -> Result<()> {
 enum Stream {
     Unix(UnixStream),
     Tcp(std::net::TcpStream),
+    WebSocket(WebSocketLineStream),
 }
 
 impl Write for Stream {
@@ -3796,12 +3800,14 @@ impl Write for Stream {
         match self {
             Stream::Unix(stream) => stream.write(buf),
             Stream::Tcp(stream) => stream.write(buf),
+            Stream::WebSocket(stream) => stream.write(buf),
         }
     }
     fn flush(&mut self) -> std::io::Result<()> {
         match self {
             Stream::Unix(stream) => stream.flush(),
             Stream::Tcp(stream) => stream.flush(),
+            Stream::WebSocket(stream) => stream.flush(),
         }
     }
 }
@@ -3811,17 +3817,284 @@ impl std::io::Read for Stream {
         match self {
             Stream::Unix(stream) => stream.read(buf),
             Stream::Tcp(stream) => stream.read(buf),
+            Stream::WebSocket(stream) => stream.read(buf),
         }
     }
 }
 
+type BlockingWebSocket =
+    tungstenite::WebSocket<tungstenite::stream::MaybeTlsStream<std::net::TcpStream>>;
+
+/// Adapt one-JSON-object WebSocket text frames to the CLI's established
+/// newline-delimited synchronous stream. The capability stays inside the JSON
+/// request; neither the URL nor the upgrade headers carry session authority.
+struct WebSocketLineStream {
+    socket: BlockingWebSocket,
+    incoming: Vec<u8>,
+    incoming_offset: usize,
+    outgoing: Vec<u8>,
+    closed: bool,
+}
+
+impl WebSocketLineStream {
+    fn new(socket: BlockingWebSocket) -> Self {
+        Self {
+            socket,
+            incoming: Vec::new(),
+            incoming_offset: 0,
+            outgoing: Vec::new(),
+            closed: false,
+        }
+    }
+
+    fn send_outgoing(&mut self) -> std::io::Result<()> {
+        let bytes = std::mem::take(&mut self.outgoing);
+        let text = String::from_utf8(bytes).map_err(|_| invalid_websocket_data())?;
+        validate_coordination_text(&text)?;
+        self.socket
+            .send(tungstenite::Message::Text(text.into()))
+            .map_err(websocket_io_error)
+    }
+
+    fn receive_next(&mut self) -> std::io::Result<bool> {
+        loop {
+            match self.socket.read() {
+                Ok(tungstenite::Message::Text(text)) => {
+                    validate_coordination_text(text.as_str())?;
+                    self.incoming.clear();
+                    self.incoming.extend_from_slice(text.as_bytes());
+                    self.incoming.push(b'\n');
+                    self.incoming_offset = 0;
+                    return Ok(true);
+                }
+                Ok(tungstenite::Message::Ping(_)) => {
+                    // tungstenite queues the standards-required Pong while
+                    // reading a Ping. Flush it before waiting for application
+                    // data so a quiet watch connection remains healthy.
+                    self.socket.flush().map_err(websocket_io_error)?;
+                }
+                Ok(tungstenite::Message::Pong(_)) => {}
+                Ok(tungstenite::Message::Close(_)) => {
+                    let _ = self.socket.flush();
+                    self.closed = true;
+                    return Ok(false);
+                }
+                Ok(tungstenite::Message::Binary(_)) | Ok(tungstenite::Message::Frame(_)) => {
+                    self.closed = true;
+                    return Err(invalid_websocket_data());
+                }
+                Err(tungstenite::Error::ConnectionClosed | tungstenite::Error::AlreadyClosed) => {
+                    self.closed = true;
+                    return Ok(false);
+                }
+                Err(error) => {
+                    self.closed = true;
+                    return Err(websocket_io_error(error));
+                }
+            }
+        }
+    }
+}
+
+impl Write for WebSocketLineStream {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        if buf.is_empty() {
+            return Ok(0);
+        }
+        if self.closed {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::BrokenPipe,
+                "hosted coordination WebSocket is closed",
+            ));
+        }
+        if buf.contains(&b'\r') {
+            return Err(invalid_websocket_data());
+        }
+        let delimiter = buf.iter().position(|byte| *byte == b'\n');
+        let payload = match delimiter {
+            None => buf,
+            Some(index)
+                if index + 1 == buf.len() && !buf[..index].iter().any(|byte| *byte == b'\n') =>
+            {
+                &buf[..index]
+            }
+            Some(_) => return Err(invalid_websocket_data()),
+        };
+        if self.outgoing.len().saturating_add(payload.len()) > MAX_COORDINATION_FRAME_BYTES {
+            return Err(frame_too_large());
+        }
+        self.outgoing.extend_from_slice(payload);
+        if delimiter.is_some() {
+            if self.outgoing.is_empty() {
+                return Err(invalid_websocket_data());
+            }
+            self.send_outgoing()?;
+        }
+        Ok(buf.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        if !self.outgoing.is_empty() {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "hosted coordination request is not newline terminated",
+            ));
+        }
+        self.socket.flush().map_err(websocket_io_error)
+    }
+}
+
+impl Read for WebSocketLineStream {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        if buf.is_empty() {
+            return Ok(0);
+        }
+        loop {
+            if self.incoming_offset < self.incoming.len() {
+                let remaining = &self.incoming[self.incoming_offset..];
+                let count = remaining.len().min(buf.len());
+                buf[..count].copy_from_slice(&remaining[..count]);
+                self.incoming_offset += count;
+                if self.incoming_offset == self.incoming.len() {
+                    self.incoming.clear();
+                    self.incoming_offset = 0;
+                }
+                return Ok(count);
+            }
+            if self.closed || !self.receive_next()? {
+                return Ok(0);
+            }
+        }
+    }
+}
+
+fn validate_coordination_text(text: &str) -> std::io::Result<()> {
+    if text.is_empty()
+        || text.len() > MAX_COORDINATION_FRAME_BYTES
+        || text.bytes().any(|byte| matches!(byte, b'\r' | b'\n'))
+        || !serde_json::from_str::<serde_json::Value>(text).is_ok_and(|value| value.is_object())
+    {
+        return Err(invalid_websocket_data());
+    }
+    Ok(())
+}
+
+fn invalid_websocket_data() -> std::io::Error {
+    std::io::Error::new(
+        std::io::ErrorKind::InvalidData,
+        "hosted coordination requires one bounded JSON object per text frame",
+    )
+}
+
+fn frame_too_large() -> std::io::Error {
+    std::io::Error::new(
+        std::io::ErrorKind::InvalidData,
+        "hosted coordination frame exceeds 1 MiB",
+    )
+}
+
+fn websocket_io_error(error: tungstenite::Error) -> std::io::Error {
+    match error {
+        tungstenite::Error::Io(error) => error,
+        tungstenite::Error::Capacity(_) => frame_too_large(),
+        tungstenite::Error::ConnectionClosed | tungstenite::Error::AlreadyClosed => {
+            std::io::Error::new(
+                std::io::ErrorKind::BrokenPipe,
+                "hosted coordination WebSocket is closed",
+            )
+        }
+        tungstenite::Error::Tls(_) => std::io::Error::new(
+            std::io::ErrorKind::ConnectionAborted,
+            "hosted coordination TLS failed",
+        ),
+        _ => invalid_websocket_data(),
+    }
+}
+
+fn validate_coordination_websocket_url(
+    coordinator: &str,
+    allow_insecure_local: bool,
+) -> Result<url::Url> {
+    let url = url::Url::parse(coordinator).context("parse RESTLESS_COORDINATOR WebSocket URL")?;
+    let secure = url.scheme() == "wss";
+    let insecure_test = url.scheme() == "ws"
+        && allow_insecure_local
+        && match url.host() {
+            Some(url::Host::Ipv4(address)) => address.is_loopback(),
+            Some(url::Host::Ipv6(address)) => address.is_loopback(),
+            Some(url::Host::Domain(host)) => host == "localhost",
+            None => false,
+        };
+    let has_userinfo = coordinator
+        .split_once("://")
+        .and_then(|(_, remainder)| remainder.split('/').next())
+        .is_some_and(|authority| authority.contains('@'));
+    if !secure && !insecure_test {
+        bail!("hosted RESTLESS_COORDINATOR must use wss://");
+    }
+    if url.host().is_none()
+        || has_userinfo
+        || !url.username().is_empty()
+        || url.password().is_some()
+        || url.query().is_some()
+        || url.fragment().is_some()
+        || url.path() != HOSTED_COORDINATION_PATH
+        || url.port() == Some(0)
+    {
+        bail!(
+            "hosted RESTLESS_COORDINATOR must be one exact wss:// host{HOSTED_COORDINATION_PATH} URL without URL authority"
+        );
+    }
+    Ok(url)
+}
+
+fn connect_websocket_with_policy(
+    coordinator: &str,
+    allow_insecure_local: bool,
+) -> Result<WebSocketLineStream> {
+    let url = validate_coordination_websocket_url(coordinator, allow_insecure_local)?;
+    let config = tungstenite::protocol::WebSocketConfig::default()
+        .write_buffer_size(0)
+        .max_write_buffer_size(MAX_COORDINATION_FRAME_BYTES + 1)
+        .max_message_size(Some(MAX_COORDINATION_FRAME_BYTES))
+        .max_frame_size(Some(MAX_COORDINATION_FRAME_BYTES));
+    let (socket, response) = tungstenite::client::connect_with_config(
+        url.as_str(),
+        Some(config),
+        0, // A coordination capability may never be redirected to another origin.
+    )
+    .map_err(|error| match error {
+        tungstenite::Error::Http(response) => anyhow!(
+            "hosted coordination WebSocket upgrade was refused with HTTP {}",
+            response.status()
+        ),
+        tungstenite::Error::Io(error) => {
+            anyhow!("hosted coordination WebSocket connection failed: {error}")
+        }
+        tungstenite::Error::Tls(_) => anyhow!("hosted coordination TLS handshake failed"),
+        _ => anyhow!("hosted coordination WebSocket handshake failed"),
+    })?;
+    if response.status() != tungstenite::http::StatusCode::SWITCHING_PROTOCOLS {
+        bail!("hosted coordination WebSocket upgrade was not accepted");
+    }
+    Ok(WebSocketLineStream::new(socket))
+}
+
+fn connect_runtime(coordinator: &str) -> Result<Stream> {
+    if coordinator.contains("://") {
+        return connect_websocket_with_policy(coordinator, false).map(Stream::WebSocket);
+    }
+    std::net::TcpStream::connect(coordinator)
+        .map(Stream::Tcp)
+        .with_context(|| format!("connect {coordinator} — is restlessd running?"))
+}
+
 /// Inside a company container the coordinator is TCP (RESTLESS_COORDINATOR
-/// is set in the image); on the host it is the unix socket.
+/// is set in the image); hosted Runtimes use one exact TLS WebSocket URL; on
+/// the host it is the unix socket.
 fn connect() -> Result<Stream> {
     if let Ok(coordinator) = std::env::var("RESTLESS_COORDINATOR") {
-        return std::net::TcpStream::connect(&coordinator)
-            .map(Stream::Tcp)
-            .with_context(|| format!("connect {coordinator} — is restlessd running?"));
+        return connect_runtime(&coordinator);
     }
     let sock = restlessd::appliance::MachineProfile::from_env()?.socket_path();
     if let Ok(stream) = UnixStream::connect(&sock) {
@@ -4111,5 +4384,198 @@ mod tests {
             http_status(&format!("http://{address}"), "/api/companies").expect("probe status");
         assert_eq!(status, 401);
         server.join().expect("probe server");
+    }
+
+    #[test]
+    fn hosted_coordination_url_is_exact_tls_and_carries_no_url_authority() {
+        let valid = validate_coordination_websocket_url(
+            "wss://owner-1.planes.example.test/internal/v1/coordination",
+            false,
+        )
+        .unwrap();
+        assert_eq!(valid.scheme(), "wss");
+        assert_eq!(valid.path(), HOSTED_COORDINATION_PATH);
+
+        for refused in [
+            "ws://owner-1.planes.example.test/internal/v1/coordination",
+            "http://owner-1.planes.example.test/internal/v1/coordination",
+            "wss://user:secret@owner-1.planes.example.test/internal/v1/coordination",
+            "wss://@owner-1.planes.example.test/internal/v1/coordination",
+            "wss://owner-1.planes.example.test/internal/v1/coordination?session_capability=secret",
+            "wss://owner-1.planes.example.test/internal/v1/coordination#secret",
+            "wss://owner-1.planes.example.test/internal/v1/coordination/",
+            "wss://owner-1.planes.example.test/internal/v1/runtime-bridge",
+            "wss://owner-1.planes.example.test:0/internal/v1/coordination",
+        ] {
+            assert!(
+                validate_coordination_websocket_url(refused, false).is_err(),
+                "accepted unsafe coordinator URL {refused}"
+            );
+        }
+
+        assert!(validate_coordination_websocket_url(
+            "ws://127.0.0.1:17791/internal/v1/coordination",
+            true
+        )
+        .is_ok());
+        assert!(validate_coordination_websocket_url(
+            "ws://owner-1.planes.example.test/internal/v1/coordination",
+            true
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn hosted_coordination_preserves_json_lines_and_streaming_watch_frames() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = std::thread::spawn(move || {
+            let (stream, _) = listener.accept().unwrap();
+            let callback =
+                |request: &tungstenite::handshake::server::Request,
+                 response: tungstenite::handshake::server::Response| {
+                    assert_eq!(request.uri().path(), HOSTED_COORDINATION_PATH);
+                    assert!(request.uri().query().is_none());
+                    assert!(!request.headers().contains_key("authorization"));
+                    assert!(!request.headers().contains_key("cookie"));
+                    Ok(response)
+                };
+            let mut socket = tungstenite::accept_hdr(stream, callback).unwrap();
+            let request = socket.read().unwrap().into_text().unwrap();
+            assert!(!request.contains(['\r', '\n']));
+            let request: serde_json::Value = serde_json::from_str(request.as_str()).unwrap();
+            assert_eq!(request["cmd"], "watch");
+            assert_eq!(request["session_capability"], "signed-in-frame");
+
+            socket
+                .send(tungstenite::Message::Ping(b"still-here".to_vec().into()))
+                .unwrap();
+            socket
+                .send(tungstenite::Message::Text(
+                    serde_json::json!({"kind":"first"}).to_string().into(),
+                ))
+                .unwrap();
+            socket
+                .send(tungstenite::Message::Text(
+                    serde_json::json!({"kind":"second"}).to_string().into(),
+                ))
+                .unwrap();
+            assert!(matches!(
+                socket.read().unwrap(),
+                tungstenite::Message::Pong(_)
+            ));
+        });
+
+        let mut stream = connect_websocket_with_policy(
+            &format!("ws://{address}{HOSTED_COORDINATION_PATH}"),
+            true,
+        )
+        .unwrap();
+        let request = serde_json::json!({
+            "cmd": "watch",
+            "session_capability": "signed-in-frame"
+        })
+        .to_string();
+        stream.write_all(request.as_bytes()).unwrap();
+        stream.write_all(b"\n").unwrap();
+
+        let mut reader = BufReader::new(stream);
+        let mut first = String::new();
+        let mut second = String::new();
+        reader.read_line(&mut first).unwrap();
+        reader.read_line(&mut second).unwrap();
+        assert_eq!(first, "{\"kind\":\"first\"}\n");
+        assert_eq!(second, "{\"kind\":\"second\"}\n");
+        drop(reader);
+        server.join().unwrap();
+    }
+
+    fn websocket_with_server_message(
+        message: tungstenite::Message,
+    ) -> (WebSocketLineStream, std::thread::JoinHandle<()>) {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = std::thread::spawn(move || {
+            let (stream, _) = listener.accept().unwrap();
+            let mut socket = tungstenite::accept(stream).unwrap();
+            let _ = socket.send(message);
+        });
+        let client = connect_websocket_with_policy(
+            &format!("ws://{address}{HOSTED_COORDINATION_PATH}"),
+            true,
+        )
+        .unwrap();
+        (client, server)
+    }
+
+    fn assert_server_frame_rejected(message: tungstenite::Message) {
+        let (mut stream, server) = websocket_with_server_message(message);
+        let mut output = [0_u8; 32];
+        let error = stream.read(&mut output).unwrap_err();
+        assert_eq!(error.kind(), std::io::ErrorKind::InvalidData);
+        drop(stream);
+        server.join().unwrap();
+    }
+
+    #[test]
+    fn hosted_coordination_rejects_binary_multiline_malformed_and_oversized_frames() {
+        assert_server_frame_rejected(tungstenite::Message::Binary(b"{}".to_vec().into()));
+        assert_server_frame_rejected(tungstenite::Message::Text(
+            "{\"one\":1}\n{\"two\":2}".into(),
+        ));
+        assert_server_frame_rejected(tungstenite::Message::Text("not-json".into()));
+        assert_server_frame_rejected(tungstenite::Message::Text(
+            format!(
+                "{{\"value\":\"{}\"}}",
+                "x".repeat(MAX_COORDINATION_FRAME_BYTES)
+            )
+            .into(),
+        ));
+    }
+
+    #[test]
+    fn hosted_coordination_does_not_follow_upgrade_redirects() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut reader = BufReader::new(stream.try_clone().unwrap());
+            loop {
+                let mut line = String::new();
+                reader.read_line(&mut line).unwrap();
+                if line == "\r\n" {
+                    break;
+                }
+            }
+            stream
+                .write_all(
+                    format!(
+                        "HTTP/1.1 302 Found\r\nLocation: ws://{address}{HOSTED_COORDINATION_PATH}\r\nContent-Length: 0\r\n\r\n"
+                    )
+                    .as_bytes(),
+                )
+                .unwrap();
+        });
+        let result = connect_websocket_with_policy(
+            &format!("ws://{address}{HOSTED_COORDINATION_PATH}"),
+            true,
+        );
+        let error = match result {
+            Ok(_) => panic!("followed a coordination redirect"),
+            Err(error) => error,
+        };
+        assert!(error.to_string().contains("HTTP 302"));
+        server.join().unwrap();
+    }
+
+    #[test]
+    fn local_runtime_host_port_remains_raw_tcp() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = std::thread::spawn(move || listener.accept().unwrap());
+        let stream = connect_runtime(&address.to_string()).unwrap();
+        assert!(matches!(&stream, Stream::Tcp(_)));
+        drop(stream);
+        server.join().unwrap();
     }
 }

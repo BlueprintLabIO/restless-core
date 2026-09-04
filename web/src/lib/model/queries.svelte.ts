@@ -23,6 +23,7 @@ export type { PortfolioProjection } from '../product/contracts';
 import { getBrowserStatus, getCompany, type BrowserStatus, type CompanyView } from './company';
 import { getCompanyIdentity, type CompanyIdentitySnapshot } from './identity';
 import type { ThreadMessage } from './view';
+import { getPlatformContext, type PlatformContext } from '../platform';
 
 export type QuerySourceStatus = 'unknown' | 'live' | 'stale';
 export type ActivityTransport = 'idle' | 'connecting' | 'live' | 'reconnecting';
@@ -32,6 +33,7 @@ const REFRESH_MS = 10_000;
 const RETAIN_MS = 10 * 60_000;
 
 export const queryKeys = {
+	platform: ['platform'] as const,
 	companies: ['companies'] as const,
 	portfolio: ['portfolio'] as const,
 	attention: (company: string) => ['attention', company] as const,
@@ -43,6 +45,28 @@ export const queryKeys = {
 		['conversation', company, actor, workId ?? null] as const,
 	browserStatus: (company: string) => ['browser-status', company] as const
 };
+
+export function platformQuery() {
+	const query = createQuery(() => ({
+		queryKey: queryKeys.platform,
+		queryFn: () => getPlatformContext(),
+		staleTime: STALE_MS,
+		gcTime: RETAIN_MS,
+		retry: 1
+	}));
+	return {
+		get view() {
+			return (query.data as PlatformContext | undefined) ?? null;
+		},
+		get status() {
+			return statusOf(query);
+		},
+		get failure() {
+			return (query.error as (Error & { status?: number }) | null) ?? null;
+		},
+		refresh: () => refresh(query)
+	};
+}
 
 function statusOf(query: {
 	data?: unknown;
@@ -111,6 +135,17 @@ export type PortfolioView = {
 };
 
 async function getPortfolio(client: QueryClient): Promise<PortfolioView> {
+	const platform = await client.fetchQuery({
+		queryKey: queryKeys.platform,
+		queryFn: () => getPlatformContext(),
+		staleTime: STALE_MS
+	});
+	if (platform.mode === 'cloud_fleet') {
+		if (!platform.companies || !platform.projections) {
+			throw new Error('The Cloud fleet response omitted its company portfolio.');
+		}
+		return { companies: platform.companies, projections: platform.projections };
+	}
 	const companies = await client.fetchQuery({
 		queryKey: queryKeys.companies,
 		queryFn: getCompanies,

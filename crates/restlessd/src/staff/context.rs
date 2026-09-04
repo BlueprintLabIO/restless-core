@@ -304,11 +304,19 @@ pub(super) fn bound_attempt_context(
     };
     let workspace_lines = format!(
         "- Runtime working directory: {workdir}\n- Repository: {}\n- Effective base ref: {}\n- Declared base ref: {}\n- Declared integration ref: {}\n- Declared worktree: {}",
-        claimed.work.repo.as_deref().unwrap_or("none — persistent company files only"),
+        claimed
+            .work
+            .repo
+            .as_deref()
+            .unwrap_or("none — persistent company files only"),
         claimed.effective_base_ref.as_deref().unwrap_or("none"),
         claimed.work.base_ref.as_deref().unwrap_or("none"),
         claimed.work.integration_branch.as_deref().unwrap_or("none"),
-        claimed.work.worktree.as_deref().unwrap_or("Runtime-generated from Work id and revision"),
+        claimed
+            .work
+            .worktree
+            .as_deref()
+            .unwrap_or("Runtime-generated from Work id and revision"),
     );
     let expected_artifact = claimed.work.expected_artifact.trim();
     let artifact_kind = if claimed.work.owner_review_required {

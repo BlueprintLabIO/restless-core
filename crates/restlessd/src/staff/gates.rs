@@ -9,16 +9,36 @@ use std::sync::{Arc, OnceLock, Weak};
 use std::time::{Duration, Instant};
 
 use anyhow::{bail, Context as _, Result};
+use chrono::{Duration as ChronoDuration, Utc};
 use restless_orgintel::{NewGateRunEvidence, RuntimeResourceLeaseRow, WorkGateRow};
+use restlessd::runtime_transport::{
+    CompanyPath, RuntimeEnvironment, RuntimeProcess, RuntimeProcessAuthority, RuntimeProcessSpec,
+    RuntimeSignal, RuntimeTransport,
+};
 use sha2::{Digest as _, Sha256};
+use tokio::io::{AsyncRead, AsyncReadExt as _, AsyncWriteExt as _};
 use tokio::sync::Mutex;
+use uuid::Uuid;
 
 use super::recovery::gate_cwd;
+use super::workspace::run_attempt_runtime_command;
 
 static IN_FLIGHT: OnceLock<Mutex<HashMap<String, Weak<Mutex<()>>>>> = OnceLock::new();
 
-const GATE_SESSION_WRAPPER: &str =
-    "umask 077; marker=$1; shift; exec setsid --wait sh -c 'echo $$ > \"$1\"; shift; exec \"$@\"' restless-gate-inner \"$marker\" \"$@\"";
+const GATE_SESSION_WRAPPER: &str = "umask 077; marker=$1; shift; exec setsid --wait sh -c 'echo $$ > \"$1\"; shift; exec \"$@\"' restless-gate-inner \"$marker\" \"$@\"";
+const GATE_OUTPUT_LIMIT: usize = 16 * 1024 * 1024;
+
+#[derive(Clone, Copy)]
+#[cfg_attr(not(test), allow(dead_code))]
+enum GateRuntime<'a> {
+    LocalDocker {
+        container: &'a str,
+    },
+    Transport {
+        transport: &'a dyn RuntimeTransport,
+        authority: &'a RuntimeProcessAuthority,
+    },
+}
 
 #[derive(Default)]
 struct GateResources {
@@ -30,9 +50,69 @@ struct GateResources {
     marker: String,
 }
 
+#[cfg_attr(not(test), allow(dead_code))]
 pub(super) async fn run_gates(
     org: &restless_orgintel::OrgIntel,
     container: &str,
+    work_id: uuid::Uuid,
+    attempt_id: uuid::Uuid,
+    workdir: &str,
+    candidate_tree: &str,
+) -> Result<bool> {
+    run_gates_on_runtime(
+        org,
+        GateRuntime::LocalDocker { container },
+        work_id,
+        attempt_id,
+        workdir,
+        candidate_tree,
+    )
+    .await
+}
+
+pub(super) async fn run_gates_via_transport(
+    org: &restless_orgintel::OrgIntel,
+    transport: &dyn RuntimeTransport,
+    authority: &RuntimeProcessAuthority,
+    work_id: uuid::Uuid,
+    attempt_id: uuid::Uuid,
+    workdir: &str,
+    candidate_tree: &str,
+) -> Result<bool> {
+    validate_gate_attempt_authority(authority, work_id, attempt_id)?;
+    run_gates_on_runtime(
+        org,
+        GateRuntime::Transport {
+            transport,
+            authority,
+        },
+        work_id,
+        attempt_id,
+        workdir,
+        candidate_tree,
+    )
+    .await
+}
+
+fn validate_gate_attempt_authority(
+    authority: &RuntimeProcessAuthority,
+    work_id: uuid::Uuid,
+    attempt_id: uuid::Uuid,
+) -> Result<()> {
+    match authority {
+        RuntimeProcessAuthority::Attempt {
+            work_id: authority_work,
+            attempt_id: authority_attempt,
+            ..
+        } if *authority_work == work_id && *authority_attempt == attempt_id => {}
+        _ => bail!("governed gates require the exact durable Work and Attempt Runtime authority"),
+    }
+    Ok(())
+}
+
+async fn run_gates_on_runtime(
+    org: &restless_orgintel::OrgIntel,
+    runtime: GateRuntime<'_>,
     work_id: uuid::Uuid,
     attempt_id: uuid::Uuid,
     workdir: &str,
@@ -110,7 +190,7 @@ pub(super) async fn run_gates(
         }
         let execution = GateExecution {
             org,
-            container,
+            runtime,
             attempt_id,
             workdir,
             candidate_tree,
@@ -126,7 +206,7 @@ pub(super) async fn run_gates(
 
 struct GateExecution<'a> {
     org: &'a restless_orgintel::OrgIntel,
-    container: &'a str,
+    runtime: GateRuntime<'a>,
     attempt_id: uuid::Uuid,
     workdir: &'a str,
     candidate_tree: &'a str,
@@ -137,7 +217,7 @@ struct GateExecution<'a> {
 async fn execute_gate(execution: &GateExecution<'_>, gate: &WorkGateRow) -> Result<bool> {
     let GateExecution {
         org,
-        container,
+        runtime,
         attempt_id,
         workdir,
         candidate_tree,
@@ -158,37 +238,23 @@ async fn execute_gate(execution: &GateExecution<'_>, gate: &WorkGateRow) -> Resu
         .rsplit_once('/')
         .map(|(parent, _)| parent)
         .context("gate tempdir has no parent")?;
-    let prepared = tokio::process::Command::new("docker")
-        .args([
-            "exec",
-            "-u",
-            "company",
-            container,
-            "mkdir",
-            "-p",
-            runtime_root,
-            &resources.tempdir,
-        ])
-        .output()
-        .await
-        .context("prepare governed gate runtime directory")?;
-    if !prepared.status.success() {
+    if let Err(error) = prepare_gate_runtime(runtime, runtime_root, &resources.tempdir).await {
         let _ = org
             .release_attempt_resources(attempt_id, "gate runtime preparation failed")
             .await;
-        bail!(
-            "prepare governed gate runtime directory: {}",
-            String::from_utf8_lossy(&prepared.stderr).trim()
-        );
+        return Err(error);
     }
-    let result = execute_gate_inner(container, workdir, gate, &resources).await;
+    let result = execute_gate_inner(runtime, workdir, gate, &resources).await;
     let cleanup_reason = if result.is_ok() {
         "governed gate finished"
     } else {
         "governed gate failed to execute"
     };
-    let leaked = terminate_process_group(container, &resources.marker).await;
-    let runtime_cleanup = cleanup_gate_runtime(container, runtime_root).await;
+    let leaked = match &result {
+        Ok(result) => result.leaked_processes,
+        Err(_) => terminate_process_group(runtime, &resources.marker).await,
+    };
+    let runtime_cleanup = cleanup_gate_runtime(runtime, runtime_root).await;
     for lease in resources.leases.drain(..) {
         if let Err(error) = org
             .release_runtime_resource(lease.id, &resources.holder, cleanup_reason)
@@ -197,7 +263,7 @@ async fn execute_gate(execution: &GateExecution<'_>, gate: &WorkGateRow) -> Resu
             tracing::warn!(%error, lease = %lease.id, "could not release gate resource");
         }
     }
-    let evidence = result?;
+    let evidence = result?.evidence;
     runtime_cleanup?;
     let combined = evidence.combined;
     let digest = format!("{:x}", Sha256::digest(combined.as_bytes()));
@@ -230,27 +296,122 @@ async fn execute_gate(execution: &GateExecution<'_>, gate: &WorkGateRow) -> Resu
     Ok(passed)
 }
 
-async fn cleanup_gate_runtime(container: &str, runtime_root: &str) -> Result<()> {
-    let output = tokio::process::Command::new("docker")
-        .args([
-            "exec",
-            "-u",
-            "root",
-            container,
-            "sh",
-            "-c",
-            "set -eu; rm -rf \"$1\"; parent=$(dirname \"$1\"); rmdir \"$parent\" 2>/dev/null || true; test ! -e \"$1\"",
-            "gate-runtime-cleanup",
-            runtime_root,
-        ])
-        .output()
-        .await
-        .context("clean governed gate runtime")?;
-    if !output.status.success() {
-        bail!(
-            "clean governed gate runtime: {}",
-            String::from_utf8_lossy(&output.stderr).trim()
-        );
+async fn prepare_gate_runtime(
+    runtime: GateRuntime<'_>,
+    runtime_root: &str,
+    tempdir: &str,
+) -> Result<()> {
+    match runtime {
+        GateRuntime::LocalDocker { container } => {
+            restlessd::hosted_runtime::require_local_docker_from_environment()
+                .map_err(|error| anyhow::anyhow!(error))?;
+            let output = tokio::process::Command::new("docker")
+                .args([
+                    "exec",
+                    "-u",
+                    "company",
+                    container,
+                    "mkdir",
+                    "-p",
+                    runtime_root,
+                    tempdir,
+                ])
+                .output()
+                .await
+                .context("prepare governed gate runtime directory")?;
+            if !output.status.success() {
+                bail!(
+                    "prepare governed gate runtime directory: {}",
+                    String::from_utf8_lossy(&output.stderr).trim()
+                );
+            }
+        }
+        GateRuntime::Transport {
+            transport,
+            authority,
+        } => {
+            let output = run_attempt_runtime_command(
+                transport,
+                authority,
+                "/company",
+                vec![
+                    "mkdir".into(),
+                    "-p".into(),
+                    "--".into(),
+                    runtime_root.into(),
+                    tempdir.into(),
+                ],
+                Vec::new(),
+                Duration::from_secs(2 * 60),
+            )
+            .await
+            .context("prepare governed gate runtime directory through transport")?;
+            if !output.success {
+                bail!(
+                    "prepare governed gate runtime directory: {}",
+                    String::from_utf8_lossy(&output.stderr).trim()
+                );
+            }
+        }
+    }
+    Ok(())
+}
+
+async fn cleanup_gate_runtime(runtime: GateRuntime<'_>, runtime_root: &str) -> Result<()> {
+    const SCRIPT: &str = "set -eu; rm -rf -- \"$1\"; parent=$(dirname \"$1\"); rmdir \"$parent\" 2>/dev/null || true; test ! -e \"$1\"";
+    match runtime {
+        GateRuntime::LocalDocker { container } => {
+            restlessd::hosted_runtime::require_local_docker_from_environment()
+                .map_err(|error| anyhow::anyhow!(error))?;
+            let output = tokio::process::Command::new("docker")
+                .args([
+                    "exec",
+                    "-u",
+                    "company",
+                    container,
+                    "sh",
+                    "-c",
+                    SCRIPT,
+                    "gate-runtime-cleanup",
+                    runtime_root,
+                ])
+                .output()
+                .await
+                .context("clean governed gate runtime")?;
+            if !output.status.success() {
+                bail!(
+                    "clean governed gate runtime: {}",
+                    String::from_utf8_lossy(&output.stderr).trim()
+                );
+            }
+        }
+        GateRuntime::Transport {
+            transport,
+            authority,
+        } => {
+            let output = run_attempt_runtime_command(
+                transport,
+                authority,
+                "/company",
+                vec![
+                    "sh".into(),
+                    "-c".into(),
+                    SCRIPT.into(),
+                    "gate-runtime-cleanup".into(),
+                    runtime_root.into(),
+                ],
+                Vec::new(),
+                Duration::from_secs(2 * 60),
+            )
+            .await
+            .context("clean governed gate runtime through transport")?;
+            if !output.success {
+                bail!(
+                    "clean governed gate runtime: {}",
+                    String::from_utf8_lossy(&output.stderr).trim()
+                );
+            }
+        }
     }
     Ok(())
 }
@@ -262,12 +423,17 @@ struct GateEvidence {
     duration_ms: i64,
 }
 
+struct GateExecutionResult {
+    evidence: GateEvidence,
+    leaked_processes: i32,
+}
+
 async fn execute_gate_inner(
-    container: &str,
+    runtime: GateRuntime<'_>,
     workdir: &str,
     gate: &WorkGateRow,
     resources: &GateResources,
-) -> Result<GateEvidence> {
+) -> Result<GateExecutionResult> {
     let mut argv: Vec<String> = serde_json::from_value(gate.command.clone())
         .with_context(|| format!("gate {} has invalid argv", gate.name))?;
     if argv.is_empty() {
@@ -285,6 +451,37 @@ async fn execute_gate_inner(
             )
             .replace("{RESTLESS_GATE_TMPDIR}", &resources.tempdir);
     }
+    match runtime {
+        GateRuntime::LocalDocker { container } => {
+            let evidence =
+                execute_gate_inner_local(container, workdir, gate, resources, &argv).await?;
+            let leaked_processes = terminate_process_group(runtime, &resources.marker).await;
+            Ok(GateExecutionResult {
+                evidence,
+                leaked_processes,
+            })
+        }
+        GateRuntime::Transport {
+            transport,
+            authority,
+        } => {
+            execute_gate_inner_via_transport(
+                runtime, transport, authority, workdir, gate, resources, argv,
+            )
+            .await
+        }
+    }
+}
+
+async fn execute_gate_inner_local(
+    container: &str,
+    workdir: &str,
+    gate: &WorkGateRow,
+    resources: &GateResources,
+    argv: &[String],
+) -> Result<GateEvidence> {
+    restlessd::hosted_runtime::require_local_docker_from_environment()
+        .map_err(|error| anyhow::anyhow!(error))?;
     let cwd = gate_cwd(&gate.cwd, workdir);
     let started = Instant::now();
     let mut command = tokio::process::Command::new("docker");
@@ -313,7 +510,7 @@ async fn execute_gate_inner(
         "restless-gate",
         &resources.marker,
     ]);
-    command.args(&argv);
+    command.args(argv);
     let timed = tokio::time::timeout(
         Duration::from_secs(gate.timeout_seconds as u64),
         command.output(),
@@ -347,6 +544,171 @@ async fn execute_gate_inner(
             duration_ms,
         }),
     }
+}
+
+struct CapturedGateOutput {
+    bytes: Vec<u8>,
+    exceeded: bool,
+}
+
+async fn capture_gate_output<R>(mut source: R) -> std::io::Result<CapturedGateOutput>
+where
+    R: AsyncRead + Unpin,
+{
+    let mut bytes = Vec::new();
+    let mut exceeded = false;
+    let mut buffer = [0_u8; 8192];
+    loop {
+        let read = source.read(&mut buffer).await?;
+        if read == 0 {
+            return Ok(CapturedGateOutput { bytes, exceeded });
+        }
+        let remaining = GATE_OUTPUT_LIMIT.saturating_sub(bytes.len());
+        if remaining > 0 {
+            bytes.extend_from_slice(&buffer[..read.min(remaining)]);
+        }
+        exceeded |= read > remaining;
+    }
+}
+
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the gate transport boundary keeps its durable authority and leased runtime resources explicit"
+)]
+async fn execute_gate_inner_via_transport(
+    runtime: GateRuntime<'_>,
+    transport: &dyn RuntimeTransport,
+    authority: &RuntimeProcessAuthority,
+    workdir: &str,
+    gate: &WorkGateRow,
+    resources: &GateResources,
+    argv: Vec<String>,
+) -> Result<GateExecutionResult> {
+    let timeout = Duration::from_secs(gate.timeout_seconds as u64);
+    let deadline_delta = ChronoDuration::from_std(timeout.saturating_add(Duration::from_secs(30)))
+        .context("gate timeout is outside the Runtime deadline range")?;
+    if deadline_delta > ChronoDuration::hours(23) {
+        bail!("gate timeout exceeds the governed Runtime process envelope");
+    }
+    let cwd = gate_cwd(&gate.cwd, workdir);
+    let working_directory = CompanyPath::parse(cwd.to_owned())
+        .map_err(|error| anyhow::anyhow!(error))
+        .with_context(|| format!("validate governed gate working directory {cwd}"))?;
+    let mut arguments = vec![
+        "-lc".into(),
+        GATE_SESSION_WRAPPER.into(),
+        "restless-gate".into(),
+        resources.marker.clone(),
+    ];
+    arguments.extend(argv);
+    let mut environment = vec![
+        RuntimeEnvironment::public("TMPDIR", resources.tempdir.clone()),
+        RuntimeEnvironment::secret("RESTLESS_GATE_TOKEN", resources.holder.clone()),
+    ];
+    if let Some(port) = &resources.port {
+        environment.push(RuntimeEnvironment::public(
+            "RESTLESS_GATE_PORT",
+            port.clone(),
+        ));
+    }
+    if let Some(display) = &resources.display {
+        environment.push(RuntimeEnvironment::public("DISPLAY", display.clone()));
+    }
+    let started = Instant::now();
+    let spawned = transport
+        .start_process(RuntimeProcessSpec {
+            operation_id: Uuid::new_v4(),
+            authority: authority.clone(),
+            executable: "sh".into(),
+            arguments,
+            working_directory,
+            environment,
+            deadline: Utc::now() + deadline_delta,
+        })
+        .await;
+    let RuntimeProcess {
+        mut stdin,
+        stdout,
+        stderr,
+        control,
+        ..
+    } = match spawned {
+        Ok(process) => process,
+        Err(error) => {
+            return Ok(GateExecutionResult {
+                evidence: GateEvidence {
+                    status: "infrastructure_error",
+                    exit_code: None,
+                    combined: format!("could not execute governed gate: {error}"),
+                    duration_ms: started.elapsed().as_millis().min(i64::MAX as u128) as i64,
+                },
+                leaked_processes: terminate_process_group(runtime, &resources.marker).await,
+            });
+        }
+    };
+    let input_error = stdin.shutdown().await.err();
+    let stdout_task = tokio::spawn(capture_gate_output(stdout));
+    let stderr_task = tokio::spawn(capture_gate_output(stderr));
+    let waited = tokio::time::timeout(timeout, control.wait()).await;
+    let (status, exit_code, wait_error) = match waited {
+        Ok(Ok(exit)) => ("conclusive", exit.code, None),
+        Ok(Err(error)) => ("infrastructure_error", None, Some(error.to_string())),
+        Err(_) => {
+            let _ = control.signal(RuntimeSignal::Kill).await;
+            let _ = tokio::time::timeout(Duration::from_secs(5), control.wait()).await;
+            ("timeout", None, None)
+        }
+    };
+
+    // A command may detach children into the inner session before its leader
+    // exits. Kill that exact marker-owned group before awaiting pipe EOF, or a
+    // leaked child holding stdout open could wedge completion forever.
+    let leaked_processes = terminate_process_group(runtime, &resources.marker).await;
+    let stdout = tokio::time::timeout(Duration::from_secs(5), stdout_task)
+        .await
+        .context("governed gate stdout remained open after process-group cleanup")?
+        .context("join governed gate stdout")?
+        .context("read governed gate stdout")?;
+    let stderr = tokio::time::timeout(Duration::from_secs(5), stderr_task)
+        .await
+        .context("governed gate stderr remained open after process-group cleanup")?
+        .context("join governed gate stderr")?
+        .context("read governed gate stderr")?;
+    let duration_ms = started.elapsed().as_millis().min(i64::MAX as u128) as i64;
+    let mut combined = format!(
+        "{}{}",
+        String::from_utf8_lossy(&stdout.bytes),
+        String::from_utf8_lossy(&stderr.bytes)
+    );
+    let status = if stdout.exceeded || stderr.exceeded {
+        combined.push_str("\ngoverned gate output exceeded its 16 MiB evidence envelope");
+        "infrastructure_error"
+    } else if let Some(error) = input_error {
+        combined.push_str(&format!("\ncould not close governed gate input: {error}"));
+        "infrastructure_error"
+    } else if let Some(error) = wait_error {
+        combined.push_str(&format!(
+            "\ncould not observe governed gate completion: {error}"
+        ));
+        "infrastructure_error"
+    } else if status == "timeout" {
+        combined.push_str(&format!(
+            "\ngate exceeded its {} second safety envelope; timeout is not product evidence",
+            gate.timeout_seconds
+        ));
+        "timeout"
+    } else {
+        status
+    };
+    Ok(GateExecutionResult {
+        evidence: GateEvidence {
+            status,
+            exit_code,
+            combined,
+            duration_ms,
+        },
+        leaked_processes,
+    })
 }
 
 async fn allocate_resources(
@@ -426,25 +788,54 @@ async fn acquire_numbered(
     bail!("no {kind} resource is available")
 }
 
-async fn terminate_process_group(container: &str, marker: &str) -> i32 {
+async fn terminate_process_group(runtime: GateRuntime<'_>, marker: &str) -> i32 {
     let script = "if test -s \"$1\"; then p=$(cat \"$1\"); before=$(ps -eo pgid= | tr -d ' ' | grep -cx \"$p\" || true); kill -TERM -\"$p\" 2>/dev/null || true; sleep 0.1; kill -KILL -\"$p\" 2>/dev/null || true; after=$(ps -eo pgid= | tr -d ' ' | grep -cx \"$p\" || true); test \"$after\" -eq 0 || before=$((before + after)); echo \"$before\"; else echo 0; fi; rm -f \"$1\"";
-    let output = tokio::process::Command::new("docker")
-        .args([
-            "exec",
-            "-u",
-            "company",
-            container,
-            "sh",
-            "-lc",
-            script,
-            "gate-cleanup",
-            marker,
-        ])
-        .output()
-        .await;
-    output
+    let output = match runtime {
+        GateRuntime::LocalDocker { container } => {
+            if restlessd::hosted_runtime::require_local_docker_from_environment().is_err() {
+                return 1;
+            }
+            tokio::process::Command::new("docker")
+                .args([
+                    "exec",
+                    "-u",
+                    "company",
+                    container,
+                    "sh",
+                    "-lc",
+                    script,
+                    "gate-cleanup",
+                    marker,
+                ])
+                .output()
+                .await
+                .ok()
+                .map(|output| output.stdout)
+        }
+        GateRuntime::Transport {
+            transport,
+            authority,
+        } => run_attempt_runtime_command(
+            transport,
+            authority,
+            "/company",
+            vec![
+                "sh".into(),
+                "-lc".into(),
+                script.into(),
+                "gate-cleanup".into(),
+                marker.into(),
+            ],
+            Vec::new(),
+            Duration::from_secs(30),
+        )
+        .await
         .ok()
-        .and_then(|output| String::from_utf8(output.stdout).ok())
+        .filter(|output| output.success)
+        .map(|output| output.stdout),
+    };
+    output
+        .and_then(|output| String::from_utf8(output).ok())
         .and_then(|value| {
             value
                 .lines()
@@ -454,12 +845,32 @@ async fn terminate_process_group(container: &str, marker: &str) -> i32 {
         .unwrap_or(1)
 }
 
+pub(super) async fn reap_attempt_gate_processes_via_transport(
+    transport: &dyn RuntimeTransport,
+    authority: &RuntimeProcessAuthority,
+    markers: &[String],
+) -> u32 {
+    let runtime = GateRuntime::Transport {
+        transport,
+        authority,
+    };
+    let mut reaped = 0_u32;
+    for marker in markers {
+        if terminate_process_group(runtime, marker).await > 0 {
+            reaped = reaped.saturating_add(1);
+        }
+    }
+    reaped
+}
+
 /// A gate process cannot remain supervised across a daemon lifetime. Reap
 /// every process group carrying a gate marker before scheduler recovery may
 /// allocate the same scarce resources again. Product worktrees are preserved;
 /// only Attempt-owned process groups and their transient gate directories are
 /// removed.
 pub(super) async fn reap_orphan_gate_processes(container: &str) -> Result<u32> {
+    restlessd::hosted_runtime::require_local_docker_from_environment()
+        .map_err(|error| anyhow::anyhow!(error))?;
     let script = r#"
 root=/company/run/gates
 test -d "$root" || { echo 0; exit 0; }
@@ -538,6 +949,31 @@ mod tests {
 
         assert_eq!(tempdir, "/company/run/gates/0123456789abcdef/tmp");
         assert!(representative_tsx_socket.len() < 104);
+    }
+
+    #[test]
+    fn governed_gate_transport_rejects_borrowed_or_synthetic_authority() {
+        let work_id = uuid::Uuid::new_v4();
+        let attempt_id = uuid::Uuid::new_v4();
+        let exact = RuntimeProcessAuthority::Attempt {
+            company: "gate_test".into(),
+            actor: "reviewer".into(),
+            responsibility: format!("work:{work_id}"),
+            work_id,
+            attempt_id,
+            session_id: "gate-session".into(),
+        };
+        assert!(validate_gate_attempt_authority(&exact, work_id, attempt_id).is_ok());
+        assert!(validate_gate_attempt_authority(&exact, uuid::Uuid::new_v4(), attempt_id).is_err());
+        assert!(validate_gate_attempt_authority(
+            &RuntimeProcessAuthority::InfrastructureProbe {
+                company: "gate_test".into(),
+                probe: "gate".into(),
+            },
+            work_id,
+            attempt_id,
+        )
+        .is_err());
     }
 
     #[test]

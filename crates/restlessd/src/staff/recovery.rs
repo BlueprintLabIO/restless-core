@@ -5,19 +5,22 @@
 
 use anyhow::{Context as _, Result};
 use restless_orgintel::{NewAttemptRecovery, WorkAttemptState};
+use restlessd::runtime_transport::{CompanyPath, RuntimeProcessAuthority, RuntimeTransport};
 use sha2::Digest as _;
 
 use crate::exec::Termination;
 
-use super::gates::run_gates;
+use super::gates::run_gates_via_transport;
 use super::workspace::{
-    cleanup_attempt_runtime, observe_workspace, promote_integration_commit, WorkspaceObservation,
+    cleanup_attempt_runtime_via_transport, observe_workspace_via_transport,
+    promote_integration_commit_via_transport, WorkspaceObservation,
 };
 
 /// Close the exact Attempt that launched this process. Completion is accepted
 /// only after its declared artifact and deterministic gates are observed.
 pub(super) struct StaffAttemptContext<'a> {
-    pub(super) container: &'a str,
+    pub(super) runtime_transport: std::sync::Arc<dyn RuntimeTransport>,
+    pub(super) runtime_authority: &'a RuntimeProcessAuthority,
     pub(super) actor: &'a str,
     pub(super) name: &'a str,
     pub(super) work_id: uuid::Uuid,
@@ -27,7 +30,8 @@ pub(super) struct StaffAttemptContext<'a> {
 }
 
 struct AttemptCompletionContext<'a> {
-    container: &'a str,
+    runtime_transport: &'a std::sync::Arc<dyn RuntimeTransport>,
+    runtime_authority: &'a RuntimeProcessAuthority,
     work_id: uuid::Uuid,
     attempt_id: uuid::Uuid,
     workdir: &'a str,
@@ -99,7 +103,8 @@ pub(super) async fn record_staff_outcome(
     outcome: Result<(Termination, String)>,
 ) {
     let StaffAttemptContext {
-        container,
+        runtime_transport,
+        runtime_authority,
         actor,
         name,
         work_id,
@@ -107,7 +112,12 @@ pub(super) async fn record_staff_outcome(
         workdir,
         start_observation,
     } = context;
-    let end_observation = observe_workspace(container, workdir).await;
+    let end_observation = observe_workspace_via_transport(
+        std::sync::Arc::clone(&runtime_transport),
+        runtime_authority.clone(),
+        workdir,
+    )
+    .await;
     let semantic_result = match &outcome {
         Ok((Termination::OutcomeMet, _)) => Some("reported_outcome_met"),
         Ok((Termination::ChangesRequested, _)) => Some("changes_requested"),
@@ -149,7 +159,8 @@ pub(super) async fn record_staff_outcome(
                 finish_claimed_attempt(
                     org,
                     AttemptCompletionContext {
-                        container,
+                        runtime_transport: &runtime_transport,
+                        runtime_authority,
                         work_id,
                         attempt_id,
                         workdir,
@@ -165,7 +176,8 @@ pub(super) async fn record_staff_outcome(
                 finish_claimed_attempt(
                     org,
                     AttemptCompletionContext {
-                        container,
+                        runtime_transport: &runtime_transport,
+                        runtime_authority,
                         work_id,
                         attempt_id,
                         workdir,
@@ -224,7 +236,13 @@ pub(super) async fn record_staff_outcome(
         if terminal_fact_recorded {
             org.release_attempt_resources(attempt_id, "Attempt reached terminal state")
                 .await?;
-            let cleanup = cleanup_attempt_runtime(container, workdir, attempt_id).await?;
+            let cleanup = cleanup_attempt_runtime_via_transport(
+                runtime_transport.as_ref(),
+                runtime_authority,
+                workdir,
+                attempt_id,
+            )
+            .await?;
             org.emit_event(
                 "attempt_runtime_cleaned",
                 Some("daemon"),
@@ -245,15 +263,29 @@ pub(super) async fn record_staff_outcome(
 /// asked to rediscover or narrate the mechanical repair.
 pub(crate) async fn reconcile_execution_substrate(
     org: &restless_orgintel::OrgIntel,
-    container: &str,
+    runtime_transport: &std::sync::Arc<dyn RuntimeTransport>,
+    company: &str,
 ) -> Result<()> {
     let released = org.reconcile_runtime_resources().await?;
     if released > 0 {
         tracing::warn!(released, "released stale Runtime resource leases");
     }
     for promotion in org.pending_candidate_promotions().await? {
-        match promote_integration_commit(
-            container,
+        let work = org
+            .get_work(promotion.work_id)
+            .await?
+            .context("pending candidate promotion lost its Work row")?;
+        let runtime_authority = RuntimeProcessAuthority::Attempt {
+            company: company.to_owned(),
+            actor: work.owner_id,
+            responsibility: format!("work:{}", promotion.work_id),
+            work_id: promotion.work_id,
+            attempt_id: promotion.attempt_id,
+            session_id: format!("attempt-recovery-{}", promotion.attempt_id.simple()),
+        };
+        match promote_integration_commit_via_transport(
+            std::sync::Arc::clone(runtime_transport),
+            &runtime_authority,
             &promotion.repo,
             &promotion.integration_branch,
             &promotion.source_commit,
@@ -315,7 +347,8 @@ async fn finish_claimed_attempt(
     summary: &str,
 ) -> Result<()> {
     let AttemptCompletionContext {
-        container,
+        runtime_transport,
+        runtime_authority,
         work_id,
         attempt_id,
         workdir,
@@ -336,25 +369,16 @@ async fn finish_claimed_attempt(
                         && artifact.state == restless_orgintel::ArtifactRefState::Available
                 })
             {
-                let digest = tokio::process::Command::new("docker")
-                    .args([
-                        "exec",
-                        "-u",
-                        "company",
-                        container,
-                        "sha256sum",
-                        "--",
-                        &work.expected_artifact,
-                    ])
-                    .output()
+                let path = CompanyPath::parse(work.expected_artifact.clone())
+                    .map_err(|error| anyhow::anyhow!(error))?;
+                if let Ok(digest) = runtime_transport
+                    .digest(runtime_authority.company(), &path)
                     .await
-                    .context("observe declared file artifact")?;
-                if digest.status.success() {
-                    let digest = String::from_utf8_lossy(&digest.stdout)
-                        .split_whitespace()
-                        .next()
-                        .unwrap_or_default()
-                        .to_string();
+                {
+                    let digest = digest
+                        .iter()
+                        .map(|byte| format!("{byte:02x}"))
+                        .collect::<String>();
                     if digest.len() == 64 {
                         let owner_label = owner_artifact_label(&work.title);
                         org.link_work_artifact(restless_orgintel::NewArtifactRef {
@@ -462,9 +486,10 @@ async fn finish_claimed_attempt(
                         })
                     })
                     .unwrap_or_else(|| format!("attempt:{attempt_id}"));
-                let gates_passed = match run_gates(
+                let gates_passed = match run_gates_via_transport(
                     org,
-                    container,
+                    runtime_transport.as_ref(),
+                    runtime_authority,
                     work_id,
                     attempt_id,
                     workdir,
@@ -527,7 +552,15 @@ async fn finish_claimed_attempt(
                             manifest: &manifest,
                         })
                         .await?;
-                    match promote_integration_commit(container, repo, branch, commit).await {
+                    match promote_integration_commit_via_transport(
+                        std::sync::Arc::clone(runtime_transport),
+                        runtime_authority,
+                        repo,
+                        branch,
+                        commit,
+                    )
+                    .await
+                    {
                         Ok(promoted) => {
                             org.finish_candidate_promotion(promotion.id, true, None)
                                 .await?;

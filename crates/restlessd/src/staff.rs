@@ -8,6 +8,7 @@ use std::sync::{Arc, Mutex};
 
 use anyhow::{bail, Context as _, Result};
 use restless_orgintel::{ClaimedWork, WorkAttemptState};
+use restlessd::runtime_transport::{RuntimeProcessAuthority, RuntimeTransport};
 use sha2::Digest as _;
 use tokio_util::sync::CancellationToken;
 
@@ -26,8 +27,9 @@ use execution::{run_staff_with_failover, StaffRun};
 pub(crate) use recovery::reconcile_execution_substrate;
 use recovery::{record_staff_outcome, record_unknown_recovery, StaffAttemptContext};
 use workspace::{
-    cleanup_attempt_runtime, ensure_worktree, observe_workspace, recorded_start_observation,
-    valid_slug, workdir_for,
+    cleanup_attempt_runtime, cleanup_attempt_runtime_via_transport, ensure_worktree_via_transport,
+    observe_workspace, observe_workspace_via_transport, recorded_start_observation,
+    terminate_runtime_pid_via_transport, valid_slug, workdir_for,
 };
 
 #[cfg(test)]
@@ -36,7 +38,7 @@ use context::{actor_posture, team_capacity_context, workspace_instruction};
 use conversation::{conversation_turn_prompt, internal_message_context};
 #[cfg(test)]
 use execution::{final_staff_usage, staff_spend_limit_reached, termination_prompt};
-use gates::reap_orphan_gate_processes;
+use gates::{reap_attempt_gate_processes_via_transport, reap_orphan_gate_processes};
 #[cfg(test)]
 use recovery::gate_cwd;
 #[cfg(test)]
@@ -220,6 +222,7 @@ impl StaffRegistry {
 )]
 pub async fn dispatch_claimed_work(
     config: &CompanyConfig,
+    runtime_transport: &Arc<dyn RuntimeTransport>,
     spend: &SpendLedger,
     authority: &crate::authority::AuthorityStore,
     capabilities: &crate::capability::CapabilityIssuer,
@@ -243,6 +246,15 @@ pub async fn dispatch_claimed_work(
     // processes for one actor even though the Work Attempt lease is sound.
     let cancellation = registry.try_claim(&config.name, &actor, Some(claimed.work.id))?;
     let container = runtime::container_name(&config.name);
+    let responsibility = format!("work:{}", claimed.work.id);
+    let attempt_runtime_authority = RuntimeProcessAuthority::Attempt {
+        company: config.name.clone(),
+        actor: actor.clone(),
+        responsibility: responsibility.clone(),
+        work_id: claimed.work.id,
+        attempt_id: claimed.attempt_id,
+        session_id: format!("attempt-runtime-{}", claimed.attempt_id.simple()),
+    };
 
     let setup = async {
         let actors = org.list_actors().await?;
@@ -268,8 +280,10 @@ pub async fn dispatch_claimed_work(
         org.set_attempt_model(claimed.attempt_id, first_model)
             .await?;
         let workdir = if claimed.work.repo.is_some() {
-            ensure_worktree(
+            ensure_worktree_via_transport(
                 config,
+                Arc::clone(runtime_transport),
+                &attempt_runtime_authority,
                 &claimed.work,
                 claimed.effective_base_ref.as_deref(),
                 claimed.attempt_id,
@@ -277,21 +291,14 @@ pub async fn dispatch_claimed_work(
             )
             .await?
         } else {
-            let container_image = tokio::process::Command::new("docker")
-                .args(["inspect", "--format", "{{.Image}}", &container])
-                .output()
+            let readiness = runtime_transport
+                .readiness(&config.name)
                 .await
+                .map_err(|error| anyhow::anyhow!(error))
                 .context("fingerprint non-repository Runtime")?;
-            if !container_image.status.success() {
-                bail!("could not fingerprint non-repository Runtime");
-            }
             let environment = format!(
                 "{:x}",
-                sha2::Sha256::digest(
-                    String::from_utf8_lossy(&container_image.stdout)
-                        .trim()
-                        .as_bytes()
-                )
+                sha2::Sha256::digest(readiness.runtime_image.as_bytes())
             );
             org.bind_attempt_execution_coordinates(
                 claimed.attempt_id,
@@ -308,7 +315,12 @@ pub async fn dispatch_claimed_work(
             .await?
             .iter()
             .any(|team| team.lead_actor_id == actor);
-        let start_observation = observe_workspace(&container, &workdir).await;
+        let start_observation = observe_workspace_via_transport(
+            Arc::clone(runtime_transport),
+            attempt_runtime_authority.clone(),
+            &workdir,
+        )
+        .await;
         anyhow::Ok((
             actor_row,
             candidates,
@@ -431,19 +443,21 @@ pub async fn dispatch_claimed_work(
     let reasoning_effort = config.reasoning_effort.clone();
     let authority = authority.clone();
     let capabilities = capabilities.clone();
+    let runtime_transport = Arc::clone(runtime_transport);
+    let attempt_runtime_authority_for_settlement = attempt_runtime_authority.clone();
     let role = actor_row.role;
     let attempt_id = claimed.attempt_id;
     let work_id = claimed.work.id;
     let live_turn = activities.start_work(&company, &actor, work_id, attempt_id);
     let observer = Some(live_turn.observer());
     tokio::spawn(async move {
-        let gate_container = container.clone();
         let outcome = run_staff_with_failover(StaffRun {
             container,
+            runtime_transport: Arc::clone(&runtime_transport),
             workdir: workdir.clone(),
             company: company.clone(),
             actor: actor.clone(),
-            responsibility: format!("work:{work_id}"),
+            responsibility,
             work_id: Some(work_id),
             attempt_id: Some(attempt_id),
             name: name.clone(),
@@ -475,7 +489,8 @@ pub async fn dispatch_claimed_work(
         record_staff_outcome(
             &org,
             StaffAttemptContext {
-                container: &gate_container,
+                runtime_transport: Arc::clone(&runtime_transport),
+                runtime_authority: &attempt_runtime_authority_for_settlement,
                 actor: &actor,
                 name: &name,
                 work_id,
@@ -496,7 +511,165 @@ pub async fn dispatch_claimed_work(
 /// unsupervised, its transcript unreachable. Reap only those Linux sessions,
 /// preserve their Runtime evidence, and leave the productive outcome unknown
 /// for the accountable lead to review.
-pub async fn sweep_orphans(root: &std::path::Path, orgintel: &crate::OrgIntelRegistry) {
+pub async fn sweep_orphans(
+    root: &std::path::Path,
+    orgintel: &crate::OrgIntelRegistry,
+    runtime_transport: &Arc<dyn RuntimeTransport>,
+) {
+    let backend = restlessd::hosted_runtime::RuntimeBackendKind::from_entry_mode(
+        std::env::var("RESTLESS_ENTRY_MODE").ok().as_deref(),
+    );
+    match backend {
+        Ok(restlessd::hosted_runtime::RuntimeBackendKind::LocalDocker) => {
+            sweep_local_orphans(root, orgintel).await;
+        }
+        Ok(restlessd::hosted_runtime::RuntimeBackendKind::HostedRuntimeBridge) => {
+            sweep_transport_orphans(root, orgintel, runtime_transport).await;
+        }
+        Err(error) => tracing::error!(%error, "cannot select Runtime orphan-recovery backend"),
+    }
+}
+
+async fn sweep_transport_orphans(
+    root: &std::path::Path,
+    orgintel: &crate::OrgIntelRegistry,
+    runtime_transport: &Arc<dyn RuntimeTransport>,
+) {
+    let Ok(entries) = std::fs::read_dir(root.join("companies")) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.extension().and_then(|ext| ext.to_str()) != Some("toml") {
+            continue;
+        }
+        let Some(name) = path.file_stem().and_then(|stem| stem.to_str()) else {
+            continue;
+        };
+        if runtime_transport.readiness(name).await.is_err() {
+            continue;
+        }
+        let Ok(org) = orgintel.get(name).await else {
+            continue;
+        };
+        let Ok(attempts) = org.list_work_attempts(None).await else {
+            continue;
+        };
+        let running = attempts
+            .into_iter()
+            .filter(|attempt| attempt.state == WorkAttemptState::Running)
+            .collect::<Vec<_>>();
+        let Ok(resources) = org.list_live_runtime_resources().await else {
+            continue;
+        };
+        let activity = match runtime_transport.activity(name).await {
+            Ok(activity) => activity,
+            Err(error) => {
+                tracing::warn!(company = name, %error, "could not observe orphaned Runtime processes");
+                continue;
+            }
+        };
+
+        for process in &activity.active_processes {
+            if let Err(error) = terminate_runtime_pid_via_transport(
+                runtime_transport.as_ref(),
+                &process.authority,
+                process.pid,
+            )
+            .await
+            {
+                tracing::warn!(
+                    company = name,
+                    process = %process.process_id,
+                    %error,
+                    "could not terminate orphaned governed Runtime process"
+                );
+            }
+        }
+
+        for attempt in running {
+            let Some(work) = org.get_work(attempt.work_id).await.ok().flatten() else {
+                tracing::warn!(attempt = %attempt.id, "orphaned Attempt lost its Work row");
+                continue;
+            };
+            let authority = activity
+                .active_processes
+                .iter()
+                .find_map(|process| match &process.authority {
+                    RuntimeProcessAuthority::Attempt { attempt_id, .. }
+                        if *attempt_id == attempt.id =>
+                    {
+                        Some(process.authority.clone())
+                    }
+                    _ => None,
+                })
+                .unwrap_or_else(|| RuntimeProcessAuthority::Attempt {
+                    company: name.to_owned(),
+                    actor: work.owner_id.clone(),
+                    responsibility: format!("work:{}", attempt.work_id),
+                    work_id: attempt.work_id,
+                    attempt_id: attempt.id,
+                    session_id: format!("attempt-recovery-{}", attempt.id.simple()),
+                });
+            let markers = resources
+                .iter()
+                .filter(|resource| {
+                    resource.attempt_id == attempt.id && resource.kind == "process_group"
+                })
+                .map(|resource| resource.value.clone())
+                .collect::<Vec<_>>();
+            let reaped = reap_attempt_gate_processes_via_transport(
+                runtime_transport.as_ref(),
+                &authority,
+                &markers,
+            )
+            .await;
+            if reaped > 0 {
+                tracing::warn!(company = name, attempt = %attempt.id, reaped, "reaped orphaned governed gate process groups");
+            }
+            let Ok(workdir) = workdir_for(&work) else {
+                tracing::warn!(attempt = %attempt.id, "orphaned Attempt has invalid workspace coordinates");
+                continue;
+            };
+            let start = recorded_start_observation(&org, attempt.id, &workdir).await;
+            let end = observe_workspace_via_transport(
+                Arc::clone(runtime_transport),
+                authority.clone(),
+                &workdir,
+            )
+            .await;
+            let note = "supervisor restarted; cognitive process was lost before trustworthy semantic completion";
+            match record_unknown_recovery(&org, attempt.id, note, &start, &end).await {
+                Ok(()) => {
+                    if let Err(error) = org
+                        .release_attempt_resources(
+                            attempt.id,
+                            "daemon restart closed orphaned Attempt",
+                        )
+                        .await
+                    {
+                        tracing::warn!(attempt = %attempt.id, "failed to release orphaned Attempt resources: {error:#}");
+                    }
+                    if let Err(error) = cleanup_attempt_runtime_via_transport(
+                        runtime_transport.as_ref(),
+                        &authority,
+                        &workdir,
+                        attempt.id,
+                    )
+                    .await
+                    {
+                        tracing::warn!(attempt = %attempt.id, "failed to clean orphaned Attempt runtime: {error:#}");
+                    }
+                }
+                Err(error) => {
+                    tracing::warn!(attempt = %attempt.id, "failed to preserve orphan recovery capsule: {error:#}");
+                }
+            }
+        }
+    }
+}
+
+async fn sweep_local_orphans(root: &std::path::Path, orgintel: &crate::OrgIntelRegistry) {
     let Ok(entries) = std::fs::read_dir(root.join("companies")) else {
         return;
     };

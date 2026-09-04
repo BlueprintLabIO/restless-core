@@ -30,6 +30,12 @@
 //! eventually dropped it. See `acp::TurnEnd` for the full account.
 
 use anyhow::{Context, Result};
+use chrono::{Duration as ChronoDuration, Utc};
+use restlessd::runtime_transport::{
+    CompanyPath, RuntimeComponentStatus, RuntimeProcess, RuntimeProcessAuthority,
+    RuntimeProcessSpec, RuntimeSignal, RuntimeTransport, RuntimeTransportError,
+};
+use tokio::io::{AsyncRead, AsyncReadExt as _, AsyncWriteExt as _};
 
 use crate::acp;
 use crate::runtime;
@@ -38,6 +44,8 @@ use crate::runtime;
 /// filled twice during sprint 01; the second fill was caught only because a
 /// human happened to run `df`.
 const MIN_FREE_BYTES: u64 = 2 * 1024 * 1024 * 1024;
+const PREFLIGHT_OUTPUT_LIMIT: usize = 64 * 1024;
+const PREFLIGHT_PROCESS_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
 
 /// Why the substrate is not ready. Enumerable by construction — if a new
 /// cause appears that does not fit, that is the signal to add a variant, not
@@ -152,27 +160,40 @@ impl Blocked {
 
 /// Cheap deterministic checks before a wake spends anything. Returns the
 /// first blocking condition found, or `None` when the substrate is ready.
-pub async fn preflight(company: &str) -> Result<Option<Blocked>> {
-    match runtime::status(company).await {
-        Ok(runtime::ContainerStatus::Running) => {}
-        Ok(runtime::ContainerStatus::Stopped) => {
+pub async fn preflight(
+    runtime_transport: &dyn RuntimeTransport,
+    company: &str,
+) -> Result<Option<Blocked>> {
+    let readiness = match runtime_transport.readiness(company).await {
+        Ok(readiness) => readiness,
+        Err(RuntimeTransportError::NotFound) => {
             return Ok(Some(Blocked::new(
                 BlockKind::Container,
-                format!("the {company} computer is stopped; start it before working"),
-            )));
-        }
-        Ok(runtime::ContainerStatus::Absent) => {
-            return Ok(Some(Blocked::new(
-                BlockKind::Container,
-                format!("no container for {company}; run `restless up -c {company}`"),
+                format!("no computer for {company}; reconcile it before working"),
             )));
         }
         Err(error) => {
-            // F12: a hung Docker must be a blocked company, not a wedged
-            // daemon. Report and move on rather than propagating.
             return Ok(Some(Blocked::new(
                 BlockKind::Container,
-                format!("cannot read container state (is Docker running?): {error}"),
+                format!("cannot read company Runtime state: {error}"),
+            )));
+        }
+    };
+    if readiness.components.iter().any(|component| {
+        component.name == "container" && component.status != RuntimeComponentStatus::Ready
+    }) {
+        return Ok(Some(Blocked::new(
+            BlockKind::Container,
+            format!("the {company} computer is stopped; start it before working"),
+        )));
+    }
+    for required in ["persistent_volume", "process_execution"] {
+        if !readiness.components.iter().any(|component| {
+            component.name == required && component.status == RuntimeComponentStatus::Ready
+        }) {
+            return Ok(Some(Blocked::new(
+                BlockKind::Container,
+                format!("the {company} computer is not ready for work: {required} is unavailable"),
             )));
         }
     }
@@ -191,7 +212,7 @@ pub async fn preflight(company: &str) -> Result<Option<Blocked>> {
         }
     }
 
-    if let Some(free) = free_bytes_container(company).await? {
+    if let Some(free) = free_bytes_runtime(runtime_transport, company).await? {
         if free < MIN_FREE_BYTES {
             return Ok(Some(Blocked::new(
                 BlockKind::Disk,
@@ -571,17 +592,85 @@ async fn free_bytes_host(path: &std::path::Path) -> Result<Option<u64>> {
     Ok(parse_df_available_kb(&String::from_utf8_lossy(&out.stdout)).map(|kb| kb * 1024))
 }
 
-async fn free_bytes_container(company: &str) -> Result<Option<u64>> {
-    let name = runtime::container_name(company);
-    let out = tokio::process::Command::new("docker")
-        .args(["exec", &name, "df", "-Pk", "/company"])
-        .output()
+async fn capture_preflight_output<R>(mut source: R) -> std::io::Result<(Vec<u8>, bool)>
+where
+    R: AsyncRead + Unpin,
+{
+    let mut output = Vec::new();
+    let mut truncated = false;
+    let mut buffer = [0_u8; 4096];
+    loop {
+        let read = source.read(&mut buffer).await?;
+        if read == 0 {
+            return Ok((output, truncated));
+        }
+        let remaining = PREFLIGHT_OUTPUT_LIMIT.saturating_sub(output.len());
+        if remaining > 0 {
+            output.extend_from_slice(&buffer[..read.min(remaining)]);
+        }
+        truncated |= read > remaining;
+    }
+}
+
+async fn free_bytes_runtime(
+    runtime_transport: &dyn RuntimeTransport,
+    company: &str,
+) -> Result<Option<u64>> {
+    let authority = RuntimeProcessAuthority::InfrastructureProbe {
+        company: company.to_owned(),
+        probe: "exec-preflight-disk".into(),
+    };
+    let RuntimeProcess {
+        mut stdin,
+        stdout,
+        stderr,
+        control,
+        ..
+    } = runtime_transport
+        .start_process(RuntimeProcessSpec {
+            operation_id: uuid::Uuid::new_v4(),
+            authority,
+            executable: "df".into(),
+            arguments: vec!["-Pk".into(), "/company".into()],
+            working_directory: CompanyPath::parse("/company")
+                .map_err(|error| anyhow::anyhow!(error))?,
+            environment: Vec::new(),
+            deadline: Utc::now() + ChronoDuration::seconds(30),
+        })
         .await
-        .context("spawn docker exec df")?;
-    if !out.status.success() {
+        .map_err(|error| anyhow::anyhow!(error))
+        .context("start Runtime free-space probe")?;
+    stdin
+        .shutdown()
+        .await
+        .context("close Runtime free-space probe input")?;
+    let stdout = tokio::spawn(capture_preflight_output(stdout));
+    let stderr = tokio::spawn(capture_preflight_output(stderr));
+    let exit = match tokio::time::timeout(PREFLIGHT_PROCESS_TIMEOUT, control.wait()).await {
+        Ok(exit) => exit.map_err(|error| anyhow::anyhow!(error))?,
+        Err(_) => {
+            let _ = control.signal(RuntimeSignal::Kill).await;
+            tokio::time::timeout(std::time::Duration::from_secs(5), control.wait())
+                .await
+                .context("Runtime free-space probe did not exit after kill")?
+                .map_err(|error| anyhow::anyhow!(error))?
+        }
+    };
+    let (stdout, stdout_truncated) = stdout
+        .await
+        .context("join Runtime free-space probe output")?
+        .context("read Runtime free-space probe output")?;
+    let (_, stderr_truncated) = stderr
+        .await
+        .context("join Runtime free-space probe error output")?
+        .context("read Runtime free-space probe error output")?;
+    if stdout_truncated || stderr_truncated {
+        anyhow::bail!("Runtime free-space probe exceeded its bounded output");
+    }
+    if exit.code != Some(0) || exit.signal.is_some() {
         return Ok(None);
     }
-    Ok(parse_df_available_kb(&String::from_utf8_lossy(&out.stdout)).map(|kb| kb * 1024))
+    Ok(parse_df_available_kb(&String::from_utf8_lossy(&stdout)).map(|kb| kb * 1024))
 }
 
 /// `df -Pk` guarantees one record per filesystem in POSIX format: the

@@ -11,10 +11,11 @@ use std::time::Duration;
 
 use anyhow::Result;
 use restless_orgintel::{OrgIntel, WorkAttemptState};
+use restlessd::runtime_transport::{RuntimeComponentCheck, RuntimeComponentStatus};
 use sqlx::postgres::PgListener;
 use tokio_util::sync::CancellationToken;
 
-use crate::runtime::{self, CompanyConfig, ContainerStatus};
+use crate::runtime::CompanyConfig;
 use crate::{exec, Daemon};
 
 /// LISTEN/NOTIFY, the exact next-due timer and the OS wake entry are the normal
@@ -366,7 +367,10 @@ async fn scan_all_companies(daemon: &Arc<Daemon>, in_flight: &InFlight) {
 }
 
 async fn scan_company(daemon: &Arc<Daemon>, in_flight: &InFlight, company: &str) {
-    if !matches!(runtime::status(company).await, Ok(ContainerStatus::Running)) {
+    let Ok(readiness) = daemon.runtime_transport.readiness(company).await else {
+        return;
+    };
+    if !runtime_components_ready_for_work(&readiness.components) {
         return;
     }
     let Ok(config) = CompanyConfig::load(&daemon.root, company) else {
@@ -377,7 +381,7 @@ async fn scan_company(daemon: &Arc<Daemon>, in_flight: &InFlight, company: &str)
     };
 
     if let Err(error) =
-        crate::staff::reconcile_execution_substrate(&org, &runtime::container_name(company)).await
+        crate::staff::reconcile_execution_substrate(&org, &daemon.runtime_transport, company).await
     {
         tracing::warn!(
             company,
@@ -451,6 +455,7 @@ async fn scan_company(daemon: &Arc<Daemon>, in_flight: &InFlight, company: &str)
                 &config,
                 &org,
                 crate::staff::ConversationRuntime {
+                    runtime_transport: &daemon.runtime_transport,
                     spend: &daemon.spend,
                     authority: &daemon.authority,
                     capabilities: &daemon.capabilities,
@@ -499,6 +504,7 @@ async fn scan_company(daemon: &Arc<Daemon>, in_flight: &InFlight, company: &str)
         let attempt_id = claimed.attempt_id;
         if let Err(error) = crate::staff::dispatch_claimed_work(
             &config,
+            &daemon.runtime_transport,
             &daemon.spend,
             &daemon.authority,
             &daemon.capabilities,
@@ -516,6 +522,16 @@ async fn scan_company(daemon: &Arc<Daemon>, in_flight: &InFlight, company: &str)
             tracing::warn!(company, "{reason}");
         }
     }
+}
+
+fn runtime_components_ready_for_work(components: &[RuntimeComponentCheck]) -> bool {
+    ["persistent_volume", "process_execution"]
+        .into_iter()
+        .all(|required| {
+            components.iter().any(|component| {
+                component.name == required && component.status == RuntimeComponentStatus::Ready
+            })
+        })
 }
 
 /// Re-derive what the singleton Exec is owed from durable rows, every scan.
@@ -656,6 +672,7 @@ pub(crate) async fn run_exec_turn(
     let observer = (!owner_message_ids.is_empty()).then(|| live_turn.observer());
     let outcome = exec::wake(
         config,
+        &daemon.runtime_transport,
         &daemon.spend,
         &daemon.authority,
         &daemon.capabilities,
@@ -808,7 +825,31 @@ async fn fire_pending(daemon: &Arc<Daemon>, in_flight: &InFlight) {
 
 #[cfg(test)]
 mod tests {
-    use super::{actor_exclusions, exec_wake_is_interrupted, is_exec_self_message, WakeClaims};
+    use super::{
+        actor_exclusions, exec_wake_is_interrupted, is_exec_self_message,
+        runtime_components_ready_for_work, RuntimeComponentCheck, RuntimeComponentStatus,
+        WakeClaims,
+    };
+
+    #[test]
+    fn work_scan_requires_common_volume_and_process_readiness() {
+        let ready = |name: &str, status| RuntimeComponentCheck {
+            name: name.into(),
+            status,
+        };
+        assert!(runtime_components_ready_for_work(&[
+            ready("persistent_volume", RuntimeComponentStatus::Ready),
+            ready("process_execution", RuntimeComponentStatus::Ready),
+        ]));
+        assert!(!runtime_components_ready_for_work(&[
+            ready("persistent_volume", RuntimeComponentStatus::Ready),
+            ready("process_execution", RuntimeComponentStatus::Degraded),
+        ]));
+        assert!(!runtime_components_ready_for_work(&[ready(
+            "process_execution",
+            RuntimeComponentStatus::Ready,
+        )]));
+    }
 
     #[test]
     fn trigger_during_active_wake_becomes_one_follow_up() {

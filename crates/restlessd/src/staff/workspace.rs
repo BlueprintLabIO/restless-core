@@ -4,12 +4,18 @@
 //! the Runtime owns the checkout. These helpers deliberately use ordinary Git
 //! worktrees instead of inventing an artifact or custody lifecycle.
 
-use std::{future::Future, pin::Pin, sync::Arc};
+use std::{future::Future, pin::Pin, sync::Arc, time::Duration};
 
 use anyhow::{bail, Context as _, Result};
+use chrono::{Duration as ChronoDuration, Utc};
 use restless_orgintel::WorkRow;
+use restlessd::runtime_transport::{
+    CompanyPath, RuntimeEnvironment, RuntimeProcess, RuntimeProcessAuthority, RuntimeProcessSpec,
+    RuntimeSignal, RuntimeTransport,
+};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest as _, Sha256};
+use tokio::io::{AsyncRead, AsyncReadExt as _, AsyncWriteExt as _};
 use uuid::Uuid;
 
 use crate::runtime::{self, CompanyConfig};
@@ -75,10 +81,10 @@ impl WorkspaceObservation {
 }
 
 #[derive(Debug)]
-struct CommandOutput {
-    success: bool,
-    stdout: Vec<u8>,
-    stderr: Vec<u8>,
+pub(super) struct CommandOutput {
+    pub(super) success: bool,
+    pub(super) stdout: Vec<u8>,
+    pub(super) stderr: Vec<u8>,
 }
 
 impl From<std::process::Output> for CommandOutput {
@@ -94,11 +100,122 @@ impl From<std::process::Output> for CommandOutput {
 type CommandFuture = Pin<Box<dyn Future<Output = Result<CommandOutput>> + Send>>;
 type CompanyCommand = dyn Fn(Vec<String>) -> CommandFuture + Send + Sync;
 
+const RUNTIME_COMMAND_OUTPUT_LIMIT: usize = 16 * 1024 * 1024;
+
+async fn capture_runtime_output<R>(mut source: R) -> std::io::Result<Vec<u8>>
+where
+    R: AsyncRead + Unpin,
+{
+    let mut output = Vec::new();
+    let mut buffer = [0_u8; 8192];
+    loop {
+        let read = source.read(&mut buffer).await?;
+        if read == 0 {
+            return Ok(output);
+        }
+        if output.len().saturating_add(read) > RUNTIME_COMMAND_OUTPUT_LIMIT {
+            return Err(std::io::Error::other(
+                "governed Runtime command output exceeded 16 MiB",
+            ));
+        }
+        output.extend_from_slice(&buffer[..read]);
+    }
+}
+
+pub(super) async fn run_attempt_runtime_command(
+    transport: &dyn RuntimeTransport,
+    authority: &RuntimeProcessAuthority,
+    working_directory: &str,
+    mut argv: Vec<String>,
+    environment: Vec<RuntimeEnvironment>,
+    timeout: Duration,
+) -> Result<CommandOutput> {
+    if argv.is_empty() {
+        bail!("governed Runtime command argv must not be empty");
+    }
+    let executable = argv.remove(0);
+    let working_directory =
+        CompanyPath::parse(working_directory.to_owned()).map_err(|error| anyhow::anyhow!(error))?;
+    let deadline = Utc::now()
+        + ChronoDuration::from_std(timeout.saturating_add(Duration::from_secs(5)))
+            .context("governed Runtime command timeout is out of range")?;
+    let RuntimeProcess {
+        mut stdin,
+        stdout,
+        stderr,
+        control,
+        ..
+    } = transport
+        .start_process(RuntimeProcessSpec {
+            operation_id: Uuid::new_v4(),
+            authority: authority.clone(),
+            executable,
+            arguments: argv,
+            working_directory,
+            environment,
+            deadline,
+        })
+        .await
+        .map_err(|error| anyhow::anyhow!(error))?;
+    stdin
+        .shutdown()
+        .await
+        .context("close Runtime command input")?;
+    let stdout = tokio::spawn(capture_runtime_output(stdout));
+    let stderr = tokio::spawn(capture_runtime_output(stderr));
+    let exit = match tokio::time::timeout(timeout, control.wait()).await {
+        Ok(exit) => exit.map_err(|error| anyhow::anyhow!(error))?,
+        Err(_) => {
+            let _ = control.signal(RuntimeSignal::Kill).await;
+            tokio::time::timeout(Duration::from_secs(5), control.wait())
+                .await
+                .context("governed Runtime command did not exit after timeout")?
+                .map_err(|error| anyhow::anyhow!(error))?
+        }
+    };
+    let stdout = stdout
+        .await
+        .context("join Runtime command output")?
+        .context("read Runtime command output")?;
+    let stderr = stderr
+        .await
+        .context("join Runtime command error output")?
+        .context("read Runtime command error output")?;
+    Ok(CommandOutput {
+        success: exit.code == Some(0) && exit.signal.is_none(),
+        stdout,
+        stderr,
+    })
+}
+
+fn runtime_company_command(
+    transport: Arc<dyn RuntimeTransport>,
+    authority: RuntimeProcessAuthority,
+) -> Arc<CompanyCommand> {
+    Arc::new(move |args| {
+        let transport = Arc::clone(&transport);
+        let authority = authority.clone();
+        Box::pin(async move {
+            run_attempt_runtime_command(
+                transport.as_ref(),
+                &authority,
+                "/company",
+                args,
+                Vec::new(),
+                Duration::from_secs(5 * 60),
+            )
+            .await
+        })
+    })
+}
+
 fn docker_company_command(container: &str) -> Arc<CompanyCommand> {
     let container = container.to_string();
     Arc::new(move |args| {
         let container = container.clone();
         Box::pin(async move {
+            restlessd::hosted_runtime::require_local_docker_from_environment()
+                .map_err(|error| anyhow::anyhow!(error))?;
             let output = tokio::process::Command::new("docker")
                 .args(["exec", "-u", "company", &container])
                 .args(args)
@@ -115,6 +232,8 @@ fn docker_root_command(container: &str) -> Arc<CompanyCommand> {
     Arc::new(move |args| {
         let container = container.clone();
         Box::pin(async move {
+            restlessd::hosted_runtime::require_local_docker_from_environment()
+                .map_err(|error| anyhow::anyhow!(error))?;
             let output = tokio::process::Command::new("docker")
                 .args([
                     "exec",
@@ -211,6 +330,15 @@ pub(crate) async fn observe_workspace(container: &str, workdir: &str) -> Workspa
     observe_git_workspace(&*command, workdir).await
 }
 
+pub(crate) async fn observe_workspace_via_transport(
+    transport: Arc<dyn RuntimeTransport>,
+    authority: RuntimeProcessAuthority,
+    workdir: &str,
+) -> WorkspaceObservation {
+    let command = runtime_company_command(transport, authority);
+    observe_git_workspace(&*command, workdir).await
+}
+
 pub(crate) fn workdir_for(work: &WorkRow) -> Result<String> {
     if work.repo.is_none() {
         return Ok("/company".into());
@@ -246,6 +374,248 @@ pub(crate) async fn recorded_start_observation(
 
 /// Create or reuse the workspace recorded on Work. Git remains the source of
 /// file truth; OrgIntel stores only the path and exact artifact versions.
+pub(crate) async fn ensure_worktree_via_transport(
+    config: &CompanyConfig,
+    transport: Arc<dyn RuntimeTransport>,
+    authority: &RuntimeProcessAuthority,
+    work: &WorkRow,
+    effective_base_ref: Option<&str>,
+    attempt_id: Uuid,
+    org: &restless_orgintel::OrgIntel,
+) -> Result<String> {
+    validate_attempt_workspace_authority(authority, &config.name, work.id, attempt_id)?;
+    let readiness = transport
+        .readiness(&config.name)
+        .await
+        .map_err(|error| anyhow::anyhow!(error))
+        .context("fingerprint repository Runtime")?;
+    let environment_fingerprint =
+        format!("{:x}", Sha256::digest(readiness.runtime_image.as_bytes()));
+    let command = runtime_company_command(transport, authority.clone());
+    ensure_worktree_with(
+        &*command,
+        work,
+        effective_base_ref,
+        attempt_id,
+        org,
+        &environment_fingerprint,
+    )
+    .await
+}
+
+fn validate_attempt_workspace_authority(
+    authority: &RuntimeProcessAuthority,
+    company_name: &str,
+    work_id: Uuid,
+    attempt_id: Uuid,
+) -> Result<()> {
+    match authority {
+        RuntimeProcessAuthority::Attempt {
+            company,
+            work_id: authority_work,
+            attempt_id: authority_attempt,
+            ..
+        } if company == company_name
+            && *authority_work == work_id
+            && *authority_attempt == attempt_id => {}
+        _ => bail!(
+            "workspace materialisation requires the exact company, Work and Attempt Runtime authority"
+        ),
+    }
+    Ok(())
+}
+
+async fn ensure_worktree_with(
+    command: &CompanyCommand,
+    work: &WorkRow,
+    effective_base_ref: Option<&str>,
+    attempt_id: Uuid,
+    org: &restless_orgintel::OrgIntel,
+    environment_fingerprint: &str,
+) -> Result<String> {
+    let repo = work.repo.as_deref().context("Work repo is missing")?;
+    if !valid_slug(repo) {
+        bail!("invalid Work repository {repo:?}");
+    }
+    let path = workdir_for(work)?;
+    let leaf = path
+        .rsplit('/')
+        .next()
+        .context("Work worktree path has no leaf")?;
+    let repo_path = format!("/company/repos/{repo}");
+    let runtime_root = format!("/company/run/attempts/{attempt_id}");
+    require_success(
+        command,
+        vec![
+            "mkdir".into(),
+            "-p".into(),
+            format!("{runtime_root}/cache"),
+            format!("{runtime_root}/tmp"),
+            format!("{runtime_root}/godot"),
+            "/company/worktrees".into(),
+            "/company/reviews".into(),
+        ],
+        "prepare Attempt workspace directories",
+    )
+    .await?;
+
+    let attempt = org
+        .list_work_attempts(Some(work.id))
+        .await?
+        .into_iter()
+        .find(|attempt| attempt.id == attempt_id)
+        .context("Attempt disappeared before workspace materialisation")?;
+    if attempt.requested_source_ref.as_deref() != effective_base_ref {
+        bail!(
+            "Attempt requested source {:?}, but dispatch supplied {:?}",
+            attempt.requested_source_ref,
+            effective_base_ref
+        );
+    }
+    let requested_source_ref = attempt.requested_source_ref.clone();
+    let (exact_commit, exact_tree) = if attempt.materialized_at.is_some() {
+        let exact_commit = attempt
+            .source_commit
+            .context("materialized Attempt lost its exact source commit")?;
+        let exact_tree = attempt
+            .source_tree
+            .context("materialized Attempt lost its exact source tree")?;
+        org.bind_attempt_execution_coordinates(
+            attempt_id,
+            requested_source_ref.as_deref(),
+            Some(&exact_commit),
+            Some(&exact_tree),
+            environment_fingerprint,
+        )
+        .await?;
+        (exact_commit, exact_tree)
+    } else {
+        let requested = requested_source_ref.as_deref().unwrap_or("HEAD");
+        let resolved = require_success(
+            command,
+            vec![
+                "git".into(),
+                "-C".into(),
+                repo_path.clone(),
+                "rev-parse".into(),
+                "--verify".into(),
+                format!("{requested}^{{commit}}"),
+            ],
+            &format!("resolve requested source {requested:?}"),
+        )
+        .await?;
+        let exact_commit = String::from_utf8(resolved.stdout)
+            .context("resolved source commit is not UTF-8")?
+            .trim()
+            .to_string();
+        if !valid_commit(&exact_commit) {
+            bail!("requested source {requested:?} did not resolve to an exact Git commit");
+        }
+        let tree = require_success(
+            command,
+            vec![
+                "git".into(),
+                "-C".into(),
+                repo_path.clone(),
+                "rev-parse".into(),
+                "--verify".into(),
+                format!("{exact_commit}^{{tree}}"),
+            ],
+            "resolve frozen Attempt tree",
+        )
+        .await?;
+        let exact_tree = String::from_utf8(tree.stdout)
+            .context("resolved source tree is not UTF-8")?
+            .trim()
+            .to_string();
+        if !valid_commit(&exact_tree) {
+            bail!("source {exact_commit} did not resolve to an exact Git tree");
+        }
+        org.bind_attempt_execution_coordinates(
+            attempt_id,
+            requested_source_ref.as_deref(),
+            Some(&exact_commit),
+            Some(&exact_tree),
+            environment_fingerprint,
+        )
+        .await?;
+        (exact_commit, exact_tree)
+    };
+
+    let exists = command(vec!["test".into(), "-f".into(), format!("{path}/.git")]).await?;
+    if !exists.success {
+        let branch = format!("work/{leaf}");
+        let created = command(vec![
+            "git".into(),
+            "-C".into(),
+            repo_path.clone(),
+            "worktree".into(),
+            "add".into(),
+            path.clone(),
+            "-b".into(),
+            branch.clone(),
+            exact_commit.clone(),
+        ])
+        .await?;
+        if !created.success {
+            require_success(
+                command,
+                vec![
+                    "git".into(),
+                    "-C".into(),
+                    repo_path.clone(),
+                    "worktree".into(),
+                    "add".into(),
+                    path.clone(),
+                    branch,
+                ],
+                "reuse Work branch",
+            )
+            .await
+            .map_err(|error| {
+                anyhow::anyhow!(
+                    "worktree setup failed after initial error `{}`: {error:#}",
+                    String::from_utf8_lossy(&created.stderr).trim()
+                )
+            })?;
+        }
+    }
+
+    let observed = observe_git_workspace(command, &path).await;
+    if observed.source_commit.as_deref() != Some(exact_commit.as_str())
+        || observed.source_tree.as_deref() != Some(exact_tree.as_str())
+    {
+        bail!(
+            "materialized workspace differs from requested source: requested {exact_commit}/{exact_tree}, observed {}/{}",
+            observed.source_commit.as_deref().unwrap_or("missing"),
+            observed.source_tree.as_deref().unwrap_or("missing")
+        );
+    }
+    require_success(
+        command,
+        vec![
+            "sh".into(),
+            "-c".into(),
+            "set -eu; if [ -f \"$1/project.godot\" ]; then mkdir -p \"$2/godot\"; if [ ! -e \"$1/.godot\" ] && [ ! -L \"$1/.godot\" ]; then ln -s \"$2/godot\" \"$1/.godot\"; fi; common=$(git -C \"$1\" rev-parse --git-common-dir); mkdir -p \"$common/info\"; grep -qxF .godot \"$common/info/exclude\" 2>/dev/null || printf '.godot\\n' >> \"$common/info/exclude\"; fi".into(),
+            "restless-cache".into(),
+            path.clone(),
+            runtime_root,
+        ],
+        "externalise Attempt caches",
+    )
+    .await?;
+    org.bind_attempt_execution_coordinates(
+        attempt_id,
+        requested_source_ref.as_deref(),
+        Some(&exact_commit),
+        Some(&exact_tree),
+        environment_fingerprint,
+    )
+    .await?;
+    Ok(path)
+}
+
+#[cfg_attr(not(test), allow(dead_code))]
 pub(crate) async fn ensure_worktree(
     config: &CompanyConfig,
     work: &WorkRow,
@@ -253,6 +623,8 @@ pub(crate) async fn ensure_worktree(
     attempt_id: Uuid,
     org: &restless_orgintel::OrgIntel,
 ) -> Result<String> {
+    restlessd::hosted_runtime::require_local_docker_from_environment()
+        .map_err(|error| anyhow::anyhow!(error))?;
     let container = runtime::container_name(&config.name);
     let repo = work.repo.as_deref().context("Work repo is missing")?;
     let path = workdir_for(work)?;
@@ -620,6 +992,7 @@ async fn promote_integration_commit_with(
     Ok(after)
 }
 
+#[cfg_attr(not(test), allow(dead_code))]
 pub(crate) async fn promote_integration_commit(
     container: &str,
     repo: &str,
@@ -630,6 +1003,29 @@ pub(crate) async fn promote_integration_commit(
         bail!("invalid integration repository {repo:?}");
     }
     let command = docker_company_command(container);
+    promote_integration_commit_with(
+        &*command,
+        &format!("/company/repos/{repo}"),
+        branch,
+        source_commit,
+    )
+    .await
+}
+
+pub(crate) async fn promote_integration_commit_via_transport(
+    transport: Arc<dyn RuntimeTransport>,
+    authority: &RuntimeProcessAuthority,
+    repo: &str,
+    branch: &str,
+    source_commit: &str,
+) -> Result<WorkspaceObservation> {
+    if !valid_slug(repo) {
+        bail!("invalid integration repository {repo:?}");
+    }
+    if !matches!(authority, RuntimeProcessAuthority::Attempt { .. }) {
+        bail!("integration promotion requires exact durable Attempt authority");
+    }
+    let command = runtime_company_command(transport, authority.clone());
     promote_integration_commit_with(
         &*command,
         &format!("/company/repos/{repo}"),
@@ -653,6 +1049,8 @@ pub(crate) async fn cleanup_attempt_runtime(
     workdir: &str,
     attempt_id: Uuid,
 ) -> Result<AttemptCleanupReceipt> {
+    restlessd::hosted_runtime::require_local_docker_from_environment()
+        .map_err(|error| anyhow::anyhow!(error))?;
     let attempt = attempt_id.to_string();
     let attempt_runtime = format!("/company/run/attempts/{attempt}");
     let gate_runtime = format!("/company/run/gates/{attempt}");
@@ -684,6 +1082,81 @@ pub(crate) async fn cleanup_attempt_runtime(
         removed_paths: vec![godot_link, attempt_runtime, gate_runtime],
         residue_count: 0,
     })
+}
+
+pub(crate) async fn cleanup_attempt_runtime_via_transport(
+    transport: &dyn RuntimeTransport,
+    authority: &RuntimeProcessAuthority,
+    workdir: &str,
+    attempt_id: Uuid,
+) -> Result<AttemptCleanupReceipt> {
+    let attempt = attempt_id.to_string();
+    let attempt_runtime = format!("/company/run/attempts/{attempt}");
+    let gate_runtime = format!("/company/run/gates/{attempt}");
+    let godot_link = format!("{workdir}/.godot");
+    let script = "set -eu; if test -L \"$1\"; then rm -f -- \"$1\"; fi; rm -rf -- \"$2\" \"$3\"; test ! -e \"$1\"; test ! -L \"$1\"; test ! -e \"$2\"; test ! -e \"$3\"";
+    let output = run_attempt_runtime_command(
+        transport,
+        authority,
+        "/company",
+        vec![
+            "sh".into(),
+            "-c".into(),
+            script.into(),
+            "attempt-cleanup".into(),
+            godot_link.clone(),
+            attempt_runtime.clone(),
+            gate_runtime.clone(),
+        ],
+        Vec::new(),
+        Duration::from_secs(2 * 60),
+    )
+    .await
+    .context("clean exact Attempt Runtime state through transport")?;
+    if !output.success {
+        bail!(
+            "clean exact Attempt Runtime state: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        );
+    }
+    Ok(AttemptCleanupReceipt {
+        attempt_id,
+        removed_paths: vec![godot_link, attempt_runtime, gate_runtime],
+        residue_count: 0,
+    })
+}
+
+pub(crate) async fn terminate_runtime_pid_via_transport(
+    transport: &dyn RuntimeTransport,
+    authority: &RuntimeProcessAuthority,
+    pid: u32,
+) -> Result<()> {
+    if pid <= 1 {
+        bail!("refusing to terminate an invalid Runtime process id");
+    }
+    let output = run_attempt_runtime_command(
+        transport,
+        authority,
+        "/company",
+        vec![
+            "sh".into(),
+            "-c".into(),
+            "kill -TERM \"$1\" 2>/dev/null || true; sleep 0.1; kill -KILL \"$1\" 2>/dev/null || true".into(),
+            "runtime-orphan-cleanup".into(),
+            pid.to_string(),
+        ],
+        Vec::new(),
+        Duration::from_secs(30),
+    )
+    .await
+    .context("terminate orphaned governed Runtime process")?;
+    if !output.success {
+        bail!(
+            "terminate orphaned governed Runtime process: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        );
+    }
+    Ok(())
 }
 
 async fn review_copy_is_exact(

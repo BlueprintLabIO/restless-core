@@ -29,7 +29,7 @@ use axum::middleware::{self, Next};
 use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::response::{IntoResponse, Redirect};
 use axum::routing::{any, get, post};
-use axum::{Json, Router};
+use axum::{Extension, Form, Json, Router};
 use chrono::{Duration as ChronoDuration, Utc};
 use futures_util::{SinkExt as _, StreamExt as _};
 use serde::{Deserialize, Serialize};
@@ -37,7 +37,7 @@ use tokio_tungstenite::{client_async, tungstenite};
 use tower_http::services::{ServeDir, ServeFile};
 use uuid::Uuid;
 
-use crate::entry::{company_in_path, EntryMode, SessionStore};
+use crate::entry::{company_in_path, CompanyScope, EntryMode, SessionStore, VerifiedIdentity};
 use crate::{
     airwallex, approval, attention, authority, company as company_projection, credential, finance,
     legal, model_gateway, reconcile, runtime, Daemon,
@@ -60,6 +60,7 @@ const INTENT_MARKER: &str = "<!--restless-intent:";
 const DETAILS_MARKER: &str = "<!--restless-details:";
 const CONTEXT_BLOCK: &str = "\n\n[Owner cockpit context]\n";
 const CONTEXT_MARKER: &str = "\n\n<!--restless-context:";
+const PLATFORM_CONTRACT_VERSION: u32 = 1;
 
 #[derive(Clone)]
 struct OwnerState {
@@ -364,11 +365,53 @@ struct CompanyCatalogEntry {
     spend_ceiling_usd: f64,
     runtime_status: &'static str,
     lifecycle_status: &'static str,
+    role: String,
     /// Set when the account plane could not admit a model route for this
     /// company at boot. The company is configured but cannot start until the
     /// reason is resolved (cross-layer contract §1.4.1).
     #[serde(skip_serializing_if = "Option::is_none")]
     unstartable_reason: Option<String>,
+}
+
+/// Browser-safe deployment context for the one canonical SPA. The interface is
+/// public; provider credentials, internal endpoints and Cloud implementation
+/// details deliberately have no representation here.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PlatformContext {
+    schema_version: u32,
+    mode: &'static str,
+    identity: PlatformIdentity,
+    scope: PlatformScope,
+    capabilities: Vec<&'static str>,
+    navigation: PlatformNavigation,
+    release: crate::release::ReleaseIdentity,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PlatformIdentity {
+    user_id: String,
+    display_name: &'static str,
+    role: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+enum PlatformScope {
+    Owner,
+    Company {
+        #[serde(rename = "companyId")]
+        company_id: String,
+    },
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PlatformNavigation {
+    portfolio_href: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    sign_out_href: Option<&'static str>,
 }
 
 /// The one high-value owner read model. This remains a projection: every
@@ -737,7 +780,16 @@ impl OwnerConfig {
         self.entry.network().is_some()
     }
 
-    pub(crate) fn from_env() -> Result<Self> {
+    /// Production startup injects the durable account-plane replay store.
+    /// Tests and local configuration may still use `from_env`, but network
+    /// deployment never relies on process memory for one-use assertions.
+    pub(crate) fn from_env_with_replay(
+        replay: Arc<dyn crate::entry::AssertionReplayStore>,
+    ) -> Result<Self> {
+        Self::from_entry(EntryMode::from_env_with_replay(replay)?)
+    }
+
+    fn from_entry(entry: EntryMode) -> Result<Self> {
         let default_address = format!("127.0.0.1:{}", crate::port_with_offset(7788)?);
         let address = std::env::var("RESTLESS_OWNER_ADDR")
             .unwrap_or(default_address)
@@ -750,7 +802,6 @@ impl OwnerConfig {
             .unwrap_or(default_review_address)
             .parse::<SocketAddr>()
             .context("parse RESTLESS_REVIEW_ADDR")?;
-        let entry = EntryMode::from_env()?;
         // ADR 0007: the loopback bail is conditional on entry mode, never
         // removed. In local mode the network *is* the boundary, so binding
         // beyond loopback would publish an unauthenticated API.
@@ -777,7 +828,11 @@ fn ensure_loopback(address: SocketAddr, variable: &str) -> Result<()> {
     Ok(())
 }
 
-pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
+pub async fn serve(
+    daemon: Arc<Daemon>,
+    config: OwnerConfig,
+    hosted_control: Option<Arc<crate::hosted_control::HostedControl>>,
+) -> Result<()> {
     let OwnerConfig {
         address,
         review_address,
@@ -797,6 +852,7 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
 
     let api = Router::new()
         .route("/appliance", get(appliance_status))
+        .route("/platform", get(platform_context))
         .route("/companies", get(company_catalog))
         .route("/companies/{company}/archive", post(archive_company))
         .route("/companies/{company}/restore", post(restore_company))
@@ -919,6 +975,14 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
             enforce_owner_boundary,
         ))
         .with_state(state.clone());
+    // Internal Cloud control routes carry their own dedicated bearer
+    // boundaries. Merge them only after the browser/session middleware has
+    // been applied to existing owner routes, so no browser exception or
+    // wildcard bypass is added to the canonical product surface.
+    let app = match hosted_control {
+        Some(control) => app.merge(crate::hosted_control::router(control)),
+        None => app,
+    };
 
     // A separate origin is load-bearing. Reviewed company code may run
     // JavaScript and use root-relative assets, but it never shares the owner
@@ -949,7 +1013,7 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
 /// company scope from that session on every request.
 async fn enforce_owner_boundary(
     State(state): State<OwnerState>,
-    request: Request,
+    mut request: Request,
     next: Next,
 ) -> Response<Body> {
     match state.entry.clone() {
@@ -959,24 +1023,125 @@ async fn enforce_owner_boundary(
             {
                 return api_error(StatusCode::FORBIDDEN, "local_owner_boundary", reason);
             }
+            request.extensions_mut().insert(local_owner_identity());
             next.run(request).await
         }
         EntryMode::Network(network) => {
             let path = request.uri().path().to_string();
             let identity = cookie_value(request.headers(), SESSION_COOKIE)
                 .and_then(|token| state.sessions.resolve(&token));
-            if let Some(refusal) = network_boundary_violation(
-                request.method(),
-                request.headers(),
-                &path,
-                network.host(),
-                identity.as_ref(),
-            ) {
+            let refusal = if path == "/entry" {
+                network_entry_boundary_violation(
+                    request.method(),
+                    request.headers(),
+                    request.uri().query().is_some(),
+                    network.host(),
+                    network.issuer_origin(),
+                )
+            } else {
+                network_boundary_violation_with_origin(
+                    request.method(),
+                    request.headers(),
+                    &path,
+                    network.host(),
+                    network.plane_origin(),
+                    identity.as_ref(),
+                )
+            };
+            if let Some(refusal) = refusal {
                 return api_error(refusal.status, refusal.code, refusal.message);
+            }
+            if let Some(identity) = identity {
+                request.extensions_mut().insert(identity);
             }
             next.run(request).await
         }
     }
+}
+
+fn local_owner_identity() -> VerifiedIdentity {
+    VerifiedIdentity {
+        user: "local-owner".into(),
+        owner: "local-owner".into(),
+        scope: CompanyScope::Owner,
+        role: "owner".into(),
+        actor: Some("owner".into()),
+        correlation: None,
+    }
+}
+
+async fn platform_context(
+    State(state): State<OwnerState>,
+    Extension(identity): Extension<VerifiedIdentity>,
+) -> impl IntoResponse {
+    Json(platform_context_for(&state.entry, &identity))
+}
+
+fn platform_context_for(entry: &EntryMode, identity: &VerifiedIdentity) -> PlatformContext {
+    let (mode, scope) = match &identity.scope {
+        CompanyScope::Owner if entry.network().is_some() => ("cloud_fleet", PlatformScope::Owner),
+        CompanyScope::Owner => ("self_hosted", PlatformScope::Owner),
+        CompanyScope::Company { company } => (
+            "cloud_company",
+            PlatformScope::Company {
+                company_id: company.clone(),
+            },
+        ),
+    };
+    let can_manage = can_manage_companies(identity);
+    let mut capabilities = vec!["company.open"];
+    if can_manage {
+        capabilities.extend(["company.manage", "company.archive", "company.restore"]);
+    }
+    if entry.network().is_some() {
+        capabilities.push("account.sign_out");
+    }
+
+    PlatformContext {
+        schema_version: PLATFORM_CONTRACT_VERSION,
+        mode,
+        identity: PlatformIdentity {
+            user_id: identity.user.clone(),
+            display_name: if identity.role == "owner" {
+                "Owner"
+            } else {
+                "Collaborator"
+            },
+            role: identity.role.clone(),
+        },
+        scope,
+        capabilities,
+        navigation: PlatformNavigation {
+            portfolio_href: "/",
+            sign_out_href: entry.network().is_some().then_some("/entry/logout"),
+        },
+        release: crate::release::ReleaseIdentity::current(),
+    }
+}
+
+fn can_manage_companies(identity: &VerifiedIdentity) -> bool {
+    matches!(identity.role.as_str(), "owner" | "admin")
+}
+
+fn membership_authorization_violation(
+    method: &Method,
+    path: &str,
+    identity: &VerifiedIdentity,
+) -> Option<BoundaryRefusal> {
+    let changes_platform_state =
+        path.starts_with("/api/") && !matches!(*method, Method::GET | Method::HEAD);
+    // The desktop bridge is bidirectional even for GET/WebSocket routes. Until
+    // Core has a server-enforced read-only stream, its client-side `view_only`
+    // flag is presentation rather than an authority boundary.
+    let reaches_company_desktop = path.starts_with("/desktop/");
+    if (changes_platform_state || reaches_company_desktop) && !can_manage_companies(identity) {
+        return Some(BoundaryRefusal {
+            status: StatusCode::FORBIDDEN,
+            code: "membership_role_forbidden",
+            message: "this membership role cannot manage company state",
+        });
+    }
+    None
 }
 
 struct BoundaryRefusal {
@@ -990,6 +1155,7 @@ struct BoundaryRefusal {
 /// Kept separate from the middleware so the composition is testable, and kept
 /// in one place because two call sites that each decide scope is how one of
 /// them ends up deciding it differently.
+#[cfg(test)]
 fn network_boundary_violation(
     method: &Method,
     headers: &HeaderMap,
@@ -997,17 +1163,31 @@ fn network_boundary_violation(
     expected_host: &str,
     identity: Option<&crate::entry::VerifiedIdentity>,
 ) -> Option<BoundaryRefusal> {
-    if let Some(message) = network_origin_violation(method, headers, expected_host) {
+    network_boundary_violation_with_origin(
+        method,
+        headers,
+        path,
+        expected_host,
+        &format!("https://{expected_host}"),
+        identity,
+    )
+}
+
+fn network_boundary_violation_with_origin(
+    method: &Method,
+    headers: &HeaderMap,
+    path: &str,
+    expected_host: &str,
+    expected_origin: &str,
+    identity: Option<&crate::entry::VerifiedIdentity>,
+) -> Option<BoundaryRefusal> {
+    if let Some(message) = network_origin_violation(method, headers, expected_host, expected_origin)
+    {
         return Some(BoundaryRefusal {
             status: StatusCode::FORBIDDEN,
             code: "network_owner_boundary",
             message,
         });
-    }
-
-    // The door itself cannot require a session.
-    if path == "/entry" {
-        return None;
     }
 
     // The SPA shell is inert without its APIs, so it is served to an
@@ -1037,6 +1217,10 @@ fn network_boundary_violation(
         }
     }
 
+    if let Some(refusal) = membership_authorization_violation(method, path, identity) {
+        return Some(refusal);
+    }
+
     None
 }
 
@@ -1047,17 +1231,12 @@ fn network_origin_violation(
     method: &Method,
     headers: &HeaderMap,
     expected_host: &str,
+    expected_origin: &str,
 ) -> Option<&'static str> {
     let host = headers
         .get(HOST)
         .and_then(|value| value.to_str().ok())
-        .map(|value| {
-            value
-                .split(':')
-                .next()
-                .unwrap_or(value)
-                .to_ascii_lowercase()
-        });
+        .map(|value| value.to_ascii_lowercase());
     if host.as_deref() != Some(&expected_host.to_ascii_lowercase()) {
         return Some("owner request host is not this plane's configured hostname");
     }
@@ -1076,18 +1255,62 @@ fn network_origin_violation(
         return Some("state-changing owner requests require a same-origin browser origin");
     }
     if let Some(origin) = origin {
-        let origin_host = origin.rsplit('/').next().map(|value| {
-            value
-                .split(':')
-                .next()
-                .unwrap_or(value)
-                .to_ascii_lowercase()
-        });
-        if origin_host.as_deref() != Some(&expected_host.to_ascii_lowercase()) {
+        if !origin_matches(origin, expected_origin) {
             return Some("owner request origin does not match this plane's hostname");
         }
     }
     None
+}
+
+/// The sole cross-site exception. A Fleet form POST may reach the door only
+/// from the exact configured issuer origin. The signed, one-use assertion is
+/// still the authority for every identity and company value.
+fn network_entry_boundary_violation(
+    method: &Method,
+    headers: &HeaderMap,
+    has_query: bool,
+    expected_host: &str,
+    issuer_origin: &str,
+) -> Option<BoundaryRefusal> {
+    let refuse = |message| {
+        Some(BoundaryRefusal {
+            status: StatusCode::FORBIDDEN,
+            code: "network_entry_boundary",
+            message,
+        })
+    };
+    if *method != Method::POST {
+        return refuse("entry assertions must be submitted with POST");
+    }
+    if has_query {
+        return refuse("entry assertions must not appear in the request URL");
+    }
+    let host = headers
+        .get(HOST)
+        .and_then(|value| value.to_str().ok())
+        .map(|value| value.to_ascii_lowercase());
+    if host.as_deref() != Some(&expected_host.to_ascii_lowercase()) {
+        return refuse("entry request host is not this plane's configured hostname");
+    }
+    let Some(origin) = headers.get(ORIGIN).and_then(|value| value.to_str().ok()) else {
+        return refuse("entry assertion form requires the configured Fleet origin");
+    };
+    if !origin_matches(origin, issuer_origin) {
+        return refuse("entry assertion form did not come from the configured Fleet origin");
+    }
+    None
+}
+
+fn origin_matches(value: &str, expected: &str) -> bool {
+    let Ok(url) = url::Url::parse(value) else {
+        return false;
+    };
+    url.path() == "/"
+        && url.query().is_none()
+        && url.fragment().is_none()
+        && url.username().is_empty()
+        && url.password().is_none()
+        && url.origin().ascii_serialization() == expected
 }
 
 fn cookie_value(headers: &HeaderMap, name: &str) -> Option<String> {
@@ -1129,6 +1352,25 @@ struct EntryRequest {
     assertion: String,
 }
 
+fn network_entry_destination(identity: &VerifiedIdentity) -> Option<String> {
+    match &identity.scope {
+        CompanyScope::Company { company } => Some(format!("/{company}")),
+        // Network verification never creates owner scope. Keeping this
+        // explicit makes a future contract change fail closed at the door.
+        CompanyScope::Owner => None,
+    }
+}
+
+fn entry_session_cookie(token: &str, ttl: Duration, secure: bool) -> String {
+    let secure = if secure { "; Secure" } else { "" };
+    // Deliberately no Domain attribute: this is a host-only account-plane
+    // session and must never become a Fleet or sibling-plane credential.
+    format!(
+        "{SESSION_COOKIE}={token}; Path=/; HttpOnly{secure}; SameSite=Lax; Max-Age={}",
+        ttl.as_secs(),
+    )
+}
+
 /// The door. Consumes one single-use assertion and exchanges it for a session.
 ///
 /// This is a POST because the assertion is a credential: a query string would
@@ -1136,7 +1378,7 @@ struct EntryRequest {
 /// the client. Restless Cloud redirects with an auto-submitting form.
 async fn consume_entry_assertion(
     State(state): State<OwnerState>,
-    Json(request): Json<EntryRequest>,
+    Form(request): Form<EntryRequest>,
 ) -> Response<Body> {
     let Some(network) = state.entry.network().cloned() else {
         return api_error(
@@ -1146,11 +1388,16 @@ async fn consume_entry_assertion(
         );
     };
 
-    let identity = match network.verify(&request.assertion) {
+    let identity = match network.verify(&request.assertion).await {
         Ok(identity) => identity,
         Err(refusal) => {
             tracing::warn!(reason = refusal.code(), "refused entry assertion");
-            return api_error(StatusCode::UNAUTHORIZED, refusal.code(), refusal.message());
+            let status = if refusal.is_temporary() {
+                StatusCode::SERVICE_UNAVAILABLE
+            } else {
+                StatusCode::UNAUTHORIZED
+            };
+            return api_error(status, refusal.code(), refusal.message());
         }
     };
 
@@ -1162,16 +1409,26 @@ async fn consume_entry_assertion(
         correlation = identity.correlation.as_deref().unwrap_or("-"),
         "admitted a verified entry assertion"
     );
+    let Some(destination) = network_entry_destination(&identity) else {
+        return api_error(
+            StatusCode::UNAUTHORIZED,
+            "assertion_scope",
+            "network entry assertions must name exactly one company",
+        );
+    };
     let token = state.sessions.establish(identity, network.session_ttl());
 
-    let cookie = format!(
-        "{SESSION_COOKIE}={token}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age={}",
-        network.session_ttl().as_secs()
-    );
-    let mut response = Json(serde_json::json!({ "entered": true })).into_response();
+    let cookie = entry_session_cookie(&token, network.session_ttl(), network.secure_cookie());
+    let mut response = Redirect::to(&destination).into_response();
     if let Ok(value) = HeaderValue::from_str(&cookie) {
         response.headers_mut().insert(SET_COOKIE, value);
     }
+    response
+        .headers_mut()
+        .insert(CACHE_CONTROL, HeaderValue::from_static("private, no-store"));
+    response
+        .headers_mut()
+        .insert("referrer-policy", HeaderValue::from_static("no-referrer"));
     response
 }
 
@@ -1253,7 +1510,10 @@ fn local_host(value: &str) -> Option<String> {
         .map(|ip| ip.to_string())
 }
 
-async fn company_catalog(State(state): State<OwnerState>) -> impl IntoResponse {
+async fn company_catalog(
+    State(state): State<OwnerState>,
+    Extension(identity): Extension<VerifiedIdentity>,
+) -> impl IntoResponse {
     let companies = match crate::configured_companies(&state.daemon.root) {
         Ok(companies) => companies,
         Err(error) => {
@@ -1261,7 +1521,7 @@ async fn company_catalog(State(state): State<OwnerState>) -> impl IntoResponse {
                 StatusCode::SERVICE_UNAVAILABLE,
                 "company",
                 format!("{error:#}"),
-            )
+            );
         }
     };
     let archived = match runtime::archived_company_names(&state.daemon.root) {
@@ -1271,30 +1531,40 @@ async fn company_catalog(State(state): State<OwnerState>) -> impl IntoResponse {
                 StatusCode::SERVICE_UNAVAILABLE,
                 "company",
                 format!("{error:#}"),
-            )
+            );
         }
     };
+    let companies = visible_company_names(companies, &identity);
+    let archived = visible_company_names(archived, &identity);
     let mut catalog = Vec::with_capacity(companies.len() + archived.len());
     for company in companies {
         let config = match runtime::CompanyConfig::load(&state.daemon.root, &company) {
             Ok(config) => config,
             Err(error) => return api_error(StatusCode::NOT_FOUND, "company", format!("{error:#}")),
         };
-        catalog.push(company_catalog_entry(config, "active").await);
+        catalog.push(company_catalog_entry(config, "active", &identity.role).await);
     }
     for company in archived {
         let config = match runtime::CompanyConfig::load_archived(&state.daemon.root, &company) {
             Ok(config) => config,
             Err(error) => return api_error(StatusCode::NOT_FOUND, "company", format!("{error:#}")),
         };
-        catalog.push(company_catalog_entry(config, "archived").await);
+        catalog.push(company_catalog_entry(config, "archived", &identity.role).await);
     }
     Json(catalog).into_response()
+}
+
+fn visible_company_names(companies: Vec<String>, identity: &VerifiedIdentity) -> Vec<String> {
+    companies
+        .into_iter()
+        .filter(|company| identity.scope.permits(company))
+        .collect()
 }
 
 async fn company_catalog_entry(
     config: runtime::CompanyConfig,
     lifecycle_status: &'static str,
+    role: &str,
 ) -> CompanyCatalogEntry {
     let runtime_status = match runtime::status(&config.name).await {
         Ok(runtime::ContainerStatus::Running) => "running",
@@ -1311,6 +1581,7 @@ async fn company_catalog_entry(
         spend_ceiling_usd: config.spend_ceiling_usd.as_usd(),
         runtime_status,
         lifecycle_status,
+        role: role.to_string(),
         unstartable_reason: crate::model_gateway::unstartable_reason(&name),
     }
 }
@@ -1337,7 +1608,7 @@ async fn archive_company(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "lifecycle",
                 format!("{error:#}"),
-            )
+            );
         }
     };
     if let Err(error) = state
@@ -1518,7 +1789,7 @@ async fn appliance_status(State(state): State<OwnerState>) -> impl IntoResponse 
                 StatusCode::SERVICE_UNAVAILABLE,
                 "appliance",
                 format!("machine profile is invalid: {error:#}"),
-            )
+            );
         }
     };
     let last_schedule_wake =
@@ -1613,7 +1884,7 @@ async fn company_identity_view(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "identity",
                 format!("company identity is unavailable: {error:#}"),
-            )
+            );
         }
     };
     match org.company_identity_snapshot().await {
@@ -1655,7 +1926,7 @@ async fn promote_company_identity(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "authority",
                 format!("identity decision could not be recorded: {error:#}"),
-            )
+            );
         }
     };
     let org = match state.daemon.orgintel.get(&company).await {
@@ -1665,7 +1936,7 @@ async fn promote_company_identity(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "identity",
                 format!("owner decision was recorded but its company projection failed: {error:#}"),
-            )
+            );
         }
     };
     match org
@@ -1712,7 +1983,7 @@ async fn reject_company_identity(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "authority",
                 format!("identity decision could not be recorded: {error:#}"),
-            )
+            );
         }
     };
     let org = match state.daemon.orgintel.get(&company).await {
@@ -1722,7 +1993,7 @@ async fn reject_company_identity(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "identity",
                 format!("owner decision was recorded but its company projection failed: {error:#}"),
-            )
+            );
         }
     };
     match org
@@ -1777,7 +2048,7 @@ async fn decide_company_identity_migration(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "authority",
                 format!("migration decision could not be recorded: {error:#}"),
-            )
+            );
         }
     };
     let org = match state.daemon.orgintel.get(&company).await {
@@ -1787,7 +2058,7 @@ async fn decide_company_identity_migration(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "identity",
                 format!("owner decision was recorded but its company projection failed: {error:#}"),
-            )
+            );
         }
     };
     match org
@@ -1849,7 +2120,7 @@ async fn revise_company_charter(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "charter",
                 format!("{error:#}"),
-            )
+            );
         }
     };
     let config = match runtime::CompanyConfig::load(&state.daemon.root, &company) {
@@ -1859,7 +2130,7 @@ async fn revise_company_charter(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "charter",
                 format!("charter changed but its canonical config could not be reread: {error:#}"),
-            )
+            );
         }
     };
     Json(CharterRevisionResponse {
@@ -1933,7 +2204,7 @@ async fn recover_company_computer(
                 StatusCode::BAD_REQUEST,
                 "recovery",
                 "action must be start, restart or reconcile",
-            )
+            );
         }
     };
     match company_projection::recover(&state.daemon, &config, action).await {
@@ -2419,7 +2690,7 @@ async fn actor_conversation(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "orgintel",
                 format!("{error:#}"),
-            )
+            );
         }
     };
     let actor_row = match org.list_actors().await {
@@ -2429,7 +2700,7 @@ async fn actor_conversation(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "orgintel",
                 format!("{error:#}"),
-            )
+            );
         }
     };
     let Some(actor_row) = actor_row else {
@@ -2449,7 +2720,7 @@ async fn actor_conversation(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "orgintel",
                 format!("{error:#}"),
-            )
+            );
         }
     };
     let focus = if query.work_id.is_none() {
@@ -2460,7 +2731,7 @@ async fn actor_conversation(
                     StatusCode::SERVICE_UNAVAILABLE,
                     "orgintel",
                     format!("{error:#}"),
-                )
+                );
             }
         }
     } else {
@@ -2527,7 +2798,7 @@ async fn agent_activity_live(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "orgintel",
                 format!("{error:#}"),
-            )
+            );
         }
     };
     match org.list_actors().await {
@@ -2537,14 +2808,14 @@ async fn agent_activity_live(
                 StatusCode::NOT_FOUND,
                 "actor",
                 "requesting actor no longer exists",
-            )
+            );
         }
         Err(error) => {
             return api_error(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "orgintel",
                 format!("{error:#}"),
-            )
+            );
         }
     }
 
@@ -2590,7 +2861,7 @@ async fn review_outcome(
                 StatusCode::BAD_REQUEST,
                 "review",
                 "decision must be accept or request_changes",
-            )
+            );
         }
     };
     let org = match state.daemon.orgintel.get(&company).await {
@@ -2600,7 +2871,7 @@ async fn review_outcome(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "orgintel",
                 format!("{error:#}"),
-            )
+            );
         }
     };
     match org
@@ -2636,7 +2907,7 @@ async fn resolve_handoff_decision(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "orgintel",
                 format!("{error:#}"),
-            )
+            );
         }
     };
     match org
@@ -2704,7 +2975,7 @@ async fn send_actor_message(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "orgintel",
                 format!("{error:#}"),
-            )
+            );
         }
     };
     let target_exists = match org.list_actors().await {
@@ -2714,7 +2985,7 @@ async fn send_actor_message(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "orgintel",
                 format!("{error:#}"),
-            )
+            );
         }
     };
     if !target_exists {
@@ -2847,7 +3118,7 @@ async fn interrupt_actor_conversation(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "orgintel",
                 format!("{error:#}"),
-            )
+            );
         }
     };
     let actor_exists = match org.list_actors().await {
@@ -2857,7 +3128,7 @@ async fn interrupt_actor_conversation(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "orgintel",
                 format!("{error:#}"),
-            )
+            );
         }
     };
     if !actor_exists {
@@ -2878,7 +3149,7 @@ async fn interrupt_actor_conversation(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "orgintel",
                 format!("{error:#}"),
-            )
+            );
         }
     };
     if !cancelled {
@@ -3285,7 +3556,7 @@ async fn issue_review_ticket(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "projection",
                 format!("{error:#}"),
-            )
+            );
         }
     };
     let Some(item) = view.items.iter().find(|item| item.id == input.item_id) else {
@@ -3318,7 +3589,7 @@ async fn issue_review_ticket(
                     StatusCode::BAD_REQUEST,
                     "review",
                     format!("invalid review target: {error:#}"),
-                )
+                );
             }
         };
         // Observe the exact file before claiming the outcome opens. The cockpit
@@ -3340,7 +3611,7 @@ async fn issue_review_ticket(
                     StatusCode::BAD_REQUEST,
                     "review",
                     format!("invalid review target: {error:#}"),
-                )
+                );
             }
         };
         if let Err(error) = runtime::probe_runtime_http(&company, &reference.uri).await {
@@ -3363,7 +3634,7 @@ async fn issue_review_ticket(
                     StatusCode::SERVICE_UNAVAILABLE,
                     "review",
                     format!("review origin is invalid: {error:#}"),
-                )
+                );
             }
         };
     state.reviews.lock().expect("review registry").insert(
@@ -3452,7 +3723,7 @@ async fn review_proxy(
                         StatusCode::BAD_GATEWAY,
                         "review",
                         format!("live outcome bridge: {error:#}"),
-                    )
+                    );
                 }
             }
         }
@@ -3462,7 +3733,7 @@ async fn review_proxy(
             let resolved = match runtime::resolve_review_file(root, entry, path) {
                 Ok(resolved) => resolved,
                 Err(error) => {
-                    return api_error(StatusCode::NOT_FOUND, "review", format!("{error:#}"))
+                    return api_error(StatusCode::NOT_FOUND, "review", format!("{error:#}"));
                 }
             };
             match runtime::read_runtime_review_file(&session.company, &resolved).await {
@@ -3479,7 +3750,7 @@ async fn review_proxy(
                     return finish_review_response(response, &session, path);
                 }
                 Err(error) => {
-                    return api_error(StatusCode::NOT_FOUND, "review", format!("{error:#}"))
+                    return api_error(StatusCode::NOT_FOUND, "review", format!("{error:#}"));
                 }
             }
         }
@@ -3600,7 +3871,7 @@ async fn issue_ticket(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "runtime",
                 "company runtime is unavailable",
-            )
+            );
         }
     };
     let mut requesting_actor = None;
@@ -3617,7 +3888,7 @@ async fn issue_ticket(
                     StatusCode::SERVICE_UNAVAILABLE,
                     "projection",
                     format!("{error:#}"),
-                )
+                );
             }
         };
         let Some(item) = view.items.iter().find(|item| item.id == input.item_id) else {
@@ -4125,6 +4396,7 @@ async fn api_not_found() -> Response<Body> {
 mod tests {
     use super::*;
     use axum::body::to_bytes;
+    use axum::http::header::LOCATION;
     use tower::ServiceExt as _;
 
     #[tokio::test]
@@ -4155,6 +4427,9 @@ mod tests {
                 root: root.clone(),
                 handles: std::sync::Mutex::new(HashMap::new()),
             },
+            runtime_transport: Arc::new(
+                restlessd::runtime_transport::RuntimeTransportSlot::default(),
+            ),
             staff: crate::staff::StaffRegistry::default(),
             activities: crate::activity::AgentActivityStreams::default(),
             in_flight: Arc::new(std::sync::Mutex::new(crate::schedule::WakeClaims::default())),
@@ -4181,6 +4456,7 @@ mod tests {
                 review_public_url: format!("http://{{ticket}}.localhost:{}", review_address.port()),
                 entry: EntryMode::Local,
             },
+            None,
         )
         .await
         .unwrap();
@@ -4192,15 +4468,51 @@ mod tests {
         headers
     }
 
-    fn identity(scope: crate::entry::CompanyScope) -> crate::entry::VerifiedIdentity {
+    fn identity(role: &str, scope: crate::entry::CompanyScope) -> crate::entry::VerifiedIdentity {
         crate::entry::VerifiedIdentity {
             user: "user-1".into(),
             owner: "owner-1".into(),
             scope,
-            role: "member".into(),
+            role: role.into(),
             actor: None,
             correlation: None,
         }
+    }
+
+    #[test]
+    fn platform_context_is_capability_scoped_without_private_adapter_state() {
+        let member = identity(
+            "member",
+            crate::entry::CompanyScope::Company {
+                company: "aris".into(),
+            },
+        );
+        let value = serde_json::to_value(platform_context_for(&EntryMode::Local, &member)).unwrap();
+
+        assert_eq!(value["schemaVersion"], PLATFORM_CONTRACT_VERSION);
+        assert_eq!(value["mode"], "cloud_company");
+        assert_eq!(value["scope"]["kind"], "company");
+        assert_eq!(value["scope"]["companyId"], "aris");
+        assert_eq!(value["identity"]["role"], "member");
+        assert_eq!(value["capabilities"], serde_json::json!(["company.open"]));
+        assert!(value["navigation"].get("signOutHref").is_none());
+        assert!(value.get("planeUrl").is_none());
+        assert!(value.get("serviceToken").is_none());
+    }
+
+    #[test]
+    fn company_catalog_visibility_comes_from_verified_scope() {
+        let companies = vec!["aris".into(), "cosmon".into()];
+        let scoped = identity(
+            "member",
+            crate::entry::CompanyScope::Company {
+                company: "aris".into(),
+            },
+        );
+        assert_eq!(visible_company_names(companies.clone(), &scoped), ["aris"]);
+
+        let owner = identity("owner", crate::entry::CompanyScope::Owner);
+        assert_eq!(visible_company_names(companies, &owner), ["aris", "cosmon"]);
     }
 
     const PLANE_HOST: &str = "aris.restless.test";
@@ -4220,31 +4532,95 @@ mod tests {
     }
 
     #[test]
-    fn network_entry_admits_the_door_without_a_session() {
-        assert!(network_boundary_violation(
+    fn network_entry_admits_only_the_exact_fleet_form_door() {
+        let fleet_origin = "https://fleet.restless.test";
+        let mut headers = network_headers(PLANE_HOST);
+        headers.insert(ORIGIN, HeaderValue::from_static(fleet_origin));
+        headers.insert("sec-fetch-site", HeaderValue::from_static("cross-site"));
+
+        assert!(network_entry_boundary_violation(
             &Method::POST,
-            &{
-                let mut headers = network_headers(PLANE_HOST);
-                headers.insert(
-                    ORIGIN,
-                    HeaderValue::from_str(&format!("https://{PLANE_HOST}")).unwrap(),
-                );
-                headers
-            },
-            "/entry",
+            &headers,
+            false,
             PLANE_HOST,
-            None,
+            fleet_origin,
         )
         .is_none());
+
+        for (method, has_query, origin, host) in [
+            (Method::GET, false, fleet_origin, PLANE_HOST),
+            (Method::POST, true, fleet_origin, PLANE_HOST),
+            (Method::POST, false, "https://attacker.test", PLANE_HOST),
+            (
+                Method::POST,
+                false,
+                fleet_origin,
+                "someone-else.restless.test",
+            ),
+        ] {
+            let mut refused_headers = network_headers(host);
+            refused_headers.insert(ORIGIN, HeaderValue::from_str(origin).unwrap());
+            let refusal = network_entry_boundary_violation(
+                &method,
+                &refused_headers,
+                has_query,
+                PLANE_HOST,
+                fleet_origin,
+            )
+            .expect("door boundary must refuse this request");
+            assert_eq!(refusal.code, "network_entry_boundary");
+        }
+
+        let refusal = network_entry_boundary_violation(
+            &Method::POST,
+            &network_headers(PLANE_HOST),
+            false,
+            PLANE_HOST,
+            fleet_origin,
+        )
+        .expect("an originless entry form must be refused");
+        assert_eq!(refusal.code, "network_entry_boundary");
+    }
+
+    #[test]
+    fn admitted_entry_redirect_is_clean_company_scoped_and_host_only() {
+        let scoped_identity = identity(
+            "owner",
+            crate::entry::CompanyScope::Company {
+                company: "c33333333333343338333333333333333".into(),
+            },
+        );
+        let destination = network_entry_destination(&scoped_identity).expect("company destination");
+        let response = Redirect::to(&destination).into_response();
+        assert_eq!(response.status(), StatusCode::SEE_OTHER);
+        assert_eq!(
+            response.headers().get(LOCATION).unwrap(),
+            "/c33333333333343338333333333333333"
+        );
+        assert!(!destination.contains('?'));
+
+        let cookie = entry_session_cookie("session-token", Duration::from_secs(60), true);
+        assert!(cookie.contains("HttpOnly"));
+        assert!(cookie.contains("Secure"));
+        assert!(cookie.contains("SameSite=Lax"));
+        assert!(!cookie.to_ascii_lowercase().contains("domain="));
+
+        assert!(
+            network_entry_destination(&identity("owner", crate::entry::CompanyScope::Owner))
+                .is_none()
+        );
     }
 
     /// S27-T2. The plane genuinely serves both companies, so a pass here proves
     /// scoping rather than the absence of the other company.
     #[test]
     fn a_company_scoped_session_reaches_only_its_own_company() {
-        let scoped = identity(crate::entry::CompanyScope::Company {
-            company: "aris".into(),
-        });
+        let scoped = identity(
+            "member",
+            crate::entry::CompanyScope::Company {
+                company: "aris".into(),
+            },
+        );
 
         assert!(
             network_boundary_violation(
@@ -4282,8 +4658,66 @@ mod tests {
     }
 
     #[test]
+    fn membership_role_enforces_the_capabilities_advertised_to_the_spa() {
+        let member = identity(
+            "member",
+            crate::entry::CompanyScope::Company {
+                company: "aris".into(),
+            },
+        );
+        let mut write_headers = network_headers(PLANE_HOST);
+        write_headers.insert(
+            ORIGIN,
+            HeaderValue::from_str(&format!("https://{PLANE_HOST}")).unwrap(),
+        );
+
+        assert!(network_boundary_violation(
+            &Method::GET,
+            &network_headers(PLANE_HOST),
+            "/api/companies/aris/cockpit",
+            PLANE_HOST,
+            Some(&member),
+        )
+        .is_none());
+
+        for (method, path) in [
+            (Method::POST, "/api/companies/aris/archive"),
+            (Method::POST, "/api/companies/aris/company/charter"),
+            (Method::GET, "/desktop/aris/observe"),
+        ] {
+            let headers = if method == Method::POST {
+                write_headers.clone()
+            } else {
+                network_headers(PLANE_HOST)
+            };
+            let refusal =
+                network_boundary_violation(&method, &headers, path, PLANE_HOST, Some(&member))
+                    .expect("member mutation must be refused");
+            assert_eq!(refusal.status, StatusCode::FORBIDDEN);
+            assert_eq!(refusal.code, "membership_role_forbidden");
+        }
+
+        for role in ["owner", "admin"] {
+            let manager = identity(
+                role,
+                crate::entry::CompanyScope::Company {
+                    company: "aris".into(),
+                },
+            );
+            assert!(network_boundary_violation(
+                &Method::POST,
+                &write_headers,
+                "/api/companies/aris/archive",
+                PLANE_HOST,
+                Some(&manager),
+            )
+            .is_none());
+        }
+    }
+
+    #[test]
     fn an_owner_scoped_session_reaches_every_company_on_its_plane() {
-        let owner = identity(crate::entry::CompanyScope::Owner);
+        let owner = identity("owner", crate::entry::CompanyScope::Owner);
         for path in ["/api/companies/aris/cockpit", "/desktop/other/observe"] {
             assert!(network_boundary_violation(
                 &Method::GET,
@@ -4303,7 +4737,7 @@ mod tests {
             &network_headers("someone-else.restless.test"),
             "/api/companies/aris/cockpit",
             PLANE_HOST,
-            Some(&identity(crate::entry::CompanyScope::Owner)),
+            Some(&identity("owner", crate::entry::CompanyScope::Owner)),
         )
         .expect("wrong host refused");
         assert_eq!(refusal.code, "network_owner_boundary");
@@ -4313,9 +4747,12 @@ mod tests {
     /// arriving at a different hostname or carrying a forwarding claim.
     #[test]
     fn scope_ignores_forwarding_claims_and_the_route_it_arrived_on() {
-        let scoped = identity(crate::entry::CompanyScope::Company {
-            company: "aris".into(),
-        });
+        let scoped = identity(
+            "member",
+            crate::entry::CompanyScope::Company {
+                company: "aris".into(),
+            },
+        );
         let mut headers = network_headers(PLANE_HOST);
         headers.insert(
             "x-forwarded-host",

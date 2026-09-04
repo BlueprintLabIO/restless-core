@@ -546,7 +546,7 @@ impl AgentActivityStreams {
                 return watch::channel(AgentActivityState::absent(
                     company, actor, message_id, work_id,
                 ))
-                .1
+                .1;
             }
         };
         let streams = self.streams.lock().expect("agent activity stream registry");

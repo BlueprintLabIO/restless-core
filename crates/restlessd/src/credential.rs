@@ -19,6 +19,10 @@ use crate::runtime::CompanyConfig;
 
 const DEFAULT_INFISICAL_API_URL: &str = "https://us.infisical.com";
 const DEFAULT_INFISICAL_ENVIRONMENT: &str = "prod";
+pub(crate) const HOSTED_MODEL_RELAY_REFERENCE: &str = "hosted-model-relay:v1";
+const HOSTED_MODEL_RELAY_TOKEN_ENV: &str = "RESTLESS_HOSTED_MODEL_RELAY_TOKEN";
+const HOSTED_MODEL_RELAY_URL_ENV: &str = "RESTLESS_HOSTED_MODEL_RELAY_URL";
+const MAX_HOSTED_RELAY_READY_BODY: usize = 512;
 
 #[derive(Debug)]
 enum CredentialReference<'a> {
@@ -28,6 +32,9 @@ enum CredentialReference<'a> {
     /// broker. It is a reference to broker custody, never a plaintext value
     /// that this generic resolver may return.
     OmpOauth(&'a str),
+    /// A Cloud-issued, per-plane capability for one fixed private model relay.
+    /// It is not a provider credential and the reference exposes no secret.
+    HostedModelRelay,
 }
 
 #[derive(Debug)]
@@ -159,6 +166,7 @@ pub(crate) async fn resolve_reference(reference: &str) -> Result<String> {
         CredentialReference::OmpOauth(provider) => bail!(
             "omp-oauth:{provider} is broker-held model access and cannot be resolved as a raw credential"
         ),
+        CredentialReference::HostedModelRelay => hosted_model_relay_token(),
     }
 }
 
@@ -176,6 +184,9 @@ pub(crate) async fn store_reference(reference: &str, value: &str) -> Result<()> 
         }
         CredentialReference::OmpOauth(provider) => bail!(
             "omp-oauth:{provider} is created through the owner OAuth handover, not by storing a raw value"
+        ),
+        CredentialReference::HostedModelRelay => bail!(
+            "hosted-model-relay:v1 is injected by the Cloud deployment boundary and cannot be written through Core"
         ),
     }
 }
@@ -292,7 +303,42 @@ pub(crate) async fn probe_reference(reference: &str) -> Probe {
                 },
             }
         }
+        CredentialReference::HostedModelRelay => match hosted_model_relay_token() {
+            Ok(_) => Probe {
+                status: ProbeStatus::Present,
+                detail: None,
+            },
+            Err(error) => Probe {
+                status: ProbeStatus::Invalid,
+                detail: Some(format!("{error:#}")),
+            },
+        },
     }
+}
+
+/// Prove that the account plane's dedicated machine identity can authenticate
+/// to its configured credential custodian. This reads no company secret and
+/// returns no access token; hosted plane readiness uses only the boolean
+/// observation. Configuration presence alone is deliberately not readiness.
+pub(crate) async fn probe_custody() -> bool {
+    match std::env::var("RESTLESS_ENTRY_MODE").as_deref() {
+        Ok("network") => return probe_hosted_model_relay().await,
+        Ok("local") | Err(_) => {}
+        Ok(_) => return false,
+    }
+    let settings = match InfisicalSettings::from_env() {
+        Ok(settings) => settings,
+        Err(_) => return false,
+    };
+    let client = match reqwest::Client::builder()
+        .timeout(std::time::Duration::from_millis(1_200))
+        .redirect(reqwest::redirect::Policy::none())
+        .build()
+    {
+        Ok(client) => client,
+        Err(_) => return false,
+    };
+    infisical_login(&client, &settings).await.is_ok()
 }
 
 /// Return the provider named by a host-broker OAuth reference. Other valid
@@ -300,7 +346,9 @@ pub(crate) async fn probe_reference(reference: &str) -> Probe {
 pub(crate) fn omp_oauth_provider(reference: &str) -> Result<Option<&str>> {
     Ok(match parse_reference(reference)? {
         CredentialReference::OmpOauth(provider) => Some(provider),
-        CredentialReference::Env(_) | CredentialReference::Infisical(_) => None,
+        CredentialReference::Env(_)
+        | CredentialReference::Infisical(_)
+        | CredentialReference::HostedModelRelay => None,
     })
 }
 
@@ -322,18 +370,100 @@ fn parse_reference(reference: &str) -> Result<CredentialReference<'_>> {
         )?)),
         "omp-oauth" => {
             if locator.is_empty()
-                || !locator.bytes().all(|byte| {
-                    byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-'
-                })
+                || !locator
+                    .bytes()
+                    .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-')
             {
                 bail!("omp-oauth: locator must be a provider identifier such as anthropic");
             }
             Ok(CredentialReference::OmpOauth(locator))
         }
+        "hosted-model-relay" if locator == "v1" => Ok(CredentialReference::HostedModelRelay),
+        "hosted-model-relay" => {
+            bail!("hosted-model-relay: accepts only the fixed v1 Cloud capability reference")
+        }
         other => bail!(
-            "unknown credential scheme {other:?} in {reference:?}; supported schemes are env:, infisical:, and omp-oauth:"
+            "unknown credential scheme {other:?} in {reference:?}; supported schemes are env:, infisical:, omp-oauth:, and hosted-model-relay:v1"
         ),
     }
+}
+
+fn hosted_model_relay_token() -> Result<String> {
+    let token = required_env(HOSTED_MODEL_RELAY_TOKEN_ENV)?;
+    if token.len() < 32 || token.len() > 256 || !token.bytes().all(|byte| byte.is_ascii_graphic()) {
+        bail!("{HOSTED_MODEL_RELAY_TOKEN_ENV} must contain 32-256 printable non-whitespace bytes");
+    }
+    Ok(token)
+}
+
+fn hosted_model_relay_origin(value: &str) -> Result<Url> {
+    let origin = Url::parse(value).context("RESTLESS_HOSTED_MODEL_RELAY_URL is not a valid URL")?;
+    if origin.scheme() != "https"
+        || origin.host_str().is_none()
+        || origin.path() != "/"
+        || origin.query().is_some()
+        || origin.fragment().is_some()
+        || !origin.username().is_empty()
+        || origin.password().is_some()
+    {
+        bail!("RESTLESS_HOSTED_MODEL_RELAY_URL must be one credential-free HTTPS origin");
+    }
+    Ok(origin)
+}
+
+async fn probe_hosted_model_relay() -> bool {
+    let relay = match required_env(HOSTED_MODEL_RELAY_URL_ENV)
+        .and_then(|value| hosted_model_relay_origin(&value))
+    {
+        Ok(relay) => relay,
+        Err(_) => return false,
+    };
+    let token = match hosted_model_relay_token() {
+        Ok(token) => token,
+        Err(_) => return false,
+    };
+    let endpoint = match relay.join("ready") {
+        Ok(endpoint) => endpoint,
+        Err(_) => return false,
+    };
+    let client = match reqwest::Client::builder()
+        .timeout(std::time::Duration::from_millis(5_500))
+        .redirect(reqwest::redirect::Policy::none())
+        .build()
+    {
+        Ok(client) => client,
+        Err(_) => return false,
+    };
+    let mut response = match client.get(endpoint).bearer_auth(token).send().await {
+        Ok(response) if response.status().is_success() => response,
+        _ => return false,
+    };
+    if response
+        .content_length()
+        .is_some_and(|length| length > MAX_HOSTED_RELAY_READY_BODY as u64)
+    {
+        return false;
+    }
+    let mut body = Vec::new();
+    loop {
+        let chunk = match response.chunk().await {
+            Ok(Some(chunk)) => chunk,
+            Ok(None) => break,
+            Err(_) => return false,
+        };
+        if body.len().saturating_add(chunk.len()) > MAX_HOSTED_RELAY_READY_BODY {
+            return false;
+        }
+        body.extend_from_slice(&chunk);
+    }
+    serde_json::from_slice::<serde_json::Value>(&body).is_ok_and(|document| {
+        document.as_object().is_some_and(|object| {
+            object.len() == 2
+                && object.get("service").and_then(serde_json::Value::as_str)
+                    == Some("restless-model-relay")
+                && object.get("status").and_then(serde_json::Value::as_str) == Some("ready")
+        })
+    })
 }
 
 fn parse_infisical_locator(locator: &str) -> Result<InfisicalLocator<'_>> {
@@ -675,6 +805,28 @@ mod tests {
         assert!(parse_reference("infisical:relative/KEY").is_err());
         assert!(parse_reference("infisical:/companies/../KEY").is_err());
         assert!(parse_reference("no-scheme-at-all").is_err());
+        assert!(matches!(
+            parse_reference(HOSTED_MODEL_RELAY_REFERENCE).unwrap(),
+            CredentialReference::HostedModelRelay
+        ));
+        assert!(parse_reference("hosted-model-relay:v2").is_err());
+        assert!(parse_reference("hosted-model-relay:owner-controlled").is_err());
+    }
+
+    #[test]
+    fn hosted_model_relay_requires_one_exact_https_origin() {
+        assert!(hosted_model_relay_origin("https://models.example.test").is_ok());
+        for refused in [
+            "http://models.example.test",
+            "https://models.example.test/v1",
+            "https://models.example.test?target=other",
+            "https://user:secret@models.example.test",
+        ] {
+            assert!(
+                hosted_model_relay_origin(refused).is_err(),
+                "accepted {refused}"
+            );
+        }
     }
 
     #[tokio::test]

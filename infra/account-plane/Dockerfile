@@ -13,7 +13,7 @@
 # computer with a desktop, browser and toolchain; this one runs a single
 # credential-holding service and should stay as small as its job.
 
-FROM rust:1-bookworm AS build
+FROM rust:1-bookworm@sha256:82150a52ec202c1b14d7817e14516c392bb7f5cfebd88f1ed531cb37ebd39922 AS build
 WORKDIR /src
 COPY Cargo.toml Cargo.lock ./
 COPY crates ./crates
@@ -29,7 +29,7 @@ ARG SOURCE_REVISION=""
 ENV RESTLESS_SOURCE_REVISION=${SOURCE_REVISION}
 RUN cargo build --release -p restlessd
 
-FROM node:24-bookworm-slim
+FROM node:24-bookworm-slim@sha256:ba849c60be29959425b8734d57b8b4b7d56f98edd9504c9af091d5281095a71e
 ENV DEBIAN_FRONTEND=noninteractive
 
 # ca-certificates for provider TLS; curl so the image can probe its own health
@@ -65,6 +65,16 @@ COPY --from=build /src/target/release/restlessd /usr/local/bin/restlessd
 # the container that holds the credentials.
 COPY web/build /opt/restless/cockpit
 ENV RESTLESS_COCKPIT_DIR=/opt/restless/cockpit
+
+# `index.html` alone can be a stale or partial build. The post-build manifest
+# cryptographically identifies every SPA byte and the canonical route set, and
+# is served beside the SPA so Fleet can compare the running UI with its pinned
+# Core release.
+RUN test -s /opt/restless/cockpit/index.html \
+    && test -s /opt/restless/cockpit/core-ui-manifest.json \
+    && test -s /opt/restless/cockpit/legal/restless-core/LICENSE \
+    && test -s /opt/restless/cockpit/legal/pixel-agents/NOTICE.md \
+    && test -s /opt/restless/cockpit/legal/pixel-agents/LICENSE
 
 # The plane serves the owner cockpit and the CLI endpoint. In network mode it
 # verifies an identity assertion; in local mode it refuses a non-loopback bind.

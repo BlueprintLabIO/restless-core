@@ -4,7 +4,10 @@
 //! remains in OrgIntel and completion/recovery lives beside its Runtime
 //! observations.
 
+#[cfg(test)]
+use anyhow::Context as _;
 use anyhow::{bail, Result};
+use restlessd::runtime_transport::{RuntimeProcessAuthority, RuntimeTransport};
 use tokio_util::sync::CancellationToken;
 
 use crate::acp::{self, AgentAuth};
@@ -17,6 +20,7 @@ use super::context::{actor_posture, workspace_instruction};
 /// One claimed Work Attempt across all provider candidates.
 pub(super) struct StaffRun {
     pub(super) container: String,
+    pub(super) runtime_transport: std::sync::Arc<dyn RuntimeTransport>,
     pub(super) workdir: String,
     pub(super) company: String,
     pub(super) actor: String,
@@ -65,7 +69,8 @@ pub(super) async fn run_staff_with_failover(run: StaffRun) -> Result<StaffOutcom
     .await?;
 
     for (index, model) in run.candidates.iter().enumerate() {
-        run.org
+        let model_attempt_event_id = run
+            .org
             .emit_event(
                 "model_attempt",
                 Some(&run.actor),
@@ -120,6 +125,24 @@ pub(super) async fn run_staff_with_failover(run: StaffRun) -> Result<StaffOutcom
         };
 
         let billing = auth.billing;
+        let process_authority = match (run.work_id, run.attempt_id) {
+            (Some(work_id), Some(attempt_id)) => RuntimeProcessAuthority::Attempt {
+                company: run.company.clone(),
+                actor: run.actor.clone(),
+                responsibility: run.responsibility.clone(),
+                work_id,
+                attempt_id,
+                session_id: auth.session_id.clone(),
+            },
+            (None, None) => RuntimeProcessAuthority::AuthorityEvent {
+                company: run.company.clone(),
+                actor: run.actor.clone(),
+                responsibility: run.responsibility.clone(),
+                event_id: model_attempt_event_id,
+                session_id: auth.session_id.clone(),
+            },
+            _ => bail!("Staff Runtime authority must pair Work and Attempt identities"),
+        };
         // The shared ledger gate is acquired before opening the ACP session.
         // It is only charged-turn admission: no Work state, queue, or durable
         // reservation is introduced here.
@@ -156,29 +179,33 @@ pub(super) async fn run_staff_with_failover(run: StaffRun) -> Result<StaffOutcom
                 )
             },
         );
-        let outcome = run_staff(StaffBrief {
-            container: run.container.clone(),
-            auth,
-            workdir: run.workdir.clone(),
-            company: run.company.clone(),
-            actor: run.actor.clone(),
-            responsibility: run.responsibility.clone(),
-            attempt_id: run.attempt_id,
-            org: run.org.clone(),
-            name: run.name.clone(),
-            task: run.task.clone(),
-            turn_prompt: run.turn_prompt.clone(),
-            role: run.role.clone(),
-            spine,
-            remaining_budget_usd,
-            enforce_spend_budget: billing == crate::model_gateway::ModelBilling::MeteredApi,
-            conversation: run.conversation,
-            accountable_lead: run.accountable_lead,
-            worker_runtime: run.worker_runtime,
-            mcp_servers: mcp_servers.clone(),
-            observer: run.observer.clone(),
-            cancellation: run.cancellation.clone(),
-        })
+        let outcome = run_staff_on_runtime(
+            std::sync::Arc::clone(&run.runtime_transport),
+            process_authority.clone(),
+            StaffBrief {
+                container: run.container.clone(),
+                auth,
+                workdir: run.workdir.clone(),
+                company: run.company.clone(),
+                actor: run.actor.clone(),
+                responsibility: run.responsibility.clone(),
+                attempt_id: run.attempt_id,
+                org: run.org.clone(),
+                name: run.name.clone(),
+                task: run.task.clone(),
+                turn_prompt: run.turn_prompt.clone(),
+                role: run.role.clone(),
+                spine,
+                remaining_budget_usd,
+                enforce_spend_budget: billing == crate::model_gateway::ModelBilling::MeteredApi,
+                conversation: run.conversation,
+                accountable_lead: run.accountable_lead,
+                worker_runtime: run.worker_runtime,
+                mcp_servers: mcp_servers.clone(),
+                observer: run.observer.clone(),
+                cancellation: run.cancellation.clone(),
+            },
+        )
         .await;
 
         let failure_kind = match &outcome {
@@ -214,8 +241,9 @@ pub(super) async fn run_staff_with_failover(run: StaffRun) -> Result<StaffOutcom
             // stay durable and form the next wake's compact reconstruction.
             match run.worker_runtime {
                 crate::runtime::WorkerRuntime::Omp => {
-                    acp::discard_session_locator(
-                        &run.container,
+                    acp::discard_session_locator_from_runtime(
+                        run.runtime_transport.as_ref(),
+                        &process_authority,
                         &run.company,
                         &run.actor,
                         &run.responsibility,
@@ -487,8 +515,7 @@ pub(super) fn staff_spend_limit_reached(
 /// complete review report `blocked` merely because another critic or a later
 /// revision still remained. That destroys the meaning of the Work
 /// state and makes successful handoffs look like failures.
-const SPECIALIST_TERMINATION_PROMPT: &str =
-    "Your assigned specialist task is ending now. Based on the task you were given, answer with JSON only, no prose:\n\
+const SPECIALIST_TERMINATION_PROMPT: &str = "Your assigned specialist task is ending now. Based on the task you were given, answer with JSON only, no prose:\n\
     {\"decision\": \"continue\" | \"blocked\" | \"changes_requested\" | \"outcome_met\" | \"abandon\", \
      \"reason\": \"<one line>\"}\n\
     - continue: more machine-doable work remains in your assigned task\n\
@@ -739,7 +766,9 @@ impl StaffDrive {
     }
 }
 
-async fn run_staff(
+async fn run_staff_on_runtime(
+    runtime_transport: std::sync::Arc<dyn RuntimeTransport>,
+    process_authority: RuntimeProcessAuthority,
     brief: StaffBrief,
 ) -> Result<(Termination, String, Vec<acp::TurnUsage>, Option<u64>)> {
     let StaffBrief {
@@ -808,7 +837,8 @@ async fn run_staff(
                 controls
             };
             acp::with_agent(
-                &container,
+                runtime_transport,
+                process_authority,
                 &auth,
                 &workdir,
                 &actor,
@@ -820,6 +850,8 @@ async fn run_staff(
             .await
         }
         crate::runtime::WorkerRuntime::Codex => {
+            restlessd::hosted_runtime::require_local_docker_from_environment()
+                .map_err(|error| anyhow::anyhow!(error))?;
             if conversation {
                 bail!("Codex worker runtime is restricted to productive Staff Attempts");
             }
@@ -839,6 +871,49 @@ async fn run_staff(
             .await
         }
     }
+}
+
+#[cfg(test)]
+async fn run_staff(
+    brief: StaffBrief,
+) -> Result<(Termination, String, Vec<acp::TurnUsage>, Option<u64>)> {
+    let runtime_transport: std::sync::Arc<dyn RuntimeTransport> = std::sync::Arc::new(
+        restlessd::local_runtime_transport::LocalDockerRuntimeTransport::from_environment()
+            .map_err(|error| anyhow::anyhow!(error))?,
+    );
+    let process_authority = if let Some(attempt_id) = brief.attempt_id {
+        let work_id = brief
+            .responsibility
+            .strip_prefix("work:")
+            .context("live Staff test Work responsibility is missing its durable Work ID")?
+            .parse::<uuid::Uuid>()
+            .context("live Staff test Work responsibility has an invalid durable Work ID")?;
+        RuntimeProcessAuthority::Attempt {
+            company: brief.company.clone(),
+            actor: brief.actor.clone(),
+            responsibility: brief.responsibility.clone(),
+            work_id,
+            attempt_id,
+            session_id: brief.auth.session_id.clone(),
+        }
+    } else {
+        let event_id = brief
+            .org
+            .emit_event(
+                "test_model_attempt_authority",
+                Some(&brief.actor),
+                serde_json::json!({ "responsibility": brief.responsibility }),
+            )
+            .await?;
+        RuntimeProcessAuthority::AuthorityEvent {
+            company: brief.company.clone(),
+            actor: brief.actor.clone(),
+            responsibility: brief.responsibility.clone(),
+            event_id,
+            session_id: brief.auth.session_id.clone(),
+        }
+    };
+    run_staff_on_runtime(runtime_transport, process_authority, brief).await
 }
 
 #[cfg(test)]
@@ -1060,6 +1135,10 @@ mod live_product_tests {
                 root: root.clone(),
                 handles: std::sync::Mutex::new(std::collections::HashMap::new()),
             },
+            runtime_transport: std::sync::Arc::new(
+                restlessd::local_runtime_transport::LocalDockerRuntimeTransport::from_environment()
+                    .unwrap(),
+            ),
             staff: crate::staff::StaffRegistry::default(),
             activities: crate::activity::AgentActivityStreams::default(),
             in_flight: std::sync::Arc::new(std::sync::Mutex::new(
@@ -1264,10 +1343,19 @@ mod live_product_tests {
             Termination::OutcomeMet,
             "{worker_result:?}"
         );
+        let settlement_authority = RuntimeProcessAuthority::Attempt {
+            company: company.clone(),
+            actor: "customer-writer".into(),
+            responsibility: format!("work:{work_id}"),
+            work_id,
+            attempt_id,
+            session_id: format!("test-settlement-{}", attempt_id.simple()),
+        };
         record_staff_outcome(
             &org,
             StaffAttemptContext {
-                container: &container,
+                runtime_transport: std::sync::Arc::clone(&probe_daemon.runtime_transport),
+                runtime_authority: &settlement_authority,
                 actor: "customer-writer",
                 name: "Mira Chen",
                 work_id,
@@ -1596,6 +1684,10 @@ mod live_product_tests {
                 root: root.clone(),
                 handles: std::sync::Mutex::new(std::collections::HashMap::new()),
             },
+            runtime_transport: std::sync::Arc::new(
+                restlessd::local_runtime_transport::LocalDockerRuntimeTransport::from_environment()
+                    .unwrap(),
+            ),
             staff: crate::staff::StaffRegistry::default(),
             activities: crate::activity::AgentActivityStreams::default(),
             in_flight: std::sync::Arc::new(std::sync::Mutex::new(
@@ -1945,7 +2037,9 @@ mod live_product_tests {
                     "Re-read and validate the current ledger. Write {checkpoint_path} with its current sha256 and boolean ready_for_replacement true. Then run exactly this foreground command and wait: sh -lc 'printf \"%s\\n\" \"$$\" > .exp17-long-r1.pid; exec sleep 600'. Do no other work afterward."
                 ),
                 role: "end-to-end benchmark producer".into(),
-                spine: "Maintain the one source-backed consumer artifact across process replacement.".into(),
+                spine:
+                    "Maintain the one source-backed consumer artifact across process replacement."
+                        .into(),
                 remaining_budget_usd: 12.0,
                 enforce_spend_budget: true,
                 conversation: false,
@@ -2040,10 +2134,19 @@ mod live_product_tests {
             worker_usage_snapshots += final_result.2.len();
             worker_result = final_result;
         }
+        let settlement_authority = RuntimeProcessAuthority::Attempt {
+            company: company.clone(),
+            actor: "experiment-maker".into(),
+            responsibility: format!("work:{work_id}"),
+            work_id,
+            attempt_id,
+            session_id: format!("test-settlement-{}", attempt_id.simple()),
+        };
         record_staff_outcome(
             &org,
             StaffAttemptContext {
-                container: &container,
+                runtime_transport: std::sync::Arc::clone(&probe_daemon.runtime_transport),
+                runtime_authority: &settlement_authority,
                 actor: "experiment-maker",
                 name: "Sam Rivera",
                 work_id,

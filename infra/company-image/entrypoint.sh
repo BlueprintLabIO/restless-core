@@ -11,6 +11,50 @@ mkdir -p /tmp/restless-effect
 chown effect:company /tmp/restless-effect
 chmod 0700 /tmp/restless-effect
 
+# Self-hosted company images have no bridge environment and therefore no
+# Runtime Agent process. Hosted Fleet supplies the exact identity environment;
+# only then stage its capability/state and materialise its supervisor program.
+runtime_agent_supervisor_dir=/run/restless-supervisor
+install -d -o root -g root -m 0755 "$runtime_agent_supervisor_dir"
+if [ -n "${RESTLESS_RUNTIME_BRIDGE_URL:-}" ]; then
+	# Fleet mounts the one-use bootstrap root-readable. Stage it into the
+	# cell's private /run tmpfs. The process immediately enters the dedicated
+	# UID 2002 custody boundary, persists the rotation, then unlinks this copy.
+	runtime_bridge_bootstrap_source=/run/secrets/restless-runtime-bridge-capability
+	runtime_bridge_bootstrap_dir=/run/restless-agent
+	runtime_bridge_bootstrap_target=${runtime_bridge_bootstrap_dir}/runtime-bridge-bootstrap
+	if [ -f "$runtime_bridge_bootstrap_source" ]; then
+		install -d -o runtime-agent -g runtime-agent -m 0700 "$runtime_bridge_bootstrap_dir"
+		install -o runtime-agent -g runtime-agent -m 0400 \
+			"$runtime_bridge_bootstrap_source" \
+			"$runtime_bridge_bootstrap_target"
+	fi
+
+	# Rotation and idempotency receipts survive sleep/wake in the separate
+	# per-cell control volume, outside company data/export/model custody.
+	mkdir -p /var/lib/restless-runtime-agent
+	chown root:root /var/lib/restless-runtime-agent
+	chmod 0700 /var/lib/restless-runtime-agent
+	chown runtime-agent:runtime-agent /var/lib/restless-runtime-agent
+
+	printf '%s\n' \
+		'[program:runtime-agent]' \
+		'command=/usr/local/bin/restless-runtime-agent' \
+		'user=root' \
+		'environment=HOME="/var/lib/restless-runtime-agent",RESTLESS_RUNTIME_BRIDGE_CAPABILITY_FILE="/run/restless-agent/runtime-bridge-bootstrap",RESTLESS_RUNTIME_BRIDGE_CAPABILITY_STATE_FILE="/var/lib/restless-runtime-agent/runtime-bridge-capability"' \
+		'priority=5' \
+		'autostart=true' \
+		'autorestart=true' \
+		'startsecs=2' \
+		'startretries=10' \
+		'stopsignal=TERM' \
+		'stopwaitsecs=10' \
+		'stdout_logfile=/company/run/runtime-agent.log' \
+		'stderr_logfile=/company/run/runtime-agent.log' \
+		> "$runtime_agent_supervisor_dir/runtime-agent.conf"
+	chmod 0444 "$runtime_agent_supervisor_dir/runtime-agent.conf"
+fi
+
 # Image upgrades may add durable directories after a volume has already been
 # seeded. Ensure the current runtime shape on every boot; `.seeded` only says
 # the original company filesystem exists, not that it has every later path.
@@ -26,6 +70,7 @@ mkdir -p \
 	/company/home/Desktop \
 	/company/home/.local/share/applications \
 	/company/run \
+	/company/run/sessions \
 	/company/services/supervisor
 
 if [ ! -f /company/.seeded ]; then

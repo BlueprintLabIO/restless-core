@@ -11,13 +11,14 @@
 
 # The coordination CLI (T10): the agents' channel to layer 2, built from this
 # workspace so the binary in the image always matches the source in the tree.
-FROM rust:1-bookworm AS cli
+FROM rust:1-bookworm@sha256:82150a52ec202c1b14d7817e14516c392bb7f5cfebd88f1ed531cb37ebd39922 AS cli
 WORKDIR /src
 COPY Cargo.toml Cargo.lock ./
 COPY crates ./crates
-RUN cargo build --release -p restless
+RUN cargo build --release -p restless \
+    && cargo build --release -p restlessd --bin restless-runtime-agent
 
-FROM node:24-bookworm-slim
+FROM node:24-bookworm-slim@sha256:ba849c60be29959425b8734d57b8b4b7d56f98edd9504c9af091d5281095a71e
 
 ENV DEBIAN_FRONTEND=noninteractive
 
@@ -152,6 +153,8 @@ RUN set -eux; \
 
 RUN groupadd --gid 2000 company \
     && useradd --uid 2000 --gid 2000 --no-create-home --home-dir /company/home company \
+    && groupadd --gid 2002 runtime-agent \
+    && useradd --uid 2002 --gid 2002 --no-create-home --home-dir /var/lib/restless-runtime-agent runtime-agent \
     && useradd --uid 2001 --gid 2000 --no-create-home --home-dir /tmp/restless-effect effect
 
 COPY infra/company-image/entrypoint.sh /usr/local/bin/company-init
@@ -201,6 +204,8 @@ RUN ln -s /usr/local/lib/restless/restless-codex-runner.mjs /usr/local/bin/restl
 # container (TCP: unix sockets do not cross the Docker Desktop file share —
 # probed in T10). RESTLESS_COMPANY is set per container at `docker run`.
 COPY --from=cli /src/target/release/restless /usr/local/bin/restless
+COPY --from=cli /src/target/release/restless-runtime-agent /usr/local/bin/restless-runtime-agent
+RUN chmod 0555 /usr/local/bin/restless /usr/local/bin/restless-runtime-agent
 ENV RESTLESS_COORDINATOR=host.docker.internal:7791
 
 # PID 1 is the seed + long-lived init. Agents never enter this path.

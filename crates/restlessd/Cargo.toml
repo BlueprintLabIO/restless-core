@@ -13,12 +13,14 @@ Coordinates Authority, OrgIntel, the persistent company Runtime and the local ow
 [dependencies]
 agent-client-protocol = { version = "2.0.0", features = ["unstable_end_turn_token_usage"] }
 anyhow = "1"
+async-trait = "0.1"
 axum = { version = "0.8", features = ["ws", "multipart"] }
 chrono = "0.4"
 dotenvy = "0.15"
+ed25519-dalek = "2"
 restless-model-gateway = { path = "../restless-model-gateway" }
 restless-orgintel = { path = "../restless-orgintel" }
-reqwest = { version = "0.12", features = ["rustls-tls", "json"], default-features = false }
+reqwest = { version = "0.12", features = ["rustls-tls", "json", "stream"], default-features = false }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha2 = "0.10"
@@ -29,19 +31,21 @@ toml = "0.8"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 url = "2"
-uuid = { version = "1", features = ["v4"] }
+uuid = { version = "1", features = ["v4", "serde"] }
 zip = { version = "2", default-features = false, features = ["deflate"] }
 hmac = "0.12"
 base64 = "0.23.1"
+cap-std = "3"
 futures-util = "0.3"
 fs2 = "0.4"
 http-body-util = "0.1"
 hyper = { version = "1", features = ["client", "http1", "server"] }
 hyper-util = { version = "0.1", features = ["tokio", "server", "service", "http1"] }
-tokio-tungstenite = "0.26"
+tokio-tungstenite = { version = "0.26", features = ["rustls-tls-webpki-roots"] }
 tokio-rustls = "0.26"
 rustls = "0.23"
 rcgen = "0.13"
+nix = { version = "0.30", features = ["process", "signal", "user"] }
 tower-http = { version = "0.6", features = ["fs", "trace"] }
 ts-rs = { version = "12.0.1", features = ["chrono-impl", "uuid-impl", "serde-json-impl"] }
 

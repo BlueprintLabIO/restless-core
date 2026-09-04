@@ -258,7 +258,9 @@ impl LaunchBroker {
                     reason,
                 });
             }
-            bail!("the artifact refuses embedding and its private access cannot be placed in an external URL: {reason}");
+            bail!(
+                "the artifact refuses embedding and its private access cannot be placed in an external URL: {reason}"
+            );
         }
         let session = self.insert_session(company, resource_id, SessionKind::Web, access)?;
         Ok(OpenOutcome::Embedded {
@@ -434,7 +436,7 @@ impl LaunchBroker {
         let mut target = match reqwest::Url::parse(&session.target) {
             Ok(url) => url,
             Err(_) => {
-                return (StatusCode::BAD_GATEWAY, "released endpoint is malformed").into_response()
+                return (StatusCode::BAD_GATEWAY, "released endpoint is malformed").into_response();
             }
         };
         target.set_path(&format!("/{asset}"));
@@ -449,7 +451,7 @@ impl LaunchBroker {
                     StatusCode::INTERNAL_SERVER_ERROR,
                     "launch transport unavailable",
                 )
-                    .into_response()
+                    .into_response();
             }
         };
         let mut request = client.get(target);

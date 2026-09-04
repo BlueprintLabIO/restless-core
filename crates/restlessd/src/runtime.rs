@@ -528,7 +528,9 @@ pub(crate) fn validate_company_name(name: &str) -> Result<()> {
             }
         })
     {
-        bail!("invalid company name {name:?}: use lowercase letters, digits or underscores, starting with a letter");
+        bail!(
+            "invalid company name {name:?}: use lowercase letters, digits or underscores, starting with a letter"
+        );
     }
     Ok(())
 }
@@ -623,6 +625,12 @@ pub struct BrowserDoctor {
 }
 
 async fn docker(args: &[&str]) -> Result<std::process::Output> {
+    // A hosted account plane has neither host authority nor a Docker socket.
+    // Fleet owns ensure/power/replace/destroy through the private Runtime
+    // Supervisor; company work uses the outbound Runtime Agent bridge. Guard
+    // before process creation so a missing Docker binary can never be mistaken
+    // for the hosted driver or trigger a local fallback.
+    restlessd::hosted_runtime::require_local_docker_from_environment()?;
     tokio::process::Command::new("docker")
         .args(args)
         // A timed health probe must not leave an orphaned `docker exec`

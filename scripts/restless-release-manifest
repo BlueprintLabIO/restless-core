@@ -1,19 +1,19 @@
 #!/usr/bin/env bash
-# Emit the Core release manifest Restless Cloud pins (S27-T4).
+# Emit a local Core release preflight record (S27-T4).
 #
-# Cloud's release contract forbids resolving a mutable tag or a branch name, so
-# Core must publish something exact to pin. This emits that manifest from a real
-# build: the source revision, the contract versions the binary actually carries,
-# and the image digests as built.
+# This developer-facing probe describes local builds, including local-only image
+# IDs when they have not been pushed. It is not promotion evidence. Immutable
+# registry promotion is exclusively `restless-core-release.v1`, produced by
+# `scripts/create-core-release-manifest.mjs` and `.github/workflows/core-release.yml`.
 #
 # It refuses to emit a manifest it cannot substantiate. A manifest naming a
-# digest that was never built, or a contract version transcribed by hand, is the
-# failure this exists to prevent — Cloud would pin it and the first incident
-# would ask "which Core is running" and get a confident wrong answer.
+# digest that was never built, or a contract version transcribed by hand, still
+# fails the preflight rather than giving a developer a confident wrong answer.
 #
 # Usage:
-#   scripts/restless-release-manifest                  # identity only, no digests
-#   scripts/restless-release-manifest --with-images    # requires both images built
+#   npm --prefix web run build                         # materialises UI identity
+#   scripts/restless-release-manifest                  # identity only, no image digests
+#   scripts/restless-release-manifest --with-images    # requires all three images built
 set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -43,8 +43,22 @@ for name in core_version api_contract assertion_contract schema; do
   fi
 done
 
+ui_manifest="web/build/core-ui-manifest.json"
+if [[ ! -f "$ui_manifest" ]]; then
+  echo "Core UI manifest is missing; run npm --prefix web run build first" >&2
+  exit 1
+fi
+# This compact record intentionally carries independent payload, route-manifest
+# and combined artifact digests. Cloud can reject route drift separately from a
+# byte-level mismatch without re-deriving Core's route hashing contract.
+if ! ui_artifact="$(node web/scripts/verify-core-ui-artifact.mjs --json)"; then
+  echo "Core UI artifact does not match its manifest; rebuild it before release" >&2
+  exit 1
+fi
+
 plane_digest=null
 runtime_digest=null
+ui_image_digest=null
 if $with_images; then
   read_digest() {
     local image="$1"
@@ -65,6 +79,7 @@ if $with_images; then
   }
   plane_digest="$(read_digest "restless-account-plane:$core_version")"
   runtime_digest="$(read_digest "restless-company-image:$core_version")"
+  ui_image_digest="$(read_digest "restless-core-ui:$core_version")"
 fi
 
 cat <<JSON
@@ -74,7 +89,11 @@ cat <<JSON
   "source_revision": "$revision",
   "images": {
     "account_plane": $plane_digest,
-    "company_runtime": $runtime_digest
+    "company_runtime": $runtime_digest,
+    "core_ui": $ui_image_digest
+  },
+  "artifacts": {
+    "core_ui": $ui_artifact
   },
   "contracts": {
     "api": $api_contract,

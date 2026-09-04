@@ -24,6 +24,7 @@ mod entry;
 mod exec;
 mod finance;
 mod health;
+mod hosted_control;
 mod inbound;
 mod ingress;
 mod launch;
@@ -83,6 +84,9 @@ impl OrgIntelConfig {
     }
 
     fn read_only(root: &Path) -> Result<Self> {
+        if let Some(config) = Self::from_plane_environment()? {
+            return Ok(config);
+        }
         let path = root.join("orgintel.toml");
         if !path.exists() {
             return Ok(Self::default_for_user());
@@ -93,6 +97,9 @@ impl OrgIntelConfig {
     }
 
     fn load_or_seed(root: &Path) -> Result<Self> {
+        if let Some(config) = Self::from_plane_environment()? {
+            return Ok(config);
+        }
         let path = root.join("orgintel.toml");
         if path.exists() {
             return Self::read_only(root);
@@ -102,6 +109,43 @@ impl OrgIntelConfig {
         std::fs::write(&path, rendered).with_context(|| format!("seed {}", path.display()))?;
         Ok(config)
     }
+
+    /// Cloud injects the account-plane database connection as a secret
+    /// environment value. It must remain an in-memory deployment input: a
+    /// hosted plane has a read-only image and must never copy the credential
+    /// into its persistent state volume as `orgintel.toml`.
+    fn from_plane_environment() -> Result<Option<Self>> {
+        let Some(raw) = std::env::var_os("RESTLESS_PLANE_DATABASE_URL") else {
+            return Ok(None);
+        };
+        let raw = raw
+            .into_string()
+            .map_err(|_| anyhow::anyhow!("RESTLESS_PLANE_DATABASE_URL must be valid UTF-8"))?;
+        validate_plane_database_url(&raw)?;
+        Ok(Some(Self { database_url: raw }))
+    }
+}
+
+fn validate_plane_database_url(raw: &str) -> Result<()> {
+    if raw.is_empty() || raw.trim() != raw || raw.contains(['\r', '\n']) {
+        anyhow::bail!("RESTLESS_PLANE_DATABASE_URL must be one bounded URL value");
+    }
+    // Parse without ever including the credential in an error or log field.
+    let parsed = url::Url::parse(raw).map_err(|_| {
+        anyhow::anyhow!("RESTLESS_PLANE_DATABASE_URL must be a valid PostgreSQL URL")
+    })?;
+    if !matches!(parsed.scheme(), "postgres" | "postgresql")
+        || parsed.host_str().is_none()
+        || parsed.username().is_empty()
+        || parsed.password().is_none_or(str::is_empty)
+        || parsed.path().trim_matches('/').is_empty()
+        || parsed.fragment().is_some()
+    {
+        anyhow::bail!(
+            "RESTLESS_PLANE_DATABASE_URL must identify a password-authenticated PostgreSQL database"
+        );
+    }
+    Ok(())
 }
 
 fn configured_companies(root: &Path) -> Result<Vec<String>> {
@@ -234,6 +278,11 @@ pub(crate) struct Daemon {
     pub(crate) publication: publication::PublicationManager,
     pub(crate) launch: launch::LaunchBroker,
     pub(crate) orgintel: OrgIntelRegistry,
+    /// One product-facing company-computer boundary. Local Core installs the
+    /// Docker transport; hosted Core installs the outbound Runtime Bridge.
+    /// Callers above this field never branch on deployment topology.
+    pub(crate) runtime_transport:
+        std::sync::Arc<dyn restlessd::runtime_transport::RuntimeTransport>,
     pub(crate) staff: staff::StaffRegistry,
     /// Reconnectable live projections for agent turns. Completed messages,
     /// Work, and Attempts remain OrgIntel truth; this state is ephemeral.
@@ -260,8 +309,8 @@ pub(crate) async fn materialize_runtime_bridge(daemon: &Daemon, company: &str) -
         .context("install Runtime bridge capability")
 }
 
-/// Base TCP port the company containers reach the daemon on (T10). Next to the
-/// model gateway's 7790; reachable as host.docker.internal from containers.
+/// Base TCP port local company containers reach for coordination. Hosted
+/// Runtimes use the TLS WebSocket endpoint on their exact account-plane host.
 pub(crate) const COORD_TCP_PORT: u16 = 7791;
 
 /// Namespace every host listener owned by one daemon with a single bounded
@@ -282,6 +331,17 @@ pub(crate) fn port_with_offset(base: u16) -> Result<u16> {
 }
 
 pub(crate) fn runtime_coordinator() -> Result<String> {
+    if restlessd::hosted_runtime::RuntimeBackendKind::from_entry_mode(
+        std::env::var("RESTLESS_ENTRY_MODE").ok().as_deref(),
+    )
+    .map_err(|error| anyhow::anyhow!(error))?
+        == restlessd::hosted_runtime::RuntimeBackendKind::HostedRuntimeBridge
+    {
+        let plane = restlessd::hosted_runtime::HostedPlaneConfig::from_environment()
+            .map_err(|error| anyhow::anyhow!(error))?
+            .context("network entry mode requires the exact hosted plane configuration")?;
+        return Ok(format!("wss://{}/internal/v1/coordination", plane.hostname));
+    }
     Ok(format!(
         "host.docker.internal:{}",
         port_with_offset(COORD_TCP_PORT)?
@@ -407,6 +467,13 @@ async fn main() -> Result<()> {
         return Ok(());
     }
 
+    // Cloud's reviewed owner-plane template is one atomic contract. Parse it
+    // before opening state or listeners so a partial credential set, mutable
+    // artifact, dirty source build or mismatched deployment identity cannot
+    // degrade into a network-reachable plane with weaker defaults.
+    let hosted_config = hosted_control::HostedDeploymentConfig::from_environment()?;
+    let network_entry = hosted_config.is_some();
+
     // Resolve and lock the machine profile before any migration, provider
     // listener or schedule reconciliation can mutate state. The Unix socket
     // is a transport and may be stale; it is not a singleton primitive.
@@ -423,13 +490,6 @@ async fn main() -> Result<()> {
         "machine profile locked"
     );
     let capabilities = capability::CapabilityIssuer::open(&root)?;
-    // Two supported topologies (ADR 0007): direct loopback, or a network
-    // entry that verifies a signed assertion. Resolve and validate the entry
-    // configuration before starting provider or scheduler work, so a plane
-    // that cannot describe how it verifies fails here rather than serving.
-    let owner_config = owner::OwnerConfig::from_env()?;
-    runtime::validate_company_image_config(owner_config.is_network())?;
-
     // Open authoritative charged-use accounting before the model relay. The
     // relay receives this exact ledger and is the only model path permitted to
     // append charged records.
@@ -451,6 +511,15 @@ async fn main() -> Result<()> {
         .context("orgintel database is not reachable at boot")?;
 
     let authority = authority::AuthorityStore::connect(&orgintel_config.database_url).await?;
+
+    // Two supported topologies (ADR 0007): direct loopback, or a network
+    // entry that verifies a signed assertion. Network assertions consume
+    // their JTI through the durable Authority store, so a daemon restart or
+    // another replica cannot replay one. Resolve this before any provider or
+    // scheduler work; incomplete network configuration remains a boot error.
+    let owner_config =
+        owner::OwnerConfig::from_env_with_replay(std::sync::Arc::new(authority.clone()))?;
+    runtime::validate_company_image_config(owner_config.is_network())?;
 
     // One-time custody transfer from the old recoverable event stream. Do it
     // before listeners open so no effect can race its own migration.
@@ -490,6 +559,15 @@ async fn main() -> Result<()> {
 
     let publication = publication::PublicationManager::new(&root, authority.clone())?;
     let launch = launch::LaunchBroker::new(&root)?;
+    let runtime_transport_slot = restlessd::runtime_transport::RuntimeTransportSlot::default();
+    if hosted_config.is_none() {
+        runtime_transport_slot
+            .install(std::sync::Arc::new(
+                restlessd::local_runtime_transport::LocalDockerRuntimeTransport::from_environment()
+                    .map_err(|error| anyhow::anyhow!(error))?,
+            ))
+            .map_err(|error| anyhow::anyhow!(error))?;
+    }
     let daemon = std::sync::Arc::new(Daemon {
         root: root.clone(),
         capabilities,
@@ -502,11 +580,40 @@ async fn main() -> Result<()> {
             root: root.clone(),
             handles: std::sync::Mutex::new(HashMap::new()),
         },
+        runtime_transport: std::sync::Arc::new(runtime_transport_slot.clone()),
         staff: staff::StaffRegistry::default(),
         activities: activity::AgentActivityStreams::default(),
         in_flight: std::sync::Arc::new(std::sync::Mutex::new(schedule::WakeClaims::default())),
         schedule_wake: std::sync::Arc::new(tokio::sync::Notify::new()),
     });
+
+    let (hosted_model_admission, hosted_model_requests) = if hosted_config.is_some() {
+        let (admission, requests) = model_gateway::hosted_admission_channel();
+        (Some(admission), Some(requests))
+    } else {
+        (None, None)
+    };
+
+    // Finish the hosted control boundary before detaching the owner listener.
+    // A missing schema or unsafe installation key must terminate startup, not
+    // leave a daemon process alive with its authenticated HTTP surface absent.
+    let hosted_control = match hosted_config {
+        Some(config) => {
+            let control = std::sync::Arc::new(
+                hosted_control::HostedControl::open(
+                    config,
+                    daemon.clone(),
+                    hosted_model_admission.expect("network mode created hosted model admission"),
+                )
+                .await?,
+            );
+            runtime_transport_slot
+                .install(std::sync::Arc::new(control.runtime_transport()))
+                .map_err(|error| anyhow::anyhow!(error))?;
+            Some(control)
+        }
+        None => None,
+    };
 
     // Owner entry is the appliance's control surface, not proof that every
     // external model provider is reachable. Open it before slower repair and
@@ -514,7 +621,7 @@ async fn main() -> Result<()> {
     // degraded company instead of staring at a dead localhost port.
     let owner_daemon = std::sync::Arc::clone(&daemon);
     tokio::spawn(async move {
-        if let Err(error) = owner::serve(owner_daemon, owner_config).await {
+        if let Err(error) = owner::serve(owner_daemon, owner_config, hosted_control).await {
             tracing::error!("owner gateway stopped: {error:#}");
         }
     });
@@ -534,13 +641,13 @@ async fn main() -> Result<()> {
         anyhow::bail!("RESTLESS_TEST_DISABLE_SCHEDULER is allowed only on an all-test plane");
     }
     let (recovery_ready_tx, mut recovery_ready_rx) = tokio::sync::watch::channel(false);
-    let model_configs = company_configs.clone();
+    let mut model_configs = company_configs.clone();
     let model_root = root.clone();
     let model_capabilities = daemon.capabilities.clone();
     let model_spend = daemon.spend.clone();
     let schedule_daemon = std::sync::Arc::clone(&daemon);
     tokio::spawn(async move {
-        loop {
+        let mut model_processes = loop {
             match model_gateway::start(
                 &model_configs,
                 &model_root,
@@ -550,19 +657,11 @@ async fn main() -> Result<()> {
             .await
             {
                 Ok(processes) => {
-                    tracing::info!("model gateway ready");
-                    while !*recovery_ready_rx.borrow() {
-                        if recovery_ready_rx.changed().await.is_err() {
-                            return;
-                        }
-                    }
-                    if test_scheduler_disabled {
-                        tracing::warn!("automatic scheduler disabled for an isolated test plane");
-                    } else {
-                        tokio::spawn(schedule::run(std::sync::Arc::clone(&schedule_daemon)));
-                    }
-                    let _processes = processes;
-                    std::future::pending::<()>().await;
+                    tracing::info!(
+                        ready = processes.is_some(),
+                        "model gateway initial admission reconciled"
+                    );
+                    break processes;
                 }
                 Err(error) => {
                     tracing::error!(
@@ -571,17 +670,42 @@ async fn main() -> Result<()> {
                     tokio::time::sleep(std::time::Duration::from_secs(30)).await;
                 }
             }
+        };
+        while !*recovery_ready_rx.borrow() {
+            if recovery_ready_rx.changed().await.is_err() {
+                return;
+            }
         }
+        if test_scheduler_disabled {
+            tracing::warn!("automatic scheduler disabled for an isolated test plane");
+        } else {
+            tokio::spawn(schedule::run(std::sync::Arc::clone(&schedule_daemon)));
+        }
+
+        if let Some(mut requests) = hosted_model_requests {
+            while requests
+                .reconcile_next(
+                    &mut model_configs,
+                    &mut model_processes,
+                    &model_root,
+                    &model_capabilities,
+                    &model_spend,
+                )
+                .await
+            {}
+        }
+        let _model_processes = model_processes;
+        std::future::pending::<()>().await;
     });
 
     // Effect children carry the narrowest live secret boundary. Reap an old
     // daemon's dedicated effect UID before a new child or scheduler may start;
     // Authority keeps the interrupted intent unknown until explicit evidence.
-    effect::sweep_orphans(&daemon.root).await;
+    effect::sweep_orphans(&daemon.root, &daemon.runtime_transport).await;
 
     // T9: agent processes outliving their supervising daemon are orphans —
     // reap them and close their running Work Attempts before anything new wakes.
-    staff::sweep_orphans(&daemon.root, &daemon.orgintel).await;
+    staff::sweep_orphans(&daemon.root, &daemon.orgintel, &daemon.runtime_transport).await;
 
     // Published services are provider-owned processes, not Runtime children.
     // Reconcile their receipts after the daemon's own orphan sweeps: a live
@@ -642,33 +766,39 @@ async fn main() -> Result<()> {
     // mount hangs), so containers reach the daemon over TCP on the same
     // proven path as the model relay. TCP is capability-authenticated before
     // dispatch; company identity is never trusted as JSON sent by the caller.
-    let coord_addr = format!("0.0.0.0:{}", port_with_offset(COORD_TCP_PORT)?);
-    match tokio::net::TcpListener::bind(&coord_addr).await {
-        Ok(tcp) => {
-            tracing::info!(addr = %coord_addr, "coordination TCP listening (company containers)");
-            let tcp_daemon = std::sync::Arc::clone(&daemon);
-            tokio::spawn(async move {
-                loop {
-                    match tcp.accept().await {
-                        Ok((stream, _)) => {
-                            let daemon = std::sync::Arc::clone(&tcp_daemon);
-                            tokio::spawn(async move {
-                                if let Err(error) =
-                                    serve(stream, &daemon, ConnectionOrigin::RuntimeTcp).await
-                                {
-                                    tracing::warn!("tcp connection error: {error:#}");
-                                }
-                            });
+    if !network_entry {
+        let coord_addr = format!("0.0.0.0:{}", port_with_offset(COORD_TCP_PORT)?);
+        match tokio::net::TcpListener::bind(&coord_addr).await {
+            Ok(tcp) => {
+                tracing::info!(addr = %coord_addr, "coordination TCP listening (local company containers)");
+                let tcp_daemon = std::sync::Arc::clone(&daemon);
+                tokio::spawn(async move {
+                    loop {
+                        match tcp.accept().await {
+                            Ok((stream, _)) => {
+                                let daemon = std::sync::Arc::clone(&tcp_daemon);
+                                tokio::spawn(async move {
+                                    if let Err(error) =
+                                        serve(stream, &daemon, ConnectionOrigin::RuntimeTcp).await
+                                    {
+                                        tracing::warn!("tcp connection error: {error:#}");
+                                    }
+                                });
+                            }
+                            Err(error) => tracing::warn!("tcp accept: {error:#}"),
                         }
-                        Err(error) => tracing::warn!("tcp accept: {error:#}"),
                     }
-                }
-            });
+                });
+            }
+            Err(error) => {
+                tracing::error!(addr = %coord_addr, "coordination TCP bind failed: {error:#} — \
+                    local agents will have no coordination channel");
+            }
         }
-        Err(error) => {
-            tracing::error!(addr = %coord_addr, "coordination TCP bind failed: {error:#} — \
-                agents in containers will have no coordination channel");
-        }
+    } else {
+        tracing::info!(
+            "hosted Runtime coordination is available only through authenticated WSS entry"
+        );
     }
 
     // S03-T2: the world's front door, on its OWN listener and its own task.
@@ -1074,7 +1204,9 @@ fn parse_culture_case(
         Some("customer_recovery") => Ok(Some(restless_orgintel::CultureCase::CustomerRecovery)),
         Some("quality_tradeoff") => Ok(Some(restless_orgintel::CultureCase::QualityTradeoff)),
         Some("hiring") => Ok(Some(restless_orgintel::CultureCase::Hiring)),
-        Some(other) => Err(format!("bad culture case {other}; expected disagreement|uncertain_incident|customer_recovery|quality_tradeoff|hiring")),
+        Some(other) => Err(format!(
+            "bad culture case {other}; expected disagreement|uncertain_incident|customer_recovery|quality_tradeoff|hiring"
+        )),
     }
 }
 
@@ -1168,9 +1300,15 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
             };
             let audience = match request.publication.publication_audience.as_deref() {
                 Some("owner-only") => restlessd::published_service_contract::Audience::OwnerOnly,
-                Some("named-invitees") => restlessd::published_service_contract::Audience::NamedInvitees,
+                Some("named-invitees") => {
+                    restlessd::published_service_contract::Audience::NamedInvitees
+                }
                 Some("public") => restlessd::published_service_contract::Audience::Public,
-                _ => return Response::err("publish-request needs publication_audience owner-only|named-invitees|public"),
+                _ => {
+                    return Response::err(
+                        "publish-request needs publication_audience owner-only|named-invitees|public",
+                    );
+                }
             };
             let expires_at = match request
                 .publication
@@ -1179,7 +1317,9 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
                 .and_then(|value| chrono::DateTime::parse_from_rfc3339(value).ok())
             {
                 Some(value) => value.with_timezone(&chrono::Utc),
-                None => return Response::err("publish-request needs RFC3339 publication_expires_at"),
+                None => {
+                    return Response::err("publish-request needs RFC3339 publication_expires_at");
+                }
             };
             let start_deadline = match request
                 .publication
@@ -1188,7 +1328,11 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
                 .and_then(|value| chrono::DateTime::parse_from_rfc3339(value).ok())
             {
                 Some(value) => value.with_timezone(&chrono::Utc),
-                None => return Response::err("publish-request needs RFC3339 publication_start_deadline"),
+                None => {
+                    return Response::err(
+                        "publish-request needs RFC3339 publication_start_deadline",
+                    );
+                }
             };
             let resources = restlessd::published_service_contract::ResourceLimits {
                 cpu_millis: request.publication.cpu_millis.unwrap_or(500),
@@ -1250,7 +1394,9 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
                 .and_then(|value| chrono::DateTime::parse_from_rfc3339(value).ok())
             {
                 Some(value) => value.with_timezone(&chrono::Utc),
-                None => return Response::err("publish-invite needs RFC3339 publication_expires_at"),
+                None => {
+                    return Response::err("publish-invite needs RFC3339 publication_expires_at");
+                }
             };
             match daemon.orgintel.get(company).await {
                 Ok(org) => match daemon
@@ -1268,7 +1414,11 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
             let Some(invitation_id) = request.publication.invitation_id.as_deref() else {
                 return Response::err("publish-revoke needs invitation_id");
             };
-            match daemon.publication.revoke_invitation(company, invitation_id).await {
+            match daemon
+                .publication
+                .revoke_invitation(company, invitation_id)
+                .await
+            {
                 Ok(value) => Response::ok(value),
                 Err(error) => Response::err(format!("{error:#}")),
             }
@@ -1324,7 +1474,11 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
         // S04-T1. Clone-then-up, so a throwaway is one command rather than a
         // config file someone hand-copies and forgets to strip.
         "up" if request.lifecycle.from_company.is_some() => {
-            let from = request.lifecycle.from_company.as_deref().unwrap_or_default();
+            let from = request
+                .lifecycle
+                .from_company
+                .as_deref()
+                .unwrap_or_default();
             match runtime::clone_config(&daemon.root, from, company) {
                 Ok(config) => match runtime::up(&config, request.lifecycle.reconcile).await {
                     Ok(message) => {
@@ -1334,25 +1488,25 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
                             ));
                         }
                         match daemon.orgintel.get(company).await {
-                        Ok(_) => match daemon
-                            .authority
-                            .initialise_company(
-                                company,
-                                &approval::legacy_config_approvals(&config),
-                            )
-                            .await
-                        {
-                            Ok(()) => Response::ok(format!(
-                                "{message} (cloned from {from}, live authority stripped)"
-                            )),
+                            Ok(_) => match daemon
+                                .authority
+                                .initialise_company(
+                                    company,
+                                    &approval::legacy_config_approvals(&config),
+                                )
+                                .await
+                            {
+                                Ok(()) => Response::ok(format!(
+                                    "{message} (cloned from {from}, live authority stripped)"
+                                )),
+                                Err(error) => Response::err(format!(
+                                    "container up but Authority initialisation failed: {error:#}"
+                                )),
+                            },
                             Err(error) => Response::err(format!(
-                                "container up but Authority initialisation failed: {error:#}"
+                                "container up but orgintel schema failed: {error:#}"
                             )),
-                        },
-                        Err(error) => Response::err(format!(
-                            "container up but orgintel schema failed: {error:#}"
-                        )),
-                    }
+                        }
                     }
                     Err(error) => Response::err(format!("{error:#}")),
                 },
@@ -1536,10 +1690,7 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
                                 .context("initialise company Authority")?;
                             let org = daemon.orgintel.get(company).await?;
                             ensure_standing_actors(&org, Some(&config.model)).await?;
-                            approval::purge_legacy_config_approvals(
-                                &daemon.root,
-                                &mut config,
-                            )?;
+                            approval::purge_legacy_config_approvals(&daemon.root, &mut config)?;
                             Result::<()>::Ok(())
                         }
                         .await;
@@ -1562,7 +1713,10 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
             },
             Err(error) => Response::err(format!("{error:#}")),
         },
-        "company-set" => match (request.common.state.as_deref(), request.common.body.as_deref()) {
+        "company-set" => match (
+            request.common.state.as_deref(),
+            request.common.body.as_deref(),
+        ) {
             (Some(key), Some(value)) => match runtime::CompanyConfig::load(&daemon.root, company) {
                 Ok(mut config) => {
                     let result = match key {
@@ -1649,7 +1803,10 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
             )),
             None => Response::err("company-unset needs a key"),
         },
-        "credential-set" => match (request.authority.capability.as_deref(), request.common.body.as_deref()) {
+        "credential-set" => match (
+            request.authority.capability.as_deref(),
+            request.common.body.as_deref(),
+        ) {
             (Some(binding), Some(reference)) => {
                 if let Some(value) = request.authority.secret_value.as_deref() {
                     if let Err(error) = credential::store_reference(reference, value).await {
@@ -1684,7 +1841,10 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
             }
             _ => Response::err("credential-set needs binding and reference"),
         },
-        "credential-promote" => match (request.authority.capability.as_deref(), request.common.body.as_deref()) {
+        "credential-promote" => match (
+            request.authority.capability.as_deref(),
+            request.common.body.as_deref(),
+        ) {
             (Some(binding), Some(destination)) => {
                 match runtime::CompanyConfig::load(&daemon.root, company) {
                     Ok(mut config) => {
@@ -1867,11 +2027,12 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
         },
         "legal-set" => match request.common.body.as_deref() {
             Some(body) => match serde_json::from_str::<legal::LegalProfileInput>(body) {
-                Ok(input) => match legal::set_profile(&daemon.authority, company, input, "owner").await
-                {
-                    Ok(profile) => Response::ok_serialized(profile),
-                    Err(error) => Response::err(format!("{error:#}")),
-                },
+                Ok(input) => {
+                    match legal::set_profile(&daemon.authority, company, input, "owner").await {
+                        Ok(profile) => Response::ok_serialized(profile),
+                        Err(error) => Response::err(format!("{error:#}")),
+                    }
+                }
                 Err(error) => Response::err(format!("invalid safe legal profile: {error}")),
             },
             None => Response::err("legal-set needs a safe legal profile"),
@@ -1932,7 +2093,8 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
         "finance-connect-airwallex" => match request.common.body.as_deref() {
             Some(body) => match serde_json::from_str::<airwallex::ConnectionInput>(body) {
                 Ok(input) => {
-                    match airwallex::set_connection(&daemon.authority, company, input, "owner").await
+                    match airwallex::set_connection(&daemon.authority, company, input, "owner")
+                        .await
                     {
                         Ok(connection) => Response::ok_serialized(connection),
                         Err(error) => Response::err(format!("{error:#}")),
@@ -1966,10 +2128,12 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
                     };
                     match daemon.orgintel.get(company).await {
                         Ok(org) => match finance::validate_work_link(&org, &input).await {
-                            Ok(()) => match finance::reserve(&daemon.authority, company, input).await {
-                                Ok(reservation) => Response::ok_serialized(reservation),
-                                Err(error) => Response::err(format!("{error:#}")),
-                            },
+                            Ok(()) => {
+                                match finance::reserve(&daemon.authority, company, input).await {
+                                    Ok(reservation) => Response::ok_serialized(reservation),
+                                    Err(error) => Response::err(format!("{error:#}")),
+                                }
+                            }
                             Err(error) => Response::err(format!("{error:#}")),
                         },
                         Err(error) => Response::err(format!("{error:#}")),
@@ -2024,16 +2188,18 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
             daemon.orgintel.get(company).await,
             runtime::CompanyConfig::load(&daemon.root, company),
         ) {
-            (Ok(org), Ok(config)) => match ensure_standing_actors(&org, Some(&config.model)).await {
-                Ok(()) => match org.table_names().await {
-                    Ok(tables) => Response::ok(serde_json::json!({
-                        "schema": org.schema(),
-                        "tables": tables,
-                    })),
+            (Ok(org), Ok(config)) => {
+                match ensure_standing_actors(&org, Some(&config.model)).await {
+                    Ok(()) => match org.table_names().await {
+                        Ok(tables) => Response::ok(serde_json::json!({
+                            "schema": org.schema(),
+                            "tables": tables,
+                        })),
+                        Err(error) => Response::err(format!("{error:#}")),
+                    },
                     Err(error) => Response::err(format!("{error:#}")),
-                },
-                Err(error) => Response::err(format!("{error:#}")),
-            },
+                }
+            }
             (Err(error), _) | (_, Err(error)) => Response::err(format!("{error:#}")),
         },
         // T4: one Exec wake — rehydrate, work a turn, decide termination.
@@ -2059,8 +2225,14 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
                         cancellation
                     };
                     let _guard = schedule::WakeGuard::new(company, &daemon.in_flight);
-                    let reason = request.common.reason.as_deref().unwrap_or("owner-requested wake");
-                    match schedule::run_exec_turn(daemon, &config, &org, reason, &cancellation).await {
+                    let reason = request
+                        .common
+                        .reason
+                        .as_deref()
+                        .unwrap_or("owner-requested wake");
+                    match schedule::run_exec_turn(daemon, &config, &org, reason, &cancellation)
+                        .await
+                    {
                         Ok(report) => match serde_json::to_value(&report) {
                             Ok(value) => Response::ok(value),
                             Err(error) => Response::err(format!("encode report: {error}")),
@@ -2231,9 +2403,7 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
                     Err(error) => Response::err(format!("{error:#}")),
                 }
             }
-            _ => Response::err(
-                "actor model needs --actor, --model, --reason, and an acting actor",
-            ),
+            _ => Response::err("actor model needs --actor, --model, --reason, and an acting actor"),
         },
         "actor-retire" => match (
             request.common.as_actor.as_deref(),
@@ -2286,10 +2456,7 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
                         .collect();
                     let unassigned: Vec<&str> = actors
                         .iter()
-                        .filter(|actor| {
-                            actor.team_id.is_none()
-                                && actor.kind == "staff"
-                        })
+                        .filter(|actor| actor.team_id.is_none() && actor.kind == "staff")
                         .map(|actor| actor.id.as_str())
                         .collect();
                     Response::ok(serde_json::json!({ "teams": rows, "unassigned": unassigned }))
@@ -2314,15 +2481,25 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
                         let standard = match request.orgintel.outcome_standard.as_deref() {
                             Some(value) => match restless_orgintel::OutcomeStandard::parse(value) {
                                 Some(value) => value,
-                                None => return Response::err("outcome standard must be fast, thorough, exceptional, or frontier"),
+                                None => {
+                                    return Response::err(
+                                        "outcome standard must be fast, thorough, exceptional, or frontier",
+                                    );
+                                }
                             },
                             None => config.outcome_standard,
                         };
                         let source = match request.orgintel.outcome_standard_source.as_deref() {
-                            Some(value) => match restless_orgintel::OutcomeStandardSource::parse(value) {
-                                Some(value) => value,
-                                None => return Response::err("standard source must be company_default, owner_override, or owner_language"),
-                            },
+                            Some(value) => {
+                                match restless_orgintel::OutcomeStandardSource::parse(value) {
+                                    Some(value) => value,
+                                    None => {
+                                        return Response::err(
+                                            "standard source must be company_default, owner_override, or owner_language",
+                                        );
+                                    }
+                                }
+                            }
                             None => restless_orgintel::OutcomeStandardSource::CompanyDefault,
                         };
                         if source == restless_orgintel::OutcomeStandardSource::CompanyDefault
@@ -2474,7 +2651,12 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
             None => Response::err("judgement needs --as <actor>"),
         },
         "work-handoff-escalate" => match (
-            request.common.id.as_deref().map(uuid::Uuid::parse_str).transpose(),
+            request
+                .common
+                .id
+                .as_deref()
+                .map(uuid::Uuid::parse_str)
+                .transpose(),
             request.common.as_actor.as_deref(),
             request.common.reason.as_deref(),
         ) {
@@ -2699,7 +2881,13 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
         },
         "work-attempts" => match daemon.orgintel.get(company).await {
             Ok(org) => {
-                let work_id = match request.common.id.as_deref().map(uuid::Uuid::parse_str).transpose() {
+                let work_id = match request
+                    .common
+                    .id
+                    .as_deref()
+                    .map(uuid::Uuid::parse_str)
+                    .transpose()
+                {
                     Ok(value) => value,
                     Err(error) => return Response::err(format!("bad Work id: {error}")),
                 };
@@ -2711,7 +2899,12 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
             Err(error) => Response::err(format!("{error:#}")),
         },
         "work-assign" => match (
-            request.common.id.as_deref().map(uuid::Uuid::parse_str).transpose(),
+            request
+                .common
+                .id
+                .as_deref()
+                .map(uuid::Uuid::parse_str)
+                .transpose(),
             request.common.to.as_deref(),
             request.orgintel.actor.as_deref(),
             request.common.reason.as_deref(),
@@ -2721,19 +2914,24 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
                     Ok(org) => {
                         let staff_lead = match org.team_lead_for(new_owner).await {
                             Ok(Some(lead)) => lead,
-                            Ok(None) => return Response::err(format!(
-                                "new Work owner {new_owner:?} must be Staff under an accountable lead; Exec, unassigned actors, and team leads cannot own production Work"
-                            )),
+                            Ok(None) => {
+                                return Response::err(format!(
+                                    "new Work owner {new_owner:?} must be Staff under an accountable lead; Exec, unassigned actors, and team leads cannot own production Work"
+                                ));
+                            }
                             Err(error) => return Response::err(format!("{error:#}")),
                         };
-                        match org.reassign_work(work_id, new_owner, changed_by, reason).await {
-                        Ok(previous_owner) => Response::ok(serde_json::json!({
-                            "work_id": work_id,
-                            "from_actor_id": previous_owner,
-                            "to_actor_id": new_owner,
-                            "accountable_lead_id": staff_lead,
-                        })),
-                        Err(error) => Response::err(format!("{error:#}")),
+                        match org
+                            .reassign_work(work_id, new_owner, changed_by, reason)
+                            .await
+                        {
+                            Ok(previous_owner) => Response::ok(serde_json::json!({
+                                "work_id": work_id,
+                                "from_actor_id": previous_owner,
+                                "to_actor_id": new_owner,
+                                "accountable_lead_id": staff_lead,
+                            })),
+                            Err(error) => Response::err(format!("{error:#}")),
                         }
                     }
                     Err(error) => Response::err(format!("{error:#}")),
@@ -2754,16 +2952,20 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
                     Ok(org) => {
                         let accountable_lead = match org.team_lead_for(owner).await {
                             Ok(Some(lead)) => lead,
-                            Ok(None) => return Response::err(format!(
-                                "Work owner {owner:?} must be Staff under an accountable lead; Exec, unassigned actors, and team leads cannot own production Work"
-                            )),
+                            Ok(None) => {
+                                return Response::err(format!(
+                                    "Work owner {owner:?} must be Staff under an accountable lead; Exec, unassigned actors, and team leads cannot own production Work"
+                                ));
+                            }
                             Err(error) => return Response::err(format!("{error:#}")),
                         };
                         let actor = match org.active_actor(owner).await {
                             Ok(Some(actor)) => actor,
-                            Ok(None) => return Response::err(format!(
-                                "Work owner {owner:?} is not an existing active actor; inspect `restless people` and commission one stable specialist if none fits"
-                            )),
+                            Ok(None) => {
+                                return Response::err(format!(
+                                    "Work owner {owner:?} is not an existing active actor; inspect `restless people` and commission one stable specialist if none fits"
+                                ));
+                            }
                             Err(error) => return Response::err(format!("{error:#}")),
                         };
                         let requested_topology = request
@@ -2771,13 +2973,16 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
                             .producing_topology
                             .as_deref()
                             .unwrap_or("coherent_single_worker");
-                        let producing_topology =
-                            match restless_orgintel::ProducingTopology::parse(requested_topology) {
-                                Some(topology) => topology,
-                                None => return Response::err(format!(
+                        let producing_topology = match restless_orgintel::ProducingTopology::parse(
+                            requested_topology,
+                        ) {
+                            Some(topology) => topology,
+                            None => {
+                                return Response::err(format!(
                                     "unknown producing topology {requested_topology:?}; use coherent-single-worker or locally-closing-parallel-unit"
-                                )),
-                            };
+                                ));
+                            }
+                        };
                         let active_workers = if commissioned_by == "exec" {
                             let Some(team_id) = actor.team_id else {
                                 return Response::err(format!(
@@ -2828,7 +3033,7 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
                             Some(goal_id) => match uuid::Uuid::parse_str(goal_id) {
                                 Ok(goal_id) => Some(goal_id),
                                 Err(error) => {
-                                    return Response::err(format!("bad Goal id: {error}"))
+                                    return Response::err(format!("bad Goal id: {error}"));
                                 }
                             },
                             None => None,
@@ -2839,7 +3044,11 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
                             outcome,
                             goal_id,
                             priority: request.orgintel.priority.unwrap_or(0),
-                            expected_artifact: request.orgintel.expected_artifact.as_deref().unwrap_or(""),
+                            expected_artifact: request
+                                .orgintel
+                                .expected_artifact
+                                .as_deref()
+                                .unwrap_or(""),
                             workspace: restless_orgintel::WorkspaceSpec {
                                 repo: request.orgintel.repo,
                                 base_ref: request.orgintel.base_ref,
@@ -2940,7 +3149,7 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
                     other => {
                         return Response::err(format!(
                             "edge kind must be requires|revises, got {other:?}"
-                        ))
+                        ));
                     }
                 };
                 match daemon.orgintel.get(company).await {
@@ -3128,7 +3337,9 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
                         restless_orgintel::OwnerHandoffCategory::PaymentConfirmation
                     }
                     "owner_judgement" => restless_orgintel::OwnerHandoffCategory::OwnerJudgement,
-                    _ => return Response::err(format!("unsupported handoff category {category:?}")),
+                    _ => {
+                        return Response::err(format!("unsupported handoff category {category:?}"));
+                    }
                 };
                 match daemon.orgintel.get(company).await {
                     Ok(org) => match org
@@ -3213,7 +3424,7 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
                     "contradiction" => restless_orgintel::OwnerBriefKind::Contradiction,
                     "human_step" => restless_orgintel::OwnerBriefKind::HumanStep,
                     other => {
-                        return Response::err(format!("unsupported owner brief kind {other:?}"))
+                        return Response::err(format!("unsupported owner brief kind {other:?}"));
                     }
                 };
                 let brief = restless_orgintel::OwnerBrief {
@@ -3260,7 +3471,7 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
                     other => {
                         return Response::err(format!(
                             "handoff state must be resolved|declined|withdrawn, got {other:?}"
-                        ))
+                        ));
                     }
                 };
                 match daemon.orgintel.get(company).await {
@@ -3277,7 +3488,12 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
             _ => Response::err("work-handoff-resolve needs handoff, state, resolution and --as"),
         },
         "work-interrupt" => match (
-            request.common.id.as_deref().map(uuid::Uuid::parse_str).transpose(),
+            request
+                .common
+                .id
+                .as_deref()
+                .map(uuid::Uuid::parse_str)
+                .transpose(),
             request.common.as_actor.as_deref(),
             request.common.reason.as_deref(),
         ) {
@@ -3305,7 +3521,12 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
             _ => Response::err("work-interrupt needs work, reason and --as"),
         },
         "work-resume" => match (
-            request.common.id.as_deref().map(uuid::Uuid::parse_str).transpose(),
+            request
+                .common
+                .id
+                .as_deref()
+                .map(uuid::Uuid::parse_str)
+                .transpose(),
             request.common.as_actor.as_deref(),
             request.common.reason.as_deref(),
         ) {
@@ -3322,7 +3543,12 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
             _ => Response::err("work-resume needs work, reason and --as"),
         },
         "work-abandon" => match (
-            request.common.id.as_deref().map(uuid::Uuid::parse_str).transpose(),
+            request
+                .common
+                .id
+                .as_deref()
+                .map(uuid::Uuid::parse_str)
+                .transpose(),
             request.common.as_actor.as_deref(),
             request.common.reason.as_deref(),
         ) {
@@ -3338,7 +3564,10 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
             (Err(error), _, _) => Response::err(format!("bad Work id: {error}")),
             _ => Response::err("work-abandon needs work, reason and --as"),
         },
-        "work-review" => match (request.common.id.as_deref(), request.common.state.as_deref()) {
+        "work-review" => match (
+            request.common.id.as_deref(),
+            request.common.state.as_deref(),
+        ) {
             (Some(id), Some(state)) => {
                 let Ok(id) = uuid::Uuid::parse_str(id) else {
                     return Response::err("bad handoff id");
@@ -3349,7 +3578,7 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
                     other => {
                         return Response::err(format!(
                             "review decision must be accept|request_changes, got {other:?}"
-                        ))
+                        ));
                     }
                 };
                 match daemon.orgintel.get(company).await {
@@ -3421,7 +3650,10 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
                                 None => org.send_work_message_to_owner(&from, work_id, &body).await,
                             }
                         }
-                        None => org.send_message(&from, request.common.to.as_deref(), &body).await,
+                        None => {
+                            org.send_message(&from, request.common.to.as_deref(), &body)
+                                .await
+                        }
                     };
                     match result {
                         Ok(id) => Response::ok(serde_json::json!({ "message_id": id })),
@@ -3453,10 +3685,7 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
                 };
                 match daemon.orgintel.get(company).await {
                     Ok(org) => match org
-                        .list_schedule_occurrences(
-                            schedule_id,
-                            request.common.limit.unwrap_or(20),
-                        )
+                        .list_schedule_occurrences(schedule_id, request.common.limit.unwrap_or(20))
                         .await
                     {
                         Ok(occurrences) => Response::ok_serialized(occurrences),
@@ -3484,7 +3713,7 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
                     Err(error) => {
                         return Response::err(format!(
                             "schedule --scheduled-for must be RFC3339: {error}"
-                        ))
+                        ));
                     }
                 };
                 match daemon.orgintel.get(company).await {
@@ -3517,26 +3746,49 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
             request.orgintel.prior_message_id,
             request.orgintel.retry_key.as_deref(),
         ) {
-            (Some(id), Some(scheduled_for), Some(actor), Some(requested_by), Some(reason), Some(prior_message), Some(key)) => {
+            (
+                Some(id),
+                Some(scheduled_for),
+                Some(actor),
+                Some(requested_by),
+                Some(reason),
+                Some(prior_message),
+                Some(key),
+            ) => {
                 let schedule_id = match uuid::Uuid::parse_str(id) {
                     Ok(id) => id,
                     Err(error) => return Response::err(format!("bad schedule id: {error}")),
                 };
                 let scheduled_for = match chrono::DateTime::parse_from_rfc3339(scheduled_for) {
                     Ok(value) => value.with_timezone(&chrono::Utc),
-                    Err(error) => return Response::err(format!("schedule --scheduled-for must be RFC3339: {error}")),
+                    Err(error) => {
+                        return Response::err(format!(
+                            "schedule --scheduled-for must be RFC3339: {error}"
+                        ));
+                    }
                 };
                 match daemon.orgintel.get(company).await {
-                    Ok(org) => match org.retry_schedule_recovery(
-                        schedule_id, scheduled_for, actor, key, prior_message, requested_by, reason,
-                    ).await {
+                    Ok(org) => match org
+                        .retry_schedule_recovery(
+                            schedule_id,
+                            scheduled_for,
+                            actor,
+                            key,
+                            prior_message,
+                            requested_by,
+                            reason,
+                        )
+                        .await
+                    {
                         Ok(retry) => Response::ok_serialized(retry),
                         Err(error) => Response::err(format!("{error:#}")),
                     },
                     Err(error) => Response::err(format!("{error:#}")),
                 }
             }
-            _ => Response::err("schedule-retry-recovery needs schedule, scheduled-for, actor, prior message, key, requester and reason"),
+            _ => Response::err(
+                "schedule-retry-recovery needs schedule, scheduled-for, actor, prior message, key, requester and reason",
+            ),
         },
         "schedule-add" => match (
             request.common.as_actor.as_deref(),
@@ -3545,7 +3797,9 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
             (Some(actor), Some(reason)) => {
                 let recurring = request.orgintel.recurrence.as_deref() == Some("weekdays");
                 if request.common.id.is_some() && recurring {
-                    return Response::err("recurring schedules wake actors directly and cannot block Work");
+                    return Response::err(
+                        "recurring schedules wake actors directly and cannot block Work",
+                    );
                 }
                 if recurring {
                     if request.orgintel.fire_at.is_some() {
@@ -3556,7 +3810,11 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
                     };
                     let local_time = match chrono::NaiveTime::parse_from_str(local_time, "%H:%M") {
                         Ok(value) => value,
-                        Err(error) => return Response::err(format!("schedule --at-local must be HH:MM: {error}")),
+                        Err(error) => {
+                            return Response::err(format!(
+                                "schedule --at-local must be HH:MM: {error}"
+                            ));
+                        }
                     };
                     let Some(timezone) = request.orgintel.timezone.as_deref() else {
                         return Response::err("schedule --weekdays needs an IANA --timezone");
@@ -3570,27 +3828,33 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
                         "skip" if request.orgintel.catch_up_grace_seconds.is_none() => {
                             ("skip", None)
                         }
-                        "skip-if-late" | "catch-up" | "coalesce-latest" => match request.orgintel.catch_up_grace_seconds {
-                            Some(seconds) if seconds > 0 => (
-                                match missed_policy {
-                                    "skip-if-late" => "skip_if_late",
-                                    "catch-up" => "catch_up_once",
-                                    _ => "coalesce_latest",
-                                },
-                                Some(seconds),
-                            ),
-                            _ => {
-                                return Response::err(
-                                    "bounded missed policies need a positive --catch-up-within-minutes",
-                                )
+                        "skip-if-late" | "catch-up" | "coalesce-latest" => {
+                            match request.orgintel.catch_up_grace_seconds {
+                                Some(seconds) if seconds > 0 => (
+                                    match missed_policy {
+                                        "skip-if-late" => "skip_if_late",
+                                        "catch-up" => "catch_up_once",
+                                        _ => "coalesce_latest",
+                                    },
+                                    Some(seconds),
+                                ),
+                                _ => {
+                                    return Response::err(
+                                        "bounded missed policies need a positive --catch-up-within-minutes",
+                                    );
+                                }
                             }
-                        },
+                        }
                         "skip" => {
                             return Response::err(
                                 "--catch-up-within-minutes is invalid with unbounded skip",
-                            )
+                            );
                         }
-                        _ => return Response::err("--on-missed must be skip|skip-if-late|catch-up|coalesce-latest"),
+                        _ => {
+                            return Response::err(
+                                "--on-missed must be skip|skip-if-late|catch-up|coalesce-latest",
+                            );
+                        }
                     };
                     let machine_requirement = match request
                         .orgintel
@@ -3612,7 +3876,9 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
                             Err(error) => return Response::err(format!("{error:#}")),
                         };
                         if !is_lead {
-                            return Response::err("a free-standing schedule must target Exec or an accountable team lead; Staff time dependencies belong to Work");
+                            return Response::err(
+                                "a free-standing schedule must target Exec or an accountable team lead; Staff time dependencies belong to Work",
+                            );
                         }
                     }
                     return match org
@@ -3628,18 +3894,20 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
                         )
                         .await
                     {
-                        Ok((schedule_id, next_fire_at, created)) => Response::ok(serde_json::json!({
-                            "schedule_id": schedule_id,
-                            "actor_id": actor,
-                            "recurrence": "weekdays",
-                            "local_time": local_time.format("%H:%M").to_string(),
-                            "timezone": timezone,
-                            "missed_policy": missed_policy,
-                            "catch_up_grace_seconds": catch_up_grace_seconds,
-                            "machine_requirement": machine_requirement,
-                            "next_fire_at": next_fire_at,
-                            "created": created,
-                        })),
+                        Ok((schedule_id, next_fire_at, created)) => {
+                            Response::ok(serde_json::json!({
+                                "schedule_id": schedule_id,
+                                "actor_id": actor,
+                                "recurrence": "weekdays",
+                                "local_time": local_time.format("%H:%M").to_string(),
+                                "timezone": timezone,
+                                "missed_policy": missed_policy,
+                                "catch_up_grace_seconds": catch_up_grace_seconds,
+                                "machine_requirement": machine_requirement,
+                                "next_fire_at": next_fire_at,
+                                "created": created,
+                            }))
+                        }
                         Err(error) => Response::err(format!("{error:#}")),
                     };
                 }
@@ -3653,21 +3921,21 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
                     return Response::err("recurring schedule fields require --weekdays");
                 }
                 let Some(fire_at) = request.orgintel.fire_at.as_deref() else {
-                    return Response::err("schedule add needs --at, or --weekdays with --at-local and --timezone");
+                    return Response::err(
+                        "schedule add needs --at, or --weekdays with --at-local and --timezone",
+                    );
                 };
                 let fire_at = match chrono::DateTime::parse_from_rfc3339(fire_at) {
                     Ok(fire_at) => fire_at.with_timezone(&chrono::Utc),
                     Err(error) => {
-                        return Response::err(format!(
-                            "schedule --at must be RFC3339: {error}"
-                        ))
+                        return Response::err(format!("schedule --at must be RFC3339: {error}"));
                     }
                 };
                 let work_id = match request.common.id.as_deref() {
                     Some(work) => match uuid::Uuid::parse_str(work) {
                         Ok(work) => Some(work),
                         Err(error) => {
-                            return Response::err(format!("bad scheduled Work id: {error}"))
+                            return Response::err(format!("bad scheduled Work id: {error}"));
                         }
                     },
                     None => None,
@@ -3676,9 +3944,7 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
                     Ok(org) => {
                         if work_id.is_none() && actor != "exec" {
                             let is_lead = match org.list_teams().await {
-                                Ok(teams) => {
-                                    teams.iter().any(|team| team.lead_actor_id == actor)
-                                }
+                                Ok(teams) => teams.iter().any(|team| team.lead_actor_id == actor),
                                 Err(error) => return Response::err(format!("{error:#}")),
                             };
                             if !is_lead {
@@ -3714,27 +3980,33 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
                 };
                 let (policy, grace) = match policy {
                     "skip" if request.orgintel.catch_up_grace_seconds.is_none() => ("skip", None),
-                    "skip-if-late" | "catch-up" | "coalesce-latest" => match request.orgintel.catch_up_grace_seconds {
-                        Some(seconds) if seconds > 0 => (
-                            match policy {
-                                "skip-if-late" => "skip_if_late",
-                                "catch-up" => "catch_up_once",
-                                _ => "coalesce_latest",
-                            },
-                            Some(seconds),
-                        ),
-                        _ => {
-                            return Response::err(
-                                "bounded missed policies need a positive --catch-up-within-minutes",
-                            )
+                    "skip-if-late" | "catch-up" | "coalesce-latest" => {
+                        match request.orgintel.catch_up_grace_seconds {
+                            Some(seconds) if seconds > 0 => (
+                                match policy {
+                                    "skip-if-late" => "skip_if_late",
+                                    "catch-up" => "catch_up_once",
+                                    _ => "coalesce_latest",
+                                },
+                                Some(seconds),
+                            ),
+                            _ => {
+                                return Response::err(
+                                    "bounded missed policies need a positive --catch-up-within-minutes",
+                                );
+                            }
                         }
-                    },
+                    }
                     "skip" => {
                         return Response::err(
                             "--catch-up-within-minutes is invalid with unbounded skip",
-                        )
+                        );
                     }
-                    _ => return Response::err("--on-missed must be skip|skip-if-late|catch-up|coalesce-latest"),
+                    _ => {
+                        return Response::err(
+                            "--on-missed must be skip|skip-if-late|catch-up|coalesce-latest",
+                        );
+                    }
                 };
                 match daemon.orgintel.get(company).await {
                     Ok(org) => match org
@@ -3747,9 +4019,9 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
                             "missed_policy": policy,
                             "catch_up_grace_seconds": grace,
                         })),
-                        Ok(false) => Response::err(
-                            "no live recurring schedule matched that id and actor",
-                        ),
+                        Ok(false) => {
+                            Response::err("no live recurring schedule matched that id and actor")
+                        }
                         Err(error) => Response::err(format!("{error:#}")),
                     },
                     Err(error) => Response::err(format!("{error:#}")),
@@ -3827,7 +4099,9 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
                 .as_deref()
                 .and_then(parse_pillar)
             else {
-                return Response::err("identity evidence needs --pillar truth|voice|visual|culture");
+                return Response::err(
+                    "identity evidence needs --pillar truth|voice|visual|culture",
+                );
             };
             let Some(statement_kind) = request
                 .orgintel
@@ -3838,15 +4112,21 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
                 return Response::err("identity evidence needs a valid --kind");
             };
             let Some(polarity) = parse_polarity(request.orgintel.polarity.as_deref()) else {
-                return Response::err("identity evidence polarity must be neutral, positive or negative");
+                return Response::err(
+                    "identity evidence polarity must be neutral, positive or negative",
+                );
             };
             let Some(status) = parse_status(request.orgintel.evidence_status.as_deref()) else {
-                return Response::err("identity evidence status must be active, disputed or corrected");
+                return Response::err(
+                    "identity evidence status must be active, disputed or corrected",
+                );
             };
             let supersedes = match request.orgintel.supersedes.as_deref() {
                 Some(value) => match uuid::Uuid::parse_str(value) {
                     Ok(id) => Some(id),
-                    Err(error) => return Response::err(format!("bad superseded evidence id: {error}")),
+                    Err(error) => {
+                        return Response::err(format!("bad superseded evidence id: {error}"));
+                    }
                 },
                 None => None,
             };
@@ -3866,37 +4146,45 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
                 request.orgintel.scope.as_deref(),
                 request.orgintel.evidence_locator.as_deref(),
             ) {
-                (Some(claim_key), Some(statement), Some(actor), Some(source), Some(authority), Some(scope), Some(locator)) => {
-                    match daemon.orgintel.get(company).await {
-                        Ok(org) => match org
-                            .add_identity_evidence(restless_orgintel::NewIdentityEvidence {
-                                pillar,
-                                statement_kind,
-                                claim_key,
-                                statement,
-                                author_id: actor,
-                                source,
-                                authority,
-                                scope,
-                                observed_at: chrono::Utc::now(),
-                                evidence_locator: locator,
-                                polarity,
-                                status,
-                                channel: request.orgintel.channel.as_deref(),
-                                audience: request.orgintel.audience.as_deref(),
-                                supersedes_evidence_id: supersedes,
-                                exception_expires_at,
-                                exception_indefinite: request.orgintel.exception_indefinite,
-                            })
-                            .await
-                        {
-                            Ok(id) => Response::ok(serde_json::json!({ "evidence_id": id })),
-                            Err(error) => Response::err(format!("{error:#}")),
-                        },
+                (
+                    Some(claim_key),
+                    Some(statement),
+                    Some(actor),
+                    Some(source),
+                    Some(authority),
+                    Some(scope),
+                    Some(locator),
+                ) => match daemon.orgintel.get(company).await {
+                    Ok(org) => match org
+                        .add_identity_evidence(restless_orgintel::NewIdentityEvidence {
+                            pillar,
+                            statement_kind,
+                            claim_key,
+                            statement,
+                            author_id: actor,
+                            source,
+                            authority,
+                            scope,
+                            observed_at: chrono::Utc::now(),
+                            evidence_locator: locator,
+                            polarity,
+                            status,
+                            channel: request.orgintel.channel.as_deref(),
+                            audience: request.orgintel.audience.as_deref(),
+                            supersedes_evidence_id: supersedes,
+                            exception_expires_at,
+                            exception_indefinite: request.orgintel.exception_indefinite,
+                        })
+                        .await
+                    {
+                        Ok(id) => Response::ok(serde_json::json!({ "evidence_id": id })),
                         Err(error) => Response::err(format!("{error:#}")),
-                    }
-                }
-                _ => Response::err("identity evidence needs claim, statement, source, authority, scope, locator and an acting actor"),
+                    },
+                    Err(error) => Response::err(format!("{error:#}")),
+                },
+                _ => Response::err(
+                    "identity evidence needs claim, statement, source, authority, scope, locator and an acting actor",
+                ),
             }
         }
         "identity-propose" => match (
@@ -3912,10 +4200,15 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
                     .collect::<std::result::Result<Vec<_>, _>>()
                 {
                     Ok(ids) => ids,
-                    Err(error) => return Response::err(format!("bad identity evidence id: {error}")),
+                    Err(error) => {
+                        return Response::err(format!("bad identity evidence id: {error}"));
+                    }
                 };
                 match daemon.orgintel.get(company).await {
-                    Ok(org) => match org.propose_identity_release(actor, rationale, &evidence).await {
+                    Ok(org) => match org
+                        .propose_identity_release(actor, rationale, &evidence)
+                        .await
+                    {
                         Ok(id) => Response::ok(serde_json::json!({ "proposal_id": id })),
                         Err(error) => Response::err(format!("{error:#}")),
                     },
@@ -3936,42 +4229,65 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
                         let release_id = match request.orgintel.release_id.as_deref() {
                             Some(value) => match uuid::Uuid::parse_str(value) {
                                 Ok(id) => id,
-                                Err(error) => return Response::err(format!("bad identity release id: {error}")),
+                                Err(error) => {
+                                    return Response::err(format!(
+                                        "bad identity release id: {error}"
+                                    ));
+                                }
                             },
                             None => match org.company_identity_snapshot().await {
                                 Ok(snapshot) => match snapshot.current_release {
                                     Some(release) => release.id,
-                                    None => return Response::err("company has no released expression identity"),
+                                    None => {
+                                        return Response::err(
+                                            "company has no released expression identity",
+                                        );
+                                    }
                                 },
                                 Err(error) => return Response::err(format!("{error:#}")),
                             },
                         };
-                        match org.compile_identity_brief(restless_orgintel::IdentityBriefRequest {
-                            release_id,
-                            outcome,
-                            channel,
-                            audience,
-                            author: actor,
-                            max_bytes: request.orgintel.max_bytes.unwrap_or(8 * 1024),
-                            now: chrono::Utc::now(),
-                        }).await {
-                            Ok(brief) => Response::ok(serde_json::to_value(brief).unwrap_or_default()),
+                        match org
+                            .compile_identity_brief(restless_orgintel::IdentityBriefRequest {
+                                release_id,
+                                outcome,
+                                channel,
+                                audience,
+                                author: actor,
+                                max_bytes: request.orgintel.max_bytes.unwrap_or(8 * 1024),
+                                now: chrono::Utc::now(),
+                            })
+                            .await
+                        {
+                            Ok(brief) => {
+                                Response::ok(serde_json::to_value(brief).unwrap_or_default())
+                            }
                             Err(error) => Response::err(format!("{error:#}")),
                         }
                     }
                     Err(error) => Response::err(format!("{error:#}")),
                 }
             }
-            _ => Response::err("identity brief needs outcome, channel, audience and an acting actor"),
+            _ => {
+                Response::err("identity brief needs outcome, channel, audience and an acting actor")
+            }
         },
         "voice-evidence-add" => {
             let kind = match request.orgintel.voice_kind.as_deref() {
-                Some("approved_passage") => Some(restless_orgintel::VoiceEvidenceKind::ApprovedPassage),
-                Some("rejected_passage") => Some(restless_orgintel::VoiceEvidenceKind::RejectedPassage),
-                Some("expression_principle") => Some(restless_orgintel::VoiceEvidenceKind::ExpressionPrinciple),
+                Some("approved_passage") => {
+                    Some(restless_orgintel::VoiceEvidenceKind::ApprovedPassage)
+                }
+                Some("rejected_passage") => {
+                    Some(restless_orgintel::VoiceEvidenceKind::RejectedPassage)
+                }
+                Some("expression_principle") => {
+                    Some(restless_orgintel::VoiceEvidenceKind::ExpressionPrinciple)
+                }
                 Some("vocabulary") => Some(restless_orgintel::VoiceEvidenceKind::Vocabulary),
                 Some("named_author") => Some(restless_orgintel::VoiceEvidenceKind::NamedAuthor),
-                Some("channel_observation") => Some(restless_orgintel::VoiceEvidenceKind::ChannelObservation),
+                Some("channel_observation") => {
+                    Some(restless_orgintel::VoiceEvidenceKind::ChannelObservation)
+                }
                 _ => None,
             };
             let channel = match parse_voice_channel(request.orgintel.channel.as_deref()) {
@@ -4003,23 +4319,46 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
                 request.orgintel.evidence_locator.as_deref(),
                 request.orgintel.judgement_reason.as_deref(),
             ) {
-                (Some(kind), Some(polarity), Some(claim), Some(statement), Some(actor), Some(source), Some(authority), Some(scope), Some(locator), Some(judgement)) => {
-                    match daemon.orgintel.get(company).await {
-                        Ok(org) => match org.add_voice_evidence(restless_orgintel::NewVoiceEvidence {
-                            kind, claim_key: claim, passage_or_principle: statement,
-                            author_id: actor, named_author: request.orgintel.named_author.as_deref(),
-                            source, authority, scope, observed_at: chrono::Utc::now(),
-                            evidence_locator: locator, judgement_reason: judgement, polarity,
-                            channel, audience: request.orgintel.audience.as_deref(),
+                (
+                    Some(kind),
+                    Some(polarity),
+                    Some(claim),
+                    Some(statement),
+                    Some(actor),
+                    Some(source),
+                    Some(authority),
+                    Some(scope),
+                    Some(locator),
+                    Some(judgement),
+                ) => match daemon.orgintel.get(company).await {
+                    Ok(org) => match org
+                        .add_voice_evidence(restless_orgintel::NewVoiceEvidence {
+                            kind,
+                            claim_key: claim,
+                            passage_or_principle: statement,
+                            author_id: actor,
+                            named_author: request.orgintel.named_author.as_deref(),
+                            source,
+                            authority,
+                            scope,
+                            observed_at: chrono::Utc::now(),
+                            evidence_locator: locator,
+                            judgement_reason: judgement,
+                            polarity,
+                            channel,
+                            audience: request.orgintel.audience.as_deref(),
                             supersedes_evidence_id: supersedes,
-                        }).await {
-                            Ok(id) => Response::ok(serde_json::json!({"evidence_id": id})),
-                            Err(error) => Response::err(format!("{error:#}")),
-                        },
+                        })
+                        .await
+                    {
+                        Ok(id) => Response::ok(serde_json::json!({"evidence_id": id})),
                         Err(error) => Response::err(format!("{error:#}")),
-                    }
-                }
-                _ => Response::err("voice evidence needs a valid kind, polarity, claim, statement, source, authority, scope, locator, judgement and acting actor"),
+                    },
+                    Err(error) => Response::err(format!("{error:#}")),
+                },
+                _ => Response::err(
+                    "voice evidence needs a valid kind, polarity, claim, statement, source, authority, scope, locator, judgement and acting actor",
+                ),
             }
         }
         "voice-bind" => {
@@ -4028,45 +4367,67 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
                 Ok(None) => return Response::err("voice bind needs a channel"),
                 Err(error) => return Response::err(error),
             };
-            let work_id = match parse_required_uuid(request.orgintel.voice_work_id.as_deref(), "Work id") {
-                Ok(value) => value,
-                Err(error) => return Response::err(error),
-            };
+            let work_id =
+                match parse_required_uuid(request.orgintel.voice_work_id.as_deref(), "Work id") {
+                    Ok(value) => value,
+                    Err(error) => return Response::err(error),
+                };
             match (
                 request.orgintel.actor.as_deref(),
                 request.orgintel.voice_author.as_deref(),
                 request.orgintel.audience.as_deref(),
                 request.orgintel.reader_situation.as_deref(),
                 request.orgintel.desired_understanding.as_deref(),
-                request.orgintel.desired_action.as_deref(), request.orgintel.proof.as_deref(),
+                request.orgintel.desired_action.as_deref(),
+                request.orgintel.proof.as_deref(),
                 request.orgintel.consequence.as_deref(),
             ) {
-                (Some(actor), Some(author), Some(audience), Some(reader), Some(understanding), Some(action), Some(proof), Some(consequence)) => {
-                    match daemon.orgintel.get(company).await {
-                        Ok(org) => match org.bind_voice_work_contract(restless_orgintel::NewVoiceWorkContract {
-                            work_id, channel, author, bound_by: actor, audience, reader_situation: reader,
-                            desired_understanding: understanding, desired_action: action, proof,
+                (
+                    Some(actor),
+                    Some(author),
+                    Some(audience),
+                    Some(reader),
+                    Some(understanding),
+                    Some(action),
+                    Some(proof),
+                    Some(consequence),
+                ) => match daemon.orgintel.get(company).await {
+                    Ok(org) => match org
+                        .bind_voice_work_contract(restless_orgintel::NewVoiceWorkContract {
+                            work_id,
+                            channel,
+                            author,
+                            bound_by: actor,
+                            audience,
+                            reader_situation: reader,
+                            desired_understanding: understanding,
+                            desired_action: action,
+                            proof,
                             consequence,
-                        }).await {
-                            Ok(contract) => Response::ok_serialized(contract),
-                            Err(error) => Response::err(format!("{error:#}")),
-                        },
+                        })
+                        .await
+                    {
+                        Ok(contract) => Response::ok_serialized(contract),
                         Err(error) => Response::err(format!("{error:#}")),
-                    }
-                }
-                _ => Response::err("voice bind needs an acting binder, named author, audience, reader situation, understanding, action, proof and consequence"),
+                    },
+                    Err(error) => Response::err(format!("{error:#}")),
+                },
+                _ => Response::err(
+                    "voice bind needs an acting binder, named author, audience, reader situation, understanding, action, proof and consequence",
+                ),
             }
         }
         "voice-brief" => {
-            let work_id = match parse_required_uuid(request.orgintel.voice_work_id.as_deref(), "Work id") {
-                Ok(value) => value,
-                Err(error) => return Response::err(error),
-            };
+            let work_id =
+                match parse_required_uuid(request.orgintel.voice_work_id.as_deref(), "Work id") {
+                    Ok(value) => value,
+                    Err(error) => return Response::err(error),
+                };
             match daemon.orgintel.get(company).await {
-                Ok(org) => match org.compile_voice_contract(
-                    work_id,
-                    request.orgintel.max_bytes.unwrap_or(8 * 1024),
-                ).await {
+                Ok(org) => match org
+                    .compile_voice_contract(work_id, request.orgintel.max_bytes.unwrap_or(8 * 1024))
+                    .await
+                {
                     Ok(brief) => Response::ok_serialized(brief),
                     Err(error) => Response::err(format!("{error:#}")),
                 },
@@ -4080,7 +4441,8 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
                 Err(error) => return Response::err(error),
             };
             let artifact_ref_id = match parse_required_uuid(
-                request.orgintel.artifact_ref_id.as_deref(), "artifact ref id",
+                request.orgintel.artifact_ref_id.as_deref(),
+                "artifact ref id",
             ) {
                 Ok(value) => value,
                 Err(error) => return Response::err(error),
@@ -4093,22 +4455,34 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
             ) {
                 (Some(renderer), Some(version), Some(checks), Some(actor)) => {
                     match daemon.orgintel.get(company).await {
-                        Ok(org) => match org.record_voice_render_evidence(restless_orgintel::NewVoiceRenderEvidence {
-                            artifact_ref_id, channel, renderer, renderer_version: version,
-                            semantic_checks: checks, captured_by: actor,
-                        }).await {
+                        Ok(org) => match org
+                            .record_voice_render_evidence(
+                                restless_orgintel::NewVoiceRenderEvidence {
+                                    artifact_ref_id,
+                                    channel,
+                                    renderer,
+                                    renderer_version: version,
+                                    semantic_checks: checks,
+                                    captured_by: actor,
+                                },
+                            )
+                            .await
+                        {
                             Ok(id) => Response::ok(serde_json::json!({"render_evidence_id": id})),
                             Err(error) => Response::err(format!("{error:#}")),
                         },
                         Err(error) => Response::err(format!("{error:#}")),
                     }
                 }
-                _ => Response::err("voice render needs renderer, version, JSON checks and an acting actor"),
+                _ => Response::err(
+                    "voice render needs renderer, version, JSON checks and an acting actor",
+                ),
             }
         }
         "voice-review" => {
             let render_evidence_id = match parse_required_uuid(
-                request.orgintel.render_evidence_id.as_deref(), "render evidence id",
+                request.orgintel.render_evidence_id.as_deref(),
+                "render evidence id",
             ) {
                 Ok(value) => value,
                 Err(error) => return Response::err(error),
@@ -4121,40 +4495,77 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
             };
             match (verdict, request.orgintel.actor.as_deref()) {
                 (Some(verdict), Some(actor)) => match daemon.orgintel.get(company).await {
-                    Ok(org) => match org.record_voice_review(restless_orgintel::NewVoiceReview {
-                        render_evidence_id, reviewer: actor, verdict,
-                        factual_findings: request.orgintel.factual_findings.as_deref().unwrap_or(""),
-                        abstraction_findings: request.orgintel.abstraction_findings.as_deref().unwrap_or(""),
-                        repetition_findings: request.orgintel.repetition_findings.as_deref().unwrap_or(""),
-                        channel_findings: request.orgintel.channel_findings.as_deref().unwrap_or(""),
-                        authorship_findings: request.orgintel.authorship_findings.as_deref().unwrap_or(""),
-                        concepts_removed: request.orgintel.concepts_removed.as_deref().unwrap_or(""),
-                    }).await {
+                    Ok(org) => match org
+                        .record_voice_review(restless_orgintel::NewVoiceReview {
+                            render_evidence_id,
+                            reviewer: actor,
+                            verdict,
+                            factual_findings: request
+                                .orgintel
+                                .factual_findings
+                                .as_deref()
+                                .unwrap_or(""),
+                            abstraction_findings: request
+                                .orgintel
+                                .abstraction_findings
+                                .as_deref()
+                                .unwrap_or(""),
+                            repetition_findings: request
+                                .orgintel
+                                .repetition_findings
+                                .as_deref()
+                                .unwrap_or(""),
+                            channel_findings: request
+                                .orgintel
+                                .channel_findings
+                                .as_deref()
+                                .unwrap_or(""),
+                            authorship_findings: request
+                                .orgintel
+                                .authorship_findings
+                                .as_deref()
+                                .unwrap_or(""),
+                            concepts_removed: request
+                                .orgintel
+                                .concepts_removed
+                                .as_deref()
+                                .unwrap_or(""),
+                        })
+                        .await
+                    {
                         Ok(id) => Response::ok(serde_json::json!({"review_id": id})),
                         Err(error) => Response::err(format!("{error:#}")),
                     },
                     Err(error) => Response::err(format!("{error:#}")),
                 },
-                _ => Response::err("voice review needs verdict accept|revise|reject and an acting reviewer"),
+                _ => Response::err(
+                    "voice review needs verdict accept|revise|reject and an acting reviewer",
+                ),
             }
         }
         "voice-learn" => {
             let before = match parse_required_uuid(
-                request.orgintel.before_artifact_ref_id.as_deref(), "before artifact ref id",
+                request.orgintel.before_artifact_ref_id.as_deref(),
+                "before artifact ref id",
             ) {
                 Ok(value) => value,
                 Err(error) => return Response::err(error),
             };
             let after = match parse_required_uuid(
-                request.orgintel.after_artifact_ref_id.as_deref(), "after artifact ref id",
+                request.orgintel.after_artifact_ref_id.as_deref(),
+                "after artifact ref id",
             ) {
                 Ok(value) => value,
                 Err(error) => return Response::err(error),
             };
             let kind = match request.orgintel.learning_kind.as_deref() {
                 Some("typo") => Some(restless_orgintel::VoiceLearningKind::Typo),
-                Some("fact_correction") => Some(restless_orgintel::VoiceLearningKind::FactCorrection),
-                Some("voice_observation") => Some(restless_orgintel::VoiceLearningKind::VoiceObservation),
+                Some("fact_correction") => {
+                    Some(restless_orgintel::VoiceLearningKind::FactCorrection)
+                }
+                Some("voice_observation") => {
+                    Some(restless_orgintel::VoiceLearningKind::VoiceObservation)
+                }
                 _ => None,
             };
             let channel = match parse_voice_channel(request.orgintel.channel.as_deref()) {
@@ -4171,92 +4582,758 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
                 request.orgintel.source.as_deref(),
                 request.orgintel.evidence_locator.as_deref(),
             ) {
-                (Some(change_kind), Some(actor), Some(claim), Some(observation), Some(decision), Some(scope), Some(source), Some(locator)) => {
-                    match daemon.orgintel.get(company).await {
-                        Ok(org) => match org.propose_voice_learning(restless_orgintel::NewVoiceLearningProposal {
-                            created_by: actor, before_artifact_ref_id: before,
-                            after_artifact_ref_id: after, change_kind, claim_key: claim,
-                            observation, motivating_decision: decision, scope, source,
+                (
+                    Some(change_kind),
+                    Some(actor),
+                    Some(claim),
+                    Some(observation),
+                    Some(decision),
+                    Some(scope),
+                    Some(source),
+                    Some(locator),
+                ) => match daemon.orgintel.get(company).await {
+                    Ok(org) => match org
+                        .propose_voice_learning(restless_orgintel::NewVoiceLearningProposal {
+                            created_by: actor,
+                            before_artifact_ref_id: before,
+                            after_artifact_ref_id: after,
+                            change_kind,
+                            claim_key: claim,
+                            observation,
+                            motivating_decision: decision,
+                            scope,
+                            source,
                             evidence_locator: locator,
-                            named_author: request.orgintel.named_author.as_deref(), channel,
+                            named_author: request.orgintel.named_author.as_deref(),
+                            channel,
                             audience: request.orgintel.audience.as_deref(),
                             observed_at: chrono::Utc::now(),
-                        }).await {
-                            Ok(Some(id)) => Response::ok(serde_json::json!({
-                                "proposal_id": id,
-                                "learning": "pending_owner_identity_decision"
-                            })),
-                            Ok(None) => Response::ok(serde_json::json!({
-                                "proposal_id": serde_json::Value::Null,
-                                "learning": "ignored_non_voice_edit"
-                            })),
-                            Err(error) => Response::err(format!("{error:#}")),
-                        },
+                        })
+                        .await
+                    {
+                        Ok(Some(id)) => Response::ok(serde_json::json!({
+                            "proposal_id": id,
+                            "learning": "pending_owner_identity_decision"
+                        })),
+                        Ok(None) => Response::ok(serde_json::json!({
+                            "proposal_id": serde_json::Value::Null,
+                            "learning": "ignored_non_voice_edit"
+                        })),
                         Err(error) => Response::err(format!("{error:#}")),
-                    }
-                }
-                _ => Response::err("voice learning needs kind typo|fact_correction|voice_observation, exact before/after artifacts, claim, observation, decision, scope, source, locator and acting owner"),
+                    },
+                    Err(error) => Response::err(format!("{error:#}")),
+                },
+                _ => Response::err(
+                    "voice learning needs kind typo|fact_correction|voice_observation, exact before/after artifacts, claim, observation, decision, scope, source, locator and acting owner",
+                ),
             }
         }
         "visual-evidence-add" => {
-            let kind=match request.orgintel.visual_kind.as_deref(){Some("semantic_token")=>Some(restless_orgintel::VisualEvidenceKind::SemanticToken),Some("typography_role")=>Some(restless_orgintel::VisualEvidenceKind::TypographyRole),Some("composition_principle")=>Some(restless_orgintel::VisualEvidenceKind::CompositionPrinciple),Some("imagery_direction")=>Some(restless_orgintel::VisualEvidenceKind::ImageryDirection),Some("motion_pattern")=>Some(restless_orgintel::VisualEvidenceKind::MotionPattern),Some("product_representation_rule")=>Some(restless_orgintel::VisualEvidenceKind::ProductRepresentationRule),Some("primitive")=>Some(restless_orgintel::VisualEvidenceKind::Primitive),Some("approved_composition")=>Some(restless_orgintel::VisualEvidenceKind::ApprovedComposition),Some("rejected_example")=>Some(restless_orgintel::VisualEvidenceKind::RejectedExample),_=>None};
-            let channel=match parse_visual_channel(request.orgintel.channel.as_deref()){Ok(v)=>v,Err(e)=>return Response::err(e)};
-            let polarity=match request.orgintel.polarity.as_deref().unwrap_or("positive"){"neutral"=>Some(restless_orgintel::IdentityPolarity::Neutral),"positive"=>Some(restless_orgintel::IdentityPolarity::Positive),"negative"=>Some(restless_orgintel::IdentityPolarity::Negative),_=>None};
-            match (kind,polarity,request.orgintel.claim_key.as_deref(),request.orgintel.statement.as_deref(),request.orgintel.actor.as_deref(),request.orgintel.source.as_deref(),request.orgintel.identity_authority.as_deref(),request.orgintel.scope.as_deref(),request.orgintel.evidence_locator.as_deref(),request.orgintel.visual_purpose.as_deref(),request.orgintel.visual_rationale.as_deref(),request.orgintel.accessibility_notes.as_deref(),request.orgintel.primitive_dependencies.as_ref()) {
-                (Some(kind),Some(polarity),Some(claim),Some(statement),Some(actor),Some(source),Some(authority),Some(scope),Some(locator),Some(purpose),Some(rationale),Some(accessibility),Some(dependencies))=>match daemon.orgintel.get(company).await { Ok(org)=>match org.add_visual_evidence(restless_orgintel::NewVisualEvidence{kind,claim_key:claim,statement,author_id:actor,source,authority,scope,observed_at:chrono::Utc::now(),evidence_locator:locator,rationale,purpose,polarity,channel,semantic_role:request.orgintel.semantic_role.as_deref(),value:request.orgintel.visual_value.as_deref(),reduced_motion_replacement:request.orgintel.reduced_motion_replacement.as_deref(),product_truth_locator:request.orgintel.product_truth_locator.as_deref(),origin:request.orgintel.primitive_origin.as_deref(),licence:request.orgintel.primitive_licence.as_deref(),framework:request.orgintel.primitive_framework.as_deref(),dependencies,adaptation_status:request.orgintel.adaptation_status.as_deref(),accessibility_notes:accessibility,supersedes_evidence_id:None}).await { Ok(id)=>Response::ok(serde_json::json!({"evidence_id":id})),Err(e)=>Response::err(format!("{e:#}"))},Err(e)=>Response::err(format!("{e:#}"))},
-                _=>Response::err("visual evidence needs valid kind, polarity, claim, statement, source, authority, scope, locator, purpose, rationale, accessibility, dependencies and acting actor")
+            let kind = match request.orgintel.visual_kind.as_deref() {
+                Some("semantic_token") => {
+                    Some(restless_orgintel::VisualEvidenceKind::SemanticToken)
+                }
+                Some("typography_role") => {
+                    Some(restless_orgintel::VisualEvidenceKind::TypographyRole)
+                }
+                Some("composition_principle") => {
+                    Some(restless_orgintel::VisualEvidenceKind::CompositionPrinciple)
+                }
+                Some("imagery_direction") => {
+                    Some(restless_orgintel::VisualEvidenceKind::ImageryDirection)
+                }
+                Some("motion_pattern") => {
+                    Some(restless_orgintel::VisualEvidenceKind::MotionPattern)
+                }
+                Some("product_representation_rule") => {
+                    Some(restless_orgintel::VisualEvidenceKind::ProductRepresentationRule)
+                }
+                Some("primitive") => Some(restless_orgintel::VisualEvidenceKind::Primitive),
+                Some("approved_composition") => {
+                    Some(restless_orgintel::VisualEvidenceKind::ApprovedComposition)
+                }
+                Some("rejected_example") => {
+                    Some(restless_orgintel::VisualEvidenceKind::RejectedExample)
+                }
+                _ => None,
+            };
+            let channel = match parse_visual_channel(request.orgintel.channel.as_deref()) {
+                Ok(v) => v,
+                Err(e) => return Response::err(e),
+            };
+            let polarity = match request.orgintel.polarity.as_deref().unwrap_or("positive") {
+                "neutral" => Some(restless_orgintel::IdentityPolarity::Neutral),
+                "positive" => Some(restless_orgintel::IdentityPolarity::Positive),
+                "negative" => Some(restless_orgintel::IdentityPolarity::Negative),
+                _ => None,
+            };
+            match (
+                kind,
+                polarity,
+                request.orgintel.claim_key.as_deref(),
+                request.orgintel.statement.as_deref(),
+                request.orgintel.actor.as_deref(),
+                request.orgintel.source.as_deref(),
+                request.orgintel.identity_authority.as_deref(),
+                request.orgintel.scope.as_deref(),
+                request.orgintel.evidence_locator.as_deref(),
+                request.orgintel.visual_purpose.as_deref(),
+                request.orgintel.visual_rationale.as_deref(),
+                request.orgintel.accessibility_notes.as_deref(),
+                request.orgintel.primitive_dependencies.as_ref(),
+            ) {
+                (
+                    Some(kind),
+                    Some(polarity),
+                    Some(claim),
+                    Some(statement),
+                    Some(actor),
+                    Some(source),
+                    Some(authority),
+                    Some(scope),
+                    Some(locator),
+                    Some(purpose),
+                    Some(rationale),
+                    Some(accessibility),
+                    Some(dependencies),
+                ) => match daemon.orgintel.get(company).await {
+                    Ok(org) => match org
+                        .add_visual_evidence(restless_orgintel::NewVisualEvidence {
+                            kind,
+                            claim_key: claim,
+                            statement,
+                            author_id: actor,
+                            source,
+                            authority,
+                            scope,
+                            observed_at: chrono::Utc::now(),
+                            evidence_locator: locator,
+                            rationale,
+                            purpose,
+                            polarity,
+                            channel,
+                            semantic_role: request.orgintel.semantic_role.as_deref(),
+                            value: request.orgintel.visual_value.as_deref(),
+                            reduced_motion_replacement: request
+                                .orgintel
+                                .reduced_motion_replacement
+                                .as_deref(),
+                            product_truth_locator: request
+                                .orgintel
+                                .product_truth_locator
+                                .as_deref(),
+                            origin: request.orgintel.primitive_origin.as_deref(),
+                            licence: request.orgintel.primitive_licence.as_deref(),
+                            framework: request.orgintel.primitive_framework.as_deref(),
+                            dependencies,
+                            adaptation_status: request.orgintel.adaptation_status.as_deref(),
+                            accessibility_notes: accessibility,
+                            supersedes_evidence_id: None,
+                        })
+                        .await
+                    {
+                        Ok(id) => Response::ok(serde_json::json!({"evidence_id":id})),
+                        Err(e) => Response::err(format!("{e:#}")),
+                    },
+                    Err(e) => Response::err(format!("{e:#}")),
+                },
+                _ => Response::err(
+                    "visual evidence needs valid kind, polarity, claim, statement, source, authority, scope, locator, purpose, rationale, accessibility, dependencies and acting actor",
+                ),
             }
         }
         "visual-bind" => {
-            let channel=match parse_visual_channel(request.orgintel.channel.as_deref()){Ok(Some(v))=>v,Ok(None)=>return Response::err("visual bind needs a channel"),Err(e)=>return Response::err(e)};
-            let work_id=match parse_required_uuid(request.orgintel.visual_work_id.as_deref(),"Work id"){Ok(v)=>v,Err(e)=>return Response::err(e)};
-            let representation=match request.orgintel.product_representation.as_deref(){Some("exact_product")=>Some(restless_orgintel::VisualRepresentation::ExactProduct),Some("clearly_abstract")=>Some(restless_orgintel::VisualRepresentation::ClearlyAbstract),Some("none")=>Some(restless_orgintel::VisualRepresentation::None),_=>None};
-            match (representation,request.orgintel.actor.as_deref(),request.orgintel.audience.as_deref(),request.common.body.as_deref(),request.orgintel.information_hierarchy.as_deref(),request.orgintel.proof.as_deref(),request.orgintel.visual_density.as_deref(),request.orgintel.imagery_role.as_deref(),request.orgintel.motion_role.as_deref()) {
-                (Some(product_representation),Some(actor),Some(audience),Some(outcome),Some(hierarchy),Some(proof),Some(density),Some(imagery),Some(motion))=>match daemon.orgintel.get(company).await {Ok(org)=>match org.bind_visual_work_contract(restless_orgintel::NewVisualWorkContract{work_id,channel,bound_by:actor,audience,outcome,information_hierarchy:hierarchy,proof,density,imagery_role:imagery,motion_role:motion,product_representation,product_truth_locator:request.orgintel.product_truth_locator.as_deref(),requested_departure:request.orgintel.requested_departure.as_deref()}).await {Ok(row)=>Response::ok_serialized(row),Err(e)=>Response::err(format!("{e:#}"))},Err(e)=>Response::err(format!("{e:#}"))},
-                _=>Response::err("visual bind needs valid representation, actor, audience, outcome, hierarchy, proof, density, imagery and motion")
+            let channel = match parse_visual_channel(request.orgintel.channel.as_deref()) {
+                Ok(Some(v)) => v,
+                Ok(None) => return Response::err("visual bind needs a channel"),
+                Err(e) => return Response::err(e),
+            };
+            let work_id =
+                match parse_required_uuid(request.orgintel.visual_work_id.as_deref(), "Work id") {
+                    Ok(v) => v,
+                    Err(e) => return Response::err(e),
+                };
+            let representation = match request.orgintel.product_representation.as_deref() {
+                Some("exact_product") => {
+                    Some(restless_orgintel::VisualRepresentation::ExactProduct)
+                }
+                Some("clearly_abstract") => {
+                    Some(restless_orgintel::VisualRepresentation::ClearlyAbstract)
+                }
+                Some("none") => Some(restless_orgintel::VisualRepresentation::None),
+                _ => None,
+            };
+            match (
+                representation,
+                request.orgintel.actor.as_deref(),
+                request.orgintel.audience.as_deref(),
+                request.common.body.as_deref(),
+                request.orgintel.information_hierarchy.as_deref(),
+                request.orgintel.proof.as_deref(),
+                request.orgintel.visual_density.as_deref(),
+                request.orgintel.imagery_role.as_deref(),
+                request.orgintel.motion_role.as_deref(),
+            ) {
+                (
+                    Some(product_representation),
+                    Some(actor),
+                    Some(audience),
+                    Some(outcome),
+                    Some(hierarchy),
+                    Some(proof),
+                    Some(density),
+                    Some(imagery),
+                    Some(motion),
+                ) => match daemon.orgintel.get(company).await {
+                    Ok(org) => match org
+                        .bind_visual_work_contract(restless_orgintel::NewVisualWorkContract {
+                            work_id,
+                            channel,
+                            bound_by: actor,
+                            audience,
+                            outcome,
+                            information_hierarchy: hierarchy,
+                            proof,
+                            density,
+                            imagery_role: imagery,
+                            motion_role: motion,
+                            product_representation,
+                            product_truth_locator: request
+                                .orgintel
+                                .product_truth_locator
+                                .as_deref(),
+                            requested_departure: request.orgintel.requested_departure.as_deref(),
+                        })
+                        .await
+                    {
+                        Ok(row) => Response::ok_serialized(row),
+                        Err(e) => Response::err(format!("{e:#}")),
+                    },
+                    Err(e) => Response::err(format!("{e:#}")),
+                },
+                _ => Response::err(
+                    "visual bind needs valid representation, actor, audience, outcome, hierarchy, proof, density, imagery and motion",
+                ),
             }
         }
         "visual-brief" => {
-            let work_id=match parse_required_uuid(request.orgintel.visual_work_id.as_deref(),"Work id"){Ok(v)=>v,Err(e)=>return Response::err(e)};
-            match daemon.orgintel.get(company).await {Ok(org)=>match org.compile_visual_direction(work_id,request.orgintel.max_bytes.unwrap_or(10*1024)).await {Ok(brief)=>Response::ok_serialized(brief),Err(e)=>Response::err(format!("{e:#}"))},Err(e)=>Response::err(format!("{e:#}"))}
+            let work_id =
+                match parse_required_uuid(request.orgintel.visual_work_id.as_deref(), "Work id") {
+                    Ok(v) => v,
+                    Err(e) => return Response::err(e),
+                };
+            match daemon.orgintel.get(company).await {
+                Ok(org) => match org
+                    .compile_visual_direction(
+                        work_id,
+                        request.orgintel.max_bytes.unwrap_or(10 * 1024),
+                    )
+                    .await
+                {
+                    Ok(brief) => Response::ok_serialized(brief),
+                    Err(e) => Response::err(format!("{e:#}")),
+                },
+                Err(e) => Response::err(format!("{e:#}")),
+            }
         }
         "visual-use" => {
-            let work_id=match parse_required_uuid(request.orgintel.visual_work_id.as_deref(),"Work id"){Ok(v)=>v,Err(e)=>return Response::err(e)};
-            let evidence_id=match parse_required_uuid(request.orgintel.visual_evidence_id.as_deref(),"visual evidence id"){Ok(v)=>v,Err(e)=>return Response::err(e)};
-            match (request.orgintel.primitive_version.as_deref(),request.orgintel.visual_purpose.as_deref()){(Some(version),Some(purpose))=>match daemon.orgintel.get(company).await{Ok(org)=>match org.record_visual_primitive_use(restless_orgintel::NewVisualPrimitiveUse{work_id,evidence_id,primitive_version:version,purpose}).await{Ok(())=>Response::ok(serde_json::json!({"recorded":true})),Err(e)=>Response::err(format!("{e:#}"))},Err(e)=>Response::err(format!("{e:#}"))},_=>Response::err("visual use needs exact primitive version and purpose")}
+            let work_id =
+                match parse_required_uuid(request.orgintel.visual_work_id.as_deref(), "Work id") {
+                    Ok(v) => v,
+                    Err(e) => return Response::err(e),
+                };
+            let evidence_id = match parse_required_uuid(
+                request.orgintel.visual_evidence_id.as_deref(),
+                "visual evidence id",
+            ) {
+                Ok(v) => v,
+                Err(e) => return Response::err(e),
+            };
+            match (
+                request.orgintel.primitive_version.as_deref(),
+                request.orgintel.visual_purpose.as_deref(),
+            ) {
+                (Some(version), Some(purpose)) => match daemon.orgintel.get(company).await {
+                    Ok(org) => match org
+                        .record_visual_primitive_use(restless_orgintel::NewVisualPrimitiveUse {
+                            work_id,
+                            evidence_id,
+                            primitive_version: version,
+                            purpose,
+                        })
+                        .await
+                    {
+                        Ok(()) => Response::ok(serde_json::json!({"recorded":true})),
+                        Err(e) => Response::err(format!("{e:#}")),
+                    },
+                    Err(e) => Response::err(format!("{e:#}")),
+                },
+                _ => Response::err("visual use needs exact primitive version and purpose"),
+            }
         }
         "visual-render" => {
-            let work_id=match parse_required_uuid(request.orgintel.visual_work_id.as_deref(),"Work id"){Ok(v)=>v,Err(e)=>return Response::err(e)};
-            let artifact_ref_id=match parse_required_uuid(request.orgintel.artifact_ref_id.as_deref(),"artifact ref id"){Ok(v)=>v,Err(e)=>return Response::err(e)};
-            let channel=match parse_visual_channel(request.orgintel.channel.as_deref()){Ok(Some(v))=>v,Ok(None)=>return Response::err("visual render needs a channel"),Err(e)=>return Response::err(e)};
-            let motion_state=match request.orgintel.motion_state.as_deref(){Some("full")=>Some(restless_orgintel::VisualMotionState::Full),Some("reduced")=>Some(restless_orgintel::VisualMotionState::Reduced),Some("static")=>Some(restless_orgintel::VisualMotionState::Static),_=>None};
-            match (motion_state,request.orgintel.renderer.as_deref(),request.orgintel.renderer_version.as_deref(),request.orgintel.viewport_width,request.orgintel.viewport_height,request.orgintel.semantic_checks.as_ref(),request.orgintel.actor.as_deref()) {(Some(motion_state),Some(renderer),Some(version),Some(width),Some(height),Some(checks),Some(actor))=>match daemon.orgintel.get(company).await{Ok(org)=>match org.record_visual_render_evidence(restless_orgintel::NewVisualRenderEvidence{work_id,artifact_ref_id,channel,renderer,renderer_version:version,viewport_width:width,viewport_height:height,motion_state,native_checks:checks,captured_by:actor}).await{Ok(id)=>Response::ok(serde_json::json!({"render_evidence_id":id})),Err(e)=>Response::err(format!("{e:#}"))},Err(e)=>Response::err(format!("{e:#}"))},_=>Response::err("visual render needs motion state, renderer, version, viewport, JSON checks and acting capturer")}
+            let work_id =
+                match parse_required_uuid(request.orgintel.visual_work_id.as_deref(), "Work id") {
+                    Ok(v) => v,
+                    Err(e) => return Response::err(e),
+                };
+            let artifact_ref_id = match parse_required_uuid(
+                request.orgintel.artifact_ref_id.as_deref(),
+                "artifact ref id",
+            ) {
+                Ok(v) => v,
+                Err(e) => return Response::err(e),
+            };
+            let channel = match parse_visual_channel(request.orgintel.channel.as_deref()) {
+                Ok(Some(v)) => v,
+                Ok(None) => return Response::err("visual render needs a channel"),
+                Err(e) => return Response::err(e),
+            };
+            let motion_state = match request.orgintel.motion_state.as_deref() {
+                Some("full") => Some(restless_orgintel::VisualMotionState::Full),
+                Some("reduced") => Some(restless_orgintel::VisualMotionState::Reduced),
+                Some("static") => Some(restless_orgintel::VisualMotionState::Static),
+                _ => None,
+            };
+            match (
+                motion_state,
+                request.orgintel.renderer.as_deref(),
+                request.orgintel.renderer_version.as_deref(),
+                request.orgintel.viewport_width,
+                request.orgintel.viewport_height,
+                request.orgintel.semantic_checks.as_ref(),
+                request.orgintel.actor.as_deref(),
+            ) {
+                (
+                    Some(motion_state),
+                    Some(renderer),
+                    Some(version),
+                    Some(width),
+                    Some(height),
+                    Some(checks),
+                    Some(actor),
+                ) => match daemon.orgintel.get(company).await {
+                    Ok(org) => match org
+                        .record_visual_render_evidence(restless_orgintel::NewVisualRenderEvidence {
+                            work_id,
+                            artifact_ref_id,
+                            channel,
+                            renderer,
+                            renderer_version: version,
+                            viewport_width: width,
+                            viewport_height: height,
+                            motion_state,
+                            native_checks: checks,
+                            captured_by: actor,
+                        })
+                        .await
+                    {
+                        Ok(id) => Response::ok(serde_json::json!({"render_evidence_id":id})),
+                        Err(e) => Response::err(format!("{e:#}")),
+                    },
+                    Err(e) => Response::err(format!("{e:#}")),
+                },
+                _ => Response::err(
+                    "visual render needs motion state, renderer, version, viewport, JSON checks and acting capturer",
+                ),
+            }
         }
         "visual-review" => {
-            let render_evidence_id=match parse_required_uuid(request.orgintel.render_evidence_id.as_deref(),"render evidence id"){Ok(v)=>v,Err(e)=>return Response::err(e)};
-            let control_render_evidence_id=match parse_optional_uuid(request.orgintel.control_render_evidence_id.as_deref(),"control render evidence id"){Ok(v)=>v,Err(e)=>return Response::err(e)};
-            let verdict=match request.orgintel.review_verdict.as_deref(){Some("accept")=>Some(restless_orgintel::VisualReviewVerdict::Accept),Some("revise")=>Some(restless_orgintel::VisualReviewVerdict::Revise),Some("reject")=>Some(restless_orgintel::VisualReviewVerdict::Reject),_=>None};
-            match (verdict,request.orgintel.actor.as_deref()){(Some(verdict),Some(actor))=>match daemon.orgintel.get(company).await{Ok(org)=>match org.record_visual_review(restless_orgintel::NewVisualReview{render_evidence_id,control_render_evidence_id,reviewer:actor,verdict,identity_findings:request.orgintel.visual_identity_findings.as_deref().unwrap_or(""),hierarchy_findings:request.orgintel.hierarchy_findings.as_deref().unwrap_or(""),density_findings:request.orgintel.density_findings.as_deref().unwrap_or(""),proof_findings:request.orgintel.proof_findings.as_deref().unwrap_or(""),product_fidelity_findings:request.orgintel.product_fidelity_findings.as_deref().unwrap_or(""),motion_findings:request.orgintel.motion_findings.as_deref().unwrap_or(""),defect_findings:request.orgintel.defect_findings.as_deref().unwrap_or(""),departure_decision:request.orgintel.departure_decision.as_deref().unwrap_or("")}).await{Ok(id)=>Response::ok(serde_json::json!({"review_id":id})),Err(e)=>Response::err(format!("{e:#}"))},Err(e)=>Response::err(format!("{e:#}"))},_=>Response::err("visual review needs verdict accept|revise|reject and acting reviewer")}
+            let render_evidence_id = match parse_required_uuid(
+                request.orgintel.render_evidence_id.as_deref(),
+                "render evidence id",
+            ) {
+                Ok(v) => v,
+                Err(e) => return Response::err(e),
+            };
+            let control_render_evidence_id = match parse_optional_uuid(
+                request.orgintel.control_render_evidence_id.as_deref(),
+                "control render evidence id",
+            ) {
+                Ok(v) => v,
+                Err(e) => return Response::err(e),
+            };
+            let verdict = match request.orgintel.review_verdict.as_deref() {
+                Some("accept") => Some(restless_orgintel::VisualReviewVerdict::Accept),
+                Some("revise") => Some(restless_orgintel::VisualReviewVerdict::Revise),
+                Some("reject") => Some(restless_orgintel::VisualReviewVerdict::Reject),
+                _ => None,
+            };
+            match (verdict, request.orgintel.actor.as_deref()) {
+                (Some(verdict), Some(actor)) => match daemon.orgintel.get(company).await {
+                    Ok(org) => match org
+                        .record_visual_review(restless_orgintel::NewVisualReview {
+                            render_evidence_id,
+                            control_render_evidence_id,
+                            reviewer: actor,
+                            verdict,
+                            identity_findings: request
+                                .orgintel
+                                .visual_identity_findings
+                                .as_deref()
+                                .unwrap_or(""),
+                            hierarchy_findings: request
+                                .orgintel
+                                .hierarchy_findings
+                                .as_deref()
+                                .unwrap_or(""),
+                            density_findings: request
+                                .orgintel
+                                .density_findings
+                                .as_deref()
+                                .unwrap_or(""),
+                            proof_findings: request
+                                .orgintel
+                                .proof_findings
+                                .as_deref()
+                                .unwrap_or(""),
+                            product_fidelity_findings: request
+                                .orgintel
+                                .product_fidelity_findings
+                                .as_deref()
+                                .unwrap_or(""),
+                            motion_findings: request
+                                .orgintel
+                                .motion_findings
+                                .as_deref()
+                                .unwrap_or(""),
+                            defect_findings: request
+                                .orgintel
+                                .defect_findings
+                                .as_deref()
+                                .unwrap_or(""),
+                            departure_decision: request
+                                .orgintel
+                                .departure_decision
+                                .as_deref()
+                                .unwrap_or(""),
+                        })
+                        .await
+                    {
+                        Ok(id) => Response::ok(serde_json::json!({"review_id":id})),
+                        Err(e) => Response::err(format!("{e:#}")),
+                    },
+                    Err(e) => Response::err(format!("{e:#}")),
+                },
+                _ => Response::err(
+                    "visual review needs verdict accept|revise|reject and acting reviewer",
+                ),
+            }
         }
         "culture-evidence-add" => {
-            let kind=match request.orgintel.culture_kind.as_deref(){Some("founding_decision")=>Some(restless_orgintel::CultureEvidenceKind::FoundingDecision),Some("observed_conduct")=>Some(restless_orgintel::CultureEvidenceKind::ObservedConduct),Some("counterexample")=>Some(restless_orgintel::CultureEvidenceKind::Counterexample),Some("promoted_norm")=>Some(restless_orgintel::CultureEvidenceKind::PromotedNorm),Some("bounded_exception")=>Some(restless_orgintel::CultureEvidenceKind::BoundedException),_=>None};
-            let case_kind=match parse_culture_case(request.orgintel.culture_case_kind.as_deref()){Ok(v)=>v,Err(e)=>return Response::err(e)};
-            let confidence=match request.orgintel.culture_confidence.as_deref(){Some("tentative")=>Some(restless_orgintel::CultureConfidence::Tentative),Some("corroborated")=>Some(restless_orgintel::CultureConfidence::Corroborated),Some("owner_founded")=>Some(restless_orgintel::CultureConfidence::OwnerFounded),_=>None};
-            match(kind,confidence,request.orgintel.claim_key.as_deref(),request.orgintel.statement.as_deref(),request.orgintel.actor.as_deref(),request.orgintel.source.as_deref(),request.orgintel.identity_authority.as_deref(),request.orgintel.scope.as_deref(),request.orgintel.evidence_locator.as_deref(),request.orgintel.culture_situation.as_deref(),request.orgintel.consequence.as_deref(),request.orgintel.culture_actors.as_deref(),request.orgintel.decision_authority.as_deref(),request.orgintel.observed_conduct.as_deref(),request.orgintel.observed_outcome.as_deref(),request.orgintel.counterexample.as_deref(),request.orgintel.boundary_conditions.as_deref(),request.orgintel.operational_implication.as_deref(),request.orgintel.actor_scope.as_deref()){
-                (Some(kind),Some(confidence),Some(claim),Some(statement),Some(actor),Some(source),Some(authority),Some(scope),Some(locator),Some(situation),Some(consequence),Some(actors),Some(decision_authority),Some(conduct),Some(outcome),Some(counterexample),Some(boundary),Some(implication),Some(actor_scope))=>match daemon.orgintel.get(company).await{Ok(org)=>match org.add_culture_evidence(restless_orgintel::NewCultureEvidence{kind,case_kind,claim_key:claim,statement,author_id:actor,source,authority,scope,observed_at:chrono::Utc::now(),evidence_locator:locator,polarity:if kind==restless_orgintel::CultureEvidenceKind::Counterexample{restless_orgintel::IdentityPolarity::Negative}else{restless_orgintel::IdentityPolarity::Positive},situation,consequence,actors,decision_authority,conduct,observed_outcome:outcome,confidence,counterexample,boundary_conditions:boundary,operational_implication:implication,actor_scope,supersedes_evidence_id:None}).await{Ok(id)=>Response::ok(serde_json::json!({"evidence_id":id})),Err(e)=>Response::err(format!("{e:#}"))},Err(e)=>Response::err(format!("{e:#}"))},
-                _=>Response::err("culture evidence needs typed conduct, consequence, counterexample, boundary, confidence and acting author")}
+            let kind = match request.orgintel.culture_kind.as_deref() {
+                Some("founding_decision") => {
+                    Some(restless_orgintel::CultureEvidenceKind::FoundingDecision)
+                }
+                Some("observed_conduct") => {
+                    Some(restless_orgintel::CultureEvidenceKind::ObservedConduct)
+                }
+                Some("counterexample") => {
+                    Some(restless_orgintel::CultureEvidenceKind::Counterexample)
+                }
+                Some("promoted_norm") => Some(restless_orgintel::CultureEvidenceKind::PromotedNorm),
+                Some("bounded_exception") => {
+                    Some(restless_orgintel::CultureEvidenceKind::BoundedException)
+                }
+                _ => None,
+            };
+            let case_kind = match parse_culture_case(request.orgintel.culture_case_kind.as_deref())
+            {
+                Ok(v) => v,
+                Err(e) => return Response::err(e),
+            };
+            let confidence = match request.orgintel.culture_confidence.as_deref() {
+                Some("tentative") => Some(restless_orgintel::CultureConfidence::Tentative),
+                Some("corroborated") => Some(restless_orgintel::CultureConfidence::Corroborated),
+                Some("owner_founded") => Some(restless_orgintel::CultureConfidence::OwnerFounded),
+                _ => None,
+            };
+            match (
+                kind,
+                confidence,
+                request.orgintel.claim_key.as_deref(),
+                request.orgintel.statement.as_deref(),
+                request.orgintel.actor.as_deref(),
+                request.orgintel.source.as_deref(),
+                request.orgintel.identity_authority.as_deref(),
+                request.orgintel.scope.as_deref(),
+                request.orgintel.evidence_locator.as_deref(),
+                request.orgintel.culture_situation.as_deref(),
+                request.orgintel.consequence.as_deref(),
+                request.orgintel.culture_actors.as_deref(),
+                request.orgintel.decision_authority.as_deref(),
+                request.orgintel.observed_conduct.as_deref(),
+                request.orgintel.observed_outcome.as_deref(),
+                request.orgintel.counterexample.as_deref(),
+                request.orgintel.boundary_conditions.as_deref(),
+                request.orgintel.operational_implication.as_deref(),
+                request.orgintel.actor_scope.as_deref(),
+            ) {
+                (
+                    Some(kind),
+                    Some(confidence),
+                    Some(claim),
+                    Some(statement),
+                    Some(actor),
+                    Some(source),
+                    Some(authority),
+                    Some(scope),
+                    Some(locator),
+                    Some(situation),
+                    Some(consequence),
+                    Some(actors),
+                    Some(decision_authority),
+                    Some(conduct),
+                    Some(outcome),
+                    Some(counterexample),
+                    Some(boundary),
+                    Some(implication),
+                    Some(actor_scope),
+                ) => match daemon.orgintel.get(company).await {
+                    Ok(org) => match org
+                        .add_culture_evidence(restless_orgintel::NewCultureEvidence {
+                            kind,
+                            case_kind,
+                            claim_key: claim,
+                            statement,
+                            author_id: actor,
+                            source,
+                            authority,
+                            scope,
+                            observed_at: chrono::Utc::now(),
+                            evidence_locator: locator,
+                            polarity: if kind
+                                == restless_orgintel::CultureEvidenceKind::Counterexample
+                            {
+                                restless_orgintel::IdentityPolarity::Negative
+                            } else {
+                                restless_orgintel::IdentityPolarity::Positive
+                            },
+                            situation,
+                            consequence,
+                            actors,
+                            decision_authority,
+                            conduct,
+                            observed_outcome: outcome,
+                            confidence,
+                            counterexample,
+                            boundary_conditions: boundary,
+                            operational_implication: implication,
+                            actor_scope,
+                            supersedes_evidence_id: None,
+                        })
+                        .await
+                    {
+                        Ok(id) => Response::ok(serde_json::json!({"evidence_id":id})),
+                        Err(e) => Response::err(format!("{e:#}")),
+                    },
+                    Err(e) => Response::err(format!("{e:#}")),
+                },
+                _ => Response::err(
+                    "culture evidence needs typed conduct, consequence, counterexample, boundary, confidence and acting author",
+                ),
+            }
         }
         "culture-bind" => {
-            let work_id=match parse_required_uuid(request.orgintel.culture_work_id.as_deref(),"Work id"){Ok(v)=>v,Err(e)=>return Response::err(e)};let case_kind=match parse_culture_case(request.orgintel.culture_case_kind.as_deref()){Ok(Some(v))=>v,Ok(None)=>return Response::err("culture bind needs a case"),Err(e)=>return Response::err(e)};
-            match(request.orgintel.culture_actor.as_deref(),request.orgintel.actor_role.as_deref(),request.orgintel.team_name.as_deref(),request.orgintel.consequence.as_deref(),request.orgintel.decision_boundary.as_deref(),request.orgintel.actor.as_deref()){(Some(actor),Some(role),Some(team),Some(consequence),Some(boundary),Some(bound_by))=>match daemon.orgintel.get(company).await{Ok(org)=>match org.bind_culture_work_contract(restless_orgintel::NewCultureWorkContract{work_id,case_kind,actor,actor_role:role,team,consequence,decision_boundary:boundary,bound_by}).await{Ok(row)=>Response::ok_serialized(row),Err(e)=>Response::err(format!("{e:#}"))},Err(e)=>Response::err(format!("{e:#}"))},_=>Response::err("culture bind needs actor, role, team, consequence, decision boundary and binder")}
+            let work_id =
+                match parse_required_uuid(request.orgintel.culture_work_id.as_deref(), "Work id") {
+                    Ok(v) => v,
+                    Err(e) => return Response::err(e),
+                };
+            let case_kind = match parse_culture_case(request.orgintel.culture_case_kind.as_deref())
+            {
+                Ok(Some(v)) => v,
+                Ok(None) => return Response::err("culture bind needs a case"),
+                Err(e) => return Response::err(e),
+            };
+            match (
+                request.orgintel.culture_actor.as_deref(),
+                request.orgintel.actor_role.as_deref(),
+                request.orgintel.team_name.as_deref(),
+                request.orgintel.consequence.as_deref(),
+                request.orgintel.decision_boundary.as_deref(),
+                request.orgintel.actor.as_deref(),
+            ) {
+                (
+                    Some(actor),
+                    Some(role),
+                    Some(team),
+                    Some(consequence),
+                    Some(boundary),
+                    Some(bound_by),
+                ) => match daemon.orgintel.get(company).await {
+                    Ok(org) => match org
+                        .bind_culture_work_contract(restless_orgintel::NewCultureWorkContract {
+                            work_id,
+                            case_kind,
+                            actor,
+                            actor_role: role,
+                            team,
+                            consequence,
+                            decision_boundary: boundary,
+                            bound_by,
+                        })
+                        .await
+                    {
+                        Ok(row) => Response::ok_serialized(row),
+                        Err(e) => Response::err(format!("{e:#}")),
+                    },
+                    Err(e) => Response::err(format!("{e:#}")),
+                },
+                _ => Response::err(
+                    "culture bind needs actor, role, team, consequence, decision boundary and binder",
+                ),
+            }
         }
-        "culture-brief" => {let work_id=match parse_required_uuid(request.orgintel.culture_work_id.as_deref(),"Work id"){Ok(v)=>v,Err(e)=>return Response::err(e)};match daemon.orgintel.get(company).await{Ok(org)=>match org.compile_culture_posture(work_id,request.orgintel.max_bytes.unwrap_or(8192)).await{Ok(brief)=>Response::ok_serialized(brief),Err(e)=>Response::err(format!("{e:#}"))},Err(e)=>Response::err(format!("{e:#}"))}}
+        "culture-brief" => {
+            let work_id =
+                match parse_required_uuid(request.orgintel.culture_work_id.as_deref(), "Work id") {
+                    Ok(v) => v,
+                    Err(e) => return Response::err(e),
+                };
+            match daemon.orgintel.get(company).await {
+                Ok(org) => match org
+                    .compile_culture_posture(work_id, request.orgintel.max_bytes.unwrap_or(8192))
+                    .await
+                {
+                    Ok(brief) => Response::ok_serialized(brief),
+                    Err(e) => Response::err(format!("{e:#}")),
+                },
+                Err(e) => Response::err(format!("{e:#}")),
+            }
+        }
         "culture-case" => {
-            let work_id=match parse_required_uuid(request.orgintel.culture_work_id.as_deref(),"Work id"){Ok(v)=>v,Err(e)=>return Response::err(e)};let artifact_ref_id=match parse_required_uuid(request.orgintel.artifact_ref_id.as_deref(),"artifact ref id"){Ok(v)=>v,Err(e)=>return Response::err(e)};let case_kind=match parse_culture_case(request.orgintel.culture_case_kind.as_deref()){Ok(Some(v))=>v,Ok(None)=>return Response::err("culture record needs a case"),Err(e)=>return Response::err(e)};let correction_of=match parse_optional_uuid(request.orgintel.correction_of.as_deref(),"correction record id"){Ok(v)=>v,Err(e)=>return Response::err(e)};
-            match(request.orgintel.culture_decision.as_deref(),request.orgintel.culture_alternatives.as_ref(),request.orgintel.culture_unknowns.as_deref(),request.orgintel.semantic_checks.as_ref(),request.orgintel.actor.as_deref()){(Some(decision),Some(alternatives),Some(unknowns),Some(checks),Some(actor))=>match daemon.orgintel.get(company).await{Ok(org)=>match org.record_culture_case(restless_orgintel::NewCultureCaseRecord{work_id,artifact_ref_id,case_kind,decision,alternatives,unknowns,correction_of,correction_account:request.orgintel.correction_account.as_deref().unwrap_or(""),customer_action:request.orgintel.customer_action.as_deref().unwrap_or(""),native_checks:checks,recorded_by:actor}).await{Ok(id)=>Response::ok(serde_json::json!({"case_record_id":id})),Err(e)=>Response::err(format!("{e:#}"))},Err(e)=>Response::err(format!("{e:#}"))},_=>Response::err("culture case needs exact artifact, decision, alternatives, unknowns, native checks and recorder")}
+            let work_id =
+                match parse_required_uuid(request.orgintel.culture_work_id.as_deref(), "Work id") {
+                    Ok(v) => v,
+                    Err(e) => return Response::err(e),
+                };
+            let artifact_ref_id = match parse_required_uuid(
+                request.orgintel.artifact_ref_id.as_deref(),
+                "artifact ref id",
+            ) {
+                Ok(v) => v,
+                Err(e) => return Response::err(e),
+            };
+            let case_kind = match parse_culture_case(request.orgintel.culture_case_kind.as_deref())
+            {
+                Ok(Some(v)) => v,
+                Ok(None) => return Response::err("culture record needs a case"),
+                Err(e) => return Response::err(e),
+            };
+            let correction_of = match parse_optional_uuid(
+                request.orgintel.correction_of.as_deref(),
+                "correction record id",
+            ) {
+                Ok(v) => v,
+                Err(e) => return Response::err(e),
+            };
+            match (
+                request.orgintel.culture_decision.as_deref(),
+                request.orgintel.culture_alternatives.as_ref(),
+                request.orgintel.culture_unknowns.as_deref(),
+                request.orgintel.semantic_checks.as_ref(),
+                request.orgintel.actor.as_deref(),
+            ) {
+                (Some(decision), Some(alternatives), Some(unknowns), Some(checks), Some(actor)) => {
+                    match daemon.orgintel.get(company).await {
+                        Ok(org) => match org
+                            .record_culture_case(restless_orgintel::NewCultureCaseRecord {
+                                work_id,
+                                artifact_ref_id,
+                                case_kind,
+                                decision,
+                                alternatives,
+                                unknowns,
+                                correction_of,
+                                correction_account: request
+                                    .orgintel
+                                    .correction_account
+                                    .as_deref()
+                                    .unwrap_or(""),
+                                customer_action: request
+                                    .orgintel
+                                    .customer_action
+                                    .as_deref()
+                                    .unwrap_or(""),
+                                native_checks: checks,
+                                recorded_by: actor,
+                            })
+                            .await
+                        {
+                            Ok(id) => Response::ok(serde_json::json!({"case_record_id":id})),
+                            Err(e) => Response::err(format!("{e:#}")),
+                        },
+                        Err(e) => Response::err(format!("{e:#}")),
+                    }
+                }
+                _ => Response::err(
+                    "culture case needs exact artifact, decision, alternatives, unknowns, native checks and recorder",
+                ),
+            }
         }
         "culture-review" => {
-            let case_record_id=match parse_required_uuid(request.orgintel.culture_case_record_id.as_deref(),"culture case record id"){Ok(v)=>v,Err(e)=>return Response::err(e)};let verdict=match request.orgintel.review_verdict.as_deref(){Some("accept")=>Some(restless_orgintel::CultureReviewVerdict::Accept),Some("revise")=>Some(restless_orgintel::CultureReviewVerdict::Revise),Some("reject")=>Some(restless_orgintel::CultureReviewVerdict::Reject),_=>None};match(verdict,request.orgintel.actor.as_deref()){(Some(verdict),Some(actor))=>match daemon.orgintel.get(company).await{Ok(org)=>match org.record_culture_review(restless_orgintel::NewCultureReview{case_record_id,reviewer:actor,verdict,conduct_findings:request.orgintel.conduct_findings.as_deref().unwrap_or(""),dissent_findings:request.orgintel.dissent_findings.as_deref().unwrap_or(""),uncertainty_findings:request.orgintel.uncertainty_findings.as_deref().unwrap_or(""),correction_findings:request.orgintel.correction_findings.as_deref().unwrap_or(""),authority_findings:request.orgintel.authority_findings.as_deref().unwrap_or(""),customer_or_hiring_findings:request.orgintel.customer_or_hiring_findings.as_deref().unwrap_or(""),slogan_recitation_detected:request.orgintel.slogan_recitation_detected}).await{Ok(id)=>Response::ok(serde_json::json!({"review_id":id})),Err(e)=>Response::err(format!("{e:#}"))},Err(e)=>Response::err(format!("{e:#}"))},_=>Response::err("culture review needs verdict and independent reviewer")}
+            let case_record_id = match parse_required_uuid(
+                request.orgintel.culture_case_record_id.as_deref(),
+                "culture case record id",
+            ) {
+                Ok(v) => v,
+                Err(e) => return Response::err(e),
+            };
+            let verdict = match request.orgintel.review_verdict.as_deref() {
+                Some("accept") => Some(restless_orgintel::CultureReviewVerdict::Accept),
+                Some("revise") => Some(restless_orgintel::CultureReviewVerdict::Revise),
+                Some("reject") => Some(restless_orgintel::CultureReviewVerdict::Reject),
+                _ => None,
+            };
+            match (verdict, request.orgintel.actor.as_deref()) {
+                (Some(verdict), Some(actor)) => match daemon.orgintel.get(company).await {
+                    Ok(org) => match org
+                        .record_culture_review(restless_orgintel::NewCultureReview {
+                            case_record_id,
+                            reviewer: actor,
+                            verdict,
+                            conduct_findings: request
+                                .orgintel
+                                .conduct_findings
+                                .as_deref()
+                                .unwrap_or(""),
+                            dissent_findings: request
+                                .orgintel
+                                .dissent_findings
+                                .as_deref()
+                                .unwrap_or(""),
+                            uncertainty_findings: request
+                                .orgintel
+                                .uncertainty_findings
+                                .as_deref()
+                                .unwrap_or(""),
+                            correction_findings: request
+                                .orgintel
+                                .correction_findings
+                                .as_deref()
+                                .unwrap_or(""),
+                            authority_findings: request
+                                .orgintel
+                                .authority_findings
+                                .as_deref()
+                                .unwrap_or(""),
+                            customer_or_hiring_findings: request
+                                .orgintel
+                                .customer_or_hiring_findings
+                                .as_deref()
+                                .unwrap_or(""),
+                            slogan_recitation_detected: request.orgintel.slogan_recitation_detected,
+                        })
+                        .await
+                    {
+                        Ok(id) => Response::ok(serde_json::json!({"review_id":id})),
+                        Err(e) => Response::err(format!("{e:#}")),
+                    },
+                    Err(e) => Response::err(format!("{e:#}")),
+                },
+                _ => Response::err("culture review needs verdict and independent reviewer"),
+            }
         }
         "events" => match daemon.orgintel.get(company).await {
             Ok(org) => match org.list_events(request.common.limit.unwrap_or(50)).await {
@@ -4390,6 +5467,7 @@ async fn dispatch(request: Request, daemon: &Daemon, principal: Principal) -> Re
                                 config: &config,
                                 authority: &daemon.authority,
                                 org: org.as_ref(),
+                                runtime_transport: &daemon.runtime_transport,
                             },
                             &effect_class,
                             request.authority.party.as_deref(),
@@ -4494,6 +5572,27 @@ async fn resolve_team(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn hosted_plane_database_url_is_password_authenticated_and_bounded() {
+        assert!(validate_plane_database_url(
+            "postgresql://restless:secret@plane-database/restless?sslmode=disable"
+        )
+        .is_ok());
+        for invalid in [
+            "postgresql://restless@plane-database/restless",
+            "postgresql://:secret@plane-database/restless",
+            "postgresql://restless:secret@plane-database/",
+            "sqlite:///state/restless.db",
+            " postgresql://restless:secret@plane-database/restless",
+            "postgresql://restless:secret@plane-database/restless\n",
+        ] {
+            assert!(
+                validate_plane_database_url(invalid).is_err(),
+                "accepted invalid hosted database URL shape"
+            );
+        }
+    }
 
     fn decoded_request(value: serde_json::Value) -> Request {
         Request::decode(&value.to_string()).expect("decode request through the transport boundary")

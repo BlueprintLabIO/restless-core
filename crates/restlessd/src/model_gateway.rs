@@ -12,7 +12,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::process::Stdio;
-use std::sync::OnceLock;
+use std::sync::{Arc, OnceLock, RwLock};
 use std::task::{Context as TaskContext, Poll};
 use std::time::Duration;
 
@@ -53,6 +53,7 @@ struct GatewayEndpoints {
     relay_runtime_url: String,
     relay_bind: String,
     relay_loopback_probe: String,
+    relay_loopback_url: String,
 }
 
 impl GatewayEndpoints {
@@ -61,6 +62,8 @@ impl GatewayEndpoints {
         let broker_port = crate::port_with_offset(7789)?;
         let gateway_port = crate::port_with_offset(7796)?;
         let relay_port = crate::port_with_offset(7790)?;
+        let entry_mode = std::env::var("RESTLESS_ENTRY_MODE").ok();
+        let entry_host = std::env::var("RESTLESS_ENTRY_HOST").ok();
         let profile_suffix = (offset != 0).then(|| format!("-{offset}"));
         Ok(Self {
             broker_profile: format!(
@@ -75,11 +78,49 @@ impl GatewayEndpoints {
             broker_bind: format!("127.0.0.1:{broker_port}"),
             gateway_host_url: format!("http://127.0.0.1:{gateway_port}"),
             gateway_bind: format!("127.0.0.1:{gateway_port}"),
-            relay_runtime_url: format!("http://host.docker.internal:{relay_port}"),
+            relay_runtime_url: runtime_relay_url(
+                entry_mode.as_deref(),
+                entry_host.as_deref(),
+                relay_port,
+            )?,
             relay_bind: format!("0.0.0.0:{relay_port}"),
             relay_loopback_probe: format!("127.0.0.1:{relay_port}"),
+            relay_loopback_url: format!("http://127.0.0.1:{relay_port}"),
         })
     }
+}
+
+fn runtime_relay_url(
+    entry_mode: Option<&str>,
+    entry_host: Option<&str>,
+    port: u16,
+) -> Result<String> {
+    match entry_mode.unwrap_or("local") {
+        "local" => Ok(format!("http://host.docker.internal:{port}")),
+        "network" => {
+            let host = entry_host.context("RESTLESS_ENTRY_HOST is required in network mode")?;
+            if host.is_empty()
+                || host.len() > 253
+                || host.split('.').any(|label| {
+                    label.is_empty()
+                        || label.len() > 63
+                        || label.starts_with('-')
+                        || label.ends_with('-')
+                        || !label.bytes().all(|byte| {
+                            byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-'
+                        })
+                })
+            {
+                bail!("RESTLESS_ENTRY_HOST must be a bounded lowercase DNS hostname");
+            }
+            Ok(format!("https://{host}/internal/v1/model"))
+        }
+        _ => bail!("RESTLESS_ENTRY_MODE must be `local` or `network`"),
+    }
+}
+
+pub(crate) fn hosted_relay_loopback_url() -> Result<String> {
+    Ok(GatewayEndpoints::from_env()?.relay_loopback_url)
 }
 
 fn preflight_runtime_relay_port(loopback_bind: &str) -> Result<()> {
@@ -100,33 +141,102 @@ fn preflight_runtime_relay_port(loopback_bind: &str) -> Result<()> {
 
 static CLIENT: OnceLock<ClientConfig> = OnceLock::new();
 
-/// Companies the account plane could not admit a model route for at boot.
+/// Companies the account plane currently cannot admit a model route for.
 /// Consulted before a company wakes so the refusal names the exact reason
 /// instead of failing later inside the company's first Attempt.
-static UNSTARTABLE: OnceLock<BTreeMap<String, String>> = OnceLock::new();
+static UNSTARTABLE: OnceLock<RwLock<BTreeMap<String, String>>> = OnceLock::new();
 
 /// Why this company cannot start, if the plane could not admit it.
 pub fn unstartable_reason(company: &str) -> Option<String> {
-    UNSTARTABLE.get()?.get(company).cloned()
+    UNSTARTABLE
+        .get_or_init(|| RwLock::new(BTreeMap::new()))
+        .read()
+        .ok()?
+        .get(company)
+        .cloned()
 }
 
 pub fn is_ready() -> bool {
-    CLIENT.get().is_some()
+    CLIENT
+        .get_or_init(ClientConfig::empty)
+        .snapshot
+        .read()
+        .is_ok_and(|snapshot| snapshot.is_some())
 }
 
 #[derive(Clone)]
 pub struct ClientConfig {
+    snapshot: Arc<RwLock<Option<GatewayClientSnapshot>>>,
+}
+
+#[derive(Clone)]
+struct GatewayClientSnapshot {
     providers: BTreeMap<String, ModelBilling>,
     runtime_url: String,
+    primary_models: BTreeMap<String, String>,
+    admitted_models: BTreeMap<String, BTreeSet<String>>,
 }
 
 impl ClientConfig {
+    fn empty() -> Self {
+        Self {
+            snapshot: Arc::new(RwLock::new(None)),
+        }
+    }
+
+    fn replace(&self, snapshot: Option<GatewayClientSnapshot>) -> Result<()> {
+        *self
+            .snapshot
+            .write()
+            .map_err(|_| anyhow::anyhow!("model gateway client state is unavailable"))? = snapshot;
+        Ok(())
+    }
+
     fn billing_for(&self, model: &str) -> Result<ModelBilling> {
         let (provider, _) = split_model(model)?;
-        self.providers.get(provider).copied().with_context(|| {
-            format!(
-                "model provider {provider} was not loaded into the host gateway at daemon boot; configure its credential and restart restlessd"
-            )
+        self.snapshot
+            .read()
+            .map_err(|_| anyhow::anyhow!("model gateway client state is unavailable"))?
+            .as_ref()
+            .and_then(|snapshot| snapshot.providers.get(provider).copied())
+            .with_context(|| {
+                format!("model provider {provider} is not admitted by the host gateway")
+            })
+    }
+
+    fn company_primary_model_is_admitted(&self, company: &str, model: &str) -> bool {
+        self.snapshot.read().is_ok_and(|snapshot| {
+            snapshot.as_ref().is_some_and(|snapshot| {
+                snapshot.primary_models.get(company).map(String::as_str) == Some(model)
+                    && snapshot
+                        .admitted_models
+                        .get(company)
+                        .is_some_and(|models| models.contains(model))
+            })
+        })
+    }
+
+    fn company_model_route_is_admitted(&self, company: &str, model: &str) -> bool {
+        let Ok((provider, _)) = split_model(model) else {
+            return false;
+        };
+        self.snapshot.read().is_ok_and(|snapshot| {
+            snapshot.as_ref().is_some_and(|snapshot| {
+                snapshot.admitted_models.get(company).is_some_and(|models| {
+                    models.iter().any(|candidate| {
+                        split_model(candidate)
+                            .is_ok_and(|(candidate_provider, _)| candidate_provider == provider)
+                    })
+                })
+            })
+        })
+    }
+
+    fn provider_billing(&self, provider: &str) -> Option<ModelBilling> {
+        self.snapshot.read().ok().and_then(|snapshot| {
+            snapshot
+                .as_ref()
+                .and_then(|snapshot| snapshot.providers.get(provider).copied())
         })
     }
 
@@ -146,7 +256,24 @@ impl ClientConfig {
         attempt_id: Option<uuid::Uuid>,
     ) -> Result<AgentGatewayAuth> {
         let (provider, _) = split_model(model)?;
-        let billing = self.billing_for(model)?;
+        let snapshot = self
+            .snapshot
+            .read()
+            .map_err(|_| anyhow::anyhow!("model gateway client state is unavailable"))?;
+        let snapshot = snapshot
+            .as_ref()
+            .context("host model gateway is not installed; restlessd did not finish booting")?;
+        if !snapshot.admitted_models.get(company).is_some_and(|models| {
+            models.iter().any(|candidate| {
+                split_model(candidate)
+                    .is_ok_and(|(candidate_provider, _)| candidate_provider == provider)
+            })
+        }) {
+            bail!("company {company} is not admitted for exact model {model}");
+        }
+        let billing = snapshot.providers.get(provider).copied().with_context(|| {
+            format!("model provider {provider} is not admitted by the host gateway")
+        })?;
         Ok(AgentGatewayAuth {
             token_env: MODEL_CAPABILITY_ENV.to_string(),
             token: capabilities.issue_model_session(
@@ -160,13 +287,79 @@ impl ClientConfig {
                 work_id,
                 attempt_id,
             )?,
-            runtime_url: self.runtime_url.clone(),
+            runtime_url: snapshot.runtime_url.clone(),
             billing,
         })
     }
 }
 
-/// Return the boot-time billing contract for one exact model route without
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum HostedAdmissionOutcome {
+    Admitted,
+    Unstartable,
+    IdentityDrift,
+    Unavailable,
+}
+
+#[derive(Clone)]
+pub(crate) struct HostedModelAdmission {
+    sender: tokio::sync::mpsc::Sender<HostedAdmissionRequest>,
+}
+
+pub(crate) struct HostedAdmissionRequests {
+    receiver: tokio::sync::mpsc::Receiver<HostedAdmissionRequest>,
+}
+
+struct HostedAdmissionRequest {
+    config: CompanyConfig,
+    response: tokio::sync::oneshot::Sender<HostedAdmissionOutcome>,
+}
+
+pub(crate) fn hosted_admission_channel() -> (HostedModelAdmission, HostedAdmissionRequests) {
+    let (sender, receiver) = tokio::sync::mpsc::channel(32);
+    (
+        HostedModelAdmission { sender },
+        HostedAdmissionRequests { receiver },
+    )
+}
+
+impl HostedModelAdmission {
+    /// Ask the plane-owned supervisor to make this exact, already-verified
+    /// company/model policy live. The request carries references, never
+    /// resolved provider material; credential resolution remains inside the
+    /// model gateway process boundary.
+    pub(crate) async fn admit(&self, config: CompanyConfig) -> HostedAdmissionOutcome {
+        let (response, result) = tokio::sync::oneshot::channel();
+        if self
+            .sender
+            .send(HostedAdmissionRequest { config, response })
+            .await
+            .is_err()
+        {
+            return HostedAdmissionOutcome::Unavailable;
+        }
+        result.await.unwrap_or(HostedAdmissionOutcome::Unavailable)
+    }
+}
+
+impl HostedAdmissionRequests {
+    pub(crate) async fn reconcile_next(
+        &mut self,
+        configs: &mut Vec<CompanyConfig>,
+        processes: &mut Option<Processes>,
+        root: &Path,
+        capabilities: &crate::capability::CapabilityIssuer,
+        spend: &crate::spend::SpendLedger,
+    ) -> bool {
+        let Some(request) = self.receiver.recv().await else {
+            return false;
+        };
+        reconcile_hosted_admission(configs, processes, request, root, capabilities, spend).await;
+        true
+    }
+}
+
+/// Return the current billing contract for one exact model route without
 /// issuing a session capability or contacting the provider.
 pub fn billing_for_model(model: &str) -> Result<ModelBilling> {
     client()?.billing_for(model)
@@ -253,15 +446,14 @@ fn ordered_candidates(config: &CompanyConfig, preferred: Option<&str>) -> Result
             ordered.push(model.to_string());
         }
     }
-    // A candidate whose provider was never admitted at boot cannot be reached.
-    // Dropping it here keeps the boot-time warning and the runtime chain in
-    // agreement, rather than failing one request deep into a wake.
-    if let Some(client) = CLIENT.get() {
-        ordered.retain(|model| {
-            split_model(model)
-                .map(|(provider, _)| client.providers.contains_key(provider))
-                .unwrap_or(false)
-        });
+    // A candidate not admitted for this exact company cannot be reached.
+    // Hosted admission may change while the plane remains alive, so consult
+    // the current snapshot rather than a boot-time provider list.
+    if is_ready() {
+        let client = CLIENT
+            .get()
+            .expect("model gateway readiness requires a client state");
+        ordered.retain(|model| client.company_model_route_is_admitted(&config.name, model));
     }
     Ok(ordered)
 }
@@ -344,17 +536,41 @@ pub async fn record_cooldown(
 /// daemon drops these handles and requests process termination; their durable
 /// credential vault remains host-side in OMP's Restless-only profile.
 pub struct Processes {
-    broker: Child,
-    gateway: Child,
-    relay: tokio::task::JoinHandle<()>,
+    broker: Option<Child>,
+    gateway: Option<Child>,
+    relay: Option<tokio::task::JoinHandle<()>>,
     marker: PathBuf,
+}
+
+impl Processes {
+    /// Stop the replaceable model boundary and wait for its owned listeners to
+    /// close before a hosted admission attempt binds the same ports again.
+    pub(crate) async fn shutdown(mut self) {
+        if let Some(relay) = self.relay.take() {
+            relay.abort();
+            let _ = relay.await;
+        }
+        if let Some(mut gateway) = self.gateway.take() {
+            let _ = gateway.kill().await;
+        }
+        if let Some(mut broker) = self.broker.take() {
+            let _ = broker.kill().await;
+        }
+        let _ = std::fs::remove_file(&self.marker);
+    }
 }
 
 impl Drop for Processes {
     fn drop(&mut self) {
-        self.relay.abort();
-        let _ = self.gateway.start_kill();
-        let _ = self.broker.start_kill();
+        if let Some(relay) = self.relay.take() {
+            relay.abort();
+        }
+        if let Some(gateway) = &mut self.gateway {
+            let _ = gateway.start_kill();
+        }
+        if let Some(broker) = &mut self.broker {
+            let _ = broker.start_kill();
+        }
         let _ = std::fs::remove_file(&self.marker);
     }
 }
@@ -489,6 +705,157 @@ fn sweep_orphaned_model_children(root: &Path) -> Result<()> {
     Ok(())
 }
 
+fn replace_client_snapshot(snapshot: Option<GatewayClientSnapshot>) -> Result<()> {
+    CLIENT.get_or_init(ClientConfig::empty).replace(snapshot)
+}
+
+fn replace_unstartable(companies: BTreeMap<String, String>) {
+    if let Ok(mut current) = UNSTARTABLE
+        .get_or_init(|| RwLock::new(BTreeMap::new()))
+        .write()
+    {
+        *current = companies;
+    }
+}
+
+fn mark_unstartable(company: &str, reason: String) {
+    if let Ok(mut current) = UNSTARTABLE
+        .get_or_init(|| RwLock::new(BTreeMap::new()))
+        .write()
+    {
+        current.insert(company.to_owned(), reason);
+    }
+}
+
+fn admitted_models(
+    configs: &[&CompanyConfig],
+    credentials: &BTreeMap<String, ProviderCredential>,
+) -> Result<BTreeMap<String, BTreeSet<String>>> {
+    let mut admitted = BTreeMap::new();
+    for config in configs {
+        let mut models = BTreeSet::new();
+        for model in config.model_candidates()? {
+            let (provider, _) = split_model(model)?;
+            if credentials.contains_key(provider) {
+                models.insert(model.to_owned());
+            }
+        }
+        admitted.insert(config.name.clone(), models);
+    }
+    Ok(admitted)
+}
+
+fn same_gateway_policy(left: &CompanyConfig, right: &CompanyConfig) -> bool {
+    left.name == right.name
+        && left.model == right.model
+        && left.model_failover == right.model_failover
+        && left.credentials == right.credentials
+        && left.worker_runtime == right.worker_runtime
+}
+
+pub(crate) fn company_model_is_admitted(company: &str, model: &str) -> bool {
+    CLIENT
+        .get_or_init(ClientConfig::empty)
+        .company_primary_model_is_admitted(company, model)
+}
+
+async fn reconcile_hosted_admission(
+    configs: &mut Vec<CompanyConfig>,
+    processes: &mut Option<Processes>,
+    request: HostedAdmissionRequest,
+    root: &Path,
+    capabilities: &crate::capability::CapabilityIssuer,
+    spend: &crate::spend::SpendLedger,
+) {
+    let HostedAdmissionRequest { config, response } = request;
+    let outcome =
+        reconcile_hosted_admission_inner(configs, processes, config, root, capabilities, spend)
+            .await;
+    let _ = response.send(outcome);
+}
+
+async fn reconcile_hosted_admission_inner(
+    configs: &mut Vec<CompanyConfig>,
+    processes: &mut Option<Processes>,
+    config: CompanyConfig,
+    root: &Path,
+    capabilities: &crate::capability::CapabilityIssuer,
+    spend: &crate::spend::SpendLedger,
+) -> HostedAdmissionOutcome {
+    if let Some(existing) = configs.iter().find(|existing| existing.name == config.name) {
+        if !same_gateway_policy(existing, &config) {
+            tracing::warn!(
+                company = %config.name,
+                "refused hosted model admission because the company's gateway policy drifted"
+            );
+            return HostedAdmissionOutcome::IdentityDrift;
+        }
+    }
+    if company_model_is_admitted(&config.name, &config.model) {
+        return HostedAdmissionOutcome::Admitted;
+    }
+
+    let mut candidate = configs.clone();
+    if !candidate
+        .iter()
+        .any(|existing| existing.name == config.name)
+    {
+        candidate.push(config.clone());
+    }
+
+    // Resolve references before interrupting a working gateway. An absent
+    // first-company credential is scoped unstartable state, not a reason to
+    // take another company's provider route down.
+    let credentials = match provider_credentials(&candidate).await {
+        Ok(credentials) => credentials,
+        Err(error) => {
+            tracing::warn!(company = %config.name, "hosted model admission preflight failed: {error:#}");
+            return HostedAdmissionOutcome::IdentityDrift;
+        }
+    };
+    let admission = match admit(&candidate, &credentials) {
+        Ok(admission) => admission,
+        Err(error) => {
+            tracing::warn!(company = %config.name, "hosted model policy is invalid: {error:#}");
+            return HostedAdmissionOutcome::IdentityDrift;
+        }
+    };
+    if let Some(reason) = admission.unstartable.get(&config.name) {
+        mark_unstartable(&config.name, reason.clone());
+        tracing::warn!(company = %config.name, reason, "hosted company is waiting for a usable provider credential");
+        return HostedAdmissionOutcome::Unstartable;
+    }
+    drop(credentials);
+
+    replace_client_snapshot(None).ok();
+    if let Some(running) = processes.take() {
+        running.shutdown().await;
+    }
+    match start(&candidate, root, capabilities.clone(), spend.clone()).await {
+        Ok(next) => {
+            *configs = candidate;
+            *processes = next;
+            if company_model_is_admitted(&config.name, &config.model) {
+                HostedAdmissionOutcome::Admitted
+            } else {
+                HostedAdmissionOutcome::Unstartable
+            }
+        }
+        Err(error) => {
+            tracing::error!(company = %config.name, "hosted model admission failed: {error:#}");
+            // Restore the previously admitted set. A new company may fail
+            // closed, but it must not strand an already-working sibling.
+            match start(configs, root, capabilities.clone(), spend.clone()).await {
+                Ok(previous) => *processes = previous,
+                Err(recovery) => tracing::error!(
+                    "model gateway recovery after refused hosted admission failed: {recovery:#}"
+                ),
+            }
+            HostedAdmissionOutcome::Unavailable
+        }
+    }
+}
+
 /// Start the imported broker/gateway pair and install its narrow client
 /// configuration for ACP and world-model processes.
 pub async fn start(
@@ -515,6 +882,9 @@ pub async fn start(
             "no company model provider is available; the plane will serve the cockpit \
              and every company will report its own unstartable reason"
         );
+        let admission = admit(configs, &provider_credentials)?;
+        replace_unstartable(admission.unstartable);
+        replace_client_snapshot(None)?;
         return Ok(None);
     }
 
@@ -605,7 +975,7 @@ pub async fn start(
         tracing::warn!(company, reason, "company cannot start: {reason}");
     }
     let startable = admission.startable(configs);
-    let _ = UNSTARTABLE.set(admission.unstartable);
+    replace_unstartable(admission.unstartable);
 
     let gateway_token = token(
         root,
@@ -664,6 +1034,11 @@ pub async fn start(
     )
     .await?;
     let responses_routes = direct_responses_routes(&provider_credentials)?;
+    let primary_models = startable
+        .iter()
+        .map(|config| (config.name.clone(), config.model.clone()))
+        .collect();
+    let admitted_models = admitted_models(&startable, &provider_credentials)?;
     let providers = provider_credentials
         .into_iter()
         .map(|(provider, credential)| (provider, credential.billing()))
@@ -685,20 +1060,19 @@ pub async fn start(
         &endpoints.relay_bind,
     )
     .await?;
-    if CLIENT
-        .set(ClientConfig {
-            providers,
-            runtime_url: endpoints.relay_runtime_url.clone(),
-        })
-        .is_err()
-    {
+    if let Err(error) = replace_client_snapshot(Some(GatewayClientSnapshot {
+        providers,
+        runtime_url: endpoints.relay_runtime_url.clone(),
+        primary_models,
+        admitted_models,
+    })) {
         relay.abort();
-        bail!("model gateway client was already installed");
+        return Err(error);
     }
     Ok(Some(Processes {
-        broker,
-        gateway,
-        relay,
+        broker: Some(broker),
+        gateway: Some(gateway),
+        relay: Some(relay),
         marker: model_children_path(root),
     }))
 }
@@ -1059,7 +1433,7 @@ async fn relay_pi_stream(
             return relay_error(
                 StatusCode::UNAUTHORIZED,
                 &format!("invalid model capability: {error:#}"),
-            )
+            );
         }
     };
     let request = match serde_json::from_slice::<serde_json::Value>(&body) {
@@ -1076,7 +1450,7 @@ async fn relay_pi_stream(
             return relay_error(
                 StatusCode::BAD_REQUEST,
                 "model request must use a provider-qualified model id",
-            )
+            );
         }
     };
     if provider != grant.provider || model != grant.model {
@@ -1091,7 +1465,7 @@ async fn relay_pi_stream(
             return relay_error(
                 StatusCode::FORBIDDEN,
                 "model capability company is unavailable",
-            )
+            );
         }
     };
     let billing = match grant.billing.as_str() {
@@ -1101,7 +1475,7 @@ async fn relay_pi_stream(
             return relay_error(
                 StatusCode::UNAUTHORIZED,
                 "model capability has an invalid billing policy",
-            )
+            );
         }
     };
     if billing == ModelBilling::MeteredApi {
@@ -1201,7 +1575,7 @@ async fn relay_responses(
             return relay_error(
                 StatusCode::UNAUTHORIZED,
                 &format!("invalid model capability: {error:#}"),
-            )
+            );
         }
     };
     let (provider, model_id) = match split_model(&grant.model) {
@@ -1243,7 +1617,7 @@ async fn relay_responses(
             return relay_error(
                 StatusCode::FORBIDDEN,
                 "model capability company is unavailable",
-            )
+            );
         }
     };
     let billing = match grant.billing.as_str() {
@@ -1253,7 +1627,7 @@ async fn relay_responses(
             return relay_error(
                 StatusCode::UNAUTHORIZED,
                 "model capability has an invalid billing policy",
-            )
+            );
         }
     };
     if billing == ModelBilling::MeteredApi {
@@ -1819,14 +2193,21 @@ fn response_tariff_micro_usd(
 }
 
 pub fn client() -> Result<&'static ClientConfig> {
-    CLIENT
-        .get()
-        .context("host model gateway is not installed; restlessd did not finish booting")
+    let client = CLIENT.get_or_init(ClientConfig::empty);
+    if client
+        .snapshot
+        .read()
+        .is_ok_and(|snapshot| snapshot.is_some())
+    {
+        Ok(client)
+    } else {
+        bail!("host model gateway is not installed; restlessd did not finish booting")
+    }
 }
 
 pub fn oauth_is_loaded(provider: &str) -> Result<bool> {
     Ok(matches!(
-        client()?.providers.get(provider),
+        client()?.provider_billing(provider),
         Some(ModelBilling::Subscription)
     ))
 }
@@ -1839,17 +2220,10 @@ pub fn models_config(model: &str, runtime_url: &str, token_env: &str) -> Result<
     {
         bail!("invalid model provider identifier {provider:?}");
     }
-    let relay_url = reqwest::Url::parse(runtime_url).ok();
-    let recognised_runtime_relay = relay_url.as_ref().is_some_and(|url| {
-        url.scheme() == "http"
-            && url.host_str() == Some("host.docker.internal")
-            && url.port().is_some()
-            && url.username().is_empty()
-            && url.password().is_none()
-            && url.path() == "/"
-            && url.query().is_none()
-            && url.fragment().is_none()
-    });
+    let entry_mode = std::env::var("RESTLESS_ENTRY_MODE").ok();
+    let entry_host = std::env::var("RESTLESS_ENTRY_HOST").ok();
+    let recognised_runtime_relay =
+        recognised_runtime_relay(runtime_url, entry_mode.as_deref(), entry_host.as_deref());
     if !recognised_runtime_relay || token_env != MODEL_CAPABILITY_ENV {
         bail!("refusing an unrecognised model gateway route");
     }
@@ -1880,6 +2254,38 @@ pub fn models_config(model: &str, runtime_url: &str, token_env: &str) -> Result<
         "# Managed by Restless. Contains a gateway route, never a provider credential.\n\
 providers:\n  {provider}:\n    baseUrl: {runtime_url}\n    apiKey: {token_env}\n    transport: pi-native\n    api: {api}\n"
     ) + catalogue)
+}
+
+fn recognised_runtime_relay(
+    runtime_url: &str,
+    entry_mode: Option<&str>,
+    entry_host: Option<&str>,
+) -> bool {
+    let Ok(url) = reqwest::Url::parse(runtime_url) else {
+        return false;
+    };
+    if !url.username().is_empty()
+        || url.password().is_some()
+        || url.query().is_some()
+        || url.fragment().is_some()
+    {
+        return false;
+    }
+    match entry_mode.unwrap_or("local") {
+        "local" => {
+            url.scheme() == "http"
+                && url.host_str() == Some("host.docker.internal")
+                && url.port().is_some()
+                && url.path() == "/"
+        }
+        "network" => {
+            url.scheme() == "https"
+                && entry_host.is_some_and(|host| url.host_str() == Some(host))
+                && url.port().is_none()
+                && url.path() == "/internal/v1/model"
+        }
+        _ => false,
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -2340,6 +2746,41 @@ mod tests {
     }
 
     #[test]
+    fn hosted_runtime_uses_the_exact_https_plane_relay_while_local_stays_unchanged() {
+        assert_eq!(
+            runtime_relay_url(Some("local"), None, 7790).unwrap(),
+            RELAY_RUNTIME_URL
+        );
+
+        let hosted =
+            runtime_relay_url(Some("network"), Some("owner-1.planes.example.test"), 7790).unwrap();
+        assert_eq!(
+            hosted,
+            "https://owner-1.planes.example.test/internal/v1/model"
+        );
+        assert!(recognised_runtime_relay(
+            &hosted,
+            Some("network"),
+            Some("owner-1.planes.example.test")
+        ));
+
+        for refused in [
+            "http://owner-1.planes.example.test/internal/v1/model",
+            "https://other.planes.example.test/internal/v1/model",
+            "https://owner-1.planes.example.test/internal/v1/model?token=leak",
+            "https://owner-1.planes.example.test:8443/internal/v1/model",
+            "https://owner-1.planes.example.test/internal/v1/model/extra",
+        ] {
+            assert!(!recognised_runtime_relay(
+                refused,
+                Some("network"),
+                Some("owner-1.planes.example.test")
+            ));
+        }
+        assert!(runtime_relay_url(Some("network"), Some("owner.example.test/path"), 7790).is_err());
+    }
+
+    #[test]
     fn runtime_model_config_discovers_only_through_the_scoped_relay() {
         let config = models_config(
             "litellm/gpt-5.6-sol",
@@ -2425,6 +2866,111 @@ mod tests {
     }
 
     #[test]
+    fn dynamic_gateway_snapshot_is_company_and_primary_model_scoped() {
+        let client = ClientConfig::empty();
+        client
+            .replace(Some(GatewayClientSnapshot {
+                providers: BTreeMap::from([("moonshot".into(), ModelBilling::MeteredApi)]),
+                runtime_url: "http://host.docker.internal:7790".into(),
+                primary_models: BTreeMap::from([("acme_test".into(), "moonshot/kimi-k3".into())]),
+                admitted_models: BTreeMap::from([(
+                    "acme_test".into(),
+                    BTreeSet::from(["moonshot/kimi-k3".into()]),
+                )]),
+            }))
+            .unwrap();
+
+        assert!(client.company_primary_model_is_admitted("acme_test", "moonshot/kimi-k3"));
+        assert!(!client.company_primary_model_is_admitted("acme_test", "moonshot/kimi-k2"));
+        assert!(!client.company_primary_model_is_admitted("other_test", "moonshot/kimi-k3"));
+        assert!(client.company_model_route_is_admitted("acme_test", "moonshot/kimi-k2"));
+        assert!(!client.company_model_route_is_admitted("acme_test", "anthropic/claude-sonnet-4-6"));
+    }
+
+    #[test]
+    fn hosted_admission_identity_rejects_model_and_credential_drift() {
+        let root = test_root();
+        let base = CompanyConfig::load(&root, "acme_test").unwrap();
+        let mut model_drift = base.clone();
+        model_drift.model = "moonshot/kimi-k2".into();
+        assert!(!same_gateway_policy(&base, &model_drift));
+
+        let mut credential_drift = base.clone();
+        credential_drift.credentials.insert(
+            "model.inference.moonshot".into(),
+            "infisical:/providers/moonshot/MOONSHOT_API_KEY".into(),
+        );
+        assert!(!same_gateway_policy(&base, &credential_drift));
+        assert!(same_gateway_policy(&base, &base));
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn zero_company_supervisor_channel_delivers_exact_admission_result() {
+        let root = test_root();
+        let config = CompanyConfig::load(&root, "acme_test").unwrap();
+        let (admission, mut requests) = hosted_admission_channel();
+        let pending = tokio::spawn({
+            let config = config.clone();
+            async move { admission.admit(config).await }
+        });
+        let request = requests.receiver.recv().await.unwrap();
+        assert!(same_gateway_policy(&request.config, &config));
+        request
+            .response
+            .send(HostedAdmissionOutcome::Admitted)
+            .unwrap();
+        assert_eq!(pending.await.unwrap(), HostedAdmissionOutcome::Admitted);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn hosted_reconciler_refuses_same_company_model_drift_before_process_changes() {
+        let root = test_root();
+        let base = CompanyConfig::load(&root, "acme_test").unwrap();
+        let mut drifted = base.clone();
+        drifted.model = "moonshot/kimi-k2".into();
+        let (issuer, spend, relay) = test_relay_state(&root);
+        let mut processes = None;
+        let outcome = reconcile_hosted_admission_inner(
+            &mut vec![base],
+            &mut processes,
+            drifted,
+            &root,
+            &issuer,
+            &spend,
+        )
+        .await;
+        assert_eq!(outcome, HostedAdmissionOutcome::IdentityDrift);
+        drop(relay);
+        drop(spend);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn first_hosted_company_without_a_credential_is_not_false_ready() {
+        let root = test_root();
+        let config = CompanyConfig::load(&root, "acme_test").unwrap();
+        let (issuer, spend, relay) = test_relay_state(&root);
+        let mut configs = Vec::new();
+        let mut processes = None;
+        let outcome = reconcile_hosted_admission_inner(
+            &mut configs,
+            &mut processes,
+            config,
+            &root,
+            &issuer,
+            &spend,
+        )
+        .await;
+        assert_eq!(outcome, HostedAdmissionOutcome::Unstartable);
+        assert!(configs.is_empty());
+        drop(relay);
+        drop(spend);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn exact_readiness_is_reserved_for_runtime_pinned_catalogues() {
         let config = CompanyConfig {
             name: "catalogue_test".into(),
@@ -2506,10 +3052,18 @@ mod tests {
     fn agent_model_access_is_a_signed_company_actor_session_exact_model_grant() {
         let root = test_root();
         let (issuer, _spend, _state) = test_relay_state(&root);
-        let client = ClientConfig {
-            providers: BTreeMap::from([("moonshot".into(), ModelBilling::MeteredApi)]),
-            runtime_url: RELAY_RUNTIME_URL.into(),
-        };
+        let client = ClientConfig::empty();
+        client
+            .replace(Some(GatewayClientSnapshot {
+                providers: BTreeMap::from([("moonshot".into(), ModelBilling::MeteredApi)]),
+                runtime_url: RELAY_RUNTIME_URL.into(),
+                primary_models: BTreeMap::from([("acme_test".into(), "moonshot/kimi-k3".into())]),
+                admitted_models: BTreeMap::from([(
+                    "acme_test".into(),
+                    BTreeSet::from(["moonshot/kimi-k3".into()]),
+                )]),
+            }))
+            .unwrap();
         let work_id = uuid::Uuid::new_v4();
         let attempt_id = uuid::Uuid::new_v4();
         let access = client
@@ -2669,10 +3223,9 @@ mod tests {
             );
         }
         assert_eq!(
-            ledger.budget_state_for(
-                "acme_test",
-                crate::runtime::SpendCeiling::from_micro_usd(2)
-            ).remaining_micro_usd(),
+            ledger
+                .budget_state_for("acme_test", crate::runtime::SpendCeiling::from_micro_usd(2))
+                .remaining_micro_usd(),
             None,
             "a metered stream without terminal charged usage leaves metering unknown and blocks further charged requests"
         );
