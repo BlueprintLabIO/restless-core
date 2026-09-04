@@ -19,7 +19,7 @@ use sha2::Sha256;
 use uuid::Uuid;
 
 const TOKEN_VERSION: &str = "r1";
-const KEY_FILE: &str = "runtime-capability.key";
+pub(crate) const KEY_FILE: &str = "runtime-capability.key";
 const RUNTIME_BRIDGE_TTL: Duration = Duration::hours(24);
 const SESSION_TTL: Duration = Duration::minutes(45);
 
@@ -436,6 +436,18 @@ fn ensure_private_key_file(path: &Path) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn hosted_runtime_bridge_uses_the_installed_capability_key() {
+        let (root, _issuer) = issuer();
+
+        restlessd::hosted_runtime::RuntimeBridgeCapabilityKey::from_installation_key(
+            &root.join(KEY_FILE),
+        )
+        .unwrap();
+
+        fs::remove_dir_all(root).unwrap();
+    }
 
     fn issuer() -> (std::path::PathBuf, CapabilityIssuer) {
         let root =

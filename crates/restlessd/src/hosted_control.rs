@@ -491,9 +491,10 @@ impl HostedControl {
             .map_err(|error| anyhow::anyhow!(error))?;
         let bootstrap_secret = BootstrapSecret::from_bytes(config.runtime_bootstrap_token.bytes())
             .map_err(|error| anyhow::anyhow!(error))?;
-        let capability_key =
-            RuntimeBridgeCapabilityKey::from_installation_key(&daemon.root.join("capability.key"))
-                .map_err(|error| anyhow::anyhow!(error))?;
+        let capability_key = RuntimeBridgeCapabilityKey::from_installation_key(
+            &daemon.root.join(crate::capability::KEY_FILE),
+        )
+        .map_err(|error| anyhow::anyhow!(error))?;
         let model_proxy =
             HostedModelProxy::new(crate::model_gateway::hosted_relay_loopback_url()?)?;
         let config = Arc::new(config);
