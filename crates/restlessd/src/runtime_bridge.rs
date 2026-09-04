@@ -1620,40 +1620,50 @@ impl RuntimeBridgeConnection {
                     let Some(incoming) = incoming else { break };
                     let message = incoming
                         .map_err(|error| RuntimeBridgeError::Transport(error.to_string()))?;
-                    match parse_agent_frame(message)? {
-                        RuntimeAgentToPlane::Response(response) => {
-                            if !self.route_response(response).await {
+                    match message {
+                        Message::Ping(payload) => {
+                            sink.send(Message::Pong(payload))
+                                .await
+                                .map_err(|error| RuntimeBridgeError::Transport(error.to_string()))?;
+                            continue;
+                        }
+                        Message::Pong(_) => continue,
+                        Message::Close(_) => break,
+                        message => match parse_agent_frame(message)? {
+                            RuntimeAgentToPlane::Response(response) => {
+                                if !self.route_response(response).await {
+                                    return Err(RuntimeBridgeError::Protocol(
+                                        "Runtime Agent response did not match one pending request",
+                                    ));
+                                }
+                            }
+                            RuntimeAgentToPlane::Event(event) => {
+                                if event.event_sequence != expected_event_sequence {
+                                    return Err(RuntimeBridgeError::Protocol(
+                                        "Runtime Agent event sequence is not monotonic",
+                                    ));
+                                }
+                                expected_event_sequence = expected_event_sequence
+                                    .checked_add(1)
+                                    .ok_or(RuntimeBridgeError::Protocol(
+                                        "Runtime Agent event sequence overflowed",
+                                    ))?;
+                                let _ = self.events.send(event);
+                            }
+                            RuntimeAgentToPlane::CapabilityRenewed(confirmation) => {
+                                if !self.route_renewal_confirmation(confirmation).await {
+                                    return Err(RuntimeBridgeError::Protocol(
+                                        "Runtime Agent capability renewal did not match one pending rotation",
+                                    ));
+                                }
+                            }
+                            RuntimeAgentToPlane::Register(_)
+                            | RuntimeAgentToPlane::RegistrationConfirmed(_) => {
                                 return Err(RuntimeBridgeError::Protocol(
-                                    "Runtime Agent response did not match one pending request",
+                                    "Runtime Agent repeated the registration handshake",
                                 ));
                             }
-                        }
-                        RuntimeAgentToPlane::Event(event) => {
-                            if event.event_sequence != expected_event_sequence {
-                                return Err(RuntimeBridgeError::Protocol(
-                                    "Runtime Agent event sequence is not monotonic",
-                                ));
-                            }
-                            expected_event_sequence = expected_event_sequence
-                                .checked_add(1)
-                                .ok_or(RuntimeBridgeError::Protocol(
-                                    "Runtime Agent event sequence overflowed",
-                                ))?;
-                            let _ = self.events.send(event);
-                        }
-                        RuntimeAgentToPlane::CapabilityRenewed(confirmation) => {
-                            if !self.route_renewal_confirmation(confirmation).await {
-                                return Err(RuntimeBridgeError::Protocol(
-                                    "Runtime Agent capability renewal did not match one pending rotation",
-                                ));
-                            }
-                        }
-                        RuntimeAgentToPlane::Register(_)
-                        | RuntimeAgentToPlane::RegistrationConfirmed(_) => {
-                            return Err(RuntimeBridgeError::Protocol(
-                                "Runtime Agent repeated the registration handshake",
-                            ));
-                        }
+                        },
                     }
                 }
             }
@@ -2314,6 +2324,22 @@ mod tests {
         })
         .await
         .unwrap();
+
+        let heartbeat = vec![1, 2, 3, 4];
+        agent
+            .send(ClientMessage::Ping(heartbeat.clone().into()))
+            .await
+            .unwrap();
+        let pong = tokio::time::timeout(std::time::Duration::from_secs(2), agent.next())
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
+        assert_eq!(pong, ClientMessage::Pong(heartbeat.into()));
+        assert!(registry
+            .connection(&identity().core_company_name())
+            .await
+            .is_ok());
 
         let operation_id = Uuid::new_v4();
         let requester = Arc::clone(&connection);
