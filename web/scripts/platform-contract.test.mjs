@@ -67,8 +67,26 @@ test('does not permit Fleet portfolio data in company or self-hosted mode', () =
 	assert.equal(parsePlatformContext(selfHosted).mode, 'self_hosted');
 });
 
-test('leaves the Core client router for platform-owned account surfaces', async () => {
-	const portfolio = await readFile(new URL('../src/routes/+page.svelte', import.meta.url), 'utf8');
+test('root and account use one canonical portfolio while Cloud auth remains platform-owned', async () => {
+	const rootRoute = await readFile(new URL('../src/routes/+page.svelte', import.meta.url), 'utf8');
+	const accountRoute = await readFile(
+		new URL('../src/routes/account/+page.svelte', import.meta.url),
+		'utf8'
+	);
+	const portfolio = await readFile(
+		new URL('../src/lib/components/CompanyPortfolioPage.svelte', import.meta.url),
+		'utf8'
+	);
+	const companyLayout = await readFile(
+		new URL('../src/routes/[companyId]/+layout.ts', import.meta.url),
+		'utf8'
+	);
+
+	assert.equal(rootRoute, accountRoute);
+	assert.match(rootRoute, /CompanyPortfolioPage/);
 	assert.match(portfolio, /href=\{supportHref\} data-sveltekit-reload/);
-	assert.match(portfolio, /href="\/account" data-sveltekit-reload/);
+	assert.match(portfolio, /href="\/auth\/sign-in" data-sveltekit-reload/);
+	assert.doesNotMatch(portfolio, /class="portfolio-sign-in" href="\/account"/);
+	assert.match(portfolio, /redirected \|\| !loaded \|\| authRequired/);
+	assert.match(companyLayout, /`\/account\?next=\$\{encodeURIComponent\(next\)\}`/);
 });

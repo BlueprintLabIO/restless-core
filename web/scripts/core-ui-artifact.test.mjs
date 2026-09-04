@@ -29,6 +29,7 @@ async function fixture() {
 	await put(resolve(webRoot, 'src/routes/[companyId]/+page.svelte'), '<h1>Attention</h1>\n');
 	await put(resolve(webRoot, 'src/routes/[companyId]/work/+page.svelte'), '<h1>Work</h1>\n');
 	await put(resolve(webRoot, 'src/routes/[companyId]/work/+page 2.svelte'), 'backup\n');
+	await put(resolve(webRoot, 'src/routes/account/+page.svelte'), '<h1>Companies</h1>\n');
 	await put(resolve(webRoot, 'src/routes/(internal)/office-demo/+page.svelte'), 'demo\n');
 	await put(resolve(buildRoot, 'index.html'), '<!doctype html>\n');
 	await put(resolve(buildRoot, '_app/app.js'), 'console.log("core");\n');
@@ -42,6 +43,7 @@ test('route inventory contains page entries, not layouts or backup copies', asyn
 		'/',
 		'/[companyId]',
 		'/[companyId]/work',
+		'/account',
 		'/office-demo'
 	]);
 });
@@ -60,7 +62,7 @@ test('artifact identity is deterministic and covers distribution bytes', async (
 	assert.equal(secondBytes, firstBytes);
 	assert.equal(
 		first.routes.sha256,
-		'99c08257e7db8ea814d2eb638b6f1d0086ef64ba80d0e5f7a680282737a262c5'
+		'c1f330d64f69070da896481a01dfd46bb41715f8bd70168dfca43af349db8b6a'
 	);
 	assert.deepEqual(coreUiReleaseMetadata(first), {
 		schema: CORE_UI_SCHEMA,
@@ -142,6 +144,7 @@ test('the checked-out canonical route inventory remains explicit', async () => {
 		'/[companyId]/people',
 		'/[companyId]/work',
 		'/[companyId]/work/[workId]',
+		'/account',
 		'/office-demo'
 	]);
 });
