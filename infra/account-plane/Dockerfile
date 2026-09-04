@@ -85,6 +85,6 @@ EXPOSE 7788
 # Release identity, not company state. Fleet reads this to confirm the running
 # plane is the release its manifest deployed.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
-    CMD curl -fsS http://127.0.0.1:7788/health || exit 1
+    CMD curl -fsS -H "Host: ${RESTLESS_ENTRY_HOST:-127.0.0.1:7788}" http://127.0.0.1:7788/health || exit 1
 
 ENTRYPOINT ["/usr/bin/tini", "--", "/usr/local/bin/restlessd"]

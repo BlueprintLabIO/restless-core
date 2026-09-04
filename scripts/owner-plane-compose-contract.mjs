@@ -129,6 +129,7 @@ export function assertOwnerPlaneComposeTemplate(template) {
     "plane-database:/var/lib/postgresql",
     "RESTLESS_ENTRY_MODE: network",
     "RESTLESS_RUNTIME_BOOTSTRAP_TOKEN_FILE: /run/secrets/runtime_bootstrap_token",
+    'test: [CMD, curl, -fsS, -H, "Host: {{HOSTNAME}}", http://127.0.0.1:7788/health]',
     'file: "./secrets/{{RUNTIME_BOOTSTRAP_SECRET_FILE}}"',
   ]) {
     if (!template.includes(fragment)) {

@@ -257,6 +257,10 @@ test("owner-plane Compose is provider-complete, hardened and digest-only after r
     /file: "\.\/secrets\/runtime-bootstrap-token-11111111-1111-7111-8111-111111111111"/,
   );
   assert.doesNotMatch(rendered, /RESTLESS_RUNTIME_BOOTSTRAP_TOKEN\s*:/);
+  assert.match(
+    rendered,
+    /test: \[CMD, curl, -fsS, -H, "Host: plane\.example\.test", http:\/\/127\.0\.0\.1:7788\/health\]/,
+  );
 
   for (const mutation of [
     `${template}\nservices:\n  escape:\n    build: .\n`,
@@ -288,6 +292,10 @@ test("owner-plane Compose is provider-complete, hardened and digest-only after r
       "      RESTLESS_RUNTIME_BOOTSTRAP_TOKEN: leaked\n      RESTLESS_ENTRY_MODE: network",
     ),
     template.replace("{{RUNTIME_BOOTSTRAP_SECRET_FILE}}", "missing-token"),
+    template.replace(
+      '-H, "Host: {{HOSTNAME}}", ',
+      "",
+    ),
     `${template}\n# {{RUNTIME_BOOTSTRAP_SECRET_FILE}}\n`,
     `${template}\n# {{unknown_token}}\n`,
     `${template}\n# {{UNFINISHED\n`,
