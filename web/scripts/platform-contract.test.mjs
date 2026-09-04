@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 import { parsePlatformContext } from '../src/lib/platform/contracts.ts';
 
@@ -64,4 +65,10 @@ test('does not permit Fleet portfolio data in company or self-hosted mode', () =
 		projections: undefined
 	});
 	assert.equal(parsePlatformContext(selfHosted).mode, 'self_hosted');
+});
+
+test('leaves the Core client router for platform-owned account surfaces', async () => {
+	const portfolio = await readFile(new URL('../src/routes/+page.svelte', import.meta.url), 'utf8');
+	assert.match(portfolio, /href=\{supportHref\} data-sveltekit-reload/);
+	assert.match(portfolio, /href="\/account" data-sveltekit-reload/);
 });

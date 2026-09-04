@@ -167,7 +167,7 @@
 </script>
 
 {#snippet ownerActions()}
-	{#if supportHref}<a href={supportHref}>Help &amp; status</a>{/if}
+	{#if supportHref}<a href={supportHref} data-sveltekit-reload>Help &amp; status</a>{/if}
 	{#if signOutHref}
 		<form method="POST" action={signOutHref}>
 			<button type="submit">Sign out</button>
@@ -176,8 +176,11 @@
 {/snippet}
 
 {#snippet portfolioActions()}
-	{#if canCreate}<button class="portfolio-create" type="button" onclick={openCreateCompany}>New company</button>{/if}
-	{#if authRequired}<a class="portfolio-sign-in" href="/account">Sign in</a>{/if}
+	{#if canCreate}<button class="portfolio-create" type="button" onclick={openCreateCompany}
+			>New company</button
+		>{/if}
+	{#if authRequired}<a class="portfolio-sign-in" href="/account" data-sveltekit-reload>Sign in</a
+		>{/if}
 {/snippet}
 
 <CompanyPortfolio
@@ -195,7 +198,11 @@
 	onchanged={changed}
 />
 
-<dialog class="bridge-root company-create-dialog" bind:this={createDialog} aria-labelledby="company-create-title">
+<dialog
+	class="bridge-root company-create-dialog"
+	bind:this={createDialog}
+	aria-labelledby="company-create-title"
+>
 	<div class="company-create-head">
 		<div>
 			<h2 id="company-create-title">Name the company</h2>
