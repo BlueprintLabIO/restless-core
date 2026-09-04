@@ -466,7 +466,7 @@ pub(crate) struct OwnerInput {
 /// not generic route, command, tunnel, environment, or provider fields.
 #[derive(Debug, Default, Deserialize)]
 pub(crate) struct PublicationInput {
-    #[serde(default)]
+    #[serde(default, rename = "publication_actor")]
     pub(crate) actor: Option<String>,
     #[serde(default)]
     pub(crate) source_artifact_ref_id: Option<String>,
@@ -573,6 +573,24 @@ impl Request {
             }
             if let Some(from) = object.remove("from") {
                 object.insert("from_company".to_string(), from);
+            }
+        }
+        // `actor` is intentionally shared by several legacy domain inputs.
+        // Flattened serde structs cannot decide which domain owns that key,
+        // so normalize the two publication commands after the command
+        // allowlist has accepted the public spelling. Without this boundary,
+        // a valid CLI `--actor` is silently consumed by OrgIntelInput and the
+        // publication handler sees no accountable producer.
+        if matches!(command.as_str(), "publish-candidate" | "publish-request")
+            && value
+                .as_object()
+                .is_some_and(|object| object.contains_key("actor"))
+        {
+            let object = value
+                .as_object_mut()
+                .expect("the checked request remains an object");
+            if let Some(actor) = object.remove("actor") {
+                object.insert("publication_actor".to_string(), actor);
             }
         }
         serde_json::from_value(value).map_err(|error| format!("decode {command:?}: {error}"))
@@ -1277,6 +1295,25 @@ mod tests {
             request.lifecycle.from_company.as_deref(),
             Some("source_test")
         );
+    }
+
+    #[test]
+    fn publication_decoder_preserves_the_accountable_actor() {
+        let request = Request::decode(
+            r#"{
+                "cmd":"publish-candidate",
+                "company":"swift_arrival_test",
+                "actor":"release-auditor",
+                "source_artifact_ref_id":"00000000-0000-0000-0000-000000000001",
+                "service_manifest":{}
+            }"#,
+        )
+        .expect("decode publication actor");
+        assert_eq!(
+            request.publication.actor.as_deref(),
+            Some("release-auditor")
+        );
+        assert_eq!(request.orgintel.actor, None);
     }
 
     #[test]

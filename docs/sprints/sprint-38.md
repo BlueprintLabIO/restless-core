@@ -1,6 +1,6 @@
 # Sprint 38 — Make Restless a dependable local appliance
 
-**Status:** Draft for founder alignment; implementation not started
+**Status:** Implementation complete; seven-day elapsed dogfood started, terminal release decision pending
 
 **Date:** 3 September 2026
 
@@ -254,14 +254,14 @@ reliability or call artifact reachability usability.
 
 | Status | Ticket | Outcome |
 | --- | --- | --- |
-| [ ] | [S38-T0](./sprint-38/t0-freeze-appliance-corpus.md) | Freeze the machine, schedule and artifact-opening journeys before implementation |
-| [ ] | [S38-T1](./sprint-38/t1-os-managed-singleton.md) | Install one recoverable user-level stable singleton |
-| [ ] | [S38-T2](./sprint-38/t2-stable-dev-isolation.md) | Make stable daily use and development incapable of mutating each other |
-| [ ] | [S38-T3](./sprint-38/t3-native-wake-adapters.md) | Use OS-native supervision and wake-only signals without moving schedule truth |
-| [ ] | [S38-T4](./sprint-38/t4-durable-misfire-recovery.md) | Settle sleep, restart, duplicate wake and clock-change cases exactly once |
-| [ ] | [S38-T5](./sprint-38/t5-artifact-launch-broker.md) | Verify and open embedded, native and streamed artifacts through bounded profiles |
-| [ ] | [S38-T6](./sprint-38/t6-owner-open-surface.md) | Give the owner one honest Open action and useful availability states |
-| [ ] | [S38-T7](./sprint-38/t7-upgrade-recovery-and-cleanup.md) | Upgrade, roll back, uninstall and clean owned resources without losing company truth |
+| [x] | [S38-T0](./sprint-38/t0-freeze-appliance-corpus.md) | Freeze the machine, schedule and artifact-opening journeys before implementation |
+| [x] | [S38-T1](./sprint-38/t1-os-managed-singleton.md) | Install one recoverable user-level stable singleton |
+| [x] | [S38-T2](./sprint-38/t2-stable-dev-isolation.md) | Make stable daily use and development incapable of mutating each other |
+| [x] | [S38-T3](./sprint-38/t3-native-wake-adapters.md) | Use OS-native supervision and wake-only signals without moving schedule truth |
+| [x] | [S38-T4](./sprint-38/t4-durable-misfire-recovery.md) | Settle sleep, restart, duplicate wake and clock-change cases exactly once |
+| [x] | [S38-T5](./sprint-38/t5-artifact-launch-broker.md) | Verify and open embedded, native and streamed artifacts through bounded profiles |
+| [x] | [S38-T6](./sprint-38/t6-owner-open-surface.md) | Give the owner one honest Open action and useful availability states |
+| [x] | [S38-T7](./sprint-38/t7-upgrade-recovery-and-cleanup.md) | Upgrade, roll back, uninstall and clean owned resources without losing company truth |
 | [ ] | [S38-T8](./sprint-38/t8-seven-day-dogfood.md) | Use the stable appliance for seven days and publish the terminal release decision |
 
 Expected order: **T0 → T1/T2 → T3/T4 → T5/T6 → T7 → T8**.

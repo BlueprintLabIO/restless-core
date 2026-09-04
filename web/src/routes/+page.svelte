@@ -6,16 +6,21 @@
 	import { getApplianceStatus, type ApplianceStatus } from '$lib/model/appliance';
 	import MatrixGlyph, { GLYPHS } from '$lib/primitives/MatrixGlyph.svelte';
 	import SemanticMark from '$lib/primitives/SemanticMark.svelte';
-	import { portfolioQuery, type PortfolioProjection } from '$lib/model/queries.svelte';
+	import {
+		companiesQuery,
+		portfolioQuery,
+		type PortfolioProjection
+	} from '$lib/model/queries.svelte';
 	import type { CompanyCatalogEntry } from '$lib/model/cockpit';
 
+	const companyCatalog = companiesQuery();
 	const portfolio = portfolioQuery();
-	const companies = $derived(portfolio.view?.companies ?? []);
+	const companies = $derived(companyCatalog.view);
 	const projections = $derived(
 		portfolio.view?.projections ?? ({} as Record<string, PortfolioProjection>)
 	);
-	const loaded = $derived(portfolio.status !== 'unknown');
-	const error = $derived(portfolio.failure?.message ?? '');
+	const loaded = $derived(companyCatalog.status !== 'unknown');
+	const error = $derived(companyCatalog.failure?.message ?? '');
 	let redirected = $state(false);
 	let appliance = $state<ApplianceStatus | null>(null);
 	const activeCompanies = $derived(
@@ -80,14 +85,25 @@
 		{/if}
 		{#if loaded}
 			<div class="tb-right">
-				<OwnerMenu {companies} onchanged={() => void portfolio.refresh()} />
+				<OwnerMenu
+					{companies}
+					onchanged={() => {
+						void companyCatalog.refresh();
+						void portfolio.refresh();
+					}}
+				/>
 			</div>
 		{/if}
 	</header>
 
 	{#if loaded}
 		<main class="portfolio-main">
-			{#if appliance?.state === 'draining'}
+			{#if appliance?.state === 'recovering'}
+				<div class="appliance-notice" role="status">
+					<span>Restoring runtime safety.</span>
+					<p>{appliance.repair}</p>
+				</div>
+			{:else if appliance?.state === 'draining'}
 				<div class="appliance-notice" role="status">
 					<span>Work admission is paused.</span>
 					<p>{appliance.repair}</p>

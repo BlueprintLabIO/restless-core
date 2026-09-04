@@ -31,33 +31,18 @@ static EFFECT_CHILD_SERIAL: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_n
 /// overlap an unsupervised child under the shared effect UID. Authority intent
 /// remains `unknown`; killing a local process does not infer the external
 /// result.
-pub async fn sweep_orphans(root: &Path) {
-    let Ok(entries) = std::fs::read_dir(root.join("companies")) else {
-        return;
-    };
-    for entry in entries.flatten() {
-        let path = entry.path();
-        if path.extension().and_then(|ext| ext.to_str()) != Some("toml") {
-            continue;
-        }
-        let Some(company) = path.file_stem().and_then(|stem| stem.to_str()) else {
-            continue;
-        };
-        if !matches!(
-            crate::runtime::status(company).await,
-            Ok(crate::runtime::ContainerStatus::Running)
-        ) {
-            continue;
-        }
+pub async fn sweep_orphans(running_companies: &[String]) {
+    for company in running_companies {
         let container = crate::runtime::container_name(company);
         let mut reaped = false;
         for signal in ["-TERM", "-KILL"] {
-            let result = tokio::process::Command::new("docker")
-                .args([
+            let result = crate::runtime::docker_bounded(
+                &[
                     "exec", "-u", "0:0", &container, "pkill", signal, "-u", "2001",
-                ])
-                .output()
-                .await;
+                ],
+                std::time::Duration::from_secs(5),
+            )
+            .await;
             match result {
                 Ok(output) if output.status.success() || output.status.code() == Some(1) => {
                     if signal == "-TERM" && output.status.success() {
@@ -120,11 +105,7 @@ pub async fn sweep_orphans(root: &Path) {
                 "-print",
             ],
         ] {
-            match tokio::process::Command::new("docker")
-                .args(args)
-                .output()
-                .await
-            {
+            match crate::runtime::docker_bounded(&args, std::time::Duration::from_secs(5)).await {
                 Ok(output) if output.status.success() => candidates.extend(
                     String::from_utf8_lossy(&output.stdout)
                         .lines()
@@ -859,11 +840,12 @@ async fn cleanup_staging(container: &str, path: &str) -> Result<()> {
     if !valid_staging_path(path) {
         bail!("refusing to clean unexpected governed staging path {path:?}");
     }
-    let cleanup = tokio::process::Command::new("docker")
-        .args(["exec", "-u", "0:0", container, "rm", "-r", "--", path])
-        .output()
-        .await
-        .context("clean governed artifact staging directory")?;
+    let cleanup = crate::runtime::docker_bounded(
+        &["exec", "-u", "0:0", container, "rm", "-r", "--", path],
+        std::time::Duration::from_secs(10),
+    )
+    .await
+    .context("clean governed artifact staging directory")?;
     if !cleanup.status.success() {
         bail!(
             "governed artifact staging cleanup failed: {}",

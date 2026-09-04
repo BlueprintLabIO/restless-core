@@ -6,6 +6,7 @@ use std::fmt;
 use std::path::{Component, Path, PathBuf};
 use std::pin::Pin;
 use std::process::Stdio;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::task::{Context as TaskContext, Poll};
 use std::time::Duration;
 
@@ -26,6 +27,20 @@ use uuid::Uuid;
 pub const COMPANY_IMAGE: &str = "restless-company-image:latest";
 const COMPANY_IMAGE_ENV: &str = "RESTLESS_COMPANY_IMAGE";
 const SOURCE_DIGEST_LABEL: &str = "io.restless.source-digest";
+
+/// Owner browsers reconnect eagerly across appliance replacement. While the
+/// one startup inventory owns Docker observation, fail incidental health reads
+/// fast instead of launching competing CLI processes that can starve Docker
+/// Desktop and indefinitely postpone the safety barrier.
+static STARTUP_RECOVERY_ACTIVE: AtomicBool = AtomicBool::new(false);
+
+pub fn begin_startup_recovery() {
+    STARTUP_RECOVERY_ACTIVE.store(true, Ordering::SeqCst);
+}
+
+pub fn finish_startup_recovery() {
+    STARTUP_RECOVERY_ACTIVE.store(false, Ordering::SeqCst);
+}
 
 /// Resolve the company Runtime artifact the plane operates.
 ///
@@ -743,9 +758,39 @@ async fn docker(args: &[&str]) -> Result<std::process::Output> {
         .context("spawn docker")
 }
 
+const DOCKER_OBSERVATION_TIMEOUT: Duration = Duration::from_secs(8);
+
+/// Run one bounded, read-only Docker observation for an owner-facing path.
+///
+/// Docker Desktop can accept a CLI request and then leave it waiting forever
+/// on its VM. A cockpit refresh must degrade that one observation rather than
+/// retain a daemon child and an HTTP request indefinitely. `docker` marks the
+/// child kill-on-drop, so expiry also reaps the opaque CLI process.
+async fn docker_observe(args: &[&str]) -> Result<std::process::Output> {
+    if STARTUP_RECOVERY_ACTIVE.load(Ordering::SeqCst) {
+        bail!("Runtime observation is deferred while startup recovery owns Docker");
+    }
+    docker_bounded(args, DOCKER_OBSERVATION_TIMEOUT)
+        .await
+        .context("bounded Docker observation")
+}
+
+pub(crate) async fn docker_bounded(args: &[&str], bound: Duration) -> Result<std::process::Output> {
+    bound_docker_call(docker(args), bound).await
+}
+
+async fn bound_docker_call<T, F>(call: F, bound: Duration) -> Result<T>
+where
+    F: std::future::Future<Output = Result<T>>,
+{
+    tokio::time::timeout(bound, call)
+        .await
+        .with_context(|| format!("docker command exceeded {} seconds", bound.as_secs_f64()))?
+}
+
 pub async fn status(company: &str) -> Result<ContainerStatus> {
     let name = container_name(company);
-    let out = docker(&["inspect", "-f", "{{.State.Status}}", &name]).await?;
+    let out = docker_observe(&["inspect", "-f", "{{.State.Status}}", &name]).await?;
     if !out.status.success() {
         return Ok(ContainerStatus::Absent);
     }
@@ -754,6 +799,78 @@ pub async fn status(company: &str) -> Result<ContainerStatus> {
         "running" => ContainerStatus::Running,
         _ => ContainerStatus::Stopped,
     })
+}
+
+/// Observe all running configured Runtime shells with one Docker round trip.
+/// Startup cost therefore stays constant when the owner retains many stopped
+/// or historical company definitions.
+pub async fn running_configured_companies(configs: &[CompanyConfig]) -> Result<Vec<String>> {
+    // Recovery runs behind a closed admission gate and outside appliance
+    // readiness. Give a congested Docker Desktop enough time to answer once;
+    // unlike owner-facing probes, this does not hold an HTTP request or the
+    // control-plane socket hostage.
+    let output = docker_bounded(&["ps", "--format", "{{.Names}}"], Duration::from_secs(30)).await?;
+    if !output.status.success() {
+        bail!(
+            "inspect running company Runtimes: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        );
+    }
+    Ok(running_company_names(
+        configs,
+        &String::from_utf8_lossy(&output.stdout),
+    ))
+}
+
+/// Observe the entire owner catalogue in one Docker round trip. Catalogue
+/// rendering is a projection, so an unavailable Docker backend yields
+/// `unavailable` rows rather than N sequential inspections and a blank UI.
+pub async fn configured_company_statuses(
+    configs: &[CompanyConfig],
+) -> Result<std::collections::BTreeMap<String, ContainerStatus>> {
+    let output = docker_observe(&["ps", "-a", "--format", "{{.Names}}\t{{.State}}"]).await?;
+    if !output.status.success() {
+        bail!(
+            "inspect configured company Runtimes: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        );
+    }
+    Ok(company_statuses(
+        configs,
+        &String::from_utf8_lossy(&output.stdout),
+    ))
+}
+
+fn company_statuses(
+    configs: &[CompanyConfig],
+    docker_rows: &str,
+) -> std::collections::BTreeMap<String, ContainerStatus> {
+    let observed = docker_rows
+        .lines()
+        .filter_map(|line| line.split_once('\t'))
+        .collect::<std::collections::BTreeMap<_, _>>();
+    configs
+        .iter()
+        .map(|config| {
+            let status = match observed.get(container_name(&config.name).as_str()) {
+                Some(state) if *state == "running" => ContainerStatus::Running,
+                Some(_) => ContainerStatus::Stopped,
+                None => ContainerStatus::Absent,
+            };
+            (config.name.clone(), status)
+        })
+        .collect()
+}
+
+fn running_company_names(configs: &[CompanyConfig], docker_names: &str) -> Vec<String> {
+    let running = docker_names
+        .lines()
+        .collect::<std::collections::BTreeSet<_>>();
+    configs
+        .iter()
+        .filter(|config| running.contains(container_name(&config.name).as_str()))
+        .map(|config| config.name.clone())
+        .collect()
 }
 
 /// Create if absent, start if stopped, no-op if running. With `reconcile`,
@@ -922,7 +1039,7 @@ pub async fn doctor(company: &str) -> Result<RuntimeDoctor> {
     let image = company_image();
     let container = status(company).await?;
     let volume = volume_name(company);
-    let volume_exists = docker(&["volume", "inspect", &volume])
+    let volume_exists = docker_observe(&["volume", "inspect", &volume])
         .await?
         .status
         .success();
@@ -1017,7 +1134,7 @@ async fn release_identity_doctor(company: &str) -> Option<RuntimeReleaseIdentity
     let name = container_name(company);
     let probe = tokio::time::timeout(
         Duration::from_secs(3),
-        docker(&[
+        docker_observe(&[
             "exec",
             "-u",
             "company",
@@ -1050,7 +1167,7 @@ async fn coordination_doctor(company: &str) -> CoordinationDoctor {
     let name = container_name(company);
     let probe = tokio::time::timeout(
         Duration::from_secs(5),
-        docker(&["exec", "-u", "company", &name, "restless", "status"]),
+        docker_observe(&["exec", "-u", "company", &name, "restless", "status"]),
     )
     .await;
     match probe {
@@ -1077,7 +1194,7 @@ async fn coordination_doctor(company: &str) -> CoordinationDoctor {
 async fn browser_doctor(company: &str) -> BrowserDoctor {
     let name = container_name(company);
     let process = async |program: &str| -> String {
-        let output = docker(&[
+        let output = docker_observe(&[
             "exec",
             &name,
             "supervisorctl",
@@ -1102,7 +1219,7 @@ async fn browser_doctor(company: &str) -> BrowserDoctor {
     let desktop = process("desktop").await;
     let chromium = process("chromium").await;
     let web_transport = process("desktop-web").await;
-    let automation: String = match docker(&[
+    let automation: String = match docker_observe(&[
         "exec",
         &name,
         "curl",
@@ -1150,7 +1267,7 @@ async fn browser_doctor(company: &str) -> BrowserDoctor {
 
 async fn supervisor_doctor(company: &str) -> SupervisorDoctor {
     let name = container_name(company);
-    let output = docker(&[
+    let output = docker_observe(&[
         "exec",
         &name,
         "supervisorctl",
@@ -1192,7 +1309,7 @@ pub async fn desktop_asset(company: &str, asset: &str) -> Result<Vec<u8>> {
         bail!("invalid desktop asset path");
     }
     let url = format!("http://127.0.0.1:6080/{asset}");
-    let output = docker(&[
+    let output = docker_observe(&[
         "exec",
         &container_name(company),
         "curl",
@@ -1459,7 +1576,7 @@ pub async fn probe_runtime_review_file(company: &str, value: &str) -> Result<()>
     validate_company_name(company)?;
     let path = runtime_review_file_path(value)?;
     let container = container_name(company);
-    let output = docker(&[
+    let output = docker_observe(&[
         "exec",
         "-u",
         "company",
@@ -1542,7 +1659,7 @@ pub async fn read_runtime_review_file(
         review_file_media_type(path).context("review file is not a displayable format")?;
     let container = container_name(company);
     let limit = (MAX_REVIEW_FILE_BYTES + 1).to_string();
-    let output = docker(&[
+    let output = docker_observe(&[
         "exec",
         "-u",
         "company",
@@ -1574,7 +1691,7 @@ pub async fn read_runtime_review_text(company: &str, value: &str) -> Result<Stri
     let path = runtime_review_text_path(value)?;
     let container = container_name(company);
     let limit = (MAX_REVIEW_TEXT_BYTES + 1).to_string();
-    let output = docker(&[
+    let output = docker_observe(&[
         "exec",
         "-u",
         "company",
@@ -1660,7 +1777,7 @@ async fn private_tcp_stream(company: &str, port: u16) -> Result<DesktopStream> {
 
 pub async fn read_browser_control(company: &str) -> Result<Option<serde_json::Value>> {
     let name = container_name(company);
-    let output = docker(&[
+    let output = docker_observe(&[
         "exec",
         &name,
         "sh",
@@ -1797,7 +1914,7 @@ async fn container_uses_company_volume(company: &str) -> Result<bool> {
 }
 
 async fn inspect_value(args: &[&str]) -> Result<Option<String>> {
-    let output = docker(args).await?;
+    let output = docker_observe(args).await?;
     if !output.status.success() {
         return Ok(None);
     }
@@ -1941,7 +2058,7 @@ pub async fn destroy(
     }
 
     let volume = volume_name(company);
-    if docker(&["volume", "inspect", &volume])
+    if docker_observe(&["volume", "inspect", &volume])
         .await?
         .status
         .success()
@@ -2124,11 +2241,12 @@ pub async fn read_owner_attachment(
     validate_company_name(company)?;
     let name = container_name(company);
     let directory = format!("/company/inbox/owner-attachments/{attachment_id}");
-    let content = docker(&["exec", &name, "cat", &format!("{directory}/content")]).await?;
+    let content = docker_observe(&["exec", &name, "cat", &format!("{directory}/content")]).await?;
     if !content.status.success() {
         bail!("attachment is absent from the company computer");
     }
-    let metadata = docker(&["exec", &name, "cat", &format!("{directory}/metadata.json")]).await?;
+    let metadata =
+        docker_observe(&["exec", &name, "cat", &format!("{directory}/metadata.json")]).await?;
     if !metadata.status.success() {
         bail!("attachment metadata is absent from the company computer");
     }
@@ -2172,9 +2290,57 @@ pub fn state_root() -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::{
-        is_immutable_image_digest, resolve_company_image, resolve_resource_bound,
-        sort_source_files, COMPANY_IMAGE, DEFAULT_CPUS, DEFAULT_MEMORY, DEFAULT_PIDS_LIMIT,
+        bound_docker_call, company_statuses, is_immutable_image_digest, resolve_company_image,
+        resolve_resource_bound, running_company_names, sort_source_files, ContainerStatus,
+        COMPANY_IMAGE, DEFAULT_CPUS, DEFAULT_MEMORY, DEFAULT_PIDS_LIMIT,
     };
+
+    #[tokio::test]
+    async fn an_opaque_docker_observation_cannot_wait_forever() {
+        let result = bound_docker_call(
+            std::future::pending::<anyhow::Result<()>>(),
+            std::time::Duration::from_millis(1),
+        )
+        .await;
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("docker command exceeded"));
+    }
+
+    #[test]
+    fn startup_runtime_inventory_is_one_exact_name_filter() {
+        let config = |name: &str| {
+            toml::from_str::<super::CompanyConfig>(&format!(
+                "name = {name:?}\nmodel = \"zai/glm-5.3\"\n"
+            ))
+            .unwrap()
+        };
+        let configs = vec![config("alpha_test"), config("beta_test")];
+        let names = format!("{}\nunrelated\n", super::container_name("beta_test"));
+        assert_eq!(running_company_names(&configs, &names), vec!["beta_test"]);
+    }
+
+    #[test]
+    fn owner_catalogue_status_is_one_exact_batch_projection() {
+        let config = |name: &str| {
+            toml::from_str::<super::CompanyConfig>(&format!(
+                "name = {name:?}\nmodel = \"zai/glm-5.3\"\n"
+            ))
+            .unwrap()
+        };
+        let configs = vec![config("alpha"), config("alpha_two"), config("missing")];
+        let rows = format!(
+            "{}\trunning\n{}\texited\n{}\trunning\n",
+            super::container_name("alpha"),
+            super::container_name("alpha_two"),
+            "restless-co-alpha-prefix"
+        );
+        let statuses = company_statuses(&configs, &rows);
+        assert_eq!(statuses.get("alpha"), Some(&ContainerStatus::Running));
+        assert_eq!(statuses.get("alpha_two"), Some(&ContainerStatus::Stopped));
+        assert_eq!(statuses.get("missing"), Some(&ContainerStatus::Absent));
+    }
 
     #[test]
     fn source_digest_uses_portable_relative_byte_order() {

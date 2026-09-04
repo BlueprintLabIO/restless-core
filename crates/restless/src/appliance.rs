@@ -557,11 +557,18 @@ pub fn rollback(force: bool) -> Result<InstallReport> {
     contract::validate_service_definition(&contract::launchd_wake_plist(&paths)?)?;
     let drain = begin_appliance_drain(&layout, force)?;
     atomic_symlink(&previous, &layout.current)?;
+    if let Some(ref current) = current {
+        // Rollback is a two-way release swap. Keeping `previous` pointed at
+        // the release we just activated makes status lie and prevents an
+        // immediate switch-forward if the owner changes course.
+        atomic_symlink(current, &layout.previous)?;
+    }
     write_service_definitions(&layout, &previous)?;
     restart_services(&layout)?;
     if !wait_ready(&layout, Duration::from_secs(30)) {
         if let Some(current) = current {
             atomic_symlink(&current, &layout.current)?;
+            atomic_symlink(&previous, &layout.previous)?;
             write_service_definitions(&layout, &current)?;
             restart_services(&layout)?;
         }
@@ -608,6 +615,7 @@ pub fn status() -> Result<StatusReport> {
         .unwrap_or(false);
     let active_binary = lock_pid.is_some_and(|pid| process_is_active_release(&layout, pid));
     let owner_health = owner_health_status();
+    let owner_state = owner_appliance_state();
     let plane_definition = layout.plane_plist().is_file();
     let wake_definition = layout.wake_plist().is_file();
     let draining = contract::drain_marker_exists(&layout.state_root);
@@ -638,6 +646,14 @@ pub fn status() -> Result<StatusReport> {
                     .into(),
             ),
         )
+    } else if owner_state.as_deref() == Some("recovering") {
+        (
+            "recovering",
+            Some(
+                "Runtime safety recovery is retrying; owner reads remain available and work admission opens automatically"
+                    .into(),
+            ),
+        )
     } else if owner_health == Some(200)
         && lock_pid_alive
         && lock_held
@@ -646,7 +662,7 @@ pub fn status() -> Result<StatusReport> {
         && wake_loaded
     {
         ("ready", None)
-    } else if !plane_definition || !wake_definition {
+    } else if !plane_definition && !wake_definition && !plane_loaded && !wake_loaded {
         (
             "uninstalled",
             Some("run `restless appliance install`".into()),
@@ -1057,6 +1073,28 @@ fn owner_health_status() -> Option<u16> {
         .ok()
 }
 
+fn owner_appliance_state() -> Option<String> {
+    let mut stream = std::net::TcpStream::connect_timeout(
+        &"127.0.0.1:7788".parse().expect("literal socket"),
+        Duration::from_secs(1),
+    )
+    .ok()?;
+    stream.set_read_timeout(Some(Duration::from_secs(1))).ok()?;
+    stream
+        .write_all(
+            b"GET /api/appliance HTTP/1.1\r\nHost: 127.0.0.1:7788\r\nConnection: close\r\n\r\n",
+        )
+        .ok()?;
+    let mut response = String::new();
+    stream.read_to_string(&mut response).ok()?;
+    let body = response.split_once("\r\n\r\n")?.1;
+    serde_json::from_str::<serde_json::Value>(body)
+        .ok()?
+        .get("state")?
+        .as_str()
+        .map(str::to_string)
+}
+
 fn wait_ready(layout: &Layout, bound: Duration) -> bool {
     let started = Instant::now();
     while started.elapsed() < bound {
@@ -1065,6 +1103,12 @@ fn wait_ready(layout: &Layout, bound: Duration) -> bool {
         if owner_health_status() == Some(200)
             && contract::singleton_lock_is_held(&lock).unwrap_or(false)
             && pid.is_some_and(|pid| process_alive(pid) && process_is_active_release(layout, pid))
+            // The owner HTTP surface intentionally becomes available before
+            // every company cell has reconciled. Lifecycle activation is not
+            // complete until the local control socket is accepting too;
+            // otherwise install can declare readiness and then fail to lift
+            // its own durable drain barrier during a slow boot.
+            && UnixStream::connect(layout.state_root.join("restlessd.sock")).is_ok()
         {
             return true;
         }

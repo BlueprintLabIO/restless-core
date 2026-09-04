@@ -428,8 +428,8 @@ async fn acquire_numbered(
 
 async fn terminate_process_group(container: &str, marker: &str) -> i32 {
     let script = "if test -s \"$1\"; then p=$(cat \"$1\"); before=$(ps -eo pgid= | tr -d ' ' | grep -cx \"$p\" || true); kill -TERM -\"$p\" 2>/dev/null || true; sleep 0.1; kill -KILL -\"$p\" 2>/dev/null || true; after=$(ps -eo pgid= | tr -d ' ' | grep -cx \"$p\" || true); test \"$after\" -eq 0 || before=$((before + after)); echo \"$before\"; else echo 0; fi; rm -f \"$1\"";
-    let output = tokio::process::Command::new("docker")
-        .args([
+    let output = crate::runtime::docker_bounded(
+        &[
             "exec",
             "-u",
             "company",
@@ -439,9 +439,10 @@ async fn terminate_process_group(container: &str, marker: &str) -> i32 {
             script,
             "gate-cleanup",
             marker,
-        ])
-        .output()
-        .await;
+        ],
+        std::time::Duration::from_secs(8),
+    )
+    .await;
     output
         .ok()
         .and_then(|output| String::from_utf8(output.stdout).ok())
@@ -482,8 +483,8 @@ done
 find "$root" -depth -type d -empty -delete 2>/dev/null || true
 echo "$count"
 "#;
-    let output = tokio::process::Command::new("docker")
-        .args([
+    let output = crate::runtime::docker_bounded(
+        &[
             "exec",
             "-u",
             "company",
@@ -492,10 +493,11 @@ echo "$count"
             "-lc",
             script,
             "gate-reaper",
-        ])
-        .output()
-        .await
-        .context("reap orphan governed gate processes")?;
+        ],
+        std::time::Duration::from_secs(8),
+    )
+    .await
+    .context("reap orphan governed gate processes")?;
     if !output.status.success() {
         bail!(
             "reap orphan governed gate processes: {}",

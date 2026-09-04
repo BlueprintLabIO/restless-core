@@ -1287,33 +1287,51 @@ async fn company_catalog(State(state): State<OwnerState>) -> impl IntoResponse {
             )
         }
     };
-    let mut catalog = Vec::with_capacity(companies.len() + archived.len());
+    let mut configs = Vec::with_capacity(companies.len() + archived.len());
     for company in companies {
         let config = match runtime::CompanyConfig::load(&state.daemon.root, &company) {
             Ok(config) => config,
             Err(error) => return api_error(StatusCode::NOT_FOUND, "company", format!("{error:#}")),
         };
-        catalog.push(company_catalog_entry(config, "active").await);
+        configs.push((config, "active"));
     }
     for company in archived {
         let config = match runtime::CompanyConfig::load_archived(&state.daemon.root, &company) {
             Ok(config) => config,
             Err(error) => return api_error(StatusCode::NOT_FOUND, "company", format!("{error:#}")),
         };
-        catalog.push(company_catalog_entry(config, "archived").await);
+        configs.push((config, "archived"));
     }
+    let runtime_statuses = runtime::configured_company_statuses(
+        &configs
+            .iter()
+            .map(|(config, _)| config.clone())
+            .collect::<Vec<_>>(),
+    )
+    .await
+    .ok();
+    let catalog = configs
+        .into_iter()
+        .map(|(config, lifecycle)| {
+            let status = runtime_statuses
+                .as_ref()
+                .and_then(|statuses| statuses.get(&config.name).copied());
+            company_catalog_entry(config, lifecycle, status)
+        })
+        .collect::<Vec<_>>();
     Json(catalog).into_response()
 }
 
-async fn company_catalog_entry(
+fn company_catalog_entry(
     config: runtime::CompanyConfig,
     lifecycle_status: &'static str,
+    status: Option<runtime::ContainerStatus>,
 ) -> CompanyCatalogEntry {
-    let runtime_status = match runtime::status(&config.name).await {
-        Ok(runtime::ContainerStatus::Running) => "running",
-        Ok(runtime::ContainerStatus::Stopped) => "stopped",
-        Ok(runtime::ContainerStatus::Absent) => "absent",
-        Err(_) => "unavailable",
+    let runtime_status = match status {
+        Some(runtime::ContainerStatus::Running) => "running",
+        Some(runtime::ContainerStatus::Stopped) => "stopped",
+        Some(runtime::ContainerStatus::Absent) => "absent",
+        None => "unavailable",
     };
     let name = config.name.clone();
     CompanyCatalogEntry {
@@ -1518,6 +1536,7 @@ struct ApplianceStatus {
     profile: String,
     state: &'static str,
     draining: bool,
+    recovering: bool,
     model_gateway: &'static str,
     schedule_transport: &'static str,
     last_schedule_wake: Option<serde_json::Value>,
@@ -1544,6 +1563,7 @@ async fn appliance_status(State(state): State<OwnerState>) -> impl IntoResponse 
         .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok());
     let draining = state.daemon.lifecycle.is_draining()
         || restlessd::appliance::drain_marker_exists(&state.daemon.root);
+    let recovering = state.daemon.lifecycle.is_recovering();
     let (state_name, schedule_transport, repair) = match profile.kind {
         restlessd::appliance::ProfileKind::Stable if cfg!(target_os = "macos") => {
             let definition = std::env::var_os("HOME")
@@ -1595,6 +1615,11 @@ async fn appliance_status(State(state): State<OwnerState>) -> impl IntoResponse 
             "draining",
             Some("Work admission is paused for a lifecycle operation. Run `restless appliance resume` if no upgrade is active."),
         )
+    } else if recovering {
+        (
+            "recovering",
+            Some("Runtime recovery is still retrying. Read-only owner surfaces remain available; work admission opens automatically when recovery succeeds."),
+        )
     } else {
         (state_name, repair)
     };
@@ -1602,6 +1627,7 @@ async fn appliance_status(State(state): State<OwnerState>) -> impl IntoResponse 
         profile: profile.kind.as_str().to_string(),
         state: state_name,
         draining,
+        recovering,
         model_gateway: if model_gateway::is_ready() {
             "ready"
         } else {

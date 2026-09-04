@@ -48,6 +48,7 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result};
 use restless_orgintel::OrgIntel;
 use serde::{Deserialize, Serialize};
+use sqlx::{Connection as _, Executor as _, PgConnection};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::UnixListener;
 
@@ -75,33 +76,128 @@ struct OrgIntelConfig {
 }
 
 impl OrgIntelConfig {
-    fn default_for_user() -> Self {
+    fn default_for_profile(profile: &restlessd::appliance::MachineProfile) -> Self {
         let user = std::env::var("USER").unwrap_or_else(|_| "postgres".to_string());
+        let database = match profile.kind {
+            restlessd::appliance::ProfileKind::Stable => "restless".to_string(),
+            restlessd::appliance::ProfileKind::Dev | restlessd::appliance::ProfileKind::Test => {
+                format!(
+                    "restless_plane_{}",
+                    profile.resource_namespace.replace('-', "_")
+                )
+            }
+        };
         Self {
-            database_url: format!("postgres://{user}@localhost/restless"),
+            database_url: format!("postgres://{user}@localhost/{database}"),
         }
     }
 
-    fn read_only(root: &Path) -> Result<Self> {
+    fn read_only(profile: &restlessd::appliance::MachineProfile) -> Result<Self> {
+        let config = Self::read_from_root(&profile.state_root)?
+            .unwrap_or_else(|| Self::default_for_profile(profile));
+        config.ensure_profile_isolation(profile)?;
+        Ok(config)
+    }
+
+    fn load_or_seed(profile: &restlessd::appliance::MachineProfile) -> Result<Self> {
+        let path = profile.state_root.join("orgintel.toml");
+        if path.exists() {
+            return Self::read_only(profile);
+        }
+        let config = Self::default_for_profile(profile);
+        let rendered = toml::to_string_pretty(&config).context("render orgintel.toml")?;
+        std::fs::write(&path, rendered).with_context(|| format!("seed {}", path.display()))?;
+        config.ensure_profile_isolation(profile)?;
+        Ok(config)
+    }
+
+    fn read_from_root(root: &Path) -> Result<Option<Self>> {
         let path = root.join("orgintel.toml");
         if !path.exists() {
-            return Ok(Self::default_for_user());
+            return Ok(None);
         }
         let raw =
             std::fs::read_to_string(&path).with_context(|| format!("read {}", path.display()))?;
-        toml::from_str(&raw).with_context(|| format!("parse {}", path.display()))
+        toml::from_str(&raw)
+            .map(Some)
+            .with_context(|| format!("parse {}", path.display()))
     }
 
-    fn load_or_seed(root: &Path) -> Result<Self> {
-        let path = root.join("orgintel.toml");
-        if path.exists() {
-            return Self::read_only(root);
+    fn ensure_profile_isolation(
+        &self,
+        profile: &restlessd::appliance::MachineProfile,
+    ) -> Result<()> {
+        if profile.kind == restlessd::appliance::ProfileKind::Stable {
+            return Ok(());
         }
-        let config = Self::default_for_user();
-        let rendered = toml::to_string_pretty(&config).context("render orgintel.toml")?;
-        std::fs::write(&path, rendered).with_context(|| format!("seed {}", path.display()))?;
-        Ok(config)
+        let home = std::env::var("HOME").context("HOME is not set")?;
+        let stable = restlessd::appliance::MachineProfile::stable(Path::new(&home))?;
+        let stable_config = Self::read_from_root(&stable.state_root)?
+            .unwrap_or_else(|| Self::default_for_profile(&stable));
+        if database_target(&self.database_url)? == database_target(&stable_config.database_url)? {
+            anyhow::bail!(
+                "the {} profile resolves the stable OrgIntel/Authority database; use its own database in {}",
+                profile.kind.as_str(),
+                profile.state_root.join("orgintel.toml").display()
+            );
+        }
+        Ok(())
     }
+}
+
+fn database_target(database_url: &str) -> Result<(String, Option<u16>, String)> {
+    let parsed = url::Url::parse(database_url).context("parse OrgIntel database_url")?;
+    let host = parsed
+        .host_str()
+        .context("OrgIntel database_url has no host")?;
+    let database = parsed.path().trim_start_matches('/');
+    if database.is_empty() || database.contains('/') {
+        anyhow::bail!("OrgIntel database_url must name exactly one database");
+    }
+    Ok((
+        host.to_ascii_lowercase(),
+        parsed.port_or_known_default(),
+        database.to_string(),
+    ))
+}
+
+async fn ensure_profile_database(
+    profile: &restlessd::appliance::MachineProfile,
+    config: &OrgIntelConfig,
+) -> Result<()> {
+    if profile.kind == restlessd::appliance::ProfileKind::Stable {
+        return Ok(());
+    }
+    let mut target =
+        url::Url::parse(&config.database_url).context("parse OrgIntel database_url")?;
+    let database = target.path().trim_start_matches('/').to_string();
+    if database.is_empty()
+        || database.len() > 63
+        || !database.bytes().enumerate().all(|(index, byte)| {
+            byte == b'_' || byte.is_ascii_lowercase() || (index > 0 && byte.is_ascii_digit())
+        })
+    {
+        anyhow::bail!(
+            "non-stable OrgIntel database names must be lowercase SQL identifiers, got {database:?}"
+        );
+    }
+    target.set_path("/postgres");
+    let mut admin = PgConnection::connect(target.as_str())
+        .await
+        .context("connect to Postgres to provision the isolated profile database")?;
+    let exists: bool =
+        sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pg_database WHERE datname=$1)")
+            .bind(&database)
+            .fetch_one(&mut admin)
+            .await?;
+    if !exists {
+        admin
+            .execute(format!("CREATE DATABASE {database}").as_str())
+            .await
+            .with_context(|| format!("create isolated profile database {database}"))?;
+    }
+    admin.close().await.ok();
+    Ok(())
 }
 
 fn configured_companies(root: &Path) -> Result<Vec<String>> {
@@ -253,6 +349,7 @@ pub(crate) struct Daemon {
 #[derive(Serialize)]
 struct ApplianceDrainStatus {
     draining: bool,
+    recovering: bool,
     idle: bool,
     active_requests: usize,
     exec_wakes: Vec<String>,
@@ -262,6 +359,7 @@ struct ApplianceDrainStatus {
 
 fn appliance_drain_status(daemon: &Daemon) -> ApplianceDrainStatus {
     let active_requests = daemon.lifecycle.active();
+    let recovering = daemon.lifecycle.is_recovering();
     let exec_wakes = daemon
         .in_flight
         .lock()
@@ -271,7 +369,9 @@ fn appliance_drain_status(daemon: &Daemon) -> ApplianceDrainStatus {
     let native_clients = daemon.launch.active_native_resources();
     ApplianceDrainStatus {
         draining: daemon.lifecycle.is_draining(),
-        idle: active_requests == 0
+        recovering,
+        idle: !recovering
+            && active_requests == 0
             && exec_wakes.is_empty()
             && staff.is_empty()
             && native_clients.is_empty(),
@@ -427,7 +527,7 @@ async fn main() -> Result<()> {
             runtime::CompanyConfig::load(&machine_profile.state_root, &company)
                 .with_context(|| format!("preflight company configuration {company}"))?;
         }
-        let orgintel = OrgIntelConfig::read_only(&machine_profile.state_root)?;
+        let orgintel = OrgIntelConfig::read_only(&machine_profile)?;
         OrgIntel::probe(&orgintel.database_url)
             .await
             .context("preflight could not reach OrgIntel")?;
@@ -481,7 +581,8 @@ async fn main() -> Result<()> {
         .collect::<Result<Vec<_>>>()?;
     // T5: coordination state. The database must answer at boot — probe,
     // never guess that it will be there when a company wakes.
-    let orgintel_config = OrgIntelConfig::load_or_seed(&root)?;
+    let orgintel_config = OrgIntelConfig::load_or_seed(&machine_profile)?;
+    ensure_profile_database(&machine_profile, &orgintel_config).await?;
     OrgIntel::probe(&orgintel_config.database_url)
         .await
         .context("orgintel database is not reachable at boot")?;
@@ -546,19 +647,10 @@ async fn main() -> Result<()> {
         in_flight: std::sync::Arc::new(std::sync::Mutex::new(schedule::WakeClaims::default())),
         schedule_wake: std::sync::Arc::new(tokio::sync::Notify::new()),
     });
+    daemon.lifecycle.begin_recovery();
+    runtime::begin_startup_recovery();
 
-    // Owner entry is the appliance's control surface, not proof that every
-    // external model provider is reachable. Open it before slower repair and
-    // provider reconciliation so a founder can always see and repair a
-    // degraded company instead of staring at a dead localhost port.
-    let owner_daemon = std::sync::Arc::clone(&daemon);
-    tokio::spawn(async move {
-        if let Err(error) = owner::serve(owner_daemon, owner_config).await {
-            tracing::error!("owner gateway stopped: {error:#}");
-        }
-    });
-
-    // Start the provider boundary as soon as the owner surface exists. Large
+    // Start the provider boundary independently of startup recovery. Large
     // historical stores can make orphan and publication repair expensive;
     // model readiness must not queue behind those reads. The scheduler still
     // waits on the explicit recovery barrier below, so no autonomous work can
@@ -613,38 +705,98 @@ async fn main() -> Result<()> {
         }
     });
 
-    // Effect children carry the narrowest live secret boundary. Reap an old
-    // daemon's dedicated effect UID before a new child or scheduler may start;
-    // Authority keeps the interrupted intent unknown until explicit evidence.
-    effect::sweep_orphans(&daemon.root).await;
+    // Runtime recovery is safety-critical for new work but is not availability-
+    // critical for the durable control plane. Docker Desktop can legitimately
+    // take tens of seconds to answer while many unrelated containers are busy.
+    // Keep admission closed, expose an honest recovering state, and retry the
+    // bounded observation asynchronously. The scheduler shares the same barrier
+    // through `recovery_ready_rx`, so no work races orphan cleanup.
+    let recovery_daemon = std::sync::Arc::clone(&daemon);
+    let recovery_configs = company_configs.clone();
+    tokio::spawn(async move {
+        let recovery_started = std::time::Instant::now();
+        let running_companies = loop {
+            let attempt_started = std::time::Instant::now();
+            match runtime::running_configured_companies(&recovery_configs).await {
+                Ok(companies) => {
+                    tracing::info!(
+                        elapsed_ms = attempt_started.elapsed().as_millis(),
+                        running = companies.len(),
+                        "runtime recovery inventory complete"
+                    );
+                    break companies;
+                }
+                Err(error) => {
+                    tracing::warn!(
+                        elapsed_ms = attempt_started.elapsed().as_millis(),
+                        "runtime recovery inventory deferred: {error:#}"
+                    );
+                    tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+                }
+            }
+        };
 
-    // T9: agent processes outliving their supervising daemon are orphans —
-    // reap them and close their running Work Attempts before anything new wakes.
-    staff::sweep_orphans(&daemon.root, &daemon.orgintel).await;
+        // Effect and cognitive orphan domains are disjoint. Sweep them in
+        // parallel after the one shared inventory instead of multiplying slow
+        // Docker round trips across the appliance readiness path.
+        let sweep_started = std::time::Instant::now();
+        tokio::join!(
+            effect::sweep_orphans(&running_companies),
+            staff::sweep_orphans(&recovery_daemon.orgintel, &running_companies)
+        );
+        tracing::info!(
+            elapsed_ms = sweep_started.elapsed().as_millis(),
+            "runtime orphan recovery complete"
+        );
 
-    // Published services are provider-owned processes, not Runtime children.
-    // Reconcile their receipts after the daemon's own orphan sweeps: a live
-    // fixture is adopted, a dead authorized fixture is restarted once, and an
-    // expired grant is torn down. One broken experimental company cannot block
-    // the account plane from opening its listeners.
-    for company in configured_companies(&root)? {
-        if !company.ends_with("_test") {
-            continue;
+        // Published services are provider-owned processes, not Runtime
+        // children. Reconcile only isolated test companies after orphan repair;
+        // one broken fixture remains a degraded publication, never a plane
+        // startup failure.
+        let publication_started = std::time::Instant::now();
+        for company in recovery_configs
+            .iter()
+            .map(|config| config.name.as_str())
+            .filter(|company| company.ends_with("_test"))
+        {
+            let outcome = async {
+                let org = recovery_daemon.orgintel.get(company).await?;
+                recovery_daemon
+                    .publication
+                    .reconcile_company(&org, company)
+                    .await
+            }
+            .await;
+            if let Err(error) = outcome {
+                tracing::error!(
+                    company,
+                    "published-service reconciliation failed: {error:#}"
+                );
+            }
         }
-        let outcome = async {
-            let org = daemon.orgintel.get(&company).await?;
-            daemon.publication.reconcile_company(&org, &company).await
-        }
-        .await;
-        if let Err(error) = outcome {
-            tracing::error!(
-                company,
-                "published-service reconciliation failed: {error:#}"
-            );
-        }
-    }
+        tracing::info!(
+            elapsed_ms = publication_started.elapsed().as_millis(),
+            "published-service recovery complete"
+        );
 
-    recovery_ready_tx.send_replace(true);
+        runtime::finish_startup_recovery();
+        recovery_daemon.lifecycle.finish_recovery();
+        recovery_ready_tx.send_replace(true);
+        tracing::info!(
+            elapsed_ms = recovery_started.elapsed().as_millis(),
+            "startup recovery barrier opened"
+        );
+    });
+
+    // The owner API is useful during recovery for diagnosis and read-only
+    // inspection. Mutation paths share LifecycleGate and remain closed until
+    // the asynchronous recovery task opens admission.
+    let owner_daemon = std::sync::Arc::clone(&daemon);
+    tokio::spawn(async move {
+        if let Err(error) = owner::serve(owner_daemon, owner_config).await {
+            tracing::error!("owner gateway stopped: {error:#}");
+        }
+    });
 
     // T6: the scheduler is what makes the company act without the owner
     // typing — time triggers (exec-set schedules + periodic tick) and
@@ -888,10 +1040,18 @@ where
             match daemon.lifecycle.try_enter() {
                 Some(lease) => Some(lease),
                 None => {
-                    let response = Response::err_kind(
-                        "draining",
-                        "the stable appliance is draining for replacement; retry after activation or resume it explicitly",
-                    );
+                    let (kind, message) = if daemon.lifecycle.is_recovering() {
+                        (
+                            "recovering",
+                            "the appliance is recovering Runtime state; read-only owner surfaces remain available and work admission will reopen automatically",
+                        )
+                    } else {
+                        (
+                            "draining",
+                            "the stable appliance is draining for replacement; retry after activation or resume it explicitly",
+                        )
+                    };
+                    let response = Response::err_kind(kind, message);
                     let mut out = serde_json::to_string(&response)?;
                     out.push('\n');
                     write.write_all(out.as_bytes()).await?;
@@ -4589,6 +4749,44 @@ mod tests {
 
     fn decoded_request(value: serde_json::Value) -> Request {
         Request::decode(&value.to_string()).expect("decode request through the transport boundary")
+    }
+
+    #[test]
+    fn nonstable_profiles_default_to_distinct_authority_databases() {
+        let stable =
+            restlessd::appliance::MachineProfile::stable(Path::new("/Users/founder")).unwrap();
+        let dev = restlessd::appliance::MachineProfile {
+            kind: restlessd::appliance::ProfileKind::Dev,
+            state_root: PathBuf::from("/tmp/restless-dev-profile"),
+            port_offset: 1_200,
+            resource_namespace: "checkout_alpha".into(),
+        };
+        let test = restlessd::appliance::MachineProfile {
+            kind: restlessd::appliance::ProfileKind::Test,
+            state_root: PathBuf::from("/tmp/restless-test-profile"),
+            port_offset: 21_200,
+            resource_namespace: "checkout_alpha_test".into(),
+        };
+        let stable = OrgIntelConfig::default_for_profile(&stable);
+        let dev = OrgIntelConfig::default_for_profile(&dev);
+        let test = OrgIntelConfig::default_for_profile(&test);
+        assert_eq!(database_target(&stable.database_url).unwrap().2, "restless");
+        assert_eq!(
+            database_target(&dev.database_url).unwrap().2,
+            "restless_plane_checkout_alpha"
+        );
+        assert_eq!(
+            database_target(&test.database_url).unwrap().2,
+            "restless_plane_checkout_alpha_test"
+        );
+        assert_ne!(
+            database_target(&stable.database_url).unwrap(),
+            database_target(&dev.database_url).unwrap()
+        );
+        assert_ne!(
+            database_target(&dev.database_url).unwrap(),
+            database_target(&test.database_url).unwrap()
+        );
     }
 
     #[tokio::test]

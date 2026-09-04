@@ -4,7 +4,9 @@
 
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
+use std::process::Stdio;
 use std::sync::Arc;
+use std::time::Duration;
 
 use anyhow::{bail, Context, Result};
 use axum::extract::ws::{Message, WebSocket};
@@ -24,13 +26,14 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use tokio::net::{TcpListener, UdpSocket};
+use tokio::process::Command;
 use tokio::sync::Mutex;
 use tokio_rustls::TlsAcceptor;
 
 use crate::published_service_contract::{
     ensure_loopback_bind, token_digest, verify_invitation, Audience, ProviderEndpoint,
-    ProviderReadyReceipt, ReadinessProbe, ServiceManifest, ServiceObservations, ServiceProfile,
-    CONTRACT_VERSION,
+    ProviderReadyReceipt, ReadinessProbe, ResourceLimits, ServiceManifest, ServiceObservations,
+    ServiceProfile, CONTRACT_VERSION,
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -49,6 +52,13 @@ pub struct LocalFixtureConfig {
     pub marker_path: PathBuf,
     pub observations_path: PathBuf,
     pub revocations_path: PathBuf,
+    /// The contract-only fixture remains the default. The stronger isolated
+    /// test lane may instead supervise the candidate's exact immutable OCI
+    /// image, so native clients reach the real application rather than a
+    /// protocol-shaped stand-in.
+    #[serde(default)]
+    pub run_immutable_image: bool,
+    pub resources: ResourceLimits,
 }
 
 impl LocalFixtureConfig {
@@ -79,6 +89,17 @@ impl LocalFixtureConfig {
         ] {
             if !path.is_absolute() {
                 bail!("fixture state paths must be absolute");
+            }
+        }
+        self.resources.validate()?;
+        if self.run_immutable_image {
+            if self.profile != ServiceProfile::GodotEnetUdp {
+                bail!(
+                    "immutable-image execution is released only for the bounded Godot UDP profile"
+                );
+            }
+            if self.resources.max_connections > 4 {
+                bail!("Swift Arrival's authoritative server admits at most four connections");
             }
         }
         Ok(())
@@ -130,8 +151,335 @@ pub async fn run_from_config_path(path: &Path) -> Result<()> {
     config.validate()?;
     match config.profile {
         ServiceProfile::HttpsWebsocketDemo => run_https(config).await,
+        ServiceProfile::GodotEnetUdp if config.run_immutable_image => run_udp_image(config).await,
         ServiceProfile::GodotEnetUdp => run_udp(config).await,
     }
+}
+
+async fn run_udp_image(config: LocalFixtureConfig) -> Result<()> {
+    let container_name = publication_container_name(&config);
+    remove_owned_container_if_present(&container_name, &config).await?;
+
+    let cpu = format!("{:.3}", f64::from(config.resources.cpu_millis) / 1000.0);
+    let memory = format!("{}m", config.resources.memory_mib);
+    let tmpfs = format!(
+        "/home/game:rw,nosuid,noexec,uid=2000,gid=2000,mode=0700,size={}m",
+        config.resources.ephemeral_storage_mib
+    );
+    let port = config.manifest.internal_port.to_string();
+    // Docker Desktop 4.46 on macOS accepts a 127.0.0.1 UDP publication but
+    // silently drops ENet traffic through it. Its all-address publisher does
+    // carry UDP correctly. This remains an exact, random, short-lived game
+    // port guarded by the publication-scoped invitation verifier; the owner
+    // descriptor still points its local client at 127.0.0.1.
+    let publication_label = format!("io.restless.publication={}", config.publication_id);
+    let company_label = format!("io.restless.company={}", config.company);
+    let candidate_label = format!("io.restless.candidate={}", config.candidate_digest);
+    let revocations_mount = format!(
+        "type=bind,src={},dst=/run/restless/revoked.sha256,readonly",
+        config.revocations_path.display()
+    );
+    let publication_env = format!("PUBLICATION_COMPANY={}", config.company);
+    let publication_id_env = format!("PUBLICATION_ID={}", config.publication_id);
+    let candidate_env = format!("CANDIDATE_DIGEST={}", config.candidate_digest);
+    let key_env = format!("INVITATION_KEY_BASE64={}", config.invitation_key_base64);
+    let server_port_arg = format!("--server-port={port}");
+
+    // Docker Desktop currently turns Docker's ordinary random UDP publication
+    // (`24565/udp`) into port zero. Select an explicit kernel-assigned port and
+    // let Docker claim it. A process outside Restless may win the close/bind
+    // race, so failed starts are removed and retried rather than accepted or
+    // guessed around.
+    let mut bound_port = None;
+    let mut last_start_error = String::new();
+    for _ in 0..5 {
+        let host_port = available_udp_port()?;
+        let port_mapping = format!("0.0.0.0:{host_port}:{port}/udp");
+        let created = Command::new("docker")
+            .args([
+                "create",
+                "--name",
+                &container_name,
+                "--label",
+                "io.restless.owner=published-service-fixture",
+                "--label",
+                &publication_label,
+                "--label",
+                &company_label,
+                "--label",
+                &candidate_label,
+                "--read-only",
+                "--tmpfs",
+                &tmpfs,
+                "--memory",
+                &memory,
+                "--cpus",
+                &cpu,
+                "--pids-limit",
+                "128",
+                "--cap-drop",
+                "ALL",
+                "--security-opt",
+                "no-new-privileges",
+                "--publish",
+                &port_mapping,
+                "--mount",
+                &revocations_mount,
+                "--env",
+                &publication_env,
+                "--env",
+                &publication_id_env,
+                "--env",
+                &candidate_env,
+                "--env",
+                &key_env,
+                "--env",
+                "RESTLESS_REVOCATIONS_PATH=/run/restless/revoked.sha256",
+                &config.manifest.image,
+                "--host",
+                &server_port_arg,
+            ])
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .output()
+            .await
+            .context("create exact published-service image container")?;
+        if !created.status.success() {
+            bail!(
+                "create exact published-service image container: {}",
+                bounded_command_error(&created.stderr)
+            );
+        }
+
+        let started = Command::new("docker")
+            .args(["start", &container_name])
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::piped())
+            .output()
+            .await
+            .context("start exact published-service image container")?;
+        if started.status.success() {
+            match container_bound_udp_port(&container_name, config.manifest.internal_port).await? {
+                Some(actual) if actual == host_port => {
+                    bound_port = Some(host_port);
+                    break;
+                }
+                actual => {
+                    let _ = remove_owned_container(&container_name, &config).await;
+                    bail!(
+                        "Docker published an unexpected UDP port: expected {host_port}, got {actual:?}"
+                    );
+                }
+            }
+        }
+        last_start_error = bounded_command_error(&started.stderr);
+        remove_owned_container(&container_name, &config).await?;
+    }
+    let bound_port = bound_port.with_context(|| {
+        format!(
+            "start exact published-service image container after five bounded port attempts: {last_start_error}"
+        )
+    })?;
+
+    let readiness_deadline = tokio::time::Instant::now() + Duration::from_secs(8);
+    let expected_log = format!(
+        "ENet: authoritative server listening on UDP {}",
+        config.manifest.internal_port
+    );
+    loop {
+        if !container_running(&container_name).await? {
+            let logs = container_logs(&container_name).await.unwrap_or_default();
+            let _ = remove_owned_container(&container_name, &config).await;
+            bail!("published-service image stopped before readiness: {logs}");
+        }
+        let logs = container_logs(&container_name).await.unwrap_or_default();
+        if logs.contains(&expected_log) {
+            break;
+        }
+        if tokio::time::Instant::now() >= readiness_deadline {
+            let _ = remove_owned_container(&container_name, &config).await;
+            bail!("published-service image did not become ready within 8 seconds");
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+
+    let address = SocketAddr::from(([127, 0, 0, 1], bound_port));
+    write_marker(
+        &config,
+        address,
+        format!("udp://{address}"),
+        "datagram",
+        None,
+    )?;
+
+    let outcome = supervise_container(&container_name, &config).await;
+    let cleanup = remove_owned_container(&container_name, &config).await;
+    outcome.and(cleanup)
+}
+
+fn available_udp_port() -> Result<u16> {
+    let socket = std::net::UdpSocket::bind(("0.0.0.0", 0))
+        .context("ask the kernel for an available UDP publication port")?;
+    let port = socket
+        .local_addr()
+        .context("read the available UDP publication port")?
+        .port();
+    if port == 0 {
+        bail!("the kernel returned UDP publication port zero");
+    }
+    Ok(port)
+}
+
+async fn supervise_container(name: &str, config: &LocalFixtureConfig) -> Result<()> {
+    let terminate = termination_signal();
+    tokio::pin!(terminate);
+    let expiry = (config.expires_at - Utc::now())
+        .to_std()
+        .unwrap_or(Duration::ZERO);
+    let expiry = tokio::time::sleep(expiry);
+    tokio::pin!(expiry);
+    loop {
+        tokio::select! {
+            _ = &mut expiry => return Ok(()),
+            _ = tokio::signal::ctrl_c() => return Ok(()),
+            _ = &mut terminate => return Ok(()),
+            _ = tokio::time::sleep(Duration::from_millis(500)) => {
+                if !container_running(name).await? {
+                    bail!("exact published-service image container stopped unexpectedly");
+                }
+            }
+        }
+    }
+}
+
+#[cfg(unix)]
+async fn termination_signal() {
+    if let Ok(mut terminate) =
+        tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+    {
+        let _ = terminate.recv().await;
+    } else {
+        std::future::pending::<()>().await;
+    }
+}
+
+#[cfg(not(unix))]
+async fn termination_signal() {
+    std::future::pending::<()>().await;
+}
+
+fn publication_container_name(config: &LocalFixtureConfig) -> String {
+    let identity = format!(
+        "{}\0{}\0{}",
+        config.company, config.publication_id, config.candidate_digest
+    );
+    let digest = format!("{:x}", Sha256::digest(identity));
+    format!("restless-published-{}", &digest[..20])
+}
+
+async fn container_bound_udp_port(name: &str, internal_port: u16) -> Result<Option<u16>> {
+    let output = Command::new("docker")
+        .args(["port", name, &format!("{internal_port}/udp")])
+        .output()
+        .await
+        .context("observe published-service UDP mapping")?;
+    if !output.status.success() {
+        return Ok(None);
+    }
+    let value = String::from_utf8_lossy(&output.stdout);
+    Ok(value.lines().find_map(|line| {
+        let port = line.trim().rsplit_once(':')?.1.parse::<u16>().ok()?;
+        (port != 0).then_some(port)
+    }))
+}
+
+async fn container_running(name: &str) -> Result<bool> {
+    let output = Command::new("docker")
+        .args(["inspect", "--format", "{{.State.Running}}", name])
+        .output()
+        .await
+        .context("observe published-service image container")?;
+    Ok(output.status.success() && String::from_utf8_lossy(&output.stdout).trim() == "true")
+}
+
+async fn container_logs(name: &str) -> Result<String> {
+    let output = Command::new("docker")
+        .args(["logs", name])
+        .output()
+        .await
+        .context("read bounded published-service image logs")?;
+    let mut logs = output.stdout;
+    logs.extend_from_slice(&output.stderr);
+    Ok(bounded_command_error(&logs))
+}
+
+async fn remove_owned_container_if_present(name: &str, config: &LocalFixtureConfig) -> Result<()> {
+    let output = inspect_container_ownership(name).await?;
+    if output.is_none() {
+        return Ok(());
+    }
+    verify_container_ownership(name, config, output.as_deref().unwrap())?;
+    remove_owned_container(name, config).await
+}
+
+async fn remove_owned_container(name: &str, config: &LocalFixtureConfig) -> Result<()> {
+    let Some(ownership) = inspect_container_ownership(name).await? else {
+        return Ok(());
+    };
+    verify_container_ownership(name, config, &ownership)?;
+    let removed = Command::new("docker")
+        .args(["rm", "--force", name])
+        .output()
+        .await
+        .context("remove exact published-service image container")?;
+    if !removed.status.success() {
+        bail!(
+            "remove exact published-service image container: {}",
+            bounded_command_error(&removed.stderr)
+        );
+    }
+    Ok(())
+}
+
+async fn inspect_container_ownership(name: &str) -> Result<Option<String>> {
+    let output = Command::new("docker")
+        .args([
+            "inspect",
+            "--format",
+            "{{index .Config.Labels \"io.restless.owner\"}}|{{index .Config.Labels \"io.restless.publication\"}}|{{index .Config.Labels \"io.restless.company\"}}|{{index .Config.Labels \"io.restless.candidate\"}}",
+            name,
+        ])
+        .output()
+        .await
+        .context("inspect possible published-service image container")?;
+    if !output.status.success() {
+        return Ok(None);
+    }
+    Ok(Some(
+        String::from_utf8_lossy(&output.stdout).trim().to_string(),
+    ))
+}
+
+fn verify_container_ownership(name: &str, config: &LocalFixtureConfig, actual: &str) -> Result<()> {
+    let expected = format!(
+        "published-service-fixture|{}|{}|{}",
+        config.publication_id, config.company, config.candidate_digest
+    );
+    if actual != expected {
+        bail!("refusing to mutate container {name}: its exact Restless ownership labels differ");
+    }
+    Ok(())
+}
+
+fn bounded_command_error(bytes: &[u8]) -> String {
+    String::from_utf8_lossy(bytes)
+        .chars()
+        .take(2_000)
+        .collect::<String>()
+        .trim()
+        .to_string()
 }
 
 async fn run_https(config: LocalFixtureConfig) -> Result<()> {
@@ -568,6 +916,13 @@ mod tests {
             marker_path: directory.join("ready.json"),
             observations_path: directory.join("observations.json"),
             revocations_path: directory.join("revoked.sha256"),
+            run_immutable_image: false,
+            resources: ResourceLimits {
+                cpu_millis: 500,
+                memory_mib: 512,
+                ephemeral_storage_mib: 512,
+                max_connections: 8,
+            },
         }
     }
 
@@ -584,6 +939,26 @@ mod tests {
             ),
         )
         .unwrap()
+    }
+
+    #[test]
+    fn immutable_image_identity_and_bounds_are_fail_closed() {
+        let directory = test_directory();
+        let key = [9_u8; 32];
+        let mut config = fixture_config(&directory, ServiceProfile::GodotEnetUdp, &key);
+        config.run_immutable_image = true;
+        let first = publication_container_name(&config);
+        assert_eq!(first, publication_container_name(&config));
+        assert!(first.starts_with("restless-published-"));
+        config.publication_id = "another-publication".into();
+        assert_ne!(first, publication_container_name(&config));
+        config.resources.max_connections = 5;
+        assert!(config
+            .validate()
+            .unwrap_err()
+            .to_string()
+            .contains("at most four"));
+        assert_ne!(available_udp_port().unwrap(), 0);
     }
 
     async fn start(

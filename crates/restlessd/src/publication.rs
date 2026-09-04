@@ -32,6 +32,7 @@ use restlessd::published_service_fixture::{load_marker, LocalFixtureConfig, Loca
 const PROVIDER_ENV: &str = "RESTLESS_PUBLISHED_SERVICE_PROVIDER";
 const FIXTURE_BINARY_ENV: &str = "RESTLESS_PUBLISHED_SERVICE_FIXTURE_BIN";
 const LOCAL_PROVIDER: &str = "local-test";
+const LOCAL_DOCKER_PROVIDER: &str = "local-docker-test";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum FixtureDisposition {
@@ -310,7 +311,23 @@ impl PublicationManager {
     ) -> Result<Value> {
         self.ensure_local_provider_allowed(company)?;
         let request = self.request_by_publication(company, publication_id).await?;
-        request.validate(Utc::now())?;
+        let already_authorized = self
+            .has_record(company, "publication_authorized", publication_id)
+            .await?;
+        // A start deadline governs first authorization, not the lifetime of a
+        // publication that was already admitted. Re-validate the persisted
+        // contract against its original request instant during recovery, then
+        // rely on the explicit publication expiry below. Treating every
+        // daemon restart as a fresh request made valid crash recovery fail as
+        // soon as the startup window elapsed.
+        request.validate(if already_authorized {
+            request.requested_at
+        } else {
+            Utc::now()
+        })?;
+        if request.expires_at <= Utc::now() {
+            bail!("publication is expired");
+        }
         self.ensure_candidate_available(org, company, publication_id)
             .await?;
         if self
@@ -344,9 +361,10 @@ impl PublicationManager {
             &authorization,
         )
         .await?;
+        let provider = std::env::var(PROVIDER_ENV).unwrap_or_else(|_| LOCAL_PROVIDER.into());
         let grant = json!({
             "publication_id": publication_id,
-            "provider": LOCAL_PROVIDER,
+            "provider": provider,
             "profile": request.candidate.manifest.profile,
             "candidate_digest": request.candidate.manifest_digest,
             "resources": request.resources,
@@ -877,7 +895,8 @@ impl PublicationManager {
         org: &OrgIntel,
         company: &str,
     ) -> Result<Vec<Value>> {
-        if std::env::var(PROVIDER_ENV).as_deref() != Ok(LOCAL_PROVIDER) {
+        let provider = std::env::var(PROVIDER_ENV).unwrap_or_default();
+        if provider != LOCAL_PROVIDER && provider != LOCAL_DOCKER_PROVIDER {
             return Ok(Vec::new());
         }
         let mut outcomes = Vec::new();
@@ -1050,10 +1069,12 @@ impl PublicationManager {
     }
 
     fn ensure_local_provider_allowed(&self, company: &str) -> Result<()> {
-        if std::env::var(PROVIDER_ENV).as_deref() != Ok(LOCAL_PROVIDER) {
+        let provider = std::env::var(PROVIDER_ENV).unwrap_or_default();
+        if provider != LOCAL_PROVIDER && provider != LOCAL_DOCKER_PROVIDER {
             bail!(
                 "no published-service provider is configured; Core's local fixture requires \
-                 {PROVIDER_ENV}={LOCAL_PROVIDER}, while real public ingress belongs to Cloud 14"
+                 {PROVIDER_ENV}={LOCAL_PROVIDER} (contract fixture) or \
+                 {LOCAL_DOCKER_PROVIDER} (exact isolated image), while real public ingress belongs to Cloud 14"
             );
         }
         if !company.ends_with("_test") {
@@ -1073,11 +1094,21 @@ impl PublicationManager {
         let marker_path = directory.join("ready.json");
         let marker_existed = marker_path.exists();
         let replacing_dead_fixture = if let Ok(marker) = load_marker(&marker_path) {
-            self.validate_marker(request, &marker)?;
-            if process_is_fixture_for_directory(marker.receipt.provider_process_id, &directory)? {
-                return Ok((marker, FixtureDisposition::Existing));
+            let live =
+                process_is_fixture_for_directory(marker.receipt.provider_process_id, &directory)?;
+            match self.validate_marker(request, &marker) {
+                Ok(()) if live => return Ok((marker, FixtureDisposition::Existing)),
+                Ok(()) => true,
+                Err(error) if live => {
+                    bail!(
+                        "provider receipt is invalid while its exact fixture is still alive: {error}"
+                    )
+                }
+                // A dead provider cannot make an invalid receipt true. Replace
+                // both from the durable request; never require hand-editing a
+                // stale marker after a crash.
+                Err(_) => true,
             }
-            true
         } else {
             marker_existed
                 || self
@@ -1119,6 +1150,9 @@ impl PublicationManager {
             marker_path: marker_path.clone(),
             observations_path,
             revocations_path,
+            run_immutable_image: std::env::var(PROVIDER_ENV).as_deref()
+                == Ok(LOCAL_DOCKER_PROVIDER),
+            resources: request.resources.clone(),
         };
         if config_path.exists() {
             std::fs::remove_file(&config_path)
@@ -1126,13 +1160,22 @@ impl PublicationManager {
         }
         write_private(&config_path, &serde_json::to_vec_pretty(&config)?)?;
         let binary = fixture_binary()?;
+        let stdout_path = directory.join("provider.stdout.log");
+        let stderr_path = directory.join("provider.stderr.log");
+        let stdout = open_private_log(&stdout_path)?;
+        let stderr = open_private_log(&stderr_path)?;
         let mut child = std::process::Command::new(&binary)
             .arg(&config_path)
             .current_dir(&directory)
             .env_clear()
+            // The fixture receives no ambient credentials or provider
+            // configuration, but its released exact-image mode needs the
+            // host Docker CLI. Use a fixed executable search path rather than
+            // inheriting the owner's shell environment.
+            .env("PATH", "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin")
             .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
+            .stdout(stdout)
+            .stderr(stderr)
             .spawn()
             .with_context(|| format!("start bounded provider fixture {}", binary.display()))?;
         let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
@@ -1140,8 +1183,16 @@ impl PublicationManager {
             if let Ok(marker) = load_marker(&marker_path) {
                 if marker.receipt.provider_process_id != child.id() {
                     let _ = child.kill();
+                    let _ = child.wait();
                     bail!("provider ready marker names an unexpected process");
                 }
+                // The provider deliberately outlives this request and may
+                // outlive a daemon restart. A dropped std::process::Child is
+                // not reaped on Unix, so retain exactly one bounded waiter
+                // instead of accumulating defunct provider children.
+                std::thread::spawn(move || {
+                    let _ = child.wait();
+                });
                 return Ok((
                     marker,
                     if replacing_dead_fixture {
@@ -1155,10 +1206,12 @@ impl PublicationManager {
                 .try_wait()
                 .context("observe provider fixture startup")?
             {
-                bail!("provider fixture exited before readiness with {status}");
+                let diagnostics = bounded_provider_diagnostics(&stdout_path, &stderr_path);
+                bail!("provider fixture exited before readiness with {status}: {diagnostics}");
             }
             if tokio::time::Instant::now() >= deadline {
                 let _ = child.kill();
+                let _ = child.wait();
                 bail!("provider fixture did not publish its readiness event within 10 seconds");
             }
             tokio::time::sleep(Duration::from_millis(20)).await;
@@ -1482,6 +1535,45 @@ fn write_private(path: &Path, bytes: &[u8]) -> Result<()> {
     Ok(())
 }
 
+fn open_private_log(path: &Path) -> Result<std::fs::File> {
+    let mut options = OpenOptions::new();
+    options.write(true).create(true).truncate(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt as _;
+        options.mode(0o600);
+    }
+    options
+        .open(path)
+        .with_context(|| format!("open private provider log {}", path.display()))
+}
+
+fn bounded_provider_diagnostics(stdout: &Path, stderr: &Path) -> String {
+    let mut combined = String::new();
+    for (label, path) in [("stdout", stdout), ("stderr", stderr)] {
+        let Ok(raw) = std::fs::read(path) else {
+            continue;
+        };
+        let bounded = String::from_utf8_lossy(&raw)
+            .chars()
+            .take(2_000)
+            .collect::<String>();
+        if !bounded.trim().is_empty() {
+            if !combined.is_empty() {
+                combined.push_str("; ");
+            }
+            combined.push_str(label);
+            combined.push_str(": ");
+            combined.push_str(bounded.trim());
+        }
+    }
+    if combined.is_empty() {
+        "no provider diagnostics were emitted".into()
+    } else {
+        combined
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use restless_orgintel::{NewWork, WorkspaceSpec};
@@ -1712,8 +1804,10 @@ mod tests {
             "resource accounting must happen once"
         );
 
-        if std::env::var(PROVIDER_ENV).as_deref() == Ok(LOCAL_PROVIDER)
-            && std::env::var_os(FIXTURE_BINARY_ENV).is_some()
+        if matches!(
+            std::env::var(PROVIDER_ENV).as_deref(),
+            Ok(LOCAL_PROVIDER) | Ok(LOCAL_DOCKER_PROVIDER)
+        ) && std::env::var_os(FIXTURE_BINARY_ENV).is_some()
         {
             let fixture_binary = std::env::var_os(FIXTURE_BINARY_ENV).unwrap();
             std::env::set_var(FIXTURE_BINARY_ENV, root.join("missing-fixture-binary"));

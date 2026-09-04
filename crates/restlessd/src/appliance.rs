@@ -28,24 +28,26 @@ pub const SYSTEMD_WAKE_TIMER: &str = "restless-wake-due.timer";
 /// second admission check closes the race between those two operations.
 #[derive(Clone)]
 pub struct LifecycleGate {
-    accepting: Arc<AtomicBool>,
+    draining: Arc<AtomicBool>,
+    recovering: Arc<AtomicBool>,
     active: Arc<AtomicUsize>,
 }
 
 impl LifecycleGate {
     pub fn new(draining: bool) -> Self {
         Self {
-            accepting: Arc::new(AtomicBool::new(!draining)),
+            draining: Arc::new(AtomicBool::new(draining)),
+            recovering: Arc::new(AtomicBool::new(false)),
             active: Arc::new(AtomicUsize::new(0)),
         }
     }
 
     pub fn try_enter(&self) -> Option<LifecycleLease> {
-        if !self.accepting.load(Ordering::SeqCst) {
+        if self.is_blocked() {
             return None;
         }
         self.active.fetch_add(1, Ordering::SeqCst);
-        if !self.accepting.load(Ordering::SeqCst) {
+        if self.is_blocked() {
             self.active.fetch_sub(1, Ordering::SeqCst);
             return None;
         }
@@ -53,19 +55,38 @@ impl LifecycleGate {
     }
 
     pub fn begin_drain(&self) {
-        self.accepting.store(false, Ordering::SeqCst);
+        self.draining.store(true, Ordering::SeqCst);
     }
 
     pub fn resume(&self) {
-        self.accepting.store(true, Ordering::SeqCst);
+        self.draining.store(false, Ordering::SeqCst);
     }
 
     pub fn is_draining(&self) -> bool {
-        !self.accepting.load(Ordering::SeqCst)
+        self.draining.load(Ordering::SeqCst)
+    }
+
+    /// Close work admission while crash recovery is incomplete without
+    /// pretending the owner initiated an appliance replacement. Read-only
+    /// owner/control surfaces remain available to explain the degraded state.
+    pub fn begin_recovery(&self) {
+        self.recovering.store(true, Ordering::SeqCst);
+    }
+
+    pub fn finish_recovery(&self) {
+        self.recovering.store(false, Ordering::SeqCst);
+    }
+
+    pub fn is_recovering(&self) -> bool {
+        self.recovering.load(Ordering::SeqCst)
     }
 
     pub fn active(&self) -> usize {
         self.active.load(Ordering::SeqCst)
+    }
+
+    fn is_blocked(&self) -> bool {
+        self.is_draining() || self.is_recovering()
     }
 }
 
@@ -398,6 +419,9 @@ impl SingletonGuard {
             .with_context(|| format!("create singleton directory {}", parent.display()))?;
         let mut file = OpenOptions::new()
             .create(true)
+            // Never truncate before obtaining the advisory lock: a refused
+            // second singleton must not erase the live owner's PID evidence.
+            .truncate(false)
             .read(true)
             .write(true)
             .open(&path)
@@ -498,7 +522,7 @@ pub fn launchd_plane_plist(paths: &ServicePaths) -> Result<String> {
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><true/>
   <key>ThrottleInterval</key><integer>30</integer>
-  <key>ProcessType</key><string>Background</string>
+  <key>ProcessType</key><string>Interactive</string>
   <key>StandardOutPath</key><string>{}</string>
   <key>StandardErrorPath</key><string>{}</string>
 </dict></plist>
@@ -678,7 +702,10 @@ mod tests {
             assert!(!definition.contains("reason"));
         }
         let launchd_wake = launchd_wake_plist(&paths).unwrap();
+        let launchd_plane = launchd_plane_plist(&paths).unwrap();
+        assert!(launchd_plane.contains("<key>ProcessType</key><string>Interactive</string>"));
         assert!(launchd_wake.contains("wake-due"));
+        assert!(launchd_wake.contains("<key>ProcessType</key><string>Background</string>"));
         assert!(!launchd_wake.contains("KeepAlive"));
     }
 
@@ -703,6 +730,24 @@ mod tests {
         assert!(gate.try_enter().is_none());
         drop(first);
         assert_eq!(gate.active(), 0);
+        gate.resume();
+        assert!(gate.try_enter().is_some());
+    }
+
+    #[test]
+    fn recovery_and_owner_drain_are_independent_admission_barriers() {
+        let gate = LifecycleGate::default();
+        gate.begin_recovery();
+        assert!(gate.is_recovering());
+        assert!(!gate.is_draining());
+        assert!(gate.try_enter().is_none());
+
+        gate.begin_drain();
+        gate.finish_recovery();
+        assert!(!gate.is_recovering());
+        assert!(gate.is_draining());
+        assert!(gate.try_enter().is_none());
+
         gate.resume();
         assert!(gate.try_enter().is_some());
     }

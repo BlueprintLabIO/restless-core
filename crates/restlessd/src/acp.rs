@@ -1844,10 +1844,11 @@ pub(crate) fn agent_exec_prefix(workdir: &str) -> Vec<String> {
 
 /// Read and validate the Linux session id written by this turn's wrapper.
 pub(crate) async fn read_session_id(container: &str, marker: &str) -> Option<String> {
-    let Ok(output) = tokio::process::Command::new("docker")
-        .args(["exec", container, "cat", marker])
-        .output()
-        .await
+    let Ok(output) = crate::runtime::docker_bounded(
+        &["exec", container, "cat", marker],
+        std::time::Duration::from_secs(8),
+    )
+    .await
     else {
         return None;
     };
@@ -1961,10 +1962,11 @@ pub(crate) async fn verify_session_reaped(container: &str, session_id: &str) -> 
 /// and that is the tripwire for revisiting this — no company has wanted one
 /// yet (§16.1, observe before modelling).
 pub(crate) async fn reap_session(container: &str, session_id: &str) -> usize {
-    let Ok(output) = tokio::process::Command::new("docker")
-        .args(["exec", container, "ps", "-eo", "pid=,sid="])
-        .output()
-        .await
+    let Ok(output) = crate::runtime::docker_bounded(
+        &["exec", container, "ps", "-eo", "pid=,sid="],
+        std::time::Duration::from_secs(8),
+    )
+    .await
     else {
         return 0;
     };
@@ -1980,10 +1982,7 @@ pub(crate) async fn reap_session(container: &str, session_id: &str) -> usize {
     );
     let mut args = vec!["exec", container, "kill", "-9"];
     args.extend(leaked.iter().map(String::as_str));
-    let _ = tokio::process::Command::new("docker")
-        .args(&args)
-        .output()
-        .await;
+    let _ = crate::runtime::docker_bounded(&args, std::time::Duration::from_secs(8)).await;
     leaked.len()
 }
 
@@ -1991,8 +1990,8 @@ pub(crate) async fn reap_session(container: &str, session_id: &str) -> usize {
 /// ownership record; a process-name search is incomplete (`omp` replaced
 /// `codex-acp`) and can claim unrelated work.
 pub(crate) async fn reap_orphan_sessions(container: &str) -> usize {
-    let Ok(output) = tokio::process::Command::new("docker")
-        .args([
+    let Ok(output) = crate::runtime::docker_bounded(
+        &[
             "exec",
             container,
             "find",
@@ -2004,9 +2003,10 @@ pub(crate) async fn reap_orphan_sessions(container: &str) -> usize {
             "-name",
             "restless-agent-*.sid",
             "-print",
-        ])
-        .output()
-        .await
+        ],
+        std::time::Duration::from_secs(8),
+    )
+    .await
     else {
         return 0;
     };
@@ -2022,10 +2022,11 @@ pub(crate) async fn reap_orphan_sessions(container: &str) -> usize {
         if let Some(session_id) = read_session_id(container, marker).await {
             reaped += reap_session(container, &session_id).await;
         }
-        let _ = tokio::process::Command::new("docker")
-            .args(["exec", container, "unlink", marker])
-            .output()
-            .await;
+        let _ = crate::runtime::docker_bounded(
+            &["exec", container, "unlink", marker],
+            std::time::Duration::from_secs(8),
+        )
+        .await;
     }
     reaped
 }

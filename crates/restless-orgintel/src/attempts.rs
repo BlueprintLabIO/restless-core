@@ -419,6 +419,25 @@ impl OrgIntel {
         .await?)
     }
 
+    /// Recovery needs only live executions. Keeping this query separate from
+    /// the owner-facing history projection makes daemon restart cost scale
+    /// with current work rather than every Attempt the company has completed.
+    pub async fn list_running_work_attempts(&self) -> Result<Vec<WorkAttemptRow>> {
+        Ok(sqlx::query_as(
+            "SELECT id, work_id, revision, attempt_no, actor_id, session_id, state, trigger, \
+                    input_fingerprint, feedback_cursor, requested_source_ref, source_commit, \
+                    source_tree, terminal_source_commit, terminal_source_tree, \
+                    terminal_status_digest, terminal_dirty_entries, terminal_observed_at, \
+                    gate_set_digest, environment_fingerprint, materialized_at, \
+                    interrupt_requested_at, interrupt_requested_by, interrupt_reason, \
+                    feedback_checkpoint_cursor, model, harness, harness_build, harness_transport, \
+                    harness_capabilities, started_at, finished_at, summary \
+             FROM work_attempts WHERE state='running' ORDER BY started_at, id",
+        )
+        .fetch_all(&self.pool)
+        .await?)
+    }
+
     /// Close an execution mechanism whose semantic completion is missing and
     /// preserve one bounded recovery capsule for the accountable lead. The
     /// Runtime still owns the worktree and Git facts; OrgIntel owns only the

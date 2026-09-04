@@ -66,7 +66,7 @@ the subsequent `next_fire_at`, and no second Work/Attempt for the same occurrenc
 | --- | --- | --- | --- |
 | A1 | Exact released HTTPS artifact with embed allowed | Opens in the Cockpit content surface | Opaque session exchange; no bearer in URL/history/log |
 | A2 | Embed denied by origin policy | Explains denial and offers only an allowed external open | No permissive iframe fallback |
-| A3 | Exact Swift Arrival macOS artifact | Digest verified, native client launches and joins matching prepared session | No shell interpolation; capability stays out of argv/environment |
+| A3 | Exact Swift Arrival macOS artifact | Digest verified, native client launches and joins matching prepared session | No shell interpolation; reusable invitation stays out of argv/environment and the client receives only an expiring opaque local handle |
 | A4 | Wrong digest/platform/audience or expired grant | Open is disabled/refused with the exact reason | No process starts and no material remains |
 | A5 | Non-packaged visual outcome | Opens the existing Company Computer stream | Labelled `company_computer`; no public Runtime port |
 | A6 | Repeated Open | Reuses prepared identity/session or reports it | No duplicate publication/download/process |

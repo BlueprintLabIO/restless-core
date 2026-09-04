@@ -345,7 +345,10 @@ impl LaunchBroker {
             .await?;
         let session = self.insert_session(company, resource_id, SessionKind::Native, access)?;
         let owner_port = crate::port_with_offset(7788)?;
-        let mut child = tokio::process::Command::new(&executable)
+        let mut command = tokio::process::Command::new(&executable);
+        command
+            .env_clear()
+            .env("PATH", "/usr/bin:/bin:/usr/sbin:/sbin")
             .env("RESTLESS_LAUNCH_HANDLE", &session.handle)
             .env(
                 "RESTLESS_LAUNCH_BROKER_ORIGIN",
@@ -354,7 +357,17 @@ impl LaunchBroker {
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::null())
-            .kill_on_drop(true)
+            .kill_on_drop(true);
+        // Godot needs the user's ordinary data/temp locations, but it must
+        // never inherit model keys, provider credentials or the daemon's
+        // operational configuration. Preserve only this finite non-secret
+        // process environment.
+        for key in ["HOME", "TMPDIR", "LANG", "LC_ALL"] {
+            if let Some(value) = std::env::var_os(key) {
+                command.env(key, value);
+            }
+        }
+        let mut child = command
             .spawn()
             .with_context(|| format!("launch verified native client {}", executable.display()))?;
         let broker = self.clone();

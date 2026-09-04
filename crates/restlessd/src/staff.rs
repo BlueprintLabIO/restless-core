@@ -7,7 +7,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 use anyhow::{bail, Context as _, Result};
-use restless_orgintel::{ClaimedWork, WorkAttemptState};
+use restless_orgintel::ClaimedWork;
 use sha2::Digest as _;
 use tokio_util::sync::CancellationToken;
 
@@ -510,24 +510,8 @@ pub async fn dispatch_claimed_work(
 /// unsupervised, its transcript unreachable. Reap only those Linux sessions,
 /// preserve their Runtime evidence, and leave the productive outcome unknown
 /// for the accountable lead to review.
-pub async fn sweep_orphans(root: &std::path::Path, orgintel: &crate::OrgIntelRegistry) {
-    let Ok(entries) = std::fs::read_dir(root.join("companies")) else {
-        return;
-    };
-    for entry in entries.flatten() {
-        let path = entry.path();
-        if path.extension().and_then(|ext| ext.to_str()) != Some("toml") {
-            continue;
-        }
-        let Some(name) = path.file_stem().and_then(|stem| stem.to_str()) else {
-            continue;
-        };
-        if !matches!(
-            runtime::status(name).await,
-            Ok(runtime::ContainerStatus::Running)
-        ) {
-            continue;
-        }
+pub async fn sweep_orphans(orgintel: &crate::OrgIntelRegistry, running_companies: &[String]) {
+    for name in running_companies {
         let container = runtime::container_name(name);
         match reap_orphan_gate_processes(&container).await {
             Ok(reaped) if reaped > 0 => tracing::warn!(
@@ -552,13 +536,10 @@ pub async fn sweep_orphans(root: &std::path::Path, orgintel: &crate::OrgIntelReg
         let Ok(org) = orgintel.get(name).await else {
             continue;
         };
-        let Ok(attempts) = org.list_work_attempts(None).await else {
+        let Ok(attempts) = org.list_running_work_attempts().await else {
             continue;
         };
-        for attempt in attempts
-            .iter()
-            .filter(|attempt| attempt.state == WorkAttemptState::Running)
-        {
+        for attempt in &attempts {
             let Some(work) = org.get_work(attempt.work_id).await.ok().flatten() else {
                 tracing::warn!(attempt = %attempt.id, "orphaned Attempt lost its Work row");
                 continue;
