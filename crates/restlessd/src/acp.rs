@@ -449,6 +449,11 @@ async fn persist_session_locator(
 const RUNTIME_COMMAND_OUTPUT_LIMIT: usize = 64 * 1024;
 const RUNTIME_FILE_READ_LIMIT: usize = 256 * 1024;
 const RUNTIME_PROCESS_DEADLINE_HOURS: i64 = 23;
+const RUNTIME_SESSION_SCRATCH: &str = "/company/run/sessions";
+
+fn agent_session_runtime_path(launch_id: &str) -> String {
+    format!("{RUNTIME_SESSION_SCRATCH}/agent-sessions/{launch_id}")
+}
 
 struct CapturedRuntimeOutput {
     bytes: Vec<u8>,
@@ -1299,7 +1304,7 @@ where
     }
     validate_agent_process_authority(&authority, auth, actor, responsibility)?;
     let launch_id = auth.session_id.clone();
-    let session_runtime = format!("/company/run/agent-sessions/{launch_id}");
+    let session_runtime = agent_session_runtime_path(&launch_id);
     prepare_agent_runtime_via_transport(transport.as_ref(), &authority, auth, &session_runtime)
         .await?;
     let locator_path = session_locator_path(&auth.company, actor, responsibility);
@@ -1953,12 +1958,12 @@ mod tests {
     };
 
     use super::{
-        agent_exec_prefix, exact_model_config_selection, model_config_is_selected,
-        omp_agent_command_args, persist_session_locator, pids_in_session, read_session_locator,
-        session_cost_delta, session_locator_is_reusable, session_locator_path,
-        validate_agent_process_authority, validate_session_locator, with_agent, AgentAuth,
-        AgentControls, RuntimeProcessAuthority, RuntimeTransport, SessionLocator,
-        DEFAULT_REASONING_EFFORT, OMP_AGENT_TOOLS, RESTLESS_OMP_CONFIG,
+        agent_exec_prefix, agent_session_runtime_path, exact_model_config_selection,
+        model_config_is_selected, omp_agent_command_args, persist_session_locator, pids_in_session,
+        read_session_locator, runtime_path, session_cost_delta, session_locator_is_reusable,
+        session_locator_path, validate_agent_process_authority, validate_session_locator,
+        with_agent, AgentAuth, AgentControls, RuntimeProcessAuthority, RuntimeTransport,
+        SessionLocator, DEFAULT_REASONING_EFFORT, OMP_AGENT_TOOLS, RESTLESS_OMP_CONFIG,
     };
 
     #[test]
@@ -2396,6 +2401,29 @@ mod tests {
             Some(["-w".to_string(), review_copy.to_string()].as_slice())
         );
         assert!(!prefix.iter().any(|argument| argument == "/company"));
+    }
+
+    #[test]
+    fn hosted_agent_session_uses_the_approved_runtime_scratch_root() {
+        let session_runtime = agent_session_runtime_path("launch-1");
+        assert_eq!(
+            session_runtime,
+            "/company/run/sessions/agent-sessions/launch-1"
+        );
+        let system_prompt = runtime_path(&format!("{session_runtime}/system.md")).unwrap();
+        let wire: restlessd::runtime_agent_protocol::RuntimePath =
+            (&system_prompt).try_into().unwrap();
+        assert_eq!(
+            wire.root,
+            restlessd::runtime_agent_protocol::RuntimeFileRoot::SessionScratch
+        );
+        assert_eq!(wire.relative, "agent-sessions/launch-1/system.md");
+
+        let legacy = runtime_path("/company/run/agent-sessions/launch-1/system.md").unwrap();
+        assert!(
+            restlessd::runtime_agent_protocol::RuntimePath::try_from(&legacy).is_err(),
+            "the fix must not broaden the Runtime Agent file allowlist"
+        );
     }
 
     #[test]
