@@ -169,7 +169,7 @@ impl fmt::Debug for BootstrapSecret {
 
 impl BootstrapSecret {
     pub fn read(path: &Path) -> Result<Self, HostedRuntimeError> {
-        let bytes = read_private_file(path, 43, HostedRuntimeError::SecretUnavailable)?;
+        let bytes = read_bootstrap_secret_file(path, 43, HostedRuntimeError::SecretUnavailable)?;
         Self::from_bytes(bytes)
     }
 
@@ -658,6 +658,42 @@ fn read_private_file(
     expected_len: usize,
     error: HostedRuntimeError,
 ) -> Result<Vec<u8>, HostedRuntimeError> {
+    read_restricted_file(path, expected_len, error, false)
+}
+
+fn read_bootstrap_secret_file(
+    path: &Path,
+    expected_len: usize,
+    error: HostedRuntimeError,
+) -> Result<Vec<u8>, HostedRuntimeError> {
+    read_restricted_file(path, expected_len, error, true)
+}
+
+fn read_restricted_file(
+    path: &Path,
+    expected_len: usize,
+    error: HostedRuntimeError,
+    allow_exact_read_only_mount: bool,
+) -> Result<Vec<u8>, HostedRuntimeError> {
+    let link_metadata = fs::symlink_metadata(path).map_err(|_| error.clone())?;
+    if !link_metadata.file_type().is_file()
+        || link_metadata.file_type().is_symlink()
+        || link_metadata.len() != expected_len as u64
+    {
+        return Err(error);
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt as _;
+        let access_is_restricted = if allow_exact_read_only_mount {
+            secret_file_access_is_restricted(path, &link_metadata)
+        } else {
+            link_metadata.permissions().mode() & 0o077 == 0
+        };
+        if !access_is_restricted {
+            return Err(error);
+        }
+    }
     let file = fs::File::open(path).map_err(|_| error.clone())?;
     let metadata = file.metadata().map_err(|_| error.clone())?;
     if !metadata.is_file() || metadata.len() != expected_len as u64 {
@@ -665,8 +701,8 @@ fn read_private_file(
     }
     #[cfg(unix)]
     {
-        use std::os::unix::fs::PermissionsExt as _;
-        if metadata.permissions().mode() & 0o077 != 0 {
+        use std::os::unix::fs::MetadataExt as _;
+        if metadata.dev() != link_metadata.dev() || metadata.ino() != link_metadata.ino() {
             return Err(error);
         }
     }
@@ -678,6 +714,81 @@ fn read_private_file(
         return Err(error);
     }
     Ok(bytes)
+}
+
+/// Accept a traditional owner-only file, or on Linux an exact read-only file
+/// mount such as a Docker Compose file-backed secret. Requiring the mount point
+/// to equal the file path is deliberate: a read-only container root must not
+/// make an ordinary broadly-readable file look like a secret.
+pub fn secret_file_access_is_restricted(path: &Path, metadata: &fs::Metadata) -> bool {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt as _;
+        let mode = metadata.permissions().mode();
+        if mode & 0o077 == 0 {
+            return true;
+        }
+        if mode & 0o022 != 0 {
+            return false;
+        }
+        #[cfg(target_os = "linux")]
+        {
+            let Ok(mountinfo) = fs::read_to_string("/proc/self/mountinfo") else {
+                return false;
+            };
+            return secret_file_access_is_restricted_with_mountinfo(path, metadata, &mountinfo);
+        }
+        #[cfg(not(target_os = "linux"))]
+        {
+            let _ = path;
+            false
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = (path, metadata);
+        true
+    }
+}
+
+#[cfg(all(unix, any(target_os = "linux", test)))]
+fn secret_file_access_is_restricted_with_mountinfo(
+    path: &Path,
+    metadata: &fs::Metadata,
+    mountinfo: &str,
+) -> bool {
+    use std::os::unix::fs::PermissionsExt as _;
+    let mode = metadata.permissions().mode();
+    if mode & 0o077 == 0 {
+        return true;
+    }
+    if mode & 0o022 != 0 {
+        return false;
+    }
+    let Ok(canonical) = fs::canonicalize(path) else {
+        return false;
+    };
+    mountinfo_has_exact_read_only_mount(mountinfo, &canonical)
+}
+
+#[cfg(any(target_os = "linux", test))]
+fn mountinfo_path(path: &Path) -> String {
+    path.to_string_lossy()
+        .replace('\\', "\\134")
+        .replace(' ', "\\040")
+        .replace('\t', "\\011")
+        .replace('\n', "\\012")
+}
+
+#[cfg(any(target_os = "linux", test))]
+fn mountinfo_has_exact_read_only_mount(mountinfo: &str, path: &Path) -> bool {
+    let expected = mountinfo_path(path);
+    mountinfo.lines().any(|line| {
+        let fields = line.split_ascii_whitespace().collect::<Vec<_>>();
+        fields.len() >= 6
+            && fields[4] == expected
+            && fields[5].split(',').any(|option| option == "ro")
+    })
 }
 
 fn parse_non_nil_uuid(label: &'static str, value: &str) -> Result<Uuid, HostedRuntimeError> {
@@ -979,8 +1090,8 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn secret_files_must_be_exact_private_regular_files() {
-        use std::os::unix::fs::PermissionsExt as _;
+    fn local_secret_files_must_be_exact_private_regular_files() {
+        use std::os::unix::fs::{symlink, PermissionsExt as _};
 
         let root = std::env::temp_dir().join(format!(
             "restless-hosted-runtime-secret-test-{}",
@@ -996,6 +1107,13 @@ mod tests {
             BootstrapSecret::read(&bootstrap),
             Err(HostedRuntimeError::SecretUnavailable)
         );
+        fs::set_permissions(&bootstrap, fs::Permissions::from_mode(0o600)).unwrap();
+        let bootstrap_link = root.join("bootstrap-link");
+        symlink(&bootstrap, &bootstrap_link).unwrap();
+        assert_eq!(
+            BootstrapSecret::read(&bootstrap_link),
+            Err(HostedRuntimeError::SecretUnavailable)
+        );
 
         let installation = root.join("runtime-capability.key");
         fs::write(&installation, [7; 32]).unwrap();
@@ -1004,6 +1122,54 @@ mod tests {
         let second = RuntimeBridgeCapabilityKey::from_installation_key(&installation).unwrap();
         assert_eq!(first.0, second.0);
         assert_ne!(first.0, [7; 32]);
+        fs::set_permissions(&installation, fs::Permissions::from_mode(0o644)).unwrap();
+        assert_eq!(
+            RuntimeBridgeCapabilityKey::from_installation_key(&installation).err(),
+            Some(HostedRuntimeError::CapabilityKeyUnavailable),
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn broad_file_mode_requires_an_exact_read_only_mount() {
+        use std::os::unix::fs::PermissionsExt as _;
+
+        let root = std::env::temp_dir().join(format!(
+            "restless-hosted-runtime-mount-test-{}",
+            Uuid::new_v4()
+        ));
+        fs::create_dir_all(&root).unwrap();
+        let path = root.join("runtime bootstrap token");
+        fs::write(&path, SECRET).unwrap();
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).unwrap();
+        let metadata = fs::metadata(&path).unwrap();
+        let escaped = mountinfo_path(&fs::canonicalize(&path).unwrap());
+        let exact_read_only =
+            format!("41 30 0:38 /source {escaped} ro,nosuid,nodev - ext4 /dev/root ro\n");
+        assert!(secret_file_access_is_restricted_with_mountinfo(
+            &path,
+            &metadata,
+            &exact_read_only,
+        ));
+        assert!(mountinfo_has_exact_read_only_mount(
+            "41 30 0:38 /source /run/secrets/runtime\\040bootstrap\\040token ro,nosuid,nodev - ext4 /dev/root ro\n",
+            Path::new("/run/secrets/runtime bootstrap token"),
+        ));
+        assert!(!mountinfo_has_exact_read_only_mount(
+            "41 30 0:38 /source /run/secrets/runtime\\040bootstrap\\040token rw,nosuid,nodev - ext4 /dev/root rw\n",
+            Path::new("/run/secrets/runtime bootstrap token"),
+        ));
+        assert!(!mountinfo_has_exact_read_only_mount(
+            "40 30 0:38 /source /run/secrets ro,nosuid,nodev - ext4 /dev/root ro\n",
+            Path::new("/run/secrets/runtime bootstrap token"),
+        ));
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o777)).unwrap();
+        assert!(!secret_file_access_is_restricted_with_mountinfo(
+            &path,
+            &fs::metadata(&path).unwrap(),
+            &exact_read_only,
+        ));
         fs::remove_dir_all(root).unwrap();
     }
 

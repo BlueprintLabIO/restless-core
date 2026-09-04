@@ -38,10 +38,11 @@ use tokio::io::{AsyncBufReadExt as _, AsyncWriteExt as _, BufReader};
 use uuid::Uuid;
 
 use restlessd::hosted_runtime::{
-    BootstrapSecret, CompanyBootstrapRequest, HostedCompanyProvisioner, HostedCompanyReadiness,
-    HostedCompanyScope, HostedPlaneConfig, HostedPlaneValues, HostedRuntimeAdmission,
-    HostedRuntimeError, HostedRuntimeIdentity, RuntimeBootstrapRequest, RuntimeBridgeBootstrap,
-    RuntimeBridgeCapabilityKey, RuntimeBridgeGrant,
+    secret_file_access_is_restricted, BootstrapSecret, CompanyBootstrapRequest,
+    HostedCompanyProvisioner, HostedCompanyReadiness, HostedCompanyScope, HostedPlaneConfig,
+    HostedPlaneValues, HostedRuntimeAdmission, HostedRuntimeError, HostedRuntimeIdentity,
+    RuntimeBootstrapRequest, RuntimeBridgeBootstrap, RuntimeBridgeCapabilityKey,
+    RuntimeBridgeGrant,
 };
 use restlessd::runtime_bridge::{
     RuntimeBridgeAuthority, RuntimeBridgeRegistry, RuntimeGrantConsumption,
@@ -2265,8 +2266,7 @@ fn read_bootstrap_secret_file(path: &Path) -> Result<Vec<u8>> {
     }
     #[cfg(unix)]
     {
-        use std::os::unix::fs::PermissionsExt as _;
-        if link_metadata.permissions().mode() & 0o077 != 0 {
+        if !secret_file_access_is_restricted(path, &link_metadata) {
             anyhow::bail!("Runtime bootstrap secret file is unavailable or unsafe");
         }
     }

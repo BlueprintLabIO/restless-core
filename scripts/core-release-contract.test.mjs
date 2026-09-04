@@ -237,6 +237,8 @@ test("owner-plane Compose is provider-complete, hardened and digest-only after r
     HOSTNAME: "plane.example.test",
     OWNER_ID: "owner_test",
     PLANE_ID: "plane_test",
+    RUNTIME_BOOTSTRAP_SECRET_FILE:
+      "runtime-bootstrap-token-11111111-1111-7111-8111-111111111111",
   };
   let rendered = template;
   for (const token of OWNER_PLANE_TEMPLATE_TOKENS) {
@@ -250,6 +252,11 @@ test("owner-plane Compose is provider-complete, hardened and digest-only after r
   for (const reference of imageLines) {
     assert.match(reference, /@sha256:[a-f0-9]{64}$/);
   }
+  assert.match(
+    rendered,
+    /file: "\.\/secrets\/runtime-bootstrap-token-11111111-1111-7111-8111-111111111111"/,
+  );
+  assert.doesNotMatch(rendered, /RESTLESS_RUNTIME_BOOTSTRAP_TOKEN\s*:/);
 
   for (const mutation of [
     `${template}\nservices:\n  escape:\n    build: .\n`,
@@ -272,6 +279,16 @@ test("owner-plane Compose is provider-complete, hardened and digest-only after r
       "{{FLEET_ENTRY_JWKS_URL}}",
       "https://fleet.example.test/jwks",
     ),
+    template.replace(
+      'file: "./secrets/{{RUNTIME_BOOTSTRAP_SECRET_FILE}}"',
+      "environment: RESTLESS_RUNTIME_BOOTSTRAP_TOKEN",
+    ),
+    template.replace(
+      "      RESTLESS_ENTRY_MODE: network",
+      "      RESTLESS_RUNTIME_BOOTSTRAP_TOKEN: leaked\n      RESTLESS_ENTRY_MODE: network",
+    ),
+    template.replace("{{RUNTIME_BOOTSTRAP_SECRET_FILE}}", "missing-token"),
+    `${template}\n# {{RUNTIME_BOOTSTRAP_SECRET_FILE}}\n`,
     `${template}\n# {{unknown_token}}\n`,
     `${template}\n# {{UNFINISHED\n`,
   ]) {

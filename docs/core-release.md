@@ -37,7 +37,12 @@ lowercase SHA-256 value Cloud supplies as `COOLIFY_PLANE_COMPOSE_TEMPLATE_SHA256
 template bytes exactly, including whitespace. The template uses only the provider's reviewed token
 set and its validator rejects mutable image lines, build directives, host ports, Docker-socket
 mounts, privileged containers, host networking or PID namespaces, and missing state/database
-volumes or network-entry variables.
+volumes or network-entry variables. The Runtime bootstrap token is an operation-scoped file beside
+the Compose project and enters the read-only account plane only as a file-backed Compose secret; it
+is never a service environment variable or a template value. Core accepts either an owner-only
+source file or, on Linux, a file whose exact path the kernel reports as a read-only mount. A broadly
+readable file on a writable filesystem—or merely beneath a read-only parent mount—still fails closed,
+and group/world-writable source modes are rejected even for an exact read-only mount.
 
 The generator rejects a dirty tracked checkout, a source revision that differs from `HEAD`, stale UI
 bytes, mutable image tags, missing image roles, duplicate image digests and non-positive contract

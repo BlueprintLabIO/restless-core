@@ -13,6 +13,7 @@ export const OWNER_PLANE_TEMPLATE_TOKENS = [
   "HOSTNAME",
   "OWNER_ID",
   "PLANE_ID",
+  "RUNTIME_BOOTSTRAP_SECRET_FILE",
 ];
 
 export const OWNER_PLANE_RUNTIME_ENVIRONMENT = [
@@ -82,6 +83,13 @@ export function assertOwnerPlaneComposeTemplate(template) {
       "owner-plane Compose template does not bind its image roles and reported plane identity exactly",
     );
   }
+  if (
+    occurrenceCount(template, "{{RUNTIME_BOOTSTRAP_SECRET_FILE}}") !== 1
+  ) {
+    throw new Error(
+      "owner-plane Compose template must bind exactly one Runtime bootstrap secret file",
+    );
+  }
 
   const forbidden = [
     /(^|\n)\s*build\s*:/,
@@ -121,11 +129,19 @@ export function assertOwnerPlaneComposeTemplate(template) {
     "plane-database:/var/lib/postgresql",
     "RESTLESS_ENTRY_MODE: network",
     "RESTLESS_RUNTIME_BOOTSTRAP_TOKEN_FILE: /run/secrets/runtime_bootstrap_token",
-    "environment: RESTLESS_RUNTIME_BOOTSTRAP_TOKEN",
+    'file: "./secrets/{{RUNTIME_BOOTSTRAP_SECRET_FILE}}"',
   ]) {
     if (!template.includes(fragment)) {
       throw new Error(`owner-plane Compose template is missing ${fragment}`);
     }
+  }
+  if (
+    /^\s*RESTLESS_RUNTIME_BOOTSTRAP_TOKEN\s*:/m.test(template) ||
+    /^\s*environment\s*:\s*RESTLESS_RUNTIME_BOOTSTRAP_TOKEN\s*$/m.test(template)
+  ) {
+    throw new Error(
+      "owner-plane Compose template exposes the Runtime bootstrap token through an environment variable",
+    );
   }
   for (const name of OWNER_PLANE_RUNTIME_ENVIRONMENT) {
     if (!new RegExp(`^\\s*${name}:`, "m").test(template)) {

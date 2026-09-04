@@ -77,7 +77,11 @@ volumes:
 
 secrets:
   runtime_bootstrap_token:
-    environment: RESTLESS_RUNTIME_BOOTSTRAP_TOKEN
+    # Cloud materialises this operation-scoped file beside the generated
+    # Compose project before start. A file-backed Compose secret is the only
+    # form that can be mounted into this read-only service without copying
+    # secret bytes through the container filesystem or environment.
+    file: "./secrets/{{RUNTIME_BOOTSTRAP_SECRET_FILE}}"
 
 networks:
   database:
