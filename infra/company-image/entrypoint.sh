@@ -5,6 +5,18 @@
 # computer, not to run an agent.
 set -eu
 
+# Lock the mounted directory inode, not an owner-unlinkable lock file. FD 9
+# survives exec into tini; its child closes the descriptor before Supervisor
+# starts, so company processes cannot inherit and unlock it. This coordinates
+# cooperating inits on this filesystem, not independent restored copies or an
+# older image without the guard. The host must still fence the previous Runtime.
+exec 9</company
+if ! flock --exclusive --nonblock 9; then
+	echo 'company filesystem is already in use, or does not support runtime locking' >&2
+	exit 75
+fi
+python3 /usr/local/lib/restless/recover-browser-profile.py
+
 mkdir -p /tmp/.X11-unix
 chmod 1777 /tmp/.X11-unix
 mkdir -p /tmp/restless-effect
@@ -132,4 +144,4 @@ fi
 # The imported supervisor owns durable desktop/browser services. tini remains
 # PID 1 and reaps both those services and ordinary agent processes started by
 # the Runtime Bridge.
-exec tini -- /usr/bin/supervisord -n -c /etc/supervisor/conf.d/restless.conf
+exec tini -- /bin/sh -c 'exec 9<&-; exec /usr/bin/supervisord -n -c /etc/supervisor/conf.d/restless.conf'

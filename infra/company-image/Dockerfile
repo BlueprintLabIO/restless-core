@@ -45,6 +45,7 @@ RUN apt-get update \
 		tint2 \
         tigervnc-standalone-server \
         tini \
+        util-linux \
 		unzip \
 		wmctrl \
 		websockify \
@@ -158,6 +159,7 @@ RUN groupadd --gid 2000 company \
     && useradd --uid 2001 --gid 2000 --no-create-home --home-dir /tmp/restless-effect effect
 
 COPY infra/company-image/entrypoint.sh /usr/local/bin/company-init
+COPY infra/company-image/recover-browser-profile.py /usr/local/lib/restless/recover-browser-profile.py
 COPY infra/company-image/wait-for-display.sh /usr/local/bin/wait-for-company-display
 COPY infra/company-image/start-chromium.sh /usr/local/bin/start-company-chromium
 COPY infra/company-image/start-desktop-panel.sh /usr/local/bin/start-company-desktop-panel
@@ -193,6 +195,7 @@ RUN chmod 0555 /usr/local/bin/company-init /usr/local/bin/wait-for-company-displ
         /usr/local/lib/restless/restless-codex-longitudinal-run.mjs \
     && chmod -R a=rX /opt/restless/skills \
     && chmod 0444 /usr/local/lib/restless/browser-broker.mjs \
+        /usr/local/lib/restless/recover-browser-profile.py \
         /usr/local/lib/restless/release-health.mjs /etc/supervisor/conf.d/restless.conf \
         /etc/restless/tint2rc /usr/share/applications/company-browser.desktop \
         /usr/share/applications/company-terminal.desktop /usr/share/applications/company-godot.desktop

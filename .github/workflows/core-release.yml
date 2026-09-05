@@ -35,6 +35,8 @@ jobs:
 
       - name: Install and verify Core source
         run: |
+          sh -n infra/company-image/entrypoint.sh
+          python3 -B -m unittest discover -s infra/company-image -p 'test_*.py' -v
           npm --prefix web ci
           npm --prefix web run check
           npm --prefix web run check:artifact
@@ -132,6 +134,15 @@ jobs:
             io.restless.core.capability-contract=${{ steps.metadata.outputs.capability_contract_version }}
           provenance: mode=max
           sbom: true
+
+      - name: Verify installed Runtime guard
+        env:
+          RUNTIME_IMAGE: ${{ steps.images.outputs.runtime }}@${{ steps.runtime.outputs.digest }}
+        run: |
+          docker run --rm --network none --read-only --tmpfs /tmp:rw,nosuid,nodev,size=16m \
+            --mount "type=bind,source=$GITHUB_WORKSPACE/infra/company-image,target=/tests,readonly" \
+            -e RESTLESS_TEST_INSTALLED_RUNTIME=1 --entrypoint python3 "$RUNTIME_IMAGE" \
+            -B -m unittest discover -s /tests -p 'test_*.py' -v
 
       - name: Attest Core UI carrier
         uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3
