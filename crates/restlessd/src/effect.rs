@@ -1492,19 +1492,26 @@ mod tests {
     fn git_helper_reads_ephemeral_password_without_persisting_it() {
         let helper = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../../infra/company-image/git-credential-restless");
+        // Exceed a pipe buffer so an early-exiting helper cannot pass merely
+        // because the request happened to fit before the child was scheduled.
+        let request = format!(
+            "protocol=https\nhost=example.test\n{}\n",
+            "wwwauth[]=test-challenge\n".repeat(8192)
+        );
         let mut child = Command::new("sh")
             .arg(&helper)
             .arg("get")
             .env("RESTLESS_GIT_PASSWORD", "sentinel-password")
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
             .spawn()
             .expect("start credential helper");
         child
             .stdin
             .as_mut()
             .expect("helper stdin")
-            .write_all(b"protocol=https\nhost=example.test\n\n")
+            .write_all(request.as_bytes())
             .expect("write credential request");
         let output = child.wait_with_output().expect("credential helper output");
         assert!(output.status.success());
@@ -1513,23 +1520,36 @@ mod tests {
             "password=sentinel-password\n\n"
         );
 
-        let store = Command::new("sh")
-            .arg(&helper)
-            .arg("store")
-            .env("RESTLESS_GIT_PASSWORD", "sentinel-password")
-            .output()
-            .expect("store is a no-op");
-        assert!(store.status.success());
-        assert!(store.stdout.is_empty());
-        assert!(store.stderr.is_empty());
-
-        let absent = Command::new("sh")
-            .arg(helper)
-            .arg("get")
-            .output()
-            .expect("missing credential probe");
-        assert!(absent.status.success());
-        assert!(!String::from_utf8_lossy(&absent.stdout).contains("password="));
-        assert!(absent.stderr.is_empty());
+        assert!(output.stderr.is_empty());
+        for (operation, password) in [
+            ("store", Some("sentinel-password")),
+            ("erase", Some("sentinel-password")),
+            ("get", None),
+        ] {
+            let mut command = Command::new("sh");
+            command
+                .arg(&helper)
+                .arg(operation)
+                .env_remove("RESTLESS_GIT_PASSWORD");
+            if let Some(password) = password {
+                command.env("RESTLESS_GIT_PASSWORD", password);
+            }
+            let mut child = command
+                .stdin(Stdio::piped())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .spawn()
+                .expect("start no-op helper");
+            child
+                .stdin
+                .as_mut()
+                .expect("helper stdin")
+                .write_all(request.as_bytes())
+                .expect("no-op helper consumes request");
+            let output = child.wait_with_output().expect("no-op helper output");
+            assert!(output.status.success(), "{operation}");
+            assert!(output.stdout.is_empty(), "{operation}");
+            assert!(output.stderr.is_empty(), "{operation}");
+        }
     }
 }
