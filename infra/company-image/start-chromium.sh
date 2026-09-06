@@ -33,4 +33,6 @@ if [ -s "$tabs" ]; then
 	done < /company/run/restless-tabs.urls
 fi
 
-exec /usr/bin/node /usr/local/lib/restless/run-chromium.mjs "$@"
+# Use Node from the pinned node:24 image. Desktop package dependencies also
+# install Debian's /usr/bin/node (18), which has no native WebSocket client.
+exec /usr/local/bin/node /usr/local/lib/restless/run-chromium.mjs "$@"

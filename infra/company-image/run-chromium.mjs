@@ -57,7 +57,7 @@ export function runBrowser(command, args, {
       setTimeout(() => { log('browser close deadline: sending TERM'); child.kill('SIGTERM'); }, termAfterMs),
       setTimeout(() => { log('browser stop deadline: sending KILL'); child.kill('SIGKILL'); }, killAfterMs),
     ];
-    Promise.resolve().then(close).catch(() => log('browser close request unavailable; waiting for bounded fallback'));
+    Promise.resolve().then(close).catch(error => log(`browser close request unavailable (${error?.name ?? 'Error'}: ${error?.message ?? 'unknown'}); waiting for bounded fallback`));
   };
   signals.on('SIGTERM', stop);
   signals.on('SIGINT', stop);
