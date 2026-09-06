@@ -28,6 +28,7 @@ chmod 0700 /tmp/restless-effect
 # only then stage its capability/state and materialise its supervisor program.
 runtime_agent_supervisor_dir=/run/restless-supervisor
 install -d -o root -g root -m 0755 "$runtime_agent_supervisor_dir"
+install -d -o root -g root -m 0700 /run/restless-control
 if [ -n "${RESTLESS_RUNTIME_BRIDGE_URL:-}" ]; then
 	# Fleet mounts the one-use bootstrap root-readable. Stage it into the
 	# cell's private /run tmpfs. The process immediately enters the dedicated
@@ -61,8 +62,8 @@ if [ -n "${RESTLESS_RUNTIME_BRIDGE_URL:-}" ]; then
 		'startretries=10' \
 		'stopsignal=TERM' \
 		'stopwaitsecs=10' \
-		'stdout_logfile=/company/run/runtime-agent.log' \
-		'stderr_logfile=/company/run/runtime-agent.log' \
+		'stdout_logfile=/run/restless-control/runtime-agent.log' \
+		'stderr_logfile=/run/restless-control/runtime-agent.log' \
 		> "$runtime_agent_supervisor_dir/runtime-agent.conf"
 	chmod 0444 "$runtime_agent_supervisor_dir/runtime-agent.conf"
 fi
@@ -144,4 +145,4 @@ fi
 # The imported supervisor owns durable desktop/browser services. tini remains
 # PID 1 and reaps both those services and ordinary agent processes started by
 # the Runtime Bridge.
-exec tini -- /bin/sh -c 'exec 9<&-; exec /usr/bin/supervisord -n -c /etc/supervisor/conf.d/restless.conf'
+exec tini -- /bin/sh -c 'exec 9<&-; exec /usr/bin/supervisord -n -c /etc/supervisor/restless-init.conf'

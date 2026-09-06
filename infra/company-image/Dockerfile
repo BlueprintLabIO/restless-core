@@ -183,6 +183,7 @@ COPY tools/codex-runner/restless-codex-parity-preflight.mjs /usr/local/lib/restl
 COPY tools/codex-runner/restless-codex-task-run.mjs /usr/local/lib/restless/restless-codex-task-run.mjs
 COPY tools/codex-runner/restless-codex-longitudinal-run.mjs /usr/local/lib/restless/restless-codex-longitudinal-run.mjs
 COPY infra/company-image/supervisord.conf /etc/supervisor/conf.d/restless.conf
+COPY infra/company-image/init-supervisord.conf /etc/supervisor/restless-init.conf
 RUN chmod 0555 /usr/local/bin/company-init /usr/local/bin/wait-for-company-display \
         /usr/local/bin/start-company-chromium /usr/local/bin/start-company-desktop-panel \
         /usr/local/bin/focus-company-chromium /usr/local/bin/start-company-terminal \
@@ -199,6 +200,7 @@ RUN chmod 0555 /usr/local/bin/company-init /usr/local/bin/wait-for-company-displ
         /usr/local/lib/restless/run-chromium.mjs \
         /usr/local/lib/restless/recover-browser-profile.py \
         /usr/local/lib/restless/release-health.mjs /etc/supervisor/conf.d/restless.conf \
+        /etc/supervisor/restless-init.conf \
         /etc/restless/tint2rc /usr/share/applications/company-browser.desktop \
         /usr/share/applications/company-terminal.desktop /usr/share/applications/company-godot.desktop
 RUN ln -s /usr/local/lib/restless/restless-scenario.mjs /usr/local/bin/restless-scenario
