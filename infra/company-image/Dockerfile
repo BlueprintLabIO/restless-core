@@ -174,6 +174,7 @@ COPY infra/company-image/company-browser.desktop /usr/share/applications/company
 COPY infra/company-image/company-terminal.desktop /usr/share/applications/company-terminal.desktop
 COPY infra/company-image/company-godot.desktop /usr/share/applications/company-godot.desktop
 COPY infra/company-image/browser-broker.mjs /usr/local/lib/restless/browser-broker.mjs
+COPY infra/company-image/run-chromium.mjs /usr/local/lib/restless/run-chromium.mjs
 COPY infra/company-image/release-health.mjs /usr/local/lib/restless/release-health.mjs
 COPY tools/scenario/restless-scenario.mjs /usr/local/lib/restless/restless-scenario.mjs
 COPY tools/web-review/restless-web-review.mjs /usr/local/lib/restless/restless-web-review.mjs
@@ -195,6 +196,7 @@ RUN chmod 0555 /usr/local/bin/company-init /usr/local/bin/wait-for-company-displ
         /usr/local/lib/restless/restless-codex-longitudinal-run.mjs \
     && chmod -R a=rX /opt/restless/skills \
     && chmod 0444 /usr/local/lib/restless/browser-broker.mjs \
+        /usr/local/lib/restless/run-chromium.mjs \
         /usr/local/lib/restless/recover-browser-profile.py \
         /usr/local/lib/restless/release-health.mjs /etc/supervisor/conf.d/restless.conf \
         /etc/restless/tint2rc /usr/share/applications/company-browser.desktop \

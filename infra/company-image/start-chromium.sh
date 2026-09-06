@@ -33,4 +33,4 @@ if [ -s "$tabs" ]; then
 	done < /company/run/restless-tabs.urls
 fi
 
-exec "$@"
+exec /usr/bin/node /usr/local/lib/restless/run-chromium.mjs "$@"

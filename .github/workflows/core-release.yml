@@ -37,6 +37,7 @@ jobs:
         run: |
           sh -n infra/company-image/entrypoint.sh
           python3 -B -m unittest discover -s infra/company-image -p 'test_*.py' -v
+          node --test infra/company-image/run-chromium.test.mjs
           npm --prefix web ci
           npm --prefix web run check
           npm --prefix web run check:artifact
