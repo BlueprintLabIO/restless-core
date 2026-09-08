@@ -7,7 +7,7 @@
 //! facts; no claim in this module grants an Authority capability.
 
 use std::collections::HashMap;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex, Weak};
 use std::time::{Duration, SystemTime};
 
 use anyhow::Context as _;
@@ -16,14 +16,17 @@ use chrono::{DateTime, Utc};
 use ed25519_dalek::{Signature, Signer as _, SigningKey, Verifier as _, VerifyingKey};
 use serde::{Deserialize, Serialize};
 use tokio::sync::{Mutex as AsyncMutex, RwLock};
+use tokio_util::sync::CancellationToken;
 use url::Url;
 use uuid::Uuid;
 
 /// The released Fleet/Core handoff contract.
 pub(crate) const ASSERTION_CONTRACT_VERSION: u32 = 1;
 pub(crate) const HANDOFF_AUDIENCE: &str = "restless-core-account-plane";
+pub(crate) const MEMBERSHIP_CONTROL_AUDIENCE: &str = "restless-core-membership-control";
 
 const TOKEN_TYPE: &str = "JWT";
+const MEMBERSHIP_CONTROL_TOKEN_TYPE: &str = "restless-membership-control+jwt";
 const ALGORITHM: &str = "EdDSA";
 const MAX_ASSERTION_LIFETIME_SECONDS: i64 = 60;
 const MAX_CLOCK_SKEW_SECONDS: i64 = 30;
@@ -39,6 +42,7 @@ pub(crate) enum Refusal {
     WrongAudience,
     WrongOwner,
     WrongPlane,
+    WrongHost,
     UnknownKeyVersion,
     BadSignature,
     SigningKeysUnavailable,
@@ -57,6 +61,7 @@ impl Refusal {
             Self::WrongAudience => "assertion_wrong_audience",
             Self::WrongOwner => "assertion_wrong_owner",
             Self::WrongPlane => "assertion_wrong_plane",
+            Self::WrongHost => "assertion_wrong_host",
             Self::UnknownKeyVersion => "assertion_unknown_key_version",
             Self::BadSignature => "assertion_bad_signature",
             Self::SigningKeysUnavailable => "assertion_signing_keys_unavailable",
@@ -77,6 +82,7 @@ impl Refusal {
             Self::WrongAudience => "entry assertion was not minted for a Core account plane".into(),
             Self::WrongOwner => "entry assertion belongs to a different account owner".into(),
             Self::WrongPlane => "entry assertion is routed to a different account plane".into(),
+            Self::WrongHost => "entry assertion names a different account-plane hostname".into(),
             Self::UnknownKeyVersion => "entry assertion names an unknown signing key".into(),
             Self::BadSignature => "entry assertion signature is invalid".into(),
             Self::SigningKeysUnavailable => {
@@ -130,6 +136,31 @@ pub(crate) struct AssertionClaims {
     pub assertion_version: u32,
 }
 
+/// Exact signed terminal-membership command contract. It is intentionally a
+/// separate claims type and token type from browser handoff assertions: the
+/// two credentials cannot be substituted at either verification entry point.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct MembershipControlClaims {
+    pub iss: String,
+    pub aud: String,
+    pub sub: String,
+    pub jti: Uuid,
+    pub exp: i64,
+    pub iat: i64,
+    pub kid: String,
+    pub owner_id: Uuid,
+    pub plane_id: Uuid,
+    pub plane_hostname: String,
+    pub company_id: Uuid,
+    pub cell_id: Uuid,
+    pub membership_id: String,
+    pub membership_role: String,
+    pub membership_status: String,
+    pub membership_version: i64,
+    pub assertion_version: u32,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct AssertionHeader {
@@ -172,10 +203,31 @@ pub(crate) struct VerifiedAccessContext {
     pub membership_version: i64,
 }
 
-/// The server-derived identity carried by a browser session.
 #[derive(Debug, Clone)]
+pub(crate) struct VerifiedMembershipControl {
+    pub issuer: String,
+    pub subject: String,
+    pub assertion_id: Uuid,
+    pub issued_at: DateTime<Utc>,
+    pub expires_at: DateTime<Utc>,
+    pub key_id: String,
+    pub assertion_version: u32,
+    pub owner_id: Uuid,
+    pub plane_id: Uuid,
+    pub plane_hostname: String,
+    pub company_id: Uuid,
+    pub cell_id: Uuid,
+    pub membership_id: String,
+    pub membership_role: String,
+    pub membership_status: restless_orgintel::ExternalMembershipStatus,
+    pub membership_version: i64,
+}
+
+/// The server-derived identity carried by a browser session.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct VerifiedIdentity {
     pub user: String,
+    pub issuer: Option<String>,
     pub owner: String,
     pub scope: CompanyScope,
     pub role: String,
@@ -333,6 +385,31 @@ impl NetworkEntry {
         }
     }
 
+    /// Verify a terminal membership command. Its distinct token type,
+    /// audience and closed claims shape prevent a browser handoff from being
+    /// replayed at the control endpoint (or vice versa).
+    pub(crate) async fn verify_membership_control(
+        &self,
+        token: &str,
+    ) -> Result<VerifiedMembershipControl, Refusal> {
+        self.refresh_keys(false)
+            .await
+            .map_err(|_| Refusal::SigningKeysUnavailable)?;
+        match self
+            .verify_membership_control_at(token, Utc::now(), SignaturePolicy::Enforce)
+            .await
+        {
+            Err(Refusal::UnknownKeyVersion) => {
+                self.refresh_keys(true)
+                    .await
+                    .map_err(|_| Refusal::SigningKeysUnavailable)?;
+                self.verify_membership_control_at(token, Utc::now(), SignaturePolicy::Enforce)
+                    .await
+            }
+            result => result,
+        }
+    }
+
     async fn verify_at(
         &self,
         token: &str,
@@ -370,6 +447,44 @@ impl NetworkEntry {
         )
     }
 
+    async fn verify_membership_control_at(
+        &self,
+        token: &str,
+        now: DateTime<Utc>,
+        policy: SignaturePolicy,
+    ) -> Result<VerifiedMembershipControl, Refusal> {
+        let parsed = parse_membership_control(token)?;
+        let key = self
+            .keys
+            .read()
+            .await
+            .get(&parsed.header.kid)
+            .cloned()
+            .ok_or(Refusal::UnknownKeyVersion)?;
+
+        let enforce = match policy {
+            SignaturePolicy::Enforce => true,
+            #[cfg(test)]
+            SignaturePolicy::Skip => false,
+        };
+        if enforce {
+            let signature = Signature::from_slice(&parsed.signature)
+                .map_err(|_| Refusal::Malformed("signature is not 64-byte Ed25519"))?;
+            key.verify(parsed.signing_input.as_bytes(), &signature)
+                .map_err(|_| Refusal::BadSignature)?;
+        }
+
+        validate_membership_control_claims(
+            parsed.claims,
+            &parsed.header,
+            &self.issuer,
+            self.owner_id,
+            self.plane_id,
+            &self.host,
+            now,
+        )
+    }
+
     #[cfg(test)]
     fn for_test(signing_key: &SigningKey) -> Self {
         Self {
@@ -393,6 +508,13 @@ impl NetworkEntry {
 struct ParsedAssertion {
     header: AssertionHeader,
     claims: AssertionClaims,
+    signing_input: String,
+    signature: Vec<u8>,
+}
+
+struct ParsedMembershipControl {
+    header: AssertionHeader,
+    claims: MembershipControlClaims,
     signing_input: String,
     signature: Vec<u8>,
 }
@@ -431,6 +553,40 @@ fn parse_assertion(token: &str) -> Result<ParsedAssertion, Refusal> {
     })
 }
 
+fn parse_membership_control(token: &str) -> Result<ParsedMembershipControl, Refusal> {
+    let mut parts = token.split('.');
+    let header_b64 = parts.next().ok_or(Refusal::Malformed("no header"))?;
+    let payload_b64 = parts.next().ok_or(Refusal::Malformed("no payload"))?;
+    let signature_b64 = parts.next().ok_or(Refusal::Malformed("no signature"))?;
+    if parts.next().is_some() {
+        return Err(Refusal::Malformed("too many segments"));
+    }
+    if header_b64.is_empty() || payload_b64.is_empty() || signature_b64.is_empty() {
+        return Err(Refusal::Malformed("empty segment"));
+    }
+
+    let header: AssertionHeader = decode_segment(header_b64, "header")?;
+    if header.typ != MEMBERSHIP_CONTROL_TOKEN_TYPE {
+        return Err(Refusal::Malformed("unexpected token type"));
+    }
+    if header.alg != ALGORITHM {
+        return Err(Refusal::Malformed("unexpected signature algorithm"));
+    }
+    let claims: MembershipControlClaims = decode_segment(payload_b64, "payload")?;
+    if claims.kid != header.kid {
+        return Err(Refusal::Malformed("header and payload key ids differ"));
+    }
+    let signature = base64::engine::general_purpose::URL_SAFE_NO_PAD
+        .decode(signature_b64)
+        .map_err(|_| Refusal::Malformed("signature is not base64url"))?;
+    Ok(ParsedMembershipControl {
+        header,
+        claims,
+        signing_input: format!("{header_b64}.{payload_b64}"),
+        signature,
+    })
+}
+
 fn validate_claims(
     claims: AssertionClaims,
     header: &AssertionHeader,
@@ -459,7 +615,9 @@ fn validate_claims(
     }
     if claims.kid != header.kid
         || claims.sub.trim().is_empty()
+        || claims.sub.len() > 512
         || claims.membership_id.trim().is_empty()
+        || claims.membership_id.len() > 512
         || claims.membership_version < 0
         || !matches!(
             claims.membership_role.as_str(),
@@ -498,6 +656,92 @@ fn validate_claims(
         cell_id: claims.cell_id,
         membership_id: claims.membership_id,
         membership_role: claims.membership_role,
+        membership_version: claims.membership_version,
+    })
+}
+
+fn validate_membership_control_claims(
+    claims: MembershipControlClaims,
+    header: &AssertionHeader,
+    issuer: &str,
+    owner_id: Uuid,
+    plane_id: Uuid,
+    plane_hostname: &str,
+    now: DateTime<Utc>,
+) -> Result<VerifiedMembershipControl, Refusal> {
+    if claims.assertion_version != ASSERTION_CONTRACT_VERSION {
+        return Err(Refusal::UnsupportedVersion {
+            got: claims.assertion_version,
+            supported: ASSERTION_CONTRACT_VERSION,
+        });
+    }
+    if claims.iss.trim_end_matches('/') != issuer {
+        return Err(Refusal::UnknownIssuer);
+    }
+    if claims.aud != MEMBERSHIP_CONTROL_AUDIENCE {
+        return Err(Refusal::WrongAudience);
+    }
+    if claims.owner_id != owner_id {
+        return Err(Refusal::WrongOwner);
+    }
+    if claims.plane_id != plane_id {
+        return Err(Refusal::WrongPlane);
+    }
+    if claims.plane_hostname != plane_hostname {
+        return Err(Refusal::WrongHost);
+    }
+    let membership_status = match claims.membership_status.as_str() {
+        "suspended" => restless_orgintel::ExternalMembershipStatus::Suspended,
+        "removed" => restless_orgintel::ExternalMembershipStatus::Removed,
+        _ => return Err(Refusal::InvalidMembership),
+    };
+    if claims.kid != header.kid
+        || claims.sub.trim().is_empty()
+        || claims.sub.len() > 512
+        || claims.membership_id.trim().is_empty()
+        || claims.membership_id.len() > 512
+        || claims.membership_version < 0
+        || !matches!(
+            claims.membership_role.as_str(),
+            "owner" | "admin" | "member"
+        )
+        || claims.company_id.is_nil()
+        || claims.cell_id.is_nil()
+        || claims.jti.is_nil()
+    {
+        return Err(Refusal::InvalidMembership);
+    }
+    if claims.iat > now.timestamp() + MAX_CLOCK_SKEW_SECONDS {
+        return Err(Refusal::NotYetValid);
+    }
+    if claims.exp <= now.timestamp() {
+        return Err(Refusal::Expired);
+    }
+    if claims.exp <= claims.iat
+        || claims.exp.saturating_sub(claims.iat) > MAX_ASSERTION_LIFETIME_SECONDS
+    {
+        return Err(Refusal::TooLongLived);
+    }
+    let issued_at = DateTime::from_timestamp(claims.iat, 0)
+        .ok_or(Refusal::Malformed("issued-at is out of range"))?;
+    let expires_at = DateTime::from_timestamp(claims.exp, 0)
+        .ok_or(Refusal::Malformed("expiry is out of range"))?;
+    Ok(VerifiedMembershipControl {
+        issuer: claims.iss.trim_end_matches('/').to_string(),
+        subject: claims.sub,
+        assertion_id: claims.jti,
+        issued_at,
+        expires_at,
+        key_id: claims.kid,
+        assertion_version: claims.assertion_version,
+        owner_id: claims.owner_id,
+        plane_id: claims.plane_id,
+        plane_hostname: claims.plane_hostname,
+        company_id: claims.company_id,
+        cell_id: claims.cell_id,
+        membership_id: claims.membership_id,
+        membership_role: claims.membership_role,
+        membership_status,
         membership_version: claims.membership_version,
     })
 }
@@ -583,7 +827,8 @@ impl EntryMode {
                 let owner_id = required_uuid("RESTLESS_ENTRY_OWNER_ID")?;
                 let plane_id = required_uuid("RESTLESS_ENTRY_PLANE_ID")?;
                 let host = required("RESTLESS_ENTRY_HOST")?.to_ascii_lowercase();
-                if host.contains('/')
+                if host.len() > 253
+                    || host.contains('/')
                     || host.contains(':')
                     || host.parse::<std::net::IpAddr>().is_ok()
                     || !host.contains('.')
@@ -705,31 +950,203 @@ where
 /// from being exchanged again afterward.
 #[derive(Default)]
 pub(crate) struct SessionStore {
-    sessions: Mutex<HashMap<String, (VerifiedIdentity, SystemTime)>>,
+    sessions: Mutex<HashMap<String, SessionRecord>>,
+    reconciliation_guards: Mutex<HashMap<PrincipalSessionKey, Weak<AsyncMutex<()>>>>,
+}
+
+#[derive(Clone, PartialEq, Eq, Hash)]
+struct PrincipalSessionKey {
+    issuer: String,
+    subject: String,
+    company_id: Uuid,
+}
+
+struct SessionRecord {
+    identity: VerifiedIdentity,
+    expires_at: SystemTime,
+    cancellation: CancellationToken,
+}
+
+#[derive(Clone)]
+pub(crate) struct SessionLease {
+    pub(crate) identity: VerifiedIdentity,
+    pub(crate) expires_at: SystemTime,
+    pub(crate) cancellation: CancellationToken,
+}
+
+impl SessionLease {
+    pub(crate) fn is_ended(&self) -> bool {
+        self.cancellation.is_cancelled() || self.expires_at <= SystemTime::now()
+    }
+
+    pub(crate) async fn ended(&self) {
+        let remaining = self
+            .expires_at
+            .duration_since(SystemTime::now())
+            .unwrap_or(Duration::ZERO);
+        tokio::select! {
+            _ = self.cancellation.cancelled() => {},
+            _ = tokio::time::sleep(remaining) => {},
+        }
+    }
 }
 
 impl SessionStore {
+    /// Serialize the durable membership transition and in-memory session
+    /// reconciliation for one hosted principal. The database remains the
+    /// authority; this guard prevents two completed requests from applying
+    /// their post-commit session effects in the opposite order.
+    pub(crate) fn reconciliation_guard(
+        &self,
+        issuer: &str,
+        subject: &str,
+        company_id: Uuid,
+    ) -> Arc<AsyncMutex<()>> {
+        let key = PrincipalSessionKey {
+            issuer: issuer.trim_end_matches('/').to_string(),
+            subject: subject.to_string(),
+            company_id,
+        };
+        let mut guards = self
+            .reconciliation_guards
+            .lock()
+            .expect("session reconciliation registry poisoned");
+        guards.retain(|_, guard| guard.strong_count() > 0);
+        if let Some(guard) = guards.get(&key).and_then(Weak::upgrade) {
+            return guard;
+        }
+        let guard = Arc::new(AsyncMutex::new(()));
+        guards.insert(key, Arc::downgrade(&guard));
+        guard
+    }
+
     pub(crate) fn establish(&self, identity: VerifiedIdentity, ttl: Duration) -> String {
         let token = Uuid::new_v4().to_string();
         let mut sessions = self.sessions.lock().expect("session store poisoned");
         let now = SystemTime::now();
-        sessions.retain(|_, (_, expires)| *expires > now);
-        sessions.insert(token.clone(), (identity, now + ttl));
+        sessions.retain(|_, session| {
+            if session.expires_at <= now {
+                session.cancellation.cancel();
+                false
+            } else {
+                true
+            }
+        });
+        sessions.insert(
+            token.clone(),
+            SessionRecord {
+                identity,
+                expires_at: now + ttl,
+                cancellation: CancellationToken::new(),
+            },
+        );
         token
     }
 
-    pub(crate) fn resolve(&self, token: &str) -> Option<VerifiedIdentity> {
+    pub(crate) fn resolve_lease(&self, token: &str) -> Option<SessionLease> {
         let mut sessions = self.sessions.lock().expect("session store poisoned");
         let now = SystemTime::now();
-        sessions.retain(|_, (_, expires)| *expires > now);
-        sessions.get(token).map(|(identity, _)| identity.clone())
+        sessions.retain(|_, session| {
+            if session.expires_at <= now {
+                session.cancellation.cancel();
+                false
+            } else {
+                true
+            }
+        });
+        sessions.get(token).map(|session| SessionLease {
+            identity: session.identity.clone(),
+            expires_at: session.expires_at,
+            cancellation: session.cancellation.clone(),
+        })
     }
 
     pub(crate) fn revoke(&self, token: &str) {
-        self.sessions
+        if let Some(session) = self
+            .sessions
             .lock()
             .expect("session store poisoned")
-            .remove(token);
+            .remove(token)
+        {
+            session.cancellation.cancel();
+        }
+    }
+
+    /// Drop only sessions covered by one committed terminal membership
+    /// version. Newer re-entry and every other company/member remain live.
+    pub(crate) fn revoke_membership_through(
+        &self,
+        issuer: &str,
+        company_id: Uuid,
+        membership_id: &str,
+        membership_version: i64,
+    ) -> usize {
+        let mut sessions = self.sessions.lock().expect("session store poisoned");
+        let before = sessions.len();
+        let now = SystemTime::now();
+        sessions.retain(|_, session| {
+            if session.expires_at <= now {
+                session.cancellation.cancel();
+                return false;
+            }
+            let covered = session
+                .identity
+                .issuer
+                .as_deref()
+                .is_some_and(|session_issuer| {
+                    session_issuer.trim_end_matches('/') == issuer.trim_end_matches('/')
+                })
+                && session.identity.company_id == Some(company_id)
+                && session.identity.membership_id.as_deref() == Some(membership_id)
+                && session
+                    .identity
+                    .membership_version
+                    .is_some_and(|version| version <= membership_version);
+            if covered {
+                session.cancellation.cancel();
+            }
+            !covered
+        });
+        before - sessions.len()
+    }
+
+    /// Cancel browser leases for this hosted principal whose durable security
+    /// tuple has been replaced by a successful active handoff. Exact-current
+    /// sessions remain usable so opening another tab does not log out the first.
+    pub(crate) fn revoke_principal_except_current(&self, current: &VerifiedIdentity) -> usize {
+        let (Some(current_issuer), Some(current_company_id)) =
+            (current.issuer.as_deref(), current.company_id)
+        else {
+            return 0;
+        };
+        let mut sessions = self.sessions.lock().expect("session store poisoned");
+        let before = sessions.len();
+        let now = SystemTime::now();
+        sessions.retain(|_, session| {
+            if session.expires_at <= now {
+                session.cancellation.cancel();
+                return false;
+            }
+            let same_principal = session.identity.user == current.user
+                && session.identity.company_id == Some(current_company_id)
+                && session.identity.issuer.as_deref().is_some_and(|issuer| {
+                    issuer.trim_end_matches('/') == current_issuer.trim_end_matches('/')
+                });
+            let same_security_tuple = same_principal
+                && session.identity.owner == current.owner
+                && session.identity.scope == current.scope
+                && session.identity.role == current.role
+                && session.identity.actor == current.actor
+                && session.identity.cell_id == current.cell_id
+                && session.identity.membership_id == current.membership_id
+                && session.identity.membership_version == current.membership_version;
+            let superseded = same_principal && !same_security_tuple;
+            if superseded {
+                session.cancellation.cancel();
+            }
+            !superseded
+        });
+        before - sessions.len()
     }
 }
 
@@ -743,9 +1160,18 @@ pub(crate) fn company_in_path(path: &str) -> Option<&str> {
 }
 
 fn mint(claims: &AssertionClaims, key_id: &str, key: &SigningKey) -> String {
+    mint_with_type(claims, TOKEN_TYPE, key_id, key)
+}
+
+fn mint_with_type<T: Serialize>(
+    claims: &T,
+    token_type: &str,
+    key_id: &str,
+    key: &SigningKey,
+) -> String {
     let header = AssertionHeader {
         alg: ALGORITHM.into(),
-        typ: TOKEN_TYPE.into(),
+        typ: token_type.into(),
         kid: key_id.into(),
     };
     let header = base64::engine::general_purpose::URL_SAFE_NO_PAD
@@ -848,6 +1274,32 @@ mod tests {
         mint(claims, &claims.kid, &key())
     }
 
+    fn membership_control_claims() -> MembershipControlClaims {
+        MembershipControlClaims {
+            iss: "https://cloud.restless.test".into(),
+            aud: MEMBERSHIP_CONTROL_AUDIENCE.into(),
+            sub: "user-1".into(),
+            jti: Uuid::parse_str("018f0000-0000-7000-8000-000000000006").unwrap(),
+            exp: 1_010,
+            iat: 950,
+            kid: KEY_ID.into(),
+            owner_id: Uuid::parse_str("018f0000-0000-7000-8000-000000000001").unwrap(),
+            plane_id: Uuid::parse_str("018f0000-0000-7000-8000-000000000002").unwrap(),
+            plane_hostname: "aris.restless.test".into(),
+            company_id: Uuid::parse_str("018f0000-0000-7000-8000-000000000004").unwrap(),
+            cell_id: Uuid::parse_str("018f0000-0000-7000-8000-000000000005").unwrap(),
+            membership_id: "membership-1".into(),
+            membership_role: "member".into(),
+            membership_status: "suspended".into(),
+            membership_version: 8,
+            assertion_version: ASSERTION_CONTRACT_VERSION,
+        }
+    }
+
+    fn membership_control_token(claims: &MembershipControlClaims) -> String {
+        mint_with_type(claims, MEMBERSHIP_CONTROL_TOKEN_TYPE, &claims.kid, &key())
+    }
+
     fn jwks(key_id: &str, signing_key: &SigningKey) -> String {
         let x = base64::engine::general_purpose::URL_SAFE_NO_PAD
             .encode(signing_key.verifying_key().as_bytes());
@@ -882,6 +1334,121 @@ mod tests {
         assert_eq!(verified.membership_role, "owner");
         assert_eq!(verified.issued_at, at(950));
         assert_eq!(verified.expires_at, at(1_010));
+    }
+
+    #[tokio::test]
+    async fn cloud_membership_control_contract_verifies_and_cannot_cross_use_handoffs() {
+        let entry = NetworkEntry::for_test(&key());
+        let control = membership_control_claims();
+        let verified = entry
+            .verify_membership_control_at(
+                &membership_control_token(&control),
+                at(1_000),
+                SignaturePolicy::Enforce,
+            )
+            .await
+            .expect("valid Cloud membership control");
+        assert_eq!(verified.subject, "user-1");
+        assert_eq!(verified.membership_version, 8);
+        assert_eq!(
+            verified.membership_status,
+            restless_orgintel::ExternalMembershipStatus::Suspended
+        );
+
+        assert_eq!(
+            entry
+                .verify_membership_control_at(
+                    &token(&claims()),
+                    at(1_000),
+                    SignaturePolicy::Enforce,
+                )
+                .await
+                .unwrap_err(),
+            Refusal::Malformed("unexpected token type")
+        );
+        assert_eq!(
+            entry
+                .verify_at(
+                    &membership_control_token(&control),
+                    at(1_000),
+                    SignaturePolicy::Enforce,
+                )
+                .await
+                .unwrap_err(),
+            Refusal::Malformed("unexpected token type")
+        );
+    }
+
+    #[tokio::test]
+    async fn membership_control_coordinates_shape_signature_and_lifetime_are_strict() {
+        async fn refusal(claims: &MembershipControlClaims) -> Refusal {
+            NetworkEntry::for_test(&key())
+                .verify_membership_control_at(
+                    &membership_control_token(claims),
+                    at(1_000),
+                    SignaturePolicy::Enforce,
+                )
+                .await
+                .expect_err("membership control should be refused")
+        }
+
+        let mut candidate = membership_control_claims();
+        candidate.aud = HANDOFF_AUDIENCE.into();
+        assert_eq!(refusal(&candidate).await, Refusal::WrongAudience);
+
+        let mut candidate = membership_control_claims();
+        candidate.owner_id = Uuid::new_v4();
+        assert_eq!(refusal(&candidate).await, Refusal::WrongOwner);
+
+        let mut candidate = membership_control_claims();
+        candidate.plane_id = Uuid::new_v4();
+        assert_eq!(refusal(&candidate).await, Refusal::WrongPlane);
+
+        let mut candidate = membership_control_claims();
+        candidate.plane_hostname = "another.restless.test".into();
+        assert_eq!(refusal(&candidate).await, Refusal::WrongHost);
+
+        let mut candidate = membership_control_claims();
+        candidate.membership_status = "active".into();
+        assert_eq!(refusal(&candidate).await, Refusal::InvalidMembership);
+
+        let mut candidate = membership_control_claims();
+        candidate.membership_version = -1;
+        assert_eq!(refusal(&candidate).await, Refusal::InvalidMembership);
+
+        let mut candidate = membership_control_claims();
+        candidate.exp = candidate.iat + 61;
+        assert_eq!(refusal(&candidate).await, Refusal::TooLongLived);
+
+        let forged = mint_with_type(
+            &membership_control_claims(),
+            MEMBERSHIP_CONTROL_TOKEN_TYPE,
+            KEY_ID,
+            &other_key(),
+        );
+        assert_eq!(
+            NetworkEntry::for_test(&key())
+                .verify_membership_control_at(&forged, at(1_000), SignaturePolicy::Enforce)
+                .await
+                .unwrap_err(),
+            Refusal::BadSignature
+        );
+
+        let mut unknown_field = serde_json::to_value(membership_control_claims()).unwrap();
+        unknown_field["unexpected"] = serde_json::json!(true);
+        let unknown_field = mint_with_type(
+            &unknown_field,
+            MEMBERSHIP_CONTROL_TOKEN_TYPE,
+            KEY_ID,
+            &key(),
+        );
+        assert_eq!(
+            NetworkEntry::for_test(&key())
+                .verify_membership_control_at(&unknown_field, at(1_000), SignaturePolicy::Enforce,)
+                .await
+                .unwrap_err(),
+            Refusal::Malformed("payload is not valid JSON")
+        );
     }
 
     #[tokio::test]
@@ -1064,6 +1631,7 @@ mod tests {
     fn request_scope_is_server_derived() {
         let scoped = VerifiedIdentity {
             user: "user".into(),
+            issuer: Some("https://cloud.restless.test".into()),
             owner: Uuid::new_v4().to_string(),
             scope: CompanyScope::Company {
                 company: "aris".into(),
@@ -1095,6 +1663,7 @@ mod tests {
         let store = SessionStore::default();
         let identity = VerifiedIdentity {
             user: "user".into(),
+            issuer: None,
             owner: "owner".into(),
             scope: CompanyScope::Owner,
             role: "owner".into(),
@@ -1105,9 +1674,97 @@ mod tests {
             membership_version: None,
         };
         let token = store.establish(identity, Duration::from_secs(60));
-        assert!(store.resolve(&token).is_some());
+        assert!(store.resolve_lease(&token).is_some());
         store.revoke(&token);
-        assert!(store.resolve(&token).is_none());
-        assert!(SessionStore::default().resolve(&token).is_none());
+        assert!(store.resolve_lease(&token).is_none());
+        assert!(SessionStore::default().resolve_lease(&token).is_none());
+    }
+
+    #[tokio::test]
+    async fn session_reconciliation_is_serialized_per_principal() {
+        let store = Arc::new(SessionStore::default());
+        let company_id = Uuid::new_v4();
+        let first =
+            store.reconciliation_guard("https://cloud.restless.test/", "user-1", company_id);
+        let same = store.reconciliation_guard("https://cloud.restless.test", "user-1", company_id);
+        assert!(
+            Arc::ptr_eq(&first, &same),
+            "issuer normalization shares a guard"
+        );
+
+        let held = first.lock().await;
+        let waiter = tokio::spawn(async move {
+            let _held = same.lock().await;
+        });
+        tokio::task::yield_now().await;
+        assert!(
+            !waiter.is_finished(),
+            "same principal waits for reconciliation"
+        );
+
+        let other = store.reconciliation_guard("https://cloud.restless.test", "user-2", company_id);
+        let _other_held = tokio::time::timeout(Duration::from_secs(1), other.lock())
+            .await
+            .expect("a different principal has an independent guard");
+        drop(held);
+        tokio::time::timeout(Duration::from_secs(1), waiter)
+            .await
+            .expect("same-principal waiter resumes")
+            .expect("waiter task succeeds");
+    }
+
+    #[test]
+    fn membership_revocation_targets_only_covered_sessions() {
+        let store = SessionStore::default();
+        let company_id = Uuid::new_v4();
+        let identity = |issuer: &str, membership: &str, version: i64| VerifiedIdentity {
+            user: format!("user-{membership}"),
+            issuer: Some(issuer.into()),
+            owner: "owner".into(),
+            scope: CompanyScope::Company {
+                company: "aris".into(),
+            },
+            role: "member".into(),
+            actor: Some(format!("actor-{membership}-{version}")),
+            company_id: Some(company_id),
+            cell_id: Some(Uuid::new_v4()),
+            membership_id: Some(membership.into()),
+            membership_version: Some(version),
+        };
+        let covered = store.establish(
+            identity("https://cloud.restless.test", "membership-1", 4),
+            Duration::from_secs(60),
+        );
+        let covered_cancellation = store
+            .resolve_lease(&covered)
+            .expect("covered session lease")
+            .cancellation;
+        let newer = store.establish(
+            identity("https://cloud.restless.test", "membership-1", 6),
+            Duration::from_secs(60),
+        );
+        let other_membership = store.establish(
+            identity("https://cloud.restless.test", "membership-2", 4),
+            Duration::from_secs(60),
+        );
+        let other_issuer = store.establish(
+            identity("https://another.restless.test", "membership-1", 4),
+            Duration::from_secs(60),
+        );
+
+        assert_eq!(
+            store.revoke_membership_through(
+                "https://cloud.restless.test",
+                company_id,
+                "membership-1",
+                5,
+            ),
+            1
+        );
+        assert!(store.resolve_lease(&covered).is_none());
+        assert!(covered_cancellation.is_cancelled());
+        assert!(store.resolve_lease(&newer).is_some());
+        assert!(store.resolve_lease(&other_membership).is_some());
+        assert!(store.resolve_lease(&other_issuer).is_some());
     }
 }

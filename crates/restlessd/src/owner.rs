@@ -40,7 +40,7 @@ use tower_http::services::{ServeDir, ServeFile};
 use uuid::Uuid;
 
 use crate::entry::{
-    company_in_path, CompanyScope, EntryMode, RequestPrincipal, SessionStore,
+    company_in_path, CompanyScope, EntryMode, RequestPrincipal, SessionLease, SessionStore,
     VerifiedAccessContext, VerifiedIdentity,
 };
 use crate::{
@@ -50,6 +50,7 @@ use crate::{
 
 const ATTACH_COOKIE: &str = "restless_attach";
 const SESSION_COOKIE: &str = "restless_session";
+const MEMBERSHIP_CONTROL_PATH: &str = "/internal/v1/membership-controls";
 const TICKET_TTL: Duration = Duration::from_secs(30);
 const ATTACH_TTL: Duration = Duration::from_secs(30 * 60);
 const REVIEW_TTL: Duration = Duration::from_secs(30 * 60);
@@ -1076,12 +1077,19 @@ pub async fn serve(daemon: Arc<Daemon>, config: OwnerConfig) -> Result<()> {
         );
     }
     let static_files = ServeDir::new(&web).fallback(ServeFile::new(web.join("index.html")));
+    let membership_controls = Router::<OwnerState>::new()
+        .route(
+            "/internal/v1/membership-controls",
+            post(apply_membership_control),
+        )
+        .layer(DefaultBodyLimit::max(32 * 1024));
     let app = Router::new()
         .nest("/api", api)
         // Ungated on purpose: a fleet probe must be able to ask which release
         // is running without holding a session, and the answer carries release
         // identity only — never company, owner or configuration detail.
         .route("/health", get(release_health))
+        .merge(membership_controls)
         .route("/entry", post(consume_entry_assertion))
         .route("/entry/logout", post(end_entry_session))
         .route("/desktop/{company}", get(open_desktop))
@@ -1128,6 +1136,11 @@ async fn enforce_owner_boundary(
     mut request: Request,
     next: Next,
 ) -> Response<Body> {
+    if request.uri().path() == MEMBERSHIP_CONTROL_PATH && state.entry.network().is_none() {
+        // The handler returns a stable 404. Do not reinterpret this internal
+        // signed-control route as a local browser mutation first.
+        return next.run(request).await;
+    }
     match state.entry.clone() {
         EntryMode::Local => {
             if let Some(reason) =
@@ -1143,20 +1156,21 @@ async fn enforce_owner_boundary(
         EntryMode::Network(network) => {
             let path = request.uri().path().to_string();
             let session_token = cookie_value(request.headers(), SESSION_COOKIE);
-            let identity = session_token
+            let session_lease = session_token
                 .as_deref()
-                .and_then(|token| state.sessions.resolve(token));
+                .and_then(|token| state.sessions.resolve_lease(token));
+            let identity = session_lease.as_ref().map(|lease| &lease.identity);
             if let Some(refusal) = network_boundary_violation(
                 request.method(),
                 request.headers(),
                 &path,
                 network.host(),
-                identity.as_ref(),
+                identity,
             ) {
                 return api_error(refusal.status, refusal.code, refusal.message);
             }
             if path.starts_with("/api/") || path.starts_with("/desktop/") {
-                if let Some(identity) = identity.as_ref() {
+                if let Some(identity) = identity {
                     match network_session_is_current(&state, identity).await {
                         Ok(true) => {}
                         Ok(false) => {
@@ -1180,13 +1194,16 @@ async fn enforce_owner_boundary(
                     }
                 }
             }
-            if let Some(principal) = identity.as_ref().and_then(RequestPrincipal::from_verified) {
+            if let Some(principal) = identity.and_then(RequestPrincipal::from_verified) {
                 if let Some(refusal) =
                     membership_boundary_violation(request.method(), &path, &principal)
                 {
                     return api_error(refusal.status, refusal.code, refusal.message);
                 }
                 request.extensions_mut().insert(principal);
+            }
+            if let Some(session_lease) = session_lease {
+                request.extensions_mut().insert(session_lease);
             }
             next.run(request).await
         }
@@ -1307,7 +1324,7 @@ fn network_boundary_violation(
     // Fleet reaches the door with a cross-site auto-submitted form. The
     // single-use signed credential is the CSRF defence here; the destination
     // Host must still be this exact account plane.
-    if path == "/entry" {
+    if path == "/entry" || path == MEMBERSHIP_CONTROL_PATH {
         if !network_host_matches(headers, expected_host) {
             return Some(BoundaryRefusal {
                 status: StatusCode::FORBIDDEN,
@@ -1396,17 +1413,18 @@ fn network_origin_violation(
 }
 
 fn network_host_matches(headers: &HeaderMap, expected_host: &str) -> bool {
-    let host = headers
-        .get(HOST)
-        .and_then(|value| value.to_str().ok())
-        .map(|value| {
-            value
-                .split(':')
-                .next()
-                .unwrap_or(value)
-                .to_ascii_lowercase()
-        });
-    host.as_deref() == Some(&expected_host.to_ascii_lowercase())
+    let mut values = headers.get_all(HOST).iter();
+    let Some(raw) = values.next().and_then(|value| value.to_str().ok()) else {
+        return false;
+    };
+    if values.next().is_some() || raw.contains('@') {
+        return false;
+    }
+    let Ok(authority) = raw.parse::<Authority>() else {
+        return false;
+    };
+    let port_is_valid = !raw.contains(':') || authority.port_u16().is_some();
+    port_is_valid && authority.host().eq_ignore_ascii_case(expected_host)
 }
 
 fn cookie_value(headers: &HeaderMap, name: &str) -> Option<String> {
@@ -1447,6 +1465,181 @@ async fn end_entry_session(State(state): State<OwnerState>, headers: HeaderMap) 
 #[serde(deny_unknown_fields)]
 struct EntryRequest {
     assertion: String,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct MembershipControlRequest {
+    control: String,
+}
+
+/// Fleet's authenticated terminal-membership control plane. This endpoint is
+/// deliberately independent of browser cookies and Origin: the signed command
+/// plus this plane's exact Host are the authority boundary.
+async fn apply_membership_control(
+    State(state): State<OwnerState>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response<Body> {
+    let Some(network) = state.entry.network().cloned() else {
+        return api_error(
+            StatusCode::NOT_FOUND,
+            "local_membership_control",
+            "this plane is in local mode and has no hosted membership-control endpoint",
+        );
+    };
+    let request = match parse_membership_control_request(&headers, &body) {
+        Ok(request) => request,
+        Err(message) => {
+            return api_error(
+                StatusCode::BAD_REQUEST,
+                "membership_control_request",
+                message,
+            );
+        }
+    };
+    let control = match network.verify_membership_control(&request.control).await {
+        Ok(control) => control,
+        Err(refusal) => {
+            tracing::warn!(
+                reason = refusal.code(),
+                "refused membership control assertion"
+            );
+            return api_error(StatusCode::UNAUTHORIZED, refusal.code(), refusal.message());
+        }
+    };
+    let (_company, org, allow_initial_binding) =
+        match resolve_company_coordinates(&state, control.company_id, control.cell_id).await {
+            Ok(resolved) => resolved,
+            Err(error) => {
+                tracing::warn!(
+                    company_id = %control.company_id,
+                    cell_id = %control.cell_id,
+                    %error,
+                    "refused membership control company binding"
+                );
+                return api_error(
+                    StatusCode::UNAUTHORIZED,
+                    "membership_control_company_mismatch",
+                    "membership control does not identify a company on this plane",
+                );
+            }
+        };
+    let reconciliation_guard =
+        state
+            .sessions
+            .reconciliation_guard(&control.issuer, &control.subject, control.company_id);
+    let _reconciliation = reconciliation_guard.lock().await;
+    let receipt = match org
+        .apply_external_membership_control(
+            restless_orgintel::ExternalMembershipControlContext {
+                issuer: &control.issuer,
+                subject: &control.subject,
+                assertion_id: control.assertion_id,
+                issued_at: control.issued_at,
+                expires_at: control.expires_at,
+                key_id: &control.key_id,
+                assertion_version: control.assertion_version,
+                owner_id: control.owner_id,
+                plane_id: control.plane_id,
+                plane_hostname: &control.plane_hostname,
+                company_id: control.company_id,
+                cell_id: control.cell_id,
+                membership_id: &control.membership_id,
+                membership_role: &control.membership_role,
+                membership_status: control.membership_status,
+                membership_version: control.membership_version,
+            },
+            allow_initial_binding,
+        )
+        .await
+    {
+        Ok(receipt) => receipt,
+        Err(
+            error @ (restless_orgintel::OrgIntelError::CompanyAccessMismatch(_)
+            | restless_orgintel::OrgIntelError::PrincipalBindingConflict(_)),
+        ) => {
+            tracing::warn!(%error, "membership control conflicts with durable state");
+            return api_error(
+                StatusCode::CONFLICT,
+                "membership_control_conflict",
+                "membership control conflicts with durable membership state",
+            );
+        }
+        Err(error) => {
+            tracing::error!(%error, "failed to persist membership control");
+            return api_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "membership_control_unavailable",
+                "membership control could not be persisted",
+            );
+        }
+    };
+
+    // Database commit is the revocation point. The in-memory eviction only
+    // shortens the next-request path; every request independently rechecks the
+    // durable active membership tuple.
+    let revoked_sessions =
+        revoke_sessions_for_membership_receipt(&state.sessions, &control, &receipt);
+    tracing::info!(
+        jti = %control.assertion_id,
+        company_id = %control.company_id,
+        membership_id = %control.membership_id,
+        membership_version = control.membership_version,
+        revoked_sessions,
+        "applied hosted membership control"
+    );
+    Json(receipt).into_response()
+}
+
+fn revoke_sessions_for_membership_receipt(
+    sessions: &SessionStore,
+    control: &crate::entry::VerifiedMembershipControl,
+    receipt: &restless_orgintel::ExternalMembershipControlReceipt,
+) -> usize {
+    let revoke_through = if receipt.observed_status.is_terminal() {
+        receipt.observed_version
+    } else {
+        // A stale terminal command may be superseded by a newer active
+        // handoff. Preserve leases at the observed active version while
+        // cancelling every older lease made stale by that durable update.
+        let Some(version) = receipt.observed_version.checked_sub(1) else {
+            return 0;
+        };
+        version
+    };
+    sessions.revoke_membership_through(
+        &control.issuer,
+        control.company_id,
+        &control.membership_id,
+        revoke_through,
+    )
+}
+
+fn parse_membership_control_request(
+    headers: &HeaderMap,
+    body: &[u8],
+) -> std::result::Result<MembershipControlRequest, &'static str> {
+    if body.is_empty() || body.len() > 32 * 1024 {
+        return Err("membership-control body must contain between 1 and 32768 bytes");
+    }
+    let content_type = headers
+        .get(CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or_default()
+        .split(';')
+        .next()
+        .unwrap_or_default()
+        .trim();
+    if content_type != "application/json" {
+        return Err("membership-control body must use application/json");
+    }
+    let request: MembershipControlRequest =
+        serde_json::from_slice(body).map_err(|_| "membership-control JSON is invalid")?;
+    if request.control.is_empty() || request.control.len() > 32 * 1024 {
+        return Err("membership-control assertion must be non-empty and at most 32768 bytes");
+    }
+    Ok(request)
 }
 
 /// The door. Consumes one single-use assertion and exchanges it for a session.
@@ -1496,6 +1689,11 @@ async fn consume_entry_assertion(
             );
         }
     };
+    let reconciliation_guard =
+        state
+            .sessions
+            .reconciliation_guard(&access.issuer, &access.subject, access.company_id);
+    let _reconciliation = reconciliation_guard.lock().await;
     let binding = match org
         .consume_human_access_context(
             restless_orgintel::HumanAccessContext {
@@ -1544,6 +1742,7 @@ async fn consume_entry_assertion(
     };
     let identity = VerifiedIdentity {
         user: access.subject,
+        issuer: Some(access.issuer),
         owner: access.owner_id.to_string(),
         scope: CompanyScope::Company {
             company: company.clone(),
@@ -1566,7 +1765,41 @@ async fn consume_entry_assertion(
         actor = identity.actor.as_deref().unwrap_or("-"),
         "admitted a verified entry assertion"
     );
-    let token = state.sessions.establish(identity, network.session_ttl());
+    let reconciled = match reconcile_active_entry_session(
+        &state.sessions,
+        &org,
+        &identity,
+        network.session_ttl(),
+    )
+    .await
+    {
+        Ok(Some(reconciled)) => reconciled,
+        Ok(None) => {
+            return api_error(
+                StatusCode::UNAUTHORIZED,
+                "stale_membership",
+                "a newer company membership state superseded this entry assertion",
+            );
+        }
+        Err(error) => {
+            tracing::error!(%error, "could not reconcile the committed entry membership");
+            return api_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "entry_unavailable",
+                "company identity could not be reconciled",
+            );
+        }
+    };
+    let revoked_stale_sessions = reconciled.revoked_stale_sessions;
+    if revoked_stale_sessions > 0 {
+        tracing::info!(
+            membership_id = identity.membership_id.as_deref().unwrap_or("-"),
+            membership_version = identity.membership_version.unwrap_or_default(),
+            revoked_stale_sessions,
+            "revoked sessions superseded by an active membership handoff"
+        );
+    }
+    let token = reconciled.token;
 
     let cookie = format!(
         "{SESSION_COOKIE}={token}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age={}",
@@ -1585,6 +1818,46 @@ async fn consume_entry_assertion(
         response.headers_mut().insert(SET_COOKIE, value);
     }
     response
+}
+
+struct ReconciledEntrySession {
+    token: String,
+    revoked_stale_sessions: usize,
+}
+
+/// Re-read the committed binding while the caller holds this principal's
+/// reconciliation guard, then make the in-memory session state reflect only
+/// that durable active tuple.
+async fn reconcile_active_entry_session(
+    sessions: &SessionStore,
+    org: &restless_orgintel::OrgIntel,
+    identity: &VerifiedIdentity,
+    ttl: Duration,
+) -> Result<Option<ReconciledEntrySession>> {
+    let (Some(actor_id), Some(membership_id), Some(membership_version)) = (
+        identity.actor.as_deref(),
+        identity.membership_id.as_deref(),
+        identity.membership_version,
+    ) else {
+        return Ok(None);
+    };
+    if !org
+        .human_session_membership_is_current(
+            actor_id,
+            membership_id,
+            membership_version,
+            &identity.role,
+        )
+        .await?
+    {
+        return Ok(None);
+    }
+    let revoked_stale_sessions = sessions.revoke_principal_except_current(identity);
+    let token = sessions.establish(identity.clone(), ttl);
+    Ok(Some(ReconciledEntrySession {
+        token,
+        revoked_stale_sessions,
+    }))
 }
 
 fn parse_entry_request(
@@ -1632,6 +1905,17 @@ async fn resolve_entry_company(
     state: &OwnerState,
     access: &VerifiedAccessContext,
 ) -> Result<(String, restless_orgintel::OrgIntel, bool)> {
+    resolve_company_coordinates(state, access.company_id, access.cell_id).await
+}
+
+/// Resolve immutable signed coordinates to one configured company. A slug is
+/// never accepted from this internal boundary; the only unbound bootstrap case
+/// is one unambiguous configured company.
+async fn resolve_company_coordinates(
+    state: &OwnerState,
+    company_id: Uuid,
+    cell_id: Uuid,
+) -> Result<(String, restless_orgintel::OrgIntel, bool)> {
     let companies = crate::configured_companies(&state.daemon.root)?;
     if companies.is_empty() {
         anyhow::bail!("the account plane has no configured company");
@@ -1642,13 +1926,10 @@ async fn resolve_entry_company(
     for company in companies {
         let org = state.daemon.orgintel.get(&company).await?;
         match org.company_access_identity().await? {
-            Some(identity)
-                if identity.company_id == access.company_id
-                    && identity.cell_id == access.cell_id =>
-            {
+            Some(identity) if identity.company_id == company_id && identity.cell_id == cell_id => {
                 exact.push((company, org));
             }
-            Some(identity) if identity.company_id == access.company_id => {
+            Some(identity) if identity.company_id == company_id => {
                 anyhow::bail!(
                     "company UUID matched but cell UUID differed for configured company {company}"
                 );
@@ -3515,7 +3796,21 @@ async fn agent_activity_live(
     State(state): State<OwnerState>,
     AxumPath((company, actor)): AxumPath<(String, String)>,
     Query(query): Query<AgentActivityQuery>,
+    session_lease: Option<Extension<SessionLease>>,
 ) -> Response<Body> {
+    if state.entry.network().is_some()
+        && session_lease
+            .as_ref()
+            .is_none_or(|Extension(lease)| lease.is_ended())
+    {
+        // The network middleware installs the exact lease it resolved. Never
+        // turn a revoke race into the uncancellable local-mode path.
+        return api_error(
+            StatusCode::UNAUTHORIZED,
+            "no_session",
+            "this plane requires a live verified entry session",
+        );
+    }
     if query.message_id.is_some() && query.work_id.is_some() {
         return api_error(
             StatusCode::BAD_REQUEST,
@@ -3556,10 +3851,37 @@ async fn agent_activity_live(
             .daemon
             .activities
             .subscribe(&company, &actor, query.message_id, query.work_id);
-    let stream =
-        futures_util::stream::unfold((receiver, true), |(mut receiver, first)| async move {
-            if !first && receiver.changed().await.is_err() {
+    let stream = agent_activity_stream(receiver, session_lease.map(|Extension(lease)| lease));
+    Sse::new(stream)
+        .keep_alive(
+            KeepAlive::new()
+                .interval(Duration::from_secs(15))
+                .text("still-connected"),
+        )
+        .into_response()
+}
+
+fn agent_activity_stream(
+    receiver: tokio::sync::watch::Receiver<crate::activity::AgentActivityState>,
+    session_lease: Option<SessionLease>,
+) -> impl futures_util::Stream<Item = std::result::Result<Event, Infallible>> {
+    futures_util::stream::unfold(
+        (receiver, true, session_lease),
+        |(mut receiver, first, session_lease)| async move {
+            if session_lease.as_ref().is_some_and(SessionLease::is_ended) {
                 return None;
+            }
+            if !first {
+                let changed = match session_lease.as_ref() {
+                    Some(session_lease) => tokio::select! {
+                        result = receiver.changed() => result.is_ok(),
+                        _ = session_lease.ended() => false,
+                    },
+                    None => receiver.changed().await.is_ok(),
+                };
+                if !changed {
+                    return None;
+                }
             }
             let state = receiver.borrow().clone();
             let data = serde_json::to_string(&state).unwrap_or_else(|_| {
@@ -3569,15 +3891,9 @@ async fn agent_activity_live(
                 .event("activity")
                 .id(state.sequence.to_string())
                 .data(data);
-            Some((Ok::<_, Infallible>(event), (receiver, false)))
-        });
-    Sse::new(stream)
-        .keep_alive(
-            KeepAlive::new()
-                .interval(Duration::from_secs(15))
-                .text("still-connected"),
-        )
-        .into_response()
+            Some((Ok::<_, Infallible>(event), (receiver, false, session_lease)))
+        },
+    )
 }
 
 async fn review_outcome(
@@ -5078,8 +5394,23 @@ async fn desktop_websocket(
     State(state): State<OwnerState>,
     AxumPath(company): AxumPath<String>,
     headers: HeaderMap,
+    session_lease: Option<Extension<SessionLease>>,
     upgrade: WebSocketUpgrade,
 ) -> impl IntoResponse {
+    if state.entry.network().is_some()
+        && session_lease
+            .as_ref()
+            .is_none_or(|Extension(lease)| lease.is_ended())
+    {
+        // Boundary middleware installs the lease atomically with resolving
+        // the session. Refuse a network upgrade if that invariant is ever
+        // broken rather than creating an uncancellable desktop channel.
+        return api_error(
+            StatusCode::UNAUTHORIZED,
+            "no_session",
+            "this plane requires a live verified entry session",
+        );
+    }
     if valid_attach(&state, &company, &headers).is_none() {
         return api_error(
             StatusCode::UNAUTHORIZED,
@@ -5087,23 +5418,41 @@ async fn desktop_websocket(
             "desktop attachment is absent or expired",
         );
     }
+    let session_lease = session_lease.map(|Extension(lease)| lease);
     upgrade
         .on_upgrade(move |socket| async move {
-            if let Err(error) = proxy_websocket(socket, &company).await {
+            if let Err(error) = proxy_websocket(socket, &company, session_lease).await {
                 tracing::warn!(company, "desktop websocket ended: {error:#}");
             }
         })
         .into_response()
 }
 
-async fn proxy_websocket(browser: WebSocket, company: &str) -> Result<()> {
-    let stream = runtime::desktop_stream(company).await?;
+async fn proxy_websocket(
+    browser: WebSocket,
+    company: &str,
+    session_lease: Option<SessionLease>,
+) -> Result<()> {
+    let stream = match session_lease.as_ref() {
+        Some(session_lease) => tokio::select! {
+            result = runtime::desktop_stream(company) => result?,
+            _ = session_lease.ended() => return Ok(()),
+        },
+        None => runtime::desktop_stream(company).await?,
+    };
     let request = "ws://127.0.0.1:6080/websockify";
-    let (runtime, _) = client_async(request, stream).await?;
+    let (runtime, _) = match session_lease.as_ref() {
+        Some(session_lease) => tokio::select! {
+            result = client_async(request, stream) => result?,
+            _ = session_lease.ended() => return Ok(()),
+        },
+        None => client_async(request, stream).await?,
+    };
     let (mut browser_tx, mut browser_rx) = browser.split();
     let (mut runtime_tx, mut runtime_rx) = runtime.split();
     loop {
         tokio::select! {
+            _ = optional_session_ended(session_lease.as_ref()) => break,
             incoming = browser_rx.next() => match incoming {
                 Some(Ok(message)) => {
                     let translated = match message {
@@ -5134,6 +5483,13 @@ async fn proxy_websocket(browser: WebSocket, company: &str) -> Result<()> {
         }
     }
     Ok(())
+}
+
+async fn optional_session_ended(session_lease: Option<&SessionLease>) {
+    match session_lease {
+        Some(session_lease) => session_lease.ended().await,
+        None => std::future::pending::<()>().await,
+    }
 }
 
 async fn browser_status(AxumPath(company): AxumPath<String>) -> impl IntoResponse {
@@ -5413,6 +5769,7 @@ mod tests {
         fn app(&self, actor: &str, role: &str, company: &str) -> Router {
             let principal = RequestPrincipal::from_verified(&VerifiedIdentity {
                 user: format!("user-{actor}"),
+                issuer: None,
                 owner: "fixture-owner".into(),
                 scope: CompanyScope::Company {
                     company: company.to_string(),
@@ -5977,6 +6334,7 @@ mod tests {
     fn identity(scope: crate::entry::CompanyScope) -> crate::entry::VerifiedIdentity {
         crate::entry::VerifiedIdentity {
             user: "user-1".into(),
+            issuer: Some("https://cloud.restless.test".into()),
             owner: "owner-1".into(),
             scope,
             role: "member".into(),
@@ -5985,6 +6343,29 @@ mod tests {
             cell_id: None,
             membership_id: None,
             membership_version: None,
+        }
+    }
+
+    fn external_control_context(
+        control: &crate::entry::VerifiedMembershipControl,
+    ) -> restless_orgintel::ExternalMembershipControlContext<'_> {
+        restless_orgintel::ExternalMembershipControlContext {
+            issuer: &control.issuer,
+            subject: &control.subject,
+            assertion_id: control.assertion_id,
+            issued_at: control.issued_at,
+            expires_at: control.expires_at,
+            key_id: &control.key_id,
+            assertion_version: control.assertion_version,
+            owner_id: control.owner_id,
+            plane_id: control.plane_id,
+            plane_hostname: &control.plane_hostname,
+            company_id: control.company_id,
+            cell_id: control.cell_id,
+            membership_id: &control.membership_id,
+            membership_role: &control.membership_role,
+            membership_status: control.membership_status,
+            membership_version: control.membership_version,
         }
     }
 
@@ -6038,6 +6419,57 @@ mod tests {
     }
 
     #[test]
+    fn fleet_control_reaches_only_the_exact_plane_host_without_browser_context() {
+        assert!(network_boundary_violation(
+            &Method::POST,
+            &network_headers(PLANE_HOST),
+            MEMBERSHIP_CONTROL_PATH,
+            PLANE_HOST,
+            None,
+        )
+        .is_none());
+
+        let mut cross_site = network_headers(PLANE_HOST);
+        cross_site.insert("sec-fetch-site", HeaderValue::from_static("cross-site"));
+        cross_site.insert(
+            ORIGIN,
+            HeaderValue::from_static("https://cloud.restless.test"),
+        );
+        assert!(network_boundary_violation(
+            &Method::POST,
+            &cross_site,
+            MEMBERSHIP_CONTROL_PATH,
+            PLANE_HOST,
+            None,
+        )
+        .is_none());
+
+        for malformed in [
+            "aris.restless.test.evil",
+            "aris.restless.test:evil",
+            "attacker@aris.restless.test",
+        ] {
+            let refusal = network_boundary_violation(
+                &Method::POST,
+                &network_headers(malformed),
+                MEMBERSHIP_CONTROL_PATH,
+                PLANE_HOST,
+                None,
+            )
+            .unwrap_or_else(|| panic!("non-exact Host {malformed:?} must be refused"));
+            assert_eq!(refusal.code, "network_owner_boundary");
+        }
+        assert!(network_host_matches(
+            &network_headers("aris.restless.test:443"),
+            PLANE_HOST
+        ));
+
+        let mut duplicate = network_headers(PLANE_HOST);
+        duplicate.append(HOST, HeaderValue::from_static("aris.restless.test"));
+        assert!(!network_host_matches(&duplicate, PLANE_HOST));
+    }
+
+    #[test]
     fn entry_accepts_form_posts_and_json_without_query_credentials() {
         let mut form_headers = HeaderMap::new();
         form_headers.insert(
@@ -6063,9 +6495,507 @@ mod tests {
     }
 
     #[test]
+    fn membership_control_request_is_closed_json_and_bounded() {
+        let mut json_headers = HeaderMap::new();
+        json_headers.insert(
+            CONTENT_TYPE,
+            HeaderValue::from_static("application/json; charset=utf-8"),
+        );
+        let request = parse_membership_control_request(
+            &json_headers,
+            br#"{"control":"header.payload.signature"}"#,
+        )
+        .expect("canonical control request");
+        assert_eq!(request.control, "header.payload.signature");
+
+        assert!(parse_membership_control_request(
+            &json_headers,
+            br#"{"control":"x","unexpected":true}"#,
+        )
+        .is_err());
+        assert!(parse_membership_control_request(&json_headers, br#"{"control":""}"#).is_err());
+        assert!(
+            parse_membership_control_request(&HeaderMap::new(), br#"{"control":"x"}"#).is_err()
+        );
+        let oversized = vec![b'x'; 32 * 1024 + 1];
+        assert!(parse_membership_control_request(&json_headers, &oversized).is_err());
+    }
+
+    #[test]
+    fn superseded_terminal_control_does_not_evict_a_newer_active_session() {
+        let sessions = SessionStore::default();
+        let company_id = Uuid::new_v4();
+        let cell_id = Uuid::new_v4();
+        let owner_id = Uuid::new_v4();
+        let plane_id = Uuid::new_v4();
+        let session = |version: i64| VerifiedIdentity {
+            user: "user-1".into(),
+            issuer: Some("https://cloud.restless.test".into()),
+            owner: owner_id.to_string(),
+            scope: CompanyScope::Company {
+                company: "aris".into(),
+            },
+            role: "member".into(),
+            actor: Some("human-1".into()),
+            company_id: Some(company_id),
+            cell_id: Some(cell_id),
+            membership_id: Some("membership-1".into()),
+            membership_version: Some(version),
+        };
+        let stale_v4 = sessions.establish(session(4), Duration::from_secs(60));
+        let stale_v5 = sessions.establish(session(5), Duration::from_secs(60));
+        let current_v6 = sessions.establish(session(6), Duration::from_secs(60));
+        let now = Utc::now();
+        let control = crate::entry::VerifiedMembershipControl {
+            issuer: "https://cloud.restless.test".into(),
+            subject: "user-1".into(),
+            assertion_id: Uuid::new_v4(),
+            issued_at: now,
+            expires_at: now + ChronoDuration::seconds(45),
+            key_id: "key-1".into(),
+            assertion_version: 1,
+            owner_id,
+            plane_id,
+            plane_hostname: PLANE_HOST.into(),
+            company_id,
+            cell_id,
+            membership_id: "membership-1".into(),
+            membership_role: "member".into(),
+            membership_status: restless_orgintel::ExternalMembershipStatus::Suspended,
+            membership_version: 5,
+        };
+        let receipt = restless_orgintel::ExternalMembershipControlReceipt {
+            contract_version: 1,
+            jti: control.assertion_id,
+            owner_id,
+            plane_id,
+            plane_hostname: PLANE_HOST.into(),
+            company_id,
+            cell_id,
+            principal_id: "user-1".into(),
+            membership_id: "membership-1".into(),
+            membership_role: "member".into(),
+            requested_status: restless_orgintel::ExternalMembershipStatus::Suspended,
+            requested_version: 5,
+            outcome: restless_orgintel::MembershipControlOutcome::Superseded,
+            observed_status: restless_orgintel::ExternalMembershipStatus::Active,
+            observed_version: 6,
+            observed_at: now,
+        };
+
+        assert_eq!(
+            revoke_sessions_for_membership_receipt(&sessions, &control, &receipt),
+            2
+        );
+        assert!(sessions.resolve_lease(&stale_v4).is_none());
+        assert!(sessions.resolve_lease(&stale_v5).is_none());
+        assert!(sessions.resolve_lease(&current_v6).is_some());
+    }
+
+    #[test]
+    fn active_handoff_evicts_stale_security_tuples_but_keeps_exact_current_sessions() {
+        let sessions = SessionStore::default();
+        let company_id = Uuid::new_v4();
+        let cell_id = Uuid::new_v4();
+        let active = |membership: &str, role: &str, version: i64| VerifiedIdentity {
+            user: "user-1".into(),
+            issuer: Some("https://cloud.restless.test/".into()),
+            owner: "owner-1".into(),
+            scope: CompanyScope::Company {
+                company: "aris".into(),
+            },
+            role: role.into(),
+            actor: Some("human-1".into()),
+            company_id: Some(company_id),
+            cell_id: Some(cell_id),
+            membership_id: Some(membership.into()),
+            membership_version: Some(version),
+        };
+        let stale_version =
+            sessions.establish(active("membership-1", "member", 5), Duration::from_secs(60));
+        let replaced_membership = sessions.establish(
+            active("membership-old", "member", 6),
+            Duration::from_secs(60),
+        );
+        let stale_role =
+            sessions.establish(active("membership-1", "admin", 6), Duration::from_secs(60));
+        let exact_current =
+            sessions.establish(active("membership-1", "member", 6), Duration::from_secs(60));
+        let other_principal = sessions.establish(
+            VerifiedIdentity {
+                user: "user-2".into(),
+                ..active("membership-1", "member", 5)
+            },
+            Duration::from_secs(60),
+        );
+        let current = VerifiedIdentity {
+            issuer: Some("https://cloud.restless.test".into()),
+            ..active("membership-1", "member", 6)
+        };
+
+        assert_eq!(sessions.revoke_principal_except_current(&current), 3);
+        assert!(sessions.resolve_lease(&stale_version).is_none());
+        assert!(sessions.resolve_lease(&replaced_membership).is_none());
+        assert!(sessions.resolve_lease(&stale_role).is_none());
+        assert!(sessions.resolve_lease(&exact_current).is_some());
+        assert!(sessions.resolve_lease(&other_principal).is_some());
+    }
+
+    #[tokio::test]
+    async fn reconciliation_guard_orders_handoff_and_terminal_session_effects_both_ways() {
+        let Ok(database_url) = std::env::var("RESTLESS_TEST_DATABASE_URL") else {
+            eprintln!("RESTLESS_TEST_DATABASE_URL unset; skipping session reconciliation race");
+            return;
+        };
+        let company = format!("entry_control_race_{}", Uuid::new_v4().simple());
+        let org = restless_orgintel::OrgIntel::ensure(&database_url, &company)
+            .await
+            .expect("ensure session reconciliation company");
+        let sessions = Arc::new(SessionStore::default());
+        let issuer = "https://cloud.restless.test";
+        let subject = "user-1";
+        let owner_id = Uuid::new_v4();
+        let plane_id = Uuid::new_v4();
+        let company_id = Uuid::new_v4();
+        let cell_id = Uuid::new_v4();
+        let now = Utc::now();
+
+        let initial = org
+            .consume_human_access_context(
+                restless_orgintel::HumanAccessContext {
+                    issuer,
+                    subject,
+                    company_id,
+                    cell_id,
+                    membership_id: "membership-1",
+                    membership_role: "member",
+                    membership_version: 1,
+                    assertion_id: Uuid::new_v4(),
+                    issued_at: now,
+                    expires_at: now + ChronoDuration::seconds(60),
+                },
+                true,
+            )
+            .await
+            .expect("initial active handoff");
+        let initial_session = sessions.establish(
+            VerifiedIdentity {
+                user: subject.into(),
+                issuer: Some(issuer.into()),
+                owner: owner_id.to_string(),
+                scope: CompanyScope::Company {
+                    company: company.clone(),
+                },
+                role: initial.membership_role.clone(),
+                actor: Some(initial.actor_id.clone()),
+                company_id: Some(company_id),
+                cell_id: Some(cell_id),
+                membership_id: Some(initial.membership_id.clone()),
+                membership_version: Some(initial.membership_version),
+            },
+            Duration::from_secs(60),
+        );
+
+        // Terminal first: hold the real per-principal guard, overlap an old
+        // handoff behind it, then prove no stale cookie can be established.
+        let terminal_v2 = crate::entry::VerifiedMembershipControl {
+            issuer: issuer.into(),
+            subject: subject.into(),
+            assertion_id: Uuid::new_v4(),
+            issued_at: now + ChronoDuration::seconds(1),
+            expires_at: now + ChronoDuration::seconds(46),
+            key_id: "key-1".into(),
+            assertion_version: 1,
+            owner_id,
+            plane_id,
+            plane_hostname: PLANE_HOST.into(),
+            company_id,
+            cell_id,
+            membership_id: "membership-1".into(),
+            membership_role: "member".into(),
+            membership_status: restless_orgintel::ExternalMembershipStatus::Suspended,
+            membership_version: 2,
+        };
+        let terminal_guard = sessions.reconciliation_guard(issuer, subject, company_id);
+        let terminal_org = org.clone();
+        let terminal_sessions = sessions.clone();
+        let (terminal_acquired_tx, terminal_acquired_rx) = tokio::sync::oneshot::channel();
+        let (release_terminal_tx, release_terminal_rx) = tokio::sync::oneshot::channel();
+        let terminal_task = tokio::spawn(async move {
+            let _held = terminal_guard.lock().await;
+            terminal_acquired_tx.send(()).unwrap();
+            release_terminal_rx.await.unwrap();
+            let receipt = terminal_org
+                .apply_external_membership_control(external_control_context(&terminal_v2), false)
+                .await
+                .expect("terminal control applies");
+            revoke_sessions_for_membership_receipt(&terminal_sessions, &terminal_v2, &receipt);
+            receipt
+        });
+        terminal_acquired_rx.await.unwrap();
+
+        let stale_guard = sessions.reconciliation_guard(issuer, subject, company_id);
+        let stale_org = org.clone();
+        let stale_sessions = sessions.clone();
+        let stale_company = company.clone();
+        let stale_task = tokio::spawn(async move {
+            let _held = stale_guard.lock().await;
+            let binding = match stale_org
+                .consume_human_access_context(
+                    restless_orgintel::HumanAccessContext {
+                        issuer,
+                        subject,
+                        company_id,
+                        cell_id,
+                        membership_id: "membership-1",
+                        membership_role: "member",
+                        membership_version: 1,
+                        assertion_id: Uuid::new_v4(),
+                        issued_at: now + ChronoDuration::seconds(1),
+                        expires_at: now + ChronoDuration::seconds(60),
+                    },
+                    false,
+                )
+                .await
+            {
+                Ok(binding) => binding,
+                Err(restless_orgintel::OrgIntelError::CompanyAccessMismatch(_)) => return None,
+                Err(error) => panic!("unexpected stale-handoff error: {error}"),
+            };
+            let identity = VerifiedIdentity {
+                user: subject.into(),
+                issuer: Some(issuer.into()),
+                owner: owner_id.to_string(),
+                scope: CompanyScope::Company {
+                    company: stale_company,
+                },
+                role: binding.membership_role,
+                actor: Some(binding.actor_id),
+                company_id: Some(company_id),
+                cell_id: Some(cell_id),
+                membership_id: Some(binding.membership_id),
+                membership_version: Some(binding.membership_version),
+            };
+            reconcile_active_entry_session(
+                &stale_sessions,
+                &stale_org,
+                &identity,
+                Duration::from_secs(60),
+            )
+            .await
+            .expect("reconcile stale handoff")
+            .map(|session| session.token)
+        });
+        tokio::task::yield_now().await;
+        release_terminal_tx.send(()).unwrap();
+        let terminal_receipt = terminal_task.await.unwrap();
+        let stale_token = stale_task.await.unwrap();
+        assert_eq!(
+            terminal_receipt.observed_status,
+            restless_orgintel::ExternalMembershipStatus::Suspended
+        );
+        assert!(stale_token.is_none());
+        assert!(sessions.resolve_lease(&initial_session).is_none());
+
+        // Active first: a newer active handoff establishes its session while
+        // the older terminal delivery waits. The superseded control must keep
+        // that exact-current session alive.
+        let active_guard = sessions.reconciliation_guard(issuer, subject, company_id);
+        let active_org = org.clone();
+        let active_sessions = sessions.clone();
+        let active_company = company.clone();
+        let (active_acquired_tx, active_acquired_rx) = tokio::sync::oneshot::channel();
+        let (release_active_tx, release_active_rx) = tokio::sync::oneshot::channel();
+        let active_task = tokio::spawn(async move {
+            let _held = active_guard.lock().await;
+            active_acquired_tx.send(()).unwrap();
+            release_active_rx.await.unwrap();
+            let binding = active_org
+                .consume_human_access_context(
+                    restless_orgintel::HumanAccessContext {
+                        issuer,
+                        subject,
+                        company_id,
+                        cell_id,
+                        membership_id: "membership-1",
+                        membership_role: "admin",
+                        membership_version: 3,
+                        assertion_id: Uuid::new_v4(),
+                        issued_at: now + ChronoDuration::seconds(2),
+                        expires_at: now + ChronoDuration::seconds(60),
+                    },
+                    false,
+                )
+                .await
+                .expect("newer active handoff applies");
+            let identity = VerifiedIdentity {
+                user: subject.into(),
+                issuer: Some(issuer.into()),
+                owner: owner_id.to_string(),
+                scope: CompanyScope::Company {
+                    company: active_company,
+                },
+                role: binding.membership_role,
+                actor: Some(binding.actor_id),
+                company_id: Some(company_id),
+                cell_id: Some(cell_id),
+                membership_id: Some(binding.membership_id),
+                membership_version: Some(binding.membership_version),
+            };
+            reconcile_active_entry_session(
+                &active_sessions,
+                &active_org,
+                &identity,
+                Duration::from_secs(60),
+            )
+            .await
+            .expect("reconcile current handoff")
+            .expect("current handoff establishes a session")
+            .token
+        });
+        active_acquired_rx.await.unwrap();
+
+        let late_terminal = crate::entry::VerifiedMembershipControl {
+            issuer: issuer.into(),
+            subject: subject.into(),
+            assertion_id: Uuid::new_v4(),
+            issued_at: now + ChronoDuration::seconds(2),
+            expires_at: now + ChronoDuration::seconds(47),
+            key_id: "key-2".into(),
+            assertion_version: 1,
+            owner_id,
+            plane_id,
+            plane_hostname: PLANE_HOST.into(),
+            company_id,
+            cell_id,
+            membership_id: "membership-1".into(),
+            membership_role: "member".into(),
+            membership_status: restless_orgintel::ExternalMembershipStatus::Suspended,
+            membership_version: 2,
+        };
+        let late_guard = sessions.reconciliation_guard(issuer, subject, company_id);
+        let late_org = org.clone();
+        let late_sessions = sessions.clone();
+        let late_terminal_task = tokio::spawn(async move {
+            let _held = late_guard.lock().await;
+            let receipt = late_org
+                .apply_external_membership_control(external_control_context(&late_terminal), false)
+                .await
+                .expect("late terminal delivery gets a receipt");
+            revoke_sessions_for_membership_receipt(&late_sessions, &late_terminal, &receipt);
+            receipt
+        });
+        tokio::task::yield_now().await;
+        release_active_tx.send(()).unwrap();
+        let active_token = active_task.await.unwrap();
+        let late_receipt = late_terminal_task.await.unwrap();
+        assert_eq!(
+            late_receipt.outcome,
+            restless_orgintel::MembershipControlOutcome::Superseded
+        );
+        assert_eq!(
+            late_receipt.observed_status,
+            restless_orgintel::ExternalMembershipStatus::Active
+        );
+        assert_eq!(late_receipt.observed_version, 3);
+        assert!(sessions.resolve_lease(&active_token).is_some());
+    }
+
+    #[tokio::test]
+    async fn resolved_membership_lease_closes_on_a_concurrent_revoke() {
+        let activities = crate::activity::AgentActivityStreams::default();
+        let receiver = activities.subscribe("aris", "exec", Some(1), None);
+        let sessions = SessionStore::default();
+        let token = sessions.establish(
+            identity(CompanyScope::Company {
+                company: "aris".into(),
+            }),
+            Duration::from_secs(60),
+        );
+        let lease = sessions.resolve_lease(&token).expect("resolved lease");
+        let stream = agent_activity_stream(receiver, Some(lease));
+        futures_util::pin_mut!(stream);
+        assert!(
+            stream.next().await.is_some(),
+            "initial projection is delivered"
+        );
+
+        // Model the control commit landing after boundary middleware cloned
+        // the lease but before (or while) the long-lived handler runs.
+        sessions.revoke(&token);
+        let ended = tokio::time::timeout(Duration::from_secs(1), stream.next())
+            .await
+            .expect("cancelled stream ends promptly");
+        assert!(ended.is_none());
+    }
+
+    #[tokio::test]
+    async fn membership_lease_expiry_closes_an_open_activity_stream() {
+        let activities = crate::activity::AgentActivityStreams::default();
+        let receiver = activities.subscribe("aris", "exec", Some(1), None);
+        let sessions = SessionStore::default();
+        let token = sessions.establish(
+            identity(CompanyScope::Company {
+                company: "aris".into(),
+            }),
+            Duration::from_millis(100),
+        );
+        let lease = sessions.resolve_lease(&token).expect("resolved lease");
+        let stream = agent_activity_stream(receiver, Some(lease));
+        futures_util::pin_mut!(stream);
+        assert!(
+            stream.next().await.is_some(),
+            "initial projection is delivered"
+        );
+
+        let ended = tokio::time::timeout(Duration::from_secs(1), stream.next())
+            .await
+            .expect("expired stream ends promptly");
+        assert!(ended.is_none());
+    }
+
+    #[tokio::test]
+    async fn desktop_session_guard_observes_revocation_and_expiry() {
+        let sessions = SessionStore::default();
+        let revoked_token = sessions.establish(
+            identity(CompanyScope::Company {
+                company: "aris".into(),
+            }),
+            Duration::from_secs(60),
+        );
+        let revoked_lease = sessions
+            .resolve_lease(&revoked_token)
+            .expect("resolved desktop lease");
+        sessions.revoke(&revoked_token);
+        tokio::time::timeout(
+            Duration::from_secs(1),
+            optional_session_ended(Some(&revoked_lease)),
+        )
+        .await
+        .expect("desktop guard observes revocation");
+
+        let expiring_token = sessions.establish(
+            identity(CompanyScope::Company {
+                company: "aris".into(),
+            }),
+            Duration::from_millis(100),
+        );
+        let expiring_lease = sessions
+            .resolve_lease(&expiring_token)
+            .expect("resolved expiring desktop lease");
+        tokio::time::timeout(
+            Duration::from_secs(1),
+            optional_session_ended(Some(&expiring_lease)),
+        )
+        .await
+        .expect("desktop guard observes expiry");
+    }
+
+    #[test]
     fn non_owner_members_may_collaborate_but_not_call_owner_mutations() {
         let identity = crate::entry::VerifiedIdentity {
             user: "user-1".into(),
+            issuer: Some("https://cloud.restless.test".into()),
             owner: "owner-1".into(),
             scope: crate::entry::CompanyScope::Company {
                 company: "aris".into(),
